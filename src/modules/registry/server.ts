@@ -8,6 +8,7 @@ import {
     createEmptyLifecycleStore,
     getLifecycleRecords,
     loadLifecycleStore,
+    ModuleLifecycleClassificationInput,
     ModuleLifecycleRecord,
     ModuleLifecycleStatus,
     ModuleLifecycleStore,
@@ -230,7 +231,11 @@ export function initializeRegistry() {
                         manifestValid: true,
                         compatible: false,
                         coreVersion: compatibility.coreVersion,
-                        requiredCoreVersion: compatibility.requiredCoreVersion
+                        requiredCoreVersion: compatibility.requiredCoreVersion,
+                        requiredApiContracts: compatibility.requiredApiContracts,
+                        providedApiContracts: compatibility.providedApiContracts,
+                        coreDiagnostics: compatibility.coreDiagnostics,
+                        contractDiagnostics: compatibility.contractDiagnostics,
                     });
                     logger.warn(`Registry | Module "${entry.name}" is incompatible: ${compatibility.reason || 'unknown reason'}`);
                     continue;
@@ -256,7 +261,11 @@ export function initializeRegistry() {
                     manifestValid: true,
                     compatible: true,
                     coreVersion,
-                    requiredCoreVersion: compatibility.requiredCoreVersion
+                    requiredCoreVersion: compatibility.requiredCoreVersion,
+                    requiredApiContracts: compatibility.requiredApiContracts,
+                    providedApiContracts: compatibility.providedApiContracts,
+                    coreDiagnostics: compatibility.coreDiagnostics,
+                    contractDiagnostics: compatibility.contractDiagnostics,
                 });
                 logger.info(`Registry [PID:${process.pid}] | Discovered module: ${info.title} (${primaryId})`);
                 if (info.experimental) {
@@ -363,6 +372,7 @@ interface ManifestGateResult {
     mode: 'strict' | 'fail-open';
     errorCode?: 'module-not-found' | 'validation-failed';
     reason?: string;
+    classification?: ModuleLifecycleClassificationInput;
 }
 
 function checkManifestGate(moduleId: string): ManifestGateResult {
@@ -414,12 +424,41 @@ function checkManifestGate(moduleId: string): ManifestGateResult {
     const reasons: string[] = [];
     if (!shape.valid) reasons.push(shape.errors.join('; '));
     if (!compatibility.compatible && compatibility.reason) reasons.push(compatibility.reason);
+    const reason = reasons.join(' | ') || 'Manifest validation failed';
+    const classification: ModuleLifecycleClassificationInput = shape.valid
+        ? {
+            status: 'incompatible',
+            enabled: false,
+            reason: compatibility.reason || reason,
+            manifestValid: true,
+            compatible: false,
+            coreVersion: compatibility.coreVersion,
+            requiredCoreVersion: compatibility.requiredCoreVersion,
+            requiredApiContracts: compatibility.requiredApiContracts,
+            providedApiContracts: compatibility.providedApiContracts,
+            coreDiagnostics: compatibility.coreDiagnostics,
+            contractDiagnostics: compatibility.contractDiagnostics,
+        }
+        : {
+            status: 'errored',
+            enabled: false,
+            reason,
+            manifestValid: false,
+            validationErrors: shape.errors,
+            compatible: compatibility.compatible,
+            coreVersion: compatibility.coreVersion,
+            requiredCoreVersion: compatibility.requiredCoreVersion,
+            requiredApiContracts: compatibility.requiredApiContracts,
+            providedApiContracts: compatibility.providedApiContracts,
+            coreDiagnostics: compatibility.coreDiagnostics,
+            contractDiagnostics: compatibility.contractDiagnostics,
+        };
 
     if (isManifestFailOpenEnabled()) {
         return {
             allowed: true,
             mode: 'fail-open',
-            reason: reasons.join(' | ') || 'Manifest gate bypassed in development fail-open mode',
+            reason: reason || 'Manifest gate bypassed in development fail-open mode',
         };
     }
 
@@ -427,7 +466,8 @@ function checkManifestGate(moduleId: string): ManifestGateResult {
         allowed: false,
         mode: 'strict',
         errorCode: 'validation-failed',
-        reason: reasons.join(' | ') || 'Manifest validation failed',
+        reason,
+        classification,
     };
 }
 
@@ -464,6 +504,10 @@ export function installManagedModule(input: InstallManagedModuleInput): ManagerO
 
     const gate = checkManifestGate(id);
     if (!gate.allowed) {
+        if (gate.classification) {
+            applyLifecycleClassification(lifecycleStore, id, gate.classification);
+            saveLifecycleStore(lifecycleStore, getLifecycleStateFilePathOverride());
+        }
         return operationFailure(
             id,
             'install',
@@ -552,6 +596,10 @@ export function upgradeManagedModule(input: UpgradeManagedModuleInput): ManagerO
 
     const gate = checkManifestGate(id);
     if (!gate.allowed) {
+        if (gate.classification) {
+            applyLifecycleClassification(lifecycleStore, id, gate.classification);
+            saveLifecycleStore(lifecycleStore, getLifecycleStateFilePathOverride());
+        }
         return operationFailure(
             id,
             'upgrade',
@@ -645,6 +693,15 @@ export function validateManagedModule(moduleId: string): ManagerOperationResult 
 
     const plugin = pluginMap.get(id);
     if (!plugin) {
+        if (record.validation && (!record.validation.manifestValid || !record.validation.compatible)) {
+            return operationFailure(
+                id,
+                'validate',
+                record.reason || 'Module validation failed',
+                record.status,
+                'validation-failed'
+            );
+        }
         return operationFailure(id, 'validate', `Module ${id} not found in registry`, record.status, 'module-not-found');
     }
 
@@ -676,6 +733,10 @@ export function validateManagedModule(moduleId: string): ManagerOperationResult 
             compatible: false,
             coreVersion: compatibility.coreVersion,
             requiredCoreVersion: compatibility.requiredCoreVersion,
+            requiredApiContracts: compatibility.requiredApiContracts,
+            providedApiContracts: compatibility.providedApiContracts,
+            coreDiagnostics: compatibility.coreDiagnostics,
+            contractDiagnostics: compatibility.contractDiagnostics,
         });
         saveLifecycleStore(lifecycleStore, getLifecycleStateFilePathOverride());
         return operationFailure(id, 'validate', reason, previousStatus, 'validation-failed');
@@ -692,6 +753,10 @@ export function validateManagedModule(moduleId: string): ManagerOperationResult 
         compatible: true,
         coreVersion: compatibility.coreVersion,
         requiredCoreVersion: compatibility.requiredCoreVersion,
+        requiredApiContracts: compatibility.requiredApiContracts,
+        providedApiContracts: compatibility.providedApiContracts,
+        coreDiagnostics: compatibility.coreDiagnostics,
+        contractDiagnostics: compatibility.contractDiagnostics,
     });
     saveLifecycleStore(lifecycleStore, getLifecycleStateFilePathOverride());
 

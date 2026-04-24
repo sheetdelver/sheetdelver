@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import type { ModuleContractDiagnostic, ModuleCoreConstraintDiagnostic } from './compatibilityResolver';
 
 export type ModuleLifecycleStatus =
     | 'discovered'
@@ -26,6 +27,10 @@ export interface ModuleLifecycleRecord {
         compatible: boolean;
         coreVersion: string;
         requiredCoreVersion?: string;
+        requiredApiContracts?: Record<string, string>;
+        providedApiContracts?: Record<string, string>;
+        coreDiagnostics?: ModuleCoreConstraintDiagnostic[];
+        contractDiagnostics?: ModuleContractDiagnostic[];
     };
     health?: {
         errorCount: number;
@@ -105,6 +110,10 @@ export interface ModuleLifecycleClassificationInput {
     compatible: boolean;
     coreVersion: string;
     requiredCoreVersion?: string;
+    requiredApiContracts?: Record<string, string>;
+    providedApiContracts?: Record<string, string>;
+    coreDiagnostics?: ModuleCoreConstraintDiagnostic[];
+    contractDiagnostics?: ModuleContractDiagnostic[];
 }
 
 export function loadLifecycleStore(stateFilePath = getDefaultLifecycleStateFilePath()): ModuleLifecycleStore {
@@ -201,7 +210,11 @@ export function applyLifecycleClassification(
             validationErrors: classification.validationErrors,
             compatible: classification.compatible,
             coreVersion: classification.coreVersion,
-            requiredCoreVersion: classification.requiredCoreVersion
+            requiredCoreVersion: classification.requiredCoreVersion,
+            requiredApiContracts: classification.requiredApiContracts,
+            providedApiContracts: classification.providedApiContracts,
+            coreDiagnostics: classification.coreDiagnostics,
+            contractDiagnostics: classification.contractDiagnostics,
         },
         updatedAt: now
     };

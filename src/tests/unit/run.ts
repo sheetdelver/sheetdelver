@@ -25,6 +25,7 @@ import { run as runModuleTrustPolicy } from './module-trust-policy.test';
 import { run as runModuleArtifactVerification } from './module-artifact-verification.test';
 import { run as runModulePermissionPolicy } from './module-permission-policy.test';
 import { run as runModuleCompatibilityResolver } from './module-compatibility-resolver.test';
+import { run as runModuleCompatibilityLifecycleIntegration } from './module-compatibility-lifecycle-integration.test';
 
 async function runAllUnitTests() {
     runStatusSanitize();
@@ -54,6 +55,7 @@ async function runAllUnitTests() {
     runModuleArtifactVerification();
     runModulePermissionPolicy();
     runModuleCompatibilityResolver();
+    await runModuleCompatibilityLifecycleIntegration();
 }
 
 runAllUnitTests()
