@@ -47,7 +47,9 @@ Optional. Re-exports API initialization or specialized server-only logic (e.g., 
     "compatibility": {
         "coreVersion": ">=0.7.0 <1.0.0",
         "apiContracts": {
-            "module-api": "^1.0.0"
+            "module-api": ">=1.0.0 <2.0.0",
+            "ui-extension-api": ">=1.0.0 <2.0.0",
+            "roll-engine-api": ">=1.0.0 <2.0.0"
         }
     },
     "manifest": {
@@ -89,7 +91,7 @@ Optional. Re-exports API initialization or specialized server-only logic (e.g., 
     - `verified-third-party`
     - `unverified`
 - **`compatibility.coreVersion`**: Optional semver constraint checked during validation.
-- **`compatibility.apiContracts`**: Reserved for contract negotiation phases; may be declared now.
+- **`compatibility.apiContracts`**: Optional contract range map enforced during validate/install/upgrade compatibility checks.
 - **`manifest.ui` / `manifest.logic`**: Required entrypoints.
 - **`manifest.server`**: Optional server-only entrypoint.
 - **`permissions`**: Optional requested capability declarations evaluated by manager policy.
@@ -115,6 +117,29 @@ During upgrade, newly requested permissions may require explicit admin approval 
 - Missing `trust` metadata currently defaults to first-party behavior for backward compatibility with existing in-repo modules.
 - Local install sources (`local://`, `file://`) are allowed without digest/signature enforcement and are recorded as verification `skipped`.
 - Non-local install/upgrade sources are expected to provide integrity and signature metadata for manager verification.
+
+### Contract Compatibility Migration (First-Party Modules)
+
+Phase 25 requires explicit contract range declarations for first-party modules.
+
+Migration checklist:
+
+1. Add `compatibility.apiContracts` to `info.json`.
+2. Declare every contract the module depends on (`module-api`, `ui-extension-api`, `roll-engine-api` as applicable).
+3. Use supported range tokens (`=`, `>`, `>=`, `<`, `<=`) with space-separated constraints.
+4. Verify module validate/install/upgrade flows after declaration updates.
+
+Baseline declaration currently used by in-repo first-party modules:
+
+```json
+"compatibility": {
+    "apiContracts": {
+        "module-api": ">=1.0.0 <2.0.0",
+        "ui-extension-api": ">=1.0.0 <2.0.0",
+        "roll-engine-api": ">=1.0.0 <2.0.0"
+    }
+}
+```
 
 ## 4. Discovery & Data Persistence
 

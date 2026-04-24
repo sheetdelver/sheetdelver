@@ -176,7 +176,7 @@ Acceptance criteria:
 
 Status board:
 - Phase 24: Completed
-- Phase 25: Not Started
+- Phase 25: Completed
 - Phase 26: Not Started
 
 This ADR should be updated per-slice as phases advance, mirroring the completion discipline used in ADR-0003.
@@ -206,4 +206,25 @@ Phase 24 completed in four slices.
 - Added unit coverage for trust policy, artifact verification, and permission delta behavior
 - Updated API and manifest documentation to reflect manager policy flows
 
-Phase 25 is the next execution phase.
+## Phase 25 Outcome
+
+Phase 25 completed in four slices.
+
+1. Slice 1: Contract package baselines
+- Added core contract registry baselines for `module-api`, `ui-extension-api`, and `roll-engine-api`
+- Extended manifest compatibility schema to support explicit `apiContracts` declarations
+
+2. Slice 2: Compatibility resolver
+- Added deterministic resolver diagnostics for both core version and contract-range checks
+- Added resolver-focused unit coverage for ordering, malformed ranges, and missing contracts
+
+3. Slice 3: Lifecycle integration
+- Enforced compatibility in validate/install/upgrade manager paths
+- Persisted incompatibility context (required/provided contracts and diagnostics) into lifecycle validation metadata
+
+4. Slice 4: Tests and migration guidance
+- Added compatibility matrix unit coverage for pass/fail edge cases
+- Migrated first-party in-repo module manifests to explicit `apiContracts` declarations
+- Updated module manifest guidance with migration checklist and supported contract-range patterns
+
+Phase 26 is the next execution phase.

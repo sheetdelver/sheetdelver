@@ -7,6 +7,13 @@
         "logic": "src/server/MorkBorgAdapter.ts",
         "server": "module/server"
     },
+    "compatibility": {
+        "apiContracts": {
+            "module-api": ">=1.0.0 <2.0.0",
+            "ui-extension-api": ">=1.0.0 <2.0.0",
+            "roll-engine-api": ">=1.0.0 <2.0.0"
+        }
+    },
     "discovery": {
         "packs": [
             { "id": "morkborg.mork-borg-items", "type": "Item", "hydrate": true },

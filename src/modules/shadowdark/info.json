@@ -6,6 +6,13 @@
         "logic": "src/server/ShadowdarkAdapter.ts",
         "server": "module/server"
     },
+    "compatibility": {
+        "apiContracts": {
+            "module-api": ">=1.0.0 <2.0.0",
+            "ui-extension-api": ">=1.0.0 <2.0.0",
+            "roll-engine-api": ">=1.0.0 <2.0.0"
+        }
+    },
     "discovery": {
         "packs": [
             {
