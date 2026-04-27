@@ -37,6 +37,15 @@ interface StoredArtifacts {
     }>;
 }
 
+interface StoredLifecycle {
+    version: 1;
+    modules: Record<string, {
+        moduleId: string;
+        status: string;
+        enabled: boolean;
+    }>;
+}
+
 export async function run(): Promise<void> {
     const previousStateFile = process.env[STATE_ENV];
     const previousArtifactFile = process.env[ARTIFACT_ENV];
@@ -156,6 +165,11 @@ export async function run(): Promise<void> {
         const afterDryRunArtifacts = readJson<StoredArtifacts>(artifactFilePath);
         assert.equal(afterDryRunArtifacts.artifacts.shadowdark?.version, '1.0.0');
         assert.equal(afterDryRunArtifacts.artifacts.shadowdark?.source, 'local://shadowdark');
+
+        // Dry-run must not mutate lifecycle state.
+        const afterDryRunLifecycle = readJson<StoredLifecycle>(stateFilePath);
+        assert.equal(afterDryRunLifecycle.modules.shadowdark?.status, 'disabled');
+        assert.equal(afterDryRunLifecycle.modules.shadowdark?.enabled, false);
 
         console.log('module-manager-dry-run: PASS');
     } finally {

@@ -601,6 +601,39 @@ export interface DryRunManagedModuleResult {
     dependencyImpact?: DryRunDependencyImpact;
 }
 
+type ManagerTelemetryOutcome = 'allow' | 'block' | 'error' | 'success';
+
+interface ManagerTelemetryEvent {
+    operation: 'install' | 'upgrade' | 'dry-run-install' | 'dry-run-upgrade';
+    moduleId: string;
+    stage:
+        | 'source-resolution'
+        | 'trust-policy'
+        | 'manifest-gate'
+        | 'artifact-verification'
+        | 'permission-policy'
+        | 'summary';
+    outcome: ManagerTelemetryOutcome;
+    sourceRef?: string;
+    resolvedSource?: string;
+    errorCode?: string;
+    reason?: string;
+    details?: Record<string, unknown>;
+}
+
+function emitManagerTelemetry(event: ManagerTelemetryEvent): void {
+    const payload = JSON.stringify({
+        component: 'module-manager',
+        ...event,
+    });
+    const line = `[ModuleManagerTelemetry] ${payload}`;
+    if (event.outcome === 'block' || event.outcome === 'error') {
+        logger.warn(line);
+        return;
+    }
+    logger.info(line);
+}
+
 function buildEffectiveModuleInfo(
     plugin: SystemPlugin | undefined,
     resolvedSource: ModuleSourceResolution,
@@ -704,6 +737,15 @@ export function dryRunInstallManagedModule(input: InstallManagedModuleInput): Dr
     const id = input.moduleId.toLowerCase();
     const resolvedSource = resolveManagedSource(id, input.source, input.version);
     if (!resolvedSource.ok) {
+        emitManagerTelemetry({
+            operation: 'dry-run-install',
+            moduleId: id,
+            stage: 'source-resolution',
+            outcome: 'error',
+            sourceRef: input.source,
+            errorCode: 'source-resolution-failed',
+            reason: resolvedSource.error,
+        });
         return {
             success: true,
             moduleId: id,
@@ -758,6 +800,23 @@ export function dryRunInstallManagedModule(input: InstallManagedModuleInput): Dr
         blockingReasons.push(...dependencyImpact.violations.map((entry) => entry.reason));
     }
 
+    emitManagerTelemetry({
+        operation: 'dry-run-install',
+        moduleId: id,
+        stage: 'summary',
+        outcome: blockingReasons.length === 0 ? 'allow' : 'block',
+        sourceRef: input.source,
+        resolvedSource: resolvedSource.value.source,
+        details: {
+            wouldProceed: blockingReasons.length === 0,
+            blockingReasonCount: blockingReasons.length,
+            trustAllowed: trustDecision?.allowed,
+            manifestAllowed: manifestGate.allowed,
+            artifactVerified: verification.verified,
+            dependencyOk: dependencyImpact?.canProceed,
+        },
+    });
+
     return {
         success: true,
         moduleId: id,
@@ -789,6 +848,15 @@ export function dryRunUpgradeManagedModule(input: UpgradeManagedModuleInput): Dr
     const id = input.moduleId.toLowerCase();
     const resolvedSource = resolveManagedSource(id, input.source, input.targetVersion);
     if (!resolvedSource.ok) {
+        emitManagerTelemetry({
+            operation: 'dry-run-upgrade',
+            moduleId: id,
+            stage: 'source-resolution',
+            outcome: 'error',
+            sourceRef: input.source,
+            errorCode: 'source-resolution-failed',
+            reason: resolvedSource.error,
+        });
         return {
             success: true,
             moduleId: id,
@@ -846,6 +914,16 @@ export function dryRunUpgradeManagedModule(input: UpgradeManagedModuleInput): Dr
         blockingReasons.push(manifestGate.reason || 'Manifest validation failed');
     }
     if (requiresEscalationApproval) {
+        emitManagerTelemetry({
+            operation: 'dry-run-upgrade',
+            moduleId: id,
+            stage: 'permission-policy',
+            outcome: 'block',
+            sourceRef: input.source,
+            resolvedSource: resolvedSource.value.source,
+            errorCode: 'permission-escalation-requires-approval',
+            reason: `Permission escalation requires explicit approval: ${permissionDelta.escalations.map((entry) => entry.change).join('; ')}`,
+        });
         blockingReasons.push(`Permission escalation requires explicit approval: ${permissionDelta.escalations.map((entry) => entry.change).join('; ')}`);
     }
     if (!verification.verified) {
@@ -854,6 +932,25 @@ export function dryRunUpgradeManagedModule(input: UpgradeManagedModuleInput): Dr
     if (dependencyImpact && !dependencyImpact.canProceed && dependencyImpact.violations) {
         blockingReasons.push(...dependencyImpact.violations.map((entry) => entry.reason));
     }
+
+    emitManagerTelemetry({
+        operation: 'dry-run-upgrade',
+        moduleId: id,
+        stage: 'summary',
+        outcome: blockingReasons.length === 0 ? 'allow' : 'block',
+        sourceRef: input.source,
+        resolvedSource: resolvedSource.value.source,
+        details: {
+            wouldProceed: blockingReasons.length === 0,
+            blockingReasonCount: blockingReasons.length,
+            trustAllowed: trustDecision?.allowed,
+            manifestAllowed: manifestGate.allowed,
+            artifactVerified: verification.verified,
+            dependencyOk: dependencyImpact?.canProceed,
+            permissionEscalated: permissionDelta.escalated,
+            escalationApproved: input.approvePermissionEscalation === true,
+        },
+    });
 
     return {
         success: true,
@@ -887,6 +984,15 @@ export function installManagedModule(input: InstallManagedModuleInput): ManagerO
     const id = input.moduleId.toLowerCase();
     const resolvedSource = resolveManagedSource(id, input.source, input.version);
     if (!resolvedSource.ok) {
+        emitManagerTelemetry({
+            operation: 'install',
+            moduleId: id,
+            stage: 'source-resolution',
+            outcome: 'error',
+            sourceRef: input.source,
+            errorCode: 'source-resolution-failed',
+            reason: resolvedSource.error,
+        });
         return operationFailure(
             id,
             'install',
@@ -904,6 +1010,16 @@ export function installManagedModule(input: InstallManagedModuleInput): ManagerO
             operation: 'install',
         });
         if (!trustDecision.allowed) {
+            emitManagerTelemetry({
+                operation: 'install',
+                moduleId: id,
+                stage: 'trust-policy',
+                outcome: 'block',
+                sourceRef: input.source,
+                resolvedSource: resolvedSource.value.source,
+                errorCode: 'trust-policy-blocked',
+                reason: trustDecision.reason,
+            });
             return operationFailure(
                 id,
                 'install',
@@ -916,6 +1032,16 @@ export function installManagedModule(input: InstallManagedModuleInput): ManagerO
 
     const gate = checkManifestGate(id);
     if (!gate.allowed) {
+        emitManagerTelemetry({
+            operation: 'install',
+            moduleId: id,
+            stage: 'manifest-gate',
+            outcome: 'block',
+            sourceRef: input.source,
+            resolvedSource: resolvedSource.value.source,
+            errorCode: gate.errorCode || 'validation-failed',
+            reason: gate.reason,
+        });
         if (gate.classification) {
             applyLifecycleClassification(lifecycleStore, id, gate.classification);
             saveLifecycleStore(lifecycleStore, getLifecycleStateFilePathOverride());
@@ -945,6 +1071,16 @@ export function installManagedModule(input: InstallManagedModuleInput): ManagerO
     upsertArtifactVerification(artifactStore, verification);
     saveArtifactStore(artifactStore, artifactStorePath);
     if (!verification.verified) {
+        emitManagerTelemetry({
+            operation: 'install',
+            moduleId: id,
+            stage: 'artifact-verification',
+            outcome: 'block',
+            sourceRef: input.source,
+            resolvedSource: resolvedSource.value.source,
+            errorCode: 'artifact-verification-failed',
+            reason: verification.reason,
+        });
         return operationFailure(
             id,
             'install',
@@ -963,7 +1099,7 @@ export function installManagedModule(input: InstallManagedModuleInput): ManagerO
         permissions: input.permissions || resolvedSource.value.permissions || plugin?.info.permissions,
     };
 
-    return installModule(
+    const result = installModule(
         id,
         managerInput,
         lifecycleStore,
@@ -972,6 +1108,19 @@ export function installManagedModule(input: InstallManagedModuleInput): ManagerO
         getLifecycleStateFilePathOverride(),
         artifactStorePath
     );
+
+    emitManagerTelemetry({
+        operation: 'install',
+        moduleId: id,
+        stage: 'summary',
+        outcome: result.success ? 'success' : 'error',
+        sourceRef: input.source,
+        resolvedSource: resolvedSource.value.source,
+        errorCode: result.errorCode,
+        reason: result.error,
+    });
+
+    return result;
 }
 
 export interface UpgradeManagedModuleInput {
@@ -990,6 +1139,15 @@ export function upgradeManagedModule(input: UpgradeManagedModuleInput): ManagerO
     const id = input.moduleId.toLowerCase();
     const resolvedSource = resolveManagedSource(id, input.source, input.targetVersion);
     if (!resolvedSource.ok) {
+        emitManagerTelemetry({
+            operation: 'upgrade',
+            moduleId: id,
+            stage: 'source-resolution',
+            outcome: 'error',
+            sourceRef: input.source,
+            errorCode: 'source-resolution-failed',
+            reason: resolvedSource.error,
+        });
         return operationFailure(
             id,
             'upgrade',
@@ -1007,6 +1165,16 @@ export function upgradeManagedModule(input: UpgradeManagedModuleInput): ManagerO
             operation: 'upgrade',
         });
         if (!trustDecision.allowed) {
+            emitManagerTelemetry({
+                operation: 'upgrade',
+                moduleId: id,
+                stage: 'trust-policy',
+                outcome: 'block',
+                sourceRef: input.source,
+                resolvedSource: resolvedSource.value.source,
+                errorCode: 'trust-policy-blocked',
+                reason: trustDecision.reason,
+            });
             return operationFailure(
                 id,
                 'upgrade',
@@ -1019,6 +1187,16 @@ export function upgradeManagedModule(input: UpgradeManagedModuleInput): ManagerO
 
     const gate = checkManifestGate(id);
     if (!gate.allowed) {
+        emitManagerTelemetry({
+            operation: 'upgrade',
+            moduleId: id,
+            stage: 'manifest-gate',
+            outcome: 'block',
+            sourceRef: input.source,
+            resolvedSource: resolvedSource.value.source,
+            errorCode: gate.errorCode || 'validation-failed',
+            reason: gate.reason,
+        });
         if (gate.classification) {
             applyLifecycleClassification(lifecycleStore, id, gate.classification);
             saveLifecycleStore(lifecycleStore, getLifecycleStateFilePathOverride());
@@ -1041,6 +1219,16 @@ export function upgradeManagedModule(input: UpgradeManagedModuleInput): ManagerO
     const requestedPermissions = input.permissions || resolvedSource.value.permissions || plugin?.info.permissions;
     const permissionDelta = evaluatePermissionDelta(previousPermissions, requestedPermissions);
     if (permissionDelta.escalated && getTrustPolicyConfig().requirePermissionEscalationApproval && !input.approvePermissionEscalation) {
+        emitManagerTelemetry({
+            operation: 'upgrade',
+            moduleId: id,
+            stage: 'permission-policy',
+            outcome: 'block',
+            sourceRef: input.source,
+            resolvedSource: resolvedSource.value.source,
+            errorCode: 'permission-escalation-requires-approval',
+            reason: `Permission escalation requires explicit approval: ${permissionDelta.escalations.map((entry) => entry.change).join('; ')}`,
+        });
         return operationFailure(
             id,
             'upgrade',
@@ -1060,6 +1248,16 @@ export function upgradeManagedModule(input: UpgradeManagedModuleInput): ManagerO
     upsertArtifactVerification(artifactStore, verification);
     saveArtifactStore(artifactStore, artifactStorePath);
     if (!verification.verified) {
+        emitManagerTelemetry({
+            operation: 'upgrade',
+            moduleId: id,
+            stage: 'artifact-verification',
+            outcome: 'block',
+            sourceRef: input.source,
+            resolvedSource: resolvedSource.value.source,
+            errorCode: 'artifact-verification-failed',
+            reason: verification.reason,
+        });
         return operationFailure(
             id,
             'upgrade',
@@ -1077,7 +1275,7 @@ export function upgradeManagedModule(input: UpgradeManagedModuleInput): ManagerO
         permissions: requestedPermissions,
     };
 
-    return upgradeModule(
+    const result = upgradeModule(
         id,
         managerInput,
         lifecycleStore,
@@ -1086,6 +1284,19 @@ export function upgradeManagedModule(input: UpgradeManagedModuleInput): ManagerO
         getLifecycleStateFilePathOverride(),
         artifactStorePath
     );
+
+    emitManagerTelemetry({
+        operation: 'upgrade',
+        moduleId: id,
+        stage: 'summary',
+        outcome: result.success ? 'success' : 'error',
+        sourceRef: input.source,
+        resolvedSource: resolvedSource.value.source,
+        errorCode: result.errorCode,
+        reason: result.error,
+    });
+
+    return result;
 }
 
 export function uninstallManagedModule(moduleId: string): ManagerOperationResult {

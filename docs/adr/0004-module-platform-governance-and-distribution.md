@@ -177,7 +177,7 @@ Acceptance criteria:
 Status board:
 - Phase 24: Completed
 - Phase 25: Completed
-- Phase 26: In Progress
+- Phase 26: Completed
 
 This ADR should be updated per-slice as phases advance, mirroring the completion discipline used in ADR-0003.
 
@@ -229,7 +229,7 @@ Phase 25 completed in four slices.
 
 ## Phase 26 Progress
 
-In progress.
+Completed.
 
 1. Slice 1: Index Model and Source Abstraction (Completed)
 - Added module index schema/model types with validation and deterministic version resolution.
@@ -248,5 +248,10 @@ In progress.
 - Added admin dry-run endpoints for install and upgrade previews.
 - Added dry-run unit coverage that verifies preview behavior and confirms no lifecycle/artifact mutation.
 
+4. Slice 4: Tests, Telemetry, and Hardening (Completed)
+- Added structured module-manager telemetry hooks for source resolution, policy outcomes, verification outcomes, and operation summaries.
+- Expanded manager governance coverage for deterministic source-resolution failure handling (including invalid index document parsing).
+- Added dedicated telemetry unit coverage and expanded dry-run non-mutation assertions for both artifact and lifecycle state.
+
 Remaining slices:
-- Slice 4: Tests, telemetry, and hardening.
+- None.

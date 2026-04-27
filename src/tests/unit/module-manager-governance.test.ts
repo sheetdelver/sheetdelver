@@ -181,6 +181,22 @@ export async function run(): Promise<void> {
         assert.equal(missingIndexConfig.success, false);
         assert.equal(missingIndexConfig.errorCode, 'source-resolution-failed');
 
+        // Invalid index file should fail deterministically without mutating persisted artifacts.
+        fs.writeFileSync(indexFilePath, '{ invalid-json', 'utf8');
+        process.env[INDEX_ENV] = indexFilePath;
+        __resetRegistryForTests();
+        const invalidIndexConfig = upgradeManagedModule({
+            moduleId: 'shadowdark',
+            source: 'index://official',
+            targetVersion: '3.0.0',
+        });
+        assert.equal(invalidIndexConfig.success, false);
+        assert.equal(invalidIndexConfig.errorCode, 'source-resolution-failed');
+
+        const postInvalidIndexArtifacts = readJson<StoredArtifacts>(artifactFilePath);
+        assert.equal(postInvalidIndexArtifacts.artifacts.shadowdark?.version, '1.0.0');
+        assert.equal(postInvalidIndexArtifacts.artifacts.shadowdark?.source, 'local://shadowdark');
+
         // Configure an index and verify indexed metadata feeds permission and artifact checks.
         writeJson(indexFilePath, {
             schemaVersion: 'module-index.v1',

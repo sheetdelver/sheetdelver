@@ -30,6 +30,7 @@ import { run as runModuleCompatibilityLifecycleIntegration } from './module-comp
 import { run as runModuleIndexModel } from './module-index-model.test';
 import { run as runModuleSourceAdapters } from './module-source-adapters.test';
 import { run as runModuleManagerDryRun } from './module-manager-dry-run.test';
+import { run as runModuleManagerTelemetry } from './module-manager-telemetry.test';
 
 async function runAllUnitTests() {
     runStatusSanitize();
@@ -64,6 +65,7 @@ async function runAllUnitTests() {
     runModuleIndexModel();
     runModuleSourceAdapters();
     await runModuleManagerDryRun();
+    await runModuleManagerTelemetry();
 }
 
 runAllUnitTests()
