@@ -27,6 +27,8 @@ import { run as runModulePermissionPolicy } from './module-permission-policy.tes
 import { run as runModuleCompatibilityResolver } from './module-compatibility-resolver.test';
 import { run as runModuleCompatibilityMatrix } from './module-compatibility-matrix.test';
 import { run as runModuleCompatibilityLifecycleIntegration } from './module-compatibility-lifecycle-integration.test';
+import { run as runModuleIndexModel } from './module-index-model.test';
+import { run as runModuleSourceAdapters } from './module-source-adapters.test';
 
 async function runAllUnitTests() {
     runStatusSanitize();
@@ -58,6 +60,8 @@ async function runAllUnitTests() {
     runModuleCompatibilityResolver();
     runModuleCompatibilityMatrix();
     await runModuleCompatibilityLifecycleIntegration();
+    runModuleIndexModel();
+    runModuleSourceAdapters();
 }
 
 runAllUnitTests()

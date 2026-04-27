@@ -177,7 +177,7 @@ Acceptance criteria:
 Status board:
 - Phase 24: Completed
 - Phase 25: Completed
-- Phase 26: Not Started
+- Phase 26: In Progress
 
 This ADR should be updated per-slice as phases advance, mirroring the completion discipline used in ADR-0003.
 
@@ -227,4 +227,16 @@ Phase 25 completed in four slices.
 - Migrated first-party in-repo module manifests to explicit `apiContracts` declarations
 - Updated module manifest guidance with migration checklist and supported contract-range patterns
 
-Phase 26 is the next execution phase.
+## Phase 26 Progress
+
+In progress.
+
+1. Slice 1: Index Model and Source Abstraction (Completed)
+- Added module index schema/model types with validation and deterministic version resolution.
+- Added module source adapter abstraction with local and indexed adapters.
+- Added initial unit coverage for index model and source adapter behavior.
+
+Remaining slices:
+- Slice 2: Manager install/upgrade source pipeline.
+- Slice 3: Dry-run and impact analysis.
+- Slice 4: Tests, telemetry, and hardening.
