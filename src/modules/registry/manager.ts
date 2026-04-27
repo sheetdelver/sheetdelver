@@ -149,6 +149,7 @@ export function operationFailure(
 
 export type ManagerErrorCode =
     | 'module-not-found'
+    | 'source-resolution-failed'
     | 'precondition-failed'
     | 'transition-rejected'
     | 'trust-policy-blocked'

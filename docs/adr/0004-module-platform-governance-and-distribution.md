@@ -236,7 +236,12 @@ In progress.
 - Added module source adapter abstraction with local and indexed adapters.
 - Added initial unit coverage for index model and source adapter behavior.
 
+2. Slice 2: Manager Install/Upgrade Source Pipeline (Completed)
+- Wired manager install/upgrade flows to resolve sources via source adapters before verification/mutation.
+- Added indexed source context loading from configured index document and deterministic source-resolution failures.
+- Preserved existing local/direct source behavior while enabling indexed metadata-driven permissions and artifact verification inputs.
+- Extended governance tests to cover indexed source resolution and policy enforcement paths.
+
 Remaining slices:
-- Slice 2: Manager install/upgrade source pipeline.
 - Slice 3: Dry-run and impact analysis.
 - Slice 4: Tests, telemetry, and hardening.

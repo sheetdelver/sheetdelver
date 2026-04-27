@@ -36,10 +36,18 @@ import {
 import { getConfig } from '@server/core/config';
 import { verifyArtifactMetadata } from './artifactVerification';
 import { evaluatePermissionDelta } from './permissionPolicy';
+import {
+    getDefaultModuleSourceAdapters,
+    resolveModuleSource,
+    type ModuleSourceResolution,
+    type SourceResolutionContext,
+} from './sourceAdapters';
+import { validateModuleIndexDocument, type ModuleIndexDocument } from './moduleIndex';
 
 const LIFECYCLE_STATE_FILE_ENV = 'SHEET_DELVER_MODULE_STATE_FILE';
 const ARTIFACT_STATE_FILE_ENV = 'SHEET_DELVER_MODULE_ARTIFACT_FILE';
 const MANIFEST_FAIL_OPEN_ENV = 'SHEET_DELVER_MANIFEST_FAIL_OPEN';
+const MODULE_INDEX_FILE_ENV = 'SHEET_DELVER_MODULE_INDEX_FILE';
 
 export interface RegisteredModuleRuntimeInfo {
     info: SystemModuleInfo;
@@ -89,6 +97,76 @@ function getLifecycleStateFilePathOverride(): string | undefined {
 function getArtifactStateFilePathOverride(): string | undefined {
     const value = process.env[ARTIFACT_STATE_FILE_ENV];
     return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function buildSourceResolutionContext(sourceRef: string): { ok: true; context?: SourceResolutionContext } | { ok: false; error: string } {
+    if (!sourceRef.startsWith('index://')) {
+        return { ok: true };
+    }
+
+    const indexFilePath = process.env[MODULE_INDEX_FILE_ENV];
+    if (!indexFilePath || !indexFilePath.trim()) {
+        return {
+            ok: false,
+            error: `Index source "${sourceRef}" requires ${MODULE_INDEX_FILE_ENV} to be set`,
+        };
+    }
+
+    try {
+        const raw = fs.readFileSync(indexFilePath, 'utf8');
+        const parsed = JSON.parse(raw) as ModuleIndexDocument;
+        const validation = validateModuleIndexDocument(parsed);
+        if (!validation.valid) {
+            return {
+                ok: false,
+                error: `Index document is invalid: ${validation.errors.join('; ')}`,
+            };
+        }
+
+        return {
+            ok: true,
+            context: {
+                indexes: {
+                    [sourceRef]: parsed,
+                },
+            },
+        };
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return {
+            ok: false,
+            error: `Failed to load module index from ${indexFilePath}: ${message}`,
+        };
+    }
+}
+
+function resolveManagedSource(moduleId: string, sourceRef: string, targetVersion?: string): { ok: true; value: ModuleSourceResolution } | { ok: false; error: string } {
+    const contextResult = buildSourceResolutionContext(sourceRef);
+    if (!contextResult.ok) {
+        return contextResult;
+    }
+
+    const resolved = resolveModuleSource(
+        getDefaultModuleSourceAdapters(),
+        {
+            moduleId,
+            sourceRef,
+            targetVersion,
+        },
+        contextResult.context
+    );
+
+    if (!resolved.ok || !resolved.value) {
+        return {
+            ok: false,
+            error: resolved.error || 'Failed to resolve module source',
+        };
+    }
+
+    return {
+        ok: true,
+        value: resolved.value,
+    };
 }
 
 function isManifestFailOpenEnabled(): boolean {
@@ -474,7 +552,7 @@ function checkManifestGate(moduleId: string): ManifestGateResult {
 export interface InstallManagedModuleInput {
     moduleId: string;
     source: string;
-    version: string;
+    version?: string;
     integrity?: string;
     signature?: string;
     permissions?: SystemModuleInfo['permissions'];
@@ -484,10 +562,30 @@ export function installManagedModule(input: InstallManagedModuleInput): ManagerO
     if (!isInitialized()) initializeRegistry();
 
     const id = input.moduleId.toLowerCase();
+    const resolvedSource = resolveManagedSource(id, input.source, input.version);
+    if (!resolvedSource.ok) {
+        return operationFailure(
+            id,
+            'install',
+            resolvedSource.error,
+            undefined,
+            'source-resolution-failed'
+        );
+    }
 
     const plugin = pluginMap.get(id);
-    if (plugin) {
-        const trustDecision = evaluateTrustPolicy(plugin.info, getTrustPolicyConfig(), {
+    const effectiveInfo: SystemModuleInfo | undefined = plugin
+        ? {
+            ...plugin.info,
+            trust: resolvedSource.value.trustTier
+                ? { tier: resolvedSource.value.trustTier }
+                : plugin.info.trust,
+            permissions: input.permissions || resolvedSource.value.permissions || plugin.info.permissions,
+            compatibility: resolvedSource.value.compatibility || plugin.info.compatibility,
+        }
+        : undefined;
+    if (effectiveInfo) {
+        const trustDecision = evaluateTrustPolicy(effectiveInfo, getTrustPolicyConfig(), {
             env: process.env,
             operation: 'install',
         });
@@ -526,9 +624,9 @@ export function installManagedModule(input: InstallManagedModuleInput): ManagerO
     const verification = verifyArtifactMetadata({
         moduleId: id,
         operation: 'install',
-        source: input.source,
-        integrity: input.integrity,
-        signature: input.signature,
+        source: resolvedSource.value.source,
+        integrity: input.integrity || resolvedSource.value.integrity,
+        signature: input.signature || resolvedSource.value.signature,
     });
     upsertArtifactVerification(artifactStore, verification);
     saveArtifactStore(artifactStore, artifactStorePath);
@@ -544,11 +642,11 @@ export function installManagedModule(input: InstallManagedModuleInput): ManagerO
 
     const managerInput: InstallModuleInput = {
         moduleId: id,
-        source: input.source,
-        version: input.version,
-        integrity: input.integrity,
-        signature: input.signature,
-        permissions: input.permissions || plugin?.info.permissions,
+        source: resolvedSource.value.source,
+        version: input.version || resolvedSource.value.version,
+        integrity: input.integrity || resolvedSource.value.integrity,
+        signature: input.signature || resolvedSource.value.signature,
+        permissions: input.permissions || resolvedSource.value.permissions || plugin?.info.permissions,
     };
 
     return installModule(
@@ -565,7 +663,7 @@ export function installManagedModule(input: InstallManagedModuleInput): ManagerO
 export interface UpgradeManagedModuleInput {
     moduleId: string;
     source: string;
-    targetVersion: string;
+    targetVersion?: string;
     integrity?: string;
     signature?: string;
     permissions?: SystemModuleInfo['permissions'];
@@ -576,10 +674,30 @@ export function upgradeManagedModule(input: UpgradeManagedModuleInput): ManagerO
     if (!isInitialized()) initializeRegistry();
 
     const id = input.moduleId.toLowerCase();
+    const resolvedSource = resolveManagedSource(id, input.source, input.targetVersion);
+    if (!resolvedSource.ok) {
+        return operationFailure(
+            id,
+            'upgrade',
+            resolvedSource.error,
+            undefined,
+            'source-resolution-failed'
+        );
+    }
 
     const plugin = pluginMap.get(id);
-    if (plugin) {
-        const trustDecision = evaluateTrustPolicy(plugin.info, getTrustPolicyConfig(), {
+    const effectiveInfo: SystemModuleInfo | undefined = plugin
+        ? {
+            ...plugin.info,
+            trust: resolvedSource.value.trustTier
+                ? { tier: resolvedSource.value.trustTier }
+                : plugin.info.trust,
+            permissions: input.permissions || resolvedSource.value.permissions || plugin.info.permissions,
+            compatibility: resolvedSource.value.compatibility || plugin.info.compatibility,
+        }
+        : undefined;
+    if (effectiveInfo) {
+        const trustDecision = evaluateTrustPolicy(effectiveInfo, getTrustPolicyConfig(), {
             env: process.env,
             operation: 'upgrade',
         });
@@ -615,7 +733,7 @@ export function upgradeManagedModule(input: UpgradeManagedModuleInput): ManagerO
     const artifactStorePath = getArtifactStateFilePathOverride();
     const artifactStore = loadArtifactStore(artifactStorePath);
     const previousPermissions = getArtifact(artifactStore, id)?.permissions || plugin?.info.permissions;
-    const requestedPermissions = input.permissions || plugin?.info.permissions;
+    const requestedPermissions = input.permissions || resolvedSource.value.permissions || plugin?.info.permissions;
     const permissionDelta = evaluatePermissionDelta(previousPermissions, requestedPermissions);
     if (permissionDelta.escalated && getTrustPolicyConfig().requirePermissionEscalationApproval && !input.approvePermissionEscalation) {
         return operationFailure(
@@ -630,9 +748,9 @@ export function upgradeManagedModule(input: UpgradeManagedModuleInput): ManagerO
     const verification = verifyArtifactMetadata({
         moduleId: id,
         operation: 'upgrade',
-        source: input.source,
-        integrity: input.integrity,
-        signature: input.signature,
+        source: resolvedSource.value.source,
+        integrity: input.integrity || resolvedSource.value.integrity,
+        signature: input.signature || resolvedSource.value.signature,
     });
     upsertArtifactVerification(artifactStore, verification);
     saveArtifactStore(artifactStore, artifactStorePath);
@@ -647,10 +765,10 @@ export function upgradeManagedModule(input: UpgradeManagedModuleInput): ManagerO
     }
 
     const managerInput: UpgradeModuleInput = {
-        source: input.source,
-        targetVersion: input.targetVersion,
-        integrity: input.integrity,
-        signature: input.signature,
+        source: resolvedSource.value.source,
+        targetVersion: input.targetVersion || resolvedSource.value.version,
+        integrity: input.integrity || resolvedSource.value.integrity,
+        signature: input.signature || resolvedSource.value.signature,
         permissions: requestedPermissions,
     };
 

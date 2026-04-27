@@ -480,6 +480,7 @@ export function createAdminRouter(deps: AdminRouterDeps) {
     function managerErrorStatusCode(errorCode?: string): number {
         if (!errorCode) return 400;
         if (errorCode === 'module-not-found') return 404;
+        if (errorCode === 'source-resolution-failed') return 422;
         if (errorCode === 'trust-policy-blocked') return 403;
         if (errorCode === 'artifact-verification-failed') return 422;
         if (errorCode === 'permission-escalation-requires-approval') return 409;
@@ -504,7 +505,7 @@ export function createAdminRouter(deps: AdminRouterDeps) {
                     ? req.params.moduleId[0]
                     : req.params.moduleId;
                 const source = typeof req.body?.source === 'string' ? req.body.source : `local://${moduleId}`;
-                const version = typeof req.body?.version === 'string' ? req.body.version : '0.0.0';
+                const version = typeof req.body?.version === 'string' ? req.body.version : undefined;
                 const integrity = typeof req.body?.integrity === 'string' ? req.body.integrity : undefined;
                 const signature = typeof req.body?.signature === 'string' ? req.body.signature : undefined;
                 const permissions = typeof req.body?.permissions === 'object' ? req.body.permissions : undefined;
@@ -597,7 +598,7 @@ export function createAdminRouter(deps: AdminRouterDeps) {
                 const source = typeof req.body?.source === 'string' ? req.body.source : `local://${moduleId}`;
                 const targetVersion = typeof req.body?.targetVersion === 'string'
                     ? req.body.targetVersion
-                    : '0.0.0';
+                    : undefined;
                 const integrity = typeof req.body?.integrity === 'string' ? req.body.integrity : undefined;
                 const signature = typeof req.body?.signature === 'string' ? req.body.signature : undefined;
                 const permissions = typeof req.body?.permissions === 'object' ? req.body.permissions : undefined;

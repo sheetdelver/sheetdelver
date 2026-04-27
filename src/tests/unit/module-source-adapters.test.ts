@@ -1,5 +1,6 @@
 import { strict as assert } from 'node:assert';
 import {
+    directModuleSourceAdapter,
     getDefaultModuleSourceAdapters,
     indexedModuleSourceAdapter,
     localModuleSourceAdapter,
@@ -48,6 +49,19 @@ export function run() {
     assert.equal(indexedModuleSourceAdapter.canHandle('index://official'), true);
     assert.equal(indexedModuleSourceAdapter.canHandle('https://example.invalid/index.json'), false);
 
+    assert.equal(directModuleSourceAdapter.canHandle('https://example.invalid/module.tgz'), true);
+    assert.equal(directModuleSourceAdapter.canHandle('http://example.invalid/module.tgz'), true);
+    assert.equal(directModuleSourceAdapter.canHandle('ftp://example.invalid/module.tgz'), false);
+
+    const directResolved = directModuleSourceAdapter.resolve({
+        moduleId: 'generic',
+        sourceRef: 'https://example.invalid/generic-2.0.0.tgz',
+        targetVersion: '2.0.0',
+    });
+    assert.equal(directResolved.ok, true);
+    assert.equal(directResolved.value?.kind, 'direct');
+    assert.equal(directResolved.value?.source, 'https://example.invalid/generic-2.0.0.tgz');
+
     const noContext = indexedModuleSourceAdapter.resolve({
         moduleId: 'generic',
         sourceRef: 'index://official',
@@ -90,7 +104,7 @@ export function run() {
 
     const missingAdapter = resolveModuleSource(adapters, {
         moduleId: 'generic',
-        sourceRef: 'https://example.invalid/not-supported',
+        sourceRef: 'ftp://example.invalid/not-supported',
     });
     assert.equal(missingAdapter.ok, false);
     assert.equal(missingAdapter.error?.includes('No module source adapter found'), true);

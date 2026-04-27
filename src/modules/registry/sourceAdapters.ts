@@ -5,7 +5,7 @@ import {
     type ModuleIndexVersionEntry,
 } from './moduleIndex';
 
-export type ModuleSourceKind = 'local' | 'indexed';
+export type ModuleSourceKind = 'local' | 'indexed' | 'direct';
 
 export interface ModuleSourceResolution {
     kind: ModuleSourceKind;
@@ -137,8 +137,34 @@ export const indexedModuleSourceAdapter: ModuleSourceAdapter = {
     },
 };
 
+export const directModuleSourceAdapter: ModuleSourceAdapter = {
+    kind: 'direct',
+    canHandle(sourceRef: string): boolean {
+        return sourceRef.startsWith('http://') || sourceRef.startsWith('https://');
+    },
+    resolve(input: SourceResolveInput): SourceResolveResult {
+        if (!this.canHandle(input.sourceRef)) {
+            return {
+                ok: false,
+                error: `Direct source adapter cannot handle source ref "${input.sourceRef}"`,
+            };
+        }
+
+        return {
+            ok: true,
+            value: {
+                kind: 'direct',
+                moduleId: input.moduleId.trim().toLowerCase(),
+                version: input.targetVersion?.trim() || '0.0.0',
+                source: input.sourceRef,
+                sourceRef: input.sourceRef,
+            },
+        };
+    },
+};
+
 export function getDefaultModuleSourceAdapters(): ModuleSourceAdapter[] {
-    return [localModuleSourceAdapter, indexedModuleSourceAdapter];
+    return [localModuleSourceAdapter, indexedModuleSourceAdapter, directModuleSourceAdapter];
 }
 
 export function resolveModuleSource(

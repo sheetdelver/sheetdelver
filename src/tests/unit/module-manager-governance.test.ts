@@ -12,6 +12,7 @@ import {
 const STATE_ENV = 'SHEET_DELVER_MODULE_STATE_FILE';
 const ARTIFACT_ENV = 'SHEET_DELVER_MODULE_ARTIFACT_FILE';
 const FAIL_OPEN_ENV = 'SHEET_DELVER_MANIFEST_FAIL_OPEN';
+const INDEX_ENV = 'SHEET_DELVER_MODULE_INDEX_FILE';
 
 function mkTempFile(prefix: string): string {
     return path.join(os.tmpdir(), `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}.json`);
@@ -58,9 +59,11 @@ export async function run(): Promise<void> {
     const previousStateFile = process.env[STATE_ENV];
     const previousArtifactFile = process.env[ARTIFACT_ENV];
     const previousFailOpen = process.env[FAIL_OPEN_ENV];
+    const previousIndexFile = process.env[INDEX_ENV];
 
     const stateFilePath = mkTempFile('sheet-delver-state');
     const artifactFilePath = mkTempFile('sheet-delver-artifacts');
+    const indexFilePath = mkTempFile('sheet-delver-index');
 
     try {
         process.env[STATE_ENV] = stateFilePath;
@@ -167,6 +170,82 @@ export async function run(): Promise<void> {
             true,
         );
 
+        // Indexed source should fail when index context is not configured.
+        delete process.env[INDEX_ENV];
+        __resetRegistryForTests();
+        const missingIndexConfig = upgradeManagedModule({
+            moduleId: 'shadowdark',
+            source: 'index://official',
+            targetVersion: '3.0.0',
+        });
+        assert.equal(missingIndexConfig.success, false);
+        assert.equal(missingIndexConfig.errorCode, 'source-resolution-failed');
+
+        // Configure an index and verify indexed metadata feeds permission and artifact checks.
+        writeJson(indexFilePath, {
+            schemaVersion: 'module-index.v1',
+            generatedAt: Date.now(),
+            publisher: 'sheetdelver',
+            modules: {
+                shadowdark: {
+                    moduleId: 'shadowdark',
+                    title: 'Shadowdark RPG',
+                    latestVersion: '3.0.0',
+                    versions: {
+                        '3.0.0': {
+                            source: 'https://example.com/modules/shadowdark-3.0.0.tgz',
+                            integrity: 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                            signature: 'minisign:shadowdark-3.0.0',
+                            permissions: {
+                                sensitiveData: ['actor', 'chat'],
+                                adminRoutes: true,
+                            },
+                        },
+                    },
+                },
+            },
+        });
+        process.env[INDEX_ENV] = indexFilePath;
+
+        __resetRegistryForTests();
+        const indexedPermissionBlocked = upgradeManagedModule({
+            moduleId: 'shadowdark',
+            source: 'index://official',
+            targetVersion: '3.0.0',
+        });
+        assert.equal(indexedPermissionBlocked.success, false);
+        assert.equal(indexedPermissionBlocked.errorCode, 'permission-escalation-requires-approval');
+
+        __resetRegistryForTests();
+        const indexedApproved = upgradeManagedModule({
+            moduleId: 'shadowdark',
+            source: 'index://official',
+            targetVersion: '3.0.0',
+            approvePermissionEscalation: true,
+        });
+        assert.equal(indexedApproved.success, true);
+
+        const postIndexedUpgradeArtifacts = readJson<StoredArtifacts>(artifactFilePath);
+        assert.equal(postIndexedUpgradeArtifacts.artifacts.shadowdark?.version, '3.0.0');
+        assert.equal(postIndexedUpgradeArtifacts.artifacts.shadowdark?.source, 'https://example.com/modules/shadowdark-3.0.0.tgz');
+
+        // Reset baseline artifact permissions so local escalation assertions remain independent.
+        writeJson(artifactFilePath, {
+            version: 1,
+            artifacts: {
+                shadowdark: {
+                    moduleId: 'shadowdark',
+                    source: 'local://shadowdark',
+                    version: '1.0.0',
+                    installedAt: 1,
+                    permissions: {
+                        sensitiveData: ['actor'],
+                    },
+                },
+            },
+            verifications: postIndexedUpgradeArtifacts.verifications || {},
+        });
+
         // Permission escalation requires explicit approval on upgrade.
         __resetRegistryForTests();
         const permissionBlocked = upgradeManagedModule({
@@ -247,7 +326,11 @@ export async function run(): Promise<void> {
         if (previousFailOpen !== undefined) process.env[FAIL_OPEN_ENV] = previousFailOpen;
         else delete process.env[FAIL_OPEN_ENV];
 
+        if (previousIndexFile !== undefined) process.env[INDEX_ENV] = previousIndexFile;
+        else delete process.env[INDEX_ENV];
+
         if (fs.existsSync(stateFilePath)) fs.unlinkSync(stateFilePath);
         if (fs.existsSync(artifactFilePath)) fs.unlinkSync(artifactFilePath);
+        if (fs.existsSync(indexFilePath)) fs.unlinkSync(indexFilePath);
     }
 }
