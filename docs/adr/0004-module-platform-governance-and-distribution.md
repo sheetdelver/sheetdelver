@@ -242,6 +242,11 @@ In progress.
 - Preserved existing local/direct source behavior while enabling indexed metadata-driven permissions and artifact verification inputs.
 - Extended governance tests to cover indexed source resolution and policy enforcement paths.
 
+3. Slice 3: Dry-Run and Impact Analysis (Completed)
+- Added non-mutating dry-run evaluation paths for install and upgrade manager operations.
+- Added dependency/conflict impact previews, trust-policy outcomes, artifact verification previews, and permission escalation previews.
+- Added admin dry-run endpoints for install and upgrade previews.
+- Added dry-run unit coverage that verifies preview behavior and confirms no lifecycle/artifact mutation.
+
 Remaining slices:
-- Slice 3: Dry-run and impact analysis.
 - Slice 4: Tests, telemetry, and hardening.

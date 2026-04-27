@@ -490,6 +490,88 @@ export function createAdminRouter(deps: AdminRouterDeps) {
     }
 
     /**
+     * POST /admin/api/manager/:moduleId/dry-run/install
+     * Preview install impact (no mutation).
+     */
+    adminRouter.post(
+        '/manager/:moduleId/dry-run/install',
+        requireAdminAccountExists,
+        requireAdminAuth,
+        requireAdminCsrf,
+        auditAdminAction,
+        async (req, res) => {
+            try {
+                const moduleId = Array.isArray(req.params.moduleId)
+                    ? req.params.moduleId[0]
+                    : req.params.moduleId;
+                const source = typeof req.body?.source === 'string' ? req.body.source : `local://${moduleId}`;
+                const version = typeof req.body?.version === 'string' ? req.body.version : undefined;
+                const integrity = typeof req.body?.integrity === 'string' ? req.body.integrity : undefined;
+                const signature = typeof req.body?.signature === 'string' ? req.body.signature : undefined;
+                const permissions = typeof req.body?.permissions === 'object' ? req.body.permissions : undefined;
+
+                const { dryRunInstallManagedModule } = await import('@modules/registry/server');
+                const preview = dryRunInstallManagedModule({
+                    moduleId,
+                    source,
+                    version,
+                    integrity,
+                    signature,
+                    permissions,
+                });
+
+                res.json(preview);
+            } catch (error: unknown) {
+                logger.error(`Failed to dry-run install for module ${req.params.moduleId}`, error);
+                res.status(500).json({ error: getErrorMessage(error) });
+            }
+        }
+    );
+
+    /**
+     * POST /admin/api/manager/:moduleId/dry-run/upgrade
+     * Preview upgrade impact (no mutation).
+     */
+    adminRouter.post(
+        '/manager/:moduleId/dry-run/upgrade',
+        requireAdminAccountExists,
+        requireAdminAuth,
+        requireAdminCsrf,
+        auditAdminAction,
+        async (req, res) => {
+            try {
+                const moduleId = Array.isArray(req.params.moduleId)
+                    ? req.params.moduleId[0]
+                    : req.params.moduleId;
+                const source = typeof req.body?.source === 'string' ? req.body.source : `local://${moduleId}`;
+                const targetVersion = typeof req.body?.targetVersion === 'string'
+                    ? req.body.targetVersion
+                    : undefined;
+                const integrity = typeof req.body?.integrity === 'string' ? req.body.integrity : undefined;
+                const signature = typeof req.body?.signature === 'string' ? req.body.signature : undefined;
+                const permissions = typeof req.body?.permissions === 'object' ? req.body.permissions : undefined;
+                const approvePermissionEscalation = req.body?.approvePermissionEscalation === true;
+
+                const { dryRunUpgradeManagedModule } = await import('@modules/registry/server');
+                const preview = dryRunUpgradeManagedModule({
+                    moduleId,
+                    source,
+                    targetVersion,
+                    integrity,
+                    signature,
+                    permissions,
+                    approvePermissionEscalation,
+                });
+
+                res.json(preview);
+            } catch (error: unknown) {
+                logger.error(`Failed to dry-run upgrade for module ${req.params.moduleId}`, error);
+                res.status(500).json({ error: getErrorMessage(error) });
+            }
+        }
+    );
+
+    /**
      * POST /admin/api/manager/:moduleId/install
      * Install a discovered module and transition it through installed->validated.
      */

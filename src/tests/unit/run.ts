@@ -29,6 +29,7 @@ import { run as runModuleCompatibilityMatrix } from './module-compatibility-matr
 import { run as runModuleCompatibilityLifecycleIntegration } from './module-compatibility-lifecycle-integration.test';
 import { run as runModuleIndexModel } from './module-index-model.test';
 import { run as runModuleSourceAdapters } from './module-source-adapters.test';
+import { run as runModuleManagerDryRun } from './module-manager-dry-run.test';
 
 async function runAllUnitTests() {
     runStatusSanitize();
@@ -62,6 +63,7 @@ async function runAllUnitTests() {
     await runModuleCompatibilityLifecycleIntegration();
     runModuleIndexModel();
     runModuleSourceAdapters();
+    await runModuleManagerDryRun();
 }
 
 runAllUnitTests()
