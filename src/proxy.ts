@@ -7,7 +7,7 @@ function isLocalHostname(hostname: string): boolean {
   return LOCAL_HOSTNAMES.has(hostname.toLowerCase());
 }
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
   if (!pathname.startsWith('/admin') && !pathname.startsWith('/api/admin')) {
     return NextResponse.next();
