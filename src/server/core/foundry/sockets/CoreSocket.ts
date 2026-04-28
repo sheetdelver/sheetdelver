@@ -14,7 +14,7 @@ import path from 'node:path';
 
 
 export class CoreSocket extends SocketBase implements FoundryMetadataClient {
-    public worldState: 'offline' | 'setup' | 'startup' | 'active' = 'offline';
+    public worldState: 'offline' | 'setup' | 'startup' | 'active' | 'closed' = 'offline';
     public cachedWorldData: WorldData | null = null;
     public cachedWorlds: Record<string, WorldData> = {};
     private adapter: SystemAdapter | null = null;
@@ -339,11 +339,11 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
                     logger.info(`CoreSocket | Resolved Service Account ID: ${this.userId} (Username: ${this.config.username})`);
                 } else {
                     // The world is running but the service account doesn't exist in it.
-                    // Surface world info and retry on a longer interval so we don't hammer the server.
-                    const availableUsers = Array.from(this.userMap.values()).map((u: any) => u.name).join(', ');
-                    logger.warn(`CoreSocket | Service account "${this.config.username}" not found in world "${this.probeWorldData?.title || 'unknown'}". Available users: [${availableUsers || 'none'}]. Retrying in 15s...`);
-                    this.worldState = 'startup';  // World is alive; we just can't authenticate
-                    setTimeout(() => this.connect(), 15000);
+                    // Surface world info and halt retries until admin intervention.
+                    const availableUsers = Array.from(this.userMap.values()).map((u: any) => `${u.name} (role: ${u.role})`).join(', ');
+                    logger.error(`CoreSocket | Service account "${this.config.username}" not found in world "${this.probeWorldData?.title || 'unknown'}".\nAvailable users: [${availableUsers || 'none'}].\nWorld state set to 'closed'. No further retries until admin action.\nAdmin action required: Create or configure the service account in Foundry, then trigger a manual retry from the admin backend.`);
+                    this.worldState = 'closed'; // New state for unavailable world
+                    // Optionally, emit an event or notify admin backend here
                     return;
                 }
             }

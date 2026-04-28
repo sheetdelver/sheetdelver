@@ -15,6 +15,8 @@ export function createApp(config: AppConfig): AppRuntime {
     const corsOriginPolicy = config.security.cors.allowAllOrigins ? true : config.security.cors.allowedOrigins;
 
     const app = express();
+    // Trust proxy headers (safe if always behind a trusted proxy)
+    app.set('trust proxy', true);
     app.use(express.json({ limit: config.security.bodyLimit }));
     app.use(cors({ origin: corsOriginPolicy }));
 

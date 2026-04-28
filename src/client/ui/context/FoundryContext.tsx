@@ -154,7 +154,8 @@ export function FoundryProvider({ children }: { children: ReactNode }) {
             if (!configured) return 'setup';
             const worldTitle = data.system?.worldTitle;
 
-            // Priority 1: Explicit System States (Setup/Offline/Startup)
+            // Priority 1: Explicit System States (Setup/Offline/Startup/Closed)
+            if (status === 'closed') return 'world-closed';
             if (status === 'setup') return 'world-closed';
             if (status === 'offline') {
                 // If we discovered a world title during the probe, we are in 'startup'

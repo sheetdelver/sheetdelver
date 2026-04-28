@@ -35,7 +35,7 @@ export function createStatusService(deps: StatusServiceDeps) {
         const systemClient = systemService.getSystemClient() as unknown as FoundrySystemClientLike;
         let system: SystemStatusPayload['system'] = {
             id: null,
-            status: systemClient.worldState,
+            status: systemClient.worldState === 'closed' ? 'closed' : systemClient.worldState,
             worldTitle: 'Reconnecting...'
         };
         let users: FoundryUserLike[] = [];
@@ -63,7 +63,7 @@ export function createStatusService(deps: StatusServiceDeps) {
                         })()
                     ),
                     nextSession: gameData.world?.nextSession,
-                    status: systemClient.worldState === 'active' ? 'active' : systemClient.worldState,
+                    status: systemClient.worldState === 'closed' ? 'closed' : (systemClient.worldState === 'active' ? 'active' : systemClient.worldState),
                     actorSyncToken: systemClient.lastActorChange,
                     users: { active: activeCount, total: totalCount }
                 };

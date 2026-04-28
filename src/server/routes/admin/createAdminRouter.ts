@@ -764,5 +764,23 @@ export function createAdminRouter(deps: AdminRouterDeps) {
         }
     );
 
+    // Manual retry endpoint for world connection/bootstrap (admin only)
+    adminRouter.post('/world/retry', requireAdminAccountExists, requireAdminAuth, requireAdminCsrf, auditAdminAction, async (req, res) => {
+        try {
+            const { systemService } = await import('@core/system/SystemService');
+            // Only allow retry if world is closed
+            const client = systemService.getSystemClient();
+            if (client && client.worldState === 'closed') {
+                await client.connect();
+                res.json({ success: true, message: 'Manual retry triggered. Attempting to reconnect to world.' });
+            } else {
+                res.status(400).json({ error: 'World is not in a closed state. Retry not allowed.' });
+            }
+        } catch (error: unknown) {
+            logger.error('Manual world retry failed', error);
+            res.status(500).json({ error: getErrorMessage(error) });
+        }
+    });
+
     return adminRouter;
 }
