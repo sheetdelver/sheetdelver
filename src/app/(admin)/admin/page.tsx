@@ -4,6 +4,7 @@ import { useAdminAuth } from '../context/AdminAuthContext';
 import AdminLoginForm from '../components/AdminLoginForm';
 import ModuleLifecycleControl from '../components/ModuleLifecycleControl';
 import AdminThemeToggle from '../components/AdminThemeToggle';
+import SystemInfoCard from '../components/SystemInfoCard';
 
 export default function AdminPage() {
   const { isAuthenticated, loading, accountExists, logout } = useAdminAuth();
@@ -36,6 +37,12 @@ export default function AdminPage() {
             >
               Logout
             </button>
+          </div>
+        </div>
+
+        <div className="mb-8">
+          <div className="admin-panel rounded-[28px] p-6 shadow-[0_24px_80px_rgba(15,23,42,0.18)]">
+            <SystemInfoCard />
           </div>
         </div>
 

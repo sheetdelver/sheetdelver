@@ -100,20 +100,20 @@ export function createAdminRouter(deps: AdminRouterDeps) {
             const account = await createAdminAccount(password);
             logger.info(`Admin account created with ID: ${account.adminId}`);
 
-                // Issue admin session token (same as login)
-                const sessionDurationMs = 15 * 60 * 1000; // 15 minutes
-                const claims = createAdminSessionClaims(account.adminId, sessionDurationMs);
-                const token = adminSessionManager.storeSession(claims);
+            // Issue admin session token (same as login)
+            const sessionDurationMs = 15 * 60 * 1000; // 15 minutes
+            const claims = createAdminSessionClaims(account.adminId, sessionDurationMs);
+            const token = adminSessionManager.storeSession(claims);
 
-                // Return token so user is immediately authenticated
-                res.json({
-                    success: true,
-                    message: 'Admin account created successfully',
-                    adminId: account.adminId,
-                    token,
-                    csrfToken: claims.csrfToken,
-                    expiresIn: sessionDurationMs,
-                });
+            // Return token so user is immediately authenticated
+            res.json({
+                success: true,
+                message: 'Admin account created successfully',
+                adminId: account.adminId,
+                token,
+                csrfToken: claims.csrfToken,
+                expiresIn: sessionDurationMs,
+            });
         } catch (error: unknown) {
             logger.error('Admin setup failed', error);
             res.status(500).json({ error: getErrorMessage(error) });
@@ -234,23 +234,23 @@ export function createAdminRouter(deps: AdminRouterDeps) {
     // Existing Admin Routes (guarded by account existence check + admin auth)
     // ============
 
-        /**
-         * GET /admin/auth/status
-         * Check if admin account exists (used to determine setup vs login flow)
-         * No auth required - public endpoint to determine app state
-         */
-        adminRouter.get('/auth/status', async (req, res) => {
-            try {
-                const account = await loadAdminAccount();
-                res.json({
-                    success: true,
-                    accountExists: !!account,
-                });
-            } catch (error: unknown) {
-                logger.error('Failed to check admin account status', error);
-                res.status(500).json({ error: getErrorMessage(error) });
-            }
-        });
+    /**
+     * GET /admin/auth/status
+     * Check if admin account exists (used to determine setup vs login flow)
+     * No auth required - public endpoint to determine app state
+     */
+    adminRouter.get('/auth/status', async (req, res) => {
+        try {
+            const account = await loadAdminAccount();
+            res.json({
+                success: true,
+                accountExists: !!account,
+            });
+        } catch (error: unknown) {
+            logger.error('Failed to check admin account status', error);
+            res.status(500).json({ error: getErrorMessage(error) });
+        }
+    });
 
     // Apply auth middleware to mutation endpoints
     // Order: localhost -> account exists -> admin auth -> csrf -> audit
@@ -770,8 +770,9 @@ export function createAdminRouter(deps: AdminRouterDeps) {
             const { systemService } = await import('@core/system/SystemService');
             // Only allow retry if world is closed
             const client = systemService.getSystemClient();
-            if (client && client.worldState === 'closed') {
+            if (client && (client.worldState === 'closed')) {
                 await client.connect();
+                // client.emit('connect');
                 res.json({ success: true, message: 'Manual retry triggered. Attempting to reconnect to world.' });
             } else {
                 res.status(400).json({ error: 'World is not in a closed state. Retry not allowed.' });
