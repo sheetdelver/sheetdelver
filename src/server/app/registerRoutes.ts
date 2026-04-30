@@ -22,8 +22,9 @@ import { createSystemRouteFoundryClient } from '@server/shared/utils/createRoute
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
 import { logger } from '@shared/utils/logger';
 import { getAdapter } from '@modules/registry/server';
+import { SystemStatusPayload } from '@/shared/contracts/status';
 
-type GetSystemStatusPayload = () => Promise<any>;
+type GetSystemStatusPayload = () => Promise<SystemStatusPayload>;
 
 interface RegisterRoutesDeps {
     app: express.Express;
@@ -61,8 +62,11 @@ export function registerRoutes(deps: RegisterRoutesDeps): void {
 
             const basePayload = await deps.getSystemStatusPayload();
 
+            // Strip user identity data from public (unauthenticated) responses.
+            // User IDs, names, roles, and online status should not be exposed without a valid session.
             res.json({
                 ...basePayload,
+                users: isAuthenticated ? basePayload.users : [],
                 isAuthenticated,
                 currentUserId: userSession?.userId || null
             });

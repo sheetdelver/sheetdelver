@@ -10,6 +10,10 @@ interface SystemStatusBroadcasterDeps {
 
 export function createSystemStatusBroadcaster(deps: SystemStatusBroadcasterDeps) {
     // Shared broadcaster used by lifecycle hooks, polling, and socket relays.
+    // All socket-connected clients receive the full payload including user data.
+    // The login form requires user list for the player dropdown, and the dashboard
+    // needs it for current user resolution. The REST /api/status endpoint handles
+    // auth-gating separately to prevent unauthenticated API scraping.
     const broadcastSystemStatus = async () => {
         const payload = await deps.getSystemStatusPayload();
         deps.io.emit('systemStatus', payload);

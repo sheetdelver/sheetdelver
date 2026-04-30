@@ -67,7 +67,10 @@ export function registerAppSocketGateway({
         // Inform SystemService of engagement for adaptive heartbeat
         systemService.getSystemClient().updateActiveBrowserCount(clientCount);
 
-        // Initial setup for this specific socket connection
+        // Initial setup for this specific socket connection.
+        // Socket clients receive the full payload including users — the login form
+        // requires the user list for the player dropdown. The REST /api/status endpoint
+        // handles auth-gating separately to prevent unauthenticated API scraping.
         const payload = await getSystemStatusPayload();
         socket.emit('systemStatus', payload);
 

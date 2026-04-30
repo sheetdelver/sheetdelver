@@ -1,33 +1,7 @@
 import { logger } from '@/shared/utils/logger';
 import { useState, useEffect } from 'react';
 import { adminApiPath } from '../lib/adminApi';
-
-interface SystemInfo {
-    connected: boolean,
-    worldId: string | null,
-    initialized: boolean,
-    isConfigured: boolean,
-    users: [],
-    system: {
-        id: string,
-        status: string,
-        worldTitle: string,
-        worldDescription: string | null,
-        users: {
-            active: number,
-            total: number
-        },
-        appVersion: string,
-        version: string
-    },
-    url: string,
-    debug: {
-        enabled: boolean,
-        level: number
-    },
-    isAuthenticated: boolean,
-    currentUserId: string | null
-}
+import { SystemStatusPayload } from '@/shared/contracts/status';
 
 async function GetSystemInfo() {
     const storedToken = localStorage.getItem('admin-token');
@@ -42,10 +16,10 @@ async function GetSystemInfo() {
 
         if (response.ok) {
             const data = await response.json();
-            return data as SystemInfo;
+            return data as SystemStatusPayload;
         }
     }
-    return {} as SystemInfo;
+    return {} as SystemStatusPayload;
 }
 
 function createBadge(message: string, type: 'info' | 'warning' | 'error' | 'success') {
@@ -77,7 +51,7 @@ function createCard(title: string, message: string) {
 }
 
 export default function SystemInfoCard() {
-    const [system, setSystem] = useState<SystemInfo>({} as SystemInfo);
+    const [system, setSystem] = useState<SystemStatusPayload>({} as SystemStatusPayload);
 
     useEffect(() => {
         GetSystemInfo().then((data) => setSystem(data));
@@ -100,8 +74,8 @@ export default function SystemInfoCard() {
             {createCard(`Current Status`, worldStatus)}
             {createCard(`Initialized`, system?.initialized ? 'Yes' : 'No')}
             {createCard(`Configured`, system?.isConfigured ? 'Yes' : 'No')}
-            {createCard(`Total Users`, system?.system?.users?.total.toString())}
-            {createCard(`Active Users`, system?.system?.users?.active.toString())}
+            {createCard(`Total Users`, system?.system?.users?.total?.toString() ?? 'Unknown')}
+            {createCard(`Active Users`, system?.system?.users?.active?.toString() ?? 'Unknown')}
             {createCard(`Debug`, system?.debug?.enabled ? 'Yes' : 'No')}
             <div className="col-span-full">
                 {connected ? createBadge(`Connected to ${system?.url}`, 'success') : createBadge(`Disconnected from ${system?.url || "Unknown"}`, 'error')}
