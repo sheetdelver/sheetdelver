@@ -31,7 +31,6 @@ export interface CacheData {
 
 const CACHE_NS = 'core';
 const CACHE_KEY = 'worlds';
-const LEGACY_CACHE_FILE = path.join(process.cwd(), '.foundry-cache.json');
 const CACHE_MAX_AGE_DAYS = 7;
 
 export class SetupManager {

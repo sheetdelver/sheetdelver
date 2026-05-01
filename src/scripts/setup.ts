@@ -7,8 +7,13 @@ import path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import yaml from 'js-yaml';
 import { logger } from '../shared/utils/logger';
+import { resolveDataDir, initDataDir, getConfigFilePath, getDataDir } from '../server/core/paths';
 
-const SETTINGS_PATH = path.join(process.cwd(), 'settings.yaml');
+// Resolve and initialize data directory before anything else
+const dataDir = resolveDataDir(process.argv);
+initDataDir(dataDir);
+
+const SETTINGS_PATH = getConfigFilePath();
 
 function generateServiceToken(): string {
     return randomBytes(32).toString('hex');
@@ -171,9 +176,17 @@ async function main() {
     };
 
     const yamlStr = yaml.dump(config);
+
+    // Ensure config directory exists before writing
+    const configDir = path.dirname(SETTINGS_PATH);
+    if (!fs.existsSync(configDir)) {
+        fs.mkdirSync(configDir, { recursive: true });
+    }
+
     fs.writeFileSync(SETTINGS_PATH, yamlStr, 'utf8');
 
-    logger.info('\n\x1b[32mConfiguration saved to settings.yaml\x1b[0m');
+    logger.info(`\n\x1b[32mConfiguration saved to ${SETTINGS_PATH}\x1b[0m`);
+    logger.info(`Data directory: ${getDataDir()}`);
     logger.info('You can now run:');
     logger.info('  npm run dev      (Development)');
     logger.info('  npm run build && npm start (Production)');

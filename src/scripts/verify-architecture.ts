@@ -1,16 +1,21 @@
 
-import { CoreSocket } from '@core/foundry/sockets/CoreSocket';
-import { ClientSocket } from '@core/foundry/sockets/ClientSocket';
+import { CoreSocket } from '../server/core/foundry/sockets/CoreSocket';
+import { ClientSocket } from '../server/core/foundry/sockets/ClientSocket';
 import fs from 'fs';
 import path from 'path';
 import yaml from 'js-yaml';
-import { logger } from '@shared/utils/logger';
+import { logger } from '../shared/utils/logger';
+import { resolveDataDir, initDataDir, getConfigFilePath } from '../server/core/paths';
 
 // Set logger to info for visibility
 (logger as any).level = 'info';
 
+// Resolve data directory for config access
+const dataDir = resolveDataDir(process.argv);
+initDataDir(dataDir);
+
 const loadSettings = () => {
-    const settingsPath = path.resolve(process.cwd(), 'settings.yaml');
+    const settingsPath = getConfigFilePath();
     const fileContents = fs.readFileSync(settingsPath, 'utf8');
     return yaml.load(fileContents) as any;
 };

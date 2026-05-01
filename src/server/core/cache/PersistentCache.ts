@@ -1,4 +1,5 @@
 import { logger } from '@shared/utils/logger';
+import { getCacheDir } from '@core/paths';
 
 // Browser-safe Dynamic Imports
 let fs: any = null;
@@ -43,18 +44,11 @@ export class PersistentCache {
         this.initPromise = (async () => {
             if (await loadDeps()) {
                 try {
-                    // Detect if running in Next.js standalone mode
-                    // Standalone builds run from .next/standalone, but data might be in project root
-                    let rootDir = process.cwd();
-                    if (rootDir.endsWith(path.join('.next', 'standalone'))) {
-                        rootDir = path.resolve(rootDir, '..', '..');
-                        logger.info(`PersistentCache | Detected standalone mode. Adjusting root to: ${rootDir}`);
-                    }
-
-                    this.baseDir = path.join(rootDir, '.data', 'cache');
+                    // Use the centralized data directory resolver for cache storage
+                    this.baseDir = getCacheDir();
 
                     if (process.env.DEBUG) {
-                        logger.info(`PersistentCache | Initialized with base directory: ${this.baseDir} (Original CWD: ${process.cwd()})`);
+                        logger.info(`PersistentCache | Initialized with base directory: ${this.baseDir}`);
                     }
 
                     if (!fs.existsSync(this.baseDir)) {

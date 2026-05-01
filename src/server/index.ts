@@ -1,3 +1,4 @@
+import { resolveDataDir, initDataDir, checkLegacyPaths, getDataDir } from '@core/paths';
 import { loadConfig } from '@core/config';
 import { logger } from '@shared/utils/logger';
 import { initializeRegistry } from '@modules/registry/server';
@@ -10,6 +11,18 @@ import { registerSockets } from '@server/app/registerSockets';
 import { registerRoutes } from '@server/app/registerRoutes';
 
 async function startServer() {
+    // Resolve and initialize the data directory before anything else.
+    // All path getters (getCacheDir, getConfigFilePath, etc.) depend on this.
+    const dataDir = resolveDataDir(process.argv);
+    initDataDir(dataDir);
+    logger.info(`Core Service | Data directory: ${getDataDir()}`);
+
+    // Check for legacy data paths and warn the operator
+    const legacyWarnings = checkLegacyPaths();
+    for (const msg of legacyWarnings) {
+        logger.warn(msg);
+    }
+
     const config = await loadConfig();
     if (!config) {
         logger.error('Core Service | Could not load configuration. Exiting.');

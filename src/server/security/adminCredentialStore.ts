@@ -3,10 +3,10 @@ import path from 'node:path';
 import { hash, verify } from 'argon2';
 import { logger } from '@shared/utils/logger';
 import type { AdminAccount } from './types/admin-auth.types';
+import { getSecurityDir } from '@core/paths';
 
-const DATA_DIR = '.data';
-const SECURITY_DIR = path.join(DATA_DIR, 'security');
-const ADMIN_AUTH_FILE = path.join(SECURITY_DIR, 'admin-auth.json');
+/** Returns the admin auth file path within the resolved security directory. */
+const getAdminAuthFile = () => path.join(getSecurityDir(), 'admin-auth.json');
 
 // Optional pepper from env; if set, included during hash verification but never stored
 let _adminPepper: string | undefined;
@@ -19,13 +19,14 @@ export function initAdminCredentialStore(pepper?: string): void {
 }
 
 /**
- * Ensures the .data/security directory exists.
+ * Ensures the security directory exists within the data directory.
  */
 async function ensureSecurityDir(): Promise<void> {
+    const securityDir = getSecurityDir();
     try {
-        await fs.mkdir(SECURITY_DIR, { recursive: true });
+        await fs.mkdir(securityDir, { recursive: true });
     } catch (error) {
-        logger.error(`Failed to create security directory at ${SECURITY_DIR}`, error);
+        logger.error(`Failed to create security directory at ${securityDir}`, error);
         throw error;
     }
 }
@@ -50,8 +51,9 @@ async function setRestrictivePermissions(filePath: string): Promise<void> {
  * Returns null if account does not exist.
  */
 export async function loadAdminAccount(): Promise<AdminAccount | null> {
+    const adminAuthFile = getAdminAuthFile();
     try {
-        const fileContents = await fs.readFile(ADMIN_AUTH_FILE, 'utf8');
+        const fileContents = await fs.readFile(adminAuthFile, 'utf8');
         const account = JSON.parse(fileContents) as AdminAccount;
         return account;
     } catch (error: any) {
@@ -59,7 +61,7 @@ export async function loadAdminAccount(): Promise<AdminAccount | null> {
         if (error?.code === 'ENOENT') {
             return null;
         }
-        logger.error(`Failed to load admin account from ${ADMIN_AUTH_FILE}`, error);
+        logger.error(`Failed to load admin account from ${adminAuthFile}`, error);
         throw error;
     }
 }
@@ -68,13 +70,14 @@ export async function loadAdminAccount(): Promise<AdminAccount | null> {
  * Save the admin account to disk with restrictive permissions.
  */
 export async function saveAdminAccount(account: AdminAccount): Promise<void> {
+    const adminAuthFile = getAdminAuthFile();
     try {
         await ensureSecurityDir();
         const fileContents = JSON.stringify(account, null, 2);
-        await fs.writeFile(ADMIN_AUTH_FILE, fileContents, 'utf8');
-        await setRestrictivePermissions(ADMIN_AUTH_FILE);
+        await fs.writeFile(adminAuthFile, fileContents, 'utf8');
+        await setRestrictivePermissions(adminAuthFile);
     } catch (error) {
-        logger.error(`Failed to save admin account to ${ADMIN_AUTH_FILE}`, error);
+        logger.error(`Failed to save admin account to ${adminAuthFile}`, error);
         throw error;
     }
 }

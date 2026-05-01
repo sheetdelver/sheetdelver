@@ -73,7 +73,34 @@ SheetDelver follows a **Hardened 4-Folder Root** architecture with a strict **Lo
 - **Foundry VTT**: Valid instance (v13+ recommended)
 
 ### Configuration
-Create a `settings.yaml` file in the root directory. This file is ignored by git.
+SheetDelver stores all runtime data (configuration, cache, credentials, module state, logs) in a **data directory**.
+
+#### Data Directory Resolution
+
+The data directory is resolved at startup in this order:
+
+1. `--data-dir=/path` CLI argument
+2. `SHEET_DELVER_DATA` environment variable (or `DATA_DIR` / `USER_DATA`)
+3. `./data/` (relative to CWD — development default)
+4. `~/.sheet-delver/` (home directory)
+
+If none exist, `./data/` is created automatically.
+
+#### Data Directory Structure
+
+```
+data/
+├── config/
+│   └── settings.yaml          # Application configuration
+├── cache/                      # Persistent cache (worlds, sessions)
+├── security/                   # Admin credentials and audit log
+├── modules/                    # Module lifecycle state and artifacts
+└── logs/                       # Application logs (future use)
+```
+
+#### settings.yaml
+
+The main configuration file lives at `<DATA_DIR>/config/settings.yaml`.
 
 ```yaml
 # settings.yaml
@@ -147,14 +174,17 @@ Debug API surface follows the existing debug switch:
     ```
 2.  **Run Setup Wizard**:
     ```bash
-    npm run setup
+    npm run setup                         # Uses default ./data/
+    npm run setup -- --data-dir=/custom   # Custom data directory
     ```
-    *Follow the prompts to configure your Foundry connection. The setup wizard auto-generates both `security.service-token` and `security.admin-setup-token` in `settings.yaml`.*
+    *Follow the prompts to configure your Foundry connection. The setup wizard auto-generates both `security.service-token` and `security.admin-setup-token` in `settings.yaml`, stored at `<DATA_DIR>/config/settings.yaml`.*
 
 3.  **Start the Application**:
     -   **Development**:
         ```bash
-        npm run dev
+        npm run dev                              # Uses default ./data/
+        npm run dev -- --data-dir=/custom         # Custom data directory
+        SHEET_DELVER_DATA=/custom npm run dev     # Via environment variable
         ```
     -   **Production**:
         ```bash
@@ -182,9 +212,34 @@ Debug API surface follows the existing debug switch:
     pm2 save
     ```
 
+    Configure the data directory in `ecosystem.config.cjs` via the `SHEET_DELVER_DATA` environment variable.
+
 6.  **Open**: Navigate to the URL shown in the setup output (typically [http://localhost:3000](http://localhost:3000)).
 
 *Note: The startup process automatically manages both the backend service and the frontend web server.*
+
+### Migrating from Previous Versions
+
+If upgrading from a version that used `.data/` in the project root and `settings.yaml` at the CWD:
+
+```bash
+# 1. Create the new data directory structure
+mkdir -p data/{config,cache,security,modules,logs}
+
+# 2. Move configuration
+mv settings.yaml data/config/
+
+# 3. Move persistent data
+mv .data/cache/* data/cache/
+mv .data/security/* data/security/
+mv .data/modules/* data/modules/
+
+# 4. Remove legacy paths
+rm -rf .data/
+rm -f .foundry-cache.json .foundry-session.json
+```
+
+The application will warn if legacy paths are detected at startup.
 
 ### Admin CLI
 SheetDelver includes a command-line interface for managing the Core Service and world data.

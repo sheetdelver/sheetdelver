@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { getModulesDataDir } from '@core/paths';
 import type { ModuleArtifactMetadata } from './manager';
 import type { ArtifactVerificationOutcome } from './artifactVerification';
 
@@ -10,7 +11,7 @@ export interface ModuleArtifactStore {
 }
 
 export function getDefaultArtifactStoreFilePath(): string {
-    return path.join(process.cwd(), '.data', 'modules', 'artifacts.json');
+    return path.join(getModulesDataDir(), 'artifacts.json');
 }
 
 function createEmptyArtifactStore(): ModuleArtifactStore {

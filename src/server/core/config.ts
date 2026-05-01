@@ -5,6 +5,7 @@ const getYaml = async () => (typeof window === 'undefined' ? await import('js-ya
 
 import { AppConfig } from '@shared/interfaces';
 import { logger } from '@shared/utils/logger';
+import { getConfigFilePath } from '@core/paths';
 
 let _cachedConfig: AppConfig | null = null;
 
@@ -95,7 +96,8 @@ export async function loadConfig(): Promise<AppConfig | null> {
     }
 
     try {
-        const configPath = path.resolve(process.cwd(), 'settings.yaml');
+        // Read settings.yaml from the resolved data directory (<DATA_DIR>/config/settings.yaml)
+        const configPath = getConfigFilePath();
         const fileContents = await fs.readFile(configPath, 'utf8');
         const doc = yaml.load(fileContents) as any;
 
@@ -199,7 +201,10 @@ export async function loadConfig(): Promise<AppConfig | null> {
             return _cachedConfig;
         }
     } catch (e) {
-        logger.error('\n\x1b[31m[Config] Error: settings.yaml not found or invalid.\x1b[0m');
+        let configLocation = '<unknown>';
+        try { configLocation = getConfigFilePath(); } catch { /* paths not initialized */ }
+        logger.error(`\n\x1b[31m[Config] Error: settings.yaml not found or invalid at ${configLocation}.\x1b[0m`);
+        logger.error(`[Config] Run 'npm run setup' or provide --data-dir to specify the data directory.`);
         if (typeof process !== 'undefined' && process.exit) {
             process.exit(1);
         }

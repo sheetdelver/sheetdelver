@@ -2,10 +2,10 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { logger } from '@shared/utils/logger';
+import { getSecurityDir } from '@core/paths';
 
-const DATA_DIR = '.data';
-const SECURITY_DIR = path.join(DATA_DIR, 'security');
-const ADMIN_AUDIT_FILE = path.join(SECURITY_DIR, 'admin-audit.ndjson');
+/** Returns the admin audit file path within the resolved security directory. */
+const getAuditFile = () => path.join(getSecurityDir(), 'admin-audit.ndjson');
 
 export interface AdminAuditEvent {
     eventId: string;
@@ -21,7 +21,7 @@ export interface AdminAuditEvent {
 }
 
 async function ensureSecurityDir(): Promise<void> {
-    await fs.mkdir(SECURITY_DIR, { recursive: true });
+    await fs.mkdir(getSecurityDir(), { recursive: true });
 }
 
 async function setRestrictivePermissions(filePath: string): Promise<void> {
@@ -43,8 +43,9 @@ export async function appendAdminAuditEvent(input: Omit<AdminAuditEvent, 'eventI
 
     try {
         await ensureSecurityDir();
-        await fs.appendFile(ADMIN_AUDIT_FILE, JSON.stringify(event) + '\n', 'utf8');
-        await setRestrictivePermissions(ADMIN_AUDIT_FILE);
+        const auditFile = getAuditFile();
+        await fs.appendFile(auditFile, JSON.stringify(event) + '\n', 'utf8');
+        await setRestrictivePermissions(auditFile);
     } catch (error) {
         logger.error('Failed to append admin audit event', error);
     }
@@ -54,7 +55,7 @@ export async function listAdminAuditEvents(limit = 100): Promise<AdminAuditEvent
     const safeLimit = Math.max(1, Math.min(500, Number.isFinite(limit) ? Math.floor(limit) : 100));
 
     try {
-        const raw = await fs.readFile(ADMIN_AUDIT_FILE, 'utf8');
+        const raw = await fs.readFile(getAuditFile(), 'utf8');
         const lines = raw.split('\n').filter((line) => line.trim().length > 0);
 
         const parsed: AdminAuditEvent[] = [];

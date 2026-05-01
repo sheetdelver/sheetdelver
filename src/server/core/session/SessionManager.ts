@@ -25,8 +25,6 @@ export class SessionManager {
     private readonly SESSION_TIMEOUT_MS = 1000 * 60 * 60 * 24; // 24 Hours
     private readonly CACHE_NS = 'core';
     private readonly CACHE_KEY = 'sessions';
-    private LEGACY_SESSIONS_FILE = '';
-    private readonly SYSTEM_SESSION_KEY = 'SYSTEM_SERVICE_ACCOUNT';
     private isSaving: boolean = false;
 
     private readonly RESTORE_RETRY_BASE_DELAY_MS = 300;
@@ -44,22 +42,7 @@ export class SessionManager {
     }
 
     public async initialize() {
-        this.LEGACY_SESSIONS_FILE = path.join(process.cwd(), '.foundry-session.json');
-
         logger.info('SessionManager | Initializing Session storage...');
-
-        // 1. Check for legacy migration
-        if (fs.existsSync(this.LEGACY_SESSIONS_FILE)) {
-            try {
-                logger.info('SessionManager | Migrating legacy sessions to PersistentCache...');
-                const raw = fs.readFileSync(this.LEGACY_SESSIONS_FILE, 'utf-8');
-                const legacyData = JSON.parse(raw);
-                await persistentCache.set(this.CACHE_NS, this.CACHE_KEY, legacyData);
-                logger.info('SessionManager | Legacy session migration complete.');
-            } catch (e) {
-                logger.error('SessionManager | Legacy migration failed:', e);
-            }
-        }
     }
 
     public isCacheReady(): boolean {

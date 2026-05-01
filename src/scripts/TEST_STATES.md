@@ -13,7 +13,7 @@ This test verifies the **backend state detection logic** in `SocketFoundryClient
 ## Prerequisites
 
 1. **Foundry VTT** must be running and accessible
-2. **settings.yaml** must be configured with your Foundry URL and credentials
+2. **settings.yaml** must be configured at `<DATA_DIR>/config/settings.yaml` with your Foundry URL and credentials
 
 Note: `security.service-token` is for internal privileged API bearer flow and is not used as a Foundry login credential.
 
@@ -53,7 +53,7 @@ The test will guide you through the following scenarios:
 - **Verifies**: Shutdown detection works consistently
 
 ### 6. Malformed URL Handling
-- **Action**: Configure an invalid URL in settings.yaml and restart
+- **Action**: Configure an invalid URL in `<DATA_DIR>/config/settings.yaml` and restart
 - **Expected**: SheetDelver shows "No World Available" page with setup instructions
 - **Verifies**: Graceful handling of connection failures
 
@@ -68,7 +68,7 @@ The script will output:
 
 ### Test fails on Setup Mode Detection
 - Ensure Foundry is actually on the setup screen (no world running)
-- Check that `settings.yaml` has the correct Foundry URL
+- Check that `<DATA_DIR>/config/settings.yaml` has the correct Foundry URL
 - Verify the dev server is running
 
 ### Test fails on World Start Detection
@@ -93,4 +93,4 @@ All 6 tests should pass if the state machine is working correctly. If any tests 
 - The test uses the `/api/session/connect` endpoint to check state
 - Each test waits for state transitions with appropriate delays
 - The malformed URL test requires manual verification
-- Don't forget to restore your `settings.yaml` after the malformed URL test!
+- Don't forget to restore your `<DATA_DIR>/config/settings.yaml` after the malformed URL test!

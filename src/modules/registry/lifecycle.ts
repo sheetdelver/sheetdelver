@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { getModulesDataDir } from '@core/paths';
 import type { ModuleContractDiagnostic, ModuleCoreConstraintDiagnostic } from './compatibilityResolver';
 
 export type ModuleLifecycleStatus =
@@ -61,7 +62,7 @@ export function createEmptyLifecycleStore(): ModuleLifecycleStore {
 }
 
 export function getDefaultLifecycleStateFilePath(): string {
-    return path.join(process.cwd(), '.data', 'modules', 'state.json');
+    return path.join(getModulesDataDir(), 'state.json');
 }
 
 function isValidStatus(value: unknown): value is ModuleLifecycleStatus {

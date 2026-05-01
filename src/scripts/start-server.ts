@@ -3,17 +3,22 @@ import fs from 'fs';
 import path from 'path';
 import yaml from 'js-yaml';
 import { spawn, ChildProcess } from 'child_process';
+import { resolveDataDir, initDataDir, getConfigFilePath, getCacheDir, getDataDir } from '../server/core/paths';
 
-const SETTINGS_PATH = path.join(process.cwd(), 'settings.yaml');
+// Resolve and initialize data directory before anything else
+const dataDir = resolveDataDir(process.argv);
+initDataDir(dataDir);
+
+const SETTINGS_PATH = getConfigFilePath();
 
 // Default settings
 let host = 'localhost';
 let port = 3000;
 let apiPort = 3001;
 
-// Read settings.yaml
+// Read settings.yaml from the data directory
 try {
-    logger.info(`[Manager] Current Working Directory: ${process.cwd()}`);
+    logger.info(`[Manager] Data directory: ${getDataDir()}`);
     logger.info(`[Manager] Looking for settings at: ${SETTINGS_PATH}`);
 
     if (fs.existsSync(SETTINGS_PATH)) {
@@ -29,22 +34,21 @@ try {
 
         logger.info(`[Manager] Loading configuration: App=${host}:${port}, API=${apiPort}`);
     } else {
-        logger.info('[Manager] No settings.yaml found, using defaults.');
+        logger.info(`[Manager] No settings.yaml found at ${SETTINGS_PATH}, using defaults.`);
     }
 } catch (e) {
     logger.error('[Manager] Error reading settings.yaml:', e);
 }
 
 // Determine command (dev or start)
-const args = process.argv.slice(2);
+const args = process.argv.slice(2).filter(a => !a.startsWith('--data-dir'));
 const command = args[0] || 'dev'; // Default to dev
 
 // Pre-flight Check: Ensure Cache Exists (Skip for build)
 if (command !== 'build') {
-    const CACHE_PATH = path.join(process.cwd(), '.data/cache/core/worlds.json');
-    const LEGACY_CACHE_PATH = path.join(process.cwd(), '.foundry-cache.json');
+    const CACHE_PATH = path.join(getCacheDir(), 'core', 'worlds.json');
 
-    if (!fs.existsSync(CACHE_PATH) && !fs.existsSync(LEGACY_CACHE_PATH)) {
+    if (!fs.existsSync(CACHE_PATH)) {
         logger.error('\n\x1b[31m[CRITICAL] Cache Missing: World data not found.\x1b[0m');
         logger.error('The application cannot start without initial world data.');
         logger.error('Please run the setup script to initialize the cache:');
@@ -88,7 +92,7 @@ async function start() {
     if (command === 'build') {
         logger.info(`[Manager] Building Application with API_PORT=${apiPort}...`);
         const nextCmd = path.join(process.cwd(), 'node_modules', '.bin', 'next');
-        const env = { ...process.env, API_PORT: apiPort.toString() };
+        const env = { ...process.env, API_PORT: apiPort.toString(), SHEET_DELVER_DATA: getDataDir() };
 
         const buildProcess = spawn(nextCmd, ['build'], {
             stdio: 'inherit',
@@ -111,7 +115,7 @@ async function start() {
 
     coreProcess = spawn('npx', ['-y', 'tsx', 'src/server/index.ts'], {
         stdio: 'inherit',
-        env: { ...process.env, PORT: apiPort.toString(), API_PORT: apiPort.toString() }
+        env: { ...process.env, PORT: apiPort.toString(), API_PORT: apiPort.toString(), SHEET_DELVER_DATA: getDataDir() }
     });
 
     coreProcess.on('error', (err) => {
@@ -135,9 +139,8 @@ async function start() {
     logger.info(`[Manager] Shell Service proxying API requests to Core Service on port ${apiPort}`);
     const nextCmd = path.join(process.cwd(), 'node_modules', '.bin', 'next');
 
-    // Pass API_PORT to Next.js so it knows where to proxy
-    // In dev mode, we also need to ensure the port is passed
-    const env = { ...process.env, PORT: port.toString(), HOSTNAME: host, API_PORT: apiPort.toString() };
+    // Pass API_PORT and SHEET_DELVER_DATA to Next.js so it knows where to proxy and find data
+    const env = { ...process.env, PORT: port.toString(), HOSTNAME: host, API_PORT: apiPort.toString(), SHEET_DELVER_DATA: getDataDir() };
 
     shellProcess = spawn(nextCmd, [command, '-H', host, '-p', port.toString()], {
         stdio: 'inherit',
