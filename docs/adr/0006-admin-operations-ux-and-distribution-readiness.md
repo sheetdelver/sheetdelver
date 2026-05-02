@@ -1,6 +1,6 @@
 # ADR-0006: Admin Operations UX and Distribution Readiness
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** April 29, 2026
 **Supersedes:** None
 **Related:** ADR-0001, ADR-0002, ADR-0003, ADR-0004, ADR-0005
@@ -111,6 +111,23 @@ Acceptance criteria:
 - World operations and audit log are accessible from admin UI
 - Error states display actionable, structured messages
 
+**Phase 27 completed: May 2, 2026**
+
+Delivered components:
+- `adminApi.ts` — typed API client with `adminFetch<T>()` wrapper, 14 interfaces, 8 typed functions, automatic auth/CSRF headers, 401 session expiry handling
+- `ModuleLifecycleControl.tsx` — enhanced module dashboard with color-coded status indicators, version badges, health summaries, expand/collapse per module
+- `ModuleDetailPanel.tsx` — expandable detail view showing artifact metadata, validation diagnostics, health data, and manager operations
+- `ManagerActionBar.tsx` — contextual action buttons (install/uninstall/upgrade/validate) with confirmation dialogs, dry-run previews, permission escalation approval
+- `DryRunPreview.tsx` — dry-run impact preview with trust policy, permissions, compatibility, and dependency analysis
+- `SystemInfoCard.tsx` — refactored to use admin API with 10s auto-refresh polling, loading skeletons, themed info cards
+- `WorldManagementPanel.tsx` — world list with launch/shutdown/retry controls
+- `CacheInfoPanel.tsx` — read-only cache state viewer with active world indicator
+- `AuditLogViewer.tsx` — paginated audit log table with action-type filtering, auto-refresh toggle, load-more pagination
+- `admin/page.tsx` — restructured dashboard with collapsible sections (chevron toggle), responsive layout
+- `createAdminRouter.ts` — expanded `/admin/lifecycle` response with validation diagnostics, health, and artifact metadata
+
+Prerequisite (pre-phase-27): Unified data directory (`src/server/core/paths.ts`) — configurable via `--data-dir` / `SHEET_DELVER_DATA` env var. All hardcoded `.data/` and CWD-based `settings.yaml` references removed.
+
 ---
 
 ### Phase 28: Distribution Infrastructure
@@ -130,7 +147,7 @@ Slices:
 
 2. Source profile management
    - Add source profile model (name, base URL, kind, enabled, priority, auth config)
-   - Persist source profiles in `.data/modules/sources.json`
+   - Persist source profiles in `data/modules/sources.json`
    - Add admin API endpoints for CRUD on source profiles
    - Enforce host allowlist in production mode
 
@@ -223,7 +240,7 @@ Acceptance criteria:
 ## Implementation Tracking
 
 Status board:
-- Phase 27: Not started
+- Phase 27: ✅ Completed (May 2, 2026)
 - Phase 28: Not started
 - Phase 29: Not started
 
