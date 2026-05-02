@@ -29,7 +29,7 @@ export async function getUIModule(systemId: string): Promise<UIModuleManifest | 
     try {
         // Scoping the import to the parent directory allows the bundler to 
         // auto-discover all system modules without us listing them.
-        const m = await import(`../${id}/module/ui`);
+        const m = await import(`../../${id}/module/ui`);
         const manifest = m.default || m;
         
         manifestCache.set(id, manifest);

@@ -1115,7 +1115,7 @@ export async function installManagedModule(input: InstallManagedModuleInput): Pr
         permissions: input.permissions || resolvedSource.value.permissions || plugin?.info.permissions,
     };
 
-    const result = installModule(
+    const result = await installModule(
         id,
         managerInput,
         lifecycleStore,
@@ -1291,7 +1291,7 @@ export async function upgradeManagedModule(input: UpgradeManagedModuleInput): Pr
         permissions: requestedPermissions,
     };
 
-    const result = upgradeModule(
+    const result = await upgradeModule(
         id,
         managerInput,
         lifecycleStore,

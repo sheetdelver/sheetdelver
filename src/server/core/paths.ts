@@ -41,7 +41,16 @@ export function __resetDataDirForTests(dir: string | null = null): void {
 // ─── Constants ─────────────────────────────────────────────────────
 
 /** Subdirectory names within the data directory. */
-const SUBDIRS = ['config', 'cache', 'security', 'modules', 'logs'] as const;
+const SUBDIRS = [
+    'config',
+    'cache',
+    'security',
+    'modules',
+    'logs',
+    'dist',
+    'dist/modules',
+    'dist/archives'
+] as const;
 
 /** Settings file name within the config subdirectory. */
 const SETTINGS_FILENAME = 'settings.yaml';
@@ -238,6 +247,16 @@ export function getSecurityDir(): string {
 /** Returns the modules data subdirectory path (<DATA_DIR>/modules). */
 export function getModulesDataDir(): string {
     return path.join(ensureResolved(), 'modules');
+}
+
+/** Returns the dist/modules subdirectory path (<DATA_DIR>/dist/modules). */
+export function getDistModulesDir(): string {
+    return path.join(ensureResolved(), 'dist', 'modules');
+}
+
+/** Returns the dist/archives subdirectory path (<DATA_DIR>/dist/archives). */
+export function getDistArchivesDir(): string {
+    return path.join(ensureResolved(), 'dist', 'archives');
 }
 
 /** Returns the logs subdirectory path (<DATA_DIR>/logs). */

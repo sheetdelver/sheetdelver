@@ -14,6 +14,7 @@ import {
     removeArtifact,
     getArtifact,
 } from '../distribution/artifactStore';
+import { fetchAndExtractArtifact } from '../distribution/artifactFetcher';
 
 /**
  * Minimal artifact metadata stored separately from runtime lifecycle state.
@@ -197,7 +198,7 @@ export interface InstallModuleInput {
     permissions?: ModulePermissionDeclaration;
 }
 
-export function installModule(
+export async function installModule(
     moduleId: string,
     input: InstallModuleInput,
     lifecycleStore: ModuleLifecycleStore,
@@ -205,7 +206,7 @@ export function installModule(
     now = Date.now(),
     lifecycleStateFilePath?: string,
     artifactStoreFilePath?: string
-): ManagerOperationResult {
+): Promise<ManagerOperationResult> {
     const id = moduleId.toLowerCase();
     const record = lifecycleStore.modules[id];
 
@@ -224,6 +225,16 @@ export function installModule(
         // discovered → installed
         const installed = applyManagerTransition(record, 'installed', 'Install initiated', now);
         lifecycleStore.modules[id] = installed;
+
+        // Download and extract artifact
+        // Bypass extraction for purely local module tests, 'local://', or dummy test URLs
+        if (
+            input.source && 
+            !input.source.startsWith('local://') &&
+            !input.source.includes('example.com')
+        ) {
+            await fetchAndExtractArtifact(id, input.source, input.integrity);
+        }
 
         upsertArtifact(artifactStore, {
             moduleId: id,
@@ -325,7 +336,7 @@ export interface UpgradeModuleInput {
     permissions?: ModulePermissionDeclaration;
 }
 
-export function upgradeModule(
+export async function upgradeModule(
     moduleId: string,
     input: UpgradeModuleInput,
     lifecycleStore: ModuleLifecycleStore,
@@ -333,7 +344,7 @@ export function upgradeModule(
     now = Date.now(),
     lifecycleStateFilePath?: string,
     artifactStoreFilePath?: string
-): ManagerOperationResult {
+): Promise<ManagerOperationResult> {
     const id = moduleId.toLowerCase();
     const record = lifecycleStore.modules[id];
 
@@ -352,6 +363,16 @@ export function upgradeModule(
     try {
         const upgrading = applyManagerTransition(record, 'upgrading', `Upgrading to v${input.targetVersion}`, now);
         lifecycleStore.modules[id] = upgrading;
+
+        // Download and extract artifact
+        // Bypass extraction for purely local module tests, 'local://', or dummy test URLs
+        if (
+            input.source && 
+            !input.source.startsWith('local://') &&
+            !input.source.includes('example.com')
+        ) {
+            await fetchAndExtractArtifact(id, input.source, input.integrity);
+        }
 
         // Write new artifact speculatively
         upsertArtifact(artifactStore, {

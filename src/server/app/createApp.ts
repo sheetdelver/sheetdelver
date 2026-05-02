@@ -16,7 +16,8 @@ export function createApp(config: AppConfig): AppRuntime {
 
     const app = express();
     // Trust proxy headers (safe if always behind a trusted proxy)
-    app.set('trust proxy', true);
+    // Trust loopback proxy (e.g. NGINX/Caddy on same host) to securely handle X-Forwarded-For headers
+    app.set('trust proxy', 'loopback');
     app.use(express.json({ limit: config.security.bodyLimit }));
     app.use(cors({ origin: corsOriginPolicy }));
 

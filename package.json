@@ -21,7 +21,9 @@
     "test:socket:batch": "tsx src/tests/socket/10-batch-operations.test.ts",
     "test:socket:all": "tsx src/tests/socket/run-all.ts",
     "test:unit": "npx tsx src/tests/unit/run.ts",
-    "test:states": "npx tsx src/scripts/test-states.ts"
+    "test:states": "npx tsx src/scripts/test-states.ts",
+    "package:module": "npx tsx src/scripts/tools/modules/package-module.ts",
+    "server:mock-module-server": "npx tsx src/scripts/tools/server/mock-index-server.ts"
   },
   "dependencies": {
     "@next/font": "^14.2.15",
@@ -41,6 +43,7 @@
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
     "express-rate-limit": "^7.5.1",
+    "extract-zip": "^2.0.1",
     "inquirer": "^13.2.2",
     "js-yaml": "^4.1.1",
     "lucide-react": "^0.562.0",
@@ -48,16 +51,19 @@
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "socket.io": "^4.8.3",
-    "socket.io-client": "^4.8.3"
+    "socket.io-client": "^4.8.3",
+    "tar": "^7.5.13"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
+    "@types/extract-zip": "^2.0.0",
     "@types/inquirer": "^9.0.9",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/tar": "^6.1.13",
     "eslint": "^9",
     "eslint-config-next": "16.1.1",
     "eslint-plugin-jsx-a11y": "^6.10.2",

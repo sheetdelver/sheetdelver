@@ -88,7 +88,7 @@ export async function run(): Promise<void> {
             process.chdir(tmpDir);
             __resetDataDirForTests(tmpDir);
             initDataDir(tmpDir);
-            const result = installModule('test-module', input, lifecycle, artifacts, NOW + 1);
+            const result = await installModule('test-module', input, lifecycle, artifacts, NOW + 1);
 
             assert.equal(result.success, true, 'install should succeed');
             assert.equal(result.operation, 'install');
@@ -125,7 +125,7 @@ export async function run(): Promise<void> {
             process.chdir(tmpDir);
             __resetDataDirForTests(tmpDir);
             initDataDir(tmpDir);
-            const result = installModule('ghost', input, lifecycle, artifacts, NOW);
+            const result = await installModule('ghost', input, lifecycle, artifacts, NOW);
             assert.equal(result.success, false);
             assert.ok(result.error?.includes('not found'), 'Error should mention not found');
         } finally {
@@ -148,7 +148,7 @@ export async function run(): Promise<void> {
             process.chdir(tmpDir);
             __resetDataDirForTests(tmpDir);
             initDataDir(tmpDir);
-            const result = installModule('test-module', input, lifecycle, artifacts, NOW);
+            const result = await installModule('test-module', input, lifecycle, artifacts, NOW);
             assert.equal(result.success, false);
             assert.ok(result.error?.includes('upgrading'), 'Error should mention transient state');
         } finally {
@@ -232,7 +232,7 @@ export async function run(): Promise<void> {
             process.chdir(tmpDir);
             __resetDataDirForTests(tmpDir);
             initDataDir(tmpDir);
-            const result = upgradeModule('test-module', input, lifecycle, artifacts, NOW + 1);
+            const result = await upgradeModule('test-module', input, lifecycle, artifacts, NOW + 1);
 
             assert.equal(result.success, true, 'upgrade should succeed');
             assert.equal(result.previousStatus, 'disabled');
@@ -265,7 +265,7 @@ export async function run(): Promise<void> {
             process.chdir(tmpDir);
             __resetDataDirForTests(tmpDir);
             initDataDir(tmpDir);
-            const result = upgradeModule('test-module', input, lifecycle, artifacts, NOW + 1);
+            const result = await upgradeModule('test-module', input, lifecycle, artifacts, NOW + 1);
             assert.equal(result.success, true, 'upgrade from enabled should succeed');
             assert.equal(result.newStatus, 'validated');
         } finally {
@@ -288,7 +288,7 @@ export async function run(): Promise<void> {
             process.chdir(tmpDir);
             __resetDataDirForTests(tmpDir);
             initDataDir(tmpDir);
-            const result = upgradeModule('ghost', input, lifecycle, artifacts, NOW);
+            const result = await upgradeModule('ghost', input, lifecycle, artifacts, NOW);
             assert.equal(result.success, false);
             assert.ok(result.error?.includes('not found'));
         } finally {
