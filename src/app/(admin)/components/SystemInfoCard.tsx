@@ -1,112 +1,146 @@
-import { logger } from '@/shared/utils/logger';
-import { useState, useEffect } from 'react';
-import { adminApiPath } from '../lib/adminApi';
-import { SystemStatusPayload } from '@/shared/contracts/status';
+'use client';
 
-async function GetSystemInfo() {
-    const storedToken = localStorage.getItem('admin-token');
-    const storedCsrf = localStorage.getItem('admin-csrf');
-    if (storedToken) {
-        //const response = await fetch(adminApiPath(`/system-info`), {
-        const response = await fetch(`/api/status`, {
-            headers: {
-                Authorization: `Bearer ${storedToken}`,
-            },
-        });
+/**
+ * SystemInfoCard
+ *
+ * Displays system overview information from the admin API with auto-refresh.
+ * Shows connection status, world info, and debug state using admin theme variables.
+ */
 
-        if (response.ok) {
-            const data = await response.json();
-            return data as SystemStatusPayload;
-        }
-    }
-    return {} as SystemStatusPayload;
-}
+import React, { useState, useEffect, useCallback } from 'react';
+import { fetchAdminStatus, type AdminStatusResponse } from '../lib/adminApi';
+import { useAdminAuth } from '../context/AdminAuthContext';
 
-function createBadge(message: string, type: 'info' | 'warning' | 'error' | 'success') {
-    const color = type === 'info' ? 'bg-blue-100' : type === 'warning' ? 'bg-yellow-100' : type === 'error' ? 'bg-red-100' : 'bg-green-100';
-    const textColor = type === 'info' ? 'text-blue-900' : type === 'warning' ? 'text-yellow-900' : type === 'error' ? 'text-red-900' : 'text-green-900';
-    const shadowColor = type === 'info' ? 'shadow-blue-500' : type === 'warning' ? 'shadow-yellow-500' : type === 'error' ? 'shadow-red-500' : 'shadow-green-500';
-    return (
-        <div role="alert" className={`border-2 ${color} ${textColor} p-4 shadow-[4px_4px_0_0_${shadowColor}] rounded-lg`}>
-            <div className="flex items-start gap-3">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="mt-0.5 size-4">
-                    <path d="M15 8A7 7 0 1 1 1 8a7 7 0 0 1 14 0ZM9 5a1 1 0 1 1-2 0 1 1 0 0 1 2 0ZM6.75 8a.75.75 0 0 0 0 1.5h.75v1.75a.75.75 0 0 0 1.5 0v-2.5A.75.75 0 0 0 8.25 8h-1.5Z"></path>
-                </svg>
-
-                <strong className="block flex-1 leading-tight font-semibold">
-                    {message}
-                </strong>
-            </div>
-        </div>
-    )
-}
-
-function createCard(title: string, message: string) {
-    return (
-        <div className="col-span-1 border-2 text-white text-center bg-gray-800">
-            <h3 className="text-center bg-gray-400 p-2">{title}</h3>
-            <p className="text-center p-4">{message}</p>
-        </div>
-    );
-}
+/** Auto-refresh interval in milliseconds. */
+const REFRESH_INTERVAL_MS = 10_000;
 
 export default function SystemInfoCard() {
-    const [system, setSystem] = useState<SystemStatusPayload>({} as SystemStatusPayload);
+    const { logout } = useAdminAuth();
+    const [system, setSystem] = useState<AdminStatusResponse | null>(null);
+    const [loading, setLoading] = useState(true);
 
+    /** Fetch admin status from the API. */
+    const loadStatus = useCallback(async () => {
+        const result = await fetchAdminStatus();
+
+        if (result.sessionExpired) {
+            logout();
+            return;
+        }
+
+        if (result.ok && result.data) {
+            setSystem(result.data);
+        }
+        setLoading(false);
+    }, [logout]);
+
+    // Initial fetch + auto-refresh
     useEffect(() => {
-        GetSystemInfo().then((data) => setSystem(data));
-    }, []);
+        loadStatus();
+        const interval = setInterval(loadStatus, REFRESH_INTERVAL_MS);
+        return () => clearInterval(interval);
+    }, [loadStatus]);
+
+    // ─── Loading skeleton ──────────────────────────────────────────
+
+    if (loading && !system) {
+        return (
+            <div className="space-y-3">
+                <h2 className="text-2xl font-bold tracking-tight text-[var(--admin-text-primary)]">System Overview</h2>
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                    {[1, 2, 3].map(i => (
+                        <div key={i} className="h-20 animate-pulse rounded-xl bg-[var(--admin-surface)]" />
+                    ))}
+                </div>
+            </div>
+        );
+    }
+
+    // ─── Data extraction ───────────────────────────────────────────
 
     const connected = system?.connected || false;
     const worldSystem = system?.system?.id || 'Unknown';
     const worldVersion = system?.system?.version || 'Unknown';
     const worldName = system?.system?.worldTitle || 'Unknown';
     const worldStatus = system?.system?.status || 'Unknown';
+    const worldState = system?.worldState || 'unknown';
+
+    // ─── Render ────────────────────────────────────────────────────
 
     return (
-        <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+        <div className="space-y-4">
+            <h2 className="text-2xl font-bold tracking-tight text-[var(--admin-text-primary)]">System Overview</h2>
 
-            <h2 className="mb-2 text-2xl font-bold tracking-tight text-[var(--admin-text-primary)] col-span-full p-2">System Overview</h2>
-            <div className="col-span-full text-xl font-bold text-center bg-[var(--admin-success-bg)] p-2">
-                <h1 className="col-span-full uppercase">{worldSystem} ({worldVersion})</h1>
-                <h3 className="col-span-full">{worldName}</h3>
-            </div>
-            {createCard(`Current Status`, worldStatus)}
-            {createCard(`Initialized`, system?.initialized ? 'Yes' : 'No')}
-            {createCard(`Configured`, system?.isConfigured ? 'Yes' : 'No')}
-            {createCard(`Total Users`, system?.system?.users?.total?.toString() ?? 'Unknown')}
-            {createCard(`Active Users`, system?.system?.users?.active?.toString() ?? 'Unknown')}
-            {createCard(`Debug`, system?.debug?.enabled ? 'Yes' : 'No')}
-            <div className="col-span-full">
-                {connected ? createBadge(`Connected to ${system?.url}`, 'success') : createBadge(`Disconnected from ${system?.url || "Unknown"}`, 'error')}
+            {/* System banner */}
+            <div className={`rounded-xl p-4 text-center ${connected
+                ? 'bg-[var(--admin-success-bg)] border border-[var(--admin-success-border)]'
+                : 'bg-[var(--admin-danger-bg)] border border-[var(--admin-danger-border)]'
+            }`}>
+                <h3 className="text-lg font-bold text-[var(--admin-text-primary)] uppercase">
+                    {worldSystem} ({worldVersion})
+                </h3>
+                <p className="text-sm text-[var(--admin-text-secondary)]">{worldName}</p>
             </div>
 
-            {!connected ? (
-                <div className="flex justify-end col-span-full">
-                    <button className="text-right button border-2 p-2 text-white bg-gray-800 uppercase hover:font-bold hover:bg-gray-600 rounded-md cursor-pointer"
-                        onClick={() => {
-                            logger.info('Re-Connect clicked');
-                            fetch(adminApiPath(`/world/retry`), {
-                                method: 'POST',
-                                headers: {
-                                    'Content-Type': 'application/json',
-                                    'Authorization': `Bearer ${localStorage.getItem('admin-token')}`,
-                                    'x-admin-csrf-token': `${localStorage.getItem('admin-csrf')}`,
-                                },
-                            })
-                                .then((response) => response.json())
-                                .then((data) => {
-                                    logger.info('Re-Connect response', data);
-                                })
-                                .catch((error) => {
-                                    logger.error('Re-Connect error', error);
-                                })
-                        }
-                        }>
-                        Re-Connect service account
-                    </button>
+            {/* Info cards grid */}
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+                <InfoCard title="Status" value={worldStatus} />
+                <InfoCard title="World State" value={worldState} />
+                <InfoCard
+                    title="Connection"
+                    value={connected ? 'Connected' : 'Disconnected'}
+                    variant={connected ? 'success' : 'danger'}
+                />
+                <InfoCard title="Initialized" value={system?.initialized ? 'Yes' : 'No'} />
+                <InfoCard title="Configured" value={system?.isConfigured ? 'Yes' : 'No'} />
+                <InfoCard title="Debug" value={system?.debug?.enabled ? `Level ${system.debug.level}` : 'Off'} />
+            </div>
+
+            {/* Connection URL */}
+            {system?.url && (
+                <div className={`rounded-xl px-4 py-3 text-sm ${
+                    connected
+                        ? 'bg-[var(--admin-success-bg)] text-[var(--admin-success)] border border-[var(--admin-success-border)]'
+                        : 'bg-[var(--admin-danger-bg)] text-[var(--admin-danger-text)] border border-[var(--admin-danger-border)]'
+                }`}>
+                    <span className="font-semibold">{connected ? '✓ Connected' : '✗ Disconnected'}:</span>
+                    <span className="ml-2 font-mono">{system.url}</span>
                 </div>
-            ) : null}
+            )}
+
+            {/* User counts */}
+            {system?.system?.users && (
+                <div className="grid grid-cols-2 gap-3">
+                    <InfoCard title="Total Users" value={system.system.users.total?.toString() ?? '—'} />
+                    <InfoCard title="Active Users" value={system.system.users.active?.toString() ?? '—'} />
+                </div>
+            )}
+        </div>
+    );
+}
+
+// ─── Sub-components ────────────────────────────────────────────────
+
+/** Individual info card with title and value. */
+function InfoCard({
+    title,
+    value,
+    variant,
+}: {
+    title: string;
+    value: string;
+    variant?: 'success' | 'danger';
+}) {
+    const bgClass = variant === 'success'
+        ? 'bg-[var(--admin-success-bg)] border-[var(--admin-success-border)]'
+        : variant === 'danger'
+            ? 'bg-[var(--admin-danger-bg)] border-[var(--admin-danger-border)]'
+            : 'bg-[var(--admin-surface)] border-[var(--admin-border)]';
+
+    return (
+        <div className={`rounded-xl border p-3 text-center ${bgClass}`}>
+            <p className="text-xs font-bold uppercase tracking-wider text-[var(--admin-text-muted)]">{title}</p>
+            <p className="mt-1 text-lg font-semibold text-[var(--admin-text-primary)]">{value}</p>
         </div>
     );
 }

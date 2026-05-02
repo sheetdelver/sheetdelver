@@ -355,18 +355,58 @@ export function createAdminRouter(deps: AdminRouterDeps) {
         async (req, res) => {
             try {
                 const { listModules } = await import('@modules/registry/server');
+                const { loadArtifactStore, getArtifact } = await import('@modules/registry/artifactStore');
                 const modules = listModules({ includeExperimental: true, includeDisabled: true });
+                const artifactStore = loadArtifactStore();
+
                 res.json({
                     success: true,
-                    modules: modules.map((m) => ({
-                        moduleId: m.info.id,
-                        title: m.info.title,
-                        enabled: m.enabled,
-                        status: m.status,
-                        experimental: m.info.experimental,
-                        reason: m.reason,
-                        health: m.lifecycle.health,
-                    })),
+                    modules: modules.map((m) => {
+                        // Look up artifact metadata for installed modules
+                        const artifact = getArtifact(artifactStore, m.info.id);
+
+                        return {
+                            moduleId: m.info.id,
+                            title: m.info.title,
+                            enabled: m.enabled,
+                            status: m.status,
+                            experimental: m.info.experimental,
+                            reason: m.reason,
+                            health: m.lifecycle.health,
+                            // Validation diagnostics from lifecycle record
+                            validation: m.lifecycle.validation ? {
+                                manifestValid: m.lifecycle.validation.manifestValid,
+                                diagnostics: [
+                                    // Map core constraint diagnostics
+                                    ...(m.lifecycle.validation.coreDiagnostics || []).map(d => ({
+                                        code: `core:${d.constraint}`,
+                                        message: d.reason || (d.compatible ? 'Constraint satisfied' : `Constraint ${d.constraint} not satisfied`),
+                                        severity: d.compatible ? 'info' : 'error',
+                                    })),
+                                    // Map contract diagnostics
+                                    ...(m.lifecycle.validation.contractDiagnostics || []).map(d => ({
+                                        code: `contract:${d.contract}`,
+                                        message: d.reason || (d.compatible ? `${d.contract} ${d.providedVersion || ''} satisfies ${d.requiredRange}` : `${d.contract} incompatible`),
+                                        severity: d.compatible ? 'info' : 'error',
+                                    })),
+                                    // Map validation errors as simple diagnostics
+                                    ...(m.lifecycle.validation.validationErrors || []).map(e => ({
+                                        code: 'manifest-error',
+                                        message: e,
+                                        severity: 'error' as const,
+                                    })),
+                                ],
+                            } : undefined,
+                            // Artifact metadata from the artifact store
+                            artifact: artifact ? {
+                                version: artifact.version,
+                                source: artifact.source,
+                                installedAt: artifact.installedAt,
+                                integrity: artifact.integrity,
+                                signature: artifact.signature,
+                            } : undefined,
+                        };
+                    }),
                 });
             } catch (error: unknown) {
                 logger.error('Failed to list module lifecycle', error);
