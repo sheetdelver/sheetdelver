@@ -551,7 +551,7 @@ export function createAdminRouter(deps: AdminRouterDeps) {
                 const permissions = typeof req.body?.permissions === 'object' ? req.body.permissions : undefined;
 
                 const { dryRunInstallManagedModule } = await import('@modules/registry/server');
-                const preview = dryRunInstallManagedModule({
+                const preview = await dryRunInstallManagedModule({
                     moduleId,
                     source,
                     version,
@@ -593,7 +593,7 @@ export function createAdminRouter(deps: AdminRouterDeps) {
                 const approvePermissionEscalation = req.body?.approvePermissionEscalation === true;
 
                 const { dryRunUpgradeManagedModule } = await import('@modules/registry/server');
-                const preview = dryRunUpgradeManagedModule({
+                const preview = await dryRunUpgradeManagedModule({
                     moduleId,
                     source,
                     targetVersion,
@@ -633,7 +633,7 @@ export function createAdminRouter(deps: AdminRouterDeps) {
                 const permissions = typeof req.body?.permissions === 'object' ? req.body.permissions : undefined;
 
                 const { installManagedModule } = await import('@modules/registry/server');
-                const result = installManagedModule({ moduleId, source, version, integrity, signature, permissions });
+                const result = await installManagedModule({ moduleId, source, version, integrity, signature, permissions });
                 if (!result.success) {
                     return res.status(managerErrorStatusCode(result.errorCode)).json({
                         success: false,
@@ -727,7 +727,7 @@ export function createAdminRouter(deps: AdminRouterDeps) {
                 const approvePermissionEscalation = req.body?.approvePermissionEscalation === true;
 
                 const { upgradeManagedModule } = await import('@modules/registry/server');
-                const result = upgradeManagedModule({
+                const result = await upgradeManagedModule({
                     moduleId,
                     source,
                     targetVersion,
@@ -819,6 +819,128 @@ export function createAdminRouter(deps: AdminRouterDeps) {
             }
         } catch (error: unknown) {
             logger.error('Manual world retry failed', error);
+            res.status(500).json({ error: getErrorMessage(error) });
+        }
+    });
+
+    // ============
+    // Source Profiles
+    // ============
+
+    adminRouter.get('/sources', requireAdminAccountExists, requireAdminAuth, async (req, res) => {
+        try {
+            const { loadSourceProfiles } = await import('@modules/registry/distribution/sourceProfiles');
+            res.json({ success: true, profiles: loadSourceProfiles() });
+        } catch (error: unknown) {
+            res.status(500).json({ error: getErrorMessage(error) });
+        }
+    });
+
+    adminRouter.post('/sources', requireAdminAccountExists, requireAdminAuth, requireAdminCsrf, auditAdminAction, async (req, res) => {
+        try {
+            const { createSourceProfile } = await import('@modules/registry/distribution/sourceProfiles');
+            const { isHostAllowed } = await import('@modules/registry/security/sourceGovernance');
+            
+            const profile = req.body;
+            if (!profile || !profile.baseUrl) {
+                return res.status(400).json({ error: 'baseUrl is required' });
+            }
+
+            const allowlist = getConfig().security.sourceGovernance?.hostAllowlist;
+            const mode = process.env.NODE_ENV === 'production' ? 'production' : 'development';
+            if (!isHostAllowed(String(profile.baseUrl), allowlist, mode)) {
+                return res.status(403).json({ error: 'Host is not in the configured allowlist' });
+            }
+
+            const created = createSourceProfile(profile);
+            res.json({ success: true, profile: created });
+        } catch (error: unknown) {
+            res.status(500).json({ error: getErrorMessage(error) });
+        }
+    });
+
+    adminRouter.put('/sources/:id', requireAdminAccountExists, requireAdminAuth, requireAdminCsrf, auditAdminAction, async (req, res) => {
+        try {
+            const { updateSourceProfile } = await import('@modules/registry/distribution/sourceProfiles');
+            const { isHostAllowed } = await import('@modules/registry/security/sourceGovernance');
+
+            const id = req.params.id as string;
+            const updates = req.body;
+
+            if (updates.baseUrl) {
+                const allowlist = getConfig().security.sourceGovernance?.hostAllowlist;
+                const mode = process.env.NODE_ENV === 'production' ? 'production' : 'development';
+                if (!isHostAllowed(String(updates.baseUrl), allowlist, mode)) {
+                    return res.status(403).json({ error: 'Host is not in the configured allowlist' });
+                }
+            }
+
+            const updated = updateSourceProfile(id, updates);
+            if (!updated) {
+                return res.status(404).json({ error: 'Source profile not found' });
+            }
+
+            res.json({ success: true, profile: updated });
+        } catch (error: unknown) {
+            res.status(500).json({ error: getErrorMessage(error) });
+        }
+    });
+
+    adminRouter.delete('/sources/:id', requireAdminAccountExists, requireAdminAuth, requireAdminCsrf, auditAdminAction, async (req, res) => {
+        try {
+            const { deleteSourceProfile } = await import('@modules/registry/distribution/sourceProfiles');
+            const id = req.params.id as string;
+            const deleted = deleteSourceProfile(id);
+            if (!deleted) {
+                return res.status(400).json({ error: 'Source profile not found or cannot be deleted' });
+            }
+            res.json({ success: true });
+        } catch (error: unknown) {
+            res.status(500).json({ error: getErrorMessage(error) });
+        }
+    });
+
+    adminRouter.post('/sources/:id/test', requireAdminAccountExists, requireAdminAuth, requireAdminCsrf, auditAdminAction, async (req, res) => {
+        try {
+            const { getSourceProfile } = await import('@modules/registry/distribution/sourceProfiles');
+            const { fetchRemoteIndex } = await import('@modules/registry/distribution/remoteIndexFetcher');
+            const { isHostAllowed } = await import('@modules/registry/security/sourceGovernance');
+
+            const id = req.params.id as string;
+            const profile = getSourceProfile(id);
+            if (!profile) {
+                return res.status(404).json({ error: 'Source profile not found' });
+            }
+
+            if (profile.kind !== 'indexed') {
+                return res.status(400).json({ error: 'Can only test connection for "indexed" source profiles' });
+            }
+
+            const allowlist = getConfig().security.sourceGovernance?.hostAllowlist;
+            const mode = process.env.NODE_ENV === 'production' ? 'production' : 'development';
+            if (!isHostAllowed(String(profile.baseUrl), allowlist, mode)) {
+                return res.status(403).json({ error: 'Host is not in the configured allowlist' });
+            }
+
+            const result = await fetchRemoteIndex(profile.baseUrl, { auth: profile.auth });
+            
+            if (!result.ok) {
+                return res.status(400).json({ 
+                    success: false, 
+                    error: result.error, 
+                    errorCode: result.errorCode 
+                });
+            }
+
+            const moduleCount = result.index?.modules ? Object.keys(result.index.modules).length : 0;
+            res.json({ 
+                success: true, 
+                message: 'Connection successful',
+                schemaVersion: result.index?.schemaVersion,
+                publisher: result.index?.publisher,
+                moduleCount
+            });
+        } catch (error: unknown) {
             res.status(500).json({ error: getErrorMessage(error) });
         }
     });

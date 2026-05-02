@@ -86,7 +86,7 @@ export async function run(): Promise<void> {
 
         delete process.env[INDEX_ENV];
         __resetRegistryForTests();
-        const sourceFailure = upgradeManagedModule({
+        const sourceFailure = await upgradeManagedModule({
             moduleId: 'shadowdark',
             source: 'index://official',
             targetVersion: '3.0.0',
@@ -104,7 +104,7 @@ export async function run(): Promise<void> {
         );
 
         __resetRegistryForTests();
-        const permissionPreview = dryRunUpgradeManagedModule({
+        const permissionPreview = await dryRunUpgradeManagedModule({
             moduleId: 'shadowdark',
             source: 'local://shadowdark',
             targetVersion: '2.0.0',
@@ -125,7 +125,7 @@ export async function run(): Promise<void> {
         );
 
         __resetRegistryForTests();
-        const installPreview = dryRunInstallManagedModule({
+        const installPreview = await dryRunInstallManagedModule({
             moduleId: 'shadowdark',
             source: 'local://shadowdark',
             version: '1.1.0',

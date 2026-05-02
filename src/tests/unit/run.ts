@@ -1,3 +1,5 @@
+import path from 'node:path';
+import { resolveDataDir, initDataDir } from '../../server/core/paths';
 import { run as runStatusSanitize } from './status-sanitize.test';
 import { run as runLocalhostPolicy } from './localhost-policy.test';
 import { run as runRealtimeBroadcaster } from './realtime-broadcaster.test';
@@ -33,6 +35,14 @@ import { run as runModuleManagerDryRun } from './module-manager-dry-run.test';
 import { run as runModuleManagerTelemetry } from './module-manager-telemetry.test';
 
 async function runAllUnitTests() {
+    // Initialize test data directory before running any tests
+    const fs = await import('node:fs');
+    const testDataDir = path.join(process.cwd(), 'temp', 'test-data');
+    if (fs.existsSync(testDataDir)) {
+        fs.rmSync(testDataDir, { recursive: true, force: true });
+    }
+    initDataDir(resolveDataDir(['--data-dir', testDataDir]));
+
     runStatusSanitize();
     runLocalhostPolicy();
     await runAuthStatusSmoke();

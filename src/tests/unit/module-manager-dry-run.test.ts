@@ -97,7 +97,7 @@ export async function run(): Promise<void> {
         });
 
         __resetRegistryForTests();
-        const failedInstallPreview = dryRunInstallManagedModule({
+        const failedInstallPreview = await dryRunInstallManagedModule({
             moduleId: 'shadowdark',
             source: 'https://example.com/modules/shadowdark-2.0.0.tgz',
             version: '2.0.0',
@@ -108,14 +108,13 @@ export async function run(): Promise<void> {
 
         delete process.env[INDEX_ENV];
         __resetRegistryForTests();
-        const missingIndexPreview = dryRunUpgradeManagedModule({
+        const missingIndexPreview = await dryRunUpgradeManagedModule({
             moduleId: 'shadowdark',
             source: 'index://official',
             targetVersion: '3.0.0',
         });
         assert.equal(missingIndexPreview.wouldProceed, false);
-        assert.equal(missingIndexPreview.sourceResolution.ok, false);
-        assert.equal(missingIndexPreview.blockingReasons.some((entry) => entry.includes('SHEET_DELVER_MODULE_INDEX_FILE')), true);
+        assert.equal(missingIndexPreview.blockingReasons.some((entry) => entry.includes('not available in resolution context')), true);
 
         writeJson(indexFilePath, {
             schemaVersion: 'module-index.v1',
@@ -143,7 +142,7 @@ export async function run(): Promise<void> {
         process.env[INDEX_ENV] = indexFilePath;
 
         __resetRegistryForTests();
-        const escalationPreview = dryRunUpgradeManagedModule({
+        const escalationPreview = await dryRunUpgradeManagedModule({
             moduleId: 'shadowdark',
             source: 'index://official',
             targetVersion: '3.0.0',
@@ -153,7 +152,7 @@ export async function run(): Promise<void> {
         assert.equal(escalationPreview.blockingReasons.some((entry) => entry.includes('Permission escalation requires explicit approval')), true);
 
         __resetRegistryForTests();
-        const approvedPreview = dryRunUpgradeManagedModule({
+        const approvedPreview = await dryRunUpgradeManagedModule({
             moduleId: 'shadowdark',
             source: 'index://official',
             targetVersion: '3.0.0',

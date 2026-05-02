@@ -127,7 +127,7 @@ export async function run(): Promise<void> {
         // Strict mode: invalid manifest should be rejected.
         delete process.env[FAIL_OPEN_ENV];
         __resetRegistryForTests();
-        const strictInstall = installManagedModule({
+        const strictInstall = await installManagedModule({
             moduleId: 'badmod',
             source: 'local://badmod',
             version: '1.0.0',
@@ -138,7 +138,7 @@ export async function run(): Promise<void> {
         // Fail-open mode: same invalid module can proceed in dev mode.
         process.env[FAIL_OPEN_ENV] = 'true';
         __resetRegistryForTests();
-        const failOpenInstall = installManagedModule({
+        const failOpenInstall = await installManagedModule({
             moduleId: 'badmod',
             source: 'local://badmod',
             version: '1.0.1',
@@ -153,7 +153,7 @@ export async function run(): Promise<void> {
 
         // Non-local artifact with invalid digest/signature metadata should be blocked and persisted.
         __resetRegistryForTests();
-        const verificationFail = upgradeManagedModule({
+        const verificationFail = await upgradeManagedModule({
             moduleId: 'shadowdark',
             source: 'https://example.com/modules/shadowdark-2.1.0.tgz',
             targetVersion: '2.1.0',
@@ -173,7 +173,7 @@ export async function run(): Promise<void> {
         // Indexed source should fail when index context is not configured.
         delete process.env[INDEX_ENV];
         __resetRegistryForTests();
-        const missingIndexConfig = upgradeManagedModule({
+        const missingIndexConfig = await upgradeManagedModule({
             moduleId: 'shadowdark',
             source: 'index://official',
             targetVersion: '3.0.0',
@@ -185,7 +185,7 @@ export async function run(): Promise<void> {
         fs.writeFileSync(indexFilePath, '{ invalid-json', 'utf8');
         process.env[INDEX_ENV] = indexFilePath;
         __resetRegistryForTests();
-        const invalidIndexConfig = upgradeManagedModule({
+        const invalidIndexConfig = await upgradeManagedModule({
             moduleId: 'shadowdark',
             source: 'index://official',
             targetVersion: '3.0.0',
@@ -224,7 +224,7 @@ export async function run(): Promise<void> {
         process.env[INDEX_ENV] = indexFilePath;
 
         __resetRegistryForTests();
-        const indexedPermissionBlocked = upgradeManagedModule({
+        const indexedPermissionBlocked = await upgradeManagedModule({
             moduleId: 'shadowdark',
             source: 'index://official',
             targetVersion: '3.0.0',
@@ -233,7 +233,7 @@ export async function run(): Promise<void> {
         assert.equal(indexedPermissionBlocked.errorCode, 'permission-escalation-requires-approval');
 
         __resetRegistryForTests();
-        const indexedApproved = upgradeManagedModule({
+        const indexedApproved = await upgradeManagedModule({
             moduleId: 'shadowdark',
             source: 'index://official',
             targetVersion: '3.0.0',
@@ -264,7 +264,7 @@ export async function run(): Promise<void> {
 
         // Permission escalation requires explicit approval on upgrade.
         __resetRegistryForTests();
-        const permissionBlocked = upgradeManagedModule({
+        const permissionBlocked = await upgradeManagedModule({
             moduleId: 'shadowdark',
             source: 'local://shadowdark',
             targetVersion: '2.1.0',
@@ -278,7 +278,7 @@ export async function run(): Promise<void> {
         assert.equal(permissionBlocked.error?.includes('Permission escalation requires explicit approval'), true);
 
         __resetRegistryForTests();
-        const permissionApproved = upgradeManagedModule({
+        const permissionApproved = await upgradeManagedModule({
             moduleId: 'shadowdark',
             source: 'local://shadowdark',
             targetVersion: '2.1.0',
@@ -295,7 +295,7 @@ export async function run(): Promise<void> {
 
         // Module truly absent from lifecycle + registry should be module-not-found.
         __resetRegistryForTests();
-        const missingUpgrade = upgradeManagedModule({
+        const missingUpgrade = await upgradeManagedModule({
             moduleId: 'ghost-module',
             source: 'local://ghost',
             targetVersion: '9.9.9',
@@ -306,7 +306,7 @@ export async function run(): Promise<void> {
         // Persisted correctness for real managed flows on an existing module.
         delete process.env[FAIL_OPEN_ENV];
         __resetRegistryForTests();
-        const upgradeResult = upgradeManagedModule({
+        const upgradeResult = await upgradeManagedModule({
             moduleId: 'shadowdark',
             source: 'local://shadowdark',
             targetVersion: '2.0.0',
@@ -320,7 +320,7 @@ export async function run(): Promise<void> {
         assert.equal(upgradedArtifacts.artifacts.shadowdark?.version, '2.0.0');
 
         __resetRegistryForTests();
-        const uninstallResult = uninstallManagedModule('shadowdark');
+        const uninstallResult = await uninstallManagedModule('shadowdark');
         assert.equal(uninstallResult.success, true, 'Managed uninstall should succeed for shadowdark');
 
         const uninstalledState = readJson<StoredLifecycle>(stateFilePath);

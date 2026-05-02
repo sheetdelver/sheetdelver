@@ -16,6 +16,7 @@ import WorldManagementPanel from '../components/WorldManagementPanel';
 import ModuleLifecycleControl from '../components/ModuleLifecycleControl';
 import AuditLogViewer from '../components/AuditLogViewer';
 import CacheInfoPanel from '../components/CacheInfoPanel';
+import SourceProfilePanel from '../components/SourceProfilePanel';
 
 /** Chevron icon for collapsible section headers. */
 function ChevronIcon({ expanded }: { expanded: boolean }) {
@@ -126,6 +127,11 @@ export default function AdminPage() {
                     {/* Module Lifecycle */}
                     <DashboardSection title="Module Lifecycle" defaultExpanded={true}>
                         <ModuleLifecycleControl />
+                    </DashboardSection>
+
+                    {/* Source Profiles */}
+                    <DashboardSection title="Source Profiles" defaultExpanded={false}>
+                        <SourceProfilePanel />
                     </DashboardSection>
 
                     {/* Audit Log — collapsed by default */}

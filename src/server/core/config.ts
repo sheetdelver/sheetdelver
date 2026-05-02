@@ -155,6 +155,11 @@ export async function loadConfig(): Promise<AppConfig | null> {
                 ? corsConfig['allowed-origins'].map((origin: unknown) => String(origin).trim()).filter(Boolean)
                 : undefined;
             const modulePolicy = resolveModulePolicyConfig(security, process.env);
+            
+            const sourceGovernanceConfig = security['source-governance'] || {};
+            const hostAllowlist = Array.isArray(sourceGovernanceConfig['host-allowlist'])
+                ? sourceGovernanceConfig['host-allowlist'].map((host: unknown) => String(host).trim()).filter(Boolean)
+                : undefined;
 
             _cachedConfig = {
                 app: {
@@ -192,6 +197,9 @@ export async function loadConfig(): Promise<AppConfig | null> {
                     adminSetupToken: envAdminSetupToken || security['admin-setup-token'],
                     adminPepper: envAdminPepper || security['admin-pepper'],
                     modulePolicy,
+                    sourceGovernance: {
+                        hostAllowlist
+                    },
                     cors: {
                         allowAllOrigins: envCorsAllowAllOrigins ?? corsConfig['allow-all-origins'] ?? false,
                         allowedOrigins: envCorsAllowedOrigins || configuredAllowedOrigins || [appUrl]

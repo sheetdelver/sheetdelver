@@ -158,6 +158,37 @@ export interface WorldActionResult {
     error?: string;
 }
 
+// ─── Source Profiles ───────────────────────────────────────────────
+
+export interface SourceProfile {
+    id: string;
+    name: string;
+    kind: 'local' | 'indexed' | 'direct';
+    baseUrl: string;
+    enabled: boolean;
+    priority: number;
+    auth?: { type: 'bearer'; token: string };
+    hostAllowlist?: string[];
+    createdAt: number;
+    updatedAt: number;
+}
+
+export interface SourceProfileResponse {
+    success: boolean;
+    profiles?: SourceProfile[];
+    profile?: SourceProfile;
+}
+
+export interface SourceProfileTestResponse {
+    success: boolean;
+    message?: string;
+    schemaVersion?: number;
+    publisher?: string;
+    moduleCount?: number;
+    error?: string;
+    errorCode?: string;
+}
+
 // ─── Path Helper ───────────────────────────────────────────────────
 
 /** Constructs the full admin API path from a relative path. */
@@ -346,5 +377,35 @@ export function postWorldAction(
     return adminFetch<WorldActionResult>(pathMap[action], {
         method: 'POST',
         body: JSON.stringify(body || {}),
+    });
+}
+
+export function fetchSourceProfiles() {
+    return adminFetch<SourceProfileResponse>('/sources');
+}
+
+export function createSourceProfile(profile: Partial<SourceProfile>) {
+    return adminFetch<SourceProfileResponse>('/sources', {
+        method: 'POST',
+        body: JSON.stringify(profile),
+    });
+}
+
+export function updateSourceProfile(id: string, updates: Partial<SourceProfile>) {
+    return adminFetch<SourceProfileResponse>(`/sources/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(updates),
+    });
+}
+
+export function deleteSourceProfile(id: string) {
+    return adminFetch<{ success: boolean; error?: string }>(`/sources/${id}`, {
+        method: 'DELETE',
+    });
+}
+
+export function testSourceProfile(id: string) {
+    return adminFetch<SourceProfileTestResponse>(`/sources/${id}/test`, {
+        method: 'POST',
     });
 }

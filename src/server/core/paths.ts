@@ -33,6 +33,11 @@ import os from 'node:os';
 /** Resolved absolute data directory path. null until resolveDataDir() is called. */
 let _dataDir: string | null = null;
 
+/** For unit testing: reset the internal data directory state. */
+export function __resetDataDirForTests(dir: string | null = null): void {
+    _dataDir = dir;
+}
+
 // ─── Constants ─────────────────────────────────────────────────────
 
 /** Subdirectory names within the data directory. */

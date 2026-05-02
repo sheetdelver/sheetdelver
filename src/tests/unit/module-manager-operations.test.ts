@@ -15,6 +15,7 @@ import {
     type ModuleArtifactStore,
     getArtifact,
 } from '@modules/registry/artifactStore';
+import { __resetDataDirForTests, initDataDir, resolveDataDir } from '@server/core/paths';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -85,6 +86,8 @@ export async function run(): Promise<void> {
         const tmpDir = mkdtempSync(join(origCwd, '.tmp-manager-test-'));
         try {
             process.chdir(tmpDir);
+            __resetDataDirForTests(tmpDir);
+            initDataDir(tmpDir);
             const result = installModule('test-module', input, lifecycle, artifacts, NOW + 1);
 
             assert.equal(result.success, true, 'install should succeed');
@@ -120,6 +123,8 @@ export async function run(): Promise<void> {
         const tmpDir = mkdtempSync(join(origCwd, '.tmp-manager-test-'));
         try {
             process.chdir(tmpDir);
+            __resetDataDirForTests(tmpDir);
+            initDataDir(tmpDir);
             const result = installModule('ghost', input, lifecycle, artifacts, NOW);
             assert.equal(result.success, false);
             assert.ok(result.error?.includes('not found'), 'Error should mention not found');
@@ -141,6 +146,8 @@ export async function run(): Promise<void> {
         const tmpDir = mkdtempSync(join(origCwd, '.tmp-manager-test-'));
         try {
             process.chdir(tmpDir);
+            __resetDataDirForTests(tmpDir);
+            initDataDir(tmpDir);
             const result = installModule('test-module', input, lifecycle, artifacts, NOW);
             assert.equal(result.success, false);
             assert.ok(result.error?.includes('upgrading'), 'Error should mention transient state');
@@ -166,6 +173,8 @@ export async function run(): Promise<void> {
         const tmpDir = mkdtempSync(join(origCwd, '.tmp-manager-test-'));
         try {
             process.chdir(tmpDir);
+            __resetDataDirForTests(tmpDir);
+            initDataDir(tmpDir);
             const result = uninstallModule('test-module', lifecycle, artifacts, NOW + 1);
 
             assert.equal(result.success, true, 'uninstall should succeed');
@@ -190,6 +199,8 @@ export async function run(): Promise<void> {
         const tmpDir = mkdtempSync(join(origCwd, '.tmp-manager-test-'));
         try {
             process.chdir(tmpDir);
+            __resetDataDirForTests(tmpDir);
+            initDataDir(tmpDir);
             const result = uninstallModule('test-module', lifecycle, artifacts, NOW);
             assert.equal(result.success, false, 'Cannot uninstall enabled module');
         } finally {
@@ -219,6 +230,8 @@ export async function run(): Promise<void> {
         const tmpDir = mkdtempSync(join(origCwd, '.tmp-manager-test-'));
         try {
             process.chdir(tmpDir);
+            __resetDataDirForTests(tmpDir);
+            initDataDir(tmpDir);
             const result = upgradeModule('test-module', input, lifecycle, artifacts, NOW + 1);
 
             assert.equal(result.success, true, 'upgrade should succeed');
@@ -250,6 +263,8 @@ export async function run(): Promise<void> {
         const tmpDir = mkdtempSync(join(origCwd, '.tmp-manager-test-'));
         try {
             process.chdir(tmpDir);
+            __resetDataDirForTests(tmpDir);
+            initDataDir(tmpDir);
             const result = upgradeModule('test-module', input, lifecycle, artifacts, NOW + 1);
             assert.equal(result.success, true, 'upgrade from enabled should succeed');
             assert.equal(result.newStatus, 'validated');
@@ -271,6 +286,8 @@ export async function run(): Promise<void> {
         const tmpDir = mkdtempSync(join(origCwd, '.tmp-manager-test-'));
         try {
             process.chdir(tmpDir);
+            __resetDataDirForTests(tmpDir);
+            initDataDir(tmpDir);
             const result = upgradeModule('ghost', input, lifecycle, artifacts, NOW);
             assert.equal(result.success, false);
             assert.ok(result.error?.includes('not found'));
@@ -307,6 +324,8 @@ export async function run(): Promise<void> {
         const tmpDir = mkdtempSync(join(origCwd, '.tmp-artifact-store-'));
         try {
             process.chdir(tmpDir);
+            __resetDataDirForTests(tmpDir);
+            initDataDir(tmpDir);
 
             const { loadArtifactStore, saveArtifactStore: save, upsertArtifact: upsert } =
                 await import('@modules/registry/artifactStore');

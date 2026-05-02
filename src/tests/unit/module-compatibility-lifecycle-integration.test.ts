@@ -92,7 +92,7 @@ export async function run(): Promise<void> {
 
         __resetRegistryForTests();
 
-        const installResult = installManagedModule({
+        const installResult = await installManagedModule({
             moduleId,
             source: `local://${moduleId}`,
             version: '1.0.0',
@@ -100,7 +100,7 @@ export async function run(): Promise<void> {
         assert.equal(installResult.success, false);
         assert.equal(installResult.errorCode, 'validation-failed');
 
-        const upgradeResult = upgradeManagedModule({
+        const upgradeResult = await upgradeManagedModule({
             moduleId,
             source: `local://${moduleId}`,
             targetVersion: '1.0.1',

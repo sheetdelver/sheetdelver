@@ -162,6 +162,9 @@ export interface AppConfig {
             requireAdminOverrideForLowerTrust: boolean;
             requirePermissionEscalationApproval: boolean;
         };
+        sourceGovernance?: {
+            hostAllowlist?: string[];
+        };
         cors: {
             allowAllOrigins: boolean;
             allowedOrigins: string[];
