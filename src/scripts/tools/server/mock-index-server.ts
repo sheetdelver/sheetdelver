@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import express from 'express';
 import cors from 'cors';
 import { resolveDataDir, initDataDir, getDistModulesDir } from '../../../server/core/paths';
+import { logger } from '../../../shared/utils/logger';
 
 initDataDir(resolveDataDir());
 
@@ -61,6 +62,7 @@ app.get('/', (req, res) => {
                             source: `http://localhost:${PORT}/download/${file}`,
                             publishedAt: fs.statSync(filePath).mtimeMs,
                             integrity,
+                            signature: 'minisign:mock-dnd5e-signature',
                             compatibility: {
                                 "module-api": ">=1.0.0 <2.0.0"
                             }
@@ -72,9 +74,10 @@ app.get('/', (req, res) => {
     }
 
     res.json(MOCK_INDEX);
+    logger.info(`[MockServer] Served index at http://localhost:${PORT}/ to ${req.ip} at ${new Date(Date.now()).toLocaleString()}`);
 });
 
 app.listen(PORT, () => {
-    console.log(`Mock Index Server running at http://localhost:${PORT}`);
-    console.log('Serving index at / and tarballs at /download');
+    logger.info(`[MockServer] Mock Index Server running at http://localhost:${PORT} started at ${new Date(Date.now()).toLocaleString()}`);
+    logger.info(`[MockServer] Serving index at http://localhost:${PORT}/ and tarballs at http://localhost:${PORT}/download`);
 });

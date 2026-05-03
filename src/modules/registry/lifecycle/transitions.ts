@@ -9,14 +9,14 @@ import type { ModuleLifecycleStatus } from './lifecycle';
 const ALLOWED_TRANSITIONS: Record<ModuleLifecycleStatus, ModuleLifecycleStatus[]> = {
     discovered:   ['installed', 'incompatible', 'errored'],
     installed:    ['validated', 'incompatible', 'errored', 'uninstalling'],
-    validated:    ['enabled', 'disabled', 'incompatible', 'errored', 'upgrading', 'uninstalling'],
-    enabled:      ['disabled', 'errored', 'upgrading'],
-    disabled:     ['enabled', 'validated', 'upgrading', 'uninstalling', 'errored'],
-    errored:      ['disabled', 'uninstalling'],
-    incompatible: ['uninstalling'],
+    validated:    ['enabled', 'disabled', 'incompatible', 'errored', 'upgrading', 'uninstalling', 'installed'],
+    enabled:      ['disabled', 'errored', 'upgrading', 'installed'],
+    disabled:     ['enabled', 'validated', 'upgrading', 'uninstalling', 'errored', 'installed'],
+    errored:      ['disabled', 'uninstalling', 'installed'],
+    incompatible: ['uninstalling', 'installed'],
     upgrading:    ['validated', 'errored'],
     uninstalling: ['removed', 'errored'],
-    removed:      [],
+    removed:      ['installed'],
 };
 
 /**

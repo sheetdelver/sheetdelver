@@ -112,7 +112,7 @@ export async function run(): Promise<void> {
     }
 
     {
-        // Failure path: module not in store
+        // Success path: module not in store is auto-created for remote installs
         const lifecycle: ModuleLifecycleStore = { version: 1, modules: {} };
         const artifacts = makeArtifactStore();
         const input: InstallModuleInput = { moduleId: 'ghost', source: 'local://ghost', version: '1.0.0' };
@@ -126,8 +126,8 @@ export async function run(): Promise<void> {
             __resetDataDirForTests(tmpDir);
             initDataDir(tmpDir);
             const result = await installModule('ghost', input, lifecycle, artifacts, NOW);
-            assert.equal(result.success, false);
-            assert.ok(result.error?.includes('not found'), 'Error should mention not found');
+            assert.equal(result.success, true);
+            assert.equal(lifecycle.modules['ghost'].status, 'validated');
         } finally {
             process.chdir(origCwd);
             rmSync(tmpDir, { recursive: true, force: true });

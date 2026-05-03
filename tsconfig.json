@@ -46,6 +46,7 @@
     "src/scripts",
     "src/tests/deprecated",
     "temp-shadowdark",
-    "temp"
+    "temp",
+    "data"
   ]
 }

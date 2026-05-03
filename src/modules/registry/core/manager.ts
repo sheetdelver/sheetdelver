@@ -87,9 +87,9 @@ export function checkOperationPrecondition(
  * Validate + enable/disable have no single fixed target (context-dependent).
  */
 const OPERATION_TRANSITIONS: Partial<Record<ManagerOperation, ModuleLifecycleStatus>> = {
-    install:   'installed',
+    install: 'installed',
     uninstall: 'uninstalling',
-    upgrade:   'upgrading',
+    upgrade: 'upgrading',
 };
 
 /**
@@ -156,6 +156,7 @@ export type ManagerErrorCode =
     | 'trust-policy-blocked'
     | 'artifact-verification-failed'
     | 'permission-escalation-requires-approval'
+    | 'unmanaged-module-protection'
     | 'artifact-missing'
     | 'validation-failed'
     | 'rollback-applied'
@@ -208,10 +209,17 @@ export async function installModule(
     artifactStoreFilePath?: string
 ): Promise<ManagerOperationResult> {
     const id = moduleId.toLowerCase();
-    const record = lifecycleStore.modules[id];
+    let record = lifecycleStore.modules[id];
 
     if (!record) {
-        return operationFailure(id, 'install', 'Module record not found in lifecycle store', undefined, 'module-not-found');
+        // Module is completely new to this system (likely a remote install). Create a default discovered record.
+        record = {
+            moduleId: id,
+            status: 'discovered',
+            enabled: false,
+            updatedAt: Date.now(),
+        } as ModuleLifecycleRecord;
+        lifecycleStore.modules[id] = record;
     }
 
     const pre = checkOperationPrecondition(id, record, 'install');
@@ -229,11 +237,11 @@ export async function installModule(
         // Download and extract artifact
         // Bypass extraction for purely local module tests, 'local://', or dummy test URLs
         if (
-            input.source && 
+            input.source &&
             !input.source.startsWith('local://') &&
             !input.source.includes('example.com')
         ) {
-            await fetchAndExtractArtifact(id, input.source, input.integrity);
+            await fetchAndExtractArtifact(id, input.version, input.source, input.integrity);
         }
 
         upsertArtifact(artifactStore, {
@@ -305,12 +313,12 @@ export function uninstallModule(
         removeArtifact(artifactStore, id);
         saveArtifactStore(artifactStore, artifactStoreFilePath);
 
-        const removed = applyManagerTransition(uninstalling, 'removed', 'Module uninstalled', now);
-        lifecycleStore.modules[id] = removed;
+        // Fully purge the record from lifecycle store instead of keeping a 'removed' stub
+        delete lifecycleStore.modules[id];
         saveLifecycleStore(lifecycleStore, lifecycleStateFilePath);
 
-        logger.info(`[ModuleManager] Uninstalled module "${id}"`);
-        return operationSuccess(id, 'uninstall', previousStatus, removed.status);
+        logger.info(`[ModuleManager] Uninstalled and purged module "${id}"`);
+        return operationSuccess(id, 'uninstall', previousStatus, 'removed');
     } catch (err) {
         // Rollback: restore prior record and artifact if it was removed already
         lifecycleStore.modules[id] = { ...record, updatedAt: now };
@@ -367,11 +375,11 @@ export async function upgradeModule(
         // Download and extract artifact
         // Bypass extraction for purely local module tests, 'local://', or dummy test URLs
         if (
-            input.source && 
+            input.source &&
             !input.source.startsWith('local://') &&
             !input.source.includes('example.com')
         ) {
-            await fetchAndExtractArtifact(id, input.source, input.integrity);
+            await fetchAndExtractArtifact(id, input.targetVersion, input.source, input.integrity);
         }
 
         // Write new artifact speculatively

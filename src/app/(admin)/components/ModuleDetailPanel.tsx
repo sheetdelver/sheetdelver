@@ -30,6 +30,12 @@ export default function ModuleDetailPanel({ module, onOperationComplete, onSessi
 
     return (
         <div className="mt-3 space-y-4 border-t border-[var(--admin-border)] pt-4">
+            {/* Location */}
+            <DetailSection title="Location">
+                <code className="block rounded-xl bg-[var(--admin-surface)] p-3 text-xs text-[var(--admin-text-secondary)] break-all font-mono">
+                    {module.directory}
+                </code>
+            </DetailSection>
 
             {/* Reason */}
             {reason && (

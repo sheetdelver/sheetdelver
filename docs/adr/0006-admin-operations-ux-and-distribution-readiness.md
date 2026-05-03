@@ -123,8 +123,9 @@ Delivered components:
 - `WorldManagementPanel.tsx` — world list with launch/shutdown/retry controls
 - `CacheInfoPanel.tsx` — read-only cache state viewer with active world indicator
 - `AuditLogViewer.tsx` — paginated audit log table with action-type filtering, auto-refresh toggle, load-more pagination
-- `admin/page.tsx` — restructured dashboard with collapsible sections (chevron toggle), responsive layout
-- `createAdminRouter.ts` — expanded `/admin/lifecycle` response with validation diagnostics, health, and artifact metadata
+- `admin/page.tsx` — restructured dashboard with collapsible sections, responsive layout, and shared `installedModules` state for reactive panel synchronization
+- `SourceProfilePanel.tsx` — source management UI with remote index browsing, version-aware action buttons (Install/Update/Re-install), and priority controls
+- `createAdminRouter.ts` — expanded `/admin/lifecycle` response with validation diagnostics, health, artifact metadata, and canonical directory paths
 
 Prerequisite (pre-phase-27): Unified data directory (`src/server/core/paths.ts`) — configurable via `--data-dir` / `SHEET_DELVER_DATA` env var. All hardcoded `.data/` and CWD-based `settings.yaml` references removed.
 

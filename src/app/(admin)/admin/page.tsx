@@ -67,6 +67,13 @@ function DashboardSection({
 
 export default function AdminPage() {
     const { isAuthenticated, loading, accountExists, logout } = useAdminAuth();
+    const [refreshKey, setRefreshKey] = useState(0);
+    const triggerRefresh = useCallback(() => setRefreshKey(prev => prev + 1), []);
+    
+    const [installedModules, setInstalledModules] = useState<ModuleLifecycleInfo[]>([]);
+    const handleModulesLoaded = useCallback((modules: ModuleLifecycleInfo[]) => {
+        setInstalledModules(modules);
+    }, []);
 
     // ─── Loading state ─────────────────────────────────────────────
 
@@ -126,12 +133,18 @@ export default function AdminPage() {
 
                     {/* Module Lifecycle */}
                     <DashboardSection title="Module Lifecycle" defaultExpanded={true}>
-                        <ModuleLifecycleControl />
+                        <ModuleLifecycleControl 
+                            key={`lifecycle-${refreshKey}`} 
+                            onModulesLoaded={handleModulesLoaded}
+                        />
                     </DashboardSection>
 
                     {/* Source Profiles */}
                     <DashboardSection title="Source Profiles" defaultExpanded={false}>
-                        <SourceProfilePanel />
+                        <SourceProfilePanel 
+                            onModuleInstalled={triggerRefresh} 
+                            installedModules={installedModules}
+                        />
                     </DashboardSection>
 
                     {/* Audit Log — collapsed by default */}

@@ -24,6 +24,7 @@ export interface ModulePermissionDeclaration {
 
 export interface SystemModuleInfo {
     id: string;
+    version?: string;
     title: string;
     aliases?: string[];
     experimental?: boolean;

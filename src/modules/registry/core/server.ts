@@ -26,6 +26,7 @@ import {
     type InstallModuleInput,
     type UpgradeModuleInput,
     type ManagerOperationResult,
+    ModuleArtifactMetadata,
 } from './manager';
 import { getArtifact, loadArtifactStore, saveArtifactStore, upsertArtifactVerification } from '../distribution/artifactStore';
 import {
@@ -44,6 +45,7 @@ import {
     type SourceResolutionContext,
 } from '../distribution/sourceAdapters';
 import { validateModuleIndexDocument, type ModuleIndexDocument } from '../distribution/moduleIndex';
+import { getModulesDataDir } from '@/server/core/paths';
 
 const LIFECYCLE_STATE_FILE_ENV = 'SHEET_DELVER_MODULE_STATE_FILE';
 const ARTIFACT_STATE_FILE_ENV = 'SHEET_DELVER_MODULE_ARTIFACT_FILE';
@@ -57,6 +59,8 @@ export interface RegisteredModuleRuntimeInfo {
     enabled: boolean;
     status: ModuleLifecycleStatus;
     reason?: string;
+    managed: boolean;
+    artifact?: ModuleArtifactMetadata;
 }
 
 interface RegistryState {
@@ -139,18 +143,26 @@ async function buildSourceResolutionContext(sourceRef: string): Promise<{ ok: tr
         const { loadSourceProfiles } = await import('../distribution/sourceProfiles');
         const { fetchRemoteIndex } = await import('../distribution/remoteIndexFetcher');
         const profiles = loadSourceProfiles().filter(p => p.enabled && p.kind === 'indexed');
-        
+
         const indexes: Record<string, ModuleIndexDocument> = {};
         for (const profile of profiles) {
             const result = await fetchRemoteIndex(profile.baseUrl, { auth: profile.auth });
             if (result.ok && result.index) {
                 indexes[profile.baseUrl] = result.index;
                 if (sourceRef === 'index://' || sourceRef === profile.baseUrl || profile.baseUrl.includes(sourceRef.replace('index://', ''))) {
-                    indexes[sourceRef] = result.index;
+                    if (sourceRef === 'index://') {
+                        if (!indexes[sourceRef]) {
+                            indexes[sourceRef] = { ...result.index, modules: { ...result.index.modules } };
+                        } else {
+                            Object.assign(indexes[sourceRef].modules, result.index.modules);
+                        }
+                    } else {
+                        indexes[sourceRef] = result.index;
+                    }
                 }
             }
         }
-        
+
         return { ok: true, context: { indexes } };
     } catch (err) {
         return { ok: false, error: 'Failed to fetch remote indexes' };
@@ -235,139 +247,151 @@ export function initializeRegistry() {
         lifecycleStore.modules = loadedStore.modules;
         const coreVersion = getCoreVersion();
 
-        const modulesDir = path.join(process.cwd(), 'src', 'modules');
-        logger.info(`Registry [PID:${process.pid}] | Scanning modules directory: ${modulesDir} (CWD: ${process.cwd()})`);
+        const builtInModulesDir = path.join(process.cwd(), 'src', 'modules');
+        const dataModulesDir = getModulesDataDir();
+        const scanDirs: Array<{ source: 'built-in' | 'data'; path: string }> = [
+            { path: builtInModulesDir, source: 'built-in' },
+            { path: dataModulesDir, source: 'data' }
+        ];
 
-        if (!fs.existsSync(modulesDir)) {
-            logger.error(`Registry [PID:${process.pid}] | Modules directory NOT FOUND at: ${modulesDir}`);
-            return;
-        }
+        pluginMap.clear();
 
-        const entries = fs.readdirSync(modulesDir, { withFileTypes: true });
-
-        for (const entry of entries) {
-            // Skip the registry itself and non-directories
-            if (!entry.isDirectory() || entry.name === 'registry') continue;
-
-            const modulePath = path.join(modulesDir, entry.name);
-            const infoPath = path.join(modulePath, 'info.json');
-
-            if (!fs.existsSync(infoPath)) {
-                logger.warn(`Registry | Skipping folder "${entry.name}": Missing info.json manifest.`);
-                const moduleId = entry.name.toLowerCase();
-                upsertDiscoveredModule(lifecycleStore, {
-                    moduleId,
-                    title: entry.name,
-                    directory: entry.name
-                });
-                applyLifecycleClassification(lifecycleStore, moduleId, {
-                    status: 'errored',
-                    enabled: false,
-                    reason: 'Missing info.json manifest',
-                    manifestValid: false,
-                    validationErrors: ['Missing info.json manifest'],
-                    compatible: false,
-                    coreVersion
-                });
+        for (const scanDir of scanDirs) {
+            const modulesDir = scanDir.path;
+            if (!fs.existsSync(modulesDir)) {
+                if (scanDir.source === 'built-in') {
+                    logger.error(`Registry [PID:${process.pid}] | Built-in modules directory NOT FOUND at: ${modulesDir}`);
+                }
                 continue;
             }
 
-            try {
-                const rawInfo = JSON.parse(fs.readFileSync(infoPath, 'utf8')) as unknown;
-                const shapeValidation = validateModuleInfoShape(rawInfo);
+            logger.info(`Registry [PID:${process.pid}] | Scanning ${scanDir.source} modules directory: ${modulesDir}`);
+            const entries = fs.readdirSync(modulesDir, { withFileTypes: true });
 
-                const fallbackId = entry.name.toLowerCase();
-                const fallbackTitle = entry.name;
-                const inferredId = (
-                    typeof rawInfo === 'object'
-                    && rawInfo !== null
-                    && 'id' in rawInfo
-                    && typeof (rawInfo as { id?: unknown }).id === 'string'
-                )
-                    ? String((rawInfo as { id: string }).id).toLowerCase()
-                    : fallbackId;
-                const inferredTitle = (
-                    typeof rawInfo === 'object'
-                    && rawInfo !== null
-                    && 'title' in rawInfo
-                    && typeof (rawInfo as { title?: unknown }).title === 'string'
-                )
-                    ? String((rawInfo as { title: string }).title)
-                    : fallbackTitle;
+            for (const entry of entries) {
+                // Skip the registry itself and non-directories
+                if (!entry.isDirectory() || entry.name === 'registry') continue;
 
-                upsertDiscoveredModule(lifecycleStore, {
-                    moduleId: inferredId,
-                    title: inferredTitle,
-                    directory: entry.name
-                });
+                const modulePath = path.join(modulesDir, entry.name);
+                const infoPath = path.join(modulePath, 'info.json');
 
-                if (!shapeValidation.valid) {
-                    applyLifecycleClassification(lifecycleStore, inferredId, {
+                if (!fs.existsSync(infoPath)) {
+                    logger.warn(`Registry | Skipping folder "${entry.name}": Missing info.json manifest.`);
+                    const moduleId = entry.name.toLowerCase();
+                    upsertDiscoveredModule(lifecycleStore, {
+                        moduleId,
+                        title: entry.name,
+                        directory: modulePath
+                    });
+                    applyLifecycleClassification(lifecycleStore, moduleId, {
                         status: 'errored',
                         enabled: false,
-                        reason: shapeValidation.errors.join('; '),
+                        reason: 'Missing info.json manifest',
                         manifestValid: false,
-                        validationErrors: shapeValidation.errors,
+                        validationErrors: ['Missing info.json manifest'],
                         compatible: false,
                         coreVersion
                     });
-                    logger.error(`Registry | Invalid manifest for "${entry.name}": ${shapeValidation.errors.join('; ')}`);
                     continue;
                 }
 
-                const info = rawInfo as SystemModuleInfo;
-                const compatibility = evaluateModuleCompatibility(info, coreVersion);
+                try {
+                    const rawInfo = JSON.parse(fs.readFileSync(infoPath, 'utf8')) as unknown;
+                    const shapeValidation = validateModuleInfoShape(rawInfo);
 
-                if (!compatibility.compatible) {
-                    applyLifecycleClassification(lifecycleStore, inferredId, {
-                        status: 'incompatible',
-                        enabled: false,
-                        reason: compatibility.reason || 'Incompatible with current core version',
+                    const fallbackId = entry.name.toLowerCase();
+                    const fallbackTitle = entry.name;
+                    const inferredId = (
+                        typeof rawInfo === 'object'
+                        && rawInfo !== null
+                        && 'id' in rawInfo
+                        && typeof (rawInfo as { id?: unknown }).id === 'string'
+                    )
+                        ? String((rawInfo as { id: string }).id).toLowerCase()
+                        : fallbackId;
+                    const inferredTitle = (
+                        typeof rawInfo === 'object'
+                        && rawInfo !== null
+                        && 'title' in rawInfo
+                        && typeof (rawInfo as { title?: unknown }).title === 'string'
+                    )
+                        ? String((rawInfo as { title: string }).title)
+                        : fallbackTitle;
+
+                    upsertDiscoveredModule(lifecycleStore, {
+                        moduleId: inferredId,
+                        title: inferredTitle,
+                        directory: modulePath
+                    });
+
+                    if (!shapeValidation.valid) {
+                        applyLifecycleClassification(lifecycleStore, inferredId, {
+                            status: 'errored',
+                            enabled: false,
+                            reason: shapeValidation.errors.join('; '),
+                            manifestValid: false,
+                            validationErrors: shapeValidation.errors,
+                            compatible: false,
+                            coreVersion
+                        });
+                        logger.error(`Registry | Invalid manifest for "${entry.name}": ${shapeValidation.errors.join('; ')}`);
+                        continue;
+                    }
+
+                    const info = rawInfo as SystemModuleInfo;
+                    const compatibility = evaluateModuleCompatibility(info, coreVersion);
+
+                    if (!compatibility.compatible) {
+                        applyLifecycleClassification(lifecycleStore, inferredId, {
+                            status: 'incompatible',
+                            enabled: false,
+                            reason: compatibility.reason || 'Incompatible with current core version',
+                            manifestValid: true,
+                            compatible: false,
+                            coreVersion: compatibility.coreVersion,
+                            requiredCoreVersion: compatibility.requiredCoreVersion,
+                            requiredApiContracts: compatibility.requiredApiContracts,
+                            providedApiContracts: compatibility.providedApiContracts,
+                            coreDiagnostics: compatibility.coreDiagnostics,
+                            contractDiagnostics: compatibility.contractDiagnostics,
+                        });
+                        logger.warn(`Registry | Module "${entry.name}" is incompatible: ${compatibility.reason || 'unknown reason'}`);
+                        continue;
+                    }
+
+                    const plugin: SystemPlugin = {
+                        info,
+                        directory: modulePath,
+                        // Thunk-based lazy loading using absolute paths to support data/modules
+                        getLogic: () => import(path.join(modulePath, info.manifest.logic)),
+                        getUI: () => import(path.join(modulePath, info.manifest.ui)),
+                        getServer: info.manifest.server ? () => import(path.join(modulePath, info.manifest.server ?? '')) : undefined
+                    };
+
+                    const primaryId = info.id.toLowerCase();
+                    pluginMap.set(primaryId, plugin);
+                    const existingLifecycle = lifecycleStore.modules[primaryId];
+                    const enabled = existingLifecycle ? existingLifecycle.enabled : true;
+                    applyLifecycleClassification(lifecycleStore, primaryId, {
+                        status: enabled ? 'validated' : 'disabled',
+                        enabled,
+                        reason: enabled ? undefined : 'Module disabled in persisted lifecycle state',
                         manifestValid: true,
-                        compatible: false,
-                        coreVersion: compatibility.coreVersion,
+                        compatible: true,
+                        coreVersion,
                         requiredCoreVersion: compatibility.requiredCoreVersion,
                         requiredApiContracts: compatibility.requiredApiContracts,
                         providedApiContracts: compatibility.providedApiContracts,
                         coreDiagnostics: compatibility.coreDiagnostics,
                         contractDiagnostics: compatibility.contractDiagnostics,
                     });
-                    logger.warn(`Registry | Module "${entry.name}" is incompatible: ${compatibility.reason || 'unknown reason'}`);
-                    continue;
+                    logger.info(`Registry [PID:${process.pid}] | Discovered module: ${info.title} (${primaryId})`);
+                    if (info.experimental) {
+                        logger.warn(`Registry [PID:${process.pid}] | Experimental module hidden from public registry: ${info.title} (${primaryId})`);
+                    }
+                } catch (err) {
+                    logger.error(`Registry | Failed to parse manifest for "${entry.name}" in ${scanDir.source}:`, err);
                 }
-
-                const plugin: SystemPlugin = {
-                    info,
-                    directory: entry.name,
-                    // Thunk-based lazy loading for system modules
-                    getLogic: () => import(`@modules/${entry.name}/${info.manifest.logic}`),
-                    getUI: () => import(`@modules/${entry.name}/${info.manifest.ui}`),
-                    getServer: info.manifest.server ? () => import(`@modules/${entry.name}/${info.manifest.server}`) : undefined
-                };
-
-                const primaryId = info.id.toLowerCase();
-                pluginMap.set(primaryId, plugin);
-                const existingLifecycle = lifecycleStore.modules[primaryId];
-                const enabled = existingLifecycle ? existingLifecycle.enabled : true;
-                applyLifecycleClassification(lifecycleStore, primaryId, {
-                    status: enabled ? 'validated' : 'disabled',
-                    enabled,
-                    reason: enabled ? undefined : 'Module disabled in persisted lifecycle state',
-                    manifestValid: true,
-                    compatible: true,
-                    coreVersion,
-                    requiredCoreVersion: compatibility.requiredCoreVersion,
-                    requiredApiContracts: compatibility.requiredApiContracts,
-                    providedApiContracts: compatibility.providedApiContracts,
-                    coreDiagnostics: compatibility.coreDiagnostics,
-                    contractDiagnostics: compatibility.contractDiagnostics,
-                });
-                logger.info(`Registry [PID:${process.pid}] | Discovered module: ${info.title} (${primaryId})`);
-                if (info.experimental) {
-                    logger.warn(`Registry [PID:${process.pid}] | Experimental module hidden from public registry: ${info.title} (${primaryId})`);
-                }
-            } catch (err) {
-                logger.error(`Registry | Failed to parse manifest for "${entry.name}":`, err);
             }
         }
 
@@ -383,8 +407,17 @@ export function getModuleLifecycleState() {
     return getLifecycleRecords(lifecycleStore);
 }
 
+/**
+ * Force a re-scan of module directories and update the internal registry map.
+ */
+export function refreshRegistry(): void {
+    setInitialized(false);
+    initializeRegistry();
+}
+
 export function listModules(options?: { includeExperimental?: boolean; includeDisabled?: boolean }): RegisteredModuleRuntimeInfo[] {
     if (!isInitialized()) initializeRegistry();
+    const artifactStore = loadArtifactStore(getArtifactStateFilePathOverride());
 
     return getUniquePlugins()
         .filter((plugin) => options?.includeExperimental || !plugin.info.experimental)
@@ -401,6 +434,10 @@ export function listModules(options?: { includeExperimental?: boolean; includeDi
                 updatedAt: 0
             };
             const lifecycle = getLifecycleRecord(moduleId) || fallbackLifecycle;
+            const artifact = getArtifact(artifactStore, moduleId);
+            
+            // A module is managed if it has an artifact record (meaning it was installed/managed via the system).
+            const managed = !!artifact;
 
             return {
                 info: plugin.info,
@@ -408,7 +445,9 @@ export function listModules(options?: { includeExperimental?: boolean; includeDi
                 lifecycle,
                 enabled: lifecycle.enabled,
                 status: lifecycle.status,
-                reason: lifecycle.reason
+                reason: lifecycle.reason,
+                artifact,
+                managed
             };
         })
         .filter((entry) => options?.includeDisabled || entry.enabled);
@@ -470,47 +509,64 @@ interface ManifestGateResult {
     classification?: ModuleLifecycleClassificationInput;
 }
 
-function checkManifestGate(moduleId: string): ManifestGateResult {
+function checkManifestGate(moduleId: string, effectiveInfo?: SystemModuleInfo): ManifestGateResult {
     const id = moduleId.toLowerCase();
     const plugin = pluginMap.get(id);
     const record = getLifecycleRecord(id);
 
-    if (!plugin) {
-        if (record?.validation && (!record.validation.manifestValid || !record.validation.compatible)) {
-            const reasons: string[] = [];
-            if (!record.validation.manifestValid && record.validation.validationErrors?.length) {
-                reasons.push(record.validation.validationErrors.join('; '));
-            }
-            if (!record.validation.compatible) {
-                reasons.push(record.reason || 'Module is incompatible with current core version');
-            }
+    if (record?.validation && (!record.validation.manifestValid || !record.validation.compatible)) {
+        const reasons: string[] = [];
+        if (!record.validation.manifestValid && record.validation.validationErrors?.length) {
+            reasons.push(record.validation.validationErrors.join('; '));
+        }
+        if (!record.validation.compatible) {
+            reasons.push(record.reason || 'Module is incompatible with current core version');
+        }
 
-            if (isManifestFailOpenEnabled()) {
-                return {
-                    allowed: true,
-                    mode: 'fail-open',
-                    reason: reasons.join(' | ') || 'Manifest gate bypassed in development fail-open mode',
-                };
-            }
-
+        if (isManifestFailOpenEnabled()) {
             return {
-                allowed: false,
-                mode: 'strict',
-                errorCode: 'validation-failed',
-                reason: reasons.join(' | ') || 'Manifest validation failed',
+                allowed: true,
+                mode: 'fail-open',
+                reason: reasons.join(' | ') || 'Manifest gate bypassed in development fail-open mode',
             };
         }
 
         return {
             allowed: false,
             mode: 'strict',
-            errorCode: 'module-not-found',
-            reason: `Module ${id} not found in registry`,
+            errorCode: 'validation-failed',
+            reason: reasons.join(' | ') || 'Manifest validation failed',
         };
     }
 
-    const shape = validateModuleInfoShape(plugin.info);
-    const compatibility = evaluateModuleCompatibility(plugin.info, getCoreVersion());
+    const infoToValidate = effectiveInfo || plugin?.info;
+
+    if (!infoToValidate) {
+        return {
+            allowed: false,
+            mode: 'strict',
+            errorCode: 'module-not-found',
+            reason: `Module ${id} not found in registry and no remote metadata available`,
+        };
+    }
+
+    if (!plugin) {
+        // For remote modules, we don't have the full info.json yet (e.g. no manifest paths).
+        // Skip structural shape validation and only check compatibility.
+        const compatibility = evaluateModuleCompatibility(infoToValidate, getCoreVersion());
+        if (!compatibility.compatible) {
+            return {
+                allowed: false,
+                mode: 'strict',
+                errorCode: 'validation-failed',
+                reason: compatibility.reason || 'Module is incompatible with current core version',
+            };
+        }
+        return { allowed: true, mode: 'strict' };
+    }
+
+    const shape = validateModuleInfoShape(infoToValidate);
+    const compatibility = evaluateModuleCompatibility(infoToValidate, getCoreVersion());
 
     if (shape.valid && compatibility.compatible) {
         return { allowed: true, mode: 'strict' };
@@ -623,12 +679,12 @@ interface ManagerTelemetryEvent {
     operation: 'install' | 'upgrade' | 'dry-run-install' | 'dry-run-upgrade';
     moduleId: string;
     stage:
-        | 'source-resolution'
-        | 'trust-policy'
-        | 'manifest-gate'
-        | 'artifact-verification'
-        | 'permission-policy'
-        | 'summary';
+    | 'source-resolution'
+    | 'trust-policy'
+    | 'manifest-gate'
+    | 'artifact-verification'
+    | 'permission-policy'
+    | 'summary';
     outcome: ManagerTelemetryOutcome;
     sourceRef?: string;
     resolvedSource?: string;
@@ -655,7 +711,18 @@ function buildEffectiveModuleInfo(
     resolvedSource: ModuleSourceResolution,
     inputPermissions?: SystemModuleInfo['permissions']
 ): SystemModuleInfo | undefined {
-    if (!plugin) return undefined;
+    if (!plugin) {
+        return {
+            id: resolvedSource.moduleId,
+            title: resolvedSource.moduleId,
+            version: resolvedSource.version || '0.0.0',
+            trust: resolvedSource.trustTier ? { tier: resolvedSource.trustTier } : { tier: (resolvedSource.kind === 'local' || resolvedSource.kind === 'indexed') ? 'unverified' : 'untrusted' },
+            permissions: inputPermissions || resolvedSource.permissions,
+            compatibility: resolvedSource.compatibility,
+            dependencies: resolvedSource.dependencies,
+            conflicts: resolvedSource.conflicts,
+        } as SystemModuleInfo;
+    }
 
     return {
         ...plugin.info,
@@ -792,7 +859,7 @@ export async function dryRunInstallManagedModule(input: InstallManagedModuleInpu
         })
         : undefined;
 
-    const manifestGate = checkManifestGate(id);
+    const manifestGate = checkManifestGate(id, effectiveInfo);
     const verification = verifyArtifactMetadata({
         moduleId: id,
         operation: 'install',
@@ -903,7 +970,7 @@ export async function dryRunUpgradeManagedModule(input: UpgradeManagedModuleInpu
         })
         : undefined;
 
-    const manifestGate = checkManifestGate(id);
+    const manifestGate = checkManifestGate(id, effectiveInfo);
     const artifactStorePath = getArtifactStateFilePathOverride();
     const artifactStore = loadArtifactStore(artifactStorePath);
     const previousPermissions = getArtifact(artifactStore, id)?.permissions || plugin?.info.permissions;
@@ -1019,6 +1086,21 @@ export async function installManagedModule(input: InstallManagedModuleInput): Pr
     }
 
     const plugin = pluginMap.get(id);
+    const artifactStorePath = getArtifactStateFilePathOverride();
+    const artifactStore = loadArtifactStore(artifactStorePath);
+    const existingArtifact = getArtifact(artifactStore, id);
+
+    // Protection for unmanaged modules (built-in or manually placed)
+    if (plugin && !existingArtifact) {
+        return operationFailure(
+            id,
+            'install',
+            'Cannot install over an unmanaged (built-in or manual) module. Management operations are disabled for local system modules.',
+            undefined,
+            'unmanaged-module-protection'
+        );
+    }
+
     const effectiveInfo = buildEffectiveModuleInfo(plugin, resolvedSource.value, input.permissions);
     if (effectiveInfo) {
         const trustDecision = evaluateTrustPolicy(effectiveInfo, getTrustPolicyConfig(), {
@@ -1046,7 +1128,7 @@ export async function installManagedModule(input: InstallManagedModuleInput): Pr
         }
     }
 
-    const gate = checkManifestGate(id);
+    const gate = checkManifestGate(id, effectiveInfo);
     if (!gate.allowed) {
         emitManagerTelemetry({
             operation: 'install',
@@ -1073,9 +1155,6 @@ export async function installManagedModule(input: InstallManagedModuleInput): Pr
     if (gate.mode === 'fail-open' && gate.reason) {
         logger.warn(`[ModuleManager] Manifest gate fail-open for "${id}": ${gate.reason}`);
     }
-
-    const artifactStorePath = getArtifactStateFilePathOverride();
-    const artifactStore = loadArtifactStore(artifactStorePath);
 
     const verification = verifyArtifactMetadata({
         moduleId: id,
@@ -1136,6 +1215,10 @@ export async function installManagedModule(input: InstallManagedModuleInput): Pr
         reason: result.error,
     });
 
+    if (result.success) {
+        refreshRegistry();
+    }
+
     return result;
 }
 
@@ -1174,6 +1257,21 @@ export async function upgradeManagedModule(input: UpgradeManagedModuleInput): Pr
     }
 
     const plugin = pluginMap.get(id);
+    const artifactStorePath = getArtifactStateFilePathOverride();
+    const artifactStore = loadArtifactStore(artifactStorePath);
+    const existingArtifact = getArtifact(artifactStore, id);
+
+    // Protection for unmanaged modules
+    if (plugin && !existingArtifact) {
+        return operationFailure(
+            id,
+            'upgrade',
+            'Cannot upgrade an unmanaged (built-in or manual) module. Management operations are disabled for local system modules.',
+            undefined,
+            'unmanaged-module-protection'
+        );
+    }
+
     const effectiveInfo = buildEffectiveModuleInfo(plugin, resolvedSource.value, input.permissions);
     if (effectiveInfo) {
         const trustDecision = evaluateTrustPolicy(effectiveInfo, getTrustPolicyConfig(), {
@@ -1201,7 +1299,7 @@ export async function upgradeManagedModule(input: UpgradeManagedModuleInput): Pr
         }
     }
 
-    const gate = checkManifestGate(id);
+    const gate = checkManifestGate(id, effectiveInfo);
     if (!gate.allowed) {
         emitManagerTelemetry({
             operation: 'upgrade',
@@ -1229,8 +1327,6 @@ export async function upgradeManagedModule(input: UpgradeManagedModuleInput): Pr
         logger.warn(`[ModuleManager] Manifest gate fail-open for "${id}": ${gate.reason}`);
     }
 
-    const artifactStorePath = getArtifactStateFilePathOverride();
-    const artifactStore = loadArtifactStore(artifactStorePath);
     const previousPermissions = getArtifact(artifactStore, id)?.permissions || plugin?.info.permissions;
     const requestedPermissions = input.permissions || resolvedSource.value.permissions || plugin?.info.permissions;
     const permissionDelta = evaluatePermissionDelta(previousPermissions, requestedPermissions);
@@ -1312,6 +1408,10 @@ export async function upgradeManagedModule(input: UpgradeManagedModuleInput): Pr
         reason: result.error,
     });
 
+    if (result.success) {
+        refreshRegistry();
+    }
+
     return result;
 }
 
@@ -1319,10 +1419,23 @@ export function uninstallManagedModule(moduleId: string): ManagerOperationResult
     if (!isInitialized()) initializeRegistry();
 
     const id = moduleId.toLowerCase();
+    const plugin = pluginMap.get(id);
     const artifactStorePath = getArtifactStateFilePathOverride();
     const artifactStore = loadArtifactStore(artifactStorePath);
+    const existingArtifact = getArtifact(artifactStore, id);
 
-    return uninstallModule(
+    // Protection for unmanaged modules
+    if (plugin && !existingArtifact) {
+        return operationFailure(
+            id,
+            'uninstall',
+            'Cannot uninstall an unmanaged (built-in or manual) module. These modules must be removed manually from the filesystem.',
+            undefined,
+            'unmanaged-module-protection'
+        );
+    }
+
+    const result = uninstallModule(
         id,
         lifecycleStore,
         artifactStore,
@@ -1330,6 +1443,35 @@ export function uninstallManagedModule(moduleId: string): ManagerOperationResult
         getLifecycleStateFilePathOverride(),
         artifactStorePath
     );
+
+    if (result.success) {
+        // Physical file cleanup for managed modules in the data directory
+        let dataDir = getModulesDataDir();
+        let pluginDir = plugin?.directory;
+        
+        try {
+            dataDir = fs.realpathSync(dataDir);
+            if (pluginDir) pluginDir = fs.realpathSync(pluginDir);
+        } catch {
+            dataDir = path.resolve(dataDir);
+            if (pluginDir) pluginDir = path.resolve(pluginDir);
+        }
+
+        if (pluginDir && pluginDir.startsWith(dataDir)) {
+            try {
+                if (fs.existsSync(pluginDir)) {
+                    fs.rmSync(pluginDir, { recursive: true, force: true });
+                    logger.info(`Registry | Physically removed module directory: ${pluginDir}`);
+                }
+            } catch (err) {
+                logger.error(`Registry | Failed to remove module directory ${pluginDir}:`, err);
+            }
+        }
+        
+        refreshRegistry();
+    }
+
+    return result;
 }
 
 export function validateManagedModule(moduleId: string): ManagerOperationResult {

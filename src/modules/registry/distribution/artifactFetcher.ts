@@ -20,6 +20,7 @@ export class ArtifactExtractionError extends Error {
  */
 export async function fetchAndExtractArtifact(
     moduleId: string,
+    version: string,
     sourceUrl: string,
     expectedIntegrity?: string
 ): Promise<void> {
@@ -89,8 +90,10 @@ export async function fetchAndExtractArtifact(
         }
     }
 
-        // Target extraction directory
-        const targetDir = path.join(getModulesDataDir(), moduleId);
+        // Target extraction directory - tagged with version to allow side-by-side versions if needed
+        // and to make it clear which version is on disk.
+        const safeVersion = version.replace(/[^a-zA-Z0-9.-]/g, '_');
+        const targetDir = path.join(getModulesDataDir(), `${moduleId}-${safeVersion}`);
         
         // Clear target dir if it exists
         if (fs.existsSync(targetDir)) {

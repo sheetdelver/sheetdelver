@@ -26,9 +26,11 @@ export interface AdminApiResult<T> {
 export interface ModuleLifecycleInfo {
     moduleId: string;
     title: string;
+    directory: string;
     enabled: boolean;
     status: string;
     experimental: boolean;
+    managed: boolean;
     reason?: string;
     health?: {
         errorCount: number;
@@ -187,6 +189,18 @@ export interface SourceProfileTestResponse {
     moduleCount?: number;
     error?: string;
     errorCode?: string;
+}
+
+export interface SourceModuleEntry {
+    title: string;
+    latestVersion: string;
+    versions: Record<string, any>;
+}
+
+export interface SourceModulesResponse {
+    success: boolean;
+    modules?: Record<string, SourceModuleEntry>;
+    error?: string;
 }
 
 // ─── Path Helper ───────────────────────────────────────────────────
@@ -408,4 +422,8 @@ export function testSourceProfile(id: string) {
     return adminFetch<SourceProfileTestResponse>(`/sources/${id}/test`, {
         method: 'POST',
     });
+}
+
+export function fetchSourceModules(id: string) {
+    return adminFetch<SourceModulesResponse>(`/sources/${id}/modules`);
 }

@@ -28,14 +28,15 @@ async function packageModule() {
     }
 
     const info = JSON.parse(fs.readFileSync(infoPath, 'utf8'));
+    const version = info.version || '0.0.0-dev';
     const outDir = getDistModulesDir();
     if (!fs.existsSync(outDir)) {
         fs.mkdirSync(outDir, { recursive: true });
     }
 
-    const outFile = path.join(outDir, `${moduleId}-${info.version}.tgz`);
+    const outFile = path.join(outDir, `${moduleId}-${version}.tgz`);
 
-    console.log(`Packaging module ${moduleId} v${info.version}...`);
+    console.log(`Packaging module ${moduleId} v${version}...`);
 
     // We only pack the contents of the module directory.
     // E.g., info.json, src/, etc.
@@ -57,7 +58,7 @@ async function packageModule() {
         hash.update(fileBuffer);
         const integrity = `sha256:${hash.digest('hex')}`;
 
-        console.log(`\n✅ Successfully packaged ${moduleId} v${info.version}`);
+        console.log(`\n✅ Successfully packaged ${moduleId} v${version}`);
         console.log(`Output: ${outFile}`);
         console.log(`Size: ${(fileBuffer.length / 1024).toFixed(2)} KB`);
         console.log(`Integrity: ${integrity}`);

@@ -1,7 +1,10 @@
 {
     "id": "morkborg",
+    "version": "0.4",
     "title": "Mörk Borg",
-    "aliases": ["mork-borg"],
+    "aliases": [
+        "mork-borg"
+    ],
     "manifest": {
         "ui": "module/ui",
         "logic": "src/server/MorkBorgAdapter.ts",
@@ -16,8 +19,16 @@
     },
     "discovery": {
         "packs": [
-            { "id": "morkborg.mork-borg-items", "type": "Item", "hydrate": true },
-            { "id": "morkborg.mork-borg-tables", "type": "RollTable", "hydrate": true }
+            {
+                "id": "morkborg.mork-borg-items",
+                "type": "Item",
+                "hydrate": true
+            },
+            {
+                "id": "morkborg.mork-borg-tables",
+                "type": "RollTable",
+                "hydrate": true
+            }
         ]
     }
 }

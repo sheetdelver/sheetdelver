@@ -1,5 +1,6 @@
 {
     "id": "generic",
+    "version": "0.1",
     "title": "Generic System",
     "manifest": {
         "ui": "module/ui",

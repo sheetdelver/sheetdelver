@@ -83,6 +83,7 @@ Optional. Re-exports API initialization or specialized server-only logic (e.g., 
 ### Currently Recognized Manifest Fields
 
 - **`id`**: Required non-empty module ID.
+- **`version`**: Optional module version string (e.g. `1.0.0`). Highly recommended for packaging and distribution.
 - **`title`**: Required display title.
 - **`aliases`**: Optional alternate identifiers.
 - **`experimental`**: Optional flag that hides the module from normal public listing.

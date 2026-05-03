@@ -27,7 +27,10 @@ interface ManagerActionBarProps {
 }
 
 /** Determines which manager actions are available based on lifecycle status. */
-function getAvailableActions(status: string): Array<'install' | 'uninstall' | 'upgrade' | 'validate'> {
+function getAvailableActions(status: string, managed: boolean): Array<'install' | 'uninstall' | 'upgrade' | 'validate'> {
+    // Manager operations (install, upgrade, uninstall, validate) are restricted to managed modules
+    if (!managed) return [];
+
     switch (status) {
         case 'discovered':
             return ['install'];
@@ -70,7 +73,7 @@ export default function ManagerActionBar({ module, onOperationComplete, onSessio
     const [error, setError] = useState<string | null>(null);
     const [escalationApproved, setEscalationApproved] = useState(false);
 
-    const actions = getAvailableActions(module.status);
+    const actions = getAvailableActions(module.status, module.managed);
 
     if (actions.length === 0) return null;
 

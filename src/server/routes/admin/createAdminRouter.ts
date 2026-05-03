@@ -355,22 +355,19 @@ export function createAdminRouter(deps: AdminRouterDeps) {
         async (req, res) => {
             try {
                 const { listModules } = await import('@modules/registry/server');
-                const { loadArtifactStore, getArtifact } = await import('@modules/registry/artifactStore');
                 const modules = listModules({ includeExperimental: true, includeDisabled: true });
-                const artifactStore = loadArtifactStore();
 
                 res.json({
                     success: true,
                     modules: modules.map((m) => {
-                        // Look up artifact metadata for installed modules
-                        const artifact = getArtifact(artifactStore, m.info.id);
-
                         return {
                             moduleId: m.info.id,
                             title: m.info.title,
+                            directory: m.directory,
                             enabled: m.enabled,
                             status: m.status,
                             experimental: m.info.experimental,
+                            managed: m.managed,
                             reason: m.reason,
                             health: m.lifecycle.health,
                             // Validation diagnostics from lifecycle record
@@ -397,14 +394,7 @@ export function createAdminRouter(deps: AdminRouterDeps) {
                                     })),
                                 ],
                             } : undefined,
-                            // Artifact metadata from the artifact store
-                            artifact: artifact ? {
-                                version: artifact.version,
-                                source: artifact.source,
-                                installedAt: artifact.installedAt,
-                                integrity: artifact.integrity,
-                                signature: artifact.signature,
-                            } : undefined,
+                            artifact: m.artifact,
                         };
                     }),
                 });
@@ -939,6 +929,47 @@ export function createAdminRouter(deps: AdminRouterDeps) {
                 schemaVersion: result.index?.schemaVersion,
                 publisher: result.index?.publisher,
                 moduleCount
+            });
+        } catch (error: unknown) {
+            res.status(500).json({ error: getErrorMessage(error) });
+        }
+    });
+
+    adminRouter.get('/sources/:id/modules', requireAdminAccountExists, requireAdminAuth, async (req, res) => {
+        try {
+            const { getSourceProfile } = await import('@modules/registry/distribution/sourceProfiles');
+            const { fetchRemoteIndex } = await import('@modules/registry/distribution/remoteIndexFetcher');
+            const { isHostAllowed } = await import('@modules/registry/security/sourceGovernance');
+
+            const id = req.params.id as string;
+            const profile = getSourceProfile(id);
+            if (!profile) {
+                return res.status(404).json({ error: 'Source profile not found' });
+            }
+
+            if (profile.kind !== 'indexed') {
+                return res.status(400).json({ error: 'Can only browse modules for "indexed" source profiles' });
+            }
+
+            const allowlist = getConfig().security.sourceGovernance?.hostAllowlist;
+            const mode = process.env.NODE_ENV === 'production' ? 'production' : 'development';
+            if (!isHostAllowed(String(profile.baseUrl), allowlist, mode)) {
+                return res.status(403).json({ error: 'Host is not in the configured allowlist' });
+            }
+
+            const result = await fetchRemoteIndex(profile.baseUrl, { auth: profile.auth });
+            
+            if (!result.ok) {
+                return res.status(400).json({ 
+                    success: false, 
+                    error: result.error, 
+                    errorCode: result.errorCode 
+                });
+            }
+
+            res.json({ 
+                success: true, 
+                modules: result.index?.modules || {}
             });
         } catch (error: unknown) {
             res.status(500).json({ error: getErrorMessage(error) });

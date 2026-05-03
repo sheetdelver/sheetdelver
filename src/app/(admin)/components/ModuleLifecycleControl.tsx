@@ -47,7 +47,7 @@ function getStatusLabel(status: string): string {
     return status.charAt(0).toUpperCase() + status.slice(1);
 }
 
-export default function ModuleLifecycleControl() {
+export default function ModuleLifecycleControl({ onModulesLoaded }: { onModulesLoaded?: (modules: ModuleLifecycleInfo[]) => void }) {
     const { token, csrfToken, logout } = useAdminAuth();
     const [modules, setModules] = useState<ModuleLifecycleInfo[]>([]);
     const [loading, setLoading] = useState(true);
@@ -93,6 +93,13 @@ export default function ModuleLifecycleControl() {
     useEffect(() => {
         loadModules();
     }, [loadModules]);
+
+    // Notify parent when modules are updated
+    useEffect(() => {
+        if (modules.length > 0 && onModulesLoaded) {
+            onModulesLoaded(modules);
+        }
+    }, [modules, onModulesLoaded]);
 
     /** Toggle a module's enabled/disabled state. */
     const handleToggleModule = async (moduleId: string, currentlyEnabled: boolean) => {
@@ -214,6 +221,11 @@ export default function ModuleLifecycleControl() {
                                         {mod.artifact?.version && (
                                             <span className="rounded-full border border-[var(--admin-border)] bg-[var(--admin-surface)] px-2 py-0.5 text-xs font-mono text-[var(--admin-text-muted)]">
                                                 v{mod.artifact.version}
+                                            </span>
+                                        )}
+                                        {!mod.managed && (
+                                            <span className="rounded-full border border-blue-500/30 bg-blue-500/10 px-2 py-0.5 text-xs font-medium text-blue-400">
+                                                System
                                             </span>
                                         )}
                                     </div>
