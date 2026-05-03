@@ -16,6 +16,7 @@ export interface TrustPolicyDecision {
 }
 
 const TRUST_TIER_RANK: Record<ModuleTrustTier, number> = {
+    'untrusted': -1,
     'unverified': 0,
     'verified-third-party': 1,
     'first-party': 2,

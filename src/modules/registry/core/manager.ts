@@ -1,5 +1,5 @@
 import { logger } from '@shared/utils/logger';
-import type { ModulePermissionDeclaration } from './types';
+import type { ModulePermissionDeclaration, ModuleTrustDeclaration } from './types';
 import {
     type ModuleLifecycleRecord,
     type ModuleLifecycleStatus,
@@ -28,6 +28,7 @@ export interface ModuleArtifactMetadata {
     integrity?: string;
     signature?: string;
     permissions?: ModulePermissionDeclaration;
+    trust?: ModuleTrustDeclaration;
 }
 
 /**

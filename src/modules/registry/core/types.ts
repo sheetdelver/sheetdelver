@@ -3,7 +3,7 @@ import type { DiscoveryConfig } from '@shared/interfaces';
 export type { ModuleLifecycleRecord, ModuleLifecycleStatus, ModuleLifecycleStore } from '../lifecycle/lifecycle';
 export type { ModuleCompatibilityResult, ModuleValidationResult } from '../lifecycle/validation';
 
-export type ModuleTrustTier = 'first-party' | 'verified-third-party' | 'unverified';
+export type ModuleTrustTier = 'first-party' | 'verified-third-party' | 'unverified' | 'untrusted';
 
 export interface ModuleTrustDeclaration {
     tier: ModuleTrustTier;

@@ -68,11 +68,11 @@ export function run() {
     assert.equal(fromEnabled.includes('removed'), false, 'enabled does not allow → removed');
 
     const fromRemoved = getAllowedTransitions('removed');
-    assert.deepEqual(fromRemoved, [], 'removed has no allowed transitions');
+    assert.deepEqual(fromRemoved, ['installed'], 'removed allows → installed');
 
     // isTerminalStatus
 
-    assert.equal(isTerminalStatus('removed'), true, 'removed is terminal');
+    assert.equal(isTerminalStatus('removed'), false, 'removed is no longer terminal');
     assert.equal(isTerminalStatus('enabled'), false, 'enabled is not terminal');
     assert.equal(isTerminalStatus('errored'), false, 'errored is not terminal');
 

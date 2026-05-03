@@ -70,6 +70,26 @@ export async function run(): Promise<void> {
         process.env[ARTIFACT_ENV] = artifactFilePath;
 
         // Seed with one fake module that failed manifest validation and one real module.
+        const { getModulesDataDir, initDataDir, resolveDataDir } = await import('../../server/core/paths');
+        const testDataDir = path.join(os.tmpdir(), `sheet-delver-gov-test-${Date.now()}`);
+        if (!fs.existsSync(testDataDir)) fs.mkdirSync(testDataDir, { recursive: true });
+        initDataDir(resolveDataDir(['--data-dir', testDataDir]));
+        
+        const testModulesDir = getModulesDataDir();
+        const shadowdarkDir = path.join(testModulesDir, 'shadowdark');
+        if (!fs.existsSync(shadowdarkDir)) {
+            fs.mkdirSync(shadowdarkDir, { recursive: true });
+        }
+        writeJson(path.join(shadowdarkDir, 'info.json'), {
+            id: 'shadowdark',
+            title: 'Shadowdark RPG',
+            version: '1.0.0',
+            manifest: {
+                ui: 'src/ui/index.tsx',
+                logic: 'src/server/ShadowdarkAdapter.ts',
+            },
+        });
+
         writeJson(stateFilePath, {
             version: 1,
             modules: {
@@ -95,7 +115,7 @@ export async function run(): Promise<void> {
                     title: 'Shadowdark RPG',
                     directory: 'shadowdark',
                     status: 'disabled',
-                    enabled: false,
+                    enabled: true,
                     validation: {
                         manifestValid: true,
                         compatible: true,
@@ -324,7 +344,7 @@ export async function run(): Promise<void> {
         assert.equal(uninstallResult.success, true, 'Managed uninstall should succeed for shadowdark');
 
         const uninstalledState = readJson<StoredLifecycle>(stateFilePath);
-        assert.equal(uninstalledState.modules.shadowdark?.status, 'removed');
+        assert.equal(uninstalledState.modules.shadowdark, undefined, 'Module record should be purged on uninstall');
 
         const uninstalledArtifacts = readJson<StoredArtifacts>(artifactFilePath);
         assert.equal(uninstalledArtifacts.artifacts.shadowdark, undefined, 'Artifact should be removed on uninstall');

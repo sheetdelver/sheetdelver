@@ -21,6 +21,7 @@ export interface ModuleLifecycleRecord {
     directory: string;
     status: ModuleLifecycleStatus;
     enabled: boolean;
+    trust?: { tier: string };
     reason?: string;
     validation?: {
         manifestValid: boolean;
@@ -87,6 +88,7 @@ function isValidRecord(value: unknown): value is ModuleLifecycleRecord {
         && typeof record.directory === 'string'
         && isValidStatus(record.status)
         && typeof record.enabled === 'boolean'
+        && (record.trust === undefined || (typeof record.trust === 'object' && typeof record.trust.tier === 'string'))
         && (
             record.health === undefined
             || (

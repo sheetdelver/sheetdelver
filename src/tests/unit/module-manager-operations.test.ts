@@ -180,7 +180,7 @@ export async function run(): Promise<void> {
             assert.equal(result.success, true, 'uninstall should succeed');
             assert.equal(result.previousStatus, 'disabled');
             assert.equal(result.newStatus, 'removed');
-            assert.equal(lifecycle.modules['test-module']?.status, 'removed');
+            assert.equal(lifecycle.modules['test-module'], undefined, 'Module record should be purged');
             assert.equal(getArtifact(artifacts, 'test-module'), undefined, 'Artifact should be removed');
         } finally {
             process.chdir(origCwd);

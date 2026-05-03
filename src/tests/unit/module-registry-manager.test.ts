@@ -44,6 +44,29 @@ export async function run() {
     fs.writeFileSync(stateFilePath, JSON.stringify(seededState, null, 2), 'utf8');
     process.env.SHEET_DELVER_MODULE_STATE_FILE = stateFilePath;
 
+    // Create dummy module directory in test data
+    const { getModulesDataDir } = await import('../../server/core/paths');
+    const testModulesDir = getModulesDataDir();
+    const shadowdarkDir = path.join(testModulesDir, 'shadowdark');
+    if (!fs.existsSync(shadowdarkDir)) {
+        fs.mkdirSync(shadowdarkDir, { recursive: true });
+    }
+    fs.writeFileSync(path.join(shadowdarkDir, 'info.json'), JSON.stringify({
+        id: 'shadowdark',
+        title: 'Shadowdark RPG',
+        version: '1.0.0',
+        manifest: {
+            ui: 'src/ui/index.tsx',
+            logic: 'src/server/ShadowdarkAdapter.ts',
+            server: 'module/server'
+        }
+    }), 'utf8');
+
+    // Create dummy adapter file
+    const adapterPath = path.join(shadowdarkDir, 'src', 'server', 'ShadowdarkAdapter.ts');
+    fs.mkdirSync(path.dirname(adapterPath), { recursive: true });
+    fs.writeFileSync(adapterPath, 'export default class ShadowdarkAdapter {}', 'utf8');
+
     try {
         __resetRegistryForTests();
         initializeRegistry();
