@@ -19,9 +19,12 @@ const nextConfig: NextConfig = {
         path.join(process.cwd(), 'src', 'modules'),
         modulesDir
       ],
-      '@client': path.join(process.cwd(), 'src'),
+      '@client': path.join(process.cwd(), 'src', 'client'),
       '@shared': path.join(process.cwd(), 'src', 'shared'),
-      '@server': path.join(process.cwd(), 'src', 'server')
+      '@server': path.join(process.cwd(), 'src', 'server'),
+      '@core': path.join(process.cwd(), 'src', 'server', 'core'),
+      '@app': path.join(process.cwd(), 'src', 'app'),
+      '@': path.join(process.cwd(), 'src')
     }
   },
   webpack: (config, { isServer }) => {
