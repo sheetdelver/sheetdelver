@@ -213,10 +213,11 @@ module.exports.postcss = true;`;
     const env = { ...process.env, PORT: port.toString(), HOSTNAME: host, API_PORT: apiPort.toString(), SHEET_DELVER_DATA: getDataDir() };
 
 
-    const nextArgs = [command, '-H', host, '-p', port.toString()];
+    const nextArgs = [command];
     if (command === 'dev') {
-        nextArgs.push('--webpack');
+        nextArgs.push('-H', host, '-p', port.toString());
     }
+    nextArgs.push('--webpack');
 
     shellProcess = spawn(nextCmd, nextArgs, {
         stdio: 'inherit',

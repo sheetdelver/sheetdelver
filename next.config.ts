@@ -13,6 +13,17 @@ const modulesDir = path.join(DATA_DIR, 'modules');
 
 const nextConfig: NextConfig = {
   skipTrailingSlashRedirect: true,
+  turbopack: {
+    resolveAlias: {
+      '@modules': [
+        path.join(process.cwd(), 'src', 'modules'),
+        modulesDir
+      ],
+      '@client': path.join(process.cwd(), 'src'),
+      '@shared': path.join(process.cwd(), 'src', 'shared'),
+      '@server': path.join(process.cwd(), 'src', 'server')
+    }
+  },
   webpack: (config, { isServer }) => {
     config.resolve.alias['@modules'] = [
       path.join(process.cwd(), 'src', 'modules'),

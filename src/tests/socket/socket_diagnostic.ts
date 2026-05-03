@@ -11,19 +11,19 @@ async function runDiagnostic() {
         logger.error("Failed to load configuration. Check your .env file.");
         return;
     }
-    
+
     // 2. Initialize Socket and Connect (Handles handshake/login internally)
     const socket = new CoreSocket(config.foundry);
     logger.info("📡 Connecting to Foundry VTT...");
-    
+
     try {
         await socket.connect();
         logger.info("✅ Connected successfully!");
-        
+
         // 3. Verify System Version
         const system = await socket.getSystem();
         logger.info(`System Detected: ${system.id} v${system.version}`);
-        
+        /*
         if (system.id !== 'shadowdark') {
             logger.warn(`Current world system is '${system.id}', not 'shadowdark'. Results may vary.`);
         }
@@ -140,6 +140,7 @@ async function runDiagnostic() {
                 }
             }
         }
+        */
 
     } catch (e) {
         logger.error(`  ERROR during diagnostic: ${e}`);

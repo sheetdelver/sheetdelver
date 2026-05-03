@@ -1,6 +1,8 @@
+const path = require('path');
+
 module.exports = {
   plugins: {
-    './.managed/postcss-plugin.cjs': {},
+    [path.join(process.cwd(), '.managed/postcss-plugin.cjs')]: {},
     '@tailwindcss/postcss': {},
   },
 };

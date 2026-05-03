@@ -17,6 +17,7 @@ import ModuleLifecycleControl from '../components/ModuleLifecycleControl';
 import AuditLogViewer from '../components/AuditLogViewer';
 import CacheInfoPanel from '../components/CacheInfoPanel';
 import SourceProfilePanel from '../components/SourceProfilePanel';
+import { type ModuleLifecycleInfo } from '../lib/adminApi';
 
 /** Chevron icon for collapsible section headers. */
 function ChevronIcon({ expanded }: { expanded: boolean }) {
