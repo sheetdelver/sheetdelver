@@ -21,17 +21,17 @@ const manifestCache = new Map<string, UIModuleManifest>();
  */
 export async function getUIModule(systemId: string): Promise<UIModuleManifest | undefined> {
     const id = systemId.toLowerCase();
-    
+
     if (manifestCache.has(id)) {
         return manifestCache.get(id);
     }
 
     try {
-        // Scoping the import to the parent directory allows the bundler to 
-        // auto-discover all system modules without us listing them.
-        const m = await import(`../../${id}/module/ui`);
+        // Using the @modules alias which resolves to either src/modules
+        // or the dynamic data/modules directory configured at startup.
+        const m = await import(`@modules/${id}/module/ui`);
         const manifest = m.default || m;
-        
+
         manifestCache.set(id, manifest);
         return manifest;
     } catch (e) {

@@ -107,6 +107,76 @@ async function start() {
 
     logger.info('[Manager] Starting Decoupled Architecture...');
 
+    // 0. Generate Dynamic Configuration for Development
+    if (command === 'dev') {
+        const managedDir = path.join(process.cwd(), '.managed');
+        if (!fs.existsSync(managedDir)) {
+            fs.mkdirSync(managedDir, { recursive: true });
+        }
+
+        const tsconfigPaths = {
+            compilerOptions: {
+                baseUrl: ".",
+                paths: {
+                    "@/*": ["../src/*"],
+                    "@app/*": ["../src/app/*"],
+                    "@client/*": ["../src/client/*"],
+                    "@server/*": ["../src/server/*"],
+                    "@shared/*": ["../src/shared/*"],
+                    "@core/*": ["../src/server/core/*"],
+                    "@modules/*": [
+                        "../src/modules/*",
+                        path.join(getDataDir(), "modules", "*")
+                    ]
+                }
+            }
+        };
+
+        fs.writeFileSync(
+            path.join(managedDir, 'tsconfig.paths.json'),
+            JSON.stringify(tsconfigPaths, null, 2)
+        );
+
+        logger.info(`[Manager] Generated dynamic paths at .managed/tsconfig.paths.json`);
+
+        // Generate PostCSS plugin for dynamic Tailwind sources
+        const pluginPath = path.join(managedDir, 'postcss-plugin.cjs');
+        const dataDir = getDataDir();
+        const srcModules = path.join(process.cwd(), 'src', 'modules');
+
+        const pluginContent = `const path = require('path');
+
+module.exports = (opts = {}) => {
+  return {
+    postcssPlugin: 'dynamic-tailwind-sources',
+    Once(root) {
+      if (root.raws.dynamicSourcesInjected) return;
+
+      const currentFile = root.source?.input?.file;
+      if (!currentFile) return;
+      const currentDir = path.dirname(currentFile);
+
+      const DATA_DIR = process.env.SHEET_DELVER_DATA || '${dataDir}';
+      if (DATA_DIR) {
+        const modulesPath = path.resolve(DATA_DIR, 'modules');
+        const relativePath = path.relative(currentDir, modulesPath);
+        root.prepend(\`@source "\${relativePath}/**/*.tsx";\`);
+      }
+
+      const srcModulesPath = '${srcModules}';
+      const relativeSrcPath = path.relative(currentDir, srcModulesPath);
+      root.prepend(\`@source "\${relativeSrcPath}/**/*.tsx";\`);
+
+      root.raws.dynamicSourcesInjected = true;
+    },
+  };
+};
+module.exports.postcss = true;`;
+
+        fs.writeFileSync(pluginPath, pluginContent);
+        logger.info(`[Manager] Generated dynamic PostCSS plugin at .managed/postcss-plugin.cjs`);
+    }
+
     // 1. Start Core Service
     logger.info(`[Manager] Launching Core Service (Express) on port ${apiPort}...`);
     // npx tsx src/server/index.ts
@@ -142,7 +212,13 @@ async function start() {
     // Pass API_PORT and SHEET_DELVER_DATA to Next.js so it knows where to proxy and find data
     const env = { ...process.env, PORT: port.toString(), HOSTNAME: host, API_PORT: apiPort.toString(), SHEET_DELVER_DATA: getDataDir() };
 
-    shellProcess = spawn(nextCmd, [command, '-H', host, '-p', port.toString()], {
+
+    const nextArgs = [command, '-H', host, '-p', port.toString()];
+    if (command === 'dev') {
+        nextArgs.push('--webpack');
+    }
+
+    shellProcess = spawn(nextCmd, nextArgs, {
         stdio: 'inherit',
         env
     });

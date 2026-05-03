@@ -1,3 +1,4 @@
+import path from 'path';
 import type { NextConfig } from "next";
 
 // Host
@@ -6,8 +7,19 @@ const HOST = process.env.HOST || '127.0.0.1';
 // Read API port from environment variable (set by dev script) or default to 3001
 const API_PORT = process.env.API_PORT || '3001';
 
+// Data directory for modules
+const DATA_DIR = process.env.SHEET_DELVER_DATA || path.join(process.cwd(), 'data');
+const modulesDir = path.join(DATA_DIR, 'modules');
+
 const nextConfig: NextConfig = {
   skipTrailingSlashRedirect: true,
+  webpack: (config, { isServer }) => {
+    config.resolve.alias['@modules'] = [
+      path.join(process.cwd(), 'src', 'modules'),
+      modulesDir
+    ];
+    return config;
+  },
   async rewrites() {
     return {
       beforeFiles: [

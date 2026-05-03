@@ -1,4 +1,5 @@
 {
+  "extends": "./.managed/tsconfig.paths.json",
   "compilerOptions": {
     "target": "ES2018",
     "lib": [
@@ -21,16 +22,7 @@
       {
         "name": "next"
       }
-    ],
-    "paths": {
-      "@/*": ["./src/*"],
-      "@app/*": ["./src/app/*"],
-      "@client/*": ["./src/client/*"],
-      "@server/*": ["./src/server/*"],
-      "@shared/*": ["./src/shared/*"],
-      "@core/*": ["./src/server/core/*"],
-      "@modules/*": ["./src/modules/*"]
-    }
+    ]
   },
   "include": [
     "next-env.d.ts",

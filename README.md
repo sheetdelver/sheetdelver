@@ -22,32 +22,14 @@ A modern, external character sheet interface for [Foundry VTT](https://foundryvt
 ## Supported Systems
 
 ### Shadowdark RPG
-While not yet feature-complete, SheetDelver offers robust support for Shadowdark:
-- **Character Sheets**: Full support for Shadowdark character sheets with a clean, modern UI.
-- **Auto-Calculations**: Automatic calculation of Stats, HP, AC, and Inventory flexibility.
-- **Inventory Management**: Drag-and-drop equipment, slot tracking, and toggleable states (Equipped/Stashed/Light).
-- **Treasure & Wealth**: Dedicated section for treasure items with total wealth tracking and "Sell" functionality.
-- **Gear Selection**: Integrated compendium browser for quickly adding standard gear, armor, and weapons.
-- **Interactive Toggles**: Custom icons for managing item states directly from the inventory list.
-- **Formatted Chat**: Rich chat messages for rolls and abilities with inline roll buttons.
-- **Character Import**: Import characters via JSON from Shadowdarklings.
-- **Level Up Wizard**: Guided level-up process with talent/boon rolling and choice resolution.
+While not yet feature-complete, SheetDelver offers robust support for Shadowdark.
+See module in its own repository [![Here]](https://github.com/sheetdelver/sd-shadowdark)
 <img src="images/sheets/shadowdark/sd-character-sheet.png" width="25%">
 <img src="images/sheets/shadowdark/sd-paper-view.png" width="25%">
 
 ### Mörk Borg
-SheetDelver provides dedicated support for the Mörk Borg RPG system:
-- **Character Sheets**: Full character sheet with the signature Mörk Borg aesthetic — yellow, black, and pink brutalist design.
-- **Ability Rolls**: Click any ability (STR/AGI/PRE/TOU) to open a roll confirmation modal showing the resolved formula before dispatching.
-- **Roll Modal**: Generic confirmation dialog for all rollable actions — shows formula, optional DR, and roll mode selector (Public/GM Only/Blind/Self).
-- **Feats & Scrolls**: Formula feats roll via the modal with resolved `@ability` values; macro feats (e.g. Brew Decoctions) trigger immediately; passive feats display only.
-- **Violence Tab**: Equipped weapons and armor only — with Attack/Defend roll buttons using the full automated sequence.
-- **Custom Chat Cards**: Styled Mörk Borg chat cards for all roll outcomes (ability tests, feat rolls, attacks, defense, initiative, broken, get better, decoctions).
-- **Get Better**: Automated sequence rolling HP, all four abilities, and debris — including auto-creating found scrolls in the actor's inventory.
-- **Equipment Management**: Full inventory with quantity controls, equip/carry toggles, and an **Organize Inventory** button that merges duplicate items.
-- **Rest System**: Rest modal with food/drink condition tracking, infection handling, and HP recovery rolls.
-- **Spend Omen**: Omen spending with outcome reminder card.
-- **Broken & Initiative**: Broken condition rolls and individual/party initiative.
+SheetDelver provides support for the Mörk Borg RPG system:
+See module in its own repository [![Here]](https://github.com/sheetdelver/sd-morkborg)
 <img src="images/sheets/morkborg/mb-character-sheet.png" width="25%">
 
 ## Planned System Support
