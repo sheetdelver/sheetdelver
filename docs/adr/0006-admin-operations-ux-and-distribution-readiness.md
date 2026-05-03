@@ -242,8 +242,8 @@ Acceptance criteria:
 
 Status board:
 - Phase 27: ✅ Completed (May 2, 2026)
-- Phase 28: Not started
-- Phase 29: Not started
+- Phase 28: ✅ Completed (May 3, 2026)
+- Phase 29: ✅ Completed (May 3, 2026)
 
 This ADR should be updated per-slice as phases advance, mirroring the completion discipline used in ADR-0003 and ADR-0004.
 

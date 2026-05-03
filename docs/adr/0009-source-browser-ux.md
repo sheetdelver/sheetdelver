@@ -34,3 +34,23 @@ During practical end-to-end testing, we found this lack of visibility into remot
 - The platform remains decentralized; instead of one monolithic marketplace, we browse specifically configured registry sources.
 - Version-tagged directories improve operational transparency and reduce the risk of state drift or file corruption during upgrades.
 - Real-time UI synchronization provides immediate feedback, completing the administrative loop for remote distribution.
+
+---
+
+## Implementation Outcome
+
+Implementation completed as part of the Phase 28/29 stabilization effort.
+
+1. Inline Source Browsing
+- Integrated "Browse" capability directly into `SourceProfilePanel.tsx`.
+- Implemented `GET /admin/sources/:id/modules` to retrieve remote index contents.
+
+2. Contextual Action States
+- Implemented logic to cross-reference remote modules with local `installedModules` state.
+- Added dynamic button states: **Install** (Green), **Update** (Orange), and **Re-install** (Gray).
+
+3. Shared Dashboard State
+- Lifted `installedModules` state to the parent `AdminPage` to ensure reactive updates across panels.
+- Verified that installing a remote module immediately updates the lifecycle list and browser states.
+
+This ADR is now closed as implemented.

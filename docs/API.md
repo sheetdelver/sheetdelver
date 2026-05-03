@@ -435,6 +435,33 @@ Re-runs manifest and compatibility validation for a module.
 }
 ```
 
+---
+
+## Source Management
+
+### `GET /admin/sources`
+Returns all configured source profiles.
+
+### `POST /admin/sources`
+Creates a new source profile. Validates `baseUrl` against the host allowlist.
+**Body**: `{ "name": "...", "baseUrl": "index://...", "kind": "indexed", "enabled": true, "priority": 10 }`
+
+### `PUT /admin/sources/:id`
+Updates an existing source profile.
+**Body**: `{ "name": "...", "enabled": false, ... }`
+
+### `DELETE /admin/sources/:id`
+Deletes a source profile. Cannot delete the `built-in` profile.
+
+### `POST /admin/sources/:id/test`
+Tests the connection to a source and returns metadata about the remote index.
+**Response**: `{ "success": true, "moduleCount": 5, "publisher": "...", "schemaVersion": 1 }`
+
+### `GET /admin/sources/:id/modules`
+Returns the list of available modules from a specific remote source.
+**Response**: `{ "success": true, "modules": { "moduleId": { ... } } }`
+
+
 ## Module Dependencies & Conflicts
 
 Module manifests (`info.json`) can declare:

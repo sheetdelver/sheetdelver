@@ -118,7 +118,14 @@ security:
             - http://localhost:3000
     service-token: "replace-with-strong-random-token"  # Internal privileged bearer token (not a Foundry password)
     admin-setup-token: "replace-with-strong-random-bootstrap-token"  # One-time token for creating the initial /admin account
+    source-governance:
+        host-allowlist:      # Optional: List of allowed remote source hostnames
+            - github.com
+            - raw.githubusercontent.com
 ```
+
+The `security.source-governance.host-allowlist` is **optional**. If empty or omitted, the system defaults to "Allow All" (Fail-Open). In production mode, requests to hosts not in this list will be blocked. In development mode, a warning will be logged instead. Wildcards are supported (e.g., `*.github.com`).
+
 
 The `security.service-token` value is used only for internal privileged API bearer flows. Do not reuse your Foundry account password.
 

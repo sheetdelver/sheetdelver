@@ -29,3 +29,23 @@ Instead of `shadowdark` (which is large and complex), we elected to use `dnd5e` 
 - The Module Manager is now fully capable of installing third-party modules from the web safely and securely, verifying their integrity before allowing them to integrate into the runtime.
 - The `dnd5e` module serves as the blueprint for how external modules must define their API contracts and isolate themselves from internal core imports.
 - Developers have a clear, documented path to build, package, and test external modules without needing deep integration into the Sheet Delver monolithic repository.
+
+---
+
+## Implementation Outcome
+
+Implementation completed and verified using `dnd5e` as the pilot module.
+
+1. Archive Extraction Pipeline
+- Added `artifactFetcher.ts` in `distribution/` supporting `.zip` (via `extract-zip`) and `.tgz`/`.tar.gz` (via `tar`).
+- Implemented SHA-256 integrity verification and local archive caching in `<DATA_DIR>/dist/archives/`.
+- Automated version-tagged directory extraction (e.g., `data/modules/[moduleId]-[version]`).
+
+2. Packaging Tooling
+- Added `src/scripts/tools/modules/package-module.ts`.
+- Integrated `npm run package:module <moduleId>` to generate distribution-ready tarballs with integrity manifests.
+
+3. GitHub Releases Support
+- Verified extraction pipeline handles redirects from generic HTTPS endpoints, enabling direct hosting on GitHub.
+
+This ADR is now closed as implemented.

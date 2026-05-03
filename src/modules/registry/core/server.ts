@@ -142,10 +142,24 @@ async function buildSourceResolutionContext(sourceRef: string): Promise<{ ok: tr
     try {
         const { loadSourceProfiles } = await import('../distribution/sourceProfiles');
         const { fetchRemoteIndex } = await import('../distribution/remoteIndexFetcher');
+        const { isHostAllowed } = await import('../security/sourceGovernance');
+        const { getConfig } = await import('../../../server/core/config');
+
+        const config = getConfig();
+        const allowlist = config?.security?.sourceGovernance?.hostAllowlist ?? [];
+        const mode = process.env.NODE_ENV === 'production' ? 'production' : 'development';
+
         const profiles = loadSourceProfiles().filter(p => p.enabled && p.kind === 'indexed');
+
+
 
         const indexes: Record<string, ModuleIndexDocument> = {};
         for (const profile of profiles) {
+            if (!isHostAllowed(profile.baseUrl, allowlist, mode)) {
+                logger.error(`[Registry] Skipping source profile "${profile.name}" due to governance violation (host not allowed)`);
+                continue;
+            }
+
             const result = await fetchRemoteIndex(profile.baseUrl, { auth: profile.auth });
             if (result.ok && result.index) {
                 indexes[profile.baseUrl] = result.index;
@@ -435,7 +449,7 @@ export function listModules(options?: { includeExperimental?: boolean; includeDi
             };
             const lifecycle = getLifecycleRecord(moduleId) || fallbackLifecycle;
             const artifact = getArtifact(artifactStore, moduleId);
-            
+
             // A module is managed if it has an artifact record (meaning it was installed/managed via the system).
             const managed = !!artifact;
 
@@ -1448,7 +1462,7 @@ export function uninstallManagedModule(moduleId: string): ManagerOperationResult
         // Physical file cleanup for managed modules in the data directory
         let dataDir = getModulesDataDir();
         let pluginDir = plugin?.directory;
-        
+
         try {
             dataDir = fs.realpathSync(dataDir);
             if (pluginDir) pluginDir = fs.realpathSync(pluginDir);
@@ -1467,7 +1481,7 @@ export function uninstallManagedModule(moduleId: string): ManagerOperationResult
                 logger.error(`Registry | Failed to remove module directory ${pluginDir}:`, err);
             }
         }
-        
+
         refreshRegistry();
     }
 

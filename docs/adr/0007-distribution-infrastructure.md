@@ -1,6 +1,6 @@
 # ADR-0007: Distribution Infrastructure — Remote Index Retrieval and Source Profiles
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** May 2, 2026
 **Supersedes:** None
 **Related:** ADR-0003, ADR-0004, ADR-0006
@@ -99,7 +99,7 @@ This follows ADR-0006's sequencing: admin UX (Phase 27) → distribution infrast
 
 | Action | File | Description |
 |---|---|---|
-| NEW | `src/modules/registry/remoteIndexFetcher.ts` | Authenticated fetch with retry/backoff/timeout |
+| [x] | `src/modules/registry/distribution/remoteIndexFetcher.ts` | Authenticated fetch with retry/backoff/timeout |
 
 **Details:**
 
@@ -117,7 +117,7 @@ This follows ADR-0006's sequencing: admin UX (Phase 27) → distribution infrast
 
 | Action | File | Description |
 |---|---|---|
-| NEW | `src/modules/registry/sourceProfiles.ts` | Source profile model, CRUD, persistence |
+| [x] | `src/modules/registry/distribution/sourceProfiles.ts` | Source profile model, CRUD, persistence |
 
 **Details:**
 
@@ -136,7 +136,7 @@ This follows ADR-0006's sequencing: admin UX (Phase 27) → distribution infrast
 
 | Action | File | Description |
 |---|---|---|
-| MODIFY | `src/server/routes/admin/createAdminRouter.ts` | Add source profile endpoints |
+| [x] | `src/server/routes/admin/createAdminRouter.ts` | Add source profile endpoints |
 
 **Details:**
 
@@ -155,8 +155,8 @@ This follows ADR-0006's sequencing: admin UX (Phase 27) → distribution infrast
 
 | Action | File | Description |
 |---|---|---|
-| NEW | `src/modules/registry/sourceGovernance.ts` | Host allowlist validation |
-| MODIFY | `src/server/core/config.ts` | Add `security.source-governance` config section |
+| [x] | `src/modules/registry/security/sourceGovernance.ts` | Host allowlist validation |
+| [x] | `src/server/core/config.ts` | Add `security.source-governance` config section |
 
 **Details:**
 
@@ -174,9 +174,9 @@ This follows ADR-0006's sequencing: admin UX (Phase 27) → distribution infrast
 
 | Action | File | Description |
 |---|---|---|
-| NEW | `src/app/(admin)/components/SourceProfilePanel.tsx` | Source profile list/create/edit/delete/test |
-| MODIFY | `src/app/(admin)/lib/adminApi.ts` | Add source profile API functions |
-| MODIFY | `src/app/(admin)/admin/page.tsx` | Add source profiles section to dashboard |
+| [x] | `src/app/(admin)/components/SourceProfilePanel.tsx` | Source profile list/create/edit/delete/test |
+| [x] | `src/app/(admin)/lib/adminApi.ts` | Add source profile API functions |
+| [x] | `src/app/(admin)/admin/page.tsx` | Add source profiles section to dashboard |
 
 **Details:**
 
@@ -194,8 +194,8 @@ This follows ADR-0006's sequencing: admin UX (Phase 27) → distribution infrast
 
 | Action | File | Description |
 |---|---|---|
-| MODIFY | `src/modules/registry/sourceAdapters.ts` | Extend indexed adapter to auto-fetch from profiles |
-| MODIFY | `src/modules/registry/manager.ts` | Inject source profiles into resolution context |
+| [x] | `src/modules/registry/core/server.ts` | Extend indexed adapter to auto-fetch from profiles |
+| [x] | `src/modules/registry/core/manager.ts` | Inject source profiles into resolution context |
 
 **Details:**
 
@@ -271,3 +271,35 @@ Phase 29 (Pilot Extraction Readiness) depends on Phase 28 completion:
 - Pilot module assessment
 - Simulated external module validation
 - Extraction checklist and governance policy draft
+
+---
+
+## Implementation Outcome
+
+Implementation completed in six slices.
+
+1. Slice 28-A: Remote Index Fetch Adapter
+- Added `remoteIndexFetcher.ts` with authenticated HTTP retrieval (Bearer), exponential backoff, and 10s timeout.
+- Implemented in-memory caching for index documents with 5-minute TTL.
+
+2. Slice 28-B: Source Profile Model and Persistence
+- Added `sourceProfiles.ts` with CRUD operations and persistence at `<DATA_DIR>/modules/sources.json`.
+- Implemented default `built-in` profile logic.
+
+3. Slice 28-C: Admin API for Source Profiles
+- Added REST endpoints in `createAdminRouter.ts` for listing, creating, updating, deleting, and testing source profiles.
+- Added audit logging and CSRF protection to all mutation endpoints.
+
+4. Slice 28-D: Host Governance
+- Added `sourceGovernance.ts` in `security/` with host allowlist validation and wildcard support.
+- Implemented "Fail-Open" policy where undefined allowlist allows all hosts.
+
+5. Slice 28-E: Admin UX for Source Profiles
+- Added `SourceProfilePanel.tsx` component with connection testing and reactive updates.
+- Integrated source profile management into the main Admin Dashboard.
+
+6. Slice 28-F: Source Resolution Integration
+- Extended `buildSourceResolutionContext` in `server.ts` to auto-fetch from configured source profiles.
+- Wired host governance checks into the retrieval pipeline.
+
+This ADR is now closed as implemented and ready for Phase 29 Pilot Extraction.
