@@ -3,7 +3,7 @@
 
 import { useEffect, useRef } from 'react';
 import DiceTray from './DiceTray';
-import { RollMode } from '@shared/interfaces';
+import { RollMode } from '@shared/sdk';
 import { useFoundry } from '@client/ui/context/FoundryContext';
 
 interface DiceTrayDialogProps {

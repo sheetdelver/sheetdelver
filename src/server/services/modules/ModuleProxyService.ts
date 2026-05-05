@@ -1,5 +1,6 @@
 import { getServerModule } from '@modules/registry/server';
 import { logger } from '@shared/utils/logger';
+import { createModuleFoundryClient } from '@server/shared/utils/createModuleFoundryClient';
 import type {
     ModuleProxyDispatchRequest,
     ModuleProxyDispatchResult,
@@ -73,18 +74,19 @@ export function createModuleProxyService(deps: ModuleProxyServiceDeps) {
         }
 
         const handler = sysModule.apiRoutes[matchedPattern];
+        const rawClient = request.foundryClient || deps.getFallbackFoundryClient();
         const nextRequest = {
             json: async () => request.body,
             method: request.method,
             url: request.url,
             headers: request.headers,
-            foundryClient: request.foundryClient || deps.getFallbackFoundryClient(),
+            foundryClient: createModuleFoundryClient(rawClient),
             userSession: request.userSession
         };
         const nextParams = { params: Promise.resolve({ systemId, route: routePath.split('/') }) };
 
         logger.info(`Module Router | Calling handler for ${matchedPattern} with actorId: ${routePath.split('/')[1]}`);
-        const result = await handler(nextRequest, nextParams) as NextLikeResponse | unknown;
+        const result = await handler(nextRequest as any, nextParams) as NextLikeResponse | unknown;
 
         if (typeof result === 'object' && result !== null && 'json' in result && typeof (result as NextLikeResponse).json === 'function') {
             const response = result as NextLikeResponse;

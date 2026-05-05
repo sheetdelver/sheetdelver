@@ -2,7 +2,7 @@ import { logger } from '@shared/utils/logger';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
 import { persistentCache } from '../cache/PersistentCache';
 import { CoreSocket } from './sockets/CoreSocket';
-import { DiscoveryConfig, PackDiscoveryConfig } from '@shared/interfaces';
+import { DiscoveryConfig, PackDiscoveryConfig } from '@shared/sdk';
 import crypto from 'node:crypto';
 
 export interface PackManifestEntry {

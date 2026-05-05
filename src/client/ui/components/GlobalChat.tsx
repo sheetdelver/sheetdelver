@@ -5,7 +5,7 @@ import ChatTab from './ChatTab';
 import DiceTray from './DiceTray';
 
 import { MessageSquare } from 'lucide-react';
-import { SystemAdapter, RollMode } from '@shared/interfaces';
+import { SystemAdapter, RollMode } from '@shared/sdk';
 
 
 

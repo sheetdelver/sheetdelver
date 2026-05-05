@@ -1,168 +1,387 @@
-# Module Manifest & Directory Structure
+# Module Manifest Reference
 
-All system-specific modules in `src/modules/` MUST adhere to this standardized architecture to ensure clean domain separation, build-time safety, and registry compatibility.
+This document is the authoritative guide for building a Sheet Delver system module. A module provides system-specific actor normalization, UI rendering, and optional server-side API routes for a Foundry VTT game system.
 
-## 1. Directory Blueprint
+---
 
-```text
-module-dir/
-├── info.json          # Module metadata & manifest pointers
-├── module/            # PUBLIC entry points (Thin re-exports)
-│   ├── ui.tsx         # Browser-safe UI manifest
-│   ├── logic.ts       # Server-side logic/adapter re-export
-│   └── server.ts      # Server-side API/handler re-export
-└── src/               # PRIVATE implementation
-    ├── ui/            # React components & themes
-    ├── logic/         # System Adapter & rule evaluations
-    ├── server/        # Specialized API handlers & importers
-    └── data/          # In-memory caches & managers
+## Operating Modes
+
+Modules run in one of two modes depending on how they are installed:
+
+**Mode A — Source (development / trusted local install)**
+- `info.json` manifest points to `.ts` / `.tsx` source files
+- The platform loads them via `tsx` with full path-alias resolution
+- Use this during development — no build step required
+
+**Mode B — Artifact (production / remote distribution)**
+- `info.json` manifest points to pre-compiled `.js` / `.mjs` files in a `dist/` directory
+- The module is compiled independently using its own bundler config
+- Required for modules distributed via the lifecycle chain (`install → validate → enable`)
+
+Both modes use the same `info.json` schema. The registry auto-detects which mode applies based on the file extension of the manifest entry points.
+
+---
+
+## The SDK
+
+All module code imports from a single package: `@sheet-delver/sdk`
+
+```ts
+import {
+    BaseSystemAdapter,
+    type ModuleContext,
+    type ModuleFoundryClient,
+    type FoundryActor,
+    type ActorSheetData,
+    getErrorMessage,
+    resolveImage,
+    processHtmlContent,
+    simulateRoll,
+} from '@sheet-delver/sdk';
 ```
 
-## 2. Entry Point Definitions
+During development this alias resolves to `src/shared/sdk/index.ts` via the project tsconfig paths. When bundling for distribution, mark `@sheet-delver/sdk` as external — the platform provides it at runtime.
 
-### `module/ui.tsx` (Frontend)
-Must export a `UIModuleManifest` as the **default export**. This file must be **browser-safe** and uses `React.lazy` for component imports to ensure small bundle sizes.
-- **Path in info.json**: `manifest.ui`
+**The SDK is the only import a module needs.** Modules must not import from internal platform aliases (`@shared/`, `@core/`, `@server/`, `@client/`, `@modules/`).
 
-### `module/logic.ts` (Shared/Server Logic)
-Must export the `SystemAdapter` implementation as a named export `Adapter`. This is a strict requirement for the `registry` to resolve character sheet logic and calculations.
-- **Path in info.json**: `manifest.logic`
-- **Note**: If you point `manifest.logic` directly to a class file (e.g., `src/server/MyAdapter.ts`), that file must include `export { MyAdapter as Adapter };` at the bottom to maintain compatibility.
+---
 
-### `module/server.ts` (Server-Only Handlers)
-Optional. Re-exports API initialization or specialized server-only logic (e.g., importers). Explicitly gated by the core registry to prevent Node.js leaks into the browser.
-- **Path in info.json**: `manifest.server`
+## Directory Layout
 
-## 3. Manifest Configuration (`info.json`)
+```
+my-system/
+  info.json           ← required: module metadata and manifest paths
+  module/
+    logic.ts          ← required: exports the Adapter class
+    ui.tsx            ← required: exports the UIModuleManifest
+    server.ts         ← optional: exports apiRoutes for server-side API handlers
+  src/
+    ...               ← your implementation (any structure you prefer)
+```
+
+---
+
+## `info.json` Schema
 
 ```json
 {
-    "id": "my-system-id",
-    "title": "My Awesome RPG",
-    "aliases": ["my-system"],
-    "experimental": false,
-    "trust": {
-        "tier": "first-party"
-    },
-    "compatibility": {
-        "coreVersion": ">=0.7.0 <1.0.0",
-        "apiContracts": {
-            "module-api": ">=1.0.0 <2.0.0",
-            "ui-extension-api": ">=1.0.0 <2.0.0",
-            "roll-engine-api": ">=1.0.0 <2.0.0"
-        }
-    },
-    "manifest": {
-        "ui": "module/ui",
-        "logic": "module/logic",
-        "server": "module/server"
-    },
-    "permissions": {
-        "network": {
-            "outbound": false,
-            "allowHosts": []
-        },
-        "filesystem": {
-            "read": ["moduleData"],
-            "write": ["moduleData"]
-        },
-        "adminRoutes": false,
-        "sensitiveData": ["actor"]
-    },
-    "dependencies": ["generic"],
-    "conflicts": ["legacy-system"],
-    "discovery": {
-        "packs": [
-            { "id": "system.items", "type": "Item", "hydrate": true },
-            { "id": "system.tables", "type": "RollTable", "hydrate": false }
-        ]
+  "id": "my-system",
+  "version": "1.0.0",
+  "title": "My System Name",
+  "experimental": false,
+  "manifest": {
+    "ui": "module/ui",
+    "logic": "module/logic",
+    "server": "module/server"
+  },
+  "compatibility": {
+    "apiContracts": {
+      "module-api": ">=1.0.0 <2.0.0",
+      "ui-extension-api": ">=1.0.0 <2.0.0",
+      "roll-engine-api": ">=1.0.0 <2.0.0"
     }
+  },
+  "discovery": {
+    "packs": [
+      { "id": "my-system.items", "type": "Item", "hydrate": true },
+      { "id": "my-system.spells", "type": "Item", "hydrate": false }
+    ]
+  },
+  "trust": { "tier": "first-party" },
+  "aliases": ["my-sys"],
+  "dependencies": [],
+  "conflicts": []
 }
 ```
 
-### Currently Recognized Manifest Fields
+| Field | Required | Description |
+|---|---|---|
+| `id` | Yes | Lowercase system identifier. Must match Foundry's system id. |
+| `version` | No | Module version string. |
+| `title` | Yes | Human-readable display name. |
+| `experimental` | No | If `true`, module is hidden from the public registry. |
+| `manifest.ui` | Yes | Path to the UI entry point (relative to module root). |
+| `manifest.logic` | Yes | Path to the logic/adapter entry point. |
+| `manifest.server` | No | Path to the server API entry point. |
+| `compatibility.apiContracts` | No | SemVer range requirements against the platform SDK contracts. |
+| `discovery.packs` | No | Compendium packs to index at world-ready time. Declared packs are fully hydrated by the platform before `initialize()` is called. |
+| `trust.tier` | No | `first-party` \| `verified-third-party` \| `unverified` |
 
-- **`id`**: Required non-empty module ID.
-- **`version`**: Optional module version string (e.g. `1.0.0`). Highly recommended for packaging and distribution.
-- **`title`**: Required display title.
-- **`aliases`**: Optional alternate identifiers.
-- **`experimental`**: Optional flag that hides the module from normal public listing.
-- **`trust.tier`**: Optional trust tier used by manager policy. Allowed values:
-    - `first-party`
-    - `verified-third-party`
-    - `unverified`
-- **`compatibility.coreVersion`**: Optional semver constraint checked during validation.
-- **`compatibility.apiContracts`**: Optional contract range map enforced during validate/install/upgrade compatibility checks.
-- **`manifest.ui` / `manifest.logic`**: Required entrypoints.
-- **`manifest.server`**: Optional server-only entrypoint.
-- **`permissions`**: Optional requested capability declarations evaluated by manager policy.
-- **`dependencies`**: Optional required module IDs.
-- **`conflicts`**: Optional mutually exclusive module IDs.
-- **`discovery`**: Optional compendium sync metadata.
+---
 
-### Permission Declaration Baseline
+## `module/logic.ts` — The Adapter
 
-The current manager recognizes these optional permission fields:
+Export a class named `Adapter` that extends `BaseSystemAdapter`.
 
-- **`permissions.network.outbound`**: Boolean; request outbound network access.
-- **`permissions.network.allowHosts`**: Optional string array of allowed hostnames.
-- **`permissions.filesystem.read`**: Optional string array of read scopes.
-- **`permissions.filesystem.write`**: Optional string array of write scopes.
-- **`permissions.adminRoutes`**: Boolean; request admin-route integration.
-- **`permissions.sensitiveData`**: Optional string array describing sensitive data categories accessed.
+```ts
+import { BaseSystemAdapter, type ModuleContext, type FoundryActor, type ActorSheetData } from '@sheet-delver/sdk';
 
-During upgrade, newly requested permissions may require explicit admin approval before the operation is allowed.
+export class Adapter extends BaseSystemAdapter {
+    systemId = 'my-system';
 
-### Trust and Verification Notes
+    override normalizeActorData(actor: FoundryActor): ActorSheetData {
+        return {
+            id: actor._id,
+            name: actor.name,
+            type: actor.type,
+            img: actor.img ?? '',
+            system: actor.system,
+            items: actor.items,
+            effects: actor.effects,
+            derived: {},
+        };
+    }
 
-- Missing `trust` metadata currently defaults to first-party behavior for backward compatibility with existing in-repo modules.
-- Local install sources (`local://`, `file://`) are allowed without digest/signature enforcement and are recorded as verification `skipped`.
-- Non-local install/upgrade sources are expected to provide integrity and signature metadata for manager verification.
+    override match(actor: FoundryActor): boolean {
+        return actor.type === 'character' && !!actor.system?.systemSpecificField;
+    }
 
-### Contract Compatibility Migration (First-Party Modules)
+    override async initialize(context: ModuleContext): Promise<void> {
+        await super.initialize(context);
+        // Use context.logger instead of importing a logger directly
+        context.logger.info('My System adapter initialized');
+        // Use context.platform.cache for persistent module-scoped storage
+        // Use context.platform.discovery for UUID lookups in hydrated packs
+    }
+}
 
-Phase 25 requires explicit contract range declarations for first-party modules.
+export default Adapter;
+```
 
-Migration checklist:
+**Methods the platform calls (override as needed):**
 
-1. Add `compatibility.apiContracts` to `info.json`.
-2. Declare every contract the module depends on (`module-api`, `ui-extension-api`, `roll-engine-api` as applicable).
-3. Use supported range tokens (`=`, `>`, `>=`, `<`, `<=`) with space-separated constraints.
-4. Verify module validate/install/upgrade flows after declaration updates.
+| Method | When called | Default |
+|---|---|---|
+| `normalizeActorData(actor, client?)` | Every actor fetch | Raw passthrough |
+| `match(actor)` | Actor dispatch | Returns `false` |
+| `initialize(context)` | On first load | Stores context |
+| `getSystemData(client, options?)` | System info route | Returns `{}` |
+| `getDiscoveryConfig()` | World-ready sync | Returns empty |
+| `getActorCardData(actor)` | Dashboard card render | Returns name/img |
+| `computeActorData(actor)` | After normalization | Returns `{}` |
+| `categorizeItems(actor)` | After normalization | Returns `{ all: [] }` |
+| `getRollData(actor, type, key, options?)` | Roll dispatch | Returns `null` |
+| `performAutomatedSequence(client, actor, rollData, options)` | Automated rolls | Returns `null` |
+| `resolveActorNames(actor, cache)` | During normalization | noop |
+| `getInitiativeFormula(actor)` | Combat initiative | Returns `'1d20'` |
+| `validateUpdate(path, value)` | Real-time updates | Returns `true` |
 
-Baseline declaration currently used by in-repo first-party modules:
+**Note on `initialize(context)`:** The platform runs discovery sync (`getDiscoveryConfig()`) before calling `initialize()`. By the time `initialize()` is called, all declared compendium packs are already hydrated in the platform cache and accessible via `context.platform.discovery`. Adapters should read from the context rather than fetching via a client during initialization.
+
+---
+
+## `module/ui.tsx` — The UI Manifest
+
+Export a `UIModuleManifest` as the default export.
+
+```ts
+import type { UIModuleManifest } from '@sheet-delver/sdk';
+import info from '../info.json';
+
+const manifest: UIModuleManifest = {
+    info,
+    sheet: () => import('../src/ui/MySheet'),
+    rollModal: () => import('../src/ui/MyInitiativeModal'),
+    actorPage: () => import('../src/ui/pages/ActorPage'),
+    tools: {
+        'generator': () => import('../src/ui/tools/Generator'),
+    },
+    dashboardTools: () => import('../src/ui/MyDashboardTools'),
+};
+
+export default manifest;
+```
+
+All entries are lazy `() => import(...)` thunks. The platform calls them on demand. The imported module must have a default export that is a React component.
+
+**Platform UI hooks available in module components** (import the type, use the platform's hook implementation):
+
+| Hook type | Interface | Provides |
+|---|---|---|
+| `UseFoundry` | `import type { UseFoundry }` | `token`, `currentUser`, `system`, `isConnected`, `baseUrl` |
+| `UseUI` | `import type { UseUI }` | `isDiceTrayOpen`, `toggleDiceTray`, `isChatOpen`, `setChatOpen` |
+| `UseNotifications` | `import type { UseNotifications }` | `addNotification(message, type?, options?)` |
+| `UseConfig` | `import type { UseConfig }` | `foundryUrl`, `setFoundryUrl`, `resolveImageUrl` |
+
+**Platform UI components available in module sheets** (import directly from `@client/ui/components/` during development):
+
+`LoadingModal`, `RollDialog`, `ConfirmationModal`, `SharedContentModal`, `RichTextEditor`
+
+---
+
+## `module/server.ts` — Server API Routes
+
+Export `apiRoutes` as a named or default export.
+
+```ts
+import type { ModuleServerExport, ModuleServerRequest, ModuleServerParams } from '@sheet-delver/sdk';
+import { getErrorMessage } from '@sheet-delver/sdk';
+
+async function handleLevelUp(req: ModuleServerRequest, params: ModuleServerParams) {
+    try {
+        const { route } = await params.params;
+        const actorId = route[1];
+        const body = await req.json<{ targetLevel: number }>();
+
+        const actor = await req.foundryClient.getActor(actorId);
+        // ... compute level-up changes ...
+        await req.foundryClient.updateActor(actorId, { 'system.level.value': body.targetLevel });
+
+        return { status: 200, json: async () => ({ success: true }) };
+    } catch (err) {
+        return { status: 500, json: async () => ({ error: getErrorMessage(err) }) };
+    }
+}
+
+export const apiRoutes: ModuleServerExport['apiRoutes'] = {
+    'actor/[id]/level-up': handleLevelUp,
+};
+```
+
+Routes are matched by pattern. `[segment]` is a wildcard matching any single path segment.
+
+**`ModuleServerRequest` provides:**
+
+| Property | Type | Description |
+|---|---|---|
+| `req.json<T>()` | `Promise<T>` | Parsed request body |
+| `req.method` | `string` | HTTP method |
+| `req.url` | `string` | Full request URL |
+| `req.headers` | `Record<string, string \| string[]>` | Request headers |
+| `req.foundryClient` | `ModuleFoundryClient` | Platform-mediated Foundry actions |
+| `req.userSession` | `UserSession \| undefined` | Requesting user info (`userId`, `username`, `isGM`, `role`) |
+
+**`ModuleFoundryClient` — platform-mediated actions:**
+
+The module does not talk to Foundry directly. The platform executes all operations on the module's behalf.
+
+| Method | Description |
+|---|---|
+| **Messaging** | |
+| `roll(formula, label?, options?)` | Dice roll, posts result to chat |
+| `sendMessage(data, options?)` | Post a chat message |
+| `useItem(actorId, itemId)` | Trigger an item use action |
+| **Actor CRUD** | |
+| `getActor(id)` | Fetch actor data |
+| `getActors()` | Fetch all actors in the world |
+| `createActor(actorData)` | Create a new actor |
+| `updateActor(id, updates)` | Update actor data |
+| `deleteActor(actorId)` | Delete an actor |
+| **Actor Item CRUD** | |
+| `createActorItem(actorId, itemData)` | Add an item to an actor |
+| `updateActorItem(actorId, itemData)` | Update an actor's item |
+| `deleteActorItem(actorId, itemId)` | Remove an item from an actor |
+| **Active Effect CRUD** | |
+| `createActorEffect(actorId, effectData)` | Add an active effect to an actor |
+| `updateActorEffect(actorId, effectId, updates)` | Update an active effect on an actor |
+| `deleteActorEffect(actorId, effectId)` | Remove an active effect from an actor |
+| `updateItemEffect(actorId, itemId, effectId, updates)` | Update an effect on an actor's item |
+| `deleteItemEffect(actorId, itemId, effectId)` | Remove an effect from an actor's item |
+| **Document access** | |
+| `fetchByUuid(uuid)` | Fetch any Foundry document by UUID |
+| `getWorldItems(options?)` | Fetch world-owned items (not compendium). Prefer `context.platform.discovery` for compendium pack data. |
+| `drawTable(tableId, options?)` | Fetch a RollTable and simulate a draw. Returns `DrawResult`. |
+| **Utilities** | |
+| `resolveUrl(path)` | Resolve a relative path to a full URL |
+| `getSystemId()` | Current active Foundry system id |
+| `isConnected` | Whether the platform has an active Foundry connection |
+
+---
+
+## Platform Injection
+
+### `ModuleContext` — injected at `initialize(context)`
+
+```ts
+async initialize(context: ModuleContext): Promise<void> {
+    // Namespaced logger — output prefixed with [module:my-system]
+    context.logger.info('Adapter initialized');
+    context.logger.warn('Something unexpected happened');
+
+    // Scoped persistent cache — namespaced to this module
+    await context.platform.cache.set('configKey', { value: 42 });
+    const cached = await context.platform.cache.get<{ value: number }>('configKey');
+
+    // Compendium discovery — lookups into hydrated packs declared in getDiscoveryConfig()
+    const item = await context.platform.discovery.getById('Item', 'someUuid');
+    const found = await context.platform.discovery.findOne('Item', { name: 'Longsword' });
+}
+```
+
+**`context.logger`** — use this instead of importing a logger. Output is namespaced to the module id automatically.
+
+**`context.platform.cache`** — persistent key-value store scoped to this module. Data survives server restarts. Other modules cannot read this module's data.
+
+**`context.platform.discovery`** — lookups into compendium packs declared in `getDiscoveryConfig()`. Packs are hydrated by the platform before `initialize()` is called.
+
+### `ModuleFoundryClient` — injected per API request
+
+Available as `req.foundryClient` in API route handlers. Pre-authenticated and scoped to the requesting user's session. The underlying socket connection is fully managed by the platform — modules interact through the methods above only.
+
+---
+
+## Utility Functions
+
+The SDK exports utility functions for common tasks:
+
+```ts
+import {
+    getErrorMessage,      // safely extract error.message from unknown
+    resolveImage,         // resolve relative Foundry image paths to full URLs
+    processHtmlContent,   // fix relative src= attributes in Foundry-enriched HTML
+    getSafeDescription,   // extract description string from Foundry system objects
+    simulateRoll,         // simulate NdX or NdX±M dice roll locally
+    simulateTableDraw,    // simulate a draw from a fetched RollTable document
+} from '@sheet-delver/sdk';
+```
+
+| Function | Signature | Description |
+|---|---|---|
+| `getErrorMessage` | `(error: unknown) => string` | Safe error message extraction for catch blocks |
+| `resolveImage` | `(path: string, baseUrl?: string) => string` | Prepend Foundry base URL to relative image paths |
+| `processHtmlContent` | `(html: string, baseUrl?: string) => string` | Fix relative `src=` attributes in enriched HTML |
+| `getSafeDescription` | `(system: unknown) => string` | Extract description from `{ value }`, string, or `.desc` |
+| `simulateRoll` | `(formula: string, rollOverride?: number) => { roll, formula }` | Local dice simulation for `NdX` and `NdX±M` formulas |
+| `simulateTableDraw` | `(table, options?) => Promise<DrawResult>` | Simulate a draw from a RollTable document |
+
+---
+
+## Bundler Config (Mode B — Artifact)
+
+Reference `tsup` config for building a standalone artifact:
+
+```ts
+// tsup.config.ts
+import { defineConfig } from 'tsup';
+
+export default defineConfig([
+    {
+        entry: { logic: 'module/logic.ts' },
+        format: ['esm'],
+        outDir: 'dist',
+        external: ['@sheet-delver/sdk'],
+    },
+    {
+        entry: { server: 'module/server.ts' },
+        format: ['esm'],
+        outDir: 'dist',
+        external: ['@sheet-delver/sdk'],
+    },
+    {
+        entry: { ui: 'module/ui.tsx' },
+        format: ['esm'],
+        outDir: 'dist',
+        external: ['@sheet-delver/sdk', 'react', 'react-dom'],
+    },
+]);
+```
+
+Update `info.json` manifest entries to point to compiled output:
 
 ```json
-"compatibility": {
-    "apiContracts": {
-        "module-api": ">=1.0.0 <2.0.0",
-        "ui-extension-api": ">=1.0.0 <2.0.0",
-        "roll-engine-api": ">=1.0.0 <2.0.0"
-    }
+"manifest": {
+    "ui": "dist/ui.js",
+    "logic": "dist/logic.js",
+    "server": "dist/server.js"
 }
 ```
-
-## 4. Discovery & Data Persistence
-
-The Core Discovery Service automatically synchronizes, hashes, and shards compendium data based on the `discovery` block in `info.json`.
-
-### `PackDiscoveryConfig`
-- **`id`**: The Foundry compendium ID (e.g., `shadowdark.classes`).
-- **`type`**: The document type (`Item`, `Actor`, `JournalEntry`, `Scene`, `Macro`, or `RollTable`).
-- **`hydrate`**: 
-    - `true`: Performs a deep fetch of every document in the pack using the "Index-then-Hydrate" strategy. Use this for character-building data (Classes, Backgrounds) to ensure full descriptions are available.
-    - `false`: Performs a lightweight indexed fetch. Ideal for large item or spell libraries where you only need names and basic metadata.
-- **`fields`**: (Optional) Specific fields to index when `hydrate` is `false`.
-
-### Sharded Caching
-Data is stored at `.data/cache/[systemId]/pack-[id].json`. A `manifest-[systemId].json` tracks MD5 signatures for each shard, ensuring that data is only re-synchronized when it actually changes on the Foundry server.
-
-## 5. Key Rules
-1. **No Root Logic**: Do not place logic, adapters, or components in the module root.
-2. **Import Hygiene**: The `module/` directory acts as a firewall. Internal `src/` files should use relative paths to other `src/` subdirectories.
-3. **Automated Discovery**: New systems are **automatically discovered** on server boot if they follow this manifest structure.
-4. **Manager Policy Compatibility**: If you declare remote-distribution or elevated permissions, keep `trust`, `permissions`, `dependencies`, and `conflicts` accurate so manager operations can evaluate policy correctly.
-5. **Registry Architecture**: Strictly follow the "Zero `index.ts`" policy for the registry.
-   - Server: `@modules/registry/server`
-   - Client: `@modules/registry/client`
-   - Shared Types: `@modules/registry/types`

@@ -2,7 +2,7 @@ import React from 'react';
 import { Trash2 } from 'lucide-react';
 import { Theme } from '../hooks/useTheme';
 import { useActorCombat } from '@client/ui/context/ActorCombatContext';
-import { ActorCardBlock } from '@shared/interfaces';
+import { ActorCardBlock } from '@shared/sdk';
 import type { ActorDto } from '@shared/contracts/actors';
 
 interface ActorCardProps {
@@ -120,9 +120,9 @@ export const ActorCard = ({
                             </>
                         )}
                     </div>
-                    {customData.footer && (
+                    {!!customData.footer && (
                         <div className="mt-2 text-xs opacity-70 border-t border-white/10 pt-2">
-                            {customData.footer}
+                            {String(customData.footer)}
                         </div>
                     )}
                 </div>

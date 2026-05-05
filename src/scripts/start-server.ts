@@ -195,7 +195,8 @@ function ensureManagedConfigs() {
                 "@modules/*": [
                     "../src/modules/*",
                     path.join(getDataDir(), "modules", "*")
-                ]
+                ],
+                "@sheet-delver/sdk": ["../src/shared/sdk/index.ts"]
             }
         }
     };

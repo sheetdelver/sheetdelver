@@ -1,4 +1,4 @@
-import type { RollMode } from '@shared/interfaces';
+import type { RollMode } from '@shared/sdk';
 import type { FoundryClientLike, FoundryUserLike } from '@server/shared/types/foundry';
 import type { RawActor, ActorServiceClientLike } from '@server/shared/types/actors';
 

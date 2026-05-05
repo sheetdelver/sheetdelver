@@ -2,9 +2,9 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode, useRef } from 'react';
 import { logger } from '@shared/utils/logger';
-import { AppSystemInfo, User, ConnectionStep, ActorCardData } from '@shared/interfaces';
+import { AppSystemInfo, User, ConnectionStep } from '@shared/interfaces';
+import type { ActorCardData, UIModuleManifest } from '@shared/sdk';
 import { getUIModule } from '@modules/registry/client';
-import { UIModuleManifest } from '@shared/interfaces';
 import { Socket } from 'socket.io-client';
 import { useSession } from '@client/ui/context/SessionContext';
 import { useActorCombat } from '@client/ui/context/ActorCombatContext';

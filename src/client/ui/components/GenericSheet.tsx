@@ -47,7 +47,6 @@ export default function GenericSheet({ actor, onUpdate }: GenericSheetProps) {
             <main className="flex-1 overflow-y-auto p-4 pb-24 md:pb-24">
                 <div className="max-w-3xl mx-auto space-y-6">
 
-                    {/* SYSTEM DATA TAB */}
                     {activeTab === 'system' && (
                         <div className="space-y-6 animate-in fade-in zoom-in-95 duration-200">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -62,7 +61,6 @@ export default function GenericSheet({ actor, onUpdate }: GenericSheetProps) {
                         </div>
                     )}
 
-                    {/* ITEMS TAB */}
                     {activeTab === 'items' && (
                         <div className="space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-200">
                             {items.length === 0 ? (
@@ -83,7 +81,6 @@ export default function GenericSheet({ actor, onUpdate }: GenericSheetProps) {
                         </div>
                     )}
 
-                    {/* EFFECTS TAB */}
                     {activeTab === 'effects' && (
                         <div className="space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-200">
                             {effects.length === 0 ? (
@@ -136,8 +133,6 @@ export default function GenericSheet({ actor, onUpdate }: GenericSheetProps) {
     );
 }
 
-// --- Subcomponents ---
-
 function NavButton({ active, onClick, icon, label, count }: any) {
     return (
         <button
@@ -166,22 +161,16 @@ function EmptyState({ icon, label }: any) {
     );
 }
 
-// Recursive Data Viewer / Editor
 function DataProperty({ label, data, path, onUpdate, root }: any) {
-    // Determine type
     const isObject = typeof data === 'object' && data !== null && !Array.isArray(data);
     const isArray = Array.isArray(data);
     const isPrimitive = !isObject && !isArray;
 
-    // Primitives: String, Number, Boolean
     if (isPrimitive) {
-        return (
-            <PrimitiveField label={label} value={data} path={path} onUpdate={onUpdate} />
-        );
+        return <PrimitiveField label={label} value={data} path={path} onUpdate={onUpdate} />;
     }
 
     if (root) {
-        // Flatten the root keys into nice cards
         return (
             <>
                 {Object.entries(data).map(([key, value]) => (
@@ -196,10 +185,9 @@ function DataProperty({ label, data, path, onUpdate, root }: any) {
                     </div>
                 ))}
             </>
-        )
+        );
     }
 
-    // Nested Objects
     if (isObject) {
         return (
             <div className="pl-3 border-l-2 border-neutral-100 ml-1 space-y-2">
@@ -213,7 +201,7 @@ function DataProperty({ label, data, path, onUpdate, root }: any) {
         );
     }
 
-    return null; // Arrays not handled nicely yet in this simplified Generic View
+    return null;
 }
 
 function PrimitiveField({ label, value, path, onUpdate }: any) {
@@ -223,10 +211,7 @@ function PrimitiveField({ label, value, path, onUpdate }: any) {
     const handleSave = () => {
         let finalVal = editValue;
         if (typeof value === 'number') finalVal = Number(editValue);
-
-        if (onUpdate && finalVal !== value) {
-            onUpdate(path, finalVal);
-        }
+        if (onUpdate && finalVal !== value) onUpdate(path, finalVal);
         setIsEditing(false);
     };
 
@@ -243,7 +228,7 @@ function PrimitiveField({ label, value, path, onUpdate }: any) {
                     onKeyDown={(e) => e.key === 'Enter' && handleSave()}
                 />
             </div>
-        )
+        );
     }
 
     return (

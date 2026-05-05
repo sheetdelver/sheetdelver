@@ -24,7 +24,8 @@ const nextConfig: NextConfig = {
       '@server': path.join(process.cwd(), 'src', 'server'),
       '@core': path.join(process.cwd(), 'src', 'server', 'core'),
       '@app': path.join(process.cwd(), 'src', 'app'),
-      '@': path.join(process.cwd(), 'src')
+      '@': path.join(process.cwd(), 'src'),
+      '@sheet-delver/sdk': path.join(process.cwd(), 'src', 'shared', 'sdk', 'index.ts'),
     }
   },
   webpack: (config, { isServer }) => {

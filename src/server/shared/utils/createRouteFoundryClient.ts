@@ -1,4 +1,4 @@
-import type { RollMode } from '@shared/interfaces';
+import type { RollMode } from '@shared/sdk';
 import type { CoreSocket } from '@core/foundry/sockets/CoreSocket';
 import type { ClientSocket } from '@core/foundry/sockets/ClientSocket';
 import type { ChatSendBody } from '@server/shared/types/documents';

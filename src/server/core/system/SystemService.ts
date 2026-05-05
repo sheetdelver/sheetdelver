@@ -111,7 +111,9 @@ export class SystemService extends EventEmitter {
                     // 3. Adapter Initialization
                     if (hasInitialize(adapter)) {
                         logger.info(`SystemService | Initializing adapter for ${sysInfo.id}...`);
-                        await adapter.initialize(client);
+                        const { createModuleContext } = await import('@server/shared/utils/createModuleContext');
+                        const context = await createModuleContext(sysInfo.id.toLowerCase());
+                        await adapter.initialize(context);
                     }
 
                     this.emit('world:ready', { systemId: sysInfo.id });

@@ -1,4 +1,4 @@
-import type { ActorCardData } from '@shared/interfaces';
+import type { ActorCardData } from '@shared/sdk';
 
 export interface ActorDto {
     id?: string;

@@ -18,11 +18,6 @@ export interface GenericActorPageProps {
     token?: string | null;
 }
 
-/**
- * Generic actor page.
- * Used as a fallback for systems that don't have a specialized actor page (e.g., dnd5e).
- * Delegates rendering to the registered sheet via SheetRouter.
- */
 export default function GenericActorPage({ actorId }: GenericActorPageProps) {
     const router = useRouter();
     const {
@@ -91,14 +86,10 @@ export default function GenericActorPage({ actorId }: GenericActorPageProps) {
 
         if (appSocket) {
             const handleActorUpdate = (data: RealtimeActorUpdatePayload) => {
-                if (data.actorId === actorId) {
-                    fetchActor(actorId, true);
-                }
+                if (data.actorId === actorId) fetchActor(actorId, true);
             };
             appSocket.on('actorUpdate', handleActorUpdate);
-            return () => {
-                appSocket.off('actorUpdate', handleActorUpdate);
-            };
+            return () => { appSocket.off('actorUpdate', handleActorUpdate); };
         }
 
         const timeout = setTimeout(() => {
@@ -107,13 +98,9 @@ export default function GenericActorPage({ actorId }: GenericActorPageProps) {
             }
         }, 15000);
 
-        return () => {
-            clearTimeout(timeout);
-        };
+        return () => { clearTimeout(timeout); };
     }, [actorId, fetchActor, addNotification, appSocket]);
 
-
-    // Generic handlers (same as MorkBorg/Shadowdark strict subset)
     const handleRoll = async (type: string, key: string, options: any = {}) => {
         if (!actor) return;
         const rollMode = localStorage.getItem('sheetdelver_roll_mode') || 'publicroll';
@@ -161,9 +148,7 @@ export default function GenericActorPage({ actorId }: GenericActorPageProps) {
     const handleDeleteItem = async (itemId: string) => {
         if (!actor) return;
         try {
-            const res = await fetchWithAuth(`/api/actors/${actor.id}/items?itemId=${itemId}`, {
-                method: 'DELETE'
-            });
+            const res = await fetchWithAuth(`/api/actors/${actor.id}/items?itemId=${itemId}`, { method: 'DELETE' });
             const data = await res.json();
             if (data.success) {
                 fetchActor(actor.id, true);

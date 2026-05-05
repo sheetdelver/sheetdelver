@@ -108,7 +108,7 @@ export function createActorService(deps: ActorServiceDeps) {
         for (const actor of rawActors) {
             const id = actor._id || actor.id;
             if (id) {
-                cards[id] = adapter.getActorCardData(actor) as ActorCard;
+                cards[id] = adapter.getActorCardData!(actor as any) as ActorCard;
             }
         }
 
@@ -133,7 +133,7 @@ export function createActorService(deps: ActorServiceDeps) {
             return {};
         }
 
-        return adapter.getActorCardData(actor) as ActorCard;
+        return adapter.getActorCardData!(actor as any) as ActorCard;
     };
 
     // Actor detail resolver: UUID resolution + adapter normalization + derived data.
@@ -174,22 +174,22 @@ export function createActorService(deps: ActorServiceDeps) {
         const systemInfo = await client.getSystem();
         let adapter = await getAdapter(systemInfo.id.toLowerCase());
 
-        if (!adapter || (adapter.match && !adapter.match(resolvedActor))) {
+        if (!adapter || (adapter.match && !adapter.match(resolvedActor as any))) {
             adapter = await getMatchingAdapter(resolvedActor);
         }
         if (!adapter) throw new Error(`Adapter for ${systemInfo.id} not found`);
 
-        const normalizedActor: ActorProjection = adapter.normalizeActorData(resolvedActor, client);
+        const normalizedActor: ActorProjection = adapter.normalizeActorData(resolvedActor as any, client as any);
 
         if (adapter.computeActorData) {
             normalizedActor.derived = {
                 ...(normalizedActor.derived || {}),
-                ...(adapter.computeActorData(normalizedActor) as Record<string, unknown>)
+                ...(adapter.computeActorData(normalizedActor as any) as Record<string, unknown>)
             };
         }
 
         if (adapter.categorizeItems) {
-            normalizedActor.categorizedItems = adapter.categorizeItems(normalizedActor) as Record<string, unknown>;
+            normalizedActor.categorizedItems = adapter.categorizeItems(normalizedActor as any) as Record<string, unknown>;
         }
 
         if (normalizedActor.img) {
@@ -276,14 +276,14 @@ export function createActorService(deps: ActorServiceDeps) {
         let rollData: ActorRollData | undefined;
         if (type === 'formula') {
             rollData = { formula: key, label: 'Custom Roll' };
-        } else {
-            rollData = adapter.getRollData(actor, type, key, options) as ActorRollData;
+        } else if (adapter.getRollData) {
+            rollData = adapter.getRollData(actor as any, type, key, options) as ActorRollData;
         }
 
         if (!rollData) throw new Error('Cannot determine roll formula');
 
         if (rollData.isAutomated && typeof adapter.performAutomatedSequence === 'function') {
-            const result = await adapter.performAutomatedSequence(client, actor, rollData, options);
+            const result = await adapter.performAutomatedSequence(client as any, actor as any, rollData, options);
             return { success: true, result, label: rollData.label };
         }
 

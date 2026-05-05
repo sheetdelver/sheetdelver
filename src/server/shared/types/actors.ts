@@ -1,5 +1,5 @@
 import type { FoundryClientLike } from '@server/shared/types/foundry';
-import type { RollMode } from '@shared/interfaces';
+import type { RollMode } from '@shared/sdk';
 
 export interface RawItem {
     id?: string;

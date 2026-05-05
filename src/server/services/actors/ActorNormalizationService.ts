@@ -29,16 +29,16 @@ export function createActorNormalizationService(deps: ActorNormalizationDeps = {
         return Promise.all(actorList.map(async (actor) => {
             if (!actor.computed) actor.computed = {};
             if (!actor.computed.resolvedNames) actor.computed.resolvedNames = {};
-            if (adapter.resolveActorNames) await adapter.resolveActorNames(actor, cache);
+            if (adapter.resolveActorNames) await adapter.resolveActorNames(actor as any, cache as any);
 
             if (actor.img) actor.img = client.resolveUrl(actor.img);
             if (actor.prototypeToken?.texture?.src) {
                 actor.prototypeToken.texture.src = client.resolveUrl(actor.prototypeToken.texture.src);
             }
 
-            const normalized = adapter.normalizeActorData(actor, client) as NormalizedActor;
+            const normalized = adapter.normalizeActorData(actor as any, client as any) as NormalizedActor;
             if (adapter.computeActorData) {
-                normalized.derived = adapter.computeActorData(normalized) as Record<string, unknown>;
+                normalized.derived = adapter.computeActorData(normalized as any) as Record<string, unknown>;
             }
 
             return normalized;

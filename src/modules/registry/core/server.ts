@@ -1,6 +1,14 @@
 import { hasInitialize, SystemAdapter, SystemModuleInfo, SystemPlugin } from './types';
 export * from './utils';
 import { logger } from '@shared/utils/logger';
+import { BaseSystemAdapter } from '@shared/sdk/base';
+
+// Internal platform fallback adapter — not a discoverable plugin, cannot be disabled.
+// Used when no matching system module is found for an actor.
+class FallbackAdapter extends BaseSystemAdapter {
+    systemId = 'generic';
+}
+const FALLBACK_ADAPTER: SystemAdapter = new FallbackAdapter();
 import path from 'node:path';
 import fs from 'node:fs';
 import {
@@ -470,11 +478,6 @@ export function listModules(options?: { includeExperimental?: boolean; includeDi
 export function disableModule(moduleId: string, reason = 'Module disabled by operator'): boolean {
     if (!isInitialized()) initializeRegistry();
     const id = moduleId.toLowerCase();
-
-    if (id === 'generic') {
-        logger.warn('Registry | Refusing to disable generic module');
-        return false;
-    }
 
     const record = getLifecycleRecord(id);
     if (!record) return false;
@@ -1735,8 +1738,12 @@ export async function getAdapter(systemId: string): Promise<SystemAdapter | null
     // Ensure discovery has run
     if (!isInitialized()) initializeRegistry();
 
-    const plugin = pluginMap.get(id) || pluginMap.get('generic');
-    if (!plugin) return null;
+    const plugin = pluginMap.get(id);
+    if (!plugin) {
+        // No matching plugin — return the internal fallback adapter
+        if (!adapterInstances.has('generic')) adapterInstances.set('generic', FALLBACK_ADAPTER);
+        return FALLBACK_ADAPTER;
+    }
 
     const pluginId = plugin.info.id.toLowerCase();
     if (!isModuleEnabledForRuntime(pluginId)) {
@@ -1757,9 +1764,12 @@ export async function getAdapter(systemId: string): Promise<SystemAdapter | null
 
         const adapter = new AdapterClass();
 
-        // Optional initialization hook for adapters (e.g., cache warming)
+        // Optional initialization hook — inject ModuleContext so adapters
+        // have access to a namespaced logger, scoped cache, and discovery.
         if (hasInitialize(adapter)) {
-            await adapter.initialize();
+            const { createModuleContext } = await import('@server/shared/utils/createModuleContext');
+            const context = await createModuleContext(pluginId);
+            await adapter.initialize(context);
         }
 
         adapterInstances.set(id, adapter);
@@ -1814,8 +1824,7 @@ export function unloadSystemModules(systemId?: string) {
  * Asynchronously finds the correct adapter for an actor object based on matching rules.
  */
 export async function getMatchingAdapter(actor: any): Promise<SystemAdapter> {
-    const genericAdapter = (await getAdapter('generic'))!;
-    if (!actor) return genericAdapter;
+    if (!actor) return FALLBACK_ADAPTER;
 
     if (actor.systemId) {
         const exact = await getAdapter(actor.systemId);
@@ -1825,10 +1834,9 @@ export async function getMatchingAdapter(actor: any): Promise<SystemAdapter> {
     if (!isInitialized()) initializeRegistry();
 
     for (const plugin of pluginMap.values()) {
-        if (plugin.info.id === 'generic') continue;
         const adapter = await getAdapter(plugin.info.id);
-        if (adapter && adapter.match(actor)) return adapter;
+        if (adapter && adapter.systemId !== 'generic' && adapter.match(actor)) return adapter;
     }
 
-    return genericAdapter;
+    return FALLBACK_ADAPTER;
 }

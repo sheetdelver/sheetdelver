@@ -1,5 +1,5 @@
-import { SystemAdapter, UIModuleManifest } from '@shared/interfaces';
-import type { DiscoveryConfig } from '@shared/interfaces';
+import { SystemAdapter, UIModuleManifest } from '@shared/sdk';
+import type { DiscoveryConfig } from '@shared/sdk';
 export type { ModuleLifecycleRecord, ModuleLifecycleStatus, ModuleLifecycleStore } from '../lifecycle/lifecycle';
 export type { ModuleCompatibilityResult, ModuleValidationResult } from '../lifecycle/validation';
 
@@ -39,7 +39,7 @@ export interface SystemModuleInfo {
         logic: string;
         server?: string;
     };
-    discovery?: import('@shared/interfaces').DiscoveryConfig;
+    discovery?: import('@shared/sdk').DiscoveryConfig;
     dependencies?: string[];
     conflicts?: string[];
 }
@@ -61,7 +61,7 @@ export interface DiscoveryConfigProviderAdapter {
 }
 
 export interface InitializableAdapter {
-    initialize(client?: unknown): Promise<void>;
+    initialize(context: import('@shared/sdk').ModuleContext): Promise<void>;
 }
 
 export function hasDiscoveryConfig(

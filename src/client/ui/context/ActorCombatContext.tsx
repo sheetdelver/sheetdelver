@@ -7,7 +7,7 @@ import { UnauthorizedApiError } from '@client/ui/api/http';
 import * as foundryApi from '@client/ui/api/foundryApi';
 import type { ActorDto, ActorListPayload, ActorCardsPayload } from '@shared/contracts/actors';
 import type { CombatDto, CombatListPayload } from '@shared/contracts/combats';
-import type { ActorCardData } from '@shared/interfaces';
+import type { ActorCardData } from '@shared/sdk';
 
 interface ActorCombatContextType {
     ownedActors: ActorDto[];

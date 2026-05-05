@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { RollMode } from '@shared/interfaces';
+import { RollMode } from '@shared/sdk';
 import DiceTray from './DiceTray';
 import type { ChatMessageDto } from '@shared/contracts/chat';
 
