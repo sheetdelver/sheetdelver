@@ -194,18 +194,63 @@ export default manifest;
 
 All entries are lazy `() => import(...)` thunks. The platform calls them on demand. The imported module must have a default export that is a React component.
 
-**Platform UI hooks available in module components** (import the type, use the platform's hook implementation):
+**Platform hooks — use `useSDK()` and `useSDKComponents()` from the SDK:**
 
-| Hook type | Interface | Provides |
-|---|---|---|
-| `UseFoundry` | `import type { UseFoundry }` | `token`, `currentUser`, `system`, `isConnected`, `baseUrl` |
-| `UseUI` | `import type { UseUI }` | `isDiceTrayOpen`, `toggleDiceTray`, `isChatOpen`, `setChatOpen` |
-| `UseNotifications` | `import type { UseNotifications }` | `addNotification(message, type?, options?)` |
-| `UseConfig` | `import type { UseConfig }` | `foundryUrl`, `setFoundryUrl`, `resolveImageUrl` |
+```ts
+import { useSDK, useSDKComponents } from '@sheet-delver/sdk';
 
-**Platform UI components available in module sheets** (import directly from `@client/ui/components/` during development):
+function MySheet() {
+    const {
+        token,           // string | null — JWT for authenticated fetch
+        currentUser,     // { id, name, isGM, role } | null
+        system,          // { id, title, version } | null
+        isConnected,     // boolean — true when world is active
+        baseUrl,         // platform origin (window.location.origin)
+        foundryUrl,      // Foundry server URL for image resolution
+        resolveImageUrl, // (path: string) => string — resolves relative image paths
+        addNotification, // (message, type?, options?) => void — toast
+        isDiceTrayOpen, toggleDiceTray,
+        isChatOpen, setChatOpen,
+        fetchWithAuth,   // (input, init?) => Promise<Response> — auth-injected fetch
+        onActorUpdate,   // (actorId, cb) => () => void — realtime subscription
+        logger,          // { debug, info, warn, error } — prefixed console logger
+    } = useSDK();
 
-`LoadingModal`, `RollDialog`, `ConfirmationModal`, `SharedContentModal`, `RichTextEditor`
+    const {
+        LoadingModal,       // platform LoadingModal component
+        RollDialog,         // platform RollDialog component
+        ConfirmationModal,  // platform ConfirmationModal component
+        RichTextEditor,     // platform RichTextEditor component
+        SharedContentModal, // platform SharedContentModal component
+    } = useSDKComponents();
+}
+```
+
+`useSDK()` returns the full platform context. `useSDKComponents()` injects platform UI components — modules must NOT import these from `@client/ui/components/` directly.
+
+**Realtime actor updates — example pattern:**
+
+```ts
+import { useSDK } from '@sheet-delver/sdk';
+import type { RealtimeActorUpdatePayload } from '@sheet-delver/sdk';
+import { useEffect, useCallback } from 'react';
+
+function MyActorPage({ actorId }: { actorId: string }) {
+    const { fetchWithAuth, onActorUpdate } = useSDK();
+
+    const fetchActor = useCallback(async (silent = false) => {
+        const res = await fetchWithAuth(`/api/actors/${actorId}`);
+        const data = await res.json();
+        // update state...
+    }, [actorId, fetchWithAuth]);
+
+    useEffect(() => {
+        fetchActor();
+        const cleanup = onActorUpdate(actorId, () => fetchActor(true));
+        return cleanup;
+    }, [actorId, fetchActor, onActorUpdate]);
+}
+```
 
 ---
 

@@ -240,8 +240,7 @@ export interface ModuleFoundryClient {
 /**
  * ModuleApiRequest is the standard Request object passed to module API handlers.
  */
-export interface ModuleApiRequest extends Request {
-}
+export type ModuleApiRequest = Request;
 
 /**
  * ModuleApiParams represents the parsed route parameters for a module API request.

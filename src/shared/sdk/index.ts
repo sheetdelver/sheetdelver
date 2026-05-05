@@ -105,6 +105,19 @@ export type {
 } from './utils';
 
 // ---------------------------------------------------------------------------
+// Client-side SDK hooks — for use in module UI components
+// ---------------------------------------------------------------------------
+
+export { useSDK, useSDKComponents, SDKContext, SDKComponentsContext } from './react';
+
+export type {
+    SDKContextValue,
+    SDKComponentsValue,
+    ModuleClientLogger,
+    RealtimeActorUpdatePayload,
+} from './react';
+
+// ---------------------------------------------------------------------------
 // Version constants — matched against info.json compatibility.apiContracts
 // ---------------------------------------------------------------------------
 

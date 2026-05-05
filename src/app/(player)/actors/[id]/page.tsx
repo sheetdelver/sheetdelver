@@ -5,12 +5,16 @@ import { useRouter } from 'next/navigation';
 import { useFoundry } from '@client/ui/context/FoundryContext';
 import { getUIModule } from '@modules/registry/client';
 import LoadingModal from '@client/ui/components/LoadingModal';
+import GenericActorPage from '@client/ui/pages/GenericActorPage';
+import { SDKProvider } from '@client/ui/providers/SDKProvider';
 
 /**
  * Core actor page router.
  * Fetches the actor to determine its systemId, then delegates rendering
  * to the module-specific actorPage component registered in the module manifest.
- * No system-specific logic lives here.
+ * Falls back to GenericActorPage when the module does not provide an actorPage.
+ * All resolved components are wrapped in SDKProvider so module code can
+ * call useSDK() and useSDKComponents() freely.
  */
 export default function ActorPageRouter({ params }: { params: Promise<{ id: string }> }) {
     const { id } = use(params);
@@ -47,17 +51,17 @@ export default function ActorPageRouter({ params }: { params: Promise<{ id: stri
                 }
 
                 const manifest = await getUIModule(systemId);
-                if (!manifest?.actorPage) {
-                    setError(`No actor page registered for system: ${systemId}`);
-                    return;
+                const actorPageEntry = manifest?.actorPage;
+
+                if (actorPageEntry) {
+                    const ResolvedComponent = typeof actorPageEntry === 'function'
+                        ? React.lazy(actorPageEntry as any)
+                        : actorPageEntry;
+                    setActorPage(() => ResolvedComponent as any);
+                } else {
+                    // Module does not provide a custom actorPage — use platform fallback.
+                    setActorPage(() => GenericActorPage as any);
                 }
-
-                const actorPageEntry = manifest.actorPage;
-                const ResolvedComponent = typeof actorPageEntry === 'function'
-                    ? React.lazy(actorPageEntry as any)
-                    : actorPageEntry;
-
-                setActorPage(() => ResolvedComponent as any);
             } catch (e: any) {
                 setError('Failed to load actor: ' + e.message);
             } finally {
@@ -90,8 +94,10 @@ export default function ActorPageRouter({ params }: { params: Promise<{ id: stri
     if (!ActorPage) return null;
 
     return (
-        <Suspense fallback={<LoadingModal message="Loading..." />}>
-            <ActorPage actorId={id} token={token} />
-        </Suspense>
+        <SDKProvider>
+            <Suspense fallback={<LoadingModal message="Loading..." />}>
+                <ActorPage actorId={id} token={token} />
+            </Suspense>
+        </SDKProvider>
     );
 }

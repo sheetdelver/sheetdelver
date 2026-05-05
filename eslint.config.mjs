@@ -16,7 +16,9 @@ const eslintConfig = defineConfig([
     "temp-shadowdark/**",
     "src/tests/**",
     "scripts/**",
-    "src/scripts/**"
+    "src/scripts/**",
+    // External module repos — linted by their own configs, excluded from platform tsconfig
+    "data/**"
   ]),
   {
     rules: {
