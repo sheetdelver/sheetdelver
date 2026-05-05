@@ -1,41 +1,41 @@
 import { UIModuleManifest } from './types';
 export * from './utils';
 import React from 'react';
-import { logger } from '@shared/utils/logger';
 
 /**
- * Registry Client Instance
- * Note: The client-side registry doesn't perform filesystem discovery.
- * It relies on the server-provided systemId and uses dynamic import thunks.
+ * Platform default manifest — always available, no file lookup required.
+ * Used when no system-specific module is registered or when the system is 'generic'.
+ * External modules override this by providing their own sheet/actorPage in UIModuleManifest.
  */
+const PLATFORM_DEFAULT_MANIFEST: UIModuleManifest = {
+    info: { id: 'generic', title: 'Generic System' },
+    sheet:     () => import('@client/ui/components/GenericSheet'),
+    actorPage: () => import('@client/ui/pages/GenericActorPage'),
+};
 
-// We don't have a pluginMap on the client because discovery is a server-side task.
-// Instead, we use a mapping of known systemIds to their UI thunks.
-// This is populated by Next.js's dynamic import capabilities.
 const manifestCache = new Map<string, UIModuleManifest>();
 
 /**
  * JIT UI Manifest Loader (Browser-Safe)
- * Fetches the system's own UI manifest asynchronously.
- * Uses a directory-anchored relative path to ensure production bundler visibility.
+ * Returns the system's UIModuleManifest. Falls back to the platform default when:
+ *  - systemId is 'generic' (explicit default request)
+ *  - No module file is registered for the system
+ *  - The module file fails to load
  */
-export async function getUIModule(systemId: string): Promise<UIModuleManifest | undefined> {
+export async function getUIModule(systemId: string): Promise<UIModuleManifest> {
     const id = systemId.toLowerCase();
 
-    if (manifestCache.has(id)) {
-        return manifestCache.get(id);
-    }
+    if (id === 'generic') return PLATFORM_DEFAULT_MANIFEST;
+
+    if (manifestCache.has(id)) return manifestCache.get(id)!;
 
     try {
-        // Using the @modules alias which resolves to either src/modules
-        // or the dynamic data/modules directory configured at startup.
         const m = await import(`@modules/${id}/module/ui`);
         const manifest = m.default || m;
-
         manifestCache.set(id, manifest);
         return manifest;
-    } catch (e) {
-        logger.error(`Registry | Failed to load UI manifest for ${id}:`, e);
-        return undefined;
+    } catch {
+        // System has no registered module — use the platform default.
+        return PLATFORM_DEFAULT_MANIFEST;
     }
 }
