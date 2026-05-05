@@ -1,7 +1,7 @@
 # ADR-0010: External Module SDK and Operational Maturity
 
-**Status:** Revised — Prior draft was inaccurate. This version reflects an audit of the actual codebase.
-**Date:** May 3, 2026
+**Status:** Active — SDK complete. Module migration in progress.
+**Date:** May 3, 2026 / Updated May 5, 2026
 **Supersedes:** None
 **Related:** ADR-0004, ADR-0007, ADR-0008, ADR-0009
 
@@ -193,35 +193,52 @@ Document this in `src/modules/MODULE_MANIFEST.md` with:
 
 ---
 
-## Revised Slices
+## Slices
 
-### Slice 30-A: SDK Completion and `ModuleContext` Wiring
-**Goal:** Close the gap between the SDK definition and its runtime use.
-- Wire `ModuleContext` injection in `src/modules/registry/core/server.ts` `getAdapter()` (line ~1761)
-- Create `createModuleLogger(moduleId)` factory; expose via context, not as an importable utility
-- Create `createScopedPersistentCache` and `createScopedCompendiumCache` wrappers
-- Verify `ModuleApiRequest`/`ModuleApiParams`/`UserSession` in SDK match what `ModuleProxyService` passes
-- Consolidate `UIModuleManifest` — single canonical definition in SDK, re-exported from registry types
+### Slice 30-A: SDK Completion and `ModuleContext` Wiring — **COMPLETE**
 
-### Slice 30-B: UI Module Surface
-**Goal:** Create `src/client/ui/module-surface/` with stable re-exports of the 7 components and context hooks.
-- Re-export `LoadingModal`, `RollDialog`, `NotificationSystem`, `ConfirmationModal`, `RichTextEditor`, `SharedContentModal`, `SheetRouter`
-- Re-export `useFoundry()`, `useUI()`, `useNotifications()` bound to SDK interfaces
-- Update `next.config.ts` turbopack/webpack aliases if a new path alias is needed
-- Do not move implementations — only create a stable re-export surface
+Completed May 2026. Summary of what was done:
 
-### Slice 30-C: Cross-Module Isolation Fixes (External Module Side)
-**Goal:** Remove the cross-module and `@core/*` imports from `data/modules/`.
-- `morkborg/MorkBorgAdapter.ts`: replace `GenericSystemAdapter` with `BaseSystemAdapter` from SDK
-- `morkborg`: remove shadowdark source imports
-- `shadowdark`: replace `@core/config`, `@core/foundry/*`, `@core/cache/PersistentCache` with `ModuleContext` platform services and `FoundryClient`
-- Replace `@shared/utils/logger` (47 occurrences) with context-injected logger
+- `src/shared/sdk/` fully rewritten: `interfaces.ts`, `base.ts`, `context.ts`, `contracts.ts`, `server.ts`, `ui.ts`, `utils.ts`, `index.ts`
+- `BaseSystemAdapter` is now a concrete class (not abstract), `systemId = 'generic'`, provides all method defaults
+- `ModuleContext` wiring done in `src/server/core/system/SystemService.ts` bootstrap sequence
+- `createModuleContext(moduleId)` factory in `src/server/shared/utils/createModuleContext.ts` — namespaced logger, scoped persistent cache, scoped compendium discovery
+- `createModuleFoundryClient(client)` in `src/server/shared/utils/createModuleFoundryClient.ts` — wraps `RouteFoundryClient` with the stable `ModuleFoundryClient` surface; `dispatchDocument` is internal only
+- `ModuleFoundryClient` expanded: full actor CRUD, item CRUD, active effect CRUD (`createActorEffect`, `updateActorEffect`, `deleteActorEffect`, `updateItemEffect`, `deleteItemEffect`), `getWorldItems`, `drawTable`, `getSystemId`
+- `ModuleServerRequest`, `ModuleServerParams`, `ModuleServerExport`, `ModuleRouteHandler` added to SDK (`src/shared/sdk/server.ts`)
+- `UserSession` added to SDK (already was in contracts.ts)
+- `@sheet-delver/sdk` alias wired into `src/scripts/start-server.ts` generator (persists across restarts) and `next.config.ts` turbopack config
+- SDK integrity test: `src/tests/unit/sdk-integrity.test.ts` — 8 test areas, all passing
 
-### Slice 30-D: Build Contract Documentation and Manifest v2
-**Goal:** Document the two-mode model; define what an artifact module's `dist/` must contain.
-- Rewrite `src/modules/MODULE_MANIFEST.md` to define Mode A and Mode B
-- Add manifest schema validation for `dist/` artifact detection in the registry
-- Define a reference `tsup.config.ts` for module authors who want Mode B
+**Generic module dissolved:** `src/modules/generic/` was deleted. `GenericSheet` and `GenericActorPage` moved to `src/client/ui/` as platform-owned fallback components. `FallbackAdapter extends BaseSystemAdapter` now lives inline in the registry as the no-match fallback. Eliminates the false impression that "generic" was a real external module.
+
+---
+
+### Slice 30-B: UI Module Surface — **Deferred**
+
+Platform-provided components (`LoadingModal`, `RollDialog`, `ConfirmationModal`, `RichTextEditor`, `SharedContentModal`) are still imported by external modules via `@client/ui/components/` internal aliases. A stable re-export surface at `src/client/ui/module-surface/` is the clean solution but is not blocking module migration — modules in Mode A still resolve internal aliases via tsconfig paths.
+
+This slice is deferred until after at least one module (dnd5e) is fully migrated. The migration will clarify exactly which components external modules actually need vs. which can be cut.
+
+---
+
+### Slice 30-C: Cross-Module Isolation Fixes — **In Progress**
+
+**dnd5e (reference migration):** Currently underway. See `temp/audit-reports/dnd5e-migration-plan.md`.  
+The dnd5e module has a malformed adapter (duplicate methods outside class body), imports internal aliases, and has no real sheet UI. It will be rebuilt as the canonical example of a properly structured SDK module, including a DNDBeyond-inspired character sheet.
+
+**morkborg:** Imports `@modules/generic/src/logic/adapter` which was deleted — module is broken. Needs `BaseSystemAdapter` from SDK. Also imports shadowdark internals. Blocked until dnd5e migration is reviewed and approach is confirmed.
+
+**shadowdark:** 47+ internal alias imports (`@shared/utils/logger`, `@core/*`, `@server/*`). Largest migration surface. Will follow dnd5e and morkborg.
+
+---
+
+### Slice 30-D: Build Contract Documentation — **COMPLETE**
+
+Completed May 2026:
+- `src/modules/MODULE_MANIFEST.md` fully rewritten — documents Mode A (source) and Mode B (artifact), full SDK import surface, all `ModuleFoundryClient` methods, discovery pack timing, utility functions, `tsup.config.ts` reference
+- Mode detection already works in registry loader (`.ts` vs `.js` suffix)
+- `@sheet-delver/sdk` as external in tsup config documented
 
 ---
 
@@ -242,4 +259,13 @@ Document this in `src/modules/MODULE_MANIFEST.md` with:
 
 ## Implementation Outcome
 
-*(To be filled upon completion)*
+**May 2026 — SDK phase complete.**
+
+Slices 30-A and 30-D are done. The SDK is the authoritative import surface: `@sheet-delver/sdk` resolves correctly in both the server (`tsx` + tsconfig paths) and the Next.js client (turbopack alias). `ModuleContext` injection works end-to-end. The generic module is dissolved. The manifest document is correct and complete.
+
+**In progress:** dnd5e reference migration (Slice 30-C) — rebuilding adapter and implementing a real character sheet UI. This will establish the migration pattern for morkborg and shadowdark.
+
+**Still open:**
+- Slice 30-B (UI module surface) — deferred until post-dnd5e review
+- morkborg migration — blocked on generic adapter deletion, will follow dnd5e
+- shadowdark migration — largest surface, will follow morkborg
