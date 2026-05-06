@@ -14,6 +14,15 @@ export interface FoundryDocument extends Record<string, unknown> {
     system: Record<string, unknown>;
     flags?: Record<string, unknown>;
     ownership?: Record<string, number>;
+    _stats?: {
+        systemId?: string;
+        systemVersion?: string;
+        coreVersion?: string;
+        createdTime?: number;
+        modifiedTime?: number;
+        lastModifiedBy?: string;
+        [key: string]: unknown;
+    };
 }
 
 export interface FoundryActor extends FoundryDocument {

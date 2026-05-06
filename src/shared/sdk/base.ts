@@ -1,5 +1,6 @@
 import { ModuleContext } from './context';
 import { ModuleFoundryClient } from './contracts';
+import { resolveImage } from './utils';
 import {
     SystemAdapter,
     ActorSheetData,
@@ -27,12 +28,17 @@ export class BaseSystemAdapter implements SystemAdapter {
 
     protected _context: ModuleContext | null = null;
 
+    /** Base URL of the connected Foundry server. Available after initialize() is called. */
+    protected get foundryUrl(): string {
+        return this._context?.foundryUrl ?? '';
+    }
+
     normalizeActorData(actor: FoundryActor, _client?: ModuleFoundryClient): ActorSheetData {
         return {
             id: actor._id,
             name: actor.name,
             type: actor.type,
-            img: actor.img ?? '',
+            img: resolveImage(actor.img ?? '', this.foundryUrl),
             system: actor.system ?? {},
             items: actor.items ?? [],
             effects: actor.effects ?? [],
@@ -60,7 +66,7 @@ export class BaseSystemAdapter implements SystemAdapter {
     getActorCardData(actor: FoundryActor): ActorCardData {
         return {
             name: actor.name,
-            img: actor.img ?? undefined,
+            img: resolveImage(actor.img ?? '', this.foundryUrl),
         };
     }
 

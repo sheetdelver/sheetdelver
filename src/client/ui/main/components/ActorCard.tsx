@@ -2,6 +2,7 @@ import React from 'react';
 import { Trash2 } from 'lucide-react';
 import { Theme } from '../hooks/useTheme';
 import { useActorCombat } from '@client/ui/context/ActorCombatContext';
+import { useConfig } from '@client/ui/context/ConfigContext';
 import { ActorCardBlock } from '@shared/sdk';
 import type { ActorDto } from '@shared/contracts/actors';
 
@@ -22,6 +23,7 @@ export const ActorCard = ({
 }: ActorCardProps) => {
 
     const { actorCards } = useActorCombat();
+    const { resolveImageUrl } = useConfig();
     const actorId = actor.id || actor._id || '';
     const actorName = actor.name || 'Unknown Actor';
     const actorRecord = actor as Record<string, any>;
@@ -32,10 +34,8 @@ export const ActorCard = ({
         window.location.href = `/actors/${actorId}`;
     };
 
-    const activeAdapter = null; // No adapter in frontend per architectural goal
-
     const displayName = customData.name || actor.name;
-    const displayImg = customData.img || actor.img || '/icons/svg/mystery-man.svg';
+    const displayImg = resolveImageUrl(customData.img || actor.img || 'icons/svg/mystery-man.svg');
     const displaySubtext = customData.subtext || actor.type;
 
     return (
@@ -55,9 +55,7 @@ export const ActorCard = ({
                         src={displayImg}
                         alt={displayName}
                         className="w-16 h-16 rounded-lg bg-black/40 object-cover border border-white/10 group-hover:border-amber-500/30 transition-colors"
-                        onError={(e) => {
-                            (e.target as HTMLImageElement).src = '/icons/svg/mystery-man.svg';
-                        }}
+
                     />
                     {clickable && (
                         <div className="absolute inset-0 bg-amber-500/0 group-hover:bg-amber-500/5 transition-colors rounded-lg"></div>

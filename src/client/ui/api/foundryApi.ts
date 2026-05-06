@@ -64,6 +64,10 @@ export function fetchActorCards(token: string): Promise<ActorCardsPayload> {
     return requestJson<ActorCardsPayload>('/api/actors/cards', { token });
 }
 
+export function fetchActorCardById(token: string, actorId: string): Promise<import('@shared/sdk').ActorCardData> {
+    return requestJson(`/api/actors/${actorId}/card`, { token });
+}
+
 export function fetchActorById(token: string, actorId: string): Promise<ActorDetailPayload> {
     return requestJson<ActorDetailPayload>(`/api/actors/${actorId}`, { token });
 }

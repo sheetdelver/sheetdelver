@@ -1,4 +1,5 @@
 import { logger } from '@shared/utils/logger';
+import { getConfig } from '@core/config';
 import type { ModuleContext, ModuleLogger, PersistentCache, CompendiumCache } from '@shared/sdk';
 
 /**
@@ -69,9 +70,17 @@ export async function createModuleContext(moduleId: string): Promise<ModuleConte
         createScopedDiscovery(moduleId),
     ]);
 
+    let foundryUrl = '';
+    try {
+        foundryUrl = getConfig().foundry.url;
+    } catch {
+        // config not yet loaded — adapter will get an empty string
+    }
+
     return {
         moduleId,
         logger: createModuleLogger(moduleId),
+        foundryUrl,
         platform: {
             cache: scopedCache,
             discovery: scopedDiscovery,

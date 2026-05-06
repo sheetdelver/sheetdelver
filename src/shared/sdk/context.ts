@@ -35,6 +35,8 @@ export interface ModuleContext {
     moduleId: string;
     /** Namespaced logger for the module. */
     logger: ModuleLogger;
+    /** Base URL of the connected Foundry server — use with resolveImage() to build full image URLs. */
+    foundryUrl: string;
     /** Scoped platform APIs for caching and document discovery. */
     platform: {
         cache: PersistentCache;

@@ -74,6 +74,7 @@ export interface RegisteredModuleRuntimeInfo {
 interface RegistryState {
     pluginMap: Map<string, SystemPlugin>;
     adapterInstances: Map<string, any>;
+    adapterMtimes: Map<string, number>;
     isInitialized: boolean;
     lifecycleStore: ModuleLifecycleStore;
 }
@@ -86,6 +87,7 @@ const getGlobalState = (): RegistryState => {
         g.__coreRegistry = {
             pluginMap: new Map<string, SystemPlugin>(),
             adapterInstances: new Map<string, any>(),
+            adapterMtimes: new Map<string, number>(),
             isInitialized: false,
             lifecycleStore: createEmptyLifecycleStore()
         };
@@ -96,7 +98,28 @@ const getGlobalState = (): RegistryState => {
 const _state = getGlobalState();
 const pluginMap = _state.pluginMap;
 const adapterInstances = _state.adapterInstances;
+const adapterMtimes = _state.adapterMtimes;
 const lifecycleStore = _state.lifecycleStore;
+
+const IS_DEV = process.env.NODE_ENV !== 'production';
+
+/** Resolve the actual file path for a module logic entry (adds extension if needed). */
+function resolveLogicPath(base: string): string {
+    for (const ext of ['.ts', '.tsx', '.js', '.mjs']) {
+        if (fs.existsSync(base + ext)) return base + ext;
+    }
+    return base;
+}
+
+/** Return the mtime (ms) of a logic file, 0 if unresolvable. */
+function getLogicMtime(plugin: SystemPlugin): number {
+    try {
+        const resolved = resolveLogicPath(path.join(plugin.directory, plugin.info.manifest.logic));
+        return fs.statSync(resolved).mtimeMs;
+    } catch {
+        return 0;
+    }
+}
 const isInitialized = () => _state.isInitialized;
 const setInitialized = (val: boolean) => { _state.isInitialized = val; };
 
@@ -433,6 +456,9 @@ export function getModuleLifecycleState() {
  * Force a re-scan of module directories and update the internal registry map.
  */
 export function refreshRegistry(): void {
+    // Clear adapter instances so they are lazily re-loaded against the refreshed plugin map.
+    adapterInstances.clear();
+    adapterMtimes.clear();
     setInitialized(false);
     initializeRegistry();
 }
@@ -1732,9 +1758,6 @@ export async function getAdapter(systemId: string): Promise<SystemAdapter | null
         return null;
     }
 
-    // Return cached instance if available
-    if (adapterInstances.has(id)) return adapterInstances.get(id)!;
-
     // Ensure discovery has run
     if (!isInitialized()) initializeRegistry();
 
@@ -1745,6 +1768,21 @@ export async function getAdapter(systemId: string): Promise<SystemAdapter | null
         return FALLBACK_ADAPTER;
     }
 
+    // In dev mode, check whether the adapter file has changed since it was last loaded.
+    // If so, evict the cached instance so we re-import with the new code.
+    if (IS_DEV && adapterInstances.has(id)) {
+        const currentMtime = getLogicMtime(plugin);
+        if (currentMtime && currentMtime !== adapterMtimes.get(id)) {
+            logger.info(`Registry | Dev hot-reload: adapter ${id} changed, evicting cache`);
+            adapterInstances.delete(id);
+            adapterMtimes.delete(id);
+        } else {
+            return adapterInstances.get(id)!;
+        }
+    } else if (adapterInstances.has(id)) {
+        return adapterInstances.get(id)!;
+    }
+
     const pluginId = plugin.info.id.toLowerCase();
     if (!isModuleEnabledForRuntime(pluginId)) {
         logger.warn(`Registry | Refusing to instantiate disabled/incompatible module ${pluginId}`);
@@ -1752,7 +1790,19 @@ export async function getAdapter(systemId: string): Promise<SystemAdapter | null
     }
 
     try {
-        const logicModule = await plugin.getLogic();
+        // In dev mode, use a mtime-stamped URL so the ESM module cache is bypassed when
+        // the file changes. The query parameter makes each version a distinct cache entry.
+        let logicModule: any;
+        if (IS_DEV) {
+            const { pathToFileURL } = await import('node:url');
+            const logicBase = path.join(plugin.directory, plugin.info.manifest.logic);
+            const resolved = resolveLogicPath(logicBase);
+            const mtime = getLogicMtime(plugin);
+            const url = pathToFileURL(resolved).href + (mtime ? `?v=${mtime}` : '');
+            logicModule = await import(url);
+        } else {
+            logicModule = await plugin.getLogic();
+        }
         const AdapterClass = logicModule.Adapter || logicModule.default;
 
         if (!AdapterClass) {
@@ -1773,6 +1823,7 @@ export async function getAdapter(systemId: string): Promise<SystemAdapter | null
         }
 
         adapterInstances.set(id, adapter);
+        if (IS_DEV) adapterMtimes.set(id, getLogicMtime(plugin));
         return adapter;
     } catch (e) {
         logger.error(`Registry | Failed to JIT load adapter for ${id}:`, e);
@@ -1814,9 +1865,11 @@ export function unloadSystemModules(systemId?: string) {
         const id = systemId.toLowerCase();
         logger.info(`Registry | Unloading modules for ${id}`);
         adapterInstances.delete(id);
+        adapterMtimes.delete(id);
     } else {
         logger.info('Registry | Purging all active module instances');
         adapterInstances.clear();
+        adapterMtimes.clear();
     }
 }
 

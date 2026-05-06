@@ -34,8 +34,8 @@ export async function getUIModule(systemId: string): Promise<UIModuleManifest> {
         const manifest = m.default || m;
         manifestCache.set(id, manifest);
         return manifest;
-    } catch {
-        // System has no registered module — use the platform default.
+    } catch (e) {
+        console.warn(`[Registry] Failed to load UI manifest for "${id}":`, e);
         return PLATFORM_DEFAULT_MANIFEST;
     }
 }

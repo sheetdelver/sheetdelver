@@ -86,16 +86,20 @@ export function FoundryProvider({ children }: { children: ReactNode }) {
         fetchActorCards,
         fetchActors,
         fetchCombats,
+        patchActorCard,
         resetActorCombatState,
     } = useActorCombat();
 
     const { messages, handleChatSend, resetChatState } = useChat();
 
     const [system, setSystem] = useState<AppSystemInfo | null>(null);
-    const lastActorSyncTokenRef = useRef<string | null>(null);
     const [activeUIModule, setActiveUIModule] = useState<UIModuleManifest | null>(null);
     const [sharedContent, setSharedContent] = useState<RealtimeSharedContentPayload | null>(null);
     const [lastWorldId, setLastWorldId] = useState<string | null>(null);
+
+    // Ref so socket handlers always see the latest actorCards without being in the dep array
+    const actorCardsRef = useRef(actorCards);
+    useEffect(() => { actorCardsRef.current = actorCards; }, [actorCards]);
 
     const isEqual = (a: any, b: any) => JSON.stringify(a) === JSON.stringify(b);
 
@@ -216,12 +220,6 @@ export function FoundryProvider({ children }: { children: ReactNode }) {
                     if (data.appVersion && appVersion !== data.appVersion) setAppVersion(data.appVersion);
                     if (data.isConfigured !== undefined && isConfigured !== data.isConfigured) setIsConfigured(data.isConfigured);
 
-                    const newToken = data.system?.actorSyncToken;
-                    if (data.connected && newToken && newToken !== lastActorSyncTokenRef.current) {
-                        lastActorSyncTokenRef.current = newToken;
-                        if (token) fetchActors();
-                    }
-
                     const targetStep = determineStep(data, step, isConfigured) as ConnectionStep;
                     if (step !== targetStep) {
                         setStep(targetStep, 'socket', `Status change: ${targetStep}`);
@@ -237,14 +235,31 @@ export function FoundryProvider({ children }: { children: ReactNode }) {
             if (!isEqual(sharedContent, scData)) setSharedContent(scData);
         };
 
+        const handleActorUpdate = async (data: { actorId?: string }) => {
+            if (!data.actorId || !token) return;
+            try {
+                const card = await foundryApi.fetchActorCardById(token, data.actorId);
+                if (!card) return;
+                const isNew = !actorCardsRef.current[data.actorId];
+                patchActorCard(data.actorId, card);
+                // New actor — refresh the full list so it appears on the dashboard
+                if (isNew) fetchActors();
+            } catch {
+                // Actor deleted or access revoked — refresh the full list
+                fetchActors();
+            }
+        };
+
         appSocket.on('systemStatus', handleSystemStatus);
         appSocket.on('sharedContentUpdate', handleSharedContentUpdate);
+        appSocket.on('actorUpdate', handleActorUpdate);
 
         return () => {
             appSocket.off('systemStatus', handleSystemStatus);
             appSocket.off('sharedContentUpdate', handleSharedContentUpdate);
+            appSocket.off('actorUpdate', handleActorUpdate);
         };
-    }, [appSocket, step, token, system, users, appVersion, sharedContent, fetchActors, resetActorCombatState, setAppVersion, setIsConfigured, setStep, setToken, setUsers, lastWorldId, isConfigured]);
+    }, [appSocket, step, token, system, users, appVersion, sharedContent, fetchActors, patchActorCard, resetActorCombatState, setAppVersion, setIsConfigured, setStep, setToken, setUsers, lastWorldId, isConfigured]);
 
     // Hydrate activeAdapter and activeUIModule when system changes
     useEffect(() => {

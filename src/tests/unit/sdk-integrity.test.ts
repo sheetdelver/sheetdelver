@@ -78,6 +78,7 @@ async function runAdapterTests() {
     // initialize noop (no context, no throw)
     const mockContext: ModuleContext = {
         moduleId: 'mock',
+        foundryUrl: 'http://localhost:30000',
         logger: {
             debug: () => {},
             info: () => {},
@@ -210,6 +211,7 @@ async function runContextTests() {
 
     const context: ModuleContext = {
         moduleId: 'test-module',
+        foundryUrl: 'http://localhost:30000',
         logger,
         platform: { cache, discovery },
     };

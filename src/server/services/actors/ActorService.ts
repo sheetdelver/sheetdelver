@@ -172,11 +172,9 @@ export function createActorService(deps: ActorServiceDeps) {
         const resolvedActor = resolveUUIDs(actor) as RawActor;
 
         const systemInfo = await client.getSystem();
-        let adapter = await getAdapter(systemInfo.id.toLowerCase());
+        const adapter = await getAdapter(systemInfo.id.toLowerCase())
+            ?? await getMatchingAdapter(resolvedActor);
 
-        if (!adapter || (adapter.match && !adapter.match(resolvedActor as any))) {
-            adapter = await getMatchingAdapter(resolvedActor);
-        }
         if (!adapter) throw new Error(`Adapter for ${systemInfo.id} not found`);
 
         const normalizedActor: ActorProjection = adapter.normalizeActorData(resolvedActor as any, client as any);

@@ -17,6 +17,7 @@ interface ActorCombatContextType {
     fetchActorCards: () => Promise<ActorCardsPayload | void>;
     fetchActors: () => Promise<ActorListPayload | void>;
     fetchCombats: () => Promise<CombatListPayload | void>;
+    patchActorCard: (actorId: string, card: ActorCardData) => void;
     resetActorCombatState: () => void;
 }
 
@@ -91,6 +92,10 @@ export function ActorCombatProvider({ children }: { children: React.ReactNode })
         }
     }, [token, setToken]);
 
+    const patchActorCard = useCallback((actorId: string, card: ActorCardData) => {
+        setActorCards(prev => ({ ...prev, [actorId]: card }));
+    }, []);
+
     const resetActorCombatState = useCallback(() => {
         setOwnedActors([]);
         setReadOnlyActors([]);
@@ -106,6 +111,7 @@ export function ActorCombatProvider({ children }: { children: React.ReactNode })
         fetchActorCards,
         fetchActors,
         fetchCombats,
+        patchActorCard,
         resetActorCombatState,
     }), [
         ownedActors,
@@ -115,6 +121,7 @@ export function ActorCombatProvider({ children }: { children: React.ReactNode })
         fetchActorCards,
         fetchActors,
         fetchCombats,
+        patchActorCard,
         resetActorCombatState,
     ]);
 
