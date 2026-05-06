@@ -1021,5 +1021,48 @@ export function createAdminRouter(deps: AdminRouterDeps) {
         }
     });
 
+    /**
+     * POST /admin/api/server/restart
+     *
+     * Gracefully restarts the Core Service process. The response is flushed
+     * before the process exits so the client receives confirmation. PM2,
+     * systemd, or any other process supervisor will restart the process
+     * automatically.
+     *
+     * Clients should watch for socket reconnection and reload the page once
+     * the server is back up — the admin panel handles this automatically.
+     *
+     * Note: this restarts the Core Service (API + adapters) only. In production,
+     * the Next.js build process is separate; newly installed module UIs require
+     * a Next.js rebuild for their webpack chunks to be included. In development
+     * mode Turbopack handles this lazily without a restart.
+     */
+    adminRouter.post(
+        '/server/restart',
+        requireAdminAccountExists,
+        requireAdminAuth,
+        requireAdminCsrf,
+        auditAdminAction,
+        (_req, res) => {
+            // Notify all connected clients that a restart is imminent so they
+            // can show a reconnecting state immediately rather than waiting for
+            // the socket to time out.
+            deps.broadcastToClients('serverRestarting', {});
+
+            // Flush the response before exiting so the browser receives 200.
+            res.json({ success: true, message: 'Server is restarting' });
+            res.end();
+
+            // Short delay gives express time to flush the response buffer.
+            // Exit code 75 is the restart signal — start-server.ts watches for
+            // this specific code and restarts both the Core Service and Next.js
+            // rather than propagating a full shutdown.
+            setTimeout(() => {
+                logger.info('Admin | Server restart requested by admin — signalling manager for restart (exit 75)');
+                process.exit(75);
+            }, 500);
+        }
+    );
+
     return adminRouter;
 }

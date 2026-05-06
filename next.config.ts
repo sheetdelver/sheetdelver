@@ -25,6 +25,7 @@ const nextConfig: NextConfig = {
         modulesDir,
       ],
       '@local-modules': localModulesDir,
+      '@managed': path.join(process.cwd(), '.managed'),
       '@client': path.join(process.cwd(), 'src', 'client'),
       '@shared': path.join(process.cwd(), 'src', 'shared'),
       '@server': path.join(process.cwd(), 'src', 'server'),
@@ -40,6 +41,7 @@ const nextConfig: NextConfig = {
       modulesDir,
     ];
     config.resolve.alias['@local-modules'] = localModulesDir;
+    config.resolve.alias['@managed'] = path.join(process.cwd(), '.managed');
     return config;
   },
   async rewrites() {

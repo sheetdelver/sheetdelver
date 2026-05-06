@@ -15,6 +15,7 @@ import { JournalProvider } from "@client/ui/context/JournalProvider";
 import JournalBrowser from "@client/ui/components/JournalBrowser";
 import JournalModal from "@client/ui/components/JournalModal";
 import VideoPlaysinlineFix from "@client/ui/components/VideoPlaysinlineFix";
+import SDKGlobalProvider from "@client/ui/providers/SDKGlobalProvider";
 
 export default function PlayerLayout({
   children,
@@ -22,6 +23,7 @@ export default function PlayerLayout({
   children: React.ReactNode;
 }>) {
   return (
+    <SDKGlobalProvider>
     <ConfigProvider>
       <NotificationProvider>
         <UIProvider>
@@ -51,5 +53,6 @@ export default function PlayerLayout({
         </UIProvider>
       </NotificationProvider>
     </ConfigProvider>
+    </SDKGlobalProvider>
   );
 }

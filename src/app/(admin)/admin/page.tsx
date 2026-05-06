@@ -17,6 +17,7 @@ import ModuleLifecycleControl from '../components/ModuleLifecycleControl';
 import AuditLogViewer from '../components/AuditLogViewer';
 import CacheInfoPanel from '../components/CacheInfoPanel';
 import SourceProfilePanel from '../components/SourceProfilePanel';
+import RestartModal from '../components/RestartModal';
 import { type ModuleLifecycleInfo } from '../lib/adminApi';
 
 /** Chevron icon for collapsible section headers. */
@@ -70,11 +71,16 @@ export default function AdminPage() {
     const { isAuthenticated, loading, accountExists, logout } = useAdminAuth();
     const [refreshKey, setRefreshKey] = useState(0);
     const triggerRefresh = useCallback(() => setRefreshKey(prev => prev + 1), []);
-    
+
     const [installedModules, setInstalledModules] = useState<ModuleLifecycleInfo[]>([]);
     const handleModulesLoaded = useCallback((modules: ModuleLifecycleInfo[]) => {
         setInstalledModules(modules);
     }, []);
+
+    // Shown after install / upgrade / uninstall — those operations change adapter
+    // code on disk and require a Core Service restart to take effect.
+    const [restartOperation, setRestartOperation] = useState<string | null>(null);
+    const requireRestart = useCallback((operation = 'operation') => setRestartOperation(operation), []);
 
     // ─── Loading state ─────────────────────────────────────────────
 
@@ -97,8 +103,16 @@ export default function AdminPage() {
     // ─── Dashboard ─────────────────────────────────────────────────
 
     return (
-        <main className="admin-screen min-h-screen p-6">
-            <div className="mx-auto max-w-5xl">
+        <main className="admin-screen min-h-screen">
+            {/* Modal restart prompt — appears after install/upgrade/uninstall */}
+            {restartOperation && (
+                <RestartModal
+                    operation={restartOperation}
+                    onDismiss={() => setRestartOperation(null)}
+                />
+            )}
+
+            <div className="mx-auto max-w-5xl p-6">
                 {/* Header */}
                 <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                     <div>
@@ -134,16 +148,17 @@ export default function AdminPage() {
 
                     {/* Module Lifecycle */}
                     <DashboardSection title="Module Lifecycle" defaultExpanded={true}>
-                        <ModuleLifecycleControl 
-                            key={`lifecycle-${refreshKey}`} 
+                        <ModuleLifecycleControl
+                            key={`lifecycle-${refreshKey}`}
                             onModulesLoaded={handleModulesLoaded}
+                            onRestartRequired={requireRestart}
                         />
                     </DashboardSection>
 
                     {/* Source Profiles */}
                     <DashboardSection title="Source Profiles" defaultExpanded={false}>
-                        <SourceProfilePanel 
-                            onModuleInstalled={triggerRefresh} 
+                        <SourceProfilePanel
+                            onModuleInstalled={() => { triggerRefresh(); requireRestart('install'); }}
                             installedModules={installedModules}
                         />
                     </DashboardSection>

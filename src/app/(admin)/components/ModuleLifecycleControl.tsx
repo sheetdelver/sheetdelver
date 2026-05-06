@@ -49,7 +49,11 @@ function getStatusLabel(status: string): string {
     return status.charAt(0).toUpperCase() + status.slice(1);
 }
 
-export default function ModuleLifecycleControl({ onModulesLoaded }: { onModulesLoaded?: (modules: ModuleLifecycleInfo[]) => void }) {
+export default function ModuleLifecycleControl({ onModulesLoaded, onRestartRequired }: {
+    onModulesLoaded?: (modules: ModuleLifecycleInfo[]) => void;
+    /** Called after install / upgrade / uninstall — signals that a Core Service restart is needed. */
+    onRestartRequired?: (operation?: string) => void;
+}) {
     const { token, csrfToken, logout } = useAdminAuth();
     const [modules, setModules] = useState<ModuleLifecycleInfo[]>([]);
     const [loading, setLoading] = useState(true);
@@ -374,6 +378,7 @@ export default function ModuleLifecycleControl({ onModulesLoaded }: { onModulesL
                                     module={mod}
                                     onOperationComplete={loadModules}
                                     onSessionExpired={logout}
+                                    onRestartRequired={onRestartRequired}
                                 />
                             )}
                         </div>

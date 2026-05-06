@@ -17,6 +17,8 @@ interface ModuleDetailPanelProps {
     onOperationComplete: () => void;
     /** Callback when session expires — parent should redirect to login. */
     onSessionExpired: () => void;
+    /** Called after install / upgrade / uninstall — signals a restart is needed. */
+    onRestartRequired?: (operation?: string) => void;
 }
 
 /** Formats a unix timestamp to a locale-friendly date string. */
@@ -25,7 +27,7 @@ function formatTimestamp(ts?: number): string {
     return new Date(ts).toLocaleString();
 }
 
-export default function ModuleDetailPanel({ module, onOperationComplete, onSessionExpired }: ModuleDetailPanelProps) {
+export default function ModuleDetailPanel({ module, onOperationComplete, onSessionExpired, onRestartRequired }: ModuleDetailPanelProps) {
     const { validation, artifact, health, reason } = module;
 
     return (
@@ -116,6 +118,7 @@ export default function ModuleDetailPanel({ module, onOperationComplete, onSessi
                 module={module}
                 onOperationComplete={onOperationComplete}
                 onSessionExpired={onSessionExpired}
+                onRestartRequired={onRestartRequired}
             />
         </div>
     );

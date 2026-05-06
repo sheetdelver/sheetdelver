@@ -439,3 +439,10 @@ export function testSourceProfile(id: string) {
 export function fetchSourceModules(id: string) {
     return adminFetch<SourceModulesResponse>(`/sources/${id}/modules`);
 }
+
+/** Triggers a graceful Core Service restart. The process supervisor (PM2, systemd, etc.) restarts it. */
+export function postServerRestart() {
+    return adminFetch<{ success: boolean; message?: string }>('/server/restart', {
+        method: 'POST',
+    });
+}
