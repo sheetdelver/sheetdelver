@@ -25,14 +25,18 @@ const nextConfig: NextConfig = {
         modulesDir,
       ],
       '@local-modules': localModulesDir,
-      '@managed': path.join(process.cwd(), '.managed'),
+      // Points to the data directory — home for environment-specific generated
+      // files (module-ui-registry.ts) that depend on what is installed at runtime.
+      '@data-registry': DATA_DIR,
       '@client': path.join(process.cwd(), 'src', 'client'),
       '@shared': path.join(process.cwd(), 'src', 'shared'),
       '@server': path.join(process.cwd(), 'src', 'server'),
       '@core': path.join(process.cwd(), 'src', 'server', 'core'),
       '@app': path.join(process.cwd(), 'src', 'app'),
       '@': path.join(process.cwd(), 'src'),
-      '@sheet-delver/sdk': path.join(process.cwd(), 'src', 'shared', 'sdk', 'index.ts'),
+      // Point to the directory, not the file — Turbopack rejects file-path aliases
+      // as "server relative imports" but handles directory aliases correctly.
+      '@sheet-delver/sdk': path.join(process.cwd(), 'src', 'shared', 'sdk'),
     }
   },
   webpack: (config, { isServer }) => {
@@ -41,7 +45,8 @@ const nextConfig: NextConfig = {
       modulesDir,
     ];
     config.resolve.alias['@local-modules'] = localModulesDir;
-    config.resolve.alias['@managed'] = path.join(process.cwd(), '.managed');
+    config.resolve.alias['@data-registry'] = DATA_DIR;
+    config.resolve.alias['@sheet-delver/sdk'] = path.join(process.cwd(), 'src', 'shared', 'sdk');
     return config;
   },
   async rewrites() {

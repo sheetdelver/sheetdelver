@@ -10,7 +10,7 @@
  * from '@managed/module-ui-registry' without requiring the generated
  * file to exist at type-check time.
  */
-declare module '@managed/module-ui-registry' {
+declare module '@data-registry/module-ui-registry' {
     /** Loaders for local dev modules (data/local/modules/<id>/module/ui). */
     export const localModuleUIs: Record<string, () => Promise<any>>;
     /** Loaders for managed install modules (data/modules/<id>/dist/ui or module/ui). */

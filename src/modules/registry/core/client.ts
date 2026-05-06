@@ -92,7 +92,7 @@ export async function getUIModule(systemId: string): Promise<UIModuleManifest> {
 
     // Dynamically import the registry — it is a generated file so we import it
     // lazily to ensure we always get the version that was built into the bundle.
-    const { localModuleUIs, dataModuleUIs } = await import('@managed/module-ui-registry');
+    const { localModuleUIs, dataModuleUIs } = await import('@data-registry/module-ui-registry');
 
     // Local dev source takes priority when the server has it marked active.
     if (source === 'local') {
