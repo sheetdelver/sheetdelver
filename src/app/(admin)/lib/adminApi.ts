@@ -27,6 +27,10 @@ export interface ModuleLifecycleInfo {
     moduleId: string;
     title: string;
     directory: string;
+    activeSource?: 'data' | 'local';
+    localDirectory?: string;
+    localEnabled?: boolean;
+    managedEnabled?: boolean;
     enabled: boolean;
     status: string;
     experimental: boolean;
@@ -332,6 +336,14 @@ export function postLifecycleAction(
         method: 'POST',
         body: JSON.stringify(body || {}),
     });
+}
+
+/** Switch a module between its local dev version and managed install. */
+export function postSwitchSource(moduleId: string, source: 'local' | 'data') {
+    return adminFetch<{ success: boolean; activeSource: string; error?: string }>(
+        `/lifecycle/${moduleId}/switch-source`,
+        { method: 'POST', body: JSON.stringify({ source }) }
+    );
 }
 
 /**

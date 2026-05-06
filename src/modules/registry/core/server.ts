@@ -53,7 +53,7 @@ import {
     type SourceResolutionContext,
 } from '../distribution/sourceAdapters';
 import { validateModuleIndexDocument, type ModuleIndexDocument } from '../distribution/moduleIndex';
-import { getModulesDataDir } from '@/server/core/paths';
+import { getModulesDataDir, getLocalModulesDir } from '@/server/core/paths';
 
 const LIFECYCLE_STATE_FILE_ENV = 'SHEET_DELVER_MODULE_STATE_FILE';
 const ARTIFACT_STATE_FILE_ENV = 'SHEET_DELVER_MODULE_ARTIFACT_FILE';
@@ -294,10 +294,18 @@ export function initializeRegistry() {
 
         const builtInModulesDir = path.join(process.cwd(), 'src', 'modules');
         const dataModulesDir = getModulesDataDir();
-        const scanDirs: Array<{ source: 'built-in' | 'data'; path: string }> = [
+        const localModulesDir = getLocalModulesDir();
+
+        const scanDirs: Array<{ source: 'built-in' | 'data' | 'local'; path: string }> = [
             { path: builtInModulesDir, source: 'built-in' },
-            { path: dataModulesDir, source: 'data' }
+            { path: dataModulesDir,    source: 'data' },
         ];
+
+        // Local dev modules — scanned and loaded but never managed by the lifecycle system.
+        // Set SHEET_DELVER_LOCAL_MODULES=<path> or create a dev-modules/ directory at project root.
+        if (localModulesDir) {
+            scanDirs.push({ path: localModulesDir, source: 'local' });
+        }
 
         pluginMap.clear();
 
@@ -407,6 +415,7 @@ export function initializeRegistry() {
                     const plugin: SystemPlugin = {
                         info,
                         directory: modulePath,
+                        source: scanDir.source,
                         // Thunk-based lazy loading using absolute paths to support data/modules
                         getLogic: () => import(path.join(modulePath, info.manifest.logic)),
                         getUI: () => import(path.join(modulePath, info.manifest.ui)),
@@ -414,6 +423,21 @@ export function initializeRegistry() {
                     };
 
                     const primaryId = info.id.toLowerCase();
+
+                    // When a local dev module has the same ID as an already-registered data/built-in module:
+                    // record the local path in the lifecycle record so the user can switch between them,
+                    // but leave the active plugin (pluginMap) pointing at the higher-priority source.
+                    const existingPlugin = pluginMap.get(primaryId);
+                    if (existingPlugin && scanDir.source === 'local') {
+                        const existingRecord = lifecycleStore.modules[primaryId];
+                        if (existingRecord) {
+                            existingRecord.localDirectory = modulePath;
+                            if (!existingRecord.activeSource) existingRecord.activeSource = existingPlugin.source === 'data' ? 'data' : 'local';
+                            logger.info(`Registry | Local dev module "${primaryId}" found alongside ${existingPlugin.source} install — both tracked, ${existingRecord.activeSource} is active`);
+                        }
+                        continue;
+                    }
+
                     pluginMap.set(primaryId, plugin);
                     const existingLifecycle = lifecycleStore.modules[primaryId];
                     const enabled = existingLifecycle ? existingLifecycle.enabled : true;
@@ -421,6 +445,7 @@ export function initializeRegistry() {
                         status: enabled ? 'validated' : 'disabled',
                         enabled,
                         reason: enabled ? undefined : 'Module disabled in persisted lifecycle state',
+                        activeSource: existingLifecycle?.activeSource ?? (scanDir.source === 'local' ? 'local' : scanDir.source === 'data' ? 'data' : undefined),
                         manifestValid: true,
                         compatible: true,
                         coreVersion,
@@ -501,6 +526,49 @@ export function listModules(options?: { includeExperimental?: boolean; includeDi
         .filter((entry) => options?.includeDisabled || entry.enabled);
 }
 
+/**
+ * Switches a module between its local dev version and managed install.
+ * Only valid when both localDirectory and a managed directory exist.
+ * Evicts the adapter cache and re-runs the registry scan so the new source takes effect immediately.
+ */
+export function switchModuleSource(moduleId: string, source: 'local' | 'data'): { success: boolean; error?: string } {
+    if (!isInitialized()) initializeRegistry();
+    const id = moduleId.toLowerCase();
+    const record = getLifecycleRecord(id);
+    if (!record) return { success: false, error: 'Module not found' };
+
+    // Persist the current enabled state for the source we're leaving
+    if (record.activeSource === 'local') {
+        record.localEnabled = record.enabled;
+    } else {
+        record.managedEnabled = record.enabled;
+    }
+
+    if (source === 'local') {
+        if (!record.localDirectory) return { success: false, error: 'No local dev version available for this module' };
+        record.directory    = record.localDirectory;
+        record.activeSource = 'local';
+        // Restore the saved enabled state for local, defaulting to true on first switch
+        record.enabled = record.localEnabled ?? true;
+    } else {
+        const managedDir = path.join(getModulesDataDir(), id);
+        if (!fs.existsSync(managedDir)) return { success: false, error: 'No managed install found for this module' };
+        record.directory    = managedDir;
+        record.activeSource = 'data';
+        // Restore the saved enabled state for managed, defaulting to true on first switch
+        record.enabled = record.managedEnabled ?? true;
+    }
+
+    record.status    = record.enabled ? 'validated' : 'disabled';
+    record.reason    = record.enabled ? undefined : 'Module disabled in persisted lifecycle state';
+    record.updatedAt = Date.now();
+    unloadSystemModules(id);
+    saveLifecycleStore(lifecycleStore, getLifecycleStateFilePathOverride());
+    refreshRegistry();
+    logger.info(`Registry | Module "${id}" switched to ${source} source (enabled: ${record.enabled})`);
+    return { success: true };
+}
+
 export function disableModule(moduleId: string, reason = 'Module disabled by operator'): boolean {
     if (!isInitialized()) initializeRegistry();
     const id = moduleId.toLowerCase();
@@ -509,9 +577,13 @@ export function disableModule(moduleId: string, reason = 'Module disabled by ope
     if (!record) return false;
 
     record.enabled = false;
-    record.status = 'disabled';
-    record.reason = reason;
+    record.status  = 'disabled';
+    record.reason  = reason;
     record.updatedAt = Date.now();
+
+    // Persist to per-source field so switching preserves this decision
+    if (record.activeSource === 'local') record.localEnabled   = false;
+    else                                 record.managedEnabled = false;
 
     unloadSystemModules(id);
     saveLifecycleStore(lifecycleStore, getLifecycleStateFilePathOverride());
@@ -536,9 +608,13 @@ export function enableModule(moduleId: string): boolean {
     }
 
     record.enabled = true;
-    record.status = 'validated';
-    record.reason = undefined;
+    record.status  = 'validated';
+    record.reason  = undefined;
     record.updatedAt = Date.now();
+
+    // Persist to per-source field so switching preserves this decision
+    if (record.activeSource === 'local') record.localEnabled   = true;
+    else                                 record.managedEnabled = true;
 
     saveLifecycleStore(lifecycleStore, getLifecycleStateFilePathOverride());
     return true;
@@ -1133,8 +1209,9 @@ export async function installManagedModule(input: InstallManagedModuleInput): Pr
     const artifactStore = loadArtifactStore(artifactStorePath);
     const existingArtifact = getArtifact(artifactStore, id);
 
-    // Protection for unmanaged modules (built-in or manually placed)
-    if (plugin && !existingArtifact) {
+    // Block install over built-in or manually-placed data/ modules.
+    // Local-dev modules (source === 'local') are superseded by managed installs.
+    if (plugin && !existingArtifact && plugin.source !== 'local') {
         return operationFailure(
             id,
             'install',
@@ -1744,6 +1821,25 @@ export function checkCanDisableModule(moduleId: string): {
 export function getRegisteredModules(options?: { includeExperimental?: boolean }) {
     return listModules({ includeExperimental: options?.includeExperimental, includeDisabled: true })
         .map((entry) => entry.info);
+}
+
+/**
+ * Returns a map of moduleId → activeSource for all discovered modules.
+ * 'local' means the dev source in data/local/modules is active;
+ * 'data' means the managed install in data/modules is active;
+ * 'built-in' means the module lives in src/modules.
+ * Used by the client's getUIModule to pick the correct import alias.
+ */
+export function getModuleActiveSources(): Record<string, 'local' | 'data' | 'built-in'> {
+    const result: Record<string, 'local' | 'data' | 'built-in'> = {};
+    for (const [id, plugin] of pluginMap.entries()) {
+        const record = lifecycleStore.modules[id];
+        const activeSource = record?.activeSource ?? plugin.source;
+        if (activeSource === 'local' || activeSource === 'data' || activeSource === 'built-in') {
+            result[id] = activeSource;
+        }
+    }
+    return result;
 }
 
 /**

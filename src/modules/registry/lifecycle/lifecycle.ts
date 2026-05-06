@@ -19,6 +19,13 @@ export interface ModuleLifecycleRecord {
     moduleId: string;
     title: string;
     directory: string;
+    /** Which source is currently active: 'data' = managed install, 'local' = dev source. */
+    activeSource?: 'data' | 'local';
+    /** Path to the local dev version, if one exists alongside a managed install. */
+    localDirectory?: string;
+    /** Persisted enabled state for each source — preserved when switching between them. */
+    localEnabled?: boolean;
+    managedEnabled?: boolean;
     status: ModuleLifecycleStatus;
     enabled: boolean;
     trust?: { tier: string };
@@ -117,6 +124,7 @@ export interface ModuleLifecycleClassificationInput {
     providedApiContracts?: Record<string, string>;
     coreDiagnostics?: ModuleCoreConstraintDiagnostic[];
     contractDiagnostics?: ModuleContractDiagnostic[];
+    activeSource?: 'data' | 'local';
 }
 
 export function loadLifecycleStore(stateFilePath = getDefaultLifecycleStateFilePath()): ModuleLifecycleStore {
@@ -208,6 +216,7 @@ export function applyLifecycleClassification(
         status: classification.status,
         enabled: classification.enabled,
         reason: classification.reason,
+        activeSource: classification.activeSource ?? existing.activeSource,
         validation: {
             manifestValid: classification.manifestValid,
             validationErrors: classification.validationErrors,

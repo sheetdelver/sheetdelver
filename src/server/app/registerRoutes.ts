@@ -1,4 +1,5 @@
 import express from 'express';
+import type { Server as SocketIOServer } from 'socket.io';
 import type { AppConfig } from '@shared/interfaces';
 import type { SessionManager } from '@core/session/SessionManager';
 import { systemService } from '@core/system/SystemService';
@@ -31,6 +32,7 @@ interface RegisterRoutesDeps {
     config: AppConfig;
     sessionManager: SessionManager;
     getSystemStatusPayload: GetSystemStatusPayload;
+    io: SocketIOServer;
 }
 
 export function registerRoutes(deps: RegisterRoutesDeps): void {
@@ -134,7 +136,12 @@ export function registerRoutes(deps: RegisterRoutesDeps): void {
         tryAuthenticateSession,
         getFallbackFoundryClient: () => createSystemRouteFoundryClient(systemService.getSystemClient())
     });
-    const adminRouter = createAdminRouter({ getSystemStatusPayload: deps.getSystemStatusPayload });
+    // io is forwarded as a thin broadcast callback rather than the full Server object
+    // so the admin router stays decoupled from the socket layer.
+    const adminRouter = createAdminRouter({
+        getSystemStatusPayload: deps.getSystemStatusPayload,
+        broadcastToClients: (event, data) => deps.io.emit(event, data),
+    });
 
     // Preserve mount order to avoid changing auth scope or module-router permissive behavior.
     deps.app.use('/api/modules', moduleRouter);

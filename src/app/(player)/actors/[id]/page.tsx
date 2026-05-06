@@ -1,9 +1,9 @@
 'use client';
 
-import React, { use, useEffect, useState, Suspense } from 'react';
+import React, { use, useEffect, useState, useRef, Suspense } from 'react';
 import { useRouter } from 'next/navigation';
 import { useFoundry } from '@client/ui/context/FoundryContext';
-import { getUIModule } from '@modules/registry/client';
+import { getUIModule, invalidateModuleSourceCache } from '@modules/registry/client';
 import LoadingModal from '@client/ui/components/LoadingModal';
 import GenericActorPage from '@client/ui/pages/GenericActorPage';
 import { SDKProvider } from '@client/ui/providers/SDKProvider';
@@ -19,10 +19,34 @@ import { SDKProvider } from '@client/ui/providers/SDKProvider';
 export default function ActorPageRouter({ params }: { params: Promise<{ id: string }> }) {
     const { id } = use(params);
     const router = useRouter();
-    const { token } = useFoundry();
+    const { token, appSocket } = useFoundry();
     const [ActorPage, setActorPage] = useState<React.ComponentType<{ actorId: string; token?: string | null }> | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    // Incrementing this key causes the resolve effect to re-run in place,
+    // giving us an in-page reload of the module UI without a full navigation.
+    const [resolveKey, setResolveKey] = useState(0);
+    // Stored in a ref (not state) so the socket handler always sees the latest
+    // systemId without needing to be in the effect's dependency array.
+    const resolvedSystemIdRef = useRef<string | null>(null);
+
+    // When an admin switches a module's active source (local ↔ managed) the server
+    // broadcasts 'moduleSourceChanged'. If the system currently rendered by this
+    // actor page is the one that changed, we:
+    //   1. Bust the source-map + manifest cache (invalidateModuleSourceCache).
+    //   2. Increment resolveKey, which re-runs the resolve effect below and
+    //      swaps in the component from the new source — no page refresh needed.
+    useEffect(() => {
+        if (!appSocket) return;
+        const handle = ({ moduleId }: { moduleId: string }) => {
+            if (resolvedSystemIdRef.current?.toLowerCase() === moduleId.toLowerCase()) {
+                invalidateModuleSourceCache();
+                setResolveKey(k => k + 1);
+            }
+        };
+        appSocket.on('moduleSourceChanged', handle);
+        return () => { appSocket.off('moduleSourceChanged', handle); };
+    }, [appSocket]);
 
     useEffect(() => {
         if (!id) return;
@@ -50,6 +74,7 @@ export default function ActorPageRouter({ params }: { params: Promise<{ id: stri
                     return;
                 }
 
+                resolvedSystemIdRef.current = systemId;
                 const manifest = await getUIModule(systemId);
                 const actorPageEntry = manifest?.actorPage;
 
@@ -69,8 +94,11 @@ export default function ActorPageRouter({ params }: { params: Promise<{ id: stri
             }
         }
 
+        setActorPage(null);
+        setLoading(true);
+        setError(null);
         resolveActorPage();
-    }, [id, token, router]);
+    }, [id, token, router, resolveKey]);
 
     if (loading) return <LoadingModal message="Loading..." />;
 

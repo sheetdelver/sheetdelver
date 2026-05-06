@@ -5,7 +5,7 @@ SheetDelver's UI is built with **Next.js**, **React**, and **Tailwind CSS**, fol
 ## Core Interaction Model
 
 The UI is driven by a hierarchy of React Contexts that synchronize state with the Backend API:
-- **`FoundryContext`**: Manages authentication, world status real-time WebSocket synchronization, and actor updates via Socket.io. It implements a robust state machine (`init`, `setup`, `login`, `authenticating`, `dashboard`) to ensure smooth transitions.
+- **`FoundryContext`**: Manages authentication, world status, real-time WebSocket synchronization, actor updates, and the active module UI manifest. Implements a state machine (`init`, `setup`, `login`, `authenticating`, `dashboard`) for smooth transitions. Also handles the `moduleSourceChanged` socket event — see [Real-time Events](#real-time-socket-events) below.
 - **`JournalProvider`**: Manages journal entry loading, folder hierarchies, pagination (v13 standard), and GM-shared content.
 - **`UIContext`**: Controls global visibility of sidebars, modals, and the Floating HUD.
 
@@ -58,3 +58,53 @@ The UI includes full-screen overlays for:
 - **Typography**: `Cinzel` for cinematic headings; `Inter` for functional body text.
 - **Color Palette**: `Zinc-900` backgrounds with `Amber-500` (Gold) interactive accents.
 - **Glassmorphism**: Extensive use of backdrop-blur (`backdrop-blur-md`) and semi-transparent layers.
+
+---
+
+## Module UI Loading
+
+The platform resolves which system-specific React components to render via `getUIModule(systemId)` (`src/modules/registry/core/client.ts`). It determines the correct webpack import alias to use by consulting the server's active-source map:
+
+| Alias | Points to | When used |
+|---|---|---|
+| `@local-modules` | `data/local/modules/` | Module source is `"local"` (active local dev version) |
+| `@modules` | `src/modules/` then `data/modules/` | Module source is `"built-in"` or `"data"` (managed install) |
+
+Both aliases are resolved at Next.js build time so no runtime filesystem access occurs in the browser — switching sources only changes which pre-bundled chunk is executed.
+
+`getUIModule` caches results in memory. Call `invalidateModuleSourceCache()` (exported from `@modules/registry/client`) to clear the cache and force a re-fetch of the active-source map from `/api/registry/sources`.
+
+### `ActorPageRouter` (`src/app/(player)/actors/[id]/page.tsx`)
+
+Fetches the actor, resolves the system module via `getUIModule`, and mounts the module's `actorPage` component inside an `SDKProvider`. Falls back to `GenericActorPage` when the module does not provide one. Re-runs resolution automatically on `moduleSourceChanged` events — see below.
+
+### `SheetRouter` (`src/client/ui/components/SheetRouter.tsx`)
+
+Resolves and renders the module's `sheet` component inside an `SDKProvider`. Receives `systemId` as a prop from whatever parent renders the sheet modal.
+
+---
+
+## Real-time Socket Events
+
+The platform uses Socket.io for all real-time updates. Events are emitted by the Core Service (`src/server/realtime/AppSocketGateway.ts`) and received in `FoundryContext` and individual page components.
+
+| Event | Direction | Payload | Handler |
+|---|---|---|---|
+| `systemStatus` | Server → Client | Full status payload | `FoundryContext` — drives connection state machine |
+| `actorUpdate` | Server → Client | `{ actorId }` | `FoundryContext` — fetches the single updated actor card |
+| `combatUpdate` | Server → Client | Combat state payload | `FoundryContext` / `ActorCombatContext` |
+| `chatUpdate` | Server → Client | New chat message | `ChatContext` |
+| `sharedContentUpdate` | Server → Client | Shared media/journal payload | `FoundryContext` |
+| `moduleSourceChanged` | Server → Client | `{ moduleId, source }` | `FoundryContext` + `ActorPageRouter` — see below |
+
+### `moduleSourceChanged`
+
+Emitted by `POST /admin/lifecycle/:moduleId/switch-source` after the server switches a module's active source between `"local"` (dev) and `"data"` (managed install).
+
+**Client reaction — two layers:**
+
+1. **`FoundryContext`** (always mounted): calls `invalidateModuleSourceCache()` to clear the source-map and manifest caches. If the affected module is the currently active system, nulls out `activeUIModule`, which triggers the `hydrateUI` effect to re-call `getUIModule()` with a fresh cache miss.
+
+2. **`ActorPageRouter`** (mounted when a player has an actor page open): checks whether `moduleId` matches the system of the actor currently being viewed (stored in `resolvedSystemIdRef`). If it matches, increments `resolveKey`, which re-runs the full actor resolution — re-fetching the actor, re-loading the module UI from the new source, and remounting the component — without a page refresh.
+
+The admin panel's `ModuleLifecycleControl` also calls `invalidateModuleSourceCache()` locally after a successful switch-source API call, so any actor opened in the same browser tab as the admin panel also picks up the change immediately.

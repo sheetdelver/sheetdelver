@@ -123,6 +123,42 @@ Returns the latest media or journal shared by the GM with the current user.
 **Auth**: Protected
 Fetches any document (Actor, Item, Journal, Scene) by its universal UUID.
 
+---
+
+## Module Registry (Public)
+
+These endpoints require no authentication and are safe to call before a session is established.
+
+### `GET /api/registry/modules`
+Returns info metadata for every discovered module (enabled and disabled).
+
+**Response:**
+```json
+[
+  { "id": "dnd5e", "title": "D&D 5e", "version": "0.1.0", "experimental": false },
+  { "id": "shadowdark", "title": "Shadowdark System", "version": "1.2.0", "experimental": false }
+]
+```
+
+### `GET /api/registry/sources`
+Returns the active source for every known module.
+
+Source values:
+- `"local"` — module is running from `data/local/modules/` (local dev source)
+- `"data"` — module is running from `data/modules/` (managed install)
+- `"built-in"` — module lives in `src/modules/` (platform-bundled)
+
+**Response:**
+```json
+{
+  "dnd5e": "local",
+  "shadowdark": "data"
+}
+```
+
+This endpoint is consumed by the browser's `getUIModule()` function to pick the correct webpack import alias (`@local-modules` vs `@modules`) when loading a module's UI. It is cached client-side until a `moduleSourceChanged` socket event triggers `invalidateModuleSourceCache()`.
+
+---
 
 ## Shadowdark Module Routes
 Base URL: `/api/modules/shadowdark`
@@ -241,21 +277,33 @@ Returns module lifecycle state for all discovered modules. Requires admin authen
   "success": true,
   "modules": [
     {
-      "moduleId": "shadowdark",
-      "title": "Shadowdark System",
+      "moduleId": "dnd5e",
+      "title": "D&D 5e",
       "enabled": true,
       "status": "validated",
       "experimental": false,
+      "managed": true,
       "reason": null,
+      "activeSource": "local",
+      "localDirectory": "/path/to/data/local/modules/dnd5e",
+      "localEnabled": true,
+      "managedEnabled": false,
       "health": {
         "errorCount": 0,
         "lastError": "",
         "lastErrorAt": 0
+      },
+      "artifact": {
+        "version": "0.1.0",
+        "source": "index://my-repo",
+        "installedAt": 1746000000000
       }
     }
   ]
 }
 ```
+
+`activeSource` is only present when the module has a local dev version alongside a managed install. `localDirectory` contains the path to the local dev copy. `localEnabled` / `managedEnabled` track each source's independently saved enabled state — only one may be `true` at a time.
 
 ### `POST /admin/lifecycle/:moduleId/enable`
 Enables the target module. Requires admin authentication and a valid admin CSRF token.
@@ -291,6 +339,26 @@ If the module has unmet dependencies or conflicts with already-enabled modules, 
     }
   ]
 }
+```
+
+### `POST /admin/lifecycle/:moduleId/switch-source`
+**Auth**: Admin + CSRF
+Switches the active source for a module that has both a local dev version and a managed install present.
+
+**Body:**
+```json
+{ "source": "local" }
+```
+`source` must be `"local"` or `"data"`.
+
+On success the server:
+1. Updates `activeSource` in the lifecycle store and persists the current source's enabled state.
+2. Re-scans the registry so the logic adapter from the new source is used immediately.
+3. Emits a `moduleSourceChanged` socket event to all connected clients so they can hot-reload the module UI.
+
+**Response:**
+```json
+{ "success": true, "moduleId": "dnd5e", "activeSource": "local" }
 ```
 
 ### `POST /admin/lifecycle/:moduleId/disable`

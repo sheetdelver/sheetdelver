@@ -48,9 +48,12 @@ export interface SystemModuleInfo {
  * Registry Plugin Metadata
  * Defines how a discovered system module is represented in memory.
  */
+export type ModuleSource = 'built-in' | 'data' | 'local';
+
 export interface SystemPlugin {
     info: SystemModuleInfo;
     directory: string;
+    source: ModuleSource;
     getLogic: () => Promise<any>;
     getUI: () => Promise<any>;
     getServer?: () => Promise<any>;

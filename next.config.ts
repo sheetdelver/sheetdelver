@@ -10,6 +10,11 @@ const API_PORT = process.env.API_PORT || '3001';
 // Data directory for modules
 const DATA_DIR = process.env.SHEET_DELVER_DATA || path.join(process.cwd(), 'data');
 const modulesDir = path.join(DATA_DIR, 'modules');
+// Local dev modules — same default as getLocalModulesDir() on the server side.
+// Overridable via SHEET_DELVER_LOCAL_MODULES so dev and managed installs stay separate.
+const localModulesDir = process.env.SHEET_DELVER_LOCAL_MODULES
+    ? path.resolve(process.env.SHEET_DELVER_LOCAL_MODULES)
+    : path.join(DATA_DIR, 'local', 'modules');
 
 const nextConfig: NextConfig = {
   skipTrailingSlashRedirect: true,
@@ -17,8 +22,9 @@ const nextConfig: NextConfig = {
     resolveAlias: {
       '@modules': [
         path.join(process.cwd(), 'src', 'modules'),
-        modulesDir
+        modulesDir,
       ],
+      '@local-modules': localModulesDir,
       '@client': path.join(process.cwd(), 'src', 'client'),
       '@shared': path.join(process.cwd(), 'src', 'shared'),
       '@server': path.join(process.cwd(), 'src', 'server'),
@@ -31,8 +37,9 @@ const nextConfig: NextConfig = {
   webpack: (config, { isServer }) => {
     config.resolve.alias['@modules'] = [
       path.join(process.cwd(), 'src', 'modules'),
-      modulesDir
+      modulesDir,
     ];
+    config.resolve.alias['@local-modules'] = localModulesDir;
     return config;
   },
   async rewrites() {

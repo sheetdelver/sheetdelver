@@ -26,6 +26,12 @@ import type { AdminLoginRequest } from '@server/security/types/admin-auth.types'
 
 interface AdminRouterDeps {
     getSystemStatusPayload: () => Promise<any>;
+    /**
+     * Emits a socket.io event to every connected browser client.
+     * Injected from registerRoutes so the admin router doesn't hold a
+     * direct reference to the io server — keeping the dependency boundary clean.
+     */
+    broadcastToClients: (event: string, data: unknown) => void;
 }
 
 export function createAdminRouter(deps: AdminRouterDeps) {
@@ -395,6 +401,10 @@ export function createAdminRouter(deps: AdminRouterDeps) {
                                 ],
                             } : undefined,
                             artifact: m.artifact,
+                            activeSource: m.lifecycle.activeSource,
+                            localDirectory: m.lifecycle.localDirectory,
+                            localEnabled: m.lifecycle.localEnabled,
+                            managedEnabled: m.lifecycle.managedEnabled,
                         };
                     }),
                 });
@@ -502,6 +512,41 @@ export function createAdminRouter(deps: AdminRouterDeps) {
                 });
             } catch (error: unknown) {
                 logger.error(`Failed to disable module ${req.params.moduleId}`, error);
+                res.status(500).json({ error: getErrorMessage(error) });
+            }
+        }
+    );
+
+    /**
+     * POST /admin/api/lifecycle/:moduleId/switch-source
+     * Switch a module between its local dev version and managed install.
+     *
+     * After the registry is updated server-side, a 'moduleSourceChanged' socket
+     * event is broadcast to all connected clients. Any client currently viewing
+     * an actor whose system matches this moduleId will automatically re-resolve
+     * and reload its module UI from the new source without a page refresh.
+     */
+    adminRouter.post(
+        '/lifecycle/:moduleId/switch-source',
+        requireAdminAccountExists, requireAdminAuth,
+        async (req, res) => {
+            try {
+                const moduleId = String(req.params.moduleId);
+                const { source } = req.body as { source?: string };
+                if (source !== 'local' && source !== 'data') {
+                    return res.status(400).json({ success: false, error: 'source must be "local" or "data"' });
+                }
+                const { switchModuleSource } = await import('@modules/registry/server');
+                const result = switchModuleSource(moduleId, source);
+                if (!result.success) {
+                    return res.status(400).json({ success: false, error: result.error });
+                }
+                // Push the change to all connected clients. Clients use this to
+                // invalidate their cached source-map and reload the module UI if
+                // they are currently rendering an actor for this system.
+                deps.broadcastToClients('moduleSourceChanged', { moduleId, source });
+                res.json({ success: true, moduleId, activeSource: source });
+            } catch (error: unknown) {
                 res.status(500).json({ error: getErrorMessage(error) });
             }
         }

@@ -4,7 +4,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback, Rea
 import { logger } from '@shared/utils/logger';
 import { AppSystemInfo, User, ConnectionStep } from '@shared/interfaces';
 import type { ActorCardData, UIModuleManifest } from '@shared/sdk';
-import { getUIModule } from '@modules/registry/client';
+import { getUIModule, invalidateModuleSourceCache } from '@modules/registry/client';
 import { Socket } from 'socket.io-client';
 import { useSession } from '@client/ui/context/SessionContext';
 import { useActorCombat } from '@client/ui/context/ActorCombatContext';
@@ -250,14 +250,34 @@ export function FoundryProvider({ children }: { children: ReactNode }) {
             }
         };
 
+        // 'moduleSourceChanged' is emitted by the server when an admin switches a
+        // module between its local-dev and managed-install source. We react here to
+        // keep the global UI context in sync:
+        //   1. Bust the client-side source-map + manifest cache so the next
+        //      getUIModule() call re-fetches from /api/registry/sources and reimports
+        //      from the correct webpack alias.
+        //   2. If the changed module is the currently active system, null out
+        //      activeUIModule — this triggers the hydrateUI effect below which
+        //      re-calls getUIModule() with a warm cache miss and updates the context.
+        // Note: individual actor pages carry their own listener (ActorPageRouter)
+        // to handle the in-page reload case independently.
+        const handleModuleSourceChanged = ({ moduleId }: { moduleId: string; source: string }) => {
+            invalidateModuleSourceCache();
+            if (system?.id?.toLowerCase() === moduleId?.toLowerCase()) {
+                setActiveUIModule(null);
+            }
+        };
+
         appSocket.on('systemStatus', handleSystemStatus);
         appSocket.on('sharedContentUpdate', handleSharedContentUpdate);
         appSocket.on('actorUpdate', handleActorUpdate);
+        appSocket.on('moduleSourceChanged', handleModuleSourceChanged);
 
         return () => {
             appSocket.off('systemStatus', handleSystemStatus);
             appSocket.off('sharedContentUpdate', handleSharedContentUpdate);
             appSocket.off('actorUpdate', handleActorUpdate);
+            appSocket.off('moduleSourceChanged', handleModuleSourceChanged);
         };
     }, [appSocket, step, token, system, users, appVersion, sharedContent, fetchActors, patchActorCard, resetActorCombatState, setAppVersion, setIsConfigured, setStep, setToken, setUsers, lastWorldId, isConfigured]);
 

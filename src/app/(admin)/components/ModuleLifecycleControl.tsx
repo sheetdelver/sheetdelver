@@ -14,8 +14,10 @@ import { useAdminAuth } from '../context/AdminAuthContext';
 import {
     fetchModuleLifecycle,
     postLifecycleAction,
+    postSwitchSource,
     type ModuleLifecycleInfo,
 } from '../lib/adminApi';
+import { invalidateModuleSourceCache } from '@modules/registry/client';
 import ModuleDetailPanel from './ModuleDetailPanel';
 
 // ─── Status styling map ────────────────────────────────────────────
@@ -139,6 +141,24 @@ export default function ModuleLifecycleControl({ onModulesLoaded }: { onModulesL
         }
     };
 
+    /** Switch a module between its local dev version and managed install. */
+    const handleSwitchSource = async (moduleId: string, source: 'local' | 'data') => {
+        if (!token || !csrfToken) return;
+        try {
+            setOperationInProgress(moduleId);
+            setError(null);
+            const result = await postSwitchSource(moduleId, source);
+            if (!result.ok) throw new Error(result.error || 'Failed to switch source');
+            // Bust the client-side active-source cache so the next module UI load picks the new source.
+            invalidateModuleSourceCache();
+            await loadModules();
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Unknown error');
+        } finally {
+            setOperationInProgress(null);
+        }
+    };
+
     /** Toggle expand/collapse of a module's detail panel. */
     const toggleExpanded = (moduleId: string) => {
         setExpandedModules(prev => {
@@ -223,7 +243,11 @@ export default function ModuleLifecycleControl({ onModulesLoaded }: { onModulesL
                                                 v{mod.artifact.version}
                                             </span>
                                         )}
-                                        {!mod.managed && (
+                                        {mod.activeSource === 'local' ? (
+                                            <span className="rounded-full border border-purple-500/30 bg-purple-500/10 px-2 py-0.5 text-xs font-medium text-purple-400">
+                                                Local Dev
+                                            </span>
+                                        ) : !mod.managed && (
                                             <span className="rounded-full border border-blue-500/30 bg-blue-500/10 px-2 py-0.5 text-xs font-medium text-blue-400">
                                                 System
                                             </span>
@@ -239,6 +263,35 @@ export default function ModuleLifecycleControl({ onModulesLoaded }: { onModulesL
                                         </span>
                                     </div>
 
+                                    {/* Source toggle — visible when both managed and local dev versions exist */}
+                                    {mod.localDirectory && (
+                                        <div className="mt-2 flex items-center gap-1.5">
+                                            <span className="text-xs text-[var(--admin-text-muted)]">Source:</span>
+                                            <button
+                                                onClick={() => handleSwitchSource(mod.moduleId, 'data')}
+                                                disabled={operationInProgress === mod.moduleId || mod.activeSource === 'data'}
+                                                className={`rounded-full px-2.5 py-0.5 text-xs font-medium transition ${
+                                                    mod.activeSource === 'data' || !mod.activeSource
+                                                        ? 'bg-[var(--admin-accent)] text-white'
+                                                        : 'border border-[var(--admin-border)] text-[var(--admin-text-muted)] hover:bg-[var(--admin-surface-hover)]'
+                                                }`}
+                                            >
+                                                Managed
+                                            </button>
+                                            <button
+                                                onClick={() => handleSwitchSource(mod.moduleId, 'local')}
+                                                disabled={operationInProgress === mod.moduleId || mod.activeSource === 'local'}
+                                                className={`rounded-full px-2.5 py-0.5 text-xs font-medium transition ${
+                                                    mod.activeSource === 'local'
+                                                        ? 'bg-purple-600 text-white'
+                                                        : 'border border-[var(--admin-border)] text-[var(--admin-text-muted)] hover:bg-[var(--admin-surface-hover)]'
+                                                }`}
+                                            >
+                                                Local Dev
+                                            </button>
+                                        </div>
+                                    )}
+
                                     {/* Health summary (if errors exist) */}
                                     {mod.health && mod.health.errorCount > 0 && (
                                         <div className="mt-1 flex items-center gap-1 text-xs text-[var(--admin-danger-text)]">
@@ -251,31 +304,67 @@ export default function ModuleLifecycleControl({ onModulesLoaded }: { onModulesL
                                 </div>
 
                                 {/* Action buttons */}
-                                <div className="ml-4 flex items-center gap-2">
-                                    {/* Details toggle */}
-                                    <button
-                                        onClick={() => toggleExpanded(mod.moduleId)}
-                                        className="rounded-2xl border border-[var(--admin-border)] bg-[var(--admin-surface)] px-3 py-2 text-sm text-[var(--admin-text-secondary)] transition hover:bg-[var(--admin-surface-hover)]"
-                                    >
-                                        {expandedModules.has(mod.moduleId) ? 'Hide' : 'Details'}
-                                    </button>
+                                <div className="ml-4 flex flex-col items-end gap-1">
+                                    <div className="flex items-center gap-2">
+                                        {/* Details toggle */}
+                                        <button
+                                            onClick={() => toggleExpanded(mod.moduleId)}
+                                            className="rounded-2xl border border-[var(--admin-border)] bg-[var(--admin-surface)] px-3 py-2 text-sm text-[var(--admin-text-secondary)] transition hover:bg-[var(--admin-surface-hover)]"
+                                        >
+                                            {expandedModules.has(mod.moduleId) ? 'Hide' : 'Details'}
+                                        </button>
 
-                                    {/* Enable/Disable toggle */}
-                                    <button
-                                        onClick={() => handleToggleModule(mod.moduleId, mod.enabled)}
-                                        disabled={operationInProgress === mod.moduleId}
-                                        className={`whitespace-nowrap rounded-2xl px-4 py-2 font-semibold transition ${
-                                            mod.enabled
-                                                ? 'bg-[var(--admin-danger-button)] text-white hover:bg-[var(--admin-danger-button-strong)] disabled:bg-[var(--admin-danger-button-soft)]'
-                                                : 'bg-[var(--admin-success)] text-white hover:bg-[var(--admin-success-strong)] disabled:bg-[var(--admin-success-soft)]'
-                                        }`}
-                                    >
-                                        {operationInProgress === mod.moduleId
-                                            ? 'Processing...'
-                                            : mod.enabled
-                                                ? 'Disable'
-                                                : 'Enable'}
-                                    </button>
+                                        {/* Enable/Disable toggle */}
+                                        {(() => {
+                                            // When both local dev and managed exist, only one may be enabled at a time.
+                                            const hasBothSources = !!mod.localDirectory;
+                                            const otherSourceEnabled = hasBothSources && (
+                                                mod.activeSource === 'local'
+                                                    ? mod.managedEnabled === true
+                                                    : mod.localEnabled === true
+                                            );
+                                            // Gray out "Enable" when the other source is active+enabled; always allow "Disable".
+                                            const blockedByOther = !mod.enabled && otherSourceEnabled;
+                                            const isDisabled = operationInProgress === mod.moduleId || blockedByOther;
+
+                                            return (
+                                                <button
+                                                    onClick={() => handleToggleModule(mod.moduleId, mod.enabled)}
+                                                    disabled={isDisabled}
+                                                    title={blockedByOther
+                                                        ? `Disable the ${mod.activeSource === 'local' ? 'Managed' : 'Local Dev'} source first`
+                                                        : undefined}
+                                                    className={`whitespace-nowrap rounded-2xl px-4 py-2 font-semibold transition ${
+                                                        mod.enabled
+                                                            ? 'bg-[var(--admin-danger-button)] text-white hover:bg-[var(--admin-danger-button-strong)] disabled:bg-[var(--admin-danger-button-soft)]'
+                                                            : blockedByOther
+                                                                ? 'cursor-not-allowed bg-[var(--admin-surface)] text-[var(--admin-text-muted)] opacity-50 border border-[var(--admin-border)]'
+                                                                : 'bg-[var(--admin-success)] text-white hover:bg-[var(--admin-success-strong)] disabled:bg-[var(--admin-success-soft)]'
+                                                    }`}
+                                                >
+                                                    {operationInProgress === mod.moduleId
+                                                        ? 'Processing...'
+                                                        : mod.enabled
+                                                            ? 'Disable'
+                                                            : 'Enable'}
+                                                </button>
+                                            );
+                                        })()}
+                                    </div>
+                                    {/* Conflict hint */}
+                                    {(() => {
+                                        const hasBothSources = !!mod.localDirectory;
+                                        const otherSourceEnabled = hasBothSources && (
+                                            mod.activeSource === 'local'
+                                                ? mod.managedEnabled === true
+                                                : mod.localEnabled === true
+                                        );
+                                        return !mod.enabled && otherSourceEnabled ? (
+                                            <span className="text-xs text-[var(--admin-text-muted)]">
+                                                {mod.activeSource === 'local' ? 'Managed' : 'Local Dev'} is enabled — disable it first
+                                            </span>
+                                        ) : null;
+                                    })()}
                                 </div>
                             </div>
 

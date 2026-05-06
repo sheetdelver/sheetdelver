@@ -216,23 +216,23 @@ export default function SourceProfilePanel({
                                                         className={`px-3 py-1.5 text-xs font-bold rounded-lg transition disabled:opacity-50 ${
                                                             (() => {
                                                                 const installed = installedModules.find(m => m.moduleId === modId);
-                                                                const currentVersion = installed?.artifact?.version;
-                                                                if (installed && currentVersion !== modInfo.latestVersion) return 'bg-orange-600 hover:bg-orange-700 text-white';
-                                                                if (installed) return 'bg-gray-600 hover:bg-gray-700 text-white';
-                                                                return 'bg-[var(--admin-accent)] hover:bg-[var(--admin-accent-strong)] text-white';
+                                                                const artifact = installed?.artifact;
+                                                                // Local dev module (no artifact) → treat as fresh install
+                                                                if (!artifact) return 'bg-[var(--admin-accent)] hover:bg-[var(--admin-accent-strong)] text-white';
+                                                                if (artifact.version !== modInfo.latestVersion) return 'bg-orange-600 hover:bg-orange-700 text-white';
+                                                                return 'bg-gray-600 hover:bg-gray-700 text-white';
                                                             })()
                                                         }`}
                                                     >
                                                         {(() => {
                                                             const installed = installedModules.find(m => m.moduleId === modId);
                                                             if (installingId === modId) return 'Installing...';
-                                                            if (!installed) return 'Install';
-                                                            
-                                                            const currentVersion = installed.artifact?.version;
+                                                            // Not known, or known but no managed artifact (local dev module)
+                                                            if (!installed || !installed.artifact) return 'Install';
+                                                            const currentVersion = installed.artifact.version;
                                                             if (currentVersion && modInfo.latestVersion && currentVersion !== modInfo.latestVersion) {
                                                                 return 'Update';
                                                             }
-                                                            
                                                             return 'Re-install';
                                                         })()}
                                                     </button>

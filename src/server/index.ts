@@ -84,7 +84,8 @@ async function startServer() {
         app,
         config,
         sessionManager,
-        getSystemStatusPayload
+        getSystemStatusPayload,
+        io,
     });
 
     const coreHost = '127.0.0.1';

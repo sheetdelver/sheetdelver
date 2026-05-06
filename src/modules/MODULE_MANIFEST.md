@@ -430,3 +430,114 @@ Update `info.json` manifest entries to point to compiled output:
     "server": "dist/server.js"
 }
 ```
+
+---
+
+## Packaging a Module
+
+Use the built-in packaging script to produce a distributable archive without touching your source tree:
+
+```sh
+npm run package:module <moduleId>
+```
+
+The script:
+1. Compiles all three entry points (`logic`, `ui`, `server`) via esbuild into an OS temp staging directory.
+2. Writes a patched `info.json` in the staging directory with manifest paths pointing to `dist/*.js`.
+3. Archives `dist/`, `info.json`, and any `LICENSE` / `README.md` files into `<moduleId>-<version>.tar.gz` in the project root.
+
+The original source directory and its `info.json` are **never modified**. The archive is ready to be hosted on an index server or installed via a source profile.
+
+---
+
+## Development Workflow
+
+### Module locations
+
+The platform scans two separate on-disk locations for modules:
+
+| Location | Purpose | Managed by lifecycle? |
+|---|---|---|
+| `data/local/modules/` | Local dev — TypeScript source, loaded directly | No — scan-only |
+| `data/modules/` | Managed installs — installed/upgraded/uninstalled via source profiles | Yes |
+| `src/modules/` | Built-in platform modules | Yes (read-only) |
+
+The local dev path can be overridden with the `SHEET_DELVER_LOCAL_MODULES` environment variable.
+
+**Use `data/local/modules/` during development.** The lifecycle install/upgrade/uninstall commands never touch this directory, so you can iterate freely without risking your source tree.
+
+### Webpack alias resolution
+
+The Next.js client resolves module UI files through two separate aliases (both configured in `next.config.ts`):
+
+| Alias | Resolves to |
+|---|---|
+| `@local-modules` | `data/local/modules/` (or `$SHEET_DELVER_LOCAL_MODULES`) |
+| `@modules` | `src/modules/` then `data/modules/` |
+
+`getUIModule(systemId)` fetches `GET /api/registry/sources` on first call to learn which source is active for each module, then dynamically imports from the correct alias. Both alias trees are bundled at build time — switching sources at runtime only selects which already-bundled chunk executes.
+
+### Server-side hot reload (adapters)
+
+In development mode, the logic adapter is reloaded automatically when its source file changes — no server restart needed.
+
+The registry tracks the file's last-modified timestamp (`mtime`) for each loaded adapter. On every `getAdapter()` call, if the mtime has increased the cached instance is evicted and the adapter module is re-imported using a URL cache-bust query (`?v=<mtime>`), forcing Node.js's ESM loader to treat it as a new module.
+
+This only applies to the server-side logic adapter. UI component changes are picked up by Next.js's normal HMR.
+
+---
+
+## Module Lifecycle (Admin Panel)
+
+### States
+
+A module moves through the following lifecycle states:
+
+```
+discovered → validated → enabled
+                       ↓
+                    disabled
+                       ↓
+                    errored    (runtime failure — auto-disabled)
+                       ↓
+                  uninstalling → removed
+```
+
+`installed` and `upgrading` are transient states used during install/upgrade operations.
+
+### Per-source enable/disable
+
+When both a local dev version and a managed install of the same module exist simultaneously, the lifecycle panel shows a **Managed / Local Dev** source toggle and independent enable/disable controls for each source.
+
+**Only one source may be enabled at a time.** The enable button for a source is grayed out with an explanatory tooltip when the other source is currently enabled. You must disable the active source before enabling the other.
+
+The platform preserves each source's enabled state independently (`localEnabled` / `managedEnabled` in the lifecycle store). Switching the active source restores the saved state for the newly selected source rather than inheriting the state from the one being left.
+
+### Source switching and client hot reload
+
+When an admin switches a module's active source via the lifecycle panel (`Managed ↔ Local Dev`), the following happens automatically:
+
+1. **Server** — the registry updates the active source in the lifecycle store (`state.json`) and re-scans so the logic adapter from the new source is used for all subsequent requests.
+
+2. **Broadcast** — the server emits a `moduleSourceChanged` socket event to every connected browser client: `{ moduleId: string, source: 'local' | 'data' }`.
+
+3. **Client (global)** — `FoundryContext` receives the event, calls `invalidateModuleSourceCache()` to clear the cached active-source map and manifest cache, and re-hydrates `activeUIModule` if the affected module is the currently active system.
+
+4. **Client (actor page)** — `ActorPageRouter` also listens for `moduleSourceChanged`. If the actor currently being viewed belongs to the switched system, it increments an internal `resolveKey` which re-runs the full actor resolution: re-fetches the actor, calls `getUIModule()` against the now-fresh source map, and mounts the component from the new source — no page refresh required.
+
+5. **Admin panel** — `ModuleLifecycleControl` calls `invalidateModuleSourceCache()` after a successful switch API call so any subsequent actor open in the same tab also picks up the new source immediately.
+
+**`GET /api/registry/sources`** is the public (no-auth) endpoint that returns the `moduleId → activeSource` map. It is fetched lazily by `getUIModule()` on first call and cached in memory. `invalidateModuleSourceCache()` resets both the source map and the manifest cache, ensuring the next call re-fetches and re-imports cleanly.
+
+---
+
+## Migrating an Existing Module to the SDK
+
+1. Move your module directory to `data/local/modules/<systemId>/`.
+2. Replace all internal platform imports (`@shared/`, `@client/`, `@core/`, etc.) with `@sheet-delver/sdk`.
+3. Extend `BaseSystemAdapter` for your logic entry point. Remove any `override` keyword (not supported by SWC/Turbopack in all contexts — omit it; the adapter methods are still called correctly).
+4. Use `useSDK()` for runtime platform data and `useSDKComponents()` for platform UI components in your React components.
+5. Identify your actors using `actor._stats?.systemId` — this is Foundry's authoritative system identifier and is available in the raw actor document without any derived-value computation.
+6. Image paths — always pass actor images through `resolveImage(actor.img ?? '', foundryUrl)` (available from `useSDK().foundryUrl` in UI, or via the base class `this.foundryUrl` getter in the adapter). Foundry returns relative paths that must be prefixed with the Foundry server origin before the browser can load them.
+7. Verify with `npx tsc --noEmit` from the project root — modules share the project tsconfig and can type-check independently via their own `tsconfig.json` that extends `.managed/tsconfig.paths.json`.
+

@@ -90,10 +90,8 @@ export async function fetchAndExtractArtifact(
         }
     }
 
-        // Target extraction directory - tagged with version to allow side-by-side versions if needed
-        // and to make it clear which version is on disk.
-        const safeVersion = version.replace(/[^a-zA-Z0-9.-]/g, '_');
-        const targetDir = path.join(getModulesDataDir(), `${moduleId}-${safeVersion}`);
+        // Extract into <data/modules/<moduleId> — version is tracked in the artifact store, not the directory name.
+        const targetDir = path.join(getModulesDataDir(), moduleId);
         
         // Clear target dir if it exists
         if (fs.existsSync(targetDir)) {

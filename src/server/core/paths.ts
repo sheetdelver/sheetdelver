@@ -249,6 +249,23 @@ export function getModulesDataDir(): string {
     return path.join(ensureResolved(), 'modules');
 }
 
+/**
+ * Returns the local (dev) modules directory.
+ * This is the scan-only location for locally developed modules.
+ * Modules here are never touched by the lifecycle install/upgrade/uninstall system.
+ *
+ * Override via SHEET_DELVER_LOCAL_MODULES env var.
+ * Defaults to <DATA_DIR>/dev-modules if that directory exists, otherwise null.
+ */
+export function getLocalModulesDir(): string | null {
+    const envOverride = process.env.SHEET_DELVER_LOCAL_MODULES;
+    if (envOverride && envOverride.trim()) {
+        return path.resolve(envOverride.trim());
+    }
+    const defaultPath = path.join(ensureResolved(), 'local', 'modules');
+    return fs.existsSync(defaultPath) ? defaultPath : null;
+}
+
 /** Returns the dist/modules subdirectory path (<DATA_DIR>/dist/modules). */
 export function getDistModulesDir(): string {
     return path.join(ensureResolved(), 'dist', 'modules');

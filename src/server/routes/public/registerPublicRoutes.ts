@@ -1,6 +1,6 @@
 import express from 'express';
 import { logger } from '@shared/utils/logger';
-import { getRegisteredModules } from '@modules/registry/server';
+import { getRegisteredModules, getModuleActiveSources } from '@modules/registry/server';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
 
 interface PublicRouteDeps {
@@ -35,6 +35,15 @@ export function registerPublicRoutes(appRouter: express.Router, deps: PublicRout
 
     appRouter.get('/registry/modules', (req, res) => {
         res.json(getRegisteredModules());
+    });
+
+    // moduleId → activeSource map consumed by the browser's getUIModule().
+    // No auth required: it contains no sensitive data and must be reachable
+    // before a session exists (e.g. on initial actor page load).
+    // When an admin switches a module source, clients receive a 'moduleSourceChanged'
+    // socket event and re-fetch this endpoint to pick the correct webpack alias.
+    appRouter.get('/registry/sources', (req, res) => {
+        res.json(getModuleActiveSources());
     });
 
     appRouter.post('/login', deps.loginLimiter, async (req, res) => {
