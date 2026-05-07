@@ -32,8 +32,11 @@ SheetDelver provides support for the Mörk Borg RPG system:
 See module in its own repository [![Here]](https://github.com/sheetdelver/sd-morkborg)
 <img src="images/sheets/morkborg/mb-character-sheet.png" width="25%">
 
+### D&D 5th Edition *(experimental)*
+Early support for D&D 5e is in active development. The module is installable but not yet feature-complete.
+See module in its own repository [![Here]](https://github.com/sheetdelver/sd-dnd5e)
+
 ## Planned System Support
-- **D&D 5e**: Planned...
 - **PF2E**: Planned...
 
 ## Architecture

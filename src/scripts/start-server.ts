@@ -325,6 +325,7 @@ function ensureManagedConfigs() {
             }
         }
     };
+    logger.info(`[Manager] tsconfig paths is including deprecated location src/modules for backward compatibility.\n        Please move any modules from src/modules to the data/local/modules or data/modules directory.`);
 
     fs.writeFileSync(
         path.join(managedDir, 'tsconfig.paths.json'),

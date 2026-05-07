@@ -125,6 +125,24 @@ Fetches any document (Actor, Item, Journal, Scene) by its universal UUID.
 
 ---
 
+## Module UI Serving (Public)
+
+### `GET /api/modules/:id/ui`
+No authentication required. Serves the compiled UI artifact for a managed module as raw ESM JavaScript.
+
+This endpoint is the runtime fallback used by `getUIModule()` when a module was installed after the current Next.js build and is therefore absent from the static `module-ui-registry.ts`. The server:
+1. Looks up the module's `info.json` for a `manifest.ui` path (falls back to `dist/ui.js`).
+2. Reads the compiled artifact and rewrites bare import specifiers to `window.__SD.*` globals:
+   - `import { X } from 'react'` → `const { X } = window.__SD.react;`
+   - `import { X } from '@sheet-delver/sdk'` → `const { X } = window.__SD.sdk;`
+3. Returns the rewritten source with `Content-Type: application/javascript` and `Cache-Control: no-store`.
+
+Returns **404** if the module does not exist or has no UI artifact.
+
+This enables hot-installation of modules at runtime without a rebuild — the browser executes the artifact using the host app's shared React and SDK instances.
+
+---
+
 ## Module Registry (Public)
 
 These endpoints require no authentication and are safe to call before a session is established.

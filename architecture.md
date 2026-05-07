@@ -77,28 +77,65 @@ graph TD
 
 ---
 
-## 3. Frontend Architecture
+## 4. Frontend Architecture
 
-### 3.1 React Contexts
+### 4.1 React Contexts
 - **FoundryProvider**: The heart of the application. Manages the connection step (`init` -> `login` -> `dashboard`), authenticates users, and polls for real-time state updates (actors, users, system info).
-- **JournalProvider**: Manages journal entry loading, folder hierarchies, and pagination logic. 
+- **JournalProvider**: Manages journal entry loading, folder hierarchies, and pagination logic.
 - **UIProvider**: Manages the state of global overlays like the sidebars, floating HUD, and shared content modals.
 
 ---
 
-## 4. Key Workflows
+## 5. Module System
 
-### 4.1 World Discovery & Status
+SheetDelver's RPG system support is entirely module-driven. Modules live outside the core in `<DATA_DIR>/modules/` (managed installs) or `<DATA_DIR>/local/modules/` (local dev source). The data directory is resolved from `--data-dir=<path>` CLI argument or the `SHEET_DELVER_DATA` environment variable (defaults to `./data/`). Built-in fallback components (`GenericActorPage`, `GenericSheet`) live in `src/client/ui/`.
+
+### 5.1 Module Operating Modes
+
+**Mode A — Source Module (local dev):** `info.json` points to `.ts`/`.tsx` files. The platform runs them via `tsx` with full tsconfig alias resolution. Suitable for trusted, locally-installed modules.
+
+**Mode B — Artifact Module (managed/remote):** `info.json` points to pre-compiled `dist/logic.js` and `dist/ui.js`. Bundles use only `@sheet-delver/sdk` — no internal aliases. Required for modules installed from remote sources.
+
+The registry loader at `src/modules/registry/core/server.ts` uses Node's native `import()` and handles both modes transparently based on file extension.
+
+### 5.2 Static Registry and Runtime Fallback
+
+The client-side `getUIModule(systemId)` function (`src/modules/registry/core/client.ts`) loads module UI in three stages:
+
+1. **Static registry** (`data/module-ui-registry.ts`): Auto-generated at startup by `ensureManagedConfigs()`. Contains one explicit `import()` per known module so webpack can statically bundle them as chunks.
+2. **Runtime fallback** (`GET /api/modules/:id/ui`): For modules installed after the current build. The server rewrites bare imports to `window.__SD.*` globals and serves raw ESM. Webpack ignores this import via `/* webpackIgnore: true */`.
+3. **Platform default**: Falls back to `GenericActorPage` / `GenericSheet` if all loaders fail.
+
+### 5.3 Module Hot-Reload
+
+When an admin switches a module's source or changes its lifecycle state, the server broadcasts one of three socket events (`moduleSourceChanged`, `moduleStateChanged`, `moduleRegistryChanged`). Both `FoundryContext` and `ActorPageRouter` listen for these and call `invalidateModuleSourceCache()` to clear cached manifests, triggering re-resolution of the active module UI without a page refresh.
+
+### 5.4 SDK Contract
+
+External modules consume the platform via `@sheet-delver/sdk` (`src/shared/sdk/`). The SDK provides:
+- `BaseSystemAdapter` — default adapter implementation
+- `ModuleContext` — scoped logger, persistent cache, compendium discovery (injected by the platform at initialization)
+- `ModuleFoundryClient` — stable Foundry access surface (actor/item/effect CRUD, rolls, world items)
+- `UIModuleManifest` — the export contract for `module/ui.tsx`
+- Server handler types: `ModuleServerRequest`, `ModuleServerParams`, `ModuleRouteHandler`
+
+See `src/modules/MODULE_MANIFEST.md` for the full module authoring reference.
+
+---
+
+## 6. Key Workflows
+
+### 6.1 World Discovery & Status
 1.  Frontend polls `/api/status`.
 2.  Backend queries the `SystemClient` for world status and active user counts.
 3.  If a valid `Authorization` header is present, the backend also checks the specific `UserClient`'s connection state.
 
-### 4.2 Authentication & Handshake
+### 6.2 Authentication & Handshake
 1.  Frontend POST `/api/login`.
 2.  Backend creates a new `ClientSocket`, performs the Foundry login handshake, and returns a token.
 3.  `FoundryContext` transitions to `'authenticating'` until the next status poll confirms the specific socket session is ready.
 
-### 4.3 Data Normalization & Computation
+### 6.3 Data Normalization & Computation
 All data returned by the API passes through a **System Adapter**.
 1.  **Normalization**: Converts raw Foundry data to a UI-friendly shape.
 2.  **Computation**: The adapter's `computeActorData` method calculates derived stats (e.g., Shadowdark inventory slots, HP totals) before the UI receives the data.
@@ -106,11 +143,11 @@ All data returned by the API passes through a **System Adapter**.
 
 ---
 
-## 5. Security & Isolation
+## 7. Security & Isolation
 - **Per-User Sockets**: Every user has their own dedicated socket. Foundry's native permission model is enforced at the transport layer.
 - **Local Admin Surface**: `/admin` is a separate app-admin control plane. Admin routes require localhost access, dedicated admin authentication, and CSRF protection for browser mutations.
 
-## 6. Ports & Config
+## 8. Ports & Config
 - **Frontend**: 3000
 - **Backend (API)**: 3001
-- **Foundry**: Configurable via `settings.yaml`
+- **Foundry**: Configurable via `DATA_DIR/config/settings.yaml`

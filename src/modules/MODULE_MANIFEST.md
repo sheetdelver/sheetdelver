@@ -458,13 +458,13 @@ The platform scans two separate on-disk locations for modules:
 
 | Location | Purpose | Managed by lifecycle? |
 |---|---|---|
-| `data/local/modules/` | Local dev — TypeScript source, loaded directly | No — scan-only |
-| `data/modules/` | Managed installs — installed/upgraded/uninstalled via source profiles | Yes |
-| `src/modules/` | Built-in platform modules | Yes (read-only) |
+| `<DATA_DIR>/local/modules/` | Local dev — TypeScript source, loaded directly | No — scan-only |
+| `<DATA_DIR>/modules/` | Managed installs — installed/upgraded/uninstalled via source profiles | Yes |
+| `src/modules/` | Built-in platform modules (deprecated location) | Yes (read-only) | 
 
 The local dev path can be overridden with the `SHEET_DELVER_LOCAL_MODULES` environment variable.
 
-**Use `data/local/modules/` during development.** The lifecycle install/upgrade/uninstall commands never touch this directory, so you can iterate freely without risking your source tree.
+**Use `<DATA_DIR>/local/modules/` during development.** The lifecycle install/upgrade/uninstall commands never touch this directory, so you can iterate freely without risking your source tree.
 
 ### Webpack alias resolution
 
@@ -472,8 +472,8 @@ The Next.js client resolves module UI files through two separate aliases (both c
 
 | Alias | Resolves to |
 |---|---|
-| `@local-modules` | `data/local/modules/` (or `$SHEET_DELVER_LOCAL_MODULES`) |
-| `@modules` | `src/modules/` then `data/modules/` |
+| `@local-modules` | `<DATA_DIR>local/modules/` (or `$SHEET_DELVER_LOCAL_MODULES`) |
+| `@modules` | `<DATA_DIR>/modules/` |
 
 `getUIModule(systemId)` fetches `GET /api/registry/sources` on first call to learn which source is active for each module, then dynamically imports from the correct alias. Both alias trees are bundled at build time — switching sources at runtime only selects which already-bundled chunk executes.
 
@@ -533,7 +533,7 @@ When an admin switches a module's active source via the lifecycle panel (`Manage
 
 ## Migrating an Existing Module to the SDK
 
-1. Move your module directory to `data/local/modules/<systemId>/`.
+1. Move your module directory to `<DATA_DIR>/local/modules/<systemId>/`.
 2. Replace all internal platform imports (`@shared/`, `@client/`, `@core/`, etc.) with `@sheet-delver/sdk`.
 3. Extend `BaseSystemAdapter` for your logic entry point. Remove any `override` keyword (not supported by SWC/Turbopack in all contexts — omit it; the adapter methods are still called correctly).
 4. Use `useSDK()` for runtime platform data and `useSDKComponents()` for platform UI components in your React components.

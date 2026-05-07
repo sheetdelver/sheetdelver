@@ -249,6 +249,11 @@ export function getModulesDataDir(): string {
     return path.join(ensureResolved(), 'modules');
 }
 
+/** Return the local dev modules data subdirectory path (<DATA_DIR>/local/modules) */
+export function getLocalModulesDataDir(): string {
+    return path.join(ensureResolved(), 'local', 'modules');
+}
+
 /**
  * Returns the local (dev) modules directory.
  * This is the scan-only location for locally developed modules.

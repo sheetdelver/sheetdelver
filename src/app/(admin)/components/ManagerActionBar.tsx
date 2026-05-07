@@ -36,7 +36,7 @@ function getAvailableActions(
     localDirectory?: string,
     cardSource?: string,
 ): Array<'install' | 'uninstall' | 'upgrade' | 'validate'> {
-    // Manager operations only apply to managed installs (data/modules/).
+    // Manager operations only apply to managed installs (<DATA_DIR>/modules/).
     if (!managed) return [];
 
     // In the split-card layout, cardSource tells us exactly which card we're on.

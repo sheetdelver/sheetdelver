@@ -4,7 +4,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import * as tar from 'tar';
 import * as esbuild from 'esbuild';
-import { resolveDataDir, initDataDir, getModulesDataDir, getDistModulesDir } from '../../../server/core/paths';
+import { resolveDataDir, initDataDir, getModulesDataDir, getDistModulesDir, getLocalModulesDataDir } from '../../../server/core/paths';
 
 // ---------------------------------------------------------------------------
 // Build configuration
@@ -66,14 +66,11 @@ async function packageModule() {
         process.exit(1);
     }
 
-    // Locate module source directory
-    let modulePath = path.resolve('src/modules', moduleId);
+    // Locate module local dev source directory
+    let modulePath = path.join(getLocalModulesDataDir(), moduleId);
     if (!fs.existsSync(modulePath)) {
-        modulePath = path.join(getModulesDataDir(), moduleId);
-        if (!fs.existsSync(modulePath)) {
-            console.error(`Module "${moduleId}" not found in src/modules or ${getModulesDataDir()}`);
-            process.exit(1);
-        }
+        console.error(`Module "${moduleId}" not found ${getLocalModulesDataDir()}`);
+        process.exit(1);
     }
 
     const infoPath = path.join(modulePath, 'info.json');

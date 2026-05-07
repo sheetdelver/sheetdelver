@@ -70,7 +70,13 @@ The platform resolves which system-specific React components to render via `getU
 | `@local-modules` | `data/local/modules/` | Module source is `"local"` (active local dev version) |
 | `@modules` | `src/modules/` then `data/modules/` | Module source is `"built-in"` or `"data"` (managed install) |
 
-Both aliases are resolved at Next.js build time so no runtime filesystem access occurs in the browser — switching sources only changes which pre-bundled chunk is executed.
+`getUIModule` resolves in three stages:
+
+1. **Static registry** (`data/module-ui-registry.ts`): If the module appears in `localModuleUIs` or `dataModuleUIs` (generated at build time), webpack serves it as a pre-bundled chunk. This covers every module that was present when `npm run dev` or `npm run build` last ran.
+
+2. **Runtime fallback** (`/api/modules/:id/ui`): If a module was installed *after* the current build (and is therefore absent from the static registry), `getUIModule` falls back to a `webpackIgnore`-annotated dynamic import from the server API. The server rewrites bare imports (`react`, `@sheet-delver/sdk`) to `window.__SD.*` globals so the browser's native ESM loader can execute the artifact without a bundler. This enables true hot-installation of modules at runtime.
+
+3. **Platform default**: If all loaders fail, `PLATFORM_DEFAULT_MANIFEST` is returned (renders `GenericActorPage` / `GenericSheet`).
 
 `getUIModule` caches results in memory. Call `invalidateModuleSourceCache()` (exported from `@modules/registry/client`) to clear the cache and force a re-fetch of the active-source map from `/api/registry/sources`.
 
@@ -95,16 +101,18 @@ The platform uses Socket.io for all real-time updates. Events are emitted by the
 | `combatUpdate` | Server → Client | Combat state payload | `FoundryContext` / `ActorCombatContext` |
 | `chatUpdate` | Server → Client | New chat message | `ChatContext` |
 | `sharedContentUpdate` | Server → Client | Shared media/journal payload | `FoundryContext` |
-| `moduleSourceChanged` | Server → Client | `{ moduleId, source }` | `FoundryContext` + `ActorPageRouter` — see below |
+| `moduleSourceChanged` | Server → Client | `{ moduleId, source }` | `FoundryContext` + `ActorPageRouter` — invalidates UI cache, switches chunk |
+| `moduleStateChanged` | Server → Client | `{ moduleId, status }` | `FoundryContext` + `ActorPageRouter` — invalidates UI cache on enable/disable |
+| `moduleRegistryChanged` | Server → Client | `{ moduleId }` | `FoundryContext` + `ActorPageRouter` — invalidates UI cache on install/uninstall |
 
-### `moduleSourceChanged`
+All three module events (`moduleSourceChanged`, `moduleStateChanged`, `moduleRegistryChanged`) are broadcast by the admin lifecycle and manager routes (`POST /admin/lifecycle/:moduleId/*`, `POST /admin/manager/:moduleId/*`), not by `AppSocketGateway`. They share a single handler in both `FoundryContext` and `ActorPageRouter`.
 
-Emitted by `POST /admin/lifecycle/:moduleId/switch-source` after the server switches a module's active source between `"local"` (dev) and `"data"` (managed install).
+### Module cache invalidation events
 
-**Client reaction — two layers:**
+`FoundryContext` and `ActorPageRouter` listen for all three events with the same handler:
 
 1. **`FoundryContext`** (always mounted): calls `invalidateModuleSourceCache()` to clear the source-map and manifest caches. If the affected module is the currently active system, nulls out `activeUIModule`, which triggers the `hydrateUI` effect to re-call `getUIModule()` with a fresh cache miss.
 
 2. **`ActorPageRouter`** (mounted when a player has an actor page open): checks whether `moduleId` matches the system of the actor currently being viewed (stored in `resolvedSystemIdRef`). If it matches, increments `resolveKey`, which re-runs the full actor resolution — re-fetching the actor, re-loading the module UI from the new source, and remounting the component — without a page refresh.
 
-The admin panel's `ModuleLifecycleControl` also calls `invalidateModuleSourceCache()` locally after a successful switch-source API call, so any actor opened in the same browser tab as the admin panel also picks up the change immediately.
+The admin panel's `ModuleLifecycleControl` also calls `invalidateModuleSourceCache()` locally after a successful switch-source or lifecycle API call, so any actor open in the same browser tab picks up the change immediately.

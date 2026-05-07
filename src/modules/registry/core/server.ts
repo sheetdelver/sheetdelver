@@ -279,7 +279,7 @@ function getCoreVersion(): string {
 }
 
 /**
- * Boot-Time Scanner: Discovers all modules in src/modules/
+ * Boot-Time Scanner: Discovers all modules in <DATA_DIR>/modules and <DATA_DIR>/local/modules, validates their manifests, and builds the initial registry map.
  * Uses Node.js 'fs' to build the initial system index.
  */
 export function initializeRegistry() {
@@ -1856,7 +1856,7 @@ export function getRegisteredModules(options?: { includeExperimental?: boolean }
  * Returns a map of moduleId → activeSource for all discovered modules.
  * 'local' means the dev source in data/local/modules is active;
  * 'data' means the managed install in data/modules is active;
- * 'built-in' means the module lives in src/modules.
+ * 'built-in' means the module lives in <DATA_DIR>/modules.
  * Used by the client's getUIModule to pick the correct import alias.
  */
 export function getModuleActiveSources(): Record<string, 'local' | 'data' | 'built-in'> {

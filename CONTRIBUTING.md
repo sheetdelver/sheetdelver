@@ -46,57 +46,116 @@ SheetDelver follows a **Decoupled Core/Shell** architecture to ensure stability 
 - `src/scripts`: Tooling, build scripts, and the unified startup manager.
 - `src/tests`: Automated unit and integration tests.
 
-## Module Architecture & Vertical Slices
+## Module Architecture
 
-Each RPG system is implemented as a **Vertical Slice** within `src/modules/<system_id>/`.
+Each RPG system is a **self-contained external module** discovered at runtime from the data directory. Modules live in `<DATA_DIR>/local/modules/<id>/` (local dev, Mode A source) or `<DATA_DIR>/modules/<id>/` (managed install, Mode B artifact). The data directory defaults to `./data/` and is configured via `--data-dir=<path>` or the `SHEET_DELVER_DATA` environment variable.
 
-*   **Everything belongs to a Module**: If you are adding support for a new RPG system (e.g., Pathfinder), *all* code related to that system (Types, Adapter logic, React Components, CSS) must reside in `src/modules/pathfinder/`.
-*   **The SystemAdapter Contract**: Each module must implement the `SystemAdapter` interface defined in `src/modules/core/interfaces.ts`. This interface handles:
-    *   **Data Fetching**: `getActor(client, id)` (running in browser context via Playwright).
-    *   **Normalization**: `normalizeActorData(actor)` (converting raw Foundry data to a UI-friendly shape).
-    *   **Computed Data**: `computeActorData(actor)` (optional, for derived stats like AC, HP, slots).
-    *   **Item Categorization**: `categorizeItems(actor)` (optional, for grouping items like Weapons/Spells).
-    *   **Rolling**: `getRollData(...)` (handling system-specific dice logic).
-    *   **Data Resolution Fallback**: `resolveDocument(client, uuid)` (providing a local fallback for documents that fail to fetch via socket).
-    *   **Theming**: `theme` (colors/fonts) and `componentStyles` (granular overrides for `ChatTab`, `DiceTray`, etc.).
-*   **Isolation**: Do not import code from other system modules. Shared UI components (like `RichTextEditor`, `DiceTray`) are available in `@/components`.
-*   **Registry**: Frontend components that need valid server-side rendering or dynamic imports (like Dashboard Tools) are registered in `src/modules/core/component-registry.tsx`.
+The registry (`src/modules/registry/core/server.ts`) scans these directories at startup — no manual registration is needed.
+
+*   **SDK import surface**: All platform APIs are accessed via `@sheet-delver/sdk`. Do not import from `@core/*`, `@server/*`, `@client/*`, or `@modules/*` internal aliases.
+*   **Isolation**: Do not import code from other system modules.
+*   **Adapter contract**: Extend `BaseSystemAdapter` from `@sheet-delver/sdk`. Override only the methods you need — defaults are provided for everything.
+*   **Context injection**: The platform wraps every module component in `SDKProvider`, which injects contexts and shared components via `useSDK()` and `useSDKComponents()` from `@sheet-delver/sdk`.
+*   **Shared components**: Access platform UI components (`LoadingModal`, `RollDialog`, `ConfirmationModal`, `RichTextEditor`, `SharedContentModal`) via `useSDKComponents()` — do not import them from `@client/ui/components/` directly.
+
+See `src/modules/MODULE_MANIFEST.md` for the full authoring reference including SDK surface, `ModuleFoundryClient` methods, discovery pack configuration, and build setup.
 
 ## Adding a New System
 
-1.  **Create Directory**: Create `src/modules/<system-id>/`.
+1.  **Create Directory**: Create `<DATA_DIR>/local/modules/<system-id>/` for local development.
+
 2.  **Metadata**: Add `info.json`:
     ```json
-    { 
-        "id": "mysystem", 
+    {
+        "id": "mysystem",
         "title": "My RPG System",
+        "version": "0.1.0",
         "actorCard": {
-            "subtext": ["details.class", "details.ancestry", "level.value"] 
+            "subtext": ["details.class", "details.ancestry", "level.value"]
+        },
+        "manifest": {
+            "logic": "module/logic.ts",
+            "ui": "module/ui.tsx"
         }
     }
     ```
-    *   `actorCard.subtext`: Optional. Array of dot-notation paths to display on the dashboard character card (e.g. "Wizard, Elf • Level 1"). If omitted, it defaults to the actor type.
-3.  **Implement Adapter**: Create `system.ts` and implement `SystemAdapter`.
-4.  **Implement Rules (Optional)**: Create `rules.ts` for calculations.
-5.  **Create Sheet**: Create `ui/MySystemSheet.tsx`.
-6.  **Create Actor Page**: Create `ui/pages/ActorPage.tsx`. This component handles the data fetching and layout for your system's character sheet page. If omitted, the system will use the Generic fallback.
-7.  **Export Manifest**: Create `index.ts`:
+    *   `actorCard.subtext`: Optional. Array of dot-notation paths to display on the dashboard character card. Defaults to actor type if omitted.
+    *   `manifest.logic` / `manifest.ui`: Entry points. Use `.ts`/`.tsx` for Mode A (source), `dist/logic.js` / `dist/ui.js` for Mode B (compiled artifact).
+
+3.  **Implement Adapter**: Create `module/logic.ts` extending `BaseSystemAdapter`:
+    ```typescript
+    import { BaseSystemAdapter, ModuleContext } from '@sheet-delver/sdk';
+
+    export class MySystemAdapter extends BaseSystemAdapter {
+        async initialize(context: ModuleContext) {
+            // context.logger, context.platform.cache, context.platform.discovery
+        }
+        // Override normalizeActorData, computeActorData, categorizeItems, getRollData as needed
+    }
+
+    export default MySystemAdapter;
+    ```
+
+4.  **Create Sheet UI**: Create `module/ui.tsx` exporting a `UIModuleManifest`:
     ```typescript
     import React from 'react';
-    import { ModuleManifest } from '../core/interfaces';
-    import { MySystemAdapter } from './system';
-    import info from './info.json';
+    import type { UIModuleManifest } from '@sheet-delver/sdk';
+    import info from '../info.json';
 
-    const manifest: ModuleManifest = {
+    const manifest: UIModuleManifest = {
         info,
-        adapter: MySystemAdapter,
-        sheet: React.lazy(() => import('./ui/MySystemSheet')),
-        actorPage: React.lazy(() => import('./ui/pages/ActorPage'))
+        sheet: React.lazy(() => import('./MySystemSheet')),
+        actorPage: React.lazy(() => import('./pages/ActorPage')),
     };
+
     export default manifest;
     ```
-8.  **Register Module**: Open `src/modules/core/registry.ts`, import your manifest, and add it to the `modules` array.
-9.  **Dashboard Tools (Optional)**: If your system has custom dashboard widgets (like a Character Generator), create the component in `ui/MySystemTools.tsx` and register it in `src/modules/core/component-registry.tsx`.
+    *   `actorPage`: Optional. Handles data fetching and layout for the character sheet page. Falls back to `GenericActorPage` if omitted.
+
+    Inside sheet components, access platform hooks and shared UI via the SDK:
+    ```typescript
+    import { useSDK, useSDKComponents } from '@sheet-delver/sdk';
+
+    function MySheet() {
+        const { addNotification, fetchWithAuth, resolveImageUrl } = useSDK();
+        const { LoadingModal, RollDialog } = useSDKComponents();
+        // ...
+    }
+    ```
+
+5.  **Register**: None needed. `npm run dev` auto-discovers the module and regenerates `data/module-ui-registry.ts`.
+
+6.  **Dashboard Tools (Optional)**: Export a `tools` component from the `UIModuleManifest`:
+    ```typescript
+    const manifest: UIModuleManifest = {
+        info,
+        sheet: React.lazy(() => import('./MySystemSheet')),
+        tools: React.lazy(() => import('./MySystemTools')),
+    };
+    ```
+
+## Packaging a Module for Distribution
+
+Once your module is working locally (Mode A source), compile it into a distributable Mode B artifact:
+
+```bash
+npm run package:module <module-id>
+```
+
+The script (`src/scripts/tools/modules/package-module.ts`) looks for the module in `<DATA_DIR>/local/modules/<module-id>/`, then:
+1. Compiles each declared entry point (`logic`, `ui`, `server`) via esbuild, externalizing `@sheet-delver/sdk`, `react`, and `react-dom`.
+2. Writes compiled artifacts to a staging `dist/` directory and patches `info.json` to point to the compiled paths.
+3. Creates a `.tgz` archive at `<DATA_DIR>/dist/modules/<module-id>-<version>.tgz`.
+4. Outputs the SHA-256 integrity hash for use in admin install payloads.
+
+```
+✅ mysystem v0.1.0 packaged successfully
+   Archive : data/dist/modules/mysystem-0.1.0.tgz
+   Size    : 42.3 KB
+   Sha256  : sha256:abc123...
+```
+
+The archive can then be installed via the admin panel (`POST /admin/manager/:moduleId/install`) with the integrity hash as verification.
 
 ## Module API & Server-Side Logic
 

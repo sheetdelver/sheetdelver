@@ -1,7 +1,7 @@
 # ADR-0010: External Module SDK and Operational Maturity
 
-**Status:** Active — SDK complete. Module migration in progress.
-**Date:** May 3, 2026 / Updated May 5, 2026
+**Status:** Active — SDK complete. dnd5e migration complete. morkborg and shadowdark pending.
+**Date:** May 3, 2026 / Updated May 7, 2026
 **Supersedes:** None
 **Related:** ADR-0004, ADR-0007, ADR-0008, ADR-0009
 
@@ -23,9 +23,9 @@ The prior draft described the SDK as entirely future work and overstated archite
 
 ## Context
 
-Modules (`shadowdark`, `morkborg`, `dnd5e`) live in `data/modules/` as separate git repositories. The registry discovers and dynamically imports them. Their `info.json` manifests point to raw TypeScript source files (not compiled bundles), which works because the server runs via `tsx` and the tsconfig paths resolve across the whole tree.
+Modules (`shadowdark`, `morkborg`, `dnd5e`) live in `<DATA_DIR>/local/modules/` (local dev source, Mode A) or `<DATA_DIR>/modules/` (managed installs, Mode B artifacts). The data directory defaults to `./data/` and is configured via `--data-dir=<path>` or `SHEET_DELVER_DATA`. The registry discovers and dynamically imports them at startup. In Mode A, `info.json` manifests point to raw TypeScript source files — this works because the server runs via `tsx` and the tsconfig paths resolve across the whole tree. In Mode B, manifests point to pre-compiled `dist/logic.js` and `dist/ui.js` artifacts.
 
-Despite the SDK existing, no module uses it. Every external module still reaches into the core via internal path aliases. A full audit of `data/modules/**` reveals 29 distinct internal import paths:
+At the time of the original audit, no module used the SDK. Every external module reached into the core via internal path aliases. A full audit of `<DATA_DIR>/local/modules/**` revealed 29 distinct internal import paths:
 
 **Server-side internal imports (modules should not need these):**
 - `@core/config` — direct config access
@@ -214,22 +214,21 @@ Completed May 2026. Summary of what was done:
 
 ---
 
-### Slice 30-B: UI Module Surface — **Deferred**
+### Slice 30-B: UI Module Surface — **Superseded by SDKProvider**
 
-Platform-provided components (`LoadingModal`, `RollDialog`, `ConfirmationModal`, `RichTextEditor`, `SharedContentModal`) are still imported by external modules via `@client/ui/components/` internal aliases. A stable re-export surface at `src/client/ui/module-surface/` is the clean solution but is not blocking module migration — modules in Mode A still resolve internal aliases via tsconfig paths.
+Platform-provided components (`LoadingModal`, `RollDialog`, `ConfirmationModal`, `RichTextEditor`, `SharedContentModal`) are now injected via `SDKProvider` → `SDKComponentsContext`. Modules access them through `useSDKComponents()` from `@sheet-delver/sdk` rather than direct `@client/ui/components/` imports. `SDKProvider` wraps every dynamically-loaded module component — it is placed above the module render boundary in both `ActorPageRouter` and `SheetRouter`.
 
-This slice is deferred until after at least one module (dnd5e) is fully migrated. The migration will clarify exactly which components external modules actually need vs. which can be cut.
+The `src/client/ui/module-surface/` re-export surface is no longer necessary. The `SDKComponentsContext` in `src/shared/sdk/react.ts` is the stable contract. Module migration should replace all `@client/ui/components/` imports with `useSDKComponents()` calls.
 
 ---
 
 ### Slice 30-C: Cross-Module Isolation Fixes — **In Progress**
 
-**dnd5e (reference migration):** Currently underway. See `temp/audit-reports/dnd5e-migration-plan.md`.  
-The dnd5e module has a malformed adapter (duplicate methods outside class body), imports internal aliases, and has no real sheet UI. It will be rebuilt as the canonical example of a properly structured SDK module, including a DNDBeyond-inspired character sheet.
+**dnd5e (reference migration): COMPLETE.** Compiled Mode B artifacts (`dist/logic.js`, `dist/ui.js`) are present in `<DATA_DIR>/modules/dnd5e/`. Module marked `"experimental": true` in `info.json`. Sheet UI is functional but not yet feature-complete.
 
-**morkborg:** Imports `@modules/generic/src/logic/adapter` which was deleted — module is broken. Needs `BaseSystemAdapter` from SDK. Also imports shadowdark internals. Blocked until dnd5e migration is reviewed and approach is confirmed.
+**morkborg:** Imports `@modules/generic/src/logic/adapter` which was deleted — module is broken. Needs `BaseSystemAdapter` from SDK. Also imports shadowdark internals. Will follow once migration approach is confirmed from dnd5e review.
 
-**shadowdark:** 47+ internal alias imports (`@shared/utils/logger`, `@core/*`, `@server/*`). Largest migration surface. Will follow dnd5e and morkborg.
+**shadowdark:** 47+ internal alias imports (`@shared/utils/logger`, `@core/*`, `@server/*`). Largest migration surface. Will follow morkborg.
 
 ---
 
@@ -259,13 +258,14 @@ Completed May 2026:
 
 ## Implementation Outcome
 
-**May 2026 — SDK phase complete.**
+**May 2026 — SDK phase complete. dnd5e reference migration complete.**
 
 Slices 30-A and 30-D are done. The SDK is the authoritative import surface: `@sheet-delver/sdk` resolves correctly in both the server (`tsx` + tsconfig paths) and the Next.js client (turbopack alias). `ModuleContext` injection works end-to-end. The generic module is dissolved. The manifest document is correct and complete.
 
-**In progress:** dnd5e reference migration (Slice 30-C) — rebuilding adapter and implementing a real character sheet UI. This will establish the migration pattern for morkborg and shadowdark.
+Slice 30-B is superseded: `SDKProvider` / `SDKComponentsContext` (`src/shared/sdk/react.ts`) is the stable component injection mechanism. Modules call `useSDKComponents()` to access platform UI components (`LoadingModal`, `RollDialog`, etc.) — no separate re-export surface needed. The `src/client/ui/module-surface/` path is not required.
+
+The runtime fallback path (not covered in the original ADR) is now a first-class capability: `getUIModule()` falls back to `GET /api/modules/:id/ui` for modules installed after the current build. The server rewrites bare imports to `window.__SD.*` globals (set by `SDKGlobalProvider`) so the browser can execute Mode B artifacts via native ESM without a rebuild or an import map. This makes true hot-installation of modules possible at runtime.
 
 **Still open:**
-- Slice 30-B (UI module surface) — deferred until post-dnd5e review
-- morkborg migration — blocked on generic adapter deletion, will follow dnd5e
-- shadowdark migration — largest surface, will follow morkborg
+- morkborg migration — broken (imports deleted generic adapter), will follow dnd5e pattern
+- shadowdark migration — largest surface (47+ internal imports), will follow morkborg
