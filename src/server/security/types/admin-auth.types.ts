@@ -1,5 +1,5 @@
 /**
- * Admin account record stored in .data/security/admin-auth.json
+ * Admin account record stored in <DATA_DIR>/security/admin-auth.json
  * Never expose credentials or hashes outside the credential store module.
  */
 export interface AdminAccount {
