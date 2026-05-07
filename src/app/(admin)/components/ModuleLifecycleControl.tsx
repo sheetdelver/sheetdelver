@@ -3,9 +3,11 @@
 /**
  * ModuleLifecycleControl
  *
- * Enhanced module lifecycle dashboard showing full lifecycle state,
- * color-coded status indicators, trust badges, health summaries,
- * and expandable detail panels per module.
+ * Module lifecycle dashboard. When a module has both a local dev version and a
+ * managed install, it is rendered as two separate list items — one per source —
+ * so each can be enabled/disabled independently with clear context about what
+ * each represents. Manager operations (upgrade, uninstall, etc.) only appear on
+ * the managed card.
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -14,44 +16,89 @@ import { useAdminAuth } from '../context/AdminAuthContext';
 import {
     fetchModuleLifecycle,
     postLifecycleAction,
-    postSwitchSource,
     type ModuleLifecycleInfo,
 } from '../lib/adminApi';
 import { invalidateModuleSourceCache } from '@modules/registry/client';
 import ModuleDetailPanel from './ModuleDetailPanel';
 
-// ─── Status styling map ────────────────────────────────────────────
+// ─── Status styling ────────────────────────────────────────────────
 
-/** Returns CSS classes for the status indicator dot based on lifecycle status. */
 function getStatusColor(status: string): string {
     switch (status) {
         case 'enabled':
-        case 'validated':
-            return 'bg-[var(--admin-success)]';
+        case 'validated':    return 'bg-[var(--admin-success)]';
         case 'disabled':
-        case 'discovered':
-            return 'bg-amber-400';
+        case 'discovered':   return 'bg-amber-400';
         case 'errored':
-        case 'incompatible':
-            return 'bg-[var(--admin-danger-button)]';
+        case 'incompatible': return 'bg-[var(--admin-danger-button)]';
         case 'upgrading':
-        case 'uninstalling':
-            return 'bg-[var(--admin-accent)]';
-        case 'removed':
-            return 'bg-gray-400';
-        default:
-            return 'bg-gray-400';
+        case 'uninstalling': return 'bg-[var(--admin-accent)]';
+        default:             return 'bg-gray-400';
     }
 }
 
-/** Returns a human-readable status label. */
 function getStatusLabel(status: string): string {
     return status.charAt(0).toUpperCase() + status.slice(1);
 }
 
+// ─── Card entry type ───────────────────────────────────────────────
+
+/**
+ * A single card in the list. Dual-source modules produce two entries
+ * (one for 'local', one for 'data') from the same ModuleLifecycleInfo.
+ */
+interface CardEntry {
+    key: string;
+    mod: ModuleLifecycleInfo;
+    /** Which source this card represents. undefined = single-source module. */
+    cardSource: 'local' | 'data' | undefined;
+    /** Whether this specific source is currently enabled. */
+    sourceEnabled: boolean;
+    /** Whether the OTHER source (if any) is enabled — blocks enable on this card. */
+    otherSourceEnabled: boolean;
+}
+
+function buildCardEntries(modules: ModuleLifecycleInfo[]): CardEntry[] {
+    const entries: CardEntry[] = [];
+
+    for (const mod of modules) {
+        if (mod.localDirectory) {
+            // Dual-source: emit local card first, then managed.
+            const localEnabled  = mod.localEnabled  ?? (mod.activeSource === 'local'  ? mod.enabled : false);
+            const managedEnabled = mod.managedEnabled ?? (mod.activeSource === 'data' ? mod.enabled : false);
+
+            entries.push({
+                key: `${mod.moduleId}-local`,
+                mod,
+                cardSource: 'local',
+                sourceEnabled: localEnabled,
+                otherSourceEnabled: managedEnabled,
+            });
+            entries.push({
+                key: `${mod.moduleId}-data`,
+                mod,
+                cardSource: 'data',
+                sourceEnabled: managedEnabled,
+                otherSourceEnabled: localEnabled,
+            });
+        } else {
+            entries.push({
+                key: mod.moduleId,
+                mod,
+                cardSource: undefined,
+                sourceEnabled: mod.enabled,
+                otherSourceEnabled: false,
+            });
+        }
+    }
+
+    return entries;
+}
+
+// ─── Component ─────────────────────────────────────────────────────
+
 export default function ModuleLifecycleControl({ onModulesLoaded, onRestartRequired }: {
     onModulesLoaded?: (modules: ModuleLifecycleInfo[]) => void;
-    /** Called after install / upgrade / uninstall — signals that a Core Service restart is needed. */
     onRestartRequired?: (operation?: string) => void;
 }) {
     const { token, csrfToken, logout } = useAdminAuth();
@@ -59,139 +106,80 @@ export default function ModuleLifecycleControl({ onModulesLoaded, onRestartRequi
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [operationInProgress, setOperationInProgress] = useState<string | null>(null);
-    const [expandedModules, setExpandedModules] = useState<Set<string>>(new Set());
+    const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
 
-    /** Fetch the module lifecycle list from the admin API. */
     const loadModules = useCallback(async () => {
-        if (!token) {
-            setError('Not authenticated');
-            setLoading(false);
-            return;
-        }
-
+        if (!token) { setError('Not authenticated'); setLoading(false); return; }
         try {
             setLoading(true);
             setError(null);
-
             const result = await fetchModuleLifecycle();
-
-            if (result.sessionExpired) {
-                setError('Your session has expired. Please log in again.');
-                logout();
-                return;
-            }
-
-            if (!result.ok || !result.data) {
-                throw new Error(result.error || 'Failed to fetch modules');
-            }
-
+            if (result.sessionExpired) { setError('Session expired. Please log in again.'); logout(); return; }
+            if (!result.ok || !result.data) throw new Error(result.error || 'Failed to fetch modules');
             setModules(result.data.modules || []);
         } catch (err) {
-            const message = err instanceof Error ? err.message : 'Unknown error';
+            setError(err instanceof Error ? err.message : 'Unknown error');
             logger.error('Failed to fetch module lifecycle:', err);
-            setError(message);
         } finally {
             setLoading(false);
         }
     }, [token, logout]);
 
-    // Initial fetch
+    useEffect(() => { loadModules(); }, [loadModules]);
     useEffect(() => {
-        loadModules();
-    }, [loadModules]);
-
-    // Notify parent when modules are updated
-    useEffect(() => {
-        if (modules.length > 0 && onModulesLoaded) {
-            onModulesLoaded(modules);
-        }
+        if (modules.length > 0 && onModulesLoaded) onModulesLoaded(modules);
     }, [modules, onModulesLoaded]);
 
-    /** Toggle a module's enabled/disabled state. */
-    const handleToggleModule = async (moduleId: string, currentlyEnabled: boolean) => {
-        if (!token || !csrfToken) {
-            setError('Authentication context missing. Please log in again.');
-            return;
-        }
-
+    const handleToggle = async (entry: CardEntry) => {
+        if (!token || !csrfToken) { setError('Authentication context missing.'); return; }
         try {
-            setOperationInProgress(moduleId);
+            setOperationInProgress(entry.key);
             setError(null);
+            const action = entry.sourceEnabled ? 'disable' : 'enable';
+            const body: Record<string, unknown> = { reason: `Module ${action}d by admin via UI` };
+            if (entry.cardSource) body.source = entry.cardSource;
 
-            const action = currentlyEnabled ? 'disable' : 'enable';
-            const result = await postLifecycleAction(moduleId, action, {
-                reason: `Module ${action}d by admin via UI`,
-            });
+            const result = await postLifecycleAction(entry.mod.moduleId, action, body);
+            if (result.sessionExpired) { setError('Session expired. Please log in again.'); logout(); return; }
+            if (!result.ok) throw new Error(result.error || `Failed to ${action} module`);
 
-            if (result.sessionExpired) {
-                setError('Your session has expired. Please log in again.');
-                logout();
-                return;
+            // Switching source implicitly when enabling a non-active source — bust UI cache.
+            if (action === 'enable' && entry.cardSource && entry.cardSource !== entry.mod.activeSource) {
+                invalidateModuleSourceCache();
             }
-
-            if (!result.ok) {
-                throw new Error(result.error || `Failed to ${action} module`);
-            }
-
-            // Refresh the full list to get accurate state
-            await loadModules();
-            logger.info(`Module ${moduleId} ${action}d successfully`);
-        } catch (err) {
-            const message = err instanceof Error ? err.message : 'Unknown error';
-            logger.error('Failed to toggle module:', err);
-            setError(message);
-        } finally {
-            setOperationInProgress(null);
-        }
-    };
-
-    /** Switch a module between its local dev version and managed install. */
-    const handleSwitchSource = async (moduleId: string, source: 'local' | 'data') => {
-        if (!token || !csrfToken) return;
-        try {
-            setOperationInProgress(moduleId);
-            setError(null);
-            const result = await postSwitchSource(moduleId, source);
-            if (!result.ok) throw new Error(result.error || 'Failed to switch source');
-            // Bust the client-side active-source cache so the next module UI load picks the new source.
-            invalidateModuleSourceCache();
             await loadModules();
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Unknown error');
+            logger.error('Failed to toggle module:', err);
         } finally {
             setOperationInProgress(null);
         }
     };
 
-    /** Toggle expand/collapse of a module's detail panel. */
-    const toggleExpanded = (moduleId: string) => {
-        setExpandedModules(prev => {
+    const toggleExpanded = (key: string) => {
+        setExpandedKeys(prev => {
             const next = new Set(prev);
-            if (next.has(moduleId)) {
-                next.delete(moduleId);
-            } else {
-                next.add(moduleId);
-            }
+            next.has(key) ? next.delete(key) : next.add(key);
             return next;
         });
     };
 
-    // ─── Loading state ─────────────────────────────────────────────
+    // ─── Loading skeleton ──────────────────────────────────────────
 
     if (loading && modules.length === 0) {
         return (
             <div className="p-4">
                 <h2 className="mb-4 text-2xl font-bold tracking-tight text-[var(--admin-text-primary)]">Module Lifecycle</h2>
                 <div className="space-y-3">
-                    {[1, 2, 3].map(i => (
-                        <div key={i} className="h-20 animate-pulse rounded-[24px] bg-[var(--admin-surface)]" />
-                    ))}
+                    {[1, 2, 3].map(i => <div key={i} className="h-20 animate-pulse rounded-[24px] bg-[var(--admin-surface)]" />)}
                 </div>
             </div>
         );
     }
 
     // ─── Render ────────────────────────────────────────────────────
+
+    const entries = buildCardEntries(modules);
 
     return (
         <div className="p-4">
@@ -206,185 +194,166 @@ export default function ModuleLifecycleControl({ onModulesLoaded, onRestartRequi
                 </button>
             </div>
 
-            {/* Error banner */}
             {error && (
                 <div className="mb-4 rounded-2xl border border-[var(--admin-danger-border)] bg-[var(--admin-danger-bg)] p-3 text-[var(--admin-danger-text)]">
                     {error}
                 </div>
             )}
 
-            {/* Module list */}
             <div className="space-y-3">
-                {modules.length === 0 ? (
+                {entries.length === 0 ? (
                     <p className="text-[var(--admin-text-muted)]">No modules found</p>
                 ) : (
-                    modules.map((mod) => (
-                        <div
-                            key={mod.moduleId}
-                            className={`rounded-[24px] border p-4 transition-colors ${
-                                mod.enabled
-                                    ? 'border-[var(--admin-success-border)] bg-[var(--admin-success-bg)]'
-                                    : mod.status === 'errored' || mod.status === 'incompatible'
-                                        ? 'border-[var(--admin-danger-border)] bg-[var(--admin-danger-bg)]'
-                                        : 'border-[var(--admin-border)] bg-[var(--admin-surface)]'
-                            }`}
-                        >
-                            {/* Module header row */}
-                            <div className="flex items-start justify-between">
-                                <div className="flex-1 min-w-0">
-                                    {/* Title + badges */}
-                                    <div className="flex items-center gap-2 flex-wrap">
-                                        <h3 className="text-lg font-semibold text-[var(--admin-text-primary)]">
-                                            {mod.title}
-                                        </h3>
-                                        {mod.experimental && (
-                                            <span className="rounded-full border border-[var(--admin-warning-border)] bg-[var(--admin-warning-bg)] px-2 py-0.5 text-xs font-medium text-[var(--admin-warning-text)]">
-                                                Experimental
-                                            </span>
-                                        )}
-                                        {mod.artifact?.version && (
-                                            <span className="rounded-full border border-[var(--admin-border)] bg-[var(--admin-surface)] px-2 py-0.5 text-xs font-mono text-[var(--admin-text-muted)]">
-                                                v{mod.artifact.version}
-                                            </span>
-                                        )}
-                                        {mod.activeSource === 'local' ? (
-                                            <span className="rounded-full border border-purple-500/30 bg-purple-500/10 px-2 py-0.5 text-xs font-medium text-purple-400">
-                                                Local Dev
-                                            </span>
-                                        ) : !mod.managed && (
-                                            <span className="rounded-full border border-blue-500/30 bg-blue-500/10 px-2 py-0.5 text-xs font-medium text-blue-400">
-                                                System
-                                            </span>
-                                        )}
-                                    </div>
-
-                                    {/* Module ID + status */}
-                                    <div className="mt-1 flex items-center gap-3 text-sm text-[var(--admin-text-secondary)]">
-                                        <span className="font-mono text-xs">{mod.moduleId}</span>
-                                        <span className="flex items-center gap-1.5">
-                                            <span className={`inline-block h-2 w-2 rounded-full ${getStatusColor(mod.status)}`} />
-                                            {getStatusLabel(mod.status)}
-                                        </span>
-                                    </div>
-
-                                    {/* Source toggle — visible when both managed and local dev versions exist */}
-                                    {mod.localDirectory && (
-                                        <div className="mt-2 flex items-center gap-1.5">
-                                            <span className="text-xs text-[var(--admin-text-muted)]">Source:</span>
-                                            <button
-                                                onClick={() => handleSwitchSource(mod.moduleId, 'data')}
-                                                disabled={operationInProgress === mod.moduleId || mod.activeSource === 'data'}
-                                                className={`rounded-full px-2.5 py-0.5 text-xs font-medium transition ${
-                                                    mod.activeSource === 'data' || !mod.activeSource
-                                                        ? 'bg-[var(--admin-accent)] text-white'
-                                                        : 'border border-[var(--admin-border)] text-[var(--admin-text-muted)] hover:bg-[var(--admin-surface-hover)]'
-                                                }`}
-                                            >
-                                                Managed
-                                            </button>
-                                            <button
-                                                onClick={() => handleSwitchSource(mod.moduleId, 'local')}
-                                                disabled={operationInProgress === mod.moduleId || mod.activeSource === 'local'}
-                                                className={`rounded-full px-2.5 py-0.5 text-xs font-medium transition ${
-                                                    mod.activeSource === 'local'
-                                                        ? 'bg-purple-600 text-white'
-                                                        : 'border border-[var(--admin-border)] text-[var(--admin-text-muted)] hover:bg-[var(--admin-surface-hover)]'
-                                                }`}
-                                            >
-                                                Local Dev
-                                            </button>
-                                        </div>
-                                    )}
-
-                                    {/* Health summary (if errors exist) */}
-                                    {mod.health && mod.health.errorCount > 0 && (
-                                        <div className="mt-1 flex items-center gap-1 text-xs text-[var(--admin-danger-text)]">
-                                            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                                            </svg>
-                                            <span>{mod.health.errorCount} error{mod.health.errorCount !== 1 ? 's' : ''}</span>
-                                        </div>
-                                    )}
-                                </div>
-
-                                {/* Action buttons */}
-                                <div className="ml-4 flex flex-col items-end gap-1">
-                                    <div className="flex items-center gap-2">
-                                        {/* Details toggle */}
-                                        <button
-                                            onClick={() => toggleExpanded(mod.moduleId)}
-                                            className="rounded-2xl border border-[var(--admin-border)] bg-[var(--admin-surface)] px-3 py-2 text-sm text-[var(--admin-text-secondary)] transition hover:bg-[var(--admin-surface-hover)]"
-                                        >
-                                            {expandedModules.has(mod.moduleId) ? 'Hide' : 'Details'}
-                                        </button>
-
-                                        {/* Enable/Disable toggle */}
-                                        {(() => {
-                                            // When both local dev and managed exist, only one may be enabled at a time.
-                                            const hasBothSources = !!mod.localDirectory;
-                                            const otherSourceEnabled = hasBothSources && (
-                                                mod.activeSource === 'local'
-                                                    ? mod.managedEnabled === true
-                                                    : mod.localEnabled === true
-                                            );
-                                            // Gray out "Enable" when the other source is active+enabled; always allow "Disable".
-                                            const blockedByOther = !mod.enabled && otherSourceEnabled;
-                                            const isDisabled = operationInProgress === mod.moduleId || blockedByOther;
-
-                                            return (
-                                                <button
-                                                    onClick={() => handleToggleModule(mod.moduleId, mod.enabled)}
-                                                    disabled={isDisabled}
-                                                    title={blockedByOther
-                                                        ? `Disable the ${mod.activeSource === 'local' ? 'Managed' : 'Local Dev'} source first`
-                                                        : undefined}
-                                                    className={`whitespace-nowrap rounded-2xl px-4 py-2 font-semibold transition ${
-                                                        mod.enabled
-                                                            ? 'bg-[var(--admin-danger-button)] text-white hover:bg-[var(--admin-danger-button-strong)] disabled:bg-[var(--admin-danger-button-soft)]'
-                                                            : blockedByOther
-                                                                ? 'cursor-not-allowed bg-[var(--admin-surface)] text-[var(--admin-text-muted)] opacity-50 border border-[var(--admin-border)]'
-                                                                : 'bg-[var(--admin-success)] text-white hover:bg-[var(--admin-success-strong)] disabled:bg-[var(--admin-success-soft)]'
-                                                    }`}
-                                                >
-                                                    {operationInProgress === mod.moduleId
-                                                        ? 'Processing...'
-                                                        : mod.enabled
-                                                            ? 'Disable'
-                                                            : 'Enable'}
-                                                </button>
-                                            );
-                                        })()}
-                                    </div>
-                                    {/* Conflict hint */}
-                                    {(() => {
-                                        const hasBothSources = !!mod.localDirectory;
-                                        const otherSourceEnabled = hasBothSources && (
-                                            mod.activeSource === 'local'
-                                                ? mod.managedEnabled === true
-                                                : mod.localEnabled === true
-                                        );
-                                        return !mod.enabled && otherSourceEnabled ? (
-                                            <span className="text-xs text-[var(--admin-text-muted)]">
-                                                {mod.activeSource === 'local' ? 'Managed' : 'Local Dev'} is enabled — disable it first
-                                            </span>
-                                        ) : null;
-                                    })()}
-                                </div>
-                            </div>
-
-                            {/* Expandable detail panel */}
-                            {expandedModules.has(mod.moduleId) && (
-                                <ModuleDetailPanel
-                                    module={mod}
-                                    onOperationComplete={loadModules}
-                                    onSessionExpired={logout}
-                                    onRestartRequired={onRestartRequired}
-                                />
-                            )}
-                        </div>
+                    entries.map((entry) => (
+                        <ModuleCard
+                            key={entry.key}
+                            entry={entry}
+                            expanded={expandedKeys.has(entry.key)}
+                            operationInProgress={operationInProgress === entry.key}
+                            onToggle={() => handleToggle(entry)}
+                            onToggleExpand={() => toggleExpanded(entry.key)}
+                            onOperationComplete={loadModules}
+                            onSessionExpired={logout}
+                            onRestartRequired={onRestartRequired}
+                        />
                     ))
                 )}
             </div>
+        </div>
+    );
+}
+
+// ─── ModuleCard ────────────────────────────────────────────────────
+
+interface ModuleCardProps {
+    entry: CardEntry;
+    expanded: boolean;
+    operationInProgress: boolean;
+    onToggle: () => void;
+    onToggleExpand: () => void;
+    onOperationComplete: () => void;
+    onSessionExpired: () => void;
+    onRestartRequired?: (operation?: string) => void;
+}
+
+function ModuleCard({
+    entry, expanded, operationInProgress,
+    onToggle, onToggleExpand, onOperationComplete, onSessionExpired, onRestartRequired,
+}: ModuleCardProps) {
+    const { mod, cardSource, sourceEnabled, otherSourceEnabled } = entry;
+    const isLocal = cardSource === 'local';
+    const isData  = cardSource === 'data';
+    const blockedByOther = !sourceEnabled && otherSourceEnabled;
+
+    // Card border/background reflects this source's enabled state.
+    const cardClass = sourceEnabled
+        ? 'border-[var(--admin-success-border)] bg-[var(--admin-success-bg)]'
+        : mod.status === 'errored' || mod.status === 'incompatible'
+            ? 'border-[var(--admin-danger-border)] bg-[var(--admin-danger-bg)]'
+            : isLocal
+                ? 'border-purple-500/20 bg-purple-500/5'
+                : 'border-[var(--admin-border)] bg-[var(--admin-surface)]';
+
+    return (
+        <div className={`rounded-[24px] border p-4 transition-colors ${cardClass}`}>
+            <div className="flex items-start justify-between">
+                <div className="flex-1 min-w-0">
+                    {/* Title + badges */}
+                    <div className="flex items-center gap-2 flex-wrap">
+                        <h3 className="text-lg font-semibold text-[var(--admin-text-primary)]">
+                            {mod.title}
+                        </h3>
+                        {mod.experimental && (
+                            <span className="rounded-full border border-[var(--admin-warning-border)] bg-[var(--admin-warning-bg)] px-2 py-0.5 text-xs font-medium text-[var(--admin-warning-text)]">
+                                Experimental
+                            </span>
+                        )}
+                        {/* Source badge */}
+                        {isLocal && (
+                            <span className="rounded-full border border-purple-500/30 bg-purple-500/10 px-2 py-0.5 text-xs font-medium text-purple-400">
+                                Local Dev
+                            </span>
+                        )}
+                        {isData && mod.artifact?.version && (
+                            <span className="rounded-full border border-[var(--admin-border)] bg-[var(--admin-surface)] px-2 py-0.5 text-xs font-mono text-[var(--admin-text-muted)]">
+                                v{mod.artifact.version}
+                            </span>
+                        )}
+                        {!cardSource && mod.activeSource === 'local' && (
+                            <span className="rounded-full border border-purple-500/30 bg-purple-500/10 px-2 py-0.5 text-xs font-medium text-purple-400">Local Dev</span>
+                        )}
+                        {!cardSource && !mod.managed && (
+                            <span className="rounded-full border border-blue-500/30 bg-blue-500/10 px-2 py-0.5 text-xs font-medium text-blue-400">System</span>
+                        )}
+                    </div>
+
+                    {/* Module ID + status */}
+                    <div className="mt-1 flex items-center gap-3 text-sm text-[var(--admin-text-secondary)]">
+                        <span className="font-mono text-xs">{mod.moduleId}</span>
+                        <span className="flex items-center gap-1.5">
+                            <span className={`inline-block h-2 w-2 rounded-full ${getStatusColor(sourceEnabled ? 'enabled' : mod.status)}`} />
+                            {sourceEnabled ? 'Enabled' : getStatusLabel(mod.status)}
+                        </span>
+                    </div>
+
+                    {/* Health */}
+                    {mod.health && mod.health.errorCount > 0 && (
+                        <div className="mt-1 flex items-center gap-1 text-xs text-[var(--admin-danger-text)]">
+                            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                            </svg>
+                            <span>{mod.health.errorCount} error{mod.health.errorCount !== 1 ? 's' : ''}</span>
+                        </div>
+                    )}
+                </div>
+
+                {/* Action buttons */}
+                <div className="ml-4 flex flex-col items-end gap-1">
+                    <div className="flex items-center gap-2">
+                        <button
+                            onClick={onToggleExpand}
+                            className="rounded-2xl border border-[var(--admin-border)] bg-[var(--admin-surface)] px-3 py-2 text-sm text-[var(--admin-text-secondary)] transition hover:bg-[var(--admin-surface-hover)]"
+                        >
+                            {expanded ? 'Hide' : 'Details'}
+                        </button>
+
+                        <button
+                            onClick={onToggle}
+                            disabled={operationInProgress || blockedByOther}
+                            title={blockedByOther
+                                ? `Disable the ${isLocal ? 'Managed' : 'Local Dev'} version first`
+                                : undefined}
+                            className={`whitespace-nowrap rounded-2xl px-4 py-2 font-semibold transition ${
+                                sourceEnabled
+                                    ? 'bg-[var(--admin-danger-button)] text-white hover:bg-[var(--admin-danger-button-strong)] disabled:bg-[var(--admin-danger-button-soft)]'
+                                    : blockedByOther
+                                        ? 'cursor-not-allowed border border-[var(--admin-border)] bg-[var(--admin-surface)] text-[var(--admin-text-muted)] opacity-50'
+                                        : 'bg-[var(--admin-success)] text-white hover:bg-[var(--admin-success-strong)] disabled:bg-[var(--admin-success-soft)]'
+                            }`}
+                        >
+                            {operationInProgress ? 'Processing…' : sourceEnabled ? 'Disable' : 'Enable'}
+                        </button>
+                    </div>
+
+                    {/* Conflict hint */}
+                    {blockedByOther && (
+                        <span className="text-xs text-[var(--admin-text-muted)]">
+                            {isLocal ? 'Managed' : 'Local Dev'} is enabled — disable it first
+                        </span>
+                    )}
+                </div>
+            </div>
+
+            {/* Expandable detail panel */}
+            {expanded && (
+                <ModuleDetailPanel
+                    module={mod}
+                    cardSource={cardSource}
+                    onOperationComplete={onOperationComplete}
+                    onSessionExpired={onSessionExpired}
+                    onRestartRequired={onRestartRequired}
+                />
+            )}
         </div>
     );
 }

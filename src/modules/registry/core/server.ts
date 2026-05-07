@@ -569,19 +569,36 @@ export function switchModuleSource(moduleId: string, source: 'local' | 'data'): 
     return { success: true };
 }
 
-export function disableModule(moduleId: string, reason = 'Module disabled by operator'): boolean {
+/**
+ * Disables a module. When `source` is supplied the operation targets that
+ * source specifically:
+ *   - If source === activeSource: disable the active install normally.
+ *   - If source !== activeSource: only update the persisted per-source flag;
+ *     the currently active source is unaffected (no switch required).
+ */
+export function disableModule(moduleId: string, reason = 'Module disabled by operator', source?: 'local' | 'data'): boolean {
     if (!isInitialized()) initializeRegistry();
     const id = moduleId.toLowerCase();
 
     const record = getLifecycleRecord(id);
     if (!record) return false;
 
+    const targetSource = source ?? record.activeSource;
+
+    if (targetSource !== record.activeSource) {
+        // Targeting the dormant source — just update its persisted flag.
+        if (targetSource === 'local') record.localEnabled   = false;
+        else                          record.managedEnabled = false;
+        record.updatedAt = Date.now();
+        saveLifecycleStore(lifecycleStore, getLifecycleStateFilePathOverride());
+        return true;
+    }
+
     record.enabled = false;
     record.status  = 'disabled';
     record.reason  = reason;
     record.updatedAt = Date.now();
 
-    // Persist to per-source field so switching preserves this decision
     if (record.activeSource === 'local') record.localEnabled   = false;
     else                                 record.managedEnabled = false;
 
@@ -590,11 +607,24 @@ export function disableModule(moduleId: string, reason = 'Module disabled by ope
     return true;
 }
 
-export function enableModule(moduleId: string): boolean {
+/**
+ * Enables a module. When `source` is supplied and it differs from the current
+ * activeSource the module is switched to that source first, then enabled.
+ * This makes "Enable Local Dev" and "Enable Managed" single atomic operations
+ * from the operator's perspective.
+ */
+export function enableModule(moduleId: string, source?: 'local' | 'data'): boolean {
     if (!isInitialized()) initializeRegistry();
     const id = moduleId.toLowerCase();
     const record = getLifecycleRecord(id);
     if (!record) return false;
+
+    // If the operator is targeting a source that isn't currently active, switch
+    // to it first. switchModuleSource handles the per-source state bookkeeping.
+    if (source && source !== record.activeSource) {
+        const switchResult = switchModuleSource(id, source);
+        if (!switchResult.success) return false;
+    }
 
     if (record.validation && (!record.validation.manifestValid || !record.validation.compatible)) {
         record.enabled = false;
@@ -612,7 +642,6 @@ export function enableModule(moduleId: string): boolean {
     record.reason  = undefined;
     record.updatedAt = Date.now();
 
-    // Persist to per-source field so switching preserves this decision
     if (record.activeSource === 'local') record.localEnabled   = true;
     else                                 record.managedEnabled = true;
 

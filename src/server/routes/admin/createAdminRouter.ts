@@ -444,7 +444,8 @@ export function createAdminRouter(deps: AdminRouterDeps) {
                     });
                 }
 
-                const success = enableModule(moduleId);
+                const source = req.body?.source as 'local' | 'data' | undefined;
+                const success = enableModule(moduleId, source);
                 if (!success) {
                     return res.status(400).json({
                         success: false,
@@ -495,7 +496,8 @@ export function createAdminRouter(deps: AdminRouterDeps) {
                     });
                 }
 
-                const success = disableModule(moduleId, reason);
+                const source = req.body?.source as 'local' | 'data' | undefined;
+                const success = disableModule(moduleId, reason, source);
                 if (!success) {
                     return res.status(400).json({
                         success: false,

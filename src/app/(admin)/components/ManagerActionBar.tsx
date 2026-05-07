@@ -20,6 +20,8 @@ import DryRunPreview from './DryRunPreview';
 
 interface ManagerActionBarProps {
     module: ModuleLifecycleInfo;
+    /** Which source this bar belongs to (set by the split-card layout). */
+    cardSource?: 'local' | 'data';
     /** Callback after a successful operation — parent should refresh module list. */
     onOperationComplete: () => void;
     /** Callback when session expires — parent should redirect to login. */
@@ -28,10 +30,27 @@ interface ManagerActionBarProps {
     onRestartRequired?: (operation?: string) => void;
 }
 
-/** Determines which manager actions are available based on lifecycle status. */
-function getAvailableActions(status: string, managed: boolean): Array<'install' | 'uninstall' | 'upgrade' | 'validate'> {
-    // Manager operations (install, upgrade, uninstall, validate) are restricted to managed modules
+/** Determines which manager actions are available based on lifecycle status and card context. */
+function getAvailableActions(
+    status: string,
+    managed: boolean,
+    activeSource?: string,
+    localDirectory?: string,
+    cardSource?: string,
+): Array<'install' | 'uninstall' | 'upgrade' | 'validate'> {
+    // Manager operations only apply to managed installs (data/modules/).
     if (!managed) return [];
+
+    // In the split-card layout, cardSource tells us exactly which card we're on.
+    // 'data' card always shows managed operations regardless of activeSource.
+    // 'local' card never shows them (ModuleDetailPanel already hides this bar for local cards).
+    // When no cardSource (legacy single-card), fall back to the activeSource heuristic.
+    if (cardSource === 'data') {
+        // Explicit managed card — always show operations.
+    } else if (!cardSource && localDirectory && activeSource === 'local') {
+        // Single-card mode: local dev is active, hide managed operations.
+        return [];
+    }
 
     switch (status) {
         case 'discovered':
@@ -67,7 +86,7 @@ const ACTION_STYLES: Record<string, string> = {
     validate: 'border border-[var(--admin-border)] bg-[var(--admin-surface)] text-[var(--admin-text-primary)] hover:bg-[var(--admin-surface-hover)]',
 };
 
-export default function ManagerActionBar({ module, onOperationComplete, onSessionExpired, onRestartRequired }: ManagerActionBarProps) {
+export default function ManagerActionBar({ module, cardSource, onOperationComplete, onSessionExpired, onRestartRequired }: ManagerActionBarProps) {
     const [confirmAction, setConfirmAction] = useState<string | null>(null);
     const [dryRunResult, setDryRunResult] = useState<DryRunPreviewResult | null>(null);
     const [dryRunLoading, setDryRunLoading] = useState(false);
@@ -75,7 +94,7 @@ export default function ManagerActionBar({ module, onOperationComplete, onSessio
     const [error, setError] = useState<string | null>(null);
     const [escalationApproved, setEscalationApproved] = useState(false);
 
-    const actions = getAvailableActions(module.status, module.managed);
+    const actions = getAvailableActions(module.status, module.managed, module.activeSource, module.localDirectory, cardSource);
 
     if (actions.length === 0) return null;
 
