@@ -77,10 +77,9 @@ export default function AdminPage() {
         setInstalledModules(modules);
     }, []);
 
-    // Shown after install / upgrade / uninstall — those operations change adapter
-    // code on disk and require a Core Service restart to take effect.
+    // Manual restart state — no operations auto-trigger this; it can be wired to
+    // a dedicated "Restart Server" button in the future if needed.
     const [restartOperation, setRestartOperation] = useState<string | null>(null);
-    const requireRestart = useCallback((operation = 'operation') => setRestartOperation(operation), []);
 
     // ─── Loading state ─────────────────────────────────────────────
 
@@ -151,14 +150,13 @@ export default function AdminPage() {
                         <ModuleLifecycleControl
                             key={`lifecycle-${refreshKey}`}
                             onModulesLoaded={handleModulesLoaded}
-                            onRestartRequired={requireRestart}
                         />
                     </DashboardSection>
 
                     {/* Source Profiles */}
                     <DashboardSection title="Source Profiles" defaultExpanded={false}>
                         <SourceProfilePanel
-                            onModuleInstalled={() => { triggerRefresh(); requireRestart('install'); }}
+                            onModuleInstalled={triggerRefresh}
                             installedModules={installedModules}
                         />
                     </DashboardSection>

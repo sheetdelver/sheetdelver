@@ -26,26 +26,38 @@ export default function ActorPageRouter({ params }: { params: Promise<{ id: stri
     // Incrementing this key causes the resolve effect to re-run in place,
     // giving us an in-page reload of the module UI without a full navigation.
     const [resolveKey, setResolveKey] = useState(0);
-    // Stored in a ref (not state) so the socket handler always sees the latest
-    // systemId without needing to be in the effect's dependency array.
+    // resolvedSystemIdRef tracks the adapter's systemId (may be 'generic' when module is disabled).
+    // foundrySystemIdRef tracks the real Foundry game system (always e.g. 'dnd5e').
+    // Socket events carry the moduleId (game system), so we match against foundrySystemIdRef
+    // to correctly re-resolve even when the module is currently disabled and showing generic.
     const resolvedSystemIdRef = useRef<string | null>(null);
+    const foundrySystemIdRef  = useRef<string | null>(null);
 
-    // When an admin switches a module's active source (local ↔ managed) the server
-    // broadcasts 'moduleSourceChanged'. If the system currently rendered by this
-    // actor page is the one that changed, we:
-    //   1. Bust the source-map + manifest cache (invalidateModuleSourceCache).
-    //   2. Increment resolveKey, which re-runs the resolve effect below and
-    //      swaps in the component from the new source — no page refresh needed.
+    // Re-resolve the module UI whenever the server signals any change affecting
+    // this actor's system: source switch, enable/disable, install/upgrade/uninstall.
     useEffect(() => {
         if (!appSocket) return;
         const handle = ({ moduleId }: { moduleId: string }) => {
-            if (resolvedSystemIdRef.current?.toLowerCase() === moduleId.toLowerCase()) {
+            const mod = moduleId.toLowerCase();
+            // Match against both the adapter systemId AND the underlying Foundry system.
+            // The latter is critical on re-enable: the page may be showing 'generic'
+            // while foundrySystemId is still 'dnd5e', so we need the Foundry ref to match.
+            const matches =
+                resolvedSystemIdRef.current?.toLowerCase() === mod ||
+                foundrySystemIdRef.current?.toLowerCase()  === mod;
+            if (matches) {
                 invalidateModuleSourceCache();
                 setResolveKey(k => k + 1);
             }
         };
-        appSocket.on('moduleSourceChanged', handle);
-        return () => { appSocket.off('moduleSourceChanged', handle); };
+        appSocket.on('moduleSourceChanged',   handle);
+        appSocket.on('moduleStateChanged',    handle);
+        appSocket.on('moduleRegistryChanged', handle);
+        return () => {
+            appSocket.off('moduleSourceChanged',   handle);
+            appSocket.off('moduleStateChanged',    handle);
+            appSocket.off('moduleRegistryChanged', handle);
+        };
     }, [appSocket]);
 
     useEffect(() => {
@@ -75,6 +87,9 @@ export default function ActorPageRouter({ params }: { params: Promise<{ id: stri
                 }
 
                 resolvedSystemIdRef.current = systemId;
+                // Always capture the real Foundry system even when module is disabled
+                // and systemId has fallen back to 'generic'.
+                if (data.foundrySystemId) foundrySystemIdRef.current = data.foundrySystemId;
                 const manifest = await getUIModule(systemId);
                 const actorPageEntry = manifest?.actorPage;
 

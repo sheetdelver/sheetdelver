@@ -454,6 +454,8 @@ export function createAdminRouter(deps: AdminRouterDeps) {
                 }
 
                 logger.info(`[Admin] Module enabled: ${moduleId}`);
+                // Notify clients so open actor pages can re-resolve their module UI.
+                deps.broadcastToClients('moduleStateChanged', { moduleId, enabled: true });
                 res.json({
                     success: true,
                     message: `Module ${moduleId} enabled`,
@@ -506,6 +508,8 @@ export function createAdminRouter(deps: AdminRouterDeps) {
                 }
 
                 logger.info(`[Admin] Module disabled: ${moduleId} (reason: ${reason})`);
+                // Notify clients so open actor pages fall back to generic immediately.
+                deps.broadcastToClients('moduleStateChanged', { moduleId, enabled: false });
                 res.json({
                     success: true,
                     message: `Module ${moduleId} disabled`,
@@ -682,6 +686,8 @@ export function createAdminRouter(deps: AdminRouterDeps) {
                     });
                 }
 
+                // Bust client source-map cache so getUIModule picks up the new install.
+                deps.broadcastToClients('moduleRegistryChanged', { moduleId, operation: 'install' });
                 res.json({
                     success: true,
                     moduleId,
@@ -725,6 +731,7 @@ export function createAdminRouter(deps: AdminRouterDeps) {
                     });
                 }
 
+                deps.broadcastToClients('moduleRegistryChanged', { moduleId, operation: 'uninstall' });
                 res.json({
                     success: true,
                     moduleId,
@@ -784,6 +791,7 @@ export function createAdminRouter(deps: AdminRouterDeps) {
                     });
                 }
 
+                deps.broadcastToClients('moduleRegistryChanged', { moduleId, operation: 'upgrade' });
                 res.json({
                     success: true,
                     moduleId,

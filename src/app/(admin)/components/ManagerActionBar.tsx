@@ -26,8 +26,6 @@ interface ManagerActionBarProps {
     onOperationComplete: () => void;
     /** Callback when session expires — parent should redirect to login. */
     onSessionExpired: () => void;
-    /** Called after install / upgrade / uninstall — signals a restart is needed. */
-    onRestartRequired?: (operation?: string) => void;
 }
 
 /** Determines which manager actions are available based on lifecycle status and card context. */
@@ -86,7 +84,7 @@ const ACTION_STYLES: Record<string, string> = {
     validate: 'border border-[var(--admin-border)] bg-[var(--admin-surface)] text-[var(--admin-text-primary)] hover:bg-[var(--admin-surface-hover)]',
 };
 
-export default function ManagerActionBar({ module, cardSource, onOperationComplete, onSessionExpired, onRestartRequired }: ManagerActionBarProps) {
+export default function ManagerActionBar({ module, cardSource, onOperationComplete, onSessionExpired }: ManagerActionBarProps) {
     const [confirmAction, setConfirmAction] = useState<string | null>(null);
     const [dryRunResult, setDryRunResult] = useState<DryRunPreviewResult | null>(null);
     const [dryRunLoading, setDryRunLoading] = useState(false);
@@ -168,11 +166,9 @@ export default function ManagerActionBar({ module, cardSource, onOperationComple
             setConfirmAction(null);
             setDryRunResult(null);
             onOperationComplete();
-            // install / upgrade / uninstall all change code on disk — a Core
-            // Service restart is required for the new adapter to be loaded.
-            if (confirmAction !== 'validate') {
-                onRestartRequired?.(confirmAction);
-            }
+            // No restart required — install/upgrade/uninstall all call refreshRegistry()
+            // on the server, which immediately updates the in-memory adapter registry.
+            // The UI is served via GET /api/modules/:id/ui for runtime-installed modules.
         } catch (err) {
             const message = err instanceof Error ? err.message : 'Unknown error';
             logger.error(`Failed to ${confirmAction} module:`, err);

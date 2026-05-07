@@ -97,9 +97,8 @@ function buildCardEntries(modules: ModuleLifecycleInfo[]): CardEntry[] {
 
 // ─── Component ─────────────────────────────────────────────────────
 
-export default function ModuleLifecycleControl({ onModulesLoaded, onRestartRequired }: {
+export default function ModuleLifecycleControl({ onModulesLoaded }: {
     onModulesLoaded?: (modules: ModuleLifecycleInfo[]) => void;
-    onRestartRequired?: (operation?: string) => void;
 }) {
     const { token, csrfToken, logout } = useAdminAuth();
     const [modules, setModules] = useState<ModuleLifecycleInfo[]>([]);
@@ -214,7 +213,6 @@ export default function ModuleLifecycleControl({ onModulesLoaded, onRestartRequi
                             onToggleExpand={() => toggleExpanded(entry.key)}
                             onOperationComplete={loadModules}
                             onSessionExpired={logout}
-                            onRestartRequired={onRestartRequired}
                         />
                     ))
                 )}
@@ -233,12 +231,11 @@ interface ModuleCardProps {
     onToggleExpand: () => void;
     onOperationComplete: () => void;
     onSessionExpired: () => void;
-    onRestartRequired?: (operation?: string) => void;
 }
 
 function ModuleCard({
     entry, expanded, operationInProgress,
-    onToggle, onToggleExpand, onOperationComplete, onSessionExpired, onRestartRequired,
+    onToggle, onToggleExpand, onOperationComplete, onSessionExpired,
 }: ModuleCardProps) {
     const { mod, cardSource, sourceEnabled, otherSourceEnabled } = entry;
     const isLocal = cardSource === 'local';
@@ -279,10 +276,12 @@ function ModuleCard({
                                 v{mod.artifact.version}
                             </span>
                         )}
+                        {/* Single-source cards: show Local Dev when activeSource is local,
+                            System only for built-in modules that are neither local nor managed. */}
                         {!cardSource && mod.activeSource === 'local' && (
                             <span className="rounded-full border border-purple-500/30 bg-purple-500/10 px-2 py-0.5 text-xs font-medium text-purple-400">Local Dev</span>
                         )}
-                        {!cardSource && !mod.managed && (
+                        {!cardSource && !mod.managed && mod.activeSource !== 'local' && (
                             <span className="rounded-full border border-blue-500/30 bg-blue-500/10 px-2 py-0.5 text-xs font-medium text-blue-400">System</span>
                         )}
                     </div>
@@ -351,7 +350,6 @@ function ModuleCard({
                     cardSource={cardSource}
                     onOperationComplete={onOperationComplete}
                     onSessionExpired={onSessionExpired}
-                    onRestartRequired={onRestartRequired}
                 />
             )}
         </div>

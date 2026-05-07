@@ -261,7 +261,9 @@ export function FoundryProvider({ children }: { children: ReactNode }) {
         //      re-calls getUIModule() with a warm cache miss and updates the context.
         // Note: individual actor pages carry their own listener (ActorPageRouter)
         // to handle the in-page reload case independently.
-        const handleModuleSourceChanged = ({ moduleId }: { moduleId: string; source: string }) => {
+        // Shared handler for any event that invalidates the module manifest cache.
+        // Covers: source switches, enable/disable state changes, install/upgrade/uninstall.
+        const handleModuleCacheInvalidation = ({ moduleId }: { moduleId: string }) => {
             invalidateModuleSourceCache();
             if (system?.id?.toLowerCase() === moduleId?.toLowerCase()) {
                 setActiveUIModule(null);
@@ -271,13 +273,17 @@ export function FoundryProvider({ children }: { children: ReactNode }) {
         appSocket.on('systemStatus', handleSystemStatus);
         appSocket.on('sharedContentUpdate', handleSharedContentUpdate);
         appSocket.on('actorUpdate', handleActorUpdate);
-        appSocket.on('moduleSourceChanged', handleModuleSourceChanged);
+        appSocket.on('moduleSourceChanged',   handleModuleCacheInvalidation);
+        appSocket.on('moduleStateChanged',    handleModuleCacheInvalidation);
+        appSocket.on('moduleRegistryChanged', handleModuleCacheInvalidation);
 
         return () => {
             appSocket.off('systemStatus', handleSystemStatus);
             appSocket.off('sharedContentUpdate', handleSharedContentUpdate);
             appSocket.off('actorUpdate', handleActorUpdate);
-            appSocket.off('moduleSourceChanged', handleModuleSourceChanged);
+            appSocket.off('moduleSourceChanged',   handleModuleCacheInvalidation);
+            appSocket.off('moduleStateChanged',    handleModuleCacheInvalidation);
+            appSocket.off('moduleRegistryChanged', handleModuleCacheInvalidation);
         };
     }, [appSocket, step, token, system, users, appVersion, sharedContent, fetchActors, patchActorCard, resetActorCombatState, setAppVersion, setIsConfigured, setStep, setToken, setUsers, lastWorldId, isConfigured]);
 

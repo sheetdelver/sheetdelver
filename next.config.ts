@@ -55,6 +55,17 @@ const nextConfig: NextConfig = {
     config.resolve.alias['@local-modules'] = localModulesDir;
     config.resolve.alias['@data-registry'] = DATA_DIR;
     config.resolve.alias['@sheet-delver/sdk'] = path.join(process.cwd(), 'src', 'shared', 'sdk');
+
+    // Tell webpack's file watcher to ignore runtime JSON files in DATA_DIR.
+    // Without this, server writes to state.json / artifacts.json (triggered by
+    // actor loading, registry scans, etc.) are detected by the dev server and
+    // cause a full HMR page reload in every open browser tab.
+    // Source file changes (.ts/.tsx) in data/ still trigger rebuilds normally.
+    config.watchOptions = {
+        ...config.watchOptions,
+        ignored: `${DATA_DIR.replace(/\\/g, '/')}/**/*.json`,
+    };
+
     return config;
   },
   async rewrites() {

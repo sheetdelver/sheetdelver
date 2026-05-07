@@ -19,8 +19,6 @@ interface ModuleDetailPanelProps {
     onOperationComplete: () => void;
     /** Callback when session expires — parent should redirect to login. */
     onSessionExpired: () => void;
-    /** Called after install / upgrade / uninstall — signals a restart is needed. */
-    onRestartRequired?: (operation?: string) => void;
 }
 
 /** Formats a unix timestamp to a locale-friendly date string. */
@@ -29,13 +27,13 @@ function formatTimestamp(ts?: number): string {
     return new Date(ts).toLocaleString();
 }
 
-export default function ModuleDetailPanel({ module, cardSource, onOperationComplete, onSessionExpired, onRestartRequired }: ModuleDetailPanelProps) {
+export default function ModuleDetailPanel({ module, cardSource, onOperationComplete, onSessionExpired }: ModuleDetailPanelProps) {
     const { validation, artifact, health, reason } = module;
     const hasBothSources = !!module.localDirectory;
     const localIsActive = module.activeSource === 'local';
-    // When rendering as a split card, we know exactly which source this panel
-    // belongs to. The managed card always has its manager operations visible.
-    const isLocalCard = cardSource === 'local';
+    // A card is "local" if it was explicitly rendered as the local split card,
+    // OR if it's a single-source module whose only source is local dev.
+    const isLocalCard = cardSource === 'local' || (!cardSource && localIsActive && !module.managed);
 
     return (
         <div className="mt-3 space-y-4 border-t border-[var(--admin-border)] pt-4">
@@ -45,12 +43,55 @@ export default function ModuleDetailPanel({ module, cardSource, onOperationCompl
                 <>
                     <DetailSection title="Location">
                         <code className="block rounded-xl bg-[var(--admin-surface)] p-3 text-xs text-[var(--admin-text-secondary)] break-all font-mono">
-                            {module.localDirectory}
+                            {module.localDirectory ?? module.directory}
                         </code>
                     </DetailSection>
-                    <p className="text-xs text-[var(--admin-text-muted)]">
-                        Local dev source. Manager operations (upgrade, uninstall, validate) are on the Managed card.
-                    </p>
+                    {validation && (
+                        <DetailSection title="Validation">
+                            <div className="flex items-center gap-2 mb-2">
+                                <span className={`inline-block h-2 w-2 rounded-full ${validation.manifestValid ? 'bg-[var(--admin-success)]' : 'bg-[var(--admin-danger-button)]'}`} />
+                                <span className="text-sm text-[var(--admin-text-secondary)]">
+                                    Manifest: {validation.manifestValid ? 'Valid' : 'Invalid'}
+                                </span>
+                            </div>
+                            {validation.diagnostics && validation.diagnostics.length > 0 && (
+                                <div className="space-y-1">
+                                    {validation.diagnostics.map((diag, i) => (
+                                        <div key={`diag-${i}`} className={`rounded-xl px-3 py-2 text-xs ${
+                                            diag.severity === 'error' ? 'bg-[var(--admin-danger-bg)] text-[var(--admin-danger-text)]'
+                                            : diag.severity === 'warning' ? 'bg-[var(--admin-warning-bg)] text-[var(--admin-warning-text)]'
+                                            : 'bg-[var(--admin-surface)] text-[var(--admin-text-secondary)]'}`}>
+                                            <span className="font-mono font-semibold">{diag.code}</span>
+                                            <span className="ml-2">{diag.message}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </DetailSection>
+                    )}
+                    {reason && (
+                        <DetailSection title="Status Reason">
+                            <p className="text-sm text-[var(--admin-text-secondary)]">{reason}</p>
+                        </DetailSection>
+                    )}
+                    {health && health.errorCount > 0 && (
+                        <DetailSection title="Health">
+                            <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm">
+                                <DetailRow label="Error Count" value={health.errorCount.toString()} />
+                                <DetailRow label="Last Error At" value={formatTimestamp(health.lastErrorAt)} />
+                            </div>
+                            {health.lastError && (
+                                <div className="mt-2 rounded-xl bg-[var(--admin-danger-bg)] px-3 py-2 text-xs text-[var(--admin-danger-text)] font-mono">
+                                    {health.lastError}
+                                </div>
+                            )}
+                        </DetailSection>
+                    )}
+                    {hasBothSources && (
+                        <p className="text-xs text-[var(--admin-text-muted)]">
+                            Manager operations (upgrade, uninstall, validate) are on the Managed card.
+                        </p>
+                    )}
                 </>
             )}
 
@@ -144,7 +185,6 @@ export default function ModuleDetailPanel({ module, cardSource, onOperationCompl
                     cardSource={cardSource}
                     onOperationComplete={onOperationComplete}
                     onSessionExpired={onSessionExpired}
-                    onRestartRequired={onRestartRequired}
                 />
             </div>
             )}
