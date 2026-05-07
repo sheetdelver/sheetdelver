@@ -16,6 +16,15 @@ const localModulesDir = process.env.SHEET_DELVER_LOCAL_MODULES
     ? path.resolve(process.env.SHEET_DELVER_LOCAL_MODULES)
     : path.join(DATA_DIR, 'local', 'modules');
 
+// Turbopack requires project-relative paths (starting with ./) for non-wildcard
+// aliases. Absolute paths (from path.join / path.resolve) are treated as
+// server-relative URLs and rejected. Wildcard aliases (@client/*, @shared/*)
+// work fine with absolute paths because Turbopack uses them as prefix
+// substitutions, but exact aliases (@sheet-delver/sdk, @data-registry) must
+// be relative. Webpack handles absolute paths in all cases.
+const turboRelative = (absPath: string) =>
+    './' + path.relative(process.cwd(), absPath).replace(/\\/g, '/');
+
 const nextConfig: NextConfig = {
   skipTrailingSlashRedirect: true,
   turbopack: {
@@ -25,8 +34,9 @@ const nextConfig: NextConfig = {
         modulesDir,
       ],
       '@local-modules': localModulesDir,
-      // Points to the data directory — home for environment-specific generated
-      // files (module-ui-registry.ts) that depend on what is installed at runtime.
+      // Prefix alias (used as @data-registry/module-ui-registry) — absolute path
+      // works fine for prefix aliases; the "server relative" restriction only
+      // applies to exact (no sub-path) aliases like @sheet-delver/sdk below.
       '@data-registry': DATA_DIR,
       '@client': path.join(process.cwd(), 'src', 'client'),
       '@shared': path.join(process.cwd(), 'src', 'shared'),
@@ -34,9 +44,7 @@ const nextConfig: NextConfig = {
       '@core': path.join(process.cwd(), 'src', 'server', 'core'),
       '@app': path.join(process.cwd(), 'src', 'app'),
       '@': path.join(process.cwd(), 'src'),
-      // Point to the directory, not the file — Turbopack rejects file-path aliases
-      // as "server relative imports" but handles directory aliases correctly.
-      '@sheet-delver/sdk': path.join(process.cwd(), 'src', 'shared', 'sdk'),
+      '@sheet-delver/sdk': turboRelative(path.join(process.cwd(), 'src', 'shared', 'sdk')),
     }
   },
   webpack: (config, { isServer }) => {

@@ -291,6 +291,13 @@ function ensureManagedConfigs() {
         ? path.resolve(process.env.SHEET_DELVER_LOCAL_MODULES)
         : path.join(getDataDir(), 'local', 'modules');
 
+    // All tsconfig path values must be RELATIVE to managedDir (baseUrl ".").
+    // Turbopack reads these paths and resolves them relative to the tsconfig
+    // file location. Absolute paths cause Turbopack to mangle them into broken
+    // server-relative URLs (e.g. .//home/... or treating /abs as a URL).
+    const rel = (absPath: string) =>
+        path.relative(managedDir, absPath).replace(/\\/g, '/');
+
     const tsconfigPaths = {
         compilerOptions: {
             baseUrl: ".",
@@ -303,13 +310,15 @@ function ensureManagedConfigs() {
                 "@core/*": ["../src/server/core/*"],
                 "@modules/*": [
                     "../src/modules/*",
-                    path.join(getDataDir(), "modules", "*")
+                    rel(path.join(getDataDir(), "modules")) + "/*"
                 ],
                 "@local-modules/*": [
-                    path.join(localModulesDir, "*")
+                    rel(localModulesDir) + "/*"
                 ],
+                // Relative path from .managed/ to the data dir so Turbopack can
+                // resolve @data-registry/module-ui-registry without absolute paths.
                 "@data-registry/*": [
-                    path.join(getDataDir(), "*")
+                    rel(getDataDir()) + "/*"
                 ],
                 "@sheet-delver/sdk": ["../src/shared/sdk"]
             }
