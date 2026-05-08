@@ -62,7 +62,7 @@ async function packageModule() {
 
     const moduleId = process.argv[2];
     if (!moduleId) {
-        console.error('Usage: npm run package:module <moduleId>');
+        console.error('Usage: npm run module:package <moduleId>');
         process.exit(1);
     }
 

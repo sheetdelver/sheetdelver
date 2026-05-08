@@ -133,7 +133,7 @@ export class Adapter extends BaseSystemAdapter {
     }
 
     override match(actor: FoundryActor): boolean {
-        return actor.type === 'character' && !!actor.system?.systemSpecificField;
+        return actor._stats?.systemId === 'SYSTEM_ID'; // It is recommended you use the system id as that will match guaranteed
     }
 
     override async initialize(context: ModuleContext): Promise<void> {
@@ -166,7 +166,7 @@ export default Adapter;
 | `getInitiativeFormula(actor)` | Combat initiative | Returns `'1d20'` |
 | `validateUpdate(path, value)` | Real-time updates | Returns `true` |
 
-**Note on `initialize(context)`:** The platform runs discovery sync (`getDiscoveryConfig()`) before calling `initialize()`. By the time `initialize()` is called, all declared compendium packs are already hydrated in the platform cache and accessible via `context.platform.discovery`. Adapters should read from the context rather than fetching via a client during initialization.
+**Note on `initialize(context)`:** The platform runs discovery sync (`getDiscoveryConfig()`) before calling `initialize()`. By the time `initialize()` is called, all declared compendium packs, in info.json, are already hydrated in the platform cache and accessible via `context.platform.discovery`. Adapters should read from the context rather than fetching via a client during initialization.
 
 ---
 
@@ -438,7 +438,7 @@ Update `info.json` manifest entries to point to compiled output:
 Use the built-in packaging script to produce a distributable archive without touching your source tree:
 
 ```sh
-npm run package:module <moduleId>
+npm run module:package <moduleId>
 ```
 
 The script:
