@@ -62,8 +62,8 @@ function buildCardEntries(modules: ModuleLifecycleInfo[]): CardEntry[] {
     const entries: CardEntry[] = [];
 
     for (const mod of modules) {
-        if (mod.localDirectory) {
-            // Dual-source: emit local card first, then managed.
+        // Dual-source: module has both a local dev directory AND a managed installation.
+        if (mod.localDirectory && mod.managed) {
             const localEnabled  = mod.localEnabled  ?? (mod.activeSource === 'local'  ? mod.enabled : false);
             const managedEnabled = mod.managedEnabled ?? (mod.activeSource === 'data' ? mod.enabled : false);
 
@@ -82,6 +82,7 @@ function buildCardEntries(modules: ModuleLifecycleInfo[]): CardEntry[] {
                 otherSourceEnabled: localEnabled,
             });
         } else {
+            // Single-source (only local, only managed, or built-in system module)
             entries.push({
                 key: mod.moduleId,
                 mod,

@@ -50,6 +50,7 @@ During development this alias resolves to `src/shared/sdk/index.ts` via the proj
 
 ```
 my-system/
+  assets/             ← standard: CSS, images, fonts, any static files
   info.json           ← required: module metadata and manifest paths
   module/
     logic.ts          ← required: exports the Adapter class
@@ -106,6 +107,7 @@ my-system/
 | `compatibility.apiContracts` | No | SemVer range requirements against the platform SDK contracts. |
 | `discovery.packs` | No | Compendium packs to index at world-ready time. Declared packs are fully hydrated by the platform before `initialize()` is called. |
 | `trust.tier` | No | `first-party` \| `verified-third-party` \| `unverified` |
+| `package.include` | No | Extra files/dirs (relative to module root) to include in the archive beyond `assets/` and compiled JS. |
 
 ---
 
@@ -444,9 +446,28 @@ npm run module:package <moduleId>
 The script:
 1. Compiles all three entry points (`logic`, `ui`, `server`) via esbuild into an OS temp staging directory.
 2. Writes a patched `info.json` in the staging directory with manifest paths pointing to `dist/*.js`.
-3. Archives `dist/`, `info.json`, and any `LICENSE` / `README.md` files into `<moduleId>-<version>.tar.gz` in the project root.
+3. Archives `dist/`, `assets/`, `info.json`, and any `LICENSE` / `README.md` files into `<moduleId>-<version>.tar.gz` in the project root.
 
 The original source directory and its `info.json` are **never modified**. The archive is ready to be hosted on an index server or installed via a source profile.
+
+### Static Assets
+
+Static files (CSS, images, fonts) should be placed in the `assets/` directory at the module root.
+The packaging script will always include this directory automatically.
+
+For non-standard files or directories, you can declare them in `info.json`:
+```json
+"package": {
+    "include": ["data/", "templates/"]
+}
+```
+
+Module CSS should be placed in `assets/` and declared via the `stylesheet` field in the UI Manifest (`UIModuleManifest`). The platform will automatically inject it when the module mounts.
+
+To include source maps for debugging, run the packager with the `--sourcemap` flag:
+```sh
+npm run module:package <moduleId> --sourcemap
+```
 
 ---
 

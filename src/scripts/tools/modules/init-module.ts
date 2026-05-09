@@ -33,6 +33,9 @@ const MODULE_INFO_JSON = `{
     ]
   },
   "trust": { "tier": "first-party" },
+  "package": {
+    "include": []
+  },
   "aliases": ["%SYSTEM_ID%"],
   "dependencies": [],
   "conflicts": []
@@ -154,7 +157,7 @@ jobs:
 // so that @sheet-delver/sdk and module path mappings resolve correctly in both
 // the editor and during the platform build.
 const MODULE_TSCONFIG = `{
-  "extends": "../../../.managed/tsconfig.paths.json",
+  "extends": "../../../../.managed/tsconfig.paths.json",
   "compilerOptions": {
     "target": "ES2022",
     "lib": ["ES2022", "DOM"],
@@ -209,6 +212,7 @@ const uiManifest: UIModuleManifest = {
     info,
     sheet: () => import('../src/ui/Sheet'),
     actorPage: () => import('../src/ui/ActorPage'),
+    stylesheet: 'assets/styles.css',
 };
 
 export default uiManifest;
@@ -289,14 +293,23 @@ function initModule(moduleId: string, systemName: string): void {
 
   fs.mkdirSync(modulePath, { recursive: true });
 
-  // Create empty .github/workflows, module, logic, ui and server directories
+  // Create empty .github/workflows, module, logic, ui, server and assets directories
   fs.mkdirSync(path.join(modulePath, '.github', 'workflows'), { recursive: true });
+  fs.mkdirSync(path.join(modulePath, 'assets'), { recursive: true });
   fs.mkdirSync(path.join(modulePath, 'module'), { recursive: true });
   fs.mkdirSync(path.join(modulePath, 'src', 'logic'), { recursive: true });
   fs.mkdirSync(path.join(modulePath, 'src', 'ui'), { recursive: true });
   fs.mkdirSync(path.join(modulePath, 'src', 'server'), { recursive: true });
 
   console.log(`Created module directory structure at ${modulePath}`);
+
+  // Create starter stylesheet
+  fs.writeFileSync(
+      path.join(modulePath, 'assets', 'styles.css'),
+      `/* ${systemName} — module stylesheet */\n`,
+      'utf8'
+  );
+  console.log('Created assets/styles.css');
 
   // Create info.json with template content
   const infoContent = MODULE_INFO_JSON.replace(/%SYSTEM_ID%/g, moduleId).replace(/%SYSTEM_NAME%/g, systemName);

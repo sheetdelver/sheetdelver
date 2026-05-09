@@ -64,6 +64,10 @@ async function fetchActiveSources(): Promise<Record<string, string>> {
 export function invalidateModuleSourceCache() {
     activeSources = null;
     manifestCache.clear();
+
+    if (typeof document !== 'undefined') {
+        document.querySelectorAll('link[data-module]').forEach(el => el.remove());
+    }
 }
 
 /**
@@ -90,6 +94,8 @@ export async function getUIModule(systemId: string): Promise<UIModuleManifest> {
     const sources = await fetchActiveSources();
     const source = sources[id];
 
+    let manifest: UIModuleManifest = PLATFORM_DEFAULT_MANIFEST;
+
     // Dynamically import the registry — it is a generated file so we import it
     // lazily to ensure we always get the version that was built into the bundle.
     const { localModuleUIs, dataModuleUIs } = await import('@data-registry/module-ui-registry');
@@ -100,9 +106,7 @@ export async function getUIModule(systemId: string): Promise<UIModuleManifest> {
         if (loader) {
             try {
                 const m = await loader();
-                const manifest = m.default || m;
-                manifestCache.set(id, manifest);
-                return manifest;
+                manifest = m.default || m;
             } catch (e) {
                 console.warn(`[Registry] Failed to load local UI manifest for "${id}":`, e);
                 // Fall through to data loaders below.
@@ -111,15 +115,15 @@ export async function getUIModule(systemId: string): Promise<UIModuleManifest> {
     }
 
     // Managed install or built-in — use the data registry.
-    const loader = dataModuleUIs[id];
-    if (loader) {
-        try {
-            const m = await loader();
-            const manifest = m.default || m;
-            manifestCache.set(id, manifest);
-            return manifest;
-        } catch (e) {
-            console.warn(`[Registry] Failed to load data UI manifest for "${id}":`, e);
+    if (manifest === PLATFORM_DEFAULT_MANIFEST) {
+        const loader = dataModuleUIs[id];
+        if (loader) {
+            try {
+                const m = await loader();
+                manifest = m.default || m;
+            } catch (e) {
+                console.warn(`[Registry] Failed to load data UI manifest for "${id}":`, e);
+            }
         }
     }
 
@@ -127,15 +131,33 @@ export async function getUIModule(systemId: string): Promise<UIModuleManifest> {
     // Next.js build. Load via the platform API which serves the artifact with bare
     // ESM imports rewritten to window.__SD.* globals so the browser can execute it.
     // webpackIgnore tells webpack not to attempt static analysis of this import.
-    try {
-        const m = await import(/* webpackIgnore: true */ `/api/modules/${id}/ui`);
-        const manifest = m.default || m;
-        manifestCache.set(id, manifest);
-        return manifest;
-    } catch (e) {
-        console.warn(`[Registry] Failed to load runtime UI manifest for "${id}":`, e);
+    if (manifest === PLATFORM_DEFAULT_MANIFEST) {
+        try {
+            const m = await import(/* webpackIgnore: true */ `/api/modules/${id}/ui`);
+            manifest = m.default || m;
+        } catch (e) {
+            console.warn(`[Registry] Failed to load runtime UI manifest for "${id}":`, e);
+        }
     }
 
-    console.warn(`[Registry] No UI manifest found for "${id}" (source: ${source ?? 'unknown'})`);
-    return PLATFORM_DEFAULT_MANIFEST;
+    if (manifest === PLATFORM_DEFAULT_MANIFEST) {
+        console.warn(`[Registry] No UI manifest found for "${id}" (source: ${source ?? 'unknown'})`);
+    }
+
+    manifestCache.set(id, manifest);
+
+    // Inject module stylesheet if declared
+    if (manifest.stylesheet && typeof document !== 'undefined') {
+        const href = `/api/modules/${id}/assets/${manifest.stylesheet}`;
+        const existing = document.querySelector(`link[data-module="${id}"]`);
+        if (!existing) {
+            const link = document.createElement('link');
+            link.rel = 'stylesheet';
+            link.href = href;
+            link.dataset.module = id;
+            document.head.appendChild(link);
+        }
+    }
+
+    return manifest;
 }

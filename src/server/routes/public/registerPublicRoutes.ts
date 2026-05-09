@@ -192,6 +192,58 @@ export function registerPublicRoutes(appRouter: express.Router, deps: PublicRout
         }
     });
 
+    /**
+     * GET /api/modules/:id/assets/*
+     *
+     * Serves static assets for a module from its assets/ directory.
+     * Determines whether to serve from the local or managed directory
+     * based on the active source configuration.
+     * Includes path traversal protection.
+     */
+    appRouter.get('/modules/:id/assets/{*assetPath}', async (req, res) => {
+        const moduleId = String(req.params.id).toLowerCase();
+        
+        // Extract the trailing path accurately without relying on Express 0-index wildcard parameters
+        const prefix = `/modules/${moduleId}/assets/`;
+        const assetPath = req.path.slice(prefix.length);
+
+        const sources = getModuleActiveSources();
+        const source = sources[moduleId];
+
+        // Determine the base directory for this module's active source.
+        let baseDir: string | null = null;
+        if (source === 'local') {
+            const localDir = getLocalModulesDir();
+            if (localDir) baseDir = path.join(localDir, moduleId);
+        }
+        if (!baseDir) {
+            baseDir = path.join(getModulesDataDir(), moduleId);
+        }
+
+        if (!baseDir || !fs.existsSync(baseDir)) {
+            return res.status(404).json({ error: `Module "${moduleId}" not found` });
+        }
+
+        const assetsDir = path.join(baseDir, 'assets');
+        if (!fs.existsSync(assetsDir)) {
+            return res.status(404).json({ error: `No assets directory found for module "${moduleId}"` });
+        }
+
+        const fullPath = path.resolve(assetsDir, assetPath);
+
+        // Path traversal protection
+        if (!fullPath.startsWith(path.resolve(assetsDir))) {
+            return res.status(403).json({ error: 'Access denied' });
+        }
+
+        if (!fs.existsSync(fullPath)) {
+            return res.status(404).json({ error: 'Asset not found' });
+        }
+
+        res.setHeader('Cache-Control', 'public, max-age=3600');
+        res.sendFile(fullPath);
+    });
+
     appRouter.post('/login', deps.loginLimiter, async (req, res) => {
         const { username, password } = req.body;
         try {

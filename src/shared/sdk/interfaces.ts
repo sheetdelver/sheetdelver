@@ -238,6 +238,12 @@ export interface UIModuleManifest {
     tools?: Record<string, () => Promise<{ default: unknown }>>;
     dashboardTools?: () => Promise<{ default: unknown }>;
     dashboardLoading?: unknown;
+    /**
+     * Path to a CSS file relative to the module root (e.g. "assets/styles.css").
+     * The platform injects this as a <link rel="stylesheet"> when the module mounts.
+     * The file must be present in the module's assets/ directory.
+     */
+    stylesheet?: string;
 }
 
 export interface ModuleManifest extends UIModuleManifest {

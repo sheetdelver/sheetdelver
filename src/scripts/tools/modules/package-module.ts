@@ -34,10 +34,27 @@ function resolveEntry(modulePath: string, manifestEntry: string): string | null 
     return fs.existsSync(base) ? base : null;
 }
 
+/**
+ * Recursively copies a directory tree from src to dest.
+ * Creates dest if it doesn't exist.
+ */
+function copyDirRecursive(src: string, dest: string): void {
+    fs.mkdirSync(dest, { recursive: true });
+    for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+        const srcPath = path.join(src, entry.name);
+        const destPath = path.join(dest, entry.name);
+        if (entry.isDirectory()) {
+            copyDirRecursive(srcPath, destPath);
+        } else {
+            fs.copyFileSync(srcPath, destPath);
+        }
+    }
+}
+
 async function compile(
     entryFile: string,
     outFile: string,
-    options: { externals: string[]; platform: 'node' | 'browser'; jsx: boolean }
+    options: { externals: string[]; platform: 'node' | 'browser'; jsx: boolean; sourcemap: boolean }
 ): Promise<void> {
     await esbuild.build({
         entryPoints: [entryFile],
@@ -48,6 +65,7 @@ async function compile(
         platform: options.platform,
         target: 'es2022',
         jsx: options.jsx ? 'automatic' : undefined,
+        sourcemap: options.sourcemap ? 'linked' : false,
         loader: { '.json': 'json' },
         logLevel: 'warning',
     });
@@ -62,9 +80,11 @@ async function packageModule() {
 
     const moduleId = process.argv[2];
     if (!moduleId) {
-        console.error('Usage: npm run module:package <moduleId>');
+        console.error('Usage: npm run module:package <moduleId> [--sourcemap]');
         process.exit(1);
     }
+
+    const sourceMap = process.argv.includes('--sourcemap');
 
     // Locate module local dev source directory
     let modulePath = path.join(getLocalModulesDataDir(), moduleId);
@@ -109,7 +129,7 @@ async function packageModule() {
 
             process.stdout.write(`  Compiling ${key} (${path.relative(modulePath, entryFile)}) → dist/${outName} ... `);
             try {
-                await compile(entryFile, path.join(stagingDist, outName), { externals, platform, jsx });
+                await compile(entryFile, path.join(stagingDist, outName), { externals, platform, jsx, sourcemap: sourceMap });
                 compiledManifest[key] = `dist/${outName}`;
                 console.log('✓');
             } catch (err: any) {
@@ -138,6 +158,36 @@ async function packageModule() {
         for (const file of OPTIONAL_FILES) {
             const src = path.join(modulePath, file);
             if (fs.existsSync(src)) fs.copyFileSync(src, path.join(stagingDir, file));
+        }
+
+        // -----------------------------------------------------------------------
+        // Copy assets/ directory and custom package.include files
+        // -----------------------------------------------------------------------
+
+        // Auto-include the standard assets/ directory
+        const assetsDir = path.join(modulePath, 'assets');
+        if (fs.existsSync(assetsDir)) {
+            copyDirRecursive(assetsDir, path.join(stagingDir, 'assets'));
+            console.log('  Copied assets/ directory');
+        }
+
+        // Process developer-declared includes from info.json package.include
+        // Use this for files/directories outside the standard assets/ convention.
+        const includes: string[] = (info.package?.include ?? []) as string[];
+        for (const includePath of includes) {
+            const src = path.join(modulePath, includePath);
+            if (!fs.existsSync(src)) {
+                console.warn(`  ⚠ package.include path "${includePath}" not found — skipping`);
+                continue;
+            }
+            const dest = path.join(stagingDir, includePath);
+            if (fs.statSync(src).isDirectory()) {
+                copyDirRecursive(src, dest);
+            } else {
+                fs.mkdirSync(path.dirname(dest), { recursive: true });
+                fs.copyFileSync(src, dest);
+            }
+            console.log(`  Included: ${includePath}`);
         }
 
         // -----------------------------------------------------------------------
