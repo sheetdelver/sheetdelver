@@ -150,6 +150,26 @@ jobs:
         run: npm run build
 `;
 
+// tsconfig.json for the module — extends the platform's managed path aliases
+// so that @sheet-delver/sdk and module path mappings resolve correctly in both
+// the editor and during the platform build.
+const MODULE_TSCONFIG = `{
+  "extends": "../../../.managed/tsconfig.paths.json",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "resolveJsonModule": true
+  },
+  "include": ["module/**/*", "src/**/*"]
+}
+`;
+
 // Template content for logic.ts import file
 const LOGIC_TS_IMPORT = `export { %SYSTEM_ID%Adapter as Adapter } from '../src/logic/adapter';
 export { %SYSTEM_ID%Adapter } from '../src/logic/adapter';
@@ -283,6 +303,10 @@ function initModule(moduleId: string, systemName: string): void {
   fs.writeFileSync(path.join(modulePath, 'info.json'), infoContent, 'utf8');
 
   console.log(`Module "${moduleId}" initialized successfully at ${modulePath}`);
+
+  // Create tsconfig.json so the editor and build tools resolve SDK path aliases
+  fs.writeFileSync(path.join(modulePath, 'tsconfig.json'), MODULE_TSCONFIG, 'utf8');
+  console.log(`Created tsconfig.json for module "${moduleId}".`);
 
   // Create a README.md with basic instructions
   const readmeContent = MODULE_README.replace(/%SYSTEM_ID%/g, moduleId).replace(/%SYSTEM_NAME%/g, systemName);
