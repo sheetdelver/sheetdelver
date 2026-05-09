@@ -64,9 +64,15 @@ Happy developing!
 /** 
  * GitHub Actions workflow template for building and publishing the module on push to main or manual trigger
  * Checks out sheet-delver, sets up Node.js, installs dependencies, builds the module, and publishes it.
- * The %SYSTEM_ID% placeholder should be replaced with the actual system ID of the module.
- * This workflow should be saved as .github/workflows/build-and-publish-%SYSTEM_ID%.yaml in the repository.
+ * The %SYSTEM_ID% placeholder is replaced with the actual system ID of the module at init time.
+ * This workflow should be saved as .github/workflows/ci-%SYSTEM_ID%.yaml in the module repository.
  *
+ * Two-checkout strategy:
+ *   1. sheetdelver/sheet-delver → ./ (the platform with build scripts and module registry)
+ *   2. This module repo → ./data/local/modules/%SYSTEM_ID%/ (where the platform expects to find it)
+ *
+ * paths: trigger on files that actually exist in the module repo root,
+ *        NOT the platform-relative path (data/local/modules/...) which never matches.
 */
 const GITHUB_ACTIONS_WORKFLOW = `name: Build Module
 
@@ -75,12 +81,18 @@ on:
     branches:
       - main
     paths:
-      - 'data/local/modules/%SYSTEM_ID%/**'
+      - 'src/**'
+      - 'module/**'
+      - 'info.json'
+      - 'package.json'
   pull_request:
     branches:
       - main
     paths:
-      - 'data/local/modules/%SYSTEM_ID%/**'
+      - 'src/**'
+      - 'module/**'
+      - 'info.json'
+      - 'package.json'
   workflow_dispatch:
 
 jobs:
@@ -90,22 +102,25 @@ jobs:
       run:
         working-directory: ./
     steps:
+      # Checkout the Sheet Delver platform into the workspace root
       - name: Checkout Sheet Delver Repository
         uses: actions/checkout@v3
         with:
-            repo: sheetdelver/sheet-delver
-            path: ./
+          repository: sheetdelver/sheet-delver
+          path: ./
 
-      - name: Set up Node.js
-      - name: Checkout code
+      # Checkout this module into the platform's local modules data directory
+      - name: Checkout %SYSTEM_ID% Module
         uses: actions/checkout@v3
-        working-directory: ./data/local/modules/%SYSTEM_ID%/
+        with:
+          repository: \${{ github.repository }}
+          path: ./data/local/modules/%SYSTEM_ID%
 
       - name: Set up Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: '18'
-        
+          node-version: '22'
+
       - name: Install dependencies
         run: npm install
 
@@ -229,7 +244,7 @@ async function addCustomItemToActor(req: ModuleServerRequest, params: ModuleServ
 export const apiRoutes: ModuleServerExport['apiRoutes'] = {
     'actor/[id]/addItem': addCustomItemToActor,
 };
-`; 
+`;
 
 // ---------------------------------------------------------------------------
 // Functions
@@ -243,72 +258,72 @@ export const apiRoutes: ModuleServerExport['apiRoutes'] = {
  * @throws Error if the module directory already exists
  */
 function initModule(moduleId: string, systemName: string): void {
-    let modulePath = path.join(getLocalModulesDataDir(), moduleId);
+  let modulePath = path.join(getLocalModulesDataDir(), moduleId);
 
-    // Check if module path exists, if it does already exist, throw an error to avoid overwriting
-    if (fs.existsSync(modulePath)) {
-        throw new Error(`Module path ${modulePath} already exists. Choose a different name or remove the existing module.`);
-    }
+  // Check if module path exists, if it does already exist, throw an error to avoid overwriting
+  if (fs.existsSync(modulePath)) {
+    throw new Error(`Module path ${modulePath} already exists. Choose a different name or remove the existing module.`);
+  }
 
-    console.log(`Initializing module "${moduleId}" for system "${systemName}" at ${modulePath}...`);
+  console.log(`Initializing module "${moduleId}" for system "${systemName}" at ${modulePath}...`);
 
-    fs.mkdirSync(modulePath, { recursive: true });
+  fs.mkdirSync(modulePath, { recursive: true });
 
-    // Create empty .github/workflows, module, logic, ui and server directories
-    fs.mkdirSync(path.join(modulePath, '.github', 'workflows'), { recursive: true });
-    fs.mkdirSync(path.join(modulePath, 'module'), { recursive: true });
-    fs.mkdirSync(path.join(modulePath, 'src', 'logic'), { recursive: true });
-    fs.mkdirSync(path.join(modulePath, 'src', 'ui'), { recursive: true });
-    fs.mkdirSync(path.join(modulePath, 'src', 'server'), { recursive: true });
+  // Create empty .github/workflows, module, logic, ui and server directories
+  fs.mkdirSync(path.join(modulePath, '.github', 'workflows'), { recursive: true });
+  fs.mkdirSync(path.join(modulePath, 'module'), { recursive: true });
+  fs.mkdirSync(path.join(modulePath, 'src', 'logic'), { recursive: true });
+  fs.mkdirSync(path.join(modulePath, 'src', 'ui'), { recursive: true });
+  fs.mkdirSync(path.join(modulePath, 'src', 'server'), { recursive: true });
 
-    console.log(`Created module directory structure at ${modulePath}`);
+  console.log(`Created module directory structure at ${modulePath}`);
 
-    // Create info.json with template content
-    const infoContent = MODULE_INFO_JSON.replace(/%SYSTEM_ID%/g, moduleId).replace(/%SYSTEM_NAME%/g, systemName);
-    fs.writeFileSync(path.join(modulePath, 'info.json'), infoContent, 'utf8');
+  // Create info.json with template content
+  const infoContent = MODULE_INFO_JSON.replace(/%SYSTEM_ID%/g, moduleId).replace(/%SYSTEM_NAME%/g, systemName);
+  fs.writeFileSync(path.join(modulePath, 'info.json'), infoContent, 'utf8');
 
-    console.log(`Module "${moduleId}" initialized successfully at ${modulePath}`);
+  console.log(`Module "${moduleId}" initialized successfully at ${modulePath}`);
 
-    // Create a README.md with basic instructions
-    const readmeContent = MODULE_README.replace(/%SYSTEM_ID%/g, moduleId).replace(/%SYSTEM_NAME%/g, systemName);
-    fs.writeFileSync(path.join(modulePath, 'README.md'), readmeContent, 'utf8');
+  // Create a README.md with basic instructions
+  const readmeContent = MODULE_README.replace(/%SYSTEM_ID%/g, moduleId).replace(/%SYSTEM_NAME%/g, systemName);
+  fs.writeFileSync(path.join(modulePath, 'README.md'), readmeContent, 'utf8');
 
-    console.log(`Created README.md for module "${moduleId}" with basic instructions.`); 
+  console.log(`Created README.md for module "${moduleId}" with basic instructions.`);
 
-    // Create github workflow actions file for building and publishing the module on push to main or manual trigger
-    const workflowContent = GITHUB_ACTIONS_WORKFLOW.replace(/%SYSTEM_ID%/g, moduleId);
-    const workflowDir = path.join('.github', 'workflows');
-    fs.writeFileSync(path.join(modulePath, workflowDir, `ci-${moduleId}.yaml`), workflowContent, 'utf8');
+  // Create github workflow actions file for building and publishing the module on push to main or manual trigger
+  const workflowContent = GITHUB_ACTIONS_WORKFLOW.replace(/%SYSTEM_ID%/g, moduleId);
+  const workflowDir = path.join('.github', 'workflows');
+  fs.writeFileSync(path.join(modulePath, workflowDir, `ci-${moduleId}.yaml`), workflowContent, 'utf8');
 
-    console.log(`Created GitHub Actions workflow for module "${moduleId}" at ${path.join(modulePath, workflowDir, `ci-${moduleId}.yaml`)}`);
+  console.log(`Created GitHub Actions workflow for module "${moduleId}" at ${path.join(modulePath, workflowDir, `ci-${moduleId}.yaml`)}`);
 
-    console.log('Creating template files for logic, UI, and server components...');
-    // Create logic and adapter files with template content
-    const logicImportContent = LOGIC_TS_IMPORT.replace(/%SYSTEM_ID%/g, moduleId.toUpperCase());
-    fs.writeFileSync(path.join(modulePath, 'module', 'logic.ts'), logicImportContent, 'utf8');
-    console.log('Created logic import file with template content at ' + path.join(modulePath, 'module', 'logic.ts'));
-    const logicContent = LOGIC_TS.replace(/%SYSTEM_ID%/g, moduleId.toUpperCase());
-    fs.writeFileSync(path.join(modulePath, 'src', 'logic', 'adapter.ts'), logicContent, 'utf8');
-    console.log('Created logic files with template content at ' + path.join(modulePath, 'src', 'logic', 'adapter.ts'));
+  console.log('Creating template files for logic, UI, and server components...');
+  // Create logic and adapter files with template content
+  const logicImportContent = LOGIC_TS_IMPORT.replace(/%SYSTEM_ID%/g, moduleId.toUpperCase());
+  fs.writeFileSync(path.join(modulePath, 'module', 'logic.ts'), logicImportContent, 'utf8');
+  console.log('Created logic import file with template content at ' + path.join(modulePath, 'module', 'logic.ts'));
+  const logicContent = LOGIC_TS.replace(/%SYSTEM_ID%/g, moduleId.toUpperCase());
+  fs.writeFileSync(path.join(modulePath, 'src', 'logic', 'adapter.ts'), logicContent, 'utf8');
+  console.log('Created logic files with template content at ' + path.join(modulePath, 'src', 'logic', 'adapter.ts'));
 
-    // Create UI files with template content
-    const uiContent = UI_TSX.replace(/%SYSTEM_ID%/g, moduleId.toUpperCase());
-    fs.writeFileSync(path.join(modulePath, 'module', 'ui.tsx'), uiContent, 'utf8');
-    console.log('Created UI import file with template content at ' + path.join(modulePath, 'module', 'ui.tsx'));
-    fs.writeFileSync(path.join(modulePath, 'src', 'ui', 'Sheet.tsx'), UI_SHEET_TSX, 'utf8');
-    console.log('Created UI Sheet component file with template content at ' + path.join(modulePath, 'src', 'ui', 'Sheet.tsx'));
-    fs.writeFileSync(path.join(modulePath, 'src', 'ui', 'ActorPage.tsx'), UI_ACTOR_PAGE_TSX, 'utf8');
-    console.log('Created UI ActorPage component file with template content at ' + path.join(modulePath, 'src', 'ui', 'ActorPage.tsx'));
+  // Create UI files with template content
+  const uiContent = UI_TSX.replace(/%SYSTEM_ID%/g, moduleId.toUpperCase());
+  fs.writeFileSync(path.join(modulePath, 'module', 'ui.tsx'), uiContent, 'utf8');
+  console.log('Created UI import file with template content at ' + path.join(modulePath, 'module', 'ui.tsx'));
+  fs.writeFileSync(path.join(modulePath, 'src', 'ui', 'Sheet.tsx'), UI_SHEET_TSX, 'utf8');
+  console.log('Created UI Sheet component file with template content at ' + path.join(modulePath, 'src', 'ui', 'Sheet.tsx'));
+  fs.writeFileSync(path.join(modulePath, 'src', 'ui', 'ActorPage.tsx'), UI_ACTOR_PAGE_TSX, 'utf8');
+  console.log('Created UI ActorPage component file with template content at ' + path.join(modulePath, 'src', 'ui', 'ActorPage.tsx'));
 
-    // Create server files with template content
-    const serverImportContent = SERVER_TS_IMPORT.replace(/%SYSTEM_ID%/g, moduleId.toUpperCase());
-    fs.writeFileSync(path.join(modulePath, 'module', 'server.ts'), serverImportContent, 'utf8');
-    console.log('Created server import file with template content at ' + path.join(modulePath, 'module', 'server.ts'));
-    const serverContent = SERVER_TS.replace(/%SYSTEM_ID%/g, moduleId.toUpperCase());
-    fs.writeFileSync(path.join(modulePath, 'src', 'server', 'server.ts'), serverContent, 'utf8');
-    console.log('Created server files with template content at ' + path.join(modulePath, 'src', 'server', 'server.ts'));
+  // Create server files with template content
+  const serverImportContent = SERVER_TS_IMPORT.replace(/%SYSTEM_ID%/g, moduleId.toUpperCase());
+  fs.writeFileSync(path.join(modulePath, 'module', 'server.ts'), serverImportContent, 'utf8');
+  console.log('Created server import file with template content at ' + path.join(modulePath, 'module', 'server.ts'));
+  const serverContent = SERVER_TS.replace(/%SYSTEM_ID%/g, moduleId.toUpperCase());
+  fs.writeFileSync(path.join(modulePath, 'src', 'server', 'server.ts'), serverContent, 'utf8');
+  console.log('Created server files with template content at ' + path.join(modulePath, 'src', 'server', 'server.ts'));
 
-    console.log(`Module "${moduleId}" initialized with template files for logic, UI, and server.`);
+  console.log(`Module "${moduleId}" initialized with template files for logic, UI, and server.`);
 }
 
 
@@ -317,28 +332,28 @@ function initModule(moduleId: string, systemName: string): void {
 // ---------------------------------------------------------------------------
 
 if (import.meta.main) {
-    const moduleId = process.argv[2];
-    const systemName = process.argv[3] || moduleId;
-    if (!moduleId || !systemName) {
-        console.error('Usage: npm run module:init <moduleId> <systemName> [--data-dir <path-to-data-dir>]');
-        process.exit(1);
-    }
+  const moduleId = process.argv[2];
+  const systemName = process.argv[3] || moduleId;
+  if (!moduleId || !systemName) {
+    console.error('Usage: npm run module:init <moduleId> <systemName> [--data-dir <path-to-data-dir>]');
+    process.exit(1);
+  }
 
-    // Data directory
-    resolveDataDir(); // Ensure data directory is resolved and initialized before proceeding
+  // Data directory
+  resolveDataDir(); // Ensure data directory is resolved and initialized before proceeding
 
-    const dataDir = getDataDir();
-    console.log(`Using data directory: ${dataDir}`);
+  const dataDir = getDataDir();
+  console.log(`Using data directory: ${dataDir}`);
 
-    try {
-        initModule(moduleId, systemName);
-        console.log(`Module "${moduleId}" initialized successfully.`);
-        console.log('Next steps:');
-        console.log(`1. Implement your module's logic in data/local/modules/${moduleId}/src/logic/`);
-        console.log(`2. Build your UI components in data/local/modules/${moduleId}/src/ui/`);
-        console.log('3. Refer to the README.md for API usage and examples.');
-    } catch (error) {
-        console.error(`Error initializing module: ${(error as Error).message}`);
-        process.exit(1);
-    }
+  try {
+    initModule(moduleId, systemName);
+    console.log(`Module "${moduleId}" initialized successfully.`);
+    console.log('Next steps:');
+    console.log(`1. Implement your module's logic in data/local/modules/${moduleId}/src/logic/`);
+    console.log(`2. Build your UI components in data/local/modules/${moduleId}/src/ui/`);
+    console.log('3. Refer to the README.md for API usage and examples.');
+  } catch (error) {
+    console.error(`Error initializing module: ${(error as Error).message}`);
+    process.exit(1);
+  }
 }
