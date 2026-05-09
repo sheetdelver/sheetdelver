@@ -109,8 +109,30 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Generate config
+        run: |
+          cat > settings.yaml << EOF
+          app:
+              host: localhost
+              port: 3000
+              api-port: 3001
+              protocol: http
+              chat-history: 100
+          foundry:
+              host: localhost
+              port: 30000
+              protocol: http
+              connector: socket
+              username: gamemaster
+              password: gamemaster
+              foundryDataDirectory: foundryData
+          debug:
+              enabled: true
+              level: 3
+          EOF
+
       - name: Build module
-        run: npm run build:module -- %SYSTEM_ID%
+        run: npm run build
 `;
 
 // Template content for logic.ts import file

@@ -125,11 +125,19 @@ async function start() {
 
     // 1. Start Core Service
     logger.info(`[Manager] Launching Core Service (Express) on port ${apiPort}...`);
-    // npx tsx src/server/index.ts
     // We pass the API_PORT via env var as usual, but specific naming might be needed depending on server/index.ts
     // server/index.ts reads config.app.apiPort mostly, but falls back to env.PORT or env.API_PORT
+    //
+    // In dev, use `tsx watch` so a source change anywhere under src/ (or the
+    // referenced module dirs) reloads the entire Core process. This clears
+    // Node's ESM cache wholesale and avoids the "transitive import stays
+    // cached" footgun in the registry's per-file mtime cache-bust. In any
+    // non-dev command (start, build) we stick with a single-shot tsx run.
+    const coreArgs = command === 'dev'
+        ? ['-y', 'tsx', 'watch', 'src/server/index.ts']
+        : ['-y', 'tsx', 'src/server/index.ts'];
 
-    coreProcess = spawn('npx', ['-y', 'tsx', 'src/server/index.ts'], {
+    coreProcess = spawn('npx', coreArgs, {
         stdio: 'inherit',
         env: { ...process.env, PORT: apiPort.toString(), API_PORT: apiPort.toString(), SHEET_DELVER_DATA: getDataDir() }
     });

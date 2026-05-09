@@ -309,6 +309,14 @@ export function initializeRegistry() {
 
         pluginMap.clear();
 
+        // Pass 1 collects every candidate plugin keyed by id+source. Pass 2
+        // (further down) picks the active plugin per id according to the
+        // lifecycle record's `activeSource` (so that flipping a module from
+        // its data install to its local dev copy in the admin UI actually
+        // takes effect on the next refreshRegistry()).
+        type SourceTag = 'built-in' | 'data' | 'local';
+        const candidates = new Map<string, Map<SourceTag, SystemPlugin>>();
+
         for (const scanDir of scanDirs) {
             const modulesDir = scanDir.path;
             if (!fs.existsSync(modulesDir)) {
@@ -424,38 +432,22 @@ export function initializeRegistry() {
 
                     const primaryId = info.id.toLowerCase();
 
-                    // When a local dev module has the same ID as an already-registered data/built-in module:
-                    // record the local path in the lifecycle record so the user can switch between them,
-                    // but leave the active plugin (pluginMap) pointing at the higher-priority source.
-                    const existingPlugin = pluginMap.get(primaryId);
-                    if (existingPlugin && scanDir.source === 'local') {
-                        const existingRecord = lifecycleStore.modules[primaryId];
-                        if (existingRecord) {
-                            existingRecord.localDirectory = modulePath;
-                            if (!existingRecord.activeSource) existingRecord.activeSource = existingPlugin.source === 'data' ? 'data' : 'local';
-                            logger.info(`Registry | Local dev module "${primaryId}" found alongside ${existingPlugin.source} install — both tracked, ${existingRecord.activeSource} is active`);
-                        }
-                        continue;
+                    // Stash this candidate. We keep one plugin per (id, source)
+                    // pair so that a local dev copy and a managed data install
+                    // of the same module both survive discovery; Pass 2 picks
+                    // which one populates pluginMap.
+                    if (!candidates.has(primaryId)) candidates.set(primaryId, new Map());
+                    candidates.get(primaryId)!.set(scanDir.source, plugin);
+
+                    // Track the local directory on the lifecycle record so the
+                    // admin UI can offer a "switch source" option even when
+                    // the active plugin is currently the data version.
+                    if (scanDir.source === 'local') {
+                        const rec = lifecycleStore.modules[primaryId];
+                        if (rec) rec.localDirectory = modulePath;
                     }
 
-                    pluginMap.set(primaryId, plugin);
-                    const existingLifecycle = lifecycleStore.modules[primaryId];
-                    const enabled = existingLifecycle ? existingLifecycle.enabled : true;
-                    applyLifecycleClassification(lifecycleStore, primaryId, {
-                        status: enabled ? 'validated' : 'disabled',
-                        enabled,
-                        reason: enabled ? undefined : 'Module disabled in persisted lifecycle state',
-                        activeSource: existingLifecycle?.activeSource ?? (scanDir.source === 'local' ? 'local' : scanDir.source === 'data' ? 'data' : undefined),
-                        manifestValid: true,
-                        compatible: true,
-                        coreVersion,
-                        requiredCoreVersion: compatibility.requiredCoreVersion,
-                        requiredApiContracts: compatibility.requiredApiContracts,
-                        providedApiContracts: compatibility.providedApiContracts,
-                        coreDiagnostics: compatibility.coreDiagnostics,
-                        contractDiagnostics: compatibility.contractDiagnostics,
-                    });
-                    logger.info(`Registry [PID:${process.pid}] | Discovered module: ${info.title} (${primaryId})`);
+                    logger.info(`Registry [PID:${process.pid}] | Discovered ${scanDir.source} module: ${info.title} (${primaryId})`);
                     if (info.experimental) {
                         logger.warn(`Registry [PID:${process.pid}] | Experimental module hidden from public registry: ${info.title} (${primaryId})`);
                     }
@@ -463,6 +455,56 @@ export function initializeRegistry() {
                     logger.error(`Registry | Failed to parse manifest for "${entry.name}" in ${scanDir.source}:`, err);
                 }
             }
+        }
+
+        // Pass 2 — pick the active plugin per id.
+        //
+        // Selection priority:
+        //   1. The lifecycle record's `activeSource`, if it points at a
+        //      candidate that actually exists. This is what makes
+        //      `setActiveSource('local')` followed by `refreshRegistry()`
+        //      actually swap the loaded plugin.
+        //   2. Otherwise, fall back to the discovery priority order
+        //      (built-in > data > local), matching the previous behavior
+        //      for fresh installs.
+        for (const [id, sources] of candidates) {
+            const rec = lifecycleStore.modules[id];
+            const preferred = rec?.activeSource as SourceTag | undefined;
+
+            const chosen =
+                (preferred && sources.get(preferred)) ??
+                sources.get('built-in') ??
+                sources.get('data') ??
+                sources.get('local');
+
+            if (!chosen) continue;
+            pluginMap.set(id, chosen);
+
+            // Reflect the chosen source back so that boot-time discovery and
+            // the lifecycle record stay in sync (handy for first-boot when
+            // activeSource was previously unset).
+            if (rec) {
+                if (!rec.activeSource) rec.activeSource = chosen.source as 'data' | 'local';
+                rec.directory = chosen.directory;
+            }
+
+            const existingLifecycle = lifecycleStore.modules[id];
+            const enabled = existingLifecycle ? existingLifecycle.enabled : true;
+            const compat = evaluateModuleCompatibility(chosen.info, coreVersion);
+            applyLifecycleClassification(lifecycleStore, id, {
+                status: enabled ? 'validated' : 'disabled',
+                enabled,
+                reason: enabled ? undefined : 'Module disabled in persisted lifecycle state',
+                activeSource: existingLifecycle?.activeSource ?? (chosen.source === 'local' ? 'local' : chosen.source === 'data' ? 'data' : undefined),
+                manifestValid: true,
+                compatible: true,
+                coreVersion,
+                requiredCoreVersion: compat.requiredCoreVersion,
+                requiredApiContracts: compat.requiredApiContracts,
+                providedApiContracts: compat.providedApiContracts,
+                coreDiagnostics: compat.coreDiagnostics,
+                contractDiagnostics: compat.contractDiagnostics,
+            });
         }
 
         saveLifecycleStore(lifecycleStore, stateFilePath);
