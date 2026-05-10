@@ -12,7 +12,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { logger } from '@shared/utils/logger';
-import { ModuleSourceCategory } from '@shared/types/modules';
+import { ModuleSourceCategory, ModuleLifecycleStatus, ManagerAction } from '@shared/types/modules';
 import { useAdminAuth } from '../context/AdminAuthContext';
 import {
     fetchModuleLifecycle,
@@ -26,15 +26,15 @@ import ModuleDetailPanel from './ModuleDetailPanel';
 
 function getStatusColor(status: string): string {
     switch (status) {
-        case 'enabled':
-        case 'validated':    return 'bg-[var(--admin-success)]';
-        case 'disabled':
-        case 'discovered':   return 'bg-amber-400';
-        case 'errored':
-        case 'incompatible': return 'bg-[var(--admin-danger-button)]';
-        case 'upgrading':
-        case 'uninstalling': return 'bg-[var(--admin-accent)]';
-        default:             return 'bg-gray-400';
+        case ModuleLifecycleStatus.Enabled:
+        case ModuleLifecycleStatus.Validated:    return 'bg-[var(--admin-success)]';
+        case ModuleLifecycleStatus.Disabled:
+        case ModuleLifecycleStatus.Discovered:   return 'bg-amber-400';
+        case ModuleLifecycleStatus.Errored:
+        case ModuleLifecycleStatus.Incompatible: return 'bg-[var(--admin-danger-button)]';
+        case ModuleLifecycleStatus.Upgrading:
+        case ModuleLifecycleStatus.Uninstalling: return 'bg-[var(--admin-accent)]';
+        default:                                 return 'bg-gray-400';
     }
 }
 
@@ -155,7 +155,7 @@ export default function ModuleLifecycleControl({ onModulesLoaded }: {
         try {
             setOperationInProgress(entry.key);
             setError(null);
-            const action = entry.sourceEnabled ? 'disable' : 'enable';
+            const action = entry.sourceEnabled ? ManagerAction.Disable : ManagerAction.Enable;
             const body: Record<string, unknown> = { reason: `Module ${action}d by admin via UI` };
             if (entry.cardSource) body.source = entry.cardSource;
 
@@ -164,7 +164,7 @@ export default function ModuleLifecycleControl({ onModulesLoaded }: {
             if (!result.ok) throw new Error(result.error || `Failed to ${action} module`);
 
             // Switching source implicitly when enabling a non-active source — bust UI cache.
-            if (action === 'enable' && entry.cardSource && entry.cardSource !== entry.mod.activeSource) {
+            if (action === ManagerAction.Enable && entry.cardSource && entry.cardSource !== entry.mod.activeSource) {
                 invalidateModuleSourceCache();
             }
             await loadModules();
@@ -266,7 +266,7 @@ function ModuleCard({
     // Card border/background reflects this source's enabled state.
     const cardClass = sourceEnabled
         ? 'border-[var(--admin-success-border)] bg-[var(--admin-success-bg)]'
-        : status === 'errored' || status === 'incompatible'
+        : status === ModuleLifecycleStatus.Errored || status === ModuleLifecycleStatus.Incompatible
             ? 'border-[var(--admin-danger-border)] bg-[var(--admin-danger-bg)]'
             : isLocal
                 ? 'border-purple-500/20 bg-purple-500/5'
