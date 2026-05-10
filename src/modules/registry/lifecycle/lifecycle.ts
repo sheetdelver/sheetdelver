@@ -1,26 +1,39 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { getModulesDataDir } from '@core/paths';
+import { ModuleLifecycleStatus } from '@shared/types/modules';
 import type { ModuleContractDiagnostic, ModuleCoreConstraintDiagnostic } from './compatibilityResolver';
 
-export type ModuleLifecycleStatus =
-    | 'discovered'
-    | 'installed'
-    | 'validated'
-    | 'enabled'
-    | 'disabled'
-    | 'incompatible'
-    | 'errored'
-    | 'upgrading'
-    | 'uninstalling'
-    | 'removed';
+export type { ModuleLifecycleStatus };
+
+export interface ModuleSourceState {
+    status: ModuleLifecycleStatus;
+    enabled: boolean;
+    reason?: string;
+    validation?: {
+        manifestValid: boolean;
+        validationErrors?: string[];
+        compatible: boolean;
+        coreVersion: string;
+        requiredCoreVersion?: string;
+        requiredApiContracts?: Record<string, string>;
+        providedApiContracts?: Record<string, string>;
+        coreDiagnostics?: ModuleCoreConstraintDiagnostic[];
+        contractDiagnostics?: ModuleContractDiagnostic[];
+    };
+    health?: {
+        errorCount: number;
+        lastError: string;
+        lastErrorAt: number;
+    };
+}
 
 export interface ModuleLifecycleRecord {
     moduleId: string;
     title: string;
     directory: string;
-    /** Which source is currently active: 'data' = managed install, 'local' = dev source. */
-    activeSource?: 'data' | 'local';
+    /** Which source is currently active: ModuleSourceCategory.Managed = managed install, ModuleSourceCategory.Local = dev source. */
+    activeSource?: ModuleSourceCategory;
     /** Path to the local dev version, if one exists alongside a managed install. */
     localDirectory?: string;
     /** Persisted enabled state for each source — preserved when switching between them. */
@@ -46,6 +59,7 @@ export interface ModuleLifecycleRecord {
         lastError: string;
         lastErrorAt: number;
     };
+    sourceStates?: Partial<Record<ModuleSourceCategory, ModuleSourceState>>;
     firstSeenAt: number;
     lastSeenAt: number;
     updatedAt: number;
@@ -124,7 +138,8 @@ export interface ModuleLifecycleClassificationInput {
     providedApiContracts?: Record<string, string>;
     coreDiagnostics?: ModuleCoreConstraintDiagnostic[];
     contractDiagnostics?: ModuleContractDiagnostic[];
-    activeSource?: 'data' | 'local';
+    activeSource?: ModuleSourceCategory;
+    clearHealth?: boolean;
 }
 
 export function loadLifecycleStore(stateFilePath = getDefaultLifecycleStateFilePath()): ModuleLifecycleStore {
@@ -191,7 +206,7 @@ export function upsertDiscoveredModule(
         moduleId: discovered.moduleId,
         title: discovered.title,
         directory: discovered.directory,
-        status: 'discovered',
+        status: ModuleLifecycleStatus.Discovered,
         enabled: true,
         firstSeenAt: now,
         lastSeenAt: now,
@@ -202,21 +217,27 @@ export function upsertDiscoveredModule(
     return created;
 }
 
+import { ModuleSourceCategory } from '@shared/types/modules';
+
+export { ModuleSourceCategory };
+
 export function applyLifecycleClassification(
     store: ModuleLifecycleStore,
     moduleId: string,
+    source: ModuleSourceCategory,
     classification: ModuleLifecycleClassificationInput,
     now = Date.now()
 ): ModuleLifecycleRecord | null {
     const existing = store.modules[moduleId];
     if (!existing) return null;
 
-    const next: ModuleLifecycleRecord = {
-        ...existing,
+    const sourceStates = existing.sourceStates || {};
+    const existingSourceState = sourceStates[source] || ({} as Partial<ModuleSourceState>);
+    
+    const newSourceState: ModuleSourceState = {
         status: classification.status,
         enabled: classification.enabled,
         reason: classification.reason,
-        activeSource: classification.activeSource ?? existing.activeSource,
         validation: {
             manifestValid: classification.manifestValid,
             validationErrors: classification.validationErrors,
@@ -228,8 +249,32 @@ export function applyLifecycleClassification(
             coreDiagnostics: classification.coreDiagnostics,
             contractDiagnostics: classification.contractDiagnostics,
         },
+        health: classification.clearHealth ? undefined : existingSourceState.health
+    };
+
+    const nextSourceStates = {
+        ...sourceStates,
+        [source]: newSourceState
+    };
+
+    const next: ModuleLifecycleRecord = {
+        ...existing,
+        sourceStates: nextSourceStates,
         updatedAt: now
     };
+
+    const activeSource = classification.activeSource ?? existing.activeSource;
+    next.activeSource = activeSource;
+    
+    if (source === activeSource || source === ModuleSourceCategory.BuiltIn) {
+        next.status = classification.status;
+        next.enabled = classification.enabled;
+        next.reason = classification.reason;
+        next.validation = newSourceState.validation;
+        if (classification.clearHealth) {
+            next.health = undefined;
+        }
+    }
 
     store.modules[moduleId] = next;
     return next;
@@ -250,18 +295,38 @@ export function recordLifecycleRuntimeFailure(
     if (!existing) return null;
 
     const previousErrorCount = existing.health?.errorCount || 0;
+    const newHealth = {
+        errorCount: previousErrorCount + 1,
+        lastError: errorMessage,
+        lastErrorAt: now,
+    };
+
     const next: ModuleLifecycleRecord = {
         ...existing,
         status: 'errored',
         enabled: false,
         reason: `Runtime failure: ${errorMessage}`,
-        health: {
-            errorCount: previousErrorCount + 1,
-            lastError: errorMessage,
-            lastErrorAt: now,
-        },
+        health: newHealth,
         updatedAt: now,
     };
+
+    if (existing.activeSource) {
+        const sourceStates = next.sourceStates || {};
+        const existingSourceState = sourceStates[existing.activeSource] || {
+            status: 'errored',
+            enabled: false,
+        };
+        next.sourceStates = {
+            ...sourceStates,
+            [existing.activeSource]: {
+                ...existingSourceState,
+                status: 'errored',
+                enabled: false,
+                reason: `Runtime failure: ${errorMessage}`,
+                health: newHealth
+            }
+        };
+    }
 
     store.modules[id] = next;
     return next;

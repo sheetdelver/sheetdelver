@@ -540,7 +540,7 @@ When an admin switches a module's active source via the lifecycle panel (`Manage
 
 1. **Server** — the registry updates the active source in the lifecycle store (`state.json`) and re-scans so the logic adapter from the new source is used for all subsequent requests.
 
-2. **Broadcast** — the server emits a `moduleSourceChanged` socket event to every connected browser client: `{ moduleId: string, source: 'local' | 'data' }`.
+2. **Broadcast** — the server emits a `moduleSourceChanged` socket event to every connected browser client: `{ moduleId: string, source: ModuleSourceCategory }`.
 
 3. **Client (global)** — `FoundryContext` receives the event, calls `invalidateModuleSourceCache()` to clear the cached active-source map and manifest cache, and re-hydrates `activeUIModule` if the affected module is the currently active system.
 

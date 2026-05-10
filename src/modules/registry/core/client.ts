@@ -1,4 +1,5 @@
 import { UIModuleManifest } from './types';
+import { ModuleSourceCategory } from '@shared/types/modules';
 export * from './utils';
 import React from 'react';
 
@@ -77,9 +78,9 @@ export function invalidateModuleSourceCache() {
  * map (GET /api/registry/sources) and then looking up the module in the pre-generated
  * registry (.managed/module-ui-registry.ts).
  *
- *   'local'    → localModuleUIs[id]  (data/local/modules, TypeScript source)
- *   'data'     → dataModuleUIs[id]   (data/modules, compiled artifact)
- *   'built-in' → dataModuleUIs[id]   (falls back — no built-in UI modules currently)
+ *   ModuleSourceCategory.Local   → localModuleUIs[id]  (data/local/modules, TypeScript source)
+ *   ModuleSourceCategory.Managed → dataModuleUIs[id]   (data/modules, compiled artifact)
+ *   ModuleSourceCategory.BuiltIn → dataModuleUIs[id]   (falls back — no built-in UI modules currently)
  *
  * Falls back to PLATFORM_DEFAULT_MANIFEST when the module is not in the registry
  * or when its loader throws.
@@ -100,8 +101,9 @@ export async function getUIModule(systemId: string): Promise<UIModuleManifest> {
     // lazily to ensure we always get the version that was built into the bundle.
     const { localModuleUIs, dataModuleUIs } = await import('@data-registry/module-ui-registry');
 
+
     // Local dev source takes priority when the server has it marked active.
-    if (source === 'local') {
+    if (source === ModuleSourceCategory.Local) {
         const loader = localModuleUIs[id];
         if (loader) {
             try {
@@ -148,7 +150,8 @@ export async function getUIModule(systemId: string): Promise<UIModuleManifest> {
 
     // Inject module stylesheet if declared
     if (manifest.stylesheet && typeof document !== 'undefined') {
-        const href = `/api/modules/${id}/assets/${manifest.stylesheet}`;
+        const sheetPath = manifest.stylesheet.replace(/^\/?assets\//, '');
+        const href = `/api/modules/${id}/assets/${sheetPath}`;
         const existing = document.querySelector(`link[data-module="${id}"]`);
         if (!existing) {
             const link = document.createElement('link');

@@ -2,6 +2,7 @@ import { hasInitialize, SystemAdapter, SystemModuleInfo, SystemPlugin } from './
 export * from './utils';
 import { logger } from '@shared/utils/logger';
 import { BaseSystemAdapter } from '@shared/sdk/base';
+import { ModuleSourceCategory, ModuleSourceKind, ModuleLifecycleStatus, ManagerOutcome, ManagerAction, ArtifactVerificationStatus, ModuleTrustTier } from '@shared/types/modules';
 
 // Internal platform fallback adapter — not a discoverable plugin, cannot be disabled.
 // Used when no matching system module is found for an actor.
@@ -18,7 +19,6 @@ import {
     loadLifecycleStore,
     ModuleLifecycleClassificationInput,
     ModuleLifecycleRecord,
-    ModuleLifecycleStatus,
     ModuleLifecycleStore,
     recordLifecycleRuntimeFailure,
     saveLifecycleStore,
@@ -296,15 +296,15 @@ export function initializeRegistry() {
         const dataModulesDir = getModulesDataDir();
         const localModulesDir = getLocalModulesDir();
 
-        const scanDirs: Array<{ source: 'built-in' | 'data' | 'local'; path: string }> = [
-            { path: builtInModulesDir, source: 'built-in' },
-            { path: dataModulesDir,    source: 'data' },
+        const scanDirs: Array<{ source: ModuleSourceCategory; path: string }> = [
+            { path: builtInModulesDir, source: ModuleSourceCategory.BuiltIn },
+            { path: dataModulesDir,    source: ModuleSourceCategory.Managed },
         ];
 
         // Local dev modules — scanned and loaded but never managed by the lifecycle system.
         // Set SHEET_DELVER_LOCAL_MODULES=<path> or create a dev-modules/ directory at project root.
         if (localModulesDir) {
-            scanDirs.push({ path: localModulesDir, source: 'local' });
+            scanDirs.push({ path: localModulesDir, source: ModuleSourceCategory.Local });
         }
 
         pluginMap.clear();
@@ -314,13 +314,13 @@ export function initializeRegistry() {
         // lifecycle record's `activeSource` (so that flipping a module from
         // its data install to its local dev copy in the admin UI actually
         // takes effect on the next refreshRegistry()).
-        type SourceTag = 'built-in' | 'data' | 'local';
+        type SourceTag = ModuleSourceCategory;
         const candidates = new Map<string, Map<SourceTag, SystemPlugin>>();
 
         for (const scanDir of scanDirs) {
             const modulesDir = scanDir.path;
             if (!fs.existsSync(modulesDir)) {
-                if (scanDir.source === 'built-in') {
+                if (scanDir.source === ModuleSourceCategory.BuiltIn) {
                     logger.error(`Registry [PID:${process.pid}] | Built-in modules directory NOT FOUND at: ${modulesDir}`);
                 }
                 continue;
@@ -344,8 +344,8 @@ export function initializeRegistry() {
                         title: entry.name,
                         directory: modulePath
                     });
-                    applyLifecycleClassification(lifecycleStore, moduleId, {
-                        status: 'errored',
+                    applyLifecycleClassification(lifecycleStore, moduleId, scanDir.source, {
+                        status: ModuleLifecycleStatus.Errored,
                         enabled: false,
                         reason: 'Missing info.json manifest',
                         manifestValid: false,
@@ -386,8 +386,8 @@ export function initializeRegistry() {
                     });
 
                     if (!shapeValidation.valid) {
-                        applyLifecycleClassification(lifecycleStore, inferredId, {
-                            status: 'errored',
+                        applyLifecycleClassification(lifecycleStore, inferredId, scanDir.source, {
+                            status: ModuleLifecycleStatus.Errored,
                             enabled: false,
                             reason: shapeValidation.errors.join('; '),
                             manifestValid: false,
@@ -403,8 +403,8 @@ export function initializeRegistry() {
                     const compatibility = evaluateModuleCompatibility(info, coreVersion);
 
                     if (!compatibility.compatible) {
-                        applyLifecycleClassification(lifecycleStore, inferredId, {
-                            status: 'incompatible',
+                        applyLifecycleClassification(lifecycleStore, inferredId, scanDir.source, {
+                            status: ModuleLifecycleStatus.Incompatible,
                             enabled: false,
                             reason: compatibility.reason || 'Incompatible with current core version',
                             manifestValid: true,
@@ -442,7 +442,7 @@ export function initializeRegistry() {
                     // Track the local directory on the lifecycle record so the
                     // admin UI can offer a "switch source" option even when
                     // the active plugin is currently the data version.
-                    if (scanDir.source === 'local') {
+                    if (scanDir.source === ModuleSourceCategory.Local) {
                         const rec = lifecycleStore.modules[primaryId];
                         if (rec) rec.localDirectory = modulePath;
                     }
@@ -462,7 +462,7 @@ export function initializeRegistry() {
         // Selection priority:
         //   1. The lifecycle record's `activeSource`, if it points at a
         //      candidate that actually exists. This is what makes
-        //      `setActiveSource('local')` followed by `refreshRegistry()`
+        //      `setActiveSource(ModuleSourceCategory.Local)` followed by `refreshRegistry()`
         //      actually swap the loaded plugin.
         //   2. Otherwise, fall back to the discovery priority order
         //      (built-in > data > local), matching the previous behavior
@@ -473,9 +473,9 @@ export function initializeRegistry() {
 
             const chosen =
                 (preferred && sources.get(preferred)) ??
-                sources.get('built-in') ??
-                sources.get('data') ??
-                sources.get('local');
+                sources.get(ModuleSourceCategory.BuiltIn) ??
+                sources.get(ModuleSourceCategory.Managed) ??
+                sources.get(ModuleSourceCategory.Local);
 
             if (!chosen) continue;
             pluginMap.set(id, chosen);
@@ -484,18 +484,18 @@ export function initializeRegistry() {
             // the lifecycle record stay in sync (handy for first-boot when
             // activeSource was previously unset).
             if (rec) {
-                if (!rec.activeSource) rec.activeSource = chosen.source as 'data' | 'local';
+                if (!rec.activeSource) rec.activeSource = chosen.source as ModuleSourceCategory;
                 rec.directory = chosen.directory;
             }
 
             const existingLifecycle = lifecycleStore.modules[id];
             const enabled = existingLifecycle ? existingLifecycle.enabled : true;
             const compat = evaluateModuleCompatibility(chosen.info, coreVersion);
-            applyLifecycleClassification(lifecycleStore, id, {
-                status: enabled ? 'validated' : 'disabled',
+            applyLifecycleClassification(lifecycleStore, id, chosen.source as ModuleSourceCategory, {
+                status: enabled ? ModuleLifecycleStatus.Validated : ModuleLifecycleStatus.Disabled,
                 enabled,
                 reason: enabled ? undefined : 'Module disabled in persisted lifecycle state',
-                activeSource: existingLifecycle?.activeSource ?? (chosen.source === 'local' ? 'local' : chosen.source === 'data' ? 'data' : undefined),
+                activeSource: existingLifecycle?.activeSource ?? (chosen.source === ModuleSourceCategory.Local ? ModuleSourceCategory.Local : chosen.source === ModuleSourceCategory.Managed ? ModuleSourceCategory.Managed : undefined),
                 manifestValid: true,
                 compatible: true,
                 coreVersion,
@@ -542,7 +542,7 @@ export function listModules(options?: { includeExperimental?: boolean; includeDi
                 moduleId,
                 title: plugin.info.title,
                 directory: plugin.directory,
-                status: 'discovered',
+                status: ModuleLifecycleStatus.Discovered,
                 enabled: true,
                 firstSeenAt: 0,
                 lastSeenAt: 0,
@@ -573,30 +573,30 @@ export function listModules(options?: { includeExperimental?: boolean; includeDi
  * Only valid when both localDirectory and a managed directory exist.
  * Evicts the adapter cache and re-runs the registry scan so the new source takes effect immediately.
  */
-export function switchModuleSource(moduleId: string, source: 'local' | 'data'): { success: boolean; error?: string } {
+export function switchModuleSource(moduleId: string, source: ModuleSourceCategory): { success: boolean; error?: string } {
     if (!isInitialized()) initializeRegistry();
     const id = moduleId.toLowerCase();
     const record = getLifecycleRecord(id);
     if (!record) return { success: false, error: 'Module not found' };
 
     // Persist the current enabled state for the source we're leaving
-    if (record.activeSource === 'local') {
+    if (record.activeSource === ModuleSourceCategory.Local) {
         record.localEnabled = record.enabled;
     } else {
         record.managedEnabled = record.enabled;
     }
 
-    if (source === 'local') {
+    if (source === ModuleSourceCategory.Local) {
         if (!record.localDirectory) return { success: false, error: 'No local dev version available for this module' };
         record.directory    = record.localDirectory;
-        record.activeSource = 'local';
+        record.activeSource = ModuleSourceCategory.Local;
         // Restore the saved enabled state for local, defaulting to true on first switch
         record.enabled = record.localEnabled ?? true;
     } else {
         const managedDir = path.join(getModulesDataDir(), id);
         if (!fs.existsSync(managedDir)) return { success: false, error: 'No managed install found for this module' };
         record.directory    = managedDir;
-        record.activeSource = 'data';
+        record.activeSource = ModuleSourceCategory.Managed;
         // Restore the saved enabled state for managed, defaulting to true on first switch
         record.enabled = record.managedEnabled ?? true;
     }
@@ -618,7 +618,7 @@ export function switchModuleSource(moduleId: string, source: 'local' | 'data'): 
  *   - If source !== activeSource: only update the persisted per-source flag;
  *     the currently active source is unaffected (no switch required).
  */
-export function disableModule(moduleId: string, reason = 'Module disabled by operator', source?: 'local' | 'data'): boolean {
+export function disableModule(moduleId: string, reason = 'Module disabled by operator', source?: ModuleSourceCategory): boolean {
     if (!isInitialized()) initializeRegistry();
     const id = moduleId.toLowerCase();
 
@@ -629,7 +629,7 @@ export function disableModule(moduleId: string, reason = 'Module disabled by ope
 
     if (targetSource !== record.activeSource) {
         // Targeting the dormant source — just update its persisted flag.
-        if (targetSource === 'local') record.localEnabled   = false;
+        if (targetSource === ModuleSourceCategory.Local) record.localEnabled   = false;
         else                          record.managedEnabled = false;
         record.updatedAt = Date.now();
         saveLifecycleStore(lifecycleStore, getLifecycleStateFilePathOverride());
@@ -641,7 +641,7 @@ export function disableModule(moduleId: string, reason = 'Module disabled by ope
     record.reason  = reason;
     record.updatedAt = Date.now();
 
-    if (record.activeSource === 'local') record.localEnabled   = false;
+    if (record.activeSource === ModuleSourceCategory.Local) record.localEnabled   = false;
     else                                 record.managedEnabled = false;
 
     unloadSystemModules(id);
@@ -655,7 +655,7 @@ export function disableModule(moduleId: string, reason = 'Module disabled by ope
  * This makes "Enable Local Dev" and "Enable Managed" single atomic operations
  * from the operator's perspective.
  */
-export function enableModule(moduleId: string, source?: 'local' | 'data'): boolean {
+export function enableModule(moduleId: string, source?: ModuleSourceCategory): boolean {
     if (!isInitialized()) initializeRegistry();
     const id = moduleId.toLowerCase();
     const record = getLifecycleRecord(id);
@@ -684,7 +684,7 @@ export function enableModule(moduleId: string, source?: 'local' | 'data'): boole
     record.reason  = undefined;
     record.updatedAt = Date.now();
 
-    if (record.activeSource === 'local') record.localEnabled   = true;
+    if (record.activeSource === ModuleSourceCategory.Local) record.localEnabled   = true;
     else                                 record.managedEnabled = true;
 
     saveLifecycleStore(lifecycleStore, getLifecycleStateFilePathOverride());
@@ -768,7 +768,7 @@ function checkManifestGate(moduleId: string, effectiveInfo?: SystemModuleInfo): 
     const reason = reasons.join(' | ') || 'Manifest validation failed';
     const classification: ModuleLifecycleClassificationInput = shape.valid
         ? {
-            status: 'incompatible',
+            status: ModuleLifecycleStatus.Incompatible,
             enabled: false,
             reason: compatibility.reason || reason,
             manifestValid: true,
@@ -781,7 +781,7 @@ function checkManifestGate(moduleId: string, effectiveInfo?: SystemModuleInfo): 
             contractDiagnostics: compatibility.contractDiagnostics,
         }
         : {
-            status: 'errored',
+            status: ModuleLifecycleStatus.Errored,
             enabled: false,
             reason,
             manifestValid: false,
@@ -906,7 +906,7 @@ function buildEffectiveModuleInfo(
             id: resolvedSource.moduleId,
             title: resolvedSource.moduleId,
             version: resolvedSource.version || '0.0.0',
-            trust: resolvedSource.trustTier ? { tier: resolvedSource.trustTier } : { tier: (resolvedSource.kind === 'local' || resolvedSource.kind === 'indexed') ? 'unverified' : 'untrusted' },
+            trust: resolvedSource.trustTier ? { tier: resolvedSource.trustTier } : { tier: (resolvedSource.kind === ModuleSourceKind.Local || resolvedSource.kind === ModuleSourceKind.Indexed) ? ModuleTrustTier.Unverified : ModuleTrustTier.Untrusted },
             permissions: inputPermissions || resolvedSource.permissions,
             compatibility: resolvedSource.compatibility,
             dependencies: resolvedSource.dependencies,
@@ -989,14 +989,14 @@ function evaluateDependencyConflictImpact(
 
 function buildFailedVerificationOutcome(
     moduleId: string,
-    operation: 'install' | 'upgrade',
+    operation: typeof ManagerAction.Install | typeof ManagerAction.Upgrade,
     source: string,
     reason: string
 ): ArtifactVerificationOutcome {
     return {
         moduleId,
         operation,
-        status: 'failed',
+        status: ArtifactVerificationStatus.Failed,
         verified: false,
         reason,
         source,
@@ -1077,7 +1077,7 @@ export async function dryRunInstallManagedModule(input: InstallManagedModuleInpu
         operation: 'dry-run-install',
         moduleId: id,
         stage: 'summary',
-        outcome: blockingReasons.length === 0 ? 'allow' : 'block',
+        outcome: blockingReasons.length === 0 ? ManagerOutcome.Allow : ManagerOutcome.Block,
         sourceRef: input.source,
         resolvedSource: resolvedSource.value.source,
         details: {
@@ -1281,8 +1281,8 @@ export async function installManagedModule(input: InstallManagedModuleInput): Pr
     const existingArtifact = getArtifact(artifactStore, id);
 
     // Block install over built-in or manually-placed data/ modules.
-    // Local-dev modules (source === 'local') are superseded by managed installs.
-    if (plugin && !existingArtifact && plugin.source !== 'local') {
+    // Local-dev modules (source === ModuleSourceCategory.Local) are superseded by managed installs.
+    if (plugin && !existingArtifact && plugin.source !== ModuleSourceCategory.Local) {
         return operationFailure(
             id,
             'install',
@@ -1332,7 +1332,7 @@ export async function installManagedModule(input: InstallManagedModuleInput): Pr
             reason: gate.reason,
         });
         if (gate.classification) {
-            applyLifecycleClassification(lifecycleStore, id, gate.classification);
+            applyLifecycleClassification(lifecycleStore, id, ModuleSourceCategory.Managed, gate.classification);
             saveLifecycleStore(lifecycleStore, getLifecycleStateFilePathOverride());
         }
         return operationFailure(
@@ -1503,7 +1503,7 @@ export async function upgradeManagedModule(input: UpgradeManagedModuleInput): Pr
             reason: gate.reason,
         });
         if (gate.classification) {
-            applyLifecycleClassification(lifecycleStore, id, gate.classification);
+            applyLifecycleClassification(lifecycleStore, id, ModuleSourceCategory.Managed, gate.classification);
             saveLifecycleStore(lifecycleStore, getLifecycleStateFilePathOverride());
         }
         return operationFailure(
@@ -1665,7 +1665,7 @@ export function uninstallManagedModule(moduleId: string): ManagerOperationResult
     return result;
 }
 
-export function validateManagedModule(moduleId: string): ManagerOperationResult {
+export function validateManagedModule(moduleId: string, source?: ModuleSourceCategory): ManagerOperationResult {
     if (!isInitialized()) initializeRegistry();
 
     const id = moduleId.toLowerCase();
@@ -1674,76 +1674,36 @@ export function validateManagedModule(moduleId: string): ManagerOperationResult 
         return operationFailure(id, 'validate', 'Module record not found in lifecycle store', undefined, 'module-not-found');
     }
 
-    const plugin = pluginMap.get(id);
-    if (!plugin) {
-        if (record.validation && (!record.validation.manifestValid || !record.validation.compatible)) {
-            return operationFailure(
-                id,
-                'validate',
-                record.reason || 'Module validation failed',
-                record.status,
-                'validation-failed'
-            );
-        }
-        return operationFailure(id, 'validate', `Module ${id} not found in registry`, record.status, 'module-not-found');
+    const targetSource = source || record.activeSource || ModuleSourceCategory.Managed;
+    
+    // Clear health immediately
+    if (record.sourceStates && record.sourceStates[targetSource]) {
+        record.sourceStates[targetSource]!.health = undefined;
+    }
+    if (targetSource === record.activeSource) {
+        record.health = undefined;
     }
 
-    const previousStatus = record.status;
-    const shape = validateModuleInfoShape(plugin.info);
-    const compatibility = evaluateModuleCompatibility(plugin.info, getCoreVersion());
-
-    if (!shape.valid) {
-        applyLifecycleClassification(lifecycleStore, id, {
-            status: 'errored',
-            enabled: false,
-            reason: shape.errors.join('; '),
-            manifestValid: false,
-            validationErrors: shape.errors,
-            compatible: false,
-            coreVersion: getCoreVersion(),
-        });
-        saveLifecycleStore(lifecycleStore, getLifecycleStateFilePathOverride());
-        return operationFailure(id, 'validate', shape.errors.join('; '), previousStatus, 'validation-failed');
-    }
-
-    if (!compatibility.compatible) {
-        const reason = compatibility.reason || 'Module is incompatible with current core version';
-        applyLifecycleClassification(lifecycleStore, id, {
-            status: 'incompatible',
-            enabled: false,
-            reason,
-            manifestValid: true,
-            compatible: false,
-            coreVersion: compatibility.coreVersion,
-            requiredCoreVersion: compatibility.requiredCoreVersion,
-            requiredApiContracts: compatibility.requiredApiContracts,
-            providedApiContracts: compatibility.providedApiContracts,
-            coreDiagnostics: compatibility.coreDiagnostics,
-            contractDiagnostics: compatibility.contractDiagnostics,
-        });
-        saveLifecycleStore(lifecycleStore, getLifecycleStateFilePathOverride());
-        return operationFailure(id, 'validate', reason, previousStatus, 'validation-failed');
-    }
-
-    const current = lifecycleStore.modules[id];
-    const enabled = current?.enabled ?? false;
-    const nextStatus: ModuleLifecycleStatus = enabled ? 'validated' : 'disabled';
-    applyLifecycleClassification(lifecycleStore, id, {
-        status: nextStatus,
-        enabled,
-        reason: undefined,
-        manifestValid: true,
-        compatible: true,
-        coreVersion: compatibility.coreVersion,
-        requiredCoreVersion: compatibility.requiredCoreVersion,
-        requiredApiContracts: compatibility.requiredApiContracts,
-        providedApiContracts: compatibility.providedApiContracts,
-        coreDiagnostics: compatibility.coreDiagnostics,
-        contractDiagnostics: compatibility.contractDiagnostics,
-    });
     saveLifecycleStore(lifecycleStore, getLifecycleStateFilePathOverride());
+    
+    // Force a registry refresh which will automatically re-evaluate all sources,
+    // picking up the cleared health and checking the manifest.
+    refreshRegistry();
 
-    return operationSuccess(id, 'validate', previousStatus, nextStatus);
+    const updatedRecord = getLifecycleRecord(id);
+    const sourceState = updatedRecord?.sourceStates?.[targetSource] || updatedRecord;
+
+    if (!sourceState || sourceState.status === 'errored' || sourceState.status === 'incompatible') {
+        return operationFailure(
+            id,
+            'validate',
+            sourceState?.reason || 'Module validation failed',
+            sourceState?.status,
+            'validation-failed'
+        );
+    }
+
+    return operationSuccess(id, 'validate', record.status, sourceState.status);
 }
 
 export function __resetRegistryForTests() {
@@ -1896,17 +1856,17 @@ export function getRegisteredModules(options?: { includeExperimental?: boolean }
 
 /**
  * Returns a map of moduleId → activeSource for all discovered modules.
- * 'local' means the dev source in data/local/modules is active;
- * 'data' means the managed install in data/modules is active;
- * 'built-in' means the module lives in <DATA_DIR>/modules.
+ * ModuleSourceCategory.Local means the dev source in data/local/modules is active;
+ * ModuleSourceCategory.Managed means the managed install in data/modules is active;
+ * ModuleSourceCategory.BuiltIn means the module lives in <DATA_DIR>/modules.
  * Used by the client's getUIModule to pick the correct import alias.
  */
-export function getModuleActiveSources(): Record<string, 'local' | 'data' | 'built-in'> {
-    const result: Record<string, 'local' | 'data' | 'built-in'> = {};
+export function getModuleActiveSources(): Record<string, ModuleSourceCategory> {
+    const result: Record<string, ModuleSourceCategory> = {};
     for (const [id, plugin] of pluginMap.entries()) {
         const record = lifecycleStore.modules[id];
         const activeSource = record?.activeSource ?? plugin.source;
-        if (activeSource === 'local' || activeSource === 'data' || activeSource === 'built-in') {
+        if (activeSource === ModuleSourceCategory.Local || activeSource === ModuleSourceCategory.Managed || activeSource === ModuleSourceCategory.BuiltIn) {
             result[id] = activeSource;
         }
     }

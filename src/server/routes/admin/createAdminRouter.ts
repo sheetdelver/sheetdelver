@@ -5,6 +5,7 @@ import { requireLocalhost } from '@server/security/policies';
 import { requireAdminAuth, auditAdminAction } from '@server/middleware/requireAdminAuth';
 import { requireAdminCsrf } from '@server/middleware/requireAdminCsrf';
 import { createAdminLoginLimiter } from '@server/middleware/rateLimiters';
+import { ModuleSourceCategory } from '@shared/types/modules';
 import {
     loadAdminAccount,
     createAdminAccount,
@@ -444,7 +445,7 @@ export function createAdminRouter(deps: AdminRouterDeps) {
                     });
                 }
 
-                const source = req.body?.source as 'local' | 'data' | undefined;
+                const source = req.body?.source as ModuleSourceCategory | undefined;
                 const success = enableModule(moduleId, source);
                 if (!success) {
                     return res.status(400).json({
@@ -498,7 +499,7 @@ export function createAdminRouter(deps: AdminRouterDeps) {
                     });
                 }
 
-                const source = req.body?.source as 'local' | 'data' | undefined;
+                const source = req.body?.source as ModuleSourceCategory | undefined;
                 const success = disableModule(moduleId, reason, source);
                 if (!success) {
                     return res.status(400).json({
@@ -539,8 +540,8 @@ export function createAdminRouter(deps: AdminRouterDeps) {
             try {
                 const moduleId = String(req.params.moduleId);
                 const { source } = req.body as { source?: string };
-                if (source !== 'local' && source !== 'data') {
-                    return res.status(400).json({ success: false, error: 'source must be "local" or "data"' });
+                if (source !== ModuleSourceCategory.Local && source !== ModuleSourceCategory.Managed) {
+                    return res.status(400).json({ success: false, error: `source must be "${ModuleSourceCategory.Local}" or "${ModuleSourceCategory.Managed}"` });
                 }
                 const { switchModuleSource } = await import('@modules/registry/server');
                 const result = switchModuleSource(moduleId, source);
@@ -822,8 +823,10 @@ export function createAdminRouter(deps: AdminRouterDeps) {
                     ? req.params.moduleId[0]
                     : req.params.moduleId;
 
+                const source = req.body?.source as ModuleSourceCategory | undefined;
+
                 const { validateManagedModule } = await import('@modules/registry/server');
-                const result = validateManagedModule(moduleId);
+                const result = validateManagedModule(moduleId, source);
                 if (!result.success) {
                     return res.status(managerErrorStatusCode(result.errorCode)).json({
                         success: false,

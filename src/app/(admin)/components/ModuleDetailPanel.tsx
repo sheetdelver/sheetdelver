@@ -7,14 +7,21 @@
  * Shows manifest metadata, validation diagnostics, artifact info, and health data.
  */
 
-import React from 'react';
+import React, { useState } from 'react';
+import { ModuleSourceCategory } from '@shared/types/modules';
+import { adminFetch } from '../lib/adminApi';
 import type { ModuleLifecycleInfo } from '../lib/adminApi';
 import ManagerActionBar from './ManagerActionBar';
 
 interface ModuleDetailPanelProps {
-    module: ModuleLifecycleInfo;
-    /** Which source this panel belongs to. Managed card always shows manager ops. */
-    cardSource?: 'local' | 'data';
+    entry: {
+        mod: ModuleLifecycleInfo;
+        cardSource?: ModuleSourceCategory;
+        status: string;
+        reason?: string;
+        health?: { errorCount: number; lastError: string; lastErrorAt: number };
+        validation?: ModuleLifecycleInfo['validation'];
+    };
     /** Callback after a manager operation completes — parent should refresh. */
     onOperationComplete: () => void;
     /** Callback when session expires — parent should redirect to login. */
@@ -27,13 +34,33 @@ function formatTimestamp(ts?: number): string {
     return new Date(ts).toLocaleString();
 }
 
-export default function ModuleDetailPanel({ module, cardSource, onOperationComplete, onSessionExpired }: ModuleDetailPanelProps) {
-    const { validation, artifact, health, reason } = module;
+export default function ModuleDetailPanel({ entry, onOperationComplete, onSessionExpired }: ModuleDetailPanelProps) {
+    const { mod: module, cardSource, status, reason, health, validation } = entry;
+    const { artifact } = module;
+    const [verifying, setVerifying] = useState(false);
+
+    const handleReverify = async () => {
+        setVerifying(true);
+        try {
+            const res = await adminFetch(`/manager/${module.moduleId}/validate`, {
+                method: 'POST',
+                body: JSON.stringify({ source: cardSource || module.activeSource || ModuleSourceCategory.Managed })
+            });
+            if (res.sessionExpired) {
+                onSessionExpired();
+                return;
+            }
+            onOperationComplete();
+        } finally {
+            setVerifying(false);
+        }
+    };
+
     const hasBothSources = !!module.localDirectory;
-    const localIsActive = module.activeSource === 'local';
+    const localIsActive = module.activeSource === ModuleSourceCategory.Local;
     // A card is "local" if it was explicitly rendered as the local split card,
     // OR if it's a single-source module whose only source is local dev.
-    const isLocalCard = cardSource === 'local' || (!cardSource && localIsActive && !module.managed);
+    const isLocalCard = cardSource === ModuleSourceCategory.Local || (!cardSource && localIsActive && !module.managed);
 
     return (
         <div className="mt-3 space-y-4 border-t border-[var(--admin-border)] pt-4">
@@ -41,7 +68,7 @@ export default function ModuleDetailPanel({ module, cardSource, onOperationCompl
             {/* ── Local Dev card detail ──────────────────────────────────── */}
             {isLocalCard && (
                 <>
-                    <DetailSection title="Location">
+                    <DetailSection title="Location" action={<ReverifyButton verifying={verifying} onClick={handleReverify} />}>
                         <code className="block rounded-xl bg-[var(--admin-surface)] p-3 text-xs text-[var(--admin-text-secondary)] break-all font-mono">
                             {module.localDirectory ?? module.directory}
                         </code>
@@ -99,7 +126,7 @@ export default function ModuleDetailPanel({ module, cardSource, onOperationCompl
             {!isLocalCard && (
             <div className="space-y-4">
                 {/* Location */}
-                <DetailSection title="Location">
+                <DetailSection title="Location" action={<ReverifyButton verifying={verifying} onClick={handleReverify} />}>
                     <code className="block rounded-xl bg-[var(--admin-surface)] p-3 text-xs text-[var(--admin-text-secondary)] break-all font-mono">
                         {module.directory}
                     </code>
@@ -195,12 +222,27 @@ export default function ModuleDetailPanel({ module, cardSource, onOperationCompl
 // ─── Sub-components ────────────────────────────────────────────────
 
 /** Section wrapper with a heading label. */
-function DetailSection({ title, children }: { title: string; children: React.ReactNode }) {
+function DetailSection({ title, children, action }: { title: string; children: React.ReactNode; action?: React.ReactNode }) {
     return (
         <div>
-            <h4 className="mb-2 text-xs font-bold uppercase tracking-wider text-[var(--admin-text-muted)]">{title}</h4>
+            <div className="flex justify-between items-center mb-2">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-[var(--admin-text-muted)]">{title}</h4>
+                {action && <div>{action}</div>}
+            </div>
             {children}
         </div>
+    );
+}
+
+function ReverifyButton({ verifying, onClick }: { verifying: boolean; onClick: () => void }) {
+    return (
+        <button
+            onClick={onClick}
+            disabled={verifying}
+            className="rounded px-2 py-1 text-xs font-medium text-[var(--admin-text-secondary)] border border-[var(--admin-border)] hover:bg-[var(--admin-surface-hover)] transition disabled:opacity-50"
+        >
+            {verifying ? 'Verifying...' : 'Re-verify'}
+        </button>
     );
 }
 

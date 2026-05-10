@@ -12,6 +12,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { logger } from '@shared/utils/logger';
+import { ModuleSourceCategory } from '@shared/types/modules';
 import { useAdminAuth } from '../context/AdminAuthContext';
 import {
     fetchModuleLifecycle,
@@ -44,42 +45,57 @@ function getStatusLabel(status: string): string {
 // ─── Card entry type ───────────────────────────────────────────────
 
 /**
- * A single card in the list. Dual-source modules produce two entries
- * (one for 'local', one for 'data') from the same ModuleLifecycleInfo.
+ * (one for ModuleSourceCategory.Local, one for ModuleSourceCategory.Managed) from the same ModuleLifecycleInfo.
  */
 interface CardEntry {
     key: string;
     mod: ModuleLifecycleInfo;
     /** Which source this card represents. undefined = single-source module. */
-    cardSource: 'local' | 'data' | undefined;
+    cardSource: ModuleSourceCategory | undefined;
     /** Whether this specific source is currently enabled. */
     sourceEnabled: boolean;
     /** Whether the OTHER source (if any) is enabled — blocks enable on this card. */
     otherSourceEnabled: boolean;
+    
+    // Extracted source-specific state
+    status: string;
+    reason?: string;
+    health?: { errorCount: number; lastError: string; lastErrorAt: number };
+    validation?: ModuleLifecycleInfo['validation'];
 }
 
 function buildCardEntries(modules: ModuleLifecycleInfo[]): CardEntry[] {
     const entries: CardEntry[] = [];
 
     for (const mod of modules) {
-        // Dual-source: module has both a local dev directory AND a managed installation.
         if (mod.localDirectory && mod.managed) {
-            const localEnabled  = mod.localEnabled  ?? (mod.activeSource === 'local'  ? mod.enabled : false);
-            const managedEnabled = mod.managedEnabled ?? (mod.activeSource === 'data' ? mod.enabled : false);
+            const localEnabled  = mod.localEnabled  ?? (mod.activeSource === ModuleSourceCategory.Local  ? mod.enabled : false);
+            const managedEnabled = mod.managedEnabled ?? (mod.activeSource === ModuleSourceCategory.Managed ? mod.enabled : false);
+
+            const localState = mod.sourceStates?.local;
+            const dataState = mod.sourceStates?.data;
 
             entries.push({
                 key: `${mod.moduleId}-local`,
                 mod,
-                cardSource: 'local',
+                cardSource: ModuleSourceCategory.Local,
                 sourceEnabled: localEnabled,
                 otherSourceEnabled: managedEnabled,
+                status: localState?.status || 'discovered',
+                reason: localState?.reason,
+                health: localState?.health,
+                validation: localState?.validation as ModuleLifecycleInfo['validation'],
             });
             entries.push({
                 key: `${mod.moduleId}-data`,
                 mod,
-                cardSource: 'data',
+                cardSource: ModuleSourceCategory.Managed,
                 sourceEnabled: managedEnabled,
                 otherSourceEnabled: localEnabled,
+                status: dataState?.status || 'discovered',
+                reason: dataState?.reason,
+                health: dataState?.health,
+                validation: dataState?.validation as ModuleLifecycleInfo['validation'],
             });
         } else {
             // Single-source (only local, only managed, or built-in system module)
@@ -89,6 +105,10 @@ function buildCardEntries(modules: ModuleLifecycleInfo[]): CardEntry[] {
                 cardSource: undefined,
                 sourceEnabled: mod.enabled,
                 otherSourceEnabled: false,
+                status: mod.status,
+                reason: mod.reason,
+                health: mod.health as { errorCount: number; lastError: string; lastErrorAt: number } | undefined,
+                validation: mod.validation,
             });
         }
     }
@@ -238,15 +258,15 @@ function ModuleCard({
     entry, expanded, operationInProgress,
     onToggle, onToggleExpand, onOperationComplete, onSessionExpired,
 }: ModuleCardProps) {
-    const { mod, cardSource, sourceEnabled, otherSourceEnabled } = entry;
-    const isLocal = cardSource === 'local';
-    const isData  = cardSource === 'data';
+    const { mod, cardSource, sourceEnabled, otherSourceEnabled, status, health } = entry;
+    const isLocal = cardSource === ModuleSourceCategory.Local;
+    const isData  = cardSource === ModuleSourceCategory.Managed;
     const blockedByOther = !sourceEnabled && otherSourceEnabled;
 
     // Card border/background reflects this source's enabled state.
     const cardClass = sourceEnabled
         ? 'border-[var(--admin-success-border)] bg-[var(--admin-success-bg)]'
-        : mod.status === 'errored' || mod.status === 'incompatible'
+        : status === 'errored' || status === 'incompatible'
             ? 'border-[var(--admin-danger-border)] bg-[var(--admin-danger-bg)]'
             : isLocal
                 ? 'border-purple-500/20 bg-purple-500/5'
@@ -279,10 +299,10 @@ function ModuleCard({
                         )}
                         {/* Single-source cards: show Local Dev when activeSource is local,
                             System only for built-in modules that are neither local nor managed. */}
-                        {!cardSource && mod.activeSource === 'local' && (
+                        {!cardSource && mod.activeSource === ModuleSourceCategory.Local && (
                             <span className="rounded-full border border-purple-500/30 bg-purple-500/10 px-2 py-0.5 text-xs font-medium text-purple-400">Local Dev</span>
                         )}
-                        {!cardSource && !mod.managed && mod.activeSource !== 'local' && (
+                        {!cardSource && !mod.managed && mod.activeSource !== ModuleSourceCategory.Local && (
                             <span className="rounded-full border border-blue-500/30 bg-blue-500/10 px-2 py-0.5 text-xs font-medium text-blue-400">System</span>
                         )}
                     </div>
@@ -291,18 +311,18 @@ function ModuleCard({
                     <div className="mt-1 flex items-center gap-3 text-sm text-[var(--admin-text-secondary)]">
                         <span className="font-mono text-xs">{mod.moduleId}</span>
                         <span className="flex items-center gap-1.5">
-                            <span className={`inline-block h-2 w-2 rounded-full ${getStatusColor(sourceEnabled ? 'enabled' : mod.status)}`} />
-                            {sourceEnabled ? 'Enabled' : getStatusLabel(mod.status)}
+                            <span className={`inline-block h-2 w-2 rounded-full ${getStatusColor(sourceEnabled ? 'enabled' : status)}`} />
+                            {sourceEnabled ? 'Enabled' : getStatusLabel(status)}
                         </span>
                     </div>
 
                     {/* Health */}
-                    {mod.health && mod.health.errorCount > 0 && (
+                    {health && health.errorCount > 0 && (
                         <div className="mt-1 flex items-center gap-1 text-xs text-[var(--admin-danger-text)]">
                             <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                             </svg>
-                            <span>{mod.health.errorCount} error{mod.health.errorCount !== 1 ? 's' : ''}</span>
+                            <span>{health.errorCount} error{health.errorCount !== 1 ? 's' : ''}</span>
                         </div>
                     )}
                 </div>
@@ -346,12 +366,13 @@ function ModuleCard({
 
             {/* Expandable detail panel */}
             {expanded && (
-                <ModuleDetailPanel
-                    module={mod}
-                    cardSource={cardSource}
-                    onOperationComplete={onOperationComplete}
-                    onSessionExpired={onSessionExpired}
-                />
+                <div className="mt-4 pt-4 border-t border-[var(--admin-border)]">
+                    <ModuleDetailPanel
+                        entry={entry}
+                        onOperationComplete={onOperationComplete}
+                        onSessionExpired={onSessionExpired}
+                    />
+                </div>
             )}
         </div>
     );

@@ -3,6 +3,7 @@ import { logger } from '@shared/utils/logger';
 import { adminSessionManager, parseAndValidateToken } from '@server/security/adminSessionService';
 import { appendAdminAuditEvent } from '@server/security/adminAuditLog';
 import type { AdminSessionClaims } from '@server/security/types/admin-auth.types';
+import { ManagerOutcome } from '@shared/types/modules';
 
 // Module augmentation for Express Request to include admin session claims
 declare global {
@@ -154,7 +155,7 @@ export function auditAdminAction(req: Request, res: Response, next: NextFunction
 
         res.once('finish', () => {
             const statusCode = res.statusCode;
-            const outcome: 'success' | 'failure' = statusCode < 400 ? 'success' : 'failure';
+            const outcome = statusCode < 400 ? ManagerOutcome.Success : ManagerOutcome.Failure;
             const durationMs = Date.now() - startedAt;
 
             void appendAdminAuditEvent({

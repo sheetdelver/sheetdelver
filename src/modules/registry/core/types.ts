@@ -2,8 +2,9 @@ import { SystemAdapter, UIModuleManifest } from '@shared/sdk';
 import type { DiscoveryConfig } from '@shared/sdk';
 export type { ModuleLifecycleRecord, ModuleLifecycleStatus, ModuleLifecycleStore } from '../lifecycle/lifecycle';
 export type { ModuleCompatibilityResult, ModuleValidationResult } from '../lifecycle/validation';
+import { ModuleSourceCategory, ModuleTrustTier } from '@shared/types/modules';
 
-export type ModuleTrustTier = 'first-party' | 'verified-third-party' | 'unverified' | 'untrusted';
+export type { ModuleTrustTier };
 
 export interface ModuleTrustDeclaration {
     tier: ModuleTrustTier;
@@ -48,7 +49,8 @@ export interface SystemModuleInfo {
  * Registry Plugin Metadata
  * Defines how a discovered system module is represented in memory.
  */
-export type ModuleSource = 'built-in' | 'data' | 'local';
+
+export type ModuleSource = ModuleSourceCategory;
 
 export interface SystemPlugin {
     info: SystemModuleInfo;

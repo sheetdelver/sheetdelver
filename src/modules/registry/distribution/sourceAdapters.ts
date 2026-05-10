@@ -1,11 +1,12 @@
 import type { ModulePermissionDeclaration, ModuleTrustTier } from '../core/types';
+import { ModuleSourceKind } from '@shared/types/modules';
 import {
     resolveIndexedModuleVersion,
     type ModuleIndexDocument,
     type ModuleIndexVersionEntry,
 } from './moduleIndex';
 
-export type ModuleSourceKind = 'local' | 'indexed' | 'direct';
+export type { ModuleSourceKind };
 
 export interface ModuleSourceResolution {
     kind: ModuleSourceKind;
@@ -70,7 +71,7 @@ function mapVersionMetadata(
 }
 
 export const localModuleSourceAdapter: ModuleSourceAdapter = {
-    kind: 'local',
+    kind: ModuleSourceKind.Local,
     canHandle(sourceRef: string): boolean {
         return sourceRef.startsWith('local://') || sourceRef.startsWith('file://');
     },
@@ -85,7 +86,7 @@ export const localModuleSourceAdapter: ModuleSourceAdapter = {
         return {
             ok: true,
             value: {
-                kind: 'local',
+                kind: ModuleSourceKind.Local,
                 moduleId: input.moduleId.trim().toLowerCase(),
                 version: input.targetVersion?.trim() || '0.0.0-local',
                 source: input.sourceRef,

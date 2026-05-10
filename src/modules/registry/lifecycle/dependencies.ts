@@ -1,4 +1,5 @@
 import { logger } from '@shared/utils/logger';
+import { DependencyViolationType } from '@shared/types/modules';
 import type { SystemModuleInfo } from '../core/types';
 
 /**
@@ -13,7 +14,7 @@ export interface DependencyCheckResult {
  * A specific dependency or conflict violation.
  */
 export interface DependencyViolation {
-    type: 'missing-dependency' | 'unmet-dependency' | 'conflicting-module' | 'has-dependents';
+    type: DependencyViolationType;
     moduleId: string;
     affectedModule: string;
     reason: string;
@@ -41,7 +42,7 @@ export function checkEnableDependencies(
             canProceed: false,
             violations: [
                 {
-                    type: 'missing-dependency',
+                    type: DependencyViolationType.MissingDependency,
                     moduleId: lowerModuleId,
                     affectedModule: lowerModuleId,
                     reason: `Module ${moduleId} not found in registry`,
@@ -56,14 +57,14 @@ export function checkEnableDependencies(
             const depIdLower = depId.toLowerCase();
             if (!moduleInfoMap.has(depIdLower)) {
                 violations.push({
-                    type: 'missing-dependency',
+                    type: DependencyViolationType.MissingDependency,
                     moduleId: lowerModuleId,
                     affectedModule: depIdLower,
                     reason: `Required dependency "${depId}" not found in registry`,
                 });
             } else if (!enabledModules.has(depIdLower)) {
                 violations.push({
-                    type: 'unmet-dependency',
+                    type: DependencyViolationType.UnmetDependency,
                     moduleId: lowerModuleId,
                     affectedModule: depIdLower,
                     reason: `Required dependency "${depId}" is not enabled`,
@@ -78,7 +79,7 @@ export function checkEnableDependencies(
             const conflictIdLower = conflictId.toLowerCase();
             if (enabledModules.has(conflictIdLower)) {
                 violations.push({
-                    type: 'conflicting-module',
+                    type: DependencyViolationType.ConflictingModule,
                     moduleId: lowerModuleId,
                     affectedModule: conflictIdLower,
                     reason: `Module "${moduleId}" conflicts with already-enabled "${conflictId}"`,
@@ -116,7 +117,7 @@ export function checkDisableDependents(
 
         if (info.dependencies && info.dependencies.some(d => d.toLowerCase() === lowerModuleId)) {
             violations.push({
-                type: 'has-dependents',
+                type: DependencyViolationType.HasDependents,
                 moduleId: lowerModuleId,
                 affectedModule: otherModuleId,
                 reason: `Module "${info.title}" (${otherModuleId}) requires "${moduleId}" to be enabled`,

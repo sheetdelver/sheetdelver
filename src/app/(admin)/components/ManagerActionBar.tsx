@@ -10,6 +10,7 @@
 
 import React, { useState } from 'react';
 import { logger } from '@shared/utils/logger';
+import { ModuleSourceCategory, ManagerAction, ModuleLifecycleStatus } from '@shared/types/modules';
 import {
     postManagerAction,
     postDryRun,
@@ -21,7 +22,7 @@ import DryRunPreview from './DryRunPreview';
 interface ManagerActionBarProps {
     module: ModuleLifecycleInfo;
     /** Which source this bar belongs to (set by the split-card layout). */
-    cardSource?: 'local' | 'data';
+    cardSource?: ModuleSourceCategory;
     /** Callback after a successful operation — parent should refresh module list. */
     onOperationComplete: () => void;
     /** Callback when session expires — parent should redirect to login. */
@@ -32,37 +33,37 @@ interface ManagerActionBarProps {
 function getAvailableActions(
     status: string,
     managed: boolean,
-    activeSource?: string,
+    activeSource?: ModuleSourceCategory,
     localDirectory?: string,
-    cardSource?: string,
-): Array<'install' | 'uninstall' | 'upgrade' | 'validate'> {
+    cardSource?: ModuleSourceCategory,
+): Array<typeof ManagerAction.Install | typeof ManagerAction.Uninstall | typeof ManagerAction.Upgrade | typeof ManagerAction.Validate> {
     // Manager operations only apply to managed installs (<DATA_DIR>/modules/).
     if (!managed) return [];
 
     // In the split-card layout, cardSource tells us exactly which card we're on.
-    // 'data' card always shows managed operations regardless of activeSource.
-    // 'local' card never shows them (ModuleDetailPanel already hides this bar for local cards).
+    // ModuleSourceCategory.Managed card always shows managed operations regardless of activeSource.
+    // ModuleSourceCategory.Local card never shows them (ModuleDetailPanel already hides this bar for local cards).
     // When no cardSource (legacy single-card), fall back to the activeSource heuristic.
-    if (cardSource === 'data') {
+    if (cardSource === ModuleSourceCategory.Managed) {
         // Explicit managed card — always show operations.
-    } else if (!cardSource && localDirectory && activeSource === 'local') {
+    } else if (!cardSource && localDirectory && activeSource === ModuleSourceCategory.Local) {
         // Single-card mode: local dev is active, hide managed operations.
         return [];
     }
 
     switch (status) {
-        case 'discovered':
-            return ['install'];
-        case 'validated':
-        case 'enabled':
-            return ['upgrade', 'validate', 'uninstall'];
-        case 'disabled':
-            return ['upgrade', 'validate', 'uninstall'];
-        case 'errored':
-        case 'incompatible':
-            return ['validate', 'uninstall'];
-        case 'installed':
-            return ['validate', 'uninstall'];
+        case ModuleLifecycleStatus.Discovered:
+            return [ManagerAction.Install];
+        case ModuleLifecycleStatus.Validated:
+        case ModuleLifecycleStatus.Enabled:
+            return [ManagerAction.Upgrade, ManagerAction.Validate, ManagerAction.Uninstall];
+        case ModuleLifecycleStatus.Disabled:
+            return [ManagerAction.Upgrade, ManagerAction.Validate, ManagerAction.Uninstall];
+        case ModuleLifecycleStatus.Errored:
+        case ModuleLifecycleStatus.Incompatible:
+            return [ManagerAction.Validate, ManagerAction.Uninstall];
+        case ModuleLifecycleStatus.Installed:
+            return [ManagerAction.Validate, ManagerAction.Uninstall];
         default:
             return [];
     }
@@ -70,18 +71,18 @@ function getAvailableActions(
 
 /** Maps action names to display labels. */
 const ACTION_LABELS: Record<string, string> = {
-    install: 'Install',
-    uninstall: 'Uninstall',
-    upgrade: 'Upgrade',
-    validate: 'Re-validate',
+    [ManagerAction.Install]: 'Install',
+    [ManagerAction.Uninstall]: 'Uninstall',
+    [ManagerAction.Upgrade]: 'Upgrade',
+    [ManagerAction.Validate]: 'Re-validate',
 };
 
 /** Maps action names to button styling. */
 const ACTION_STYLES: Record<string, string> = {
-    install: 'bg-[var(--admin-accent)] text-white hover:bg-[var(--admin-accent-strong)]',
-    uninstall: 'bg-[var(--admin-danger-button)] text-white hover:bg-[var(--admin-danger-button-strong)]',
-    upgrade: 'bg-[var(--admin-accent)] text-white hover:bg-[var(--admin-accent-strong)]',
-    validate: 'border border-[var(--admin-border)] bg-[var(--admin-surface)] text-[var(--admin-text-primary)] hover:bg-[var(--admin-surface-hover)]',
+    [ManagerAction.Install]: 'bg-[var(--admin-accent)] text-white hover:bg-[var(--admin-accent-strong)]',
+    [ManagerAction.Uninstall]: 'bg-[var(--admin-danger-button)] text-white hover:bg-[var(--admin-danger-button-strong)]',
+    [ManagerAction.Upgrade]: 'bg-[var(--admin-accent)] text-white hover:bg-[var(--admin-accent-strong)]',
+    [ManagerAction.Validate]: 'border border-[var(--admin-border)] bg-[var(--admin-surface)] text-[var(--admin-text-primary)] hover:bg-[var(--admin-surface-hover)]',
 };
 
 export default function ManagerActionBar({ module, cardSource, onOperationComplete, onSessionExpired }: ManagerActionBarProps) {
@@ -106,13 +107,13 @@ export default function ManagerActionBar({ module, cardSource, onOperationComple
 
     /** Runs a dry-run preview for install/upgrade. */
     const handleDryRun = async () => {
-        if (confirmAction !== 'install' && confirmAction !== 'upgrade') return;
+        if (confirmAction !== ManagerAction.Install && confirmAction !== ManagerAction.Upgrade) return;
 
         try {
             setDryRunLoading(true);
             setError(null);
 
-            const result = await postDryRun(module.moduleId, confirmAction as 'install' | 'upgrade');
+            const result = await postDryRun(module.moduleId, confirmAction as typeof ManagerAction.Install | typeof ManagerAction.Upgrade);
 
             if (result.sessionExpired) {
                 onSessionExpired();
@@ -143,13 +144,13 @@ export default function ManagerActionBar({ module, cardSource, onOperationComple
             const body: Record<string, unknown> = {};
 
             // For upgrade, include escalation approval if the dry-run requested it
-            if (confirmAction === 'upgrade' && escalationApproved) {
+            if (confirmAction === ManagerAction.Upgrade && escalationApproved) {
                 body.approvePermissionEscalation = true;
             }
 
             const result = await postManagerAction(
                 module.moduleId,
-                confirmAction as 'install' | 'uninstall' | 'upgrade' | 'validate',
+                confirmAction as typeof ManagerAction.Install | typeof ManagerAction.Uninstall | typeof ManagerAction.Upgrade | typeof ManagerAction.Validate,
                 body
             );
 

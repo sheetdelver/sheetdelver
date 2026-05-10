@@ -2,6 +2,8 @@ import { randomBytes } from 'node:crypto';
 import { logger } from '@shared/utils/logger';
 import type { AdminSessionClaims } from './types/admin-auth.types';
 
+const SERVER_INSTANCE_ID = randomBytes(16).toString('hex');
+
 /**
  * Create a JWT-like admin session token claims object.
  * In a real deployment, this would be signed. For now, we store in memory/session.
@@ -15,6 +17,7 @@ export function createAdminSessionClaims(adminId: string, durationMs: number): A
         issuedAt: now,
         expiresAt: now + durationMs,
         csrfToken: randomBytes(24).toString('hex'),
+        instanceId: SERVER_INSTANCE_ID,
     };
 }
 
@@ -22,7 +25,7 @@ export function createAdminSessionClaims(adminId: string, durationMs: number): A
  * Check if a session claims object is still valid.
  */
 export function isSessionValid(claims: AdminSessionClaims): boolean {
-    return claims.expiresAt > Date.now();
+    return claims.expiresAt > Date.now() && claims.instanceId === SERVER_INSTANCE_ID;
 }
 
 /**
@@ -57,6 +60,10 @@ export function parseAndValidateToken(token: string): AdminSessionClaims | null 
             return null;
         }
         if (claims.csrfToken !== undefined && (typeof claims.csrfToken !== 'string' || claims.csrfToken.length < 16)) {
+            return null;
+        }
+        if (claims.instanceId !== SERVER_INSTANCE_ID) {
+            logger.debug(`[AdminAuth] Token instance ID mismatch. Token: ${claims.instanceId}, Server: ${SERVER_INSTANCE_ID}`);
             return null;
         }
         if (!isSessionValid(claims)) {

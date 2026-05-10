@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { ModuleSourceCategory, ModuleSourceKind } from '@shared/types/modules';
 import path from 'node:path';
 import { getModulesDataDir } from '@core/paths';
 import { logger } from '@shared/utils/logger';
@@ -11,7 +12,7 @@ export interface SourceProfileAuth {
 export interface SourceProfile {
     id: string;
     name: string;
-    kind: 'local' | 'indexed' | 'direct';
+    kind: ModuleSourceKind;
     baseUrl: string;
     enabled: boolean;
     priority: number;
@@ -21,12 +22,12 @@ export interface SourceProfile {
     updatedAt: number;
 }
 
-export const BUILT_IN_PROFILE_ID = 'built-in';
+export const BUILT_IN_PROFILE_ID = ModuleSourceCategory.BuiltIn;
 
 export const BUILT_IN_PROFILE: SourceProfile = {
     id: BUILT_IN_PROFILE_ID,
     name: 'Built-in Sources',
-    kind: 'local',
+    kind: ModuleSourceKind.Local,
     baseUrl: 'local://',
     enabled: true,
     priority: 0,

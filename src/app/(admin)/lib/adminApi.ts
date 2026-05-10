@@ -11,6 +11,7 @@
  */
 
 // ─── Types ─────────────────────────────────────────────────────────
+import { ModuleSourceCategory, ModuleSourceKind, ManagerAction } from '@shared/types/modules';
 
 /** Standard result wrapper for all admin API calls. */
 export interface AdminApiResult<T> {
@@ -27,7 +28,7 @@ export interface ModuleLifecycleInfo {
     moduleId: string;
     title: string;
     directory: string;
-    activeSource?: 'data' | 'local';
+    activeSource?: ModuleSourceCategory;
     localDirectory?: string;
     localEnabled?: boolean;
     managedEnabled?: boolean;
@@ -44,6 +45,38 @@ export interface ModuleLifecycleInfo {
     validation?: {
         manifestValid: boolean;
         diagnostics: Array<{ code: string; message: string; severity: string }>;
+    };
+    sourceStates?: {
+        local?: {
+            status: string;
+            reason?: string;
+            enabled: boolean;
+            health?: {
+                errorCount: number;
+                lastError: string;
+                lastErrorAt: number;
+            };
+            validation?: {
+                manifestValid: boolean;
+                validationErrors?: string[];
+                compatible: boolean;
+            };
+        };
+        data?: {
+            status: string;
+            reason?: string;
+            enabled: boolean;
+            health?: {
+                errorCount: number;
+                lastError: string;
+                lastErrorAt: number;
+            };
+            validation?: {
+                manifestValid: boolean;
+                validationErrors?: string[];
+                compatible: boolean;
+            };
+        };
     };
     artifact?: {
         version: string;
@@ -169,7 +202,7 @@ export interface WorldActionResult {
 export interface SourceProfile {
     id: string;
     name: string;
-    kind: 'local' | 'indexed' | 'direct';
+    kind: ModuleSourceKind;
     baseUrl: string;
     enabled: boolean;
     priority: number;
@@ -329,7 +362,7 @@ export function fetchAuditLog(limit: number = 100) {
  */
 export function postLifecycleAction(
     moduleId: string,
-    action: 'enable' | 'disable',
+    action: typeof ManagerAction.Enable | typeof ManagerAction.Disable,
     body?: Record<string, unknown>
 ) {
     return adminFetch<ManagerOperationResult>(`/lifecycle/${moduleId}/${action}`, {
@@ -339,7 +372,7 @@ export function postLifecycleAction(
 }
 
 /** Switch a module between its local dev version and managed install. */
-export function postSwitchSource(moduleId: string, source: 'local' | 'data') {
+export function postSwitchSource(moduleId: string, source: ModuleSourceCategory) {
     return adminFetch<{ success: boolean; activeSource: string; error?: string }>(
         `/lifecycle/${moduleId}/switch-source`,
         { method: 'POST', body: JSON.stringify({ source }) }
@@ -355,7 +388,7 @@ export function postSwitchSource(moduleId: string, source: 'local' | 'data') {
  */
 export function postManagerAction(
     moduleId: string,
-    action: 'install' | 'uninstall' | 'upgrade' | 'validate',
+    action: typeof ManagerAction.Install | typeof ManagerAction.Uninstall | typeof ManagerAction.Upgrade | typeof ManagerAction.Validate,
     body?: Record<string, unknown>
 ) {
     return adminFetch<ManagerOperationResult>(`/manager/${moduleId}/${action}`, {
@@ -373,7 +406,7 @@ export function postManagerAction(
  */
 export function postDryRun(
     moduleId: string,
-    action: 'install' | 'upgrade',
+    action: typeof ManagerAction.Install | typeof ManagerAction.Upgrade,
     body?: Record<string, unknown>
 ) {
     return adminFetch<DryRunPreviewResult>(`/manager/${moduleId}/dry-run/${action}`, {

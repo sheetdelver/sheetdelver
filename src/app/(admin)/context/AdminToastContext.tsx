@@ -1,10 +1,9 @@
 'use client';
 
 import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
+import { NotificationType } from '@shared/types/modules';
 
-// ─── Types ────────────────────────────────────────────────────────
-
-export type ToastType = 'success' | 'error' | 'info';
+export type ToastType = NotificationType;
 
 interface Toast {
     id: string;
@@ -38,7 +37,7 @@ export function AdminToastProvider({ children }: { children: React.ReactNode }) 
         setToasts(prev => prev.filter(t => t.id !== id));
     }, []);
 
-    const addToast = useCallback((message: string, type: ToastType = 'info') => {
+    const addToast = useCallback((message: string, type: ToastType = NotificationType.Info) => {
         const id = `toast-${++counterRef.current}`;
         setToasts(prev => [...prev, { id, type, message }]);
         setTimeout(() => remove(id), DURATION_MS);
@@ -57,16 +56,16 @@ export function AdminToastProvider({ children }: { children: React.ReactNode }) 
                     <div
                         key={toast.id}
                         className={`pointer-events-auto flex items-start gap-3 rounded-2xl border px-4 py-3 shadow-lg backdrop-blur-sm text-sm transition-all animate-in slide-in-from-right-4 ${
-                            toast.type === 'success'
+                            toast.type === NotificationType.Success
                                 ? 'border-[var(--admin-success-border)] bg-[var(--admin-success-bg)] text-[var(--admin-success)]'
-                                : toast.type === 'error'
+                                : toast.type === NotificationType.Error
                                     ? 'border-[var(--admin-danger-border)] bg-[var(--admin-danger-bg)] text-[var(--admin-danger-text)]'
                                     : 'border-[var(--admin-border)] bg-[var(--admin-surface)] text-[var(--admin-text-primary)]'
                         }`}
                     >
                         {/* Icon */}
                         <span className="mt-0.5 shrink-0 text-base leading-none">
-                            {toast.type === 'success' ? '✓' : toast.type === 'error' ? '✕' : 'ℹ'}
+                            {toast.type === NotificationType.Success ? '✓' : toast.type === NotificationType.Error ? '✕' : 'ℹ'}
                         </span>
 
                         <span className="flex-1">{toast.message}</span>

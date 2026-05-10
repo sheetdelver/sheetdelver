@@ -2,6 +2,7 @@ import express from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
 import { logger } from '@shared/utils/logger';
+import { ModuleSourceCategory } from '@shared/types/modules';
 import { getRegisteredModules, getModuleActiveSources } from '@modules/registry/server';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
 import { getModulesDataDir, getLocalModulesDir } from '@core/paths';
@@ -142,7 +143,7 @@ export function registerPublicRoutes(appRouter: express.Router, deps: PublicRout
 
         // Determine the base directory for this module's active source.
         let baseDir: string | null = null;
-        if (source === 'local') {
+        if (source === ModuleSourceCategory.Local) {
             const localDir = getLocalModulesDir();
             if (localDir) baseDir = path.join(localDir, moduleId);
         }
@@ -212,7 +213,7 @@ export function registerPublicRoutes(appRouter: express.Router, deps: PublicRout
 
         // Determine the base directory for this module's active source.
         let baseDir: string | null = null;
-        if (source === 'local') {
+        if (source === ModuleSourceCategory.Local) {
             const localDir = getLocalModulesDir();
             if (localDir) baseDir = path.join(localDir, moduleId);
         }

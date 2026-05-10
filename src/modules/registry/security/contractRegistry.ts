@@ -1,11 +1,13 @@
-export type CoreContractName = 'module-api' | 'ui-extension-api' | 'roll-engine-api';
+import { CoreContractName } from '@shared/types/modules';
+
+export type { CoreContractName };
 
 export type CoreContractRegistry = Record<CoreContractName, string>;
 
 const CORE_CONTRACT_REGISTRY: CoreContractRegistry = {
-    'module-api': '1.0.0',
-    'ui-extension-api': '1.0.0',
-    'roll-engine-api': '1.0.0',
+    [CoreContractName.ModuleApi]: '1.0.0',
+    [CoreContractName.UiExtensionApi]: '1.0.0',
+    [CoreContractName.RollEngineApi]: '1.0.0',
 };
 
 export function getCoreContractRegistry(): CoreContractRegistry {

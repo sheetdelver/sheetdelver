@@ -12,6 +12,7 @@ import {
     type SourceProfile,
     type SourceModuleEntry
 } from '../lib/adminApi';
+import { ModuleSourceCategory, ModuleSourceKind } from '@shared/types/modules';
 import { useAdminToast } from '../context/AdminToastContext';
 
 export default function SourceProfilePanel({
@@ -62,7 +63,7 @@ export default function SourceProfilePanel({
         const result = await createSourceProfile({
             name: newName.trim() || 'New Source',
             baseUrl: newUrl.trim(),
-            kind: newUrl.startsWith('index://') || newUrl.startsWith('http') ? 'indexed' : 'local',
+            kind: newUrl.startsWith('index://') || newUrl.startsWith('http') ? ModuleSourceKind.Indexed : ModuleSourceKind.Local,
             enabled: true,
             priority: profiles.length > 0 ? profiles[profiles.length - 1].priority + 10 : 10,
         });
@@ -79,7 +80,7 @@ export default function SourceProfilePanel({
     };
 
     const handleToggleEnable = async (profile: SourceProfile) => {
-        if (profile.id === 'built-in') return;
+        if (profile.id === ModuleSourceCategory.BuiltIn) return;
         const result = await updateSourceProfile(profile.id, { enabled: !profile.enabled });
         if (result.ok) loadProfiles();
         else addToast(result.error || 'Failed to update source profile.', 'error');
@@ -213,7 +214,7 @@ export default function SourceProfilePanel({
                             <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2 mb-1 flex-wrap">
                                     <h3 className="font-bold text-[var(--admin-text-primary)]">{profile.name}</h3>
-                                    {profile.id === 'built-in' && (
+                                    {profile.id === ModuleSourceCategory.BuiltIn && (
                                         <span className="rounded-full border border-[var(--admin-border)] bg-[var(--admin-surface-hover)] px-2 py-0.5 text-xs text-[var(--admin-text-muted)]">Built-in</span>
                                     )}
                                     {!profile.enabled && (
@@ -245,7 +246,7 @@ export default function SourceProfilePanel({
                             </div>
 
                             <div className="flex flex-wrap items-center gap-2 shrink-0">
-                                {profile.kind === 'indexed' && profile.enabled && (
+                                {profile.kind === ModuleSourceKind.Indexed && profile.enabled && (
                                     <>
                                         <button
                                             onClick={() => handleBrowse(profile.id)}
@@ -262,7 +263,7 @@ export default function SourceProfilePanel({
                                         </button>
                                     </>
                                 )}
-                                {profile.id !== 'built-in' && (
+                                {profile.id !== ModuleSourceCategory.BuiltIn && (
                                     <>
                                         <button
                                             onClick={() => handleToggleEnable(profile)}

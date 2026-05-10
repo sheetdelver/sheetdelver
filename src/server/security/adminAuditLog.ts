@@ -7,6 +7,8 @@ import { getSecurityDir } from '@core/paths';
 /** Returns the admin audit file path within the resolved security directory. */
 const getAuditFile = () => path.join(getSecurityDir(), 'admin-audit.ndjson');
 
+import { ManagerOutcome } from '@shared/types/modules';
+
 export interface AdminAuditEvent {
     eventId: string;
     timestamp: string;
@@ -14,7 +16,7 @@ export interface AdminAuditEvent {
     method: string;
     path: string;
     statusCode: number;
-    outcome: 'success' | 'failure';
+    outcome: typeof ManagerOutcome.Success | typeof ManagerOutcome.Failure;
     ip: string;
     userAgent?: string;
     durationMs?: number;
