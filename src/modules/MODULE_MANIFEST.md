@@ -91,7 +91,10 @@ my-system/
   "trust": { "tier": "first-party" },
   "aliases": ["my-sys"],
   "dependencies": [],
-  "conflicts": []
+  "conflicts": [],
+  "package": {
+    "include": []
+  },
 }
 ```
 
