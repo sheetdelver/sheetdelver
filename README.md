@@ -248,7 +248,7 @@ SheetDelver includes a command-line interface for managing the Core Service and 
   - *Example*: `npm run admin import /home/user/.local/share/FoundryVTT/Data`
 
 ## Development
-For developers interested in contributing to **SheetDelver**, please refer to [CONTRIBUTING.md](CONTRIBUTING.md) for detailed setup instructions, architecture overview, and guidelines.
+For developers interested in contributing to **SheetDelver**, please refer to [CONTRIBUTING.md](docs/CONTRIBUTING.md) for detailed setup instructions, architecture overview, and guidelines.
 
 ## License
 
