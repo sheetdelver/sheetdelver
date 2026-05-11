@@ -13,8 +13,8 @@ Welcome to **SheetDelver**! We appreciate your interest in contributing to this 
 
 1.  **Clone the repository:**
     ```bash
-    git clone git@github.com:juvinious/sheet-delver.git
-    cd sheet-delver
+    git clone git@github.com:sheetdelver/sheetdelver.git
+    cd sheetdelver
     ```
 
 2.  **Install dependencies:**
