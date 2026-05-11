@@ -1,7 +1,7 @@
 <img src="logo.png" width="25%" alt="SheetDelver Logo">
 
-[![GitHub Repo](https://img.shields.io/badge/github-repo-blue?logo=github)](https://github.com/juvinious/sheet-delver)
-[![CI](https://github.com/juvinious/sheet-delver/actions/workflows/ci.yml/badge.svg)](https://github.com/juvinious/sheet-delver/actions/workflows/ci.yml)
+[![GitHub Repo](https://img.shields.io/badge/github-repo-blue?logo=github)](https://github.com/sheetdelver/sheetdelver)
+[![CI](https://github.com/sheetdelver/sheetdelver/actions/workflows/ci.yml/badge.svg)](https://github.com/sheetdelver/sheetdelver/actions/workflows/ci.yml)
 
 A modern, external character sheet interface for [Foundry VTT](https://foundryvtt.com/).
 
