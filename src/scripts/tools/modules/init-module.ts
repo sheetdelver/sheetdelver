@@ -1,8 +1,9 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
-import { resolveDataDir, getDataDir, getModulesDataDir, getLocalModulesDataDir } from '../../../server/core/paths';
+import { resolveDataDir, getDataDir, getLocalModulesDataDir } from '../../../server/core/paths';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -156,8 +157,10 @@ jobs:
 // tsconfig.json for the module — extends the platform's managed path aliases
 // so that @sheet-delver/sdk and module path mappings resolve correctly in both
 // the editor and during the platform build.
-const MODULE_TSCONFIG = `{
-  "extends": "../../../../.managed/tsconfig.paths.json",
+function createModuleTsconfig(modulePath: string): string {
+  const managedTsconfig = path.relative(modulePath, path.join(process.cwd(), '.managed', 'tsconfig.paths.json')).replace(/\\/g, '/');
+  return `{
+  "extends": "${managedTsconfig}",
   "compilerOptions": {
     "target": "ES2022",
     "lib": ["ES2022", "DOM"],
@@ -172,6 +175,16 @@ const MODULE_TSCONFIG = `{
   "include": ["module/**/*", "src/**/*"]
 }
 `;
+}
+
+function toTypeScriptIdentifier(value: string): string {
+  const words = value.split(/[^a-zA-Z0-9]+/).filter(Boolean);
+  const name = words
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join('');
+  const identifier = name || 'Module';
+  return /^[A-Za-z_$]/.test(identifier) ? identifier : `Module${identifier}`;
+}
 
 // Template content for logic.ts import file
 const LOGIC_TS_IMPORT = `export { %SYSTEM_ID%Adapter as Adapter } from '../src/logic/adapter';
@@ -181,25 +194,28 @@ export { %SYSTEM_ID%Adapter } from '../src/logic/adapter';
 // Template content for adapter.ts file
 const LOGIC_TS = `import {
     BaseSystemAdapter,
-    resolveImage,
     type FoundryActor,
-    type FoundryItem,
     type ActorSheetData,
-    type ActorCardData,
-    type RollData,
-    type RollDataOptions,
 } from '@sheet-delver/sdk';
 
 export class %SYSTEM_ID%Adapter extends BaseSystemAdapter {
-    systemId = '%SYSTEM_ID%';
+    systemId = '%MODULE_ID%';
 
     match(actor: FoundryActor): boolean {
         return actor._stats?.systemId === this.systemId;
     }
 
     normalizeActorData(actor: FoundryActor): ActorSheetData {
-        // Implement normalization logic here
-        return {};
+        return {
+            id: actor._id,
+            name: actor.name,
+            type: actor.type,
+            img: actor.img ?? '',
+            system: actor.system ?? {},
+            items: actor.items ?? [],
+            effects: actor.effects ?? [],
+            derived: {},
+        };
     }
 }
 `;
@@ -285,8 +301,9 @@ export const apiRoutes: ModuleServerExport['apiRoutes'] = {
  * @param systemName - The name of the system this module is for (e.g., "My RPG System")
  * @throws Error if the module directory already exists
  */
-function initModule(moduleId: string, systemName: string): void {
+export function initModule(moduleId: string, systemName: string): void {
   let modulePath = path.join(getLocalModulesDataDir(), moduleId);
+  const classPrefix = toTypeScriptIdentifier(moduleId);
 
   // Check if module path exists, if it does already exist, throw an error to avoid overwriting
   if (fs.existsSync(modulePath)) {
@@ -322,7 +339,7 @@ function initModule(moduleId: string, systemName: string): void {
   console.log(`Module "${moduleId}" initialized successfully at ${modulePath}`);
 
   // Create tsconfig.json so the editor and build tools resolve SDK path aliases
-  fs.writeFileSync(path.join(modulePath, 'tsconfig.json'), MODULE_TSCONFIG, 'utf8');
+  fs.writeFileSync(path.join(modulePath, 'tsconfig.json'), createModuleTsconfig(modulePath), 'utf8');
   console.log(`Created tsconfig.json for module "${moduleId}".`);
 
   // Create a README.md with basic instructions
@@ -340,15 +357,17 @@ function initModule(moduleId: string, systemName: string): void {
 
   console.log('Creating template files for logic, UI, and server components...');
   // Create logic and adapter files with template content
-  const logicImportContent = LOGIC_TS_IMPORT.replace(/%SYSTEM_ID%/g, moduleId.toUpperCase());
+  const logicImportContent = LOGIC_TS_IMPORT.replace(/%SYSTEM_ID%/g, classPrefix);
   fs.writeFileSync(path.join(modulePath, 'module', 'logic.ts'), logicImportContent, 'utf8');
   console.log('Created logic import file with template content at ' + path.join(modulePath, 'module', 'logic.ts'));
-  const logicContent = LOGIC_TS.replace(/%SYSTEM_ID%/g, moduleId.toUpperCase());
+  const logicContent = LOGIC_TS
+      .replace(/%SYSTEM_ID%/g, classPrefix)
+      .replace(/%MODULE_ID%/g, moduleId);
   fs.writeFileSync(path.join(modulePath, 'src', 'logic', 'adapter.ts'), logicContent, 'utf8');
   console.log('Created logic files with template content at ' + path.join(modulePath, 'src', 'logic', 'adapter.ts'));
 
   // Create UI files with template content
-  const uiContent = UI_TSX.replace(/%SYSTEM_ID%/g, moduleId.toUpperCase());
+  const uiContent = UI_TSX.replace(/%SYSTEM_ID%/g, classPrefix);
   fs.writeFileSync(path.join(modulePath, 'module', 'ui.tsx'), uiContent, 'utf8');
   console.log('Created UI import file with template content at ' + path.join(modulePath, 'module', 'ui.tsx'));
   fs.writeFileSync(path.join(modulePath, 'src', 'ui', 'Sheet.tsx'), UI_SHEET_TSX, 'utf8');
@@ -357,10 +376,10 @@ function initModule(moduleId: string, systemName: string): void {
   console.log('Created UI ActorPage component file with template content at ' + path.join(modulePath, 'src', 'ui', 'ActorPage.tsx'));
 
   // Create server files with template content
-  const serverImportContent = SERVER_TS_IMPORT.replace(/%SYSTEM_ID%/g, moduleId.toUpperCase());
+  const serverImportContent = SERVER_TS_IMPORT.replace(/%SYSTEM_ID%/g, classPrefix);
   fs.writeFileSync(path.join(modulePath, 'module', 'server.ts'), serverImportContent, 'utf8');
   console.log('Created server import file with template content at ' + path.join(modulePath, 'module', 'server.ts'));
-  const serverContent = SERVER_TS.replace(/%SYSTEM_ID%/g, moduleId.toUpperCase());
+  const serverContent = SERVER_TS.replace(/%SYSTEM_ID%/g, classPrefix);
   fs.writeFileSync(path.join(modulePath, 'src', 'server', 'server.ts'), serverContent, 'utf8');
   console.log('Created server files with template content at ' + path.join(modulePath, 'src', 'server', 'server.ts'));
 
@@ -372,7 +391,7 @@ function initModule(moduleId: string, systemName: string): void {
 // Main
 // ---------------------------------------------------------------------------
 
-if (import.meta.main) {
+if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   const moduleId = process.argv[2];
   const systemName = process.argv[3] || moduleId;
   if (!moduleId || !systemName) {

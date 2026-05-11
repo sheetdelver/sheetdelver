@@ -34,6 +34,7 @@ import { run as runModuleSourceAdapters } from './module-source-adapters.test';
 import { run as runModuleManagerDryRun } from './module-manager-dry-run.test';
 import { run as runModuleManagerTelemetry } from './module-manager-telemetry.test';
 import { run as runSdkIntegrity } from './sdk-integrity.test';
+import { run as runModuleInitScaffold } from './module-init-scaffold.test';
 
 async function runAllUnitTests() {
     // Initialize test data directory before running any tests
@@ -78,6 +79,7 @@ async function runAllUnitTests() {
     await runModuleManagerDryRun();
     await runModuleManagerTelemetry();
     await runSdkIntegrity();
+    await runModuleInitScaffold();
 }
 
 runAllUnitTests()
