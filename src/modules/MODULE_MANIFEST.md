@@ -129,7 +129,7 @@ import { BaseSystemAdapter, type ModuleContext, type FoundryActor, type ActorShe
 export class Adapter extends BaseSystemAdapter {
     systemId = 'my-system';
 
-    override normalizeActorData(actor: FoundryActor): ActorSheetData {
+    normalizeActorData(actor: FoundryActor): ActorSheetData {
         return {
             id: actor._id,
             name: actor.name,
@@ -142,11 +142,11 @@ export class Adapter extends BaseSystemAdapter {
         };
     }
 
-    override match(actor: FoundryActor): boolean {
+    match(actor: FoundryActor): boolean {
         return actor._stats?.systemId === 'SYSTEM_ID'; // It is recommended you use the system id as that will match guaranteed
     }
 
-    override async initialize(context: ModuleContext): Promise<void> {
+    async initialize(context: ModuleContext): Promise<void> {
         await super.initialize(context);
         // Use context.logger instead of importing a logger directly
         context.logger.info('My System adapter initialized');
@@ -573,7 +573,7 @@ When an admin switches a module's active source via the lifecycle panel (`Manage
 
 1. Move your module directory to `<DATA_DIR>/local/modules/<systemId>/`.
 2. Replace all internal platform imports (`@shared/`, `@client/`, `@core/`, etc.) with `@sheet-delver/sdk`.
-3. Extend `BaseSystemAdapter` for your logic entry point. Remove any `override` keyword (not supported by SWC/Turbopack in all contexts — omit it; the adapter methods are still called correctly).
+3. Extend `BaseSystemAdapter` for your logic entry point. The `override` keyword is optional TypeScript syntax; the platform dispatches adapter methods by name and does not require it. The examples omit it for compatibility and readability.
 4. Use `useSDK()` for runtime platform data and `useSDKComponents()` for platform UI components in your React components.
 5. Identify your actors using `actor._stats?.systemId` — this is Foundry's authoritative system identifier and is available in the raw actor document without any derived-value computation.
 6. Image paths — always pass actor images through `resolveImage(actor.img ?? '', foundryUrl)` (available from `useSDK().foundryUrl` in UI, or via the base class `this.foundryUrl` getter in the adapter). Foundry returns relative paths that must be prefixed with the Foundry server origin before the browser can load them.
