@@ -90,15 +90,79 @@ export interface RollData {
 // Discovery
 // ---------------------------------------------------------------------------
 
+export const PackDiscoveryDocumentType = {
+    Item: 'Item',
+    Actor: 'Actor',
+    JournalEntry: 'JournalEntry',
+    Scene: 'Scene',
+    Macro: 'Macro',
+    RollTable: 'RollTable',
+} as const;
+
+export type PackDiscoveryDocumentType =
+    typeof PackDiscoveryDocumentType[keyof typeof PackDiscoveryDocumentType];
+
 export interface PackDiscoveryConfig {
     id: string;
-    type: 'Item' | 'Actor' | 'JournalEntry' | 'Scene' | 'Macro' | 'RollTable';
+    type: PackDiscoveryDocumentType;
     hydrate: boolean;
     fields?: string[];
 }
 
 export interface DiscoveryConfig {
     packs: PackDiscoveryConfig[];
+}
+
+// ---------------------------------------------------------------------------
+// Module info.json manifest
+// ---------------------------------------------------------------------------
+
+export type ModuleTrustTier = 'first-party' | 'verified-third-party' | 'unverified';
+
+export interface ModuleTrustDeclaration {
+    tier: ModuleTrustTier;
+}
+
+export interface ModulePermissionDeclaration {
+    network?: {
+        outbound?: boolean;
+        allowHosts?: string[];
+    };
+    filesystem?: {
+        read?: string[];
+        write?: string[];
+    };
+    adminRoutes?: boolean;
+    sensitiveData?: string[];
+}
+
+export interface ModuleManifestPaths {
+    ui: string;
+    logic: string;
+    server?: string;
+}
+
+export interface ModulePackageDeclaration {
+    include?: string[];
+}
+
+export interface ModuleInfo {
+    id: string;
+    title: string;
+    version?: string;
+    aliases?: string[];
+    experimental?: boolean;
+    trust?: ModuleTrustDeclaration;
+    permissions?: ModulePermissionDeclaration;
+    compatibility?: {
+        coreVersion?: string;
+        apiContracts?: Record<string, string>;
+    };
+    manifest: ModuleManifestPaths;
+    discovery?: DiscoveryConfig;
+    package?: ModulePackageDeclaration;
+    dependencies?: string[];
+    conflicts?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -231,7 +295,7 @@ export interface SystemAdapter {
 // ---------------------------------------------------------------------------
 
 export interface UIModuleManifest {
-    info: { id: string; title: string };
+    info: ModuleInfo;
     sheet: () => Promise<{ default: unknown }>;
     rollModal?: () => Promise<{ default: unknown }>;
     actorPage?: () => Promise<{ default: unknown }>;

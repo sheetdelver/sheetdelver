@@ -205,8 +205,10 @@ export class %SYSTEM_ID%Adapter extends BaseSystemAdapter {
 `;
 
 // Template content for ui.tsx file
-const UI_TSX = `import type { UIModuleManifest } from '@sheet-delver/sdk';
-import info from '../info.json';
+const UI_TSX = `import type { ModuleInfo, UIModuleManifest } from '@sheet-delver/sdk';
+import infoJson from '../info.json';
+
+const info = infoJson as ModuleInfo;
 
 const uiManifest: UIModuleManifest = {
     info,
@@ -243,25 +245,27 @@ export default function ActorPage() {
 `;
 
 // Template content for server.ts import file
-const SERVER_TS_IMPORT = `export { %SYSTEM_ID%ServerModule } from '../src/server/server';
+const SERVER_TS_IMPORT = `export { apiRoutes } from '../src/server/server';
 `;
 
 // Template content for server.ts file
 const SERVER_TS = `import type { ModuleServerExport, ModuleServerRequest, ModuleServerParams } from '@sheet-delver/sdk';
-import { logger, getErrorMessage } from '@sheet-delver/sdk';
+import { getErrorMessage } from '@sheet-delver/sdk';
 
 async function addCustomItemToActor(req: ModuleServerRequest, params: ModuleServerParams) {
-    const { actorId } = params;
-    const itemData = req.body;
-
     try {
-        // Implement server-side logic to add a custom item to an actor
-        logger.info(\`Adding custom item to actor \${actorId} with data:\`, itemData);
-        // Example: await addItemToActor(actorId, itemData);
-        return { success: true };
+        const { route } = await params.params;
+        const actorId = route[1];
+        const itemData = await req.json<Record<string, unknown>>();
+
+        if (!actorId) {
+            return { status: 400, json: async () => ({ error: 'Missing actor id' }) };
+        }
+
+        const item = await req.foundryClient.createActorItem(actorId, itemData);
+        return { status: 200, json: async () => ({ success: true, item }) };
     } catch (error) {
-        logger.error(\`Error adding custom item to actor \${actorId}:\`, getErrorMessage(error));
-        return { success: false, error: getErrorMessage(error) };
+        return { status: 500, json: async () => ({ error: getErrorMessage(error) }) };
     }
 }
 

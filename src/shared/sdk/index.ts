@@ -22,9 +22,16 @@ export type {
 
 export type {
     UIModuleManifest,
+    ModuleInfo,
+    ModuleManifestPaths,
+    ModulePackageDeclaration,
+    ModulePermissionDeclaration,
+    ModuleTrustDeclaration,
+    ModuleTrustTier,
     ModuleManifest,
     DiscoveryConfig,
     PackDiscoveryConfig,
+    PackDiscoveryDocumentType,
     RollMode,
     RollData,
     RollDataOptions,

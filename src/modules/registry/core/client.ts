@@ -8,7 +8,14 @@ import React from 'react';
  * Used when no system-specific module is registered or when the system is 'generic'.
  */
 const PLATFORM_DEFAULT_MANIFEST: UIModuleManifest = {
-    info: { id: 'generic', title: 'Generic System' },
+    info: {
+        id: 'generic',
+        title: 'Generic System',
+        manifest: {
+            ui: '',
+            logic: '',
+        },
+    },
     sheet:     () => import('@client/ui/components/GenericSheet'),
     actorPage: () => import('@client/ui/pages/GenericActorPage'),
 };

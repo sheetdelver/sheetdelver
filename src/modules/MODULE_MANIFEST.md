@@ -94,7 +94,7 @@ my-system/
   "conflicts": [],
   "package": {
     "include": []
-  },
+  }
 }
 ```
 
@@ -107,9 +107,14 @@ my-system/
 | `manifest.ui` | Yes | Path to the UI entry point (relative to module root). |
 | `manifest.logic` | Yes | Path to the logic/adapter entry point. |
 | `manifest.server` | No | Path to the server API entry point. |
+| `compatibility.coreVersion` | No | SemVer range requirement against the Sheet Delver core version. |
 | `compatibility.apiContracts` | No | SemVer range requirements against the platform SDK contracts. |
 | `discovery.packs` | No | Compendium packs to index at world-ready time. Declared packs are fully hydrated by the platform before `initialize()` is called. |
 | `trust.tier` | No | `first-party` \| `verified-third-party` \| `unverified` |
+| `permissions` | No | Optional declarations for network, filesystem, admin route, or sensitive-data needs. |
+| `aliases` | No | Alternate module/system ids used for lookup compatibility. |
+| `dependencies` | No | Module ids this module depends on. |
+| `conflicts` | No | Module ids this module cannot run alongside. |
 | `package.include` | No | Extra files/dirs (relative to module root) to include in the archive beyond `assets/` and compiled JS. |
 
 ---
@@ -180,8 +185,10 @@ export default Adapter;
 Export a `UIModuleManifest` as the default export.
 
 ```ts
-import type { UIModuleManifest } from '@sheet-delver/sdk';
-import info from '../info.json';
+import type { ModuleInfo, UIModuleManifest } from '@sheet-delver/sdk';
+import infoJson from '../info.json';
+
+const info = infoJson as ModuleInfo;
 
 const manifest: UIModuleManifest = {
     info,
@@ -192,12 +199,19 @@ const manifest: UIModuleManifest = {
         'generator': () => import('../src/ui/tools/Generator'),
     },
     dashboardTools: () => import('../src/ui/MyDashboardTools'),
+    stylesheet: 'assets/styles.css',
 };
 
 export default manifest;
 ```
 
-All entries are lazy `() => import(...)` thunks. The platform calls them on demand. The imported module must have a default export that is a React component.
+`info` is synchronous module metadata. Import `info.json` statically and cast it to `ModuleInfo` so the UI manifest carries the same strict shape the registry validates.
+
+All component entries are lazy `() => import(...)` thunks. The platform calls them on demand. The imported module must have a default export that is a React component.
+
+`stylesheet` is optional. When provided, it must point to a CSS file in the module's `assets/` directory and the platform injects it when the module mounts.
+
+`dashboardLoading` is also available for modules that need a custom dashboard loading component.
 
 **Platform hooks — use `useSDK()` and `useSDKComponents()` from the SDK:**
 
@@ -564,4 +578,3 @@ When an admin switches a module's active source via the lifecycle panel (`Manage
 5. Identify your actors using `actor._stats?.systemId` — this is Foundry's authoritative system identifier and is available in the raw actor document without any derived-value computation.
 6. Image paths — always pass actor images through `resolveImage(actor.img ?? '', foundryUrl)` (available from `useSDK().foundryUrl` in UI, or via the base class `this.foundryUrl` getter in the adapter). Foundry returns relative paths that must be prefixed with the Foundry server origin before the browser can load them.
 7. Verify with `npx tsc --noEmit` from the project root — modules share the project tsconfig and can type-check independently via their own `tsconfig.json` that extends `.managed/tsconfig.paths.json`.
-

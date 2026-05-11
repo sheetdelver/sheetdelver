@@ -1,48 +1,18 @@
-import { SystemAdapter, UIModuleManifest } from '@shared/sdk';
+import { SystemAdapter, UIModuleManifest, type ModuleInfo } from '@shared/sdk';
 import type { DiscoveryConfig } from '@shared/sdk';
 export type { ModuleLifecycleRecord, ModuleLifecycleStatus, ModuleLifecycleStore } from '../lifecycle/lifecycle';
 export type { ModuleCompatibilityResult, ModuleValidationResult } from '../lifecycle/validation';
 import { ModuleSourceCategory, ModuleTrustTier } from '@shared/types/modules';
 
 export type { ModuleTrustTier };
+export type { ModulePermissionDeclaration } from '@shared/sdk';
 
 export interface ModuleTrustDeclaration {
     tier: ModuleTrustTier;
 }
 
-export interface ModulePermissionDeclaration {
-    network?: {
-        outbound?: boolean;
-        allowHosts?: string[];
-    };
-    filesystem?: {
-        read?: string[];
-        write?: string[];
-    };
-    adminRoutes?: boolean;
-    sensitiveData?: string[];
-}
-
-export interface SystemModuleInfo {
-    id: string;
-    version?: string;
-    title: string;
-    aliases?: string[];
-    experimental?: boolean;
+export interface SystemModuleInfo extends Omit<ModuleInfo, 'trust'> {
     trust?: ModuleTrustDeclaration;
-    permissions?: ModulePermissionDeclaration;
-    compatibility?: {
-        coreVersion?: string;
-        apiContracts?: Record<string, string>;
-    };
-    manifest: {
-        ui: string;
-        logic: string;
-        server?: string;
-    };
-    discovery?: import('@shared/sdk').DiscoveryConfig;
-    dependencies?: string[];
-    conflicts?: string[];
 }
 
 /**

@@ -230,7 +230,14 @@ async function runContextTests() {
 
 async function runManifestTests() {
     const manifest: UIModuleManifest = {
-        info: { id: 'mock', title: 'Mock System' },
+        info: {
+            id: 'mock',
+            title: 'Mock System',
+            manifest: {
+                ui: 'module/ui',
+                logic: 'module/logic',
+            },
+        },
         sheet: () => Promise.resolve({ default: {} }),
         rollModal: () => Promise.resolve({ default: {} }),
         actorPage: () => Promise.resolve({ default: {} }),
