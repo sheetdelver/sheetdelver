@@ -63,100 +63,26 @@ For the shorter end-to-end workflow, see [Module Authoring Guide](MODULE_AUTHORI
 
 ## Adding a New System
 
-1.  **Create Directory**: Create `<DATA_DIR>/local/modules/<system-id>/` for local development.
+Use the scaffolded module workflow:
 
-2.  **Metadata**: Add `info.json`:
-    ```json
-    {
-        "id": "mysystem",
-        "title": "My RPG System",
-        "version": "0.1.0",
-        "actorCard": {
-            "subtext": ["details.class", "details.ancestry", "level.value"]
-        },
-        "manifest": {
-            "logic": "module/logic.ts",
-            "ui": "module/ui.tsx"
-        }
-    }
-    ```
-    *   `actorCard.subtext`: Optional. Array of dot-notation paths to display on the dashboard character card. Defaults to actor type if omitted.
-    *   `manifest.logic` / `manifest.ui`: Entry points. Use `.ts`/`.tsx` for Mode A (source), `dist/logic.js` / `dist/ui.js` for Mode B (compiled artifact).
+```bash
+npm run module:init my-system "My System"
+npm run module:check my-system
+```
 
-3.  **Implement Adapter**: Create `module/logic.ts` extending `BaseSystemAdapter`:
-    ```typescript
-    import { BaseSystemAdapter, ModuleContext } from '@sheet-delver/sdk';
+Pass `--data-dir` when working outside the default `./data` directory. The generated module is discovered automatically from `<DATA_DIR>/local/modules/<module-id>/`; no registry edits are required.
 
-    export class MySystemAdapter extends BaseSystemAdapter {
-        async initialize(context: ModuleContext) {
-            // context.logger, context.platform.cache, context.platform.discovery
-        }
-        // Override normalizeActorData, computeActorData, categorizeItems, getRollData as needed
-    }
-
-    export default MySystemAdapter;
-    ```
-
-4.  **Create Sheet UI**: Create `module/ui.tsx` exporting a `UIModuleManifest`:
-    ```typescript
-    import React from 'react';
-    import type { UIModuleManifest } from '@sheet-delver/sdk';
-    import info from '../info.json';
-
-    const manifest: UIModuleManifest = {
-        info,
-        sheet: React.lazy(() => import('./MySystemSheet')),
-        actorPage: React.lazy(() => import('./pages/ActorPage')),
-    };
-
-    export default manifest;
-    ```
-    *   `actorPage`: Optional. Handles data fetching and layout for the character sheet page. Falls back to `GenericActorPage` if omitted.
-
-    Inside sheet components, access platform hooks and shared UI via the SDK:
-    ```typescript
-    import { useSDK, useSDKComponents } from '@sheet-delver/sdk';
-
-    function MySheet() {
-        const { addNotification, fetchWithAuth, resolveImageUrl } = useSDK();
-        const { LoadingModal, RollDialog } = useSDKComponents();
-        // ...
-    }
-    ```
-
-5.  **Register**: None needed. `npm run dev` auto-discovers the module and regenerates `data/module-ui-registry.ts`.
-
-6.  **Dashboard Tools (Optional)**: Export a `tools` component from the `UIModuleManifest`:
-    ```typescript
-    const manifest: UIModuleManifest = {
-        info,
-        sheet: React.lazy(() => import('./MySystemSheet')),
-        tools: React.lazy(() => import('./MySystemTools')),
-    };
-    ```
+The [Module Authoring Guide](MODULE_AUTHORING.md) covers the end-to-end development path. The manifest reference in `src/modules/MODULE_MANIFEST.md` remains the authoritative contract for metadata, entry points, SDK hooks, discovery packs, and server routes.
 
 ## Packaging a Module for Distribution
 
-Once your module is working locally (Mode A source), compile it into a distributable Mode B artifact:
+Once the module passes `module:check`, create a distributable artifact with:
 
 ```bash
-npm run package:module <module-id>
+npm run module:package <module-id>
 ```
 
-The script (`src/scripts/tools/modules/package-module.ts`) looks for the module in `<DATA_DIR>/local/modules/<module-id>/`, then:
-1. Compiles each declared entry point (`logic`, `ui`, `server`) via esbuild, externalizing `@sheet-delver/sdk`, `react`, and `react-dom`.
-2. Writes compiled artifacts to a staging `dist/` directory and patches `info.json` to point to the compiled paths.
-3. Creates a `.tgz` archive at `<DATA_DIR>/dist/modules/<module-id>-<version>.tgz`.
-4. Outputs the SHA-256 integrity hash for use in admin install payloads.
-
-```
-✅ mysystem v0.1.0 packaged successfully
-   Archive : data/dist/modules/mysystem-0.1.0.tgz
-   Size    : 42.3 KB
-   Sha256  : sha256:abc123...
-```
-
-The archive can then be installed via the admin panel (`POST /admin/manager/:moduleId/install`) with the integrity hash as verification.
+Use `-- --data-dir <path>` when packaging from a non-default data directory. The packaging tool writes its archive and integrity hash under the configured data directory; the authoring guide covers the expected workflow in more detail.
 
 ## Module API & Server-Side Logic
 
