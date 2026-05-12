@@ -189,9 +189,7 @@ function toTypeScriptIdentifier(value: string): string {
 }
 
 // Template content for logic.ts import file
-const LOGIC_TS_IMPORT = `export { %SYSTEM_ID%Adapter as Adapter } from '../src/logic/adapter';
-export { %SYSTEM_ID%Adapter } from '../src/logic/adapter';
-`;
+const LOGIC_TS_IMPORT = `export { %SYSTEM_ID%Adapter as Adapter } from '../src/logic/adapter';`;
 
 // Template content for adapter.ts file
 const LOGIC_TS = `import {
