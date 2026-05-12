@@ -37,7 +37,7 @@ interface AdminRouterDeps {
 
 export function createAdminRouter(deps: AdminRouterDeps) {
     // --- Admin API (Local-Only) ---
-    // This API is used by the standalone CLI tool
+    // This API is consumed by the Admin UI
     const adminRouter = express.Router();
 
     // Admin domain service: displaced operational logic for status, worlds, cache, and world actions.
@@ -280,7 +280,7 @@ export function createAdminRouter(deps: AdminRouterDeps) {
         }
     });
 
-    // Setup endpoints removed - functionality migrated to CLI admin tool
+
 
     adminRouter.get('/cache', async (req, res) => {
         try {

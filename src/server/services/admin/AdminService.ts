@@ -9,7 +9,7 @@ import type {
 } from '@server/shared/types/admin';
 
 export function createAdminService(deps: AdminServiceDeps): AdminServiceResult {
-    // Admin status projection used by CLI and local maintenance surfaces.
+    // Admin status projection used by the Admin UI and local maintenance surfaces.
     const getStatus = async () => {
         const systemStatus = await deps.getSystemStatusPayload();
         const client = systemService.getSystemClient() as unknown as AdminStatusClientLike;
@@ -44,7 +44,8 @@ export function createAdminService(deps: AdminServiceDeps): AdminServiceResult {
         return SetupManager.loadCache();
     };
 
-    // Manual setup scrape used by local admin/CLI workflows.
+    // Manual setup scrape used by local admin workflows.
+    // TODO Fix: The scraper should be done on the backend, however we will leave the single world scrape to be fixed later.
     const scrapeSetup = async (sessionCookie: string) => {
         if (!sessionCookie) return { error: 'Session cookie required', status: 400 };
 

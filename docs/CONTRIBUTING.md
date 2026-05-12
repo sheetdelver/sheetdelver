@@ -42,7 +42,7 @@ SheetDelver follows a **Decoupled Core/Shell** architecture to ensure stability 
 - `src/app`: The **Frontend Shell**. Next.js application containing the UI. API requests are forwarded to the Core Service via Next.js rewrite rules.
   - `ui/`: React components and hooks.
 - `src/modules`: Pluggable **RPG System Modules**. Each module contains its own Adapter and Sheet UI.
-- `src/cli`: The **Admin Console**. CLI tool for world management and authenticated scrapes.
+- `src/scripts/tools`: **Admin Tools**. Scripts for world management and direct imports.
 - `src/scripts`: Tooling, build scripts, and the unified startup manager.
 - `src/tests`: Automated unit and integration tests.
 

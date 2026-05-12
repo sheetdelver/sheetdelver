@@ -47,7 +47,7 @@ SheetDelver follows a **Hardened 4-Folder Root** architecture with a strict **Lo
 3.  **Shared Layer** (`src/shared` | `@shared`): Environment-agnostic interfaces, constants, and pure utilities safe for both browser and server.
 4.  **System Modules** (`src/modules` | `@modules`): Pluggable RPG system logic. Each module enforces its own internal client/server isolation.
 5.  **Execution App** (`src/app` | `@app`): The Next.js App Router entry point.
-6.  **Admin CLI** (`src/cli`): Command-line tool for world management and setup.
+6.  **Admin Tools** (`src/scripts/tools`): Scripts for world management and setup.
 
 ---
 
@@ -233,19 +233,14 @@ rm -f .foundry-cache.json .foundry-session.json
 
 The application will warn if legacy paths are detected at startup.
 
-### Admin CLI
-SheetDelver includes a command-line interface for managing the Core Service and world data.
+### Admin Utilities
+SheetDelver includes an admin tool for importing world data directly.
 
-- **Interactive Menu**: `npm run admin`
-  - `i` - Import Worlds (from disk)
-  - `s` - Start World (if already imported/cached)
-  - `c` - Configure/Setup (Manual Cookie)
-
-- **Direct Import**: `npm run admin import <path>`
+- **Direct Import**: `npm run admin:import <path>`
   - **Smart Discovery**:
     - If `<path>` is a **Data Directory** (e.g. `FoundryVTT/Data`), it imports **ALL** worlds found within.
     - If `<path>` is a **World Directory** (e.g. `FoundryVTT/Data/worlds/my-world`), it imports **only that world**.
-  - *Example*: `npm run admin import /home/user/.local/share/FoundryVTT/Data`
+  - *Example*: `npm run admin:import /home/user/.local/share/FoundryVTT/Data`
 
 ## Development
 For developers interested in contributing to **SheetDelver**, please refer to [CONTRIBUTING.md](docs/CONTRIBUTING.md) for detailed setup instructions, architecture overview, and guidelines.

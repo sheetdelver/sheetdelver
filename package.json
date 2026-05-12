@@ -10,7 +10,7 @@
     "setup": "npx tsx src/scripts/setup.ts",
     "lint": "eslint",
     "core": "npx tsx src/server/index.ts",
-    "admin": "npx tsx src/cli/index.ts",
+    "admin:import": "npx tsx src/scripts/tools/admin/import-worlds.ts",
     "test:socket": "npx tsx src/tests/socket/run-all.ts",
     "test:socket:connection": "npx tsx src/tests/socket/01-connection.test.ts",
     "test:socket:system": "npx tsx src/tests/socket/02-system-info.test.ts",
