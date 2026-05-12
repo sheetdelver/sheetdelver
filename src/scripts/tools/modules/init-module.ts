@@ -73,10 +73,10 @@ Happy developing!
  *
  * Two-checkout strategy:
  *   1. sheetdelver/sheet-delver → ./ (the platform with build scripts and module registry)
- *   2. This module repo → ./data/local/modules/%SYSTEM_ID%/ (where the platform expects to find it)
+ *   2. This module repo → ${SHEET_DELVER_DATA}/local/modules/%SYSTEM_ID%/ (where the platform expects to find it)
  *
  * paths: trigger on files that actually exist in the module repo root,
- *        NOT the platform-relative path (data/local/modules/...) which never matches.
+ *        NOT the platform-relative local module path, which never matches.
 */
 const GITHUB_ACTIONS_WORKFLOW = `name: Build Module
 
@@ -102,6 +102,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      SHEET_DELVER_DATA: ./data
     defaults:
       run:
         working-directory: ./
@@ -118,7 +120,7 @@ jobs:
         uses: actions/checkout@v3
         with:
           repository: \${{ github.repository }}
-          path: ./data/local/modules/%SYSTEM_ID%
+          path: \${{ env.SHEET_DELVER_DATA }}/local/modules/%SYSTEM_ID%
 
       - name: Set up Node.js
         uses: actions/setup-node@v3
@@ -400,7 +402,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   }
 
   // Data directory
-  resolveDataDir(); // Ensure data directory is resolved and initialized before proceeding
+  resolveDataDir(process.argv); // Ensure data directory is resolved and initialized before proceeding
 
   const dataDir = getDataDir();
   console.log(`Using data directory: ${dataDir}`);
@@ -409,8 +411,9 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
     initModule(moduleId, systemName);
     console.log(`Module "${moduleId}" initialized successfully.`);
     console.log('Next steps:');
-    console.log(`1. Implement your module's logic in data/local/modules/${moduleId}/src/logic/`);
-    console.log(`2. Build your UI components in data/local/modules/${moduleId}/src/ui/`);
+    const modulePath = path.join(dataDir, 'local', 'modules', moduleId);
+    console.log(`1. Implement your module's logic in ${path.join(modulePath, 'src', 'logic')}/`);
+    console.log(`2. Build your UI components in ${path.join(modulePath, 'src', 'ui')}/`);
     console.log('3. Refer to the README.md for API usage and examples.');
   } catch (error) {
     console.error(`Error initializing module: ${(error as Error).message}`);

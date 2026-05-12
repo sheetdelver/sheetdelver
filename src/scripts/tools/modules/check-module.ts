@@ -110,6 +110,7 @@ export interface ModuleCheckOptions {
 interface ModuleCheckCliOptions {
     moduleId: string;
     json: boolean;
+    dataDir?: string;
 }
 
 interface CheckContext {
@@ -471,20 +472,37 @@ function printIssueSummary(issues: ModuleCheckIssue[], title: string): void {
 function parseCliArgs(argv: string[]): ModuleCheckCliOptions | null {
     const args = argv.slice(2);
     const json = args.includes('--json');
-    const moduleId = args.find((arg) => arg !== '--json');
-    return moduleId ? { moduleId, json } : null;
+    let dataDir: string | undefined;
+    let moduleId: string | undefined;
+
+    for (let index = 0; index < args.length; index += 1) {
+        const arg = args[index];
+        if (arg === '--json') continue;
+        if (arg === '--data-dir') {
+            dataDir = args[index + 1];
+            index += 1;
+            continue;
+        }
+        if (arg.startsWith('--data-dir=')) {
+            dataDir = arg.slice('--data-dir='.length);
+            continue;
+        }
+        if (!arg.startsWith('--') && !moduleId) moduleId = arg;
+    }
+
+    return moduleId ? { moduleId, json, dataDir } : null;
 }
 
 async function runCli(): Promise<void> {
     const options = parseCliArgs(process.argv);
     if (!options) {
-        console.error('Usage: npm run module:check <moduleId> [-- --json]');
+        console.error('Usage: npm run module:check <moduleId> [-- --json --data-dir <path>]');
         process.exit(1);
     }
 
     if (!options.json) console.log(`\nChecking module "${options.moduleId}"...`);
 
-    const result = await checkModule(options.moduleId, { silent: options.json });
+    const result = await checkModule(options.moduleId, { dataDir: options.dataDir, silent: options.json });
     if (options.json) {
         console.log(JSON.stringify(result, null, 2));
     } else {

@@ -76,11 +76,23 @@ async function compile(
 // ---------------------------------------------------------------------------
 
 async function packageModule() {
-    initDataDir(resolveDataDir());
+    initDataDir(resolveDataDir(process.argv));
 
-    const moduleId = process.argv[2];
+    const args = process.argv.slice(2);
+    let moduleId: string | undefined;
+    for (let index = 0; index < args.length; index += 1) {
+        const arg = args[index];
+        if (arg === '--data-dir') {
+            index += 1;
+            continue;
+        }
+        if (arg.startsWith('--')) continue;
+        moduleId = arg;
+        break;
+    }
+
     if (!moduleId) {
-        console.error('Usage: npm run module:package <moduleId> [--sourcemap]');
+        console.error('Usage: npm run module:package <moduleId> [-- --data-dir <path> --sourcemap]');
         process.exit(1);
     }
 

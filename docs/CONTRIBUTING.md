@@ -59,6 +59,7 @@ The registry (`src/modules/registry/core/server.ts`) scans these directories at 
 *   **Shared components**: Access platform UI components (`LoadingModal`, `RollDialog`, `ConfirmationModal`, `RichTextEditor`, `SharedContentModal`) via `useSDKComponents()` — do not import them from `@client/ui/components/` directly.
 
 See `src/modules/MODULE_MANIFEST.md` for the full authoring reference including SDK surface, `ModuleFoundryClient` methods, discovery pack configuration, and build setup.
+For the shorter end-to-end workflow, see [Module Authoring Guide](MODULE_AUTHORING.md).
 
 ## Adding a New System
 
