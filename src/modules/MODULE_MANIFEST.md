@@ -508,6 +508,12 @@ The script checks:
 
 When it finds legacy platform imports, it prints migration hints for common replacements such as `useSDK()`, `useSDKComponents()`, `ModuleServerRequest`, `req.foundryClient`, and SDK utility exports.
 
+For CI or tooling, emit a structured result:
+
+```sh
+npm run module:check <moduleId> -- --json
+```
+
 ---
 
 ## Development Workflow

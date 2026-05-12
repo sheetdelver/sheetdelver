@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 import * as esbuild from 'esbuild';
 
 import { initDataDir, resolveDataDir, getLocalModulesDataDir } from '../../../server/core/paths';
@@ -75,27 +76,72 @@ const IMPORT_MIGRATION_HINTS: Array<{ test: RegExp; hint: string }> = [
     },
 ];
 
+export type ModuleCheckIssueKind =
+    | 'manifest'
+    | 'entry'
+    | 'export'
+    | 'package'
+    | 'compatibility'
+    | 'import-boundary'
+    | 'typecheck'
+    | 'bundle'
+    | 'filesystem';
+
+export interface ModuleCheckIssue {
+    kind: ModuleCheckIssueKind;
+    message: string;
+    hint?: string;
+}
+
+export interface ModuleCheckResult {
+    moduleId: string;
+    modulePath: string;
+    passed: boolean;
+    failures: ModuleCheckIssue[];
+    warnings: ModuleCheckIssue[];
+    passes: string[];
+}
+
+export interface ModuleCheckOptions {
+    dataDir?: string;
+    silent?: boolean;
+}
+
+interface ModuleCheckCliOptions {
+    moduleId: string;
+    json: boolean;
+}
+
 interface CheckContext {
     moduleId: string;
     modulePath: string;
     info: SystemModuleInfo;
     entries: Partial<Record<'logic' | 'ui' | 'server', string>>;
-    failures: string[];
-    warnings: string[];
+    failures: ModuleCheckIssue[];
+    warnings: ModuleCheckIssue[];
+    passes: string[];
+    silent: boolean;
 }
 
-function fail(ctx: Pick<CheckContext, 'failures'>, message: string): void {
-    ctx.failures.push(message);
-    console.log(`  ✗ ${message}`);
+function fail(ctx: Pick<CheckContext, 'failures' | 'silent'>, kind: ModuleCheckIssueKind, message: string, hint?: string): void {
+    ctx.failures.push({ kind, message, hint });
+    if (!ctx.silent) {
+        console.log(`  ✗ ${message}`);
+        if (hint) console.log(`    Hint: ${hint}`);
+    }
 }
 
-function warn(ctx: Pick<CheckContext, 'warnings'>, message: string): void {
-    ctx.warnings.push(message);
-    console.log(`  ! ${message}`);
+function warn(ctx: Pick<CheckContext, 'warnings' | 'silent'>, kind: ModuleCheckIssueKind, message: string, hint?: string): void {
+    ctx.warnings.push({ kind, message, hint });
+    if (!ctx.silent) {
+        console.log(`  ! ${message}`);
+        if (hint) console.log(`    Hint: ${hint}`);
+    }
 }
 
-function pass(message: string): void {
-    console.log(`  ✓ ${message}`);
+function pass(ctx: Pick<CheckContext, 'passes' | 'silent'>, message: string): void {
+    ctx.passes.push(message);
+    if (!ctx.silent) console.log(`  ✓ ${message}`);
 }
 
 function readJson(filePath: string): unknown {
@@ -166,46 +212,43 @@ function checkImportBoundaries(ctx: CheckContext): void {
             const forbidden = FORBIDDEN_IMPORT_PREFIXES.find((prefix) => specifier === prefix.slice(0, -1) || specifier.startsWith(prefix));
             if (forbidden) {
                 const hint = getMigrationHint(specifier);
-                fail(ctx, [
-                    `${path.relative(ctx.modulePath, filePath)} imports internal platform alias "${specifier}"`,
-                    hint ? `    Hint: ${hint}` : null,
-                ].filter(Boolean).join('\n'));
+                fail(ctx, 'import-boundary', `${path.relative(ctx.modulePath, filePath)} imports internal platform alias "${specifier}"`, hint ?? undefined);
                 issueCount += 1;
             }
 
             const relativeIssue = checkRelativeImport(ctx.modulePath, filePath, specifier);
             if (relativeIssue) {
-                fail(ctx, relativeIssue);
+                fail(ctx, 'import-boundary', relativeIssue);
                 issueCount += 1;
             }
         }
     }
 
-    if (issueCount === 0) pass(`import boundary clean (${files.length} source files scanned)`);
+    if (issueCount === 0) pass(ctx, `import boundary clean (${files.length} source files scanned)`);
 }
 
 function checkPackageIncludes(ctx: CheckContext): void {
     const includes = ctx.info.package?.include ?? [];
     let issueCount = 0;
     if (!Array.isArray(includes)) {
-        fail(ctx, 'Manifest field "package.include" must be an array when provided');
+        fail(ctx, 'package', 'Manifest field "package.include" must be an array when provided');
         return;
     }
 
     for (const includePath of includes) {
         if (typeof includePath !== 'string' || includePath.trim() === '') {
-            fail(ctx, 'Manifest field "package.include" entries must be non-empty strings');
+            fail(ctx, 'package', 'Manifest field "package.include" entries must be non-empty strings');
             issueCount += 1;
             continue;
         }
         if (!fs.existsSync(path.join(ctx.modulePath, includePath))) {
-            fail(ctx, `package.include path "${includePath}" does not exist`);
+            fail(ctx, 'package', `package.include path "${includePath}" does not exist`);
             issueCount += 1;
         }
     }
 
     if (issueCount === 0) {
-        pass(includes.length ? `package.include paths exist (${includes.length})` : 'no package.include paths declared');
+        pass(ctx, includes.length ? `package.include paths exist (${includes.length})` : 'no package.include paths declared');
     }
 }
 
@@ -222,12 +265,12 @@ function checkTypeScript(ctx: CheckContext): void {
     });
 
     if (result.status === 0) {
-        pass(fs.existsSync(moduleTsconfig) ? 'TypeScript check passed (module tsconfig)' : 'TypeScript check passed (root tsconfig)');
+        pass(ctx, fs.existsSync(moduleTsconfig) ? 'TypeScript check passed (module tsconfig)' : 'TypeScript check passed (root tsconfig)');
         return;
     }
 
     const output = `${result.stdout}${result.stderr}`.trim();
-    fail(ctx, `TypeScript check failed${output ? `:\n${output}` : ''}`);
+    fail(ctx, 'typecheck', `TypeScript check failed${output ? `:\n${output}` : ''}`);
 }
 
 async function dryBundle(ctx: CheckContext): Promise<void> {
@@ -251,9 +294,9 @@ async function dryBundle(ctx: CheckContext): Promise<void> {
                     logLevel: 'silent',
                     write: true,
                 });
-                pass(`dry bundle passed for ${entry.key}`);
+                pass(ctx, `dry bundle passed for ${entry.key}`);
             } catch (error) {
-                fail(ctx, `dry bundle failed for ${entry.key}: ${error instanceof Error ? error.message : String(error)}`);
+                fail(ctx, 'bundle', `dry bundle failed for ${entry.key}: ${error instanceof Error ? error.message : String(error)}`);
             }
         }
     } finally {
@@ -265,18 +308,18 @@ function checkEntries(ctx: CheckContext): void {
     for (const entry of ENTRIES) {
         const manifestEntry = ctx.info.manifest?.[entry.key as keyof SystemModuleInfo['manifest']];
         if (!manifestEntry) {
-            if (entry.required) fail(ctx, `manifest.${entry.key} is required`);
+            if (entry.required) fail(ctx, 'entry', `manifest.${entry.key} is required`);
             continue;
         }
 
         const entryFile = resolveEntry(ctx.modulePath, manifestEntry);
         if (!entryFile) {
-            fail(ctx, `manifest.${entry.key} entry "${manifestEntry}" could not be resolved`);
+            fail(ctx, 'entry', `manifest.${entry.key} entry "${manifestEntry}" could not be resolved`);
             continue;
         }
 
         ctx.entries[entry.key as keyof CheckContext['entries']] = entryFile;
-        pass(`manifest.${entry.key} resolves to ${path.relative(ctx.modulePath, entryFile)}`);
+        pass(ctx, `manifest.${entry.key} resolves to ${path.relative(ctx.modulePath, entryFile)}`);
     }
 }
 
@@ -285,9 +328,9 @@ function checkEntryExports(ctx: CheckContext): void {
     if (logic) {
         const source = fs.readFileSync(logic, 'utf8');
         if (/\bexport\s+(?:default\s+)?class\s+Adapter\b/.test(source) || /\bexport\s*\{[^}]*\bas\s+Adapter\b[^}]*\}/.test(source) || /\bexport\s*\{[^}]*\bAdapter\b[^}]*\}/.test(source)) {
-            pass('logic entry exports Adapter');
+            pass(ctx, 'logic entry exports Adapter');
         } else {
-            fail(ctx, 'logic entry must export an Adapter class or Adapter alias');
+            fail(ctx, 'export', 'logic entry must export an Adapter class or Adapter alias');
         }
     }
 
@@ -295,9 +338,9 @@ function checkEntryExports(ctx: CheckContext): void {
     if (ui) {
         const source = fs.readFileSync(ui, 'utf8');
         if (/\bexport\s+default\b/.test(source)) {
-            pass('ui entry has default export');
+            pass(ctx, 'ui entry has default export');
         } else {
-            fail(ctx, 'ui entry must default-export a UIModuleManifest');
+            fail(ctx, 'export', 'ui entry must default-export a UIModuleManifest');
         }
     }
 
@@ -305,9 +348,9 @@ function checkEntryExports(ctx: CheckContext): void {
     if (server) {
         const source = fs.readFileSync(server, 'utf8');
         if (/\bexport\s+const\s+apiRoutes\b/.test(source) || /\bexport\s*\{[^}]*\bapiRoutes\b[^}]*\}/.test(source)) {
-            pass('server entry exports apiRoutes');
+            pass(ctx, 'server entry exports apiRoutes');
         } else {
-            fail(ctx, 'server entry must export named apiRoutes');
+            fail(ctx, 'export', 'server entry must export named apiRoutes');
         }
     }
 }
@@ -318,36 +361,33 @@ function checkCompatibility(ctx: CheckContext): void {
         const coreVersion = packageJson.version ?? '0.0.0';
         const result = evaluateModuleCompatibility(ctx.info, coreVersion);
         if (result.compatible) {
-            pass('compatibility constraints satisfied');
+            pass(ctx, 'compatibility constraints satisfied');
         } else {
-            fail(ctx, `compatibility constraints failed: ${result.reason ?? 'unknown reason'}`);
+            fail(ctx, 'compatibility', `compatibility constraints failed: ${result.reason ?? 'unknown reason'}`);
         }
     } catch (error) {
-        warn(ctx, `compatibility check skipped: ${error instanceof Error ? error.message : String(error)}`);
+        warn(ctx, 'compatibility', `compatibility check skipped: ${error instanceof Error ? error.message : String(error)}`);
     }
 }
 
-function loadModuleContext(moduleId: string): CheckContext | null {
-    initDataDir(resolveDataDir());
+function loadModuleContext(moduleId: string, options: ModuleCheckOptions = {}): CheckContext {
+    initDataDir(resolveDataDir(options.dataDir ? ['--data-dir', options.dataDir] : undefined));
 
     const modulePath = path.join(getLocalModulesDataDir(), moduleId);
     if (!fs.existsSync(modulePath)) {
-        console.error(`Module "${moduleId}" not found in ${getLocalModulesDataDir()}`);
-        return null;
+        throw new Error(`Module "${moduleId}" not found in ${getLocalModulesDataDir()}`);
     }
 
     const infoPath = path.join(modulePath, 'info.json');
     if (!fs.existsSync(infoPath)) {
-        console.error(`info.json not found in ${modulePath}`);
-        return null;
+        throw new Error(`info.json not found in ${modulePath}`);
     }
 
     let rawInfo: unknown;
     try {
         rawInfo = readJson(infoPath);
     } catch (error) {
-        console.error(`Failed to parse info.json: ${error instanceof Error ? error.message : String(error)}`);
-        return null;
+        throw new Error(`Failed to parse info.json: ${error instanceof Error ? error.message : String(error)}`);
     }
 
     const ctx: CheckContext = {
@@ -357,33 +397,26 @@ function loadModuleContext(moduleId: string): CheckContext | null {
         entries: {},
         failures: [],
         warnings: [],
+        passes: [],
+        silent: options.silent ?? false,
     };
 
     const shape = validateModuleInfoShape(rawInfo);
     if (shape.valid) {
-        pass('info.json shape valid');
+        pass(ctx, 'info.json shape valid');
     } else {
-        for (const error of shape.errors) fail(ctx, error);
+        for (const error of shape.errors) fail(ctx, 'manifest', error);
     }
 
     if (ctx.info.id && ctx.info.id !== moduleId) {
-        warn(ctx, `info.json id "${ctx.info.id}" differs from requested module id "${moduleId}"`);
+        warn(ctx, 'manifest', `info.json id "${ctx.info.id}" differs from requested module id "${moduleId}"`);
     }
 
     return ctx;
 }
 
-async function checkModule(): Promise<void> {
-    const moduleId = process.argv[2];
-    if (!moduleId) {
-        console.error('Usage: npm run module:check <moduleId>');
-        process.exit(1);
-    }
-
-    console.log(`\nChecking module "${moduleId}"...`);
-
-    const ctx = loadModuleContext(moduleId);
-    if (!ctx) process.exit(1);
+export async function checkModule(moduleId: string, options: ModuleCheckOptions = {}): Promise<ModuleCheckResult> {
+    const ctx = loadModuleContext(moduleId, options);
 
     checkEntries(ctx);
     checkEntryExports(ctx);
@@ -393,17 +426,76 @@ async function checkModule(): Promise<void> {
     checkTypeScript(ctx);
     await dryBundle(ctx);
 
+    return {
+        moduleId: ctx.moduleId,
+        modulePath: ctx.modulePath,
+        passed: ctx.failures.length === 0,
+        failures: ctx.failures,
+        warnings: ctx.warnings,
+        passes: ctx.passes,
+    };
+}
+
+export function printModuleCheckSummary(result: ModuleCheckResult): void {
     console.log('');
-    if (ctx.failures.length > 0) {
-        console.error(`Module check failed with ${ctx.failures.length} issue(s).`);
+    if (!result.passed) {
+        console.error(`Module check failed with ${result.failures.length} issue(s).`);
+        printIssueSummary(result.failures, 'Failure summary');
+        if (result.warnings.length > 0) printIssueSummary(result.warnings, 'Warning summary');
+        return;
+    }
+
+    const warningText = result.warnings.length > 0 ? ` (${result.warnings.length} warning(s))` : '';
+    console.log(`Module check passed${warningText}.`);
+    if (result.warnings.length > 0) printIssueSummary(result.warnings, 'Warning summary');
+}
+
+function countIssuesByKind(issues: ModuleCheckIssue[]): Partial<Record<ModuleCheckIssueKind, number>> {
+    return issues.reduce<Partial<Record<ModuleCheckIssueKind, number>>>((counts, issue) => {
+        counts[issue.kind] = (counts[issue.kind] ?? 0) + 1;
+        return counts;
+    }, {});
+}
+
+function printIssueSummary(issues: ModuleCheckIssue[], title: string): void {
+    const entries = Object.entries(countIssuesByKind(issues)).sort(([a], [b]) => a.localeCompare(b));
+    if (entries.length === 0) return;
+
+    console.log('');
+    console.log(`${title}:`);
+    for (const [kind, count] of entries) {
+        console.log(`  ${kind}: ${count}`);
+    }
+}
+
+function parseCliArgs(argv: string[]): ModuleCheckCliOptions | null {
+    const args = argv.slice(2);
+    const json = args.includes('--json');
+    const moduleId = args.find((arg) => arg !== '--json');
+    return moduleId ? { moduleId, json } : null;
+}
+
+async function runCli(): Promise<void> {
+    const options = parseCliArgs(process.argv);
+    if (!options) {
+        console.error('Usage: npm run module:check <moduleId> [-- --json]');
         process.exit(1);
     }
 
-    const warningText = ctx.warnings.length > 0 ? ` (${ctx.warnings.length} warning(s))` : '';
-    console.log(`Module check passed${warningText}.`);
+    if (!options.json) console.log(`\nChecking module "${options.moduleId}"...`);
+
+    const result = await checkModule(options.moduleId, { silent: options.json });
+    if (options.json) {
+        console.log(JSON.stringify(result, null, 2));
+    } else {
+        printModuleCheckSummary(result);
+    }
+    if (!result.passed) process.exit(1);
 }
 
-checkModule().catch((error) => {
-    console.error(error instanceof Error ? error.message : String(error));
-    process.exit(1);
-});
+if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+    runCli().catch((error) => {
+        console.error(error instanceof Error ? error.message : String(error));
+        process.exit(1);
+    });
+}
