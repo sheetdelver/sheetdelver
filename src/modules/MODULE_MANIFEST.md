@@ -488,6 +488,28 @@ npm run module:package <moduleId> --sourcemap
 
 ---
 
+## Checking a Module
+
+Use the built-in checker before packaging or publishing:
+
+```sh
+npm run module:check <moduleId>
+```
+
+The checker validates SDK compliance and package readiness for modules in `<DATA_DIR>/local/modules/`. It is intended for SDK-migrated modules; legacy modules may fail until their internal platform imports are replaced.
+
+The script checks:
+1. `info.json` shape and compatibility constraints.
+2. Manifest entry resolution for `logic`, `ui`, and optional `server`.
+3. Export shape: logic exports `Adapter`, UI has a default manifest export, server exports named `apiRoutes`.
+4. SDK import boundaries. Module code should import platform APIs from `@sheet-delver/sdk`, not `@shared/`, `@client/`, `@server/`, `@core/`, `@modules/`, or `@/`.
+5. TypeScript with the module's `tsconfig.json` when present.
+6. Dry esbuild bundles for declared entries using the same externals as packaging.
+
+When it finds legacy platform imports, it prints migration hints for common replacements such as `useSDK()`, `useSDKComponents()`, `ModuleServerRequest`, `req.foundryClient`, and SDK utility exports.
+
+---
+
 ## Development Workflow
 
 ### Module locations
