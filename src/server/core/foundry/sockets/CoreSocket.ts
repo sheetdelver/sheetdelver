@@ -80,6 +80,8 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
     }
 
     private _updateActorCache(type: string, action: string, result: any, operation?: any) {
+        // Delegate long-lived actor cache state to ActorStore while this legacy
+        // method keeps CoreSocket's older cache warm during the migration.
         actorStore.applyModifyDocument(type, action as any, result, operation);
 
         if (!result && action !== 'delete') return;
@@ -1047,6 +1049,7 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
 
     public async getActors(userId?: string): Promise<any[]> {
         if (actorStore.isReady()) {
+            // Compatibility read surface: route clients now hit ActorStore first.
             if (!userId) return actorStore.list();
             const user = this.getUser(userId);
             const subject = createDocumentAccessSubject(userId, user?.role ?? FoundryUserRole.NONE);
@@ -1067,6 +1070,8 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
 
     public async getActor(id: string, forceSystemId?: string): Promise<any> {
         if (actorStore.isReady()) {
+            // Privileged socket callers get the raw cached actor clone; route wrappers
+            // perform user-scoped filtering before exposing actors to requests.
             const data = actorStore.get(id);
             if (data) return data;
         }
@@ -1091,6 +1096,7 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
 
     public async getActorRaw(id: string): Promise<any> {
         if (actorStore.isReady()) {
+            // Raw actor reads are internal-only and bypass ownership filtering.
             const data = actorStore.get(id);
             if (data) return data;
         }

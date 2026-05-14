@@ -23,6 +23,8 @@ export class SystemService extends EventEmitter {
 
     private constructor() {
         super();
+        // ActorStore is the single actor-change source; SystemService bridges it onto
+        // the existing realtime event name so browser/module subscriptions stay stable.
         actorStore.onActorStoreEvent((event) => {
             if (event.type === 'actorChanged') {
                 this.systemClient?.emit('actorUpdate', { actorId: event.actorId, action: event.action });
@@ -117,6 +119,7 @@ export class SystemService extends EventEmitter {
                     }
 
                     // 3. Required primary document cache seed
+                    // Routes are not considered ready until world actors are cached.
                     await seedDocumentCache(client);
 
                     // 4. Adapter Initialization

@@ -90,6 +90,7 @@ async function runActorStoreMutations() {
 
     assert.deepEqual(events, ['actor-1:update', 'actor-1:update', 'actor-1:update']);
 
+    // Applying the same visible state twice should not create duplicate realtime work.
     store.applyModifyDocument('Actor', 'update', [{ _id: 'actor-1', 'system.attributes.hp.value': 5 }]);
     assert.deepEqual(events, ['actor-1:update', 'actor-1:update', 'actor-1:update']);
 }
@@ -112,6 +113,7 @@ async function runActorRepositoryAppliesEffects() {
         }),
     });
 
+    // Repository responses are applied immediately so the requester sees its write before broadcast.
     const effect = await repository.createItemEffect('actor-repo', 'item-repo', { name: 'Repository Effect' });
     assert.equal(effect._id, 'effect-repo');
     assert.equal((store.get('actor-repo')?.items?.[0].effects as any[])?.[0]._id, 'effect-repo');

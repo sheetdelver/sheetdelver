@@ -19,10 +19,12 @@ export class ActorRepository {
         operation: Record<string, unknown> = {},
         parent?: { type: string; id: string },
     ): Promise<any> {
+        // Repository transport is request-scoped; identity comes from the socket/session it wraps.
         const cacheOperation = { ...operation };
         if (parent) cacheOperation.parentUuid = `${parent.type}.${parent.id}`;
 
         const response = await this.transport.dispatchDocument(type, action, operation, parent);
+        // Apply the initiator result immediately; the later Foundry broadcast is idempotent.
         const appliedOperation = response?.operation
             ? { ...cacheOperation, ...response.operation }
             : cacheOperation;

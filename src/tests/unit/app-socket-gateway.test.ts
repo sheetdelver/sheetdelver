@@ -121,6 +121,7 @@ async function runGatewayTests() {
         await connectionHandler!(socket);
 
         assert.ok(emitted.some((entry) => entry.event === 'systemStatus'));
+        // Actor updates are attached to the system event bridge, not the per-user client.
         assert.equal(attachedHandlers.length, 6);
         assert.equal(systemAttachedHandlers.length, 1);
         assert.ok(browserCounts.includes(1));

@@ -13,12 +13,14 @@ import {
 } from '@server/core/documents/primary/base/ownership';
 
 function getUserRole(userId?: string | null): number {
+    // System routes act as the service account and intentionally bypass user filtering.
     if (!userId) return FoundryUserRole.GAMEMASTER;
     return systemService.getSystemClient().getUser(userId)?.role ?? FoundryUserRole.NONE;
 }
 
 function createBaseRouteFoundryClient(client: CoreSocket | ClientSocket): Omit<RouteFoundryClient, 'sendMessage'> {
     const getSubject = () => createDocumentAccessSubject(client.userId, getUserRole(client.userId));
+    // ActorRepository wraps the request-bound socket so Foundry sees the right user.
     const actorRepository = new ActorRepository({
         dispatchDocument: (
             type: string,
@@ -38,12 +40,14 @@ function createBaseRouteFoundryClient(client: CoreSocket | ClientSocket): Omit<R
         off: client.off.bind(client),
         getSystem: () => client.getSystem(),
         getActors: async () => {
+            // Before bootstrap completes, preserve the old socket-backed behavior.
             if (!actorStore.isReady()) return client.getActors();
             const subject = getSubject();
             if (!subject) return actorStore.list();
             return actorStore.listActors({ subject, minOwnership: DOCUMENT_VISIBILITY.LIST_VISIBLE });
         },
         getActor: async (actorId: string) => {
+            // This remains LIST_VISIBLE until route-specific detail/card thresholds split.
             if (!actorStore.isReady()) return client.getActor(actorId);
             const subject = getSubject();
             if (!subject) return actorStore.get(actorId);
@@ -56,6 +60,7 @@ function createBaseRouteFoundryClient(client: CoreSocket | ClientSocket): Omit<R
         createActor: (actorData: Record<string, unknown>) => actorRepository.createActor(actorData),
         deleteActor: (actorId: string) => actorRepository.deleteActor(actorId),
         updateActor: async (actorId: string, payload: Record<string, unknown>) => {
+            // Keep ClientSocket's validateUpdate path, then mirror the result into ActorStore.
             const result = await client.updateActor(actorId, payload);
             actorStore.applyModifyDocument('Actor', 'update', result?.result ?? result, result?.operation ?? { updates: [{ _id: actorId, ...payload }] });
             return result;

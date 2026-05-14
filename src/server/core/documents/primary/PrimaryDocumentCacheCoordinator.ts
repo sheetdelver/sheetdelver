@@ -5,6 +5,7 @@ import { actorStore } from './actors/ActorStore';
 export async function seedDocumentCache(client: CoreSocket): Promise<void> {
     logger.info('PrimaryDocumentCacheCoordinator | Seeding actor document cache...');
     await actorStore.seed(async () => {
+        // Bootstrap uses the service socket to capture the full world snapshot once.
         const response: any = await client.dispatchDocumentSocket('Actor', 'get', { broadcast: false });
         return response?.result || [];
     });

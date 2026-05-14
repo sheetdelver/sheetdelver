@@ -95,6 +95,8 @@ export function registerAppSocketGateway({
             };
             const handleActorUpdate = (...args: unknown[]) => {
                 const data = (args[0] || {}) as RealtimeActorUpdatePayload;
+                // Actor updates originate globally from ActorStore, so each socket
+                // re-checks current ownership immediately before fan-out.
                 if (data.action !== 'delete' && data.actorId && socket.userSession?.client.userId) {
                     const user = systemService.getSystemClient().getUser(socket.userSession.client.userId);
                     const subject = createDocumentAccessSubject(
@@ -114,6 +116,7 @@ export function registerAppSocketGateway({
 
             foundryClient.on('combatUpdate', handleCombatUpdate);
             foundryClient.on('chatUpdate', handleChatUpdate);
+            // ActorStore events are bridged through the system client, not per-user sockets.
             systemService.getSystemClient().on('actorUpdate', handleActorUpdate);
             foundryClient.on('sharedContentUpdate', handleSharedUpdate);
 

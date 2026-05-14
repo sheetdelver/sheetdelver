@@ -22,6 +22,7 @@ export interface PrimaryDocumentStore<TDocument extends { id?: string; _id?: str
     markStale(documentId?: string, reason?: string): void;
 }
 
+// Store reads return defensive clones so adapters/routes cannot mutate cache state by accident.
 export function cloneDocument<TDocument>(document: TDocument): TDocument {
     return structuredClone(document);
 }

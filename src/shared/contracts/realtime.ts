@@ -2,6 +2,7 @@ import type { SystemStatusPayload } from '@shared/contracts/status';
 
 export type RealtimeSystemStatusPayload = SystemStatusPayload;
 
+// Actor socket events are invalidation hints; clients refetch instead of applying diffs.
 export interface RealtimeActorUpdatePayload {
     actorId: string;
     action: 'create' | 'update' | 'delete';

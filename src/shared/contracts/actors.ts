@@ -18,6 +18,8 @@ export interface ActorListPayload {
     actors: ActorDto[];
     ownedActors: ActorDto[];
     readOnlyActors: ActorDto[];
+    /** Optional dashboard card projections, co-loaded with the actor list when available. */
+    actorCards?: ActorCardsPayload;
     system: string;
 }
 

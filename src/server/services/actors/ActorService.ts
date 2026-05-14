@@ -47,6 +47,22 @@ interface ActorServiceDeps {
 }
 
 export function createActorService(deps: ActorServiceDeps) {
+    // Dashboard list and card data are derived from the same actor list. Keep the
+    // card projection here so `/api/actors` does not force a second actor read.
+    const buildActorCards = (
+        actors: RawActor[],
+        adapter: { getActorCardData?: (actor: any) => unknown } | null | undefined,
+    ): ActorCardsPayload => {
+        if (!adapter?.getActorCardData) return {};
+
+        const cards: Record<string, ActorCard> = {};
+        for (const actor of actors) {
+            const id = actor._id || actor.id;
+            if (id) cards[id] = adapter.getActorCardData(actor as any) as ActorCard;
+        }
+        return cards;
+    };
+
     // Actor list projection: owned/read-only partition + normalized payload.
     const listActors = async (client: ActorServiceClientLike): Promise<ActorListPayload> => {
         const systemInfo = await client.getSystem();
@@ -90,6 +106,9 @@ export function createActorService(deps: ActorServiceDeps) {
             actors: await normalize(ownedCharacters),
             ownedActors: await normalize(ownedCharacters),
             readOnlyActors: await normalize(observable),
+            // Cards are included for the visible dashboard set only. The legacy
+            // `/actors/cards` endpoint remains for clients that still call it.
+            actorCards: buildActorCards([...ownedCharacters, ...observable], adapter),
             system: systemInfo.id
         };
     };
@@ -102,17 +121,7 @@ export function createActorService(deps: ActorServiceDeps) {
             return {};
         }
 
-        const rawActors = await client.getActors();
-        const cards: Record<string, ActorCard> = {};
-
-        for (const actor of rawActors) {
-            const id = actor._id || actor.id;
-            if (id) {
-                cards[id] = adapter.getActorCardData!(actor as any) as ActorCard;
-            }
-        }
-
-        return cards;
+        return buildActorCards(await client.getActors(), adapter);
     };
 
     const getActorCardById = async (

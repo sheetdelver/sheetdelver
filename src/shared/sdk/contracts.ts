@@ -55,7 +55,7 @@ export interface AuthenticatedStatusPayload extends SystemStatusPayload {
 }
 
 /**
- * Payload for realtime actor updates.
+ * Payload for realtime actor updates. Consumers should refetch the affected actor/card.
  */
 export interface RealtimeActorUpdatePayload {
     actorId: string;
@@ -206,6 +206,7 @@ export interface ModuleFoundryClient {
 
     // --- Item Active Effect operations (effects on an actor's item) ---
 
+    // Mirrors Foundry's nested parentUuid path: Actor.<actorId>.Item.<itemId>.
     /** Create an active effect on one of an actor's items. */
     createItemEffect(actorId: string, itemId: string, effectData: Record<string, unknown>): Promise<Record<string, unknown>>;
 

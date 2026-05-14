@@ -27,6 +27,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function deepMerge(target: Record<string, unknown>, source: Record<string, unknown>): Record<string, unknown> {
     for (const [key, value] of Object.entries(source)) {
+        // Foundry update payloads often use flattened paths such as "system.hp.value".
         if (key.includes('.')) {
             const parts = key.split('.');
             let current = target;
@@ -49,6 +50,7 @@ function deepMerge(target: Record<string, unknown>, source: Record<string, unkno
 }
 
 function stableJson(value: unknown): string {
+    // Used only for cache-event de-dupe; the actor objects are plain Foundry data.
     return JSON.stringify(value);
 }
 
@@ -59,6 +61,7 @@ export class ActorStore extends EventEmitter implements PrimaryDocumentStore<Raw
     private staleDocumentIds = new Set<string>();
 
     public async seed(loader: () => Promise<RawActor[]>): Promise<void> {
+        // Bootstrap replaces the entire world-actor snapshot; runtime events patch it afterward.
         const actors = await loader();
         this.documents.clear();
         for (const actor of actors) {
@@ -80,6 +83,7 @@ export class ActorStore extends EventEmitter implements PrimaryDocumentStore<Raw
     }
 
     public list(): RawActor[] {
+        // Raw list is privileged/internal; user-facing callers should use listActors().
         return Array.from(this.documents.values(), actor => cloneDocument(actor));
     }
 
@@ -159,6 +163,7 @@ export class ActorStore extends EventEmitter implements PrimaryDocumentStore<Raw
         result: unknown,
         operation?: Record<string, unknown>,
     ): void {
+        // Foundry emits embedded Item/ActiveEffect writes as their own document type.
         if (type === 'Actor') {
             this.applyActorChange(action, result, operation);
         } else if (type === 'Item') {
@@ -211,6 +216,7 @@ export class ActorStore extends EventEmitter implements PrimaryDocumentStore<Raw
                 this.documents.set(id, existing);
                 if (stableJson(existing) !== before) this.emitChanged(id, 'update');
             } else if (action === 'update') {
+                // A partial update without a cached base is unsafe to apply blindly.
                 this.markStale(id, 'actor-update-miss');
             } else {
                 const before = existing ? stableJson(existing) : null;
@@ -263,6 +269,7 @@ export class ActorStore extends EventEmitter implements PrimaryDocumentStore<Raw
     ): void {
         const parentUuid = typeof operation?.parentUuid === 'string' ? operation.parentUuid : '';
         const parts = parentUuid.split('.');
+        // ActorDelta/synthetic token actors are intentionally outside this cache.
         if (parts[0] !== 'Actor') return;
 
         const actorId = parts[1];

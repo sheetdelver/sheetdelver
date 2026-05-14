@@ -60,6 +60,10 @@ async function runActorReadWriteSmoke() {
     assert.equal(listPayload.readOnlyActors.length, 1);
     assert.equal(listPayload.ownedActors[0].name, 'Owned Hero');
     assert.equal(listPayload.readOnlyActors[0].name, 'Observed Ally');
+    // The list endpoint should now carry dashboard cards for the same visible set.
+    assert.equal(listPayload.actorCards?.['actor-owned']?.name, 'Owned Hero');
+    assert.equal(listPayload.actorCards?.['actor-readonly']?.name, 'Observed Ally');
+    assert.equal(listPayload.actorCards?.['actor-npc'], undefined);
     assert.equal(normalizeCalls.length, 3);
 
     const createPayload = {

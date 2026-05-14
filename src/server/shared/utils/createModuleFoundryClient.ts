@@ -83,6 +83,7 @@ export function createModuleFoundryClient(client: RouteFoundryClient): ModuleFou
 
         // --- Item Active Effect operations ---
 
+        // Item effects are ActiveEffect documents with an Actor.<id>.Item parent UUID.
         createItemEffect: (actorId, itemId, effectData) =>
             client.dispatchDocument(
                 'ActiveEffect', 'create',

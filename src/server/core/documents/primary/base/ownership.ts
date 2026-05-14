@@ -30,6 +30,7 @@ export interface DocumentAccessSubject {
     role: FoundryUserRole;
 }
 
+// Shared thresholds keep route, realtime, and SDK-wrapper authorization aligned.
 export const DOCUMENT_VISIBILITY = {
     LIST_VISIBLE: DocumentOwnershipLevel.LIMITED,
     CARD_VISIBLE: DocumentOwnershipLevel.LIMITED,
@@ -42,6 +43,7 @@ export function getEffectiveOwnership(
     subject: DocumentAccessSubject,
     resolveInherited?: () => ResolvedDocumentOwnershipLevel,
 ): ResolvedDocumentOwnershipLevel {
+    // Foundry treats GMs as effective owners even if the ownership map says otherwise.
     if (subject.role >= FoundryUserRole.GAMEMASTER) return DocumentOwnershipLevel.OWNER;
 
     const level = ownership?.[subject.userId] !== undefined
@@ -49,6 +51,7 @@ export function getEffectiveOwnership(
         : ownership?.default ?? DocumentOwnershipLevel.NONE;
 
     if (level !== DocumentOwnershipLevel.INHERIT) return level;
+    // Actor folder inheritance is not cached yet, so callers can opt into a resolver later.
     return resolveInherited?.() ?? DocumentOwnershipLevel.NONE;
 }
 

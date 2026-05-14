@@ -405,7 +405,8 @@ export class ClientSocket extends SocketBase {
                 this.emit('chatUpdate', data);
             }
 
-            // Actor cache updates are relayed from the system ActorStore/CoreSocket path.
+            // Actor cache updates are relayed from the system ActorStore path so
+            // per-user sockets do not duplicate actorUpdate emissions.
 
             // User relay (triggers dashboard systemStatus updates)
             if (data.type === 'User') {

@@ -63,7 +63,14 @@ export function ActorCombatProvider({ children }: { children: React.ReactNode })
             if (data.ownedActors || data.actors) {
                 setOwnedActors(data.ownedActors || data.actors || []);
                 setReadOnlyActors(data.readOnlyActors || []);
-                await fetchActorCards();
+                if (data.actorCards) {
+                    // Newer backends return cards with the actor list to avoid a
+                    // second `/api/actors/cards` request during dashboard load.
+                    setActorCards(data.actorCards);
+                } else {
+                    // Compatibility path for older payloads and partial responses.
+                    await fetchActorCards();
+                }
             }
             return data;
         } catch (error: any) {
