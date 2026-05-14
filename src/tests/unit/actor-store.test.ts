@@ -1,5 +1,6 @@
 import { strict as assert } from 'node:assert';
 import { ActorStore, actorStore } from '@server/core/documents/primary/actors/ActorStore';
+import { ActorRepository } from '@server/core/documents/primary/actors/ActorRepository';
 import {
     DOCUMENT_VISIBILITY,
     DocumentOwnershipLevel,
@@ -12,6 +13,7 @@ import type { RawActor } from '@server/shared/types/actors';
 export async function run() {
     await runActorStoreOwnershipAndClone();
     await runActorStoreMutations();
+    await runActorRepositoryAppliesEffects();
     await runRouteClientReadsFromActorStore();
 }
 
@@ -87,6 +89,34 @@ async function runActorStoreMutations() {
     assert.equal((store.get('actor-1')?.items?.[0].effects as any[])?.[0]._id, 'effect-1');
 
     assert.deepEqual(events, ['actor-1:update', 'actor-1:update', 'actor-1:update']);
+
+    store.applyModifyDocument('Actor', 'update', [{ _id: 'actor-1', 'system.attributes.hp.value': 5 }]);
+    assert.deepEqual(events, ['actor-1:update', 'actor-1:update', 'actor-1:update']);
+}
+
+async function runActorRepositoryAppliesEffects() {
+    const store = actorStore;
+    await store.seed(async () => ([
+        {
+            _id: 'actor-repo',
+            name: 'Repo Actor',
+            items: [{ _id: 'item-repo', name: 'Repo Item', effects: [] }],
+            ownership: { default: DocumentOwnershipLevel.OWNER },
+        },
+    ]));
+
+    const repository = new ActorRepository({
+        dispatchDocument: async (_type, _action, operation) => ({
+            result: [{ _id: 'effect-repo', name: 'Repository Effect' }],
+            operation,
+        }),
+    });
+
+    const effect = await repository.createItemEffect('actor-repo', 'item-repo', { name: 'Repository Effect' });
+    assert.equal(effect._id, 'effect-repo');
+    assert.equal((store.get('actor-repo')?.items?.[0].effects as any[])?.[0]._id, 'effect-repo');
+
+    store.clear('repository-test');
 }
 
 async function runRouteClientReadsFromActorStore() {

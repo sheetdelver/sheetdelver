@@ -143,6 +143,7 @@ async function runServerRequestTests() {
             createActorEffect: async () => ({}),
             updateActorEffect: async () => ({}),
             deleteActorEffect: async () => {},
+            createItemEffect: async () => ({}),
             updateItemEffect: async () => ({}),
             deleteItemEffect: async () => {},
             fetchByUuid: async () => ({}),

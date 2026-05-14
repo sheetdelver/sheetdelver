@@ -3,8 +3,8 @@ import type { SystemStatusPayload } from '@shared/contracts/status';
 export type RealtimeSystemStatusPayload = SystemStatusPayload;
 
 export interface RealtimeActorUpdatePayload {
-    actorId?: string;
-    [key: string]: unknown;
+    actorId: string;
+    action: 'create' | 'update' | 'delete';
 }
 
 export interface RealtimeSharedContentPayload {

@@ -5,6 +5,7 @@ import type { ChatSendBody } from '@server/shared/types/documents';
 import type { RouteFoundryClient } from '@server/shared/types/requestContext';
 import { systemService } from '@core/system/SystemService';
 import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
+import { ActorRepository } from '@server/core/documents/primary/actors/ActorRepository';
 import {
     DOCUMENT_VISIBILITY,
     FoundryUserRole,
@@ -18,6 +19,14 @@ function getUserRole(userId?: string | null): number {
 
 function createBaseRouteFoundryClient(client: CoreSocket | ClientSocket): Omit<RouteFoundryClient, 'sendMessage'> {
     const getSubject = () => createDocumentAccessSubject(client.userId, getUserRole(client.userId));
+    const actorRepository = new ActorRepository({
+        dispatchDocument: (
+            type: string,
+            action: string,
+            operation?: unknown,
+            parent?: { type: string; id: string },
+        ) => client.dispatchDocument(type, action, operation, parent),
+    });
 
     return {
         get isConnected() {
@@ -44,15 +53,19 @@ function createBaseRouteFoundryClient(client: CoreSocket | ClientSocket): Omit<R
             if (!actorStore.isReady()) return client.getActorRaw(actorId);
             return actorStore.get(actorId);
         },
-        createActor: (actorData: Record<string, unknown>) => client.createActor(actorData),
-        deleteActor: (actorId: string) => client.deleteActor(actorId),
-        updateActor: (actorId: string, payload: Record<string, unknown>) => client.updateActor(actorId, payload),
+        createActor: (actorData: Record<string, unknown>) => actorRepository.createActor(actorData),
+        deleteActor: (actorId: string) => actorRepository.deleteActor(actorId),
+        updateActor: async (actorId: string, payload: Record<string, unknown>) => {
+            const result = await client.updateActor(actorId, payload);
+            actorStore.applyModifyDocument('Actor', 'update', result?.result ?? result, result?.operation ?? { updates: [{ _id: actorId, ...payload }] });
+            return result;
+        },
         dispatchDocument: (
             type: string,
             action: string,
             operation?: unknown,
             parent?: { type: string; id: string }
-        ) => client.dispatchDocument(type, action, operation, parent),
+        ) => actorRepository.dispatchDocument(type, action as any, operation as Record<string, unknown> | undefined, parent),
         roll: (
             formula: string,
             label?: string,
@@ -67,9 +80,9 @@ function createBaseRouteFoundryClient(client: CoreSocket | ClientSocket): Omit<R
         createActorItem: (
             actorId: string,
             payload: Record<string, unknown> | Array<Record<string, unknown>>
-        ) => client.createActorItem(actorId, payload),
-        updateActorItem: (actorId: string, payload: Record<string, unknown>) => client.updateActorItem(actorId, payload),
-        deleteActorItem: (actorId: string, itemId: string) => client.deleteActorItem(actorId, itemId),
+        ) => actorRepository.createActorItem(actorId, payload),
+        updateActorItem: (actorId: string, payload: Record<string, unknown>) => actorRepository.updateActorItem(actorId, payload),
+        deleteActorItem: (actorId: string, itemId: string) => actorRepository.deleteActorItem(actorId, itemId),
         resolveUrl: (url?: string) => client.resolveUrl(url || ''),
         getChatLog: (limit: number) => client.getChatLog(limit),
         getCombats: () => client.getCombats(),

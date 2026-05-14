@@ -561,17 +561,9 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
                             this.emit('chatUpdate', data);
                         }
 
-                        // Notify subscribers of Actor changes
-                        if (data.type === 'Actor' || data.type === 'Item') {
-                            logger.debug(`CoreSocket | Actor/Item modification detected: ${data.type} ${data.action}`);
-                            // If it's an item, the operation should contain the parent actor id/uuid we resolved in _updateActorCache
-                            const actorId = data.type === 'Actor'
-                                ? (Array.isArray(data.result) ? data.result[0]?._id : data.result?._id)
-                                : (data.operation?.parentId || (data.operation?.parentUuid ? data.operation.parentUuid.split('.')[1] : null));
-
-                            if (actorId) {
-                                this.emit('actorUpdate', { actorId });
-                            }
+                        // Actor cache events are emitted by ActorStore after it applies the mutation.
+                        if (data.type === 'Actor' || data.type === 'Item' || data.type === 'ActiveEffect') {
+                            logger.debug(`CoreSocket | Actor-related modification detected: ${data.type} ${data.action}`);
                         }
                     }
                 });
@@ -745,7 +737,7 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
             this.consecutiveFailures = 0;
 
             // Proactive Cache Update (Initiator Confirmation)
-            if (result && (type === 'Actor' || type === 'Item')) {
+            if (result && (type === 'Actor' || type === 'Item' || type === 'ActiveEffect')) {
                 this._updateActorCache(type, action, result.result, result.operation || operation);
             }
 

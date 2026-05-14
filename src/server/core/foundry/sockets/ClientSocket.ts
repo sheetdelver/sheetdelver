@@ -405,17 +405,7 @@ export class ClientSocket extends SocketBase {
                 this.emit('chatUpdate', data);
             }
 
-            // Actor & Item relay
-            if (data.type === 'Actor' || data.type === 'Item') {
-                const actorId = data.type === 'Actor'
-                    ? (Array.isArray(data.result) ? data.result[0]?._id : data.result?._id)
-                    : (data.operation?.parentId || (data.operation?.parentUuid ? data.operation.parentUuid.split('.')[1] : null));
-
-                if (actorId) {
-                    logger.debug(`ClientSocket | Relay: Actor/Item modification [${data.action}] for ${this.userId} (Actor: ${actorId})`);
-                    this.emit('actorUpdate', { actorId });
-                }
-            }
+            // Actor cache updates are relayed from the system ActorStore/CoreSocket path.
 
             // User relay (triggers dashboard systemStatus updates)
             if (data.type === 'User') {

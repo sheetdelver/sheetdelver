@@ -8,6 +8,7 @@ import { getAdapter, getRegisteredModules } from '@modules/registry/server';
 import { discoveryService } from '../foundry/DiscoveryService';
 import { CompendiumCache } from '../foundry/compendium-cache';
 import { clearDocumentCache, seedDocumentCache } from '../documents/primary/PrimaryDocumentCacheCoordinator';
+import { actorStore } from '../documents/primary/actors/ActorStore';
 
 /**
  * SystemService: The authoritative provider for the Backend "World Context".
@@ -22,6 +23,11 @@ export class SystemService extends EventEmitter {
 
     private constructor() {
         super();
+        actorStore.onActorStoreEvent((event) => {
+            if (event.type === 'actorChanged') {
+                this.systemClient?.emit('actorUpdate', { actorId: event.actorId, action: event.action });
+            }
+        });
     }
 
     public static getInstance(): SystemService {

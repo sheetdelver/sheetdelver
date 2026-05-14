@@ -48,6 +48,10 @@ function deepMerge(target: Record<string, unknown>, source: Record<string, unkno
     return target;
 }
 
+function stableJson(value: unknown): string {
+    return JSON.stringify(value);
+}
+
 export class ActorStore extends EventEmitter implements PrimaryDocumentStore<RawActor> {
     public readonly documentType = 'Actor';
     private documents = new Map<string, RawActor>();
@@ -202,14 +206,16 @@ export class ActorStore extends EventEmitter implements PrimaryDocumentStore<Raw
             if (!id) continue;
             const existing = this.documents.get(id);
             if (existing && action === 'update') {
+                const before = stableJson(existing);
                 deepMerge(existing as Record<string, unknown>, actor as Record<string, unknown>);
                 this.documents.set(id, existing);
-                this.emitChanged(id, 'update');
+                if (stableJson(existing) !== before) this.emitChanged(id, 'update');
             } else if (action === 'update') {
                 this.markStale(id, 'actor-update-miss');
             } else {
+                const before = existing ? stableJson(existing) : null;
                 this.documents.set(id, cloneDocument(actor));
-                if (action === 'create') this.emitChanged(id, 'create');
+                if (action === 'create' && stableJson(actor) !== before) this.emitChanged(id, 'create');
             }
         }
     }
@@ -223,35 +229,31 @@ export class ActorStore extends EventEmitter implements PrimaryDocumentStore<Raw
         if (!actorId) return;
         const actor = this.documents.get(actorId);
         if (!actor) return;
+        const before = stableJson(actor);
 
         const docs = this.toDocumentArray<RawItem>(result);
         actor.items = actor.items || [];
 
         if (action === 'delete') {
             const ids = this.getOperationIds(operation, docs);
-            const before = actor.items.length;
             actor.items = actor.items.filter(item => {
                 const id = getDocumentId(item);
                 return !id || !ids.includes(id);
             });
-            if (actor.items.length !== before) this.emitChanged(actorId, 'update');
         } else if (action === 'update') {
-            let changed = false;
             for (const item of docs) {
                 const itemId = getDocumentId(item);
                 const index = actor.items.findIndex(existing => getDocumentId(existing) === itemId);
                 if (index >= 0) {
                     deepMerge(actor.items[index] as Record<string, unknown>, item as Record<string, unknown>);
-                    changed = true;
                 }
             }
-            if (changed) this.emitChanged(actorId, 'update');
         } else if (action === 'create') {
             actor.items.push(...docs.map(item => cloneDocument(item)));
-            if (docs.length) this.emitChanged(actorId, 'update');
         }
 
         this.documents.set(actorId, actor);
+        if (action !== 'get' && stableJson(actor) !== before) this.emitChanged(actorId, 'update');
     }
 
     private applyEmbeddedEffectChangeFromResult(
@@ -266,6 +268,7 @@ export class ActorStore extends EventEmitter implements PrimaryDocumentStore<Raw
         const actorId = parts[1];
         const actor = this.documents.get(actorId);
         if (!actor) return;
+        const before = stableJson(actor);
 
         if (parts.length >= 4 && parts[2] === 'Item') {
             const itemId = parts[3];
@@ -278,7 +281,7 @@ export class ActorStore extends EventEmitter implements PrimaryDocumentStore<Raw
         }
 
         this.documents.set(actorId, actor);
-        if (action !== 'get') this.emitChanged(actorId, 'update');
+        if (action !== 'get' && stableJson(actor) !== before) this.emitChanged(actorId, 'update');
     }
 
     private applyEffectArray(

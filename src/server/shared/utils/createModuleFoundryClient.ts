@@ -83,6 +83,13 @@ export function createModuleFoundryClient(client: RouteFoundryClient): ModuleFou
 
         // --- Item Active Effect operations ---
 
+        createItemEffect: (actorId, itemId, effectData) =>
+            client.dispatchDocument(
+                'ActiveEffect', 'create',
+                { data: [effectData] },
+                { type: `Actor.${actorId}.Item`, id: itemId }
+            ) as Promise<Record<string, unknown>>,
+
         updateItemEffect: (actorId, itemId, effectId, updates) =>
             client.dispatchDocument(
                 'ActiveEffect', 'update',

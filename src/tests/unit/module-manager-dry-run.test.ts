@@ -114,7 +114,7 @@ export async function run(): Promise<void> {
             targetVersion: '3.0.0',
         });
         assert.equal(missingIndexPreview.wouldProceed, false);
-        assert.equal(missingIndexPreview.blockingReasons.some((entry) => entry.includes('not available in resolution context')), true);
+        assert.equal(missingIndexPreview.blockingReasons.some((entry) => entry.includes('Failed to fetch remote indexes')), true);
 
         writeJson(indexFilePath, {
             schemaVersion: 'module-index.v1',

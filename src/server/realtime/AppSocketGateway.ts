@@ -3,6 +3,12 @@ import { systemService } from '@core/system/SystemService';
 import { logger } from '@shared/utils/logger';
 import type { SessionManagerLike, UserSessionLike, FoundryClientLike } from '@server/shared/types/foundry';
 import type { SystemStatusPayload } from '@shared/contracts/status';
+import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
+import {
+    DOCUMENT_VISIBILITY,
+    FoundryUserRole,
+    createDocumentAccessSubject,
+} from '@server/core/documents/primary/base/ownership';
 import type {
     RealtimeActorUpdatePayload,
     RealtimeChatUpdatePayload,
@@ -89,6 +95,16 @@ export function registerAppSocketGateway({
             };
             const handleActorUpdate = (...args: unknown[]) => {
                 const data = (args[0] || {}) as RealtimeActorUpdatePayload;
+                if (data.action !== 'delete' && data.actorId && socket.userSession?.client.userId) {
+                    const user = systemService.getSystemClient().getUser(socket.userSession.client.userId);
+                    const subject = createDocumentAccessSubject(
+                        socket.userSession.client.userId,
+                        user?.role ?? FoundryUserRole.NONE,
+                    );
+                    if (!subject || !actorStore.canReadActor(data.actorId, subject, DOCUMENT_VISIBILITY.LIST_VISIBLE)) {
+                        return;
+                    }
+                }
                 socket.emit('actorUpdate', data);
             };
             const handleSharedUpdate = (...args: unknown[]) => {
@@ -98,7 +114,7 @@ export function registerAppSocketGateway({
 
             foundryClient.on('combatUpdate', handleCombatUpdate);
             foundryClient.on('chatUpdate', handleChatUpdate);
-            foundryClient.on('actorUpdate', handleActorUpdate);
+            systemService.getSystemClient().on('actorUpdate', handleActorUpdate);
             foundryClient.on('sharedContentUpdate', handleSharedUpdate);
 
             // New relays for world lifecycle and system status
@@ -113,7 +129,7 @@ export function registerAppSocketGateway({
 
                 foundryClient.off('combatUpdate', handleCombatUpdate);
                 foundryClient.off('chatUpdate', handleChatUpdate);
-                foundryClient.off('actorUpdate', handleActorUpdate);
+                systemService.getSystemClient().off('actorUpdate', handleActorUpdate);
                 foundryClient.off('sharedContentUpdate', handleSharedUpdate);
                 foundryClient.off('systemStatusUpdate', broadcastSystemStatus);
                 foundryClient.off('worldShutdown', broadcastSystemStatus);

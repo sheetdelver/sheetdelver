@@ -39,6 +39,8 @@ async function runGatewayTests() {
 
     const attachedHandlers: Array<{ event: string; handler: EventHandler }> = [];
     const detachedHandlers: Array<{ event: string; handler: EventHandler }> = [];
+    const systemAttachedHandlers: Array<{ event: string; handler: EventHandler }> = [];
+    const systemDetachedHandlers: Array<{ event: string; handler: EventHandler }> = [];
 
     const foundryClient: MockFoundryClient = {
         userId: 'user-1',
@@ -63,6 +65,9 @@ async function runGatewayTests() {
     try {
         (systemService as any).getSystemClient = () => ({
             updateActiveBrowserCount: (count: number) => browserCounts.push(count),
+            getUser: () => ({ role: 4 }),
+            on: (event: string, handler: EventHandler) => systemAttachedHandlers.push({ event, handler }),
+            off: (event: string, handler: EventHandler) => systemDetachedHandlers.push({ event, handler }),
         });
 
         const emitted: Array<{ event: string; payload: unknown }> = [];
@@ -116,13 +121,15 @@ async function runGatewayTests() {
         await connectionHandler!(socket);
 
         assert.ok(emitted.some((entry) => entry.event === 'systemStatus'));
-        assert.equal(attachedHandlers.length, 7);
+        assert.equal(attachedHandlers.length, 6);
+        assert.equal(systemAttachedHandlers.length, 1);
         assert.ok(browserCounts.includes(1));
 
         io.engine.clientsCount = 0;
         disconnectHandler?.();
 
-        assert.equal(detachedHandlers.length, 7);
+        assert.equal(detachedHandlers.length, 6);
+        assert.equal(systemDetachedHandlers.length, 1);
         assert.ok(browserCounts.includes(0));
 
         // Guest degradation path (no token): middleware should still call next.

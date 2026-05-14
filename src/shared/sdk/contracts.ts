@@ -59,7 +59,7 @@ export interface AuthenticatedStatusPayload extends SystemStatusPayload {
  */
 export interface RealtimeActorUpdatePayload {
     actorId: string;
-    updates: Record<string, unknown>;
+    action: 'create' | 'update' | 'delete';
 }
 
 /**
@@ -205,6 +205,9 @@ export interface ModuleFoundryClient {
     deleteActorEffect(actorId: string, effectId: string): Promise<void>;
 
     // --- Item Active Effect operations (effects on an actor's item) ---
+
+    /** Create an active effect on one of an actor's items. */
+    createItemEffect(actorId: string, itemId: string, effectData: Record<string, unknown>): Promise<Record<string, unknown>>;
 
     /** Update an active effect on one of an actor's items. */
     updateItemEffect(actorId: string, itemId: string, effectId: string, updates: Record<string, unknown>): Promise<Record<string, unknown>>;
