@@ -51,7 +51,7 @@ A robust toast system supporting HTML content for dice results.
 
 ### 2. Loading & Reconnecting
 The UI includes full-screen overlays for:
-- **Initial Load**: Shows while the backend warms its compendium cache.
+- **Initial Load**: Shows while the backend completes world bootstrap, including module discovery, compendium hydration, and primary document cache seeding.
 - **Auto-Reconnection**: Appears non-disruptively if the socket connection is lost.
 
 ### 3. Aesthetic Guidelines
@@ -97,7 +97,7 @@ The platform uses Socket.io for all real-time updates. Events are emitted by the
 | Event | Direction | Payload | Handler |
 |---|---|---|---|
 | `systemStatus` | Server → Client | Full status payload | `FoundryContext` — drives connection state machine |
-| `actorUpdate` | Server → Client | `{ actorId }` | `FoundryContext` — fetches the single updated actor card |
+| `actorUpdate` | Server → Client | `{ actorId, action }` where `action` is `create`, `update`, or `delete` | `FoundryContext` — treats it as an invalidation hint and refetches the affected actor card or full list as needed |
 | `combatUpdate` | Server → Client | Combat state payload | `FoundryContext` / `ActorCombatContext` |
 | `chatUpdate` | Server → Client | New chat message | `ChatContext` |
 | `sharedContentUpdate` | Server → Client | Shared media/journal payload | `FoundryContext` |
@@ -106,6 +106,8 @@ The platform uses Socket.io for all real-time updates. Events are emitted by the
 | `moduleRegistryChanged` | Server → Client | `{ moduleId }` | `FoundryContext` + `ActorPageRouter` — invalidates UI cache on install/uninstall |
 
 All three module events (`moduleSourceChanged`, `moduleStateChanged`, `moduleRegistryChanged`) are broadcast by the admin lifecycle and manager routes (`POST /admin/lifecycle/:moduleId/*`, `POST /admin/manager/:moduleId/*`), not by `AppSocketGateway`. They share a single handler in both `FoundryContext` and `ActorPageRouter`.
+
+Actor updates are emitted after the backend actor store has already accepted the matching Foundry mutation. The browser should not apply document diffs from the socket payload; it should refetch the card, actor detail, or actor list through the API so user visibility and adapter projections remain centralized on the server.
 
 ### Module cache invalidation events
 

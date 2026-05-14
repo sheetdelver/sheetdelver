@@ -134,6 +134,8 @@ export default Adapter;
 
 The platform provides `context.logger`, `context.platform.cache`, and `context.platform.discovery` through `initialize(context)`. Use those context fields instead of importing platform services directly.
 
+Adapter methods receive hydrated actor documents from the platform actor cache. Keep actor projection methods (`getActorCardData`, `normalizeActorData`, `computeActorData`, `categorizeItems`) deterministic from the actor they receive and the already-injected SDK services. The `getActor()` and `getActors()` SDK/request methods remain the public read surface, but they resolve from the platform actor cache and fail as not-ready before bootstrap completes; they must not repeatedly fetch from Foundry. Use `fetchByUuid` or compendium lookups only for exceptional linked references that are not already embedded in the actor.
+
 ## UI
 
 The UI entry exports a `UIModuleManifest`.

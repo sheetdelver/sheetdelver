@@ -94,15 +94,16 @@ For details on implementing module APIs, see [docs/API.md](docs/API.md).
 SheetDelver uses a persistent cache to store metadata and improve resolution reliability.
 
 *   **Setup Scraper Cache**: Discovery data for worlds and users is stored in `.sheet-delver/cache.json`.
-*   **Compendium Indices**: CoreSocket caches compendium indices locally to speed up `fetchByUuid` operations.
+*   **Compendium Indices**: The platform caches compendium indices locally to speed up `fetchByUuid` operations.
+*   **Primary Documents**: Long-lived Foundry primary document caches live under `src/server/core/documents/primary/`. Actor caching is implemented by `ActorStore` and seeded by `seedDocumentCache()` during bootstrap. New primary document types should follow that structure instead of adding one-off socket-local caches.
 
-### High-Reliability Resolution: resolveDocument
+### High-Reliability Resolution: `fetchByUuid`
 
 To ensure system-critical data (like spell descriptions) always loads efficiently even if network requests are slow or restricted:
 
-1.  **Adapter Resolution**: `CoreSocket.fetchByUuid` first calls the active module's `resolveDocument(client, uuid)` hook. This allows for near-instant resolution of documents from local JSON data (e.g., via a `DataManager`).
-2.  **Core Fetch**: If the adapter cannot resolve the document, CoreSocket attempts a network fetch using the standard Foundry socket operations.
-3.  **High-Reliability Fallback**: This multi-stage process ensures that system-critical data remains available with minimal latency.
+1.  **Compendium Cache**: Declared compendium packs are indexed/hydrated during module discovery and should satisfy most module lookups locally.
+2.  **Core Fetch**: If a document is not available through the cache, `fetchByUuid` attempts a Foundry socket fetch using the platform-managed client.
+3.  **Actor Cache**: Actor API routes should read hydrated actors from `ActorStore`; use UUID fetches only for linked references that are not already embedded in the actor.
 
 ## Logging & Debugging
 

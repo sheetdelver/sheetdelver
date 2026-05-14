@@ -178,6 +178,8 @@ export default Adapter;
 
 **Note on `initialize(context)`:** The platform runs discovery sync (`getDiscoveryConfig()`) before calling `initialize()`. By the time `initialize()` is called, all declared compendium packs, in info.json, are already hydrated in the platform cache and accessible via `context.platform.discovery`. Adapters should read from the context rather than fetching via a client during initialization.
 
+**Actor projection contract:** Actor adapter methods receive hydrated raw actor documents from the platform actor cache. Keep `getActorCardData`, `normalizeActorData`, `computeActorData`, and `categorizeItems` deterministic from the actor and injected SDK services. The `getActor()` and `getActors()` SDK/request methods remain the public read surface, but they resolve from the platform actor cache and fail as not-ready before bootstrap completes; they must not repeatedly fetch from Foundry. Use `fetchByUuid` or compendium discovery only for exceptional linked references that are not embedded in the actor.
+
 ---
 
 ## `module/ui.tsx` — The UI Manifest
@@ -248,6 +250,8 @@ function MySheet() {
 `useSDK()` returns the full platform context. `useSDKComponents()` injects platform UI components — modules must NOT import these from `@client/ui/components/` directly.
 
 **Realtime actor updates — example pattern:**
+
+`onActorUpdate` is an invalidation signal emitted after the backend actor cache has changed. The payload shape is `{ actorId, action }`, where `action` is `create`, `update`, or `delete`; module UI should refetch through the API instead of applying socket diffs directly.
 
 ```ts
 import { useSDK } from '@sheet-delver/sdk';
@@ -339,6 +343,7 @@ The module does not talk to Foundry directly. The platform executes all operatio
 | `createActorEffect(actorId, effectData)` | Add an active effect to an actor |
 | `updateActorEffect(actorId, effectId, updates)` | Update an active effect on an actor |
 | `deleteActorEffect(actorId, effectId)` | Remove an active effect from an actor |
+| `createItemEffect(actorId, itemId, effectData)` | Add an effect to an actor's item |
 | `updateItemEffect(actorId, itemId, effectId, updates)` | Update an effect on an actor's item |
 | `deleteItemEffect(actorId, itemId, effectId)` | Remove an effect from an actor's item |
 | **Document access** | |
@@ -380,7 +385,7 @@ async initialize(context: ModuleContext): Promise<void> {
 
 ### `ModuleFoundryClient` — injected per API request
 
-Available as `req.foundryClient` in API route handlers. Pre-authenticated and scoped to the requesting user's session. The underlying socket connection is fully managed by the platform — modules interact through the methods above only.
+Available as `req.foundryClient` in API route handlers. Pre-authenticated and scoped to the requesting user's session. Actor reads come from the platform actor cache after bootstrap; actor/item/effect writes go through Foundry and are mirrored back into that cache. The underlying socket connection is fully managed by the platform — modules interact through the methods above only.
 
 ---
 

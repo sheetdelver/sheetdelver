@@ -14,6 +14,8 @@ Tokens are obtained via `/api/login`.
 **Auth**: Try-Auth (Aggregates system + user state)
 Returns the current connection status, world metadata, and active user list.
 
+`initialized: true` means bootstrap has completed, including module discovery, compendium hydration, and primary document cache seeding.
+
 **Response:**
 ```json
 {
@@ -68,17 +70,19 @@ Returns full system-specific data (ancestries, classes, etc.) adapted from the w
 **Auth**: Protected
 Returns actors visible to the current user, separated into `ownedActors` and `readOnlyActors`.
 
+Actor reads are served through the existing `getActors()` route-client method, but once bootstrap has completed that method resolves from the platform's seeded actor store instead of fetching the world actor list from Foundry. If bootstrap has not completed, the route returns **503** rather than racing Foundry directly. The response may also include `actorCards`, a dashboard card projection for the same visible actor set, so clients do not need to issue a second card fetch after the list call.
+
 ### `GET /api/actors/:id`
 **Auth**: Protected
-Returns fully normalized actor data. Automatically resolves UUIDs, handles name resolution via the Compendium Cache, and includes system-specific computed data (e.g. slots, AC).
+Returns fully normalized actor data for an actor visible to the current user. This still flows through the route-client `getActor(id)` method, but after bootstrap the raw actor comes from the platform actor store, then passes through the active system adapter for UUID/name resolution, derived data, and system-specific computation (e.g. slots, AC). Before bootstrap completes, actor detail reads return **503**.
 
 ### `PATCH /api/actors/:id`
 **Auth**: Protected
-Updates actor-level data using dot notation.
+Updates actor-level data using dot notation. Writes go through Foundry's document mutation path and are mirrored into the actor store so later reads and realtime invalidations stay in parity.
 
 ### `POST /api/actors/:id/update`
 **Auth**: Protected
-**Hybrid Update**: Routes updates to either the actor or specific embedded items based on the provided paths (e.g., `items.ID.system.equipped`).
+**Hybrid Update**: Routes updates to either the actor or specific embedded items based on the provided paths (e.g., `items.ID.system.equipped`). Successful embedded item/effect mutations update the platform actor store as part of the same request flow.
 
 ### `POST /api/actors/:id/roll`
 **Auth**: Protected

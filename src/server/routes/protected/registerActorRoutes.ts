@@ -10,6 +10,12 @@ interface ActorRouteDeps {
     config: AppConfig;
 }
 
+function getErrorStatus(error: unknown, fallback = 500): number {
+    if (typeof error !== 'object' || error === null) return fallback;
+    const status = (error as { status?: unknown }).status;
+    return typeof status === 'number' ? status : fallback;
+}
+
 export function registerActorRoutes(appRouter: express.Router, deps: ActorRouteDeps) {
     // Actor domain service: displaced business logic for actor list/detail/cards/rolls and mutations.
     const actorService = createActorService(deps);
@@ -22,7 +28,7 @@ export function registerActorRoutes(appRouter: express.Router, deps: ActorRouteD
         } catch (error: unknown) {
             const message = getErrorMessage(error);
             logger.error(`Core Service | Actors fetch failed: ${message}`);
-            res.status(500).json({ error: message });
+            res.status(getErrorStatus(error)).json({ error: message });
         }
     });
 
@@ -34,7 +40,7 @@ export function registerActorRoutes(appRouter: express.Router, deps: ActorRouteD
         } catch (error: unknown) {
             const message = getErrorMessage(error);
             logger.error(`Core Service | Actor cards bulk fetch failed: ${message}`);
-            res.status(500).json({ error: message });
+            res.status(getErrorStatus(error)).json({ error: message });
         }
     });
 
@@ -49,7 +55,7 @@ export function registerActorRoutes(appRouter: express.Router, deps: ActorRouteD
         } catch (error: unknown) {
             const message = getErrorMessage(error);
             logger.error(`Core Service | Actor card fetch failed: ${message}`);
-            res.status(500).json({ error: message });
+            res.status(getErrorStatus(error)).json({ error: message });
         }
     });
 
@@ -64,7 +70,7 @@ export function registerActorRoutes(appRouter: express.Router, deps: ActorRouteD
         } catch (error: unknown) {
             const message = getErrorMessage(error);
             logger.error(`Core Service | Actor detail fetch failed: ${message}`);
-            res.status(500).json({ error: message });
+            res.status(getErrorStatus(error)).json({ error: message });
         }
     });
 

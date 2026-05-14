@@ -45,6 +45,7 @@ classDiagram
     *   **fetchByUuid(uuid)**: A high-level helper that resolves any Foundry UUID (World or Compendium) and returns the document data.
     *   **getGameData()**: Fetches World, System, and active User metadata.
     *   Maintains the `userMap` and `gameDataCache` used by the system Status Handler.
+    *   Seeds primary document caches during bootstrap, then delegates long-lived primary document state to the stores under `src/server/core/documents/primary/`.
 *   **Key Files**: `@server/core/foundry/sockets/CoreSocket.ts`
 
 ### 3. ClientSocket (User Presence)
@@ -100,13 +101,14 @@ SheetDelver uses a **Multiplexed Smart Proxy** to ensure data security and envir
 *   **Multiplexed Relay**: Unlike a standard browser client, the Backend Core maintains individual `ClientSocket` connections to Foundry for every authenticated user. 
 *   **Per-User Isolation**: Sensitive real-time events (e.g., `actorUpdate`, `combatUpdate`, `chatUpdate`) are intercepted at the server level. Instead of a global broadcast, the server identifies the specific `ClientSocket` the update belongs to and relays it only to the associated Socket.io connection in the frontend.
 *   **System Status**: The singleton `CoreSocket` remains the master source for global, non-sensitive world metadata (world title, status, active user counts).
-*   **Document Cache**: To optimize performance, the `CoreSocket` maintains a server-side representation of visible documents. When a change occurs, `_updateActorCache` intercepts the broadcast and uses `_deepMerge` to patch the local memory representation, ensuring subsequent API reads are near-instant.
+*   **Primary Document Cache**: To optimize performance, `SystemService.bootstrap()` calls `seedDocumentCache()` after module discovery. Actor documents are seeded into `ActorStore`, which becomes the authoritative platform read cache for actor routes. `CoreSocket` and request-scoped route clients feed modify-document results into this store instead of owning separate actor state.
+*   **Actor Realtime**: `ActorStore` emits one internal `actorChanged` event after applying a create/update/delete. `SystemService` bridges that onto the system client as `actorUpdate` with `{ actorId, action }`; `AppSocketGateway` re-checks per-user visibility before forwarding it to browser sockets.
 
 ## Limitations & Future Considerations
 
 While the current socket implementation is functional, there are several areas of concern and potential improvements for the future:
 
 1.  **Strict Permission Assumptions**: `dispatchDocumentSocket` assumes the headless Service Account has Game Master (or Assistant GM) permissions. If the account is demoted to a standard "Player", operations like fetching all users, reading private GM compendiums, or updating other players' actors will silently fail or return errors.
-2.  **Embedded Document Caching Limitations**: The `_updateActorCache` currently focuses on deep-merging updates specifically for `Actor` and `Item` documents. Changes to other embedded documents like `ActiveEffect` or `Token` may cause the local cache to fall out of sync, as explicit deep-merging for those sub-collections is not fully implemented.
+2.  **Primary Document Coverage**: `ActorStore` handles Actor, Item, and ActiveEffect mutations for actor-owned embedded data. Other primary document types (`Item`, `Cards`, `ChatMessage`, `Combat`, etc.) still need their own stores and bootstrap seeding before they can use the same cache-backed read model.
 3.  **Macro Execution**: There is currently no native way to explicitly execute a macro (e.g., "Execute Macro X") over the socket. To achieve macro-like effects, the headless client must mimic the exact document updates the macro *would* perform.
 4.  **Local Roll Evaluation**: `CoreSocket.roll()` evaluates dice math *locally* in the Node.js environment using a replica `Roll` class, and then sends the resulting totals/strings to Foundry as a `ChatMessage`. The server backend is not asked to roll the dice. While this matches standard browser behavior, it means complex Foundry modules that hook deeply into the server's internal rolling sequence might not trigger.

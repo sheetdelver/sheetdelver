@@ -11,11 +11,16 @@ import {
     FoundryUserRole,
     createDocumentAccessSubject,
 } from '@server/core/documents/primary/base/ownership';
+import { PrimaryDocumentCacheNotReadyError } from '@server/core/documents/primary/errors';
 
 function getUserRole(userId?: string | null): number {
     // System routes act as the service account and intentionally bypass user filtering.
     if (!userId) return FoundryUserRole.GAMEMASTER;
     return systemService.getSystemClient().getUser(userId)?.role ?? FoundryUserRole.NONE;
+}
+
+function ensureActorStoreReady(): void {
+    if (!actorStore.isReady()) throw new PrimaryDocumentCacheNotReadyError('Actor');
 }
 
 function createBaseRouteFoundryClient(client: CoreSocket | ClientSocket): Omit<RouteFoundryClient, 'sendMessage'> {
@@ -40,21 +45,20 @@ function createBaseRouteFoundryClient(client: CoreSocket | ClientSocket): Omit<R
         off: client.off.bind(client),
         getSystem: () => client.getSystem(),
         getActors: async () => {
-            // Before bootstrap completes, preserve the old socket-backed behavior.
-            if (!actorStore.isReady()) return client.getActors();
+            ensureActorStoreReady();
             const subject = getSubject();
             if (!subject) return actorStore.list();
             return actorStore.listActors({ subject, minOwnership: DOCUMENT_VISIBILITY.LIST_VISIBLE });
         },
         getActor: async (actorId: string) => {
             // This remains LIST_VISIBLE until route-specific detail/card thresholds split.
-            if (!actorStore.isReady()) return client.getActor(actorId);
+            ensureActorStoreReady();
             const subject = getSubject();
             if (!subject) return actorStore.get(actorId);
             return actorStore.getActor(actorId, { subject, minOwnership: DOCUMENT_VISIBILITY.LIST_VISIBLE });
         },
         getActorRaw: async (actorId: string) => {
-            if (!actorStore.isReady()) return client.getActorRaw(actorId);
+            ensureActorStoreReady();
             return actorStore.get(actorId);
         },
         createActor: (actorData: Record<string, unknown>) => actorRepository.createActor(actorData),

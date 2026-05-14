@@ -11,6 +11,7 @@ import { SystemAdapter } from '@modules/registry/types';
 import { CompendiumCache } from '../compendium-cache';
 import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
 import { DOCUMENT_VISIBILITY, FoundryUserRole, createDocumentAccessSubject } from '@server/core/documents/primary/base/ownership';
+import { PrimaryDocumentCacheNotReadyError } from '@server/core/documents/primary/errors';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
@@ -38,124 +39,17 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
     private lastLaunchActivity = 0;
     private heartbeatPaused = false;
     private userMap = new Map<string, any>();
-    private actorDataCache = new Map<string, any>();
     private retryCount = 0;
     private activeBrowserCount = 0;
     private lastUserActivityTimestamp = Date.now();
 
-    private _deepMerge(target: any, source: any) {
-        if (!source || typeof source !== 'object') return target;
-        if (!target || typeof target !== 'object') return source;
-
-        for (const [key, value] of Object.entries(source)) {
-            // Handle Case: Flattened Keys (e.g. "system.details.patron")
-            if (key.includes('.')) {
-                const parts = key.split('.');
-                let current = target;
-                for (let i = 0; i < parts.length - 1; i++) {
-                    const part = parts[i];
-                    if (!current[part] || typeof current[part] !== 'object') {
-                        current[part] = {};
-                    }
-                    current = current[part];
-                }
-                const lastPart = parts[parts.length - 1];
-                logger.debug(`CoreSocket | DeepMerge Dotted: ${key} -> ${JSON.stringify(value)}`);
-                current[lastPart] = value;
-                continue;
-            }
-
-            // Standard Nested Merge
-            if (value && typeof value === 'object' && !Array.isArray(value)) {
-                if (!target[key] || typeof target[key] !== 'object') {
-                    target[key] = {};
-                }
-                this._deepMerge(target[key], value);
-            } else {
-                logger.debug(`CoreSocket | DeepMerge Set: ${key} -> ${JSON.stringify(value)}`);
-                target[key] = value;
-            }
-        }
-        return target;
-    }
-
-    private _updateActorCache(type: string, action: string, result: any, operation?: any) {
-        // Delegate long-lived actor cache state to ActorStore while this legacy
-        // method keeps CoreSocket's older cache warm during the migration.
+    private _applyActorDocumentMutation(type: string, action: string, result: any, operation?: any) {
         actorStore.applyModifyDocument(type, action as any, result, operation);
-
-        if (!result && action !== 'delete') return;
 
         if (action === 'create' || action === 'update' || action === 'delete') {
             if (type === 'Actor' || type === 'Item') {
                 this.lastActorChange = Date.now();
             }
-        }
-
-        if (type === 'Actor') {
-            const docs = Array.isArray(result) ? result : [result];
-            if (action === 'delete') {
-                const ids = operation?.ids || docs.map((d: any) => d?._id || d?.id).filter(Boolean);
-                ids.forEach((id: string) => this.actorDataCache.delete(id));
-            } else {
-                if (action === 'get' && docs.length > 5) {
-                    logger.debug(`CoreSocket | Caching batch of ${docs.length} actors (get)`);
-                }
-
-                docs.forEach((actor: any) => {
-                    const id = actor?._id || actor?.id;
-                    if (id) {
-                        const existing = this.actorDataCache.get(id);
-                        if (existing && action === 'update') {
-                            logger.debug(`CoreSocket | Updating cached actor ${id} (${type} ${action}) with diff: ${JSON.stringify(actor)}`);
-                            this._deepMerge(existing, actor);
-                            this.actorDataCache.set(id, existing);
-                        } else if (action === 'update') {
-                            // Partial update on a cache miss: Delete to force fresh fetch on next GET
-                            logger.debug(`CoreSocket | Cache miss on update for actor ${id}, invalidating...`);
-                            this.actorDataCache.delete(id);
-                        } else {
-                            // Create or get: Full object
-                            if (action !== 'get' || docs.length <= 5) {
-                                logger.debug(`CoreSocket | Setting new cached actor ${id} (${type} ${action})`);
-                            }
-                            this.actorDataCache.set(id, actor);
-                        }
-                    }
-                });
-            }
-        } else if (type === 'Item') {
-            // Resolve parent Actor ID
-            let actorId = operation?.parentId;
-            if (!actorId && operation?.parentUuid) {
-                const parts = operation.parentUuid.split('.');
-                // Format could be 'Actor.ID' or 'Actor.ID.Item.ID'
-                if (parts[0] === 'Actor') actorId = parts[1];
-            }
-
-            if (!actorId) return;
-
-            const actor = this.actorDataCache.get(actorId);
-            if (!actor) return;
-
-            const docs = Array.isArray(result) ? result : [result];
-            if (!actor.items) actor.items = [];
-
-            if (action === 'delete') {
-                const ids = operation.ids || docs.map((d: any) => d?._id || d?.id).filter(Boolean);
-                actor.items = actor.items.filter((i: any) => !ids.includes(i._id || i.id));
-            } else if (action === 'update') {
-                docs.forEach((item: any) => {
-                    const itemId = item?._id || item?.id;
-                    const idx = actor.items.findIndex((i: any) => (i._id || i.id) === itemId);
-                    if (idx !== -1) {
-                        this._deepMerge(actor.items[idx], item);
-                    }
-                });
-            } else if (action === 'create') {
-                actor.items.push(...docs);
-            }
-            this.actorDataCache.set(actorId, actor);
         }
     }
 
@@ -549,7 +443,7 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
                         });
                     }
                     else {
-                        this._updateActorCache(data.type, data.action, data.result, data.operation);
+                        this._applyActorDocumentMutation(data.type, data.action, data.result, data.operation);
 
                         // Notify subscribers of Combat changes
                         if (data.type === 'Combat' || data.type === 'Combatant') {
@@ -740,7 +634,7 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
 
             // Proactive Cache Update (Initiator Confirmation)
             if (result && (type === 'Actor' || type === 'Item' || type === 'ActiveEffect')) {
-                this._updateActorCache(type, action, result.result, result.operation || operation);
+                this._applyActorDocumentMutation(type, action, result.result, result.operation || operation);
             }
 
             return result;
@@ -1048,70 +942,30 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
     }
 
     public async getActors(userId?: string): Promise<any[]> {
-        if (actorStore.isReady()) {
-            // Compatibility read surface: route clients now hit ActorStore first.
-            if (!userId) return actorStore.list();
-            const user = this.getUser(userId);
-            const subject = createDocumentAccessSubject(userId, user?.role ?? FoundryUserRole.NONE);
-            return subject
-                ? actorStore.listActors({ subject, minOwnership: DOCUMENT_VISIBILITY.LIST_VISIBLE })
-                : [];
-        }
+        if (!actorStore.isReady()) throw new PrimaryDocumentCacheNotReadyError('Actor');
 
-        const result: any = await this.dispatchDocumentSocket('Actor', 'get', { broadcast: false });
-        const all = result?.result || [];
-        if (!userId) return all;
-
-        return all.filter((a: any) => {
-            const level = a.ownership?.[userId] !== undefined ? a.ownership[userId] : (a.ownership?.default || 0);
-            return level >= 2;
-        });
+        // Compatibility read surface: route clients now hit ActorStore first.
+        if (!userId) return actorStore.list();
+        const user = this.getUser(userId);
+        const subject = createDocumentAccessSubject(userId, user?.role ?? FoundryUserRole.NONE);
+        return subject
+            ? actorStore.listActors({ subject, minOwnership: DOCUMENT_VISIBILITY.LIST_VISIBLE })
+            : [];
     }
 
     public async getActor(id: string, forceSystemId?: string): Promise<any> {
-        if (actorStore.isReady()) {
-            // Privileged socket callers get the raw cached actor clone; route wrappers
-            // perform user-scoped filtering before exposing actors to requests.
-            const data = actorStore.get(id);
-            if (data) return data;
-        }
+        if (!actorStore.isReady()) throw new PrimaryDocumentCacheNotReadyError('Actor');
 
-        let data = this.actorDataCache.get(id);
-
-        if (!data) {
-            logger.debug(`CoreSocket | Cache miss for actor ${id}, fetching from Foundry...`);
-            // CoreSocket returns the actor. Caller handles permissions if needed or we trust internal logic.
-            const response: any = await this.dispatchDocumentSocket('Actor', 'get', { query: { _id: id }, broadcast: false });
-            data = response?.result?.[0];
-            if (data) {
-                this.actorDataCache.set(id, data);
-            }
-        } else {
-            logger.debug(`CoreSocket | Cache hit for actor ${id}`);
-        }
-
-        // RETURN CLONE: Never return the cached reference as it may be mutated by adapters
-        return data ? structuredClone(data) : null;
+        // Privileged socket callers get the raw cached actor clone; route wrappers
+        // perform user-scoped filtering before exposing actors to requests.
+        return actorStore.get(id);
     }
 
     public async getActorRaw(id: string): Promise<any> {
-        if (actorStore.isReady()) {
-            // Raw actor reads are internal-only and bypass ownership filtering.
-            const data = actorStore.get(id);
-            if (data) return data;
-        }
+        if (!actorStore.isReady()) throw new PrimaryDocumentCacheNotReadyError('Actor');
 
-        let data = this.actorDataCache.get(id);
-
-        if (!data) {
-            const response: any = await this.dispatchDocumentSocket('Actor', 'get', { query: { _id: id }, broadcast: false });
-            data = response?.result?.[0];
-            if (data) {
-                this.actorDataCache.set(id, data);
-            }
-        }
-
-        return data ? structuredClone(data) : null;
+        // Raw actor reads are internal-only and bypass ownership filtering.
+        return actorStore.get(id);
     }
 
     public async fetchByUuid(uuid: string): Promise<any> {
@@ -1124,6 +978,10 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
             if (!uuid.startsWith('Compendium.')) {
                 const [type, id] = uuid.split('.');
                 if (type && id) {
+                    if (type === 'Actor') {
+                        if (!actorStore.isReady()) throw new PrimaryDocumentCacheNotReadyError('Actor');
+                        return actorStore.get(id);
+                    }
                     logger.debug(`[CoreSocket] [TRACE] fetchByUuid World Document: ${type} ${id}`);
                     const response = await this.dispatchDocumentSocket(type, 'get', { query: { _id: id }, broadcast: false });
                     return response?.result?.[0];
@@ -1202,6 +1060,7 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
             logger.debug(`[CoreSocket] [TRACE] fetchByUuid FAILED: ${uuid}`);
             return null;
         } catch (error) {
+            if (error instanceof PrimaryDocumentCacheNotReadyError) throw error;
             logger.error(`[CoreSocket] [TRACE] fetchByUuid CRITICAL ERROR: ${uuid}`, error);
             return null;
         }

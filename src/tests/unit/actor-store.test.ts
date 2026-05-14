@@ -1,6 +1,9 @@
 import { strict as assert } from 'node:assert';
+import path from 'node:path';
 import { ActorStore, actorStore } from '@server/core/documents/primary/actors/ActorStore';
 import { ActorRepository } from '@server/core/documents/primary/actors/ActorRepository';
+import { CoreSocket } from '@server/core/foundry/sockets/CoreSocket';
+import { initDataDir, resolveDataDir } from '@server/core/paths';
 import {
     DOCUMENT_VISIBILITY,
     DocumentOwnershipLevel,
@@ -11,10 +14,13 @@ import { createSystemRouteFoundryClient } from '@server/shared/utils/createRoute
 import type { RawActor } from '@server/shared/types/actors';
 
 export async function run() {
+    initDataDir(resolveDataDir(['--data-dir', path.join(process.cwd(), 'temp', 'test-data')]));
     await runActorStoreOwnershipAndClone();
     await runActorStoreMutations();
     await runActorRepositoryAppliesEffects();
     await runRouteClientReadsFromActorStore();
+    await runRouteClientBlocksActorReadsBeforeStoreReady();
+    await runCoreSocketActorUuidReadsFromActorStore();
 }
 
 async function runActorStoreOwnershipAndClone() {
@@ -173,4 +179,72 @@ async function runRouteClientReadsFromActorStore() {
     assert.equal(socketFetches, 0);
 
     actorStore.clear('unit-test');
+}
+
+async function runRouteClientBlocksActorReadsBeforeStoreReady() {
+    actorStore.clear('not-ready-test');
+
+    let socketFetches = 0;
+    const client = createSystemRouteFoundryClient({
+        isConnected: true,
+        userId: null,
+        on: () => undefined,
+        off: () => undefined,
+        getSystem: async () => ({ id: 'generic' }),
+        getActors: async () => {
+            socketFetches += 1;
+            return [];
+        },
+        getActor: async () => {
+            socketFetches += 1;
+            return null;
+        },
+        getActorRaw: async () => {
+            socketFetches += 1;
+            return null;
+        },
+        createActor: async () => null,
+        deleteActor: async () => undefined,
+        updateActor: async () => undefined,
+        dispatchDocument: async () => ({}),
+        roll: async () => ({}),
+        useItem: async () => ({}),
+        createActorItem: async () => ({}),
+        updateActorItem: async () => undefined,
+        deleteActorItem: async () => undefined,
+        resolveUrl: (url?: string) => url || '',
+        getChatLog: async () => [],
+        getCombats: async () => [],
+        getUsers: async () => [],
+        getJournals: async () => [],
+        getFolders: async () => [],
+        dispatchDocumentSocket: async () => ({}),
+        fetchByUuid: async () => null,
+        getAllCompendiumIndices: async () => [],
+        getSharedContent: () => null,
+        sendMessage: async () => ({}),
+    } as any);
+
+    await assert.rejects(() => client.getActors(), /Actor document cache is not ready/);
+    await assert.rejects(() => client.getActor('actor-cached'), /Actor document cache is not ready/);
+    await assert.rejects(() => client.getActorRaw('actor-cached'), /Actor document cache is not ready/);
+    assert.equal(socketFetches, 0);
+}
+
+async function runCoreSocketActorUuidReadsFromActorStore() {
+    actorStore.clear('uuid-test');
+    const socket = new CoreSocket({ url: 'http://foundry.invalid' } as any);
+
+    await assert.rejects(() => socket.fetchByUuid('Actor.actor-cached'), /Actor document cache is not ready/);
+
+    await actorStore.seed(async () => ([
+        {
+            _id: 'actor-cached',
+            name: 'Cached Actor',
+            ownership: { default: DocumentOwnershipLevel.OWNER },
+        },
+    ]));
+
+    assert.equal((await socket.fetchByUuid('Actor.actor-cached'))?.name, 'Cached Actor');
+    actorStore.clear('uuid-test');
 }

@@ -65,6 +65,7 @@ graph TD
     - **CoreSocket**: A singleton connection acting as a service account. Tracks player lists, world status, and system metadata.
     - **ClientSocket**: A per-user connection. Receives personal notifications (Item sharing, whispered chat) and performs user-authorized writes.
 - **Compendium Cache**: A centralized service that pre-processes and caches compendium indices for rapid name resolution and data retrieval.
+- **Primary Document Cache**: Server-owned stores under `src/server/core/documents/primary/` that keep hydrated Foundry primary documents available after bootstrap. Actors are currently seeded through `ActorStore`; additional primary document types should join this area behind the same coordinator pattern.
 
 ### 3.2 The Delivery Layers
 - **Server (`src/server`)**:
@@ -74,6 +75,16 @@ graph TD
         - **API**: RegEx-based routing allows system-specific packages to mount their own API logic dynamically.
         - **UI**: The core actor page delegates rendering to the module's registered `ActorPage`, ensuring full UI autonomy.
     - **Shared Content**: Tracks shared media (images/journals) targeted at the current user.
+
+### 3.3 World-Ready Bootstrap Gates
+
+`SystemService.bootstrap()` blocks world readiness on the data the platform needs before serving user workflows:
+
+1. Module discovery and compendium hydration from each module's `info.json`.
+2. Primary document seeding through `seedDocumentCache()`.
+3. Active module adapter initialization.
+
+For actors, the platform performs one system-client fetch during bootstrap, seeds `ActorStore`, and then keeps that store in parity through Foundry `modifyDocument` results and broadcasts. Actor API reads and dashboard card projections should read from this platform cache; they should not repeatedly ask Foundry to rehydrate the same actor list.
 
 ---
 
@@ -137,9 +148,10 @@ See `src/modules/MODULE_MANIFEST.md` for the full module authoring reference.
 
 ### 6.3 Data Normalization & Computation
 All data returned by the API passes through a **System Adapter**.
-1.  **Normalization**: Converts raw Foundry data to a UI-friendly shape.
-2.  **Computation**: The adapter's `computeActorData` method calculates derived stats (e.g., Shadowdark inventory slots, HP totals) before the UI receives the data.
-3.  **Categorization**: Items are grouped (e.g., "Spells", "Weapons") via `categorizeItems`.
+1.  **Cached Raw Actor**: Actor routes start from the hydrated raw actor held by the platform actor store.
+2.  **Normalization**: Converts raw Foundry data to a UI-friendly shape.
+3.  **Computation**: The adapter's `computeActorData` method calculates derived stats (e.g., Shadowdark inventory slots, HP totals) before the UI receives the data.
+4.  **Categorization**: Items are grouped (e.g., "Spells", "Weapons") via `categorizeItems`.
 
 ---
 
