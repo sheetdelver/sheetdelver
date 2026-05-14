@@ -1,0 +1,144 @@
+import { strict as assert } from 'node:assert';
+import { ActorStore, actorStore } from '@server/core/documents/primary/actors/ActorStore';
+import {
+    DOCUMENT_VISIBILITY,
+    DocumentOwnershipLevel,
+    FoundryUserRole,
+    type DocumentAccessSubject,
+} from '@server/core/documents/primary/base/ownership';
+import { createSystemRouteFoundryClient } from '@server/shared/utils/createRouteFoundryClient';
+import type { RawActor } from '@server/shared/types/actors';
+
+export async function run() {
+    await runActorStoreOwnershipAndClone();
+    await runActorStoreMutations();
+    await runRouteClientReadsFromActorStore();
+}
+
+async function runActorStoreOwnershipAndClone() {
+    const store = new ActorStore();
+    const player: DocumentAccessSubject = { userId: 'user-1', role: FoundryUserRole.PLAYER };
+    const gm: DocumentAccessSubject = { userId: 'gm-1', role: FoundryUserRole.GAMEMASTER };
+
+    const actors: RawActor[] = [
+        {
+            _id: 'limited',
+            name: 'Limited Actor',
+            ownership: { default: DocumentOwnershipLevel.LIMITED },
+        },
+        {
+            _id: 'observed',
+            name: 'Observed Actor',
+            ownership: { 'user-1': DocumentOwnershipLevel.OBSERVER },
+        },
+        {
+            _id: 'hidden',
+            name: 'Hidden Actor',
+            ownership: { default: DocumentOwnershipLevel.NONE },
+        },
+    ];
+
+    await store.seed(async () => actors);
+
+    assert.equal(store.isReady(), true);
+    assert.deepEqual(
+        store.listActors({ subject: player, minOwnership: DOCUMENT_VISIBILITY.LIST_VISIBLE }).map(actor => actor._id),
+        ['limited', 'observed'],
+    );
+    assert.deepEqual(
+        store.listActors({ subject: player, minOwnership: DOCUMENT_VISIBILITY.DETAIL_VISIBLE }).map(actor => actor._id),
+        ['observed'],
+    );
+    assert.equal(store.getActor('hidden', { subject: gm })?._id, 'hidden');
+
+    const clone = store.get('observed')!;
+    clone.name = 'Mutated Outside Store';
+    assert.equal(store.get('observed')?.name, 'Observed Actor');
+}
+
+async function runActorStoreMutations() {
+    const store = new ActorStore();
+    const events: string[] = [];
+    store.onActorStoreEvent(event => {
+        if (event.type === 'actorChanged') events.push(`${event.actorId}:${event.action}`);
+    });
+
+    await store.seed(async () => ([
+        {
+            _id: 'actor-1',
+            name: 'Actor One',
+            system: { attributes: { hp: { value: 7 } } },
+            items: [{ _id: 'item-1', name: 'Sword', system: { quantity: 1 } }],
+            ownership: { default: DocumentOwnershipLevel.OWNER },
+        },
+    ]));
+
+    store.applyModifyDocument('Actor', 'update', [{ _id: 'actor-1', 'system.attributes.hp.value': 5 }]);
+    assert.equal((store.get('actor-1')?.system as any).attributes.hp.value, 5);
+
+    store.applyModifyDocument('Item', 'update', [{ _id: 'item-1', system: { quantity: 2 } }], {
+        parentUuid: 'Actor.actor-1',
+    });
+    assert.equal(store.get('actor-1')?.items?.[0].system?.quantity, 2);
+
+    store.applyModifyDocument('ActiveEffect', 'create', [{ _id: 'effect-1', label: 'Blessed' }], {
+        parentUuid: 'Actor.actor-1.Item.item-1',
+    });
+    assert.equal((store.get('actor-1')?.items?.[0].effects as any[])?.[0]._id, 'effect-1');
+
+    assert.deepEqual(events, ['actor-1:update', 'actor-1:update', 'actor-1:update']);
+}
+
+async function runRouteClientReadsFromActorStore() {
+    await actorStore.seed(async () => ([
+        {
+            _id: 'actor-cached',
+            name: 'Cached Actor',
+            ownership: { default: DocumentOwnershipLevel.OWNER },
+        },
+    ]));
+
+    let socketFetches = 0;
+    const client = createSystemRouteFoundryClient({
+        isConnected: true,
+        userId: null,
+        on: () => undefined,
+        off: () => undefined,
+        getSystem: async () => ({ id: 'generic' }),
+        getActors: async () => {
+            socketFetches += 1;
+            return [];
+        },
+        getActor: async () => {
+            socketFetches += 1;
+            return null;
+        },
+        getActorRaw: async () => null,
+        createActor: async () => null,
+        deleteActor: async () => undefined,
+        updateActor: async () => undefined,
+        dispatchDocument: async () => ({}),
+        roll: async () => ({}),
+        useItem: async () => ({}),
+        createActorItem: async () => ({}),
+        updateActorItem: async () => undefined,
+        deleteActorItem: async () => undefined,
+        resolveUrl: (url?: string) => url || '',
+        getChatLog: async () => [],
+        getCombats: async () => [],
+        getUsers: async () => [],
+        getJournals: async () => [],
+        getFolders: async () => [],
+        dispatchDocumentSocket: async () => ({}),
+        fetchByUuid: async () => null,
+        getAllCompendiumIndices: async () => [],
+        getSharedContent: () => null,
+        sendMessage: async () => ({}),
+    } as any);
+
+    assert.equal((await client.getActors()).length, 1);
+    assert.equal((await client.getActor('actor-cached'))?.name, 'Cached Actor');
+    assert.equal(socketFetches, 0);
+
+    actorStore.clear('unit-test');
+}

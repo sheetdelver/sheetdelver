@@ -9,6 +9,8 @@ import { FoundryMetadataClient } from '../interfaces';
 import { getAdapter } from '@modules/registry/server';
 import { SystemAdapter } from '@modules/registry/types';
 import { CompendiumCache } from '../compendium-cache';
+import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
+import { DOCUMENT_VISIBILITY, FoundryUserRole, createDocumentAccessSubject } from '@server/core/documents/primary/base/ownership';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
@@ -78,6 +80,8 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
     }
 
     private _updateActorCache(type: string, action: string, result: any, operation?: any) {
+        actorStore.applyModifyDocument(type, action as any, result, operation);
+
         if (!result && action !== 'delete') return;
 
         if (action === 'create' || action === 'update' || action === 'delete') {
@@ -679,6 +683,7 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
             this.gameDataCache = null;
             this.sceneDataCache = null;
             this.userMap.clear();
+            actorStore.clear('core-disconnect');
             logger.info('CoreSocket | Explicitly disconnected.');
         }
     }
@@ -1049,6 +1054,15 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
     }
 
     public async getActors(userId?: string): Promise<any[]> {
+        if (actorStore.isReady()) {
+            if (!userId) return actorStore.list();
+            const user = this.getUser(userId);
+            const subject = createDocumentAccessSubject(userId, user?.role ?? FoundryUserRole.NONE);
+            return subject
+                ? actorStore.listActors({ subject, minOwnership: DOCUMENT_VISIBILITY.LIST_VISIBLE })
+                : [];
+        }
+
         const result: any = await this.dispatchDocumentSocket('Actor', 'get', { broadcast: false });
         const all = result?.result || [];
         if (!userId) return all;
@@ -1060,6 +1074,11 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
     }
 
     public async getActor(id: string, forceSystemId?: string): Promise<any> {
+        if (actorStore.isReady()) {
+            const data = actorStore.get(id);
+            if (data) return data;
+        }
+
         let data = this.actorDataCache.get(id);
 
         if (!data) {
@@ -1079,6 +1098,11 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
     }
 
     public async getActorRaw(id: string): Promise<any> {
+        if (actorStore.isReady()) {
+            const data = actorStore.get(id);
+            if (data) return data;
+        }
+
         let data = this.actorDataCache.get(id);
 
         if (!data) {

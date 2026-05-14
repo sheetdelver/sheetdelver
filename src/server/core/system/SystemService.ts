@@ -7,6 +7,7 @@ import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
 import { getAdapter, getRegisteredModules } from '@modules/registry/server';
 import { discoveryService } from '../foundry/DiscoveryService';
 import { CompendiumCache } from '../foundry/compendium-cache';
+import { clearDocumentCache, seedDocumentCache } from '../documents/primary/PrimaryDocumentCacheCoordinator';
 
 /**
  * SystemService: The authoritative provider for the Backend "World Context".
@@ -68,6 +69,7 @@ export class SystemService extends EventEmitter {
         this.emit('world:disconnected');
         this.initialized = false;
         this.bootstrapPromise = null;
+        clearDocumentCache('world-disconnected');
     }
 
     /**
@@ -108,7 +110,10 @@ export class SystemService extends EventEmitter {
                         await discoveryService.sync(client, sysId, discoveryConfig);
                     }
 
-                    // 3. Adapter Initialization
+                    // 3. Required primary document cache seed
+                    await seedDocumentCache(client);
+
+                    // 4. Adapter Initialization
                     if (hasInitialize(adapter)) {
                         logger.info(`SystemService | Initializing adapter for ${sysInfo.id}...`);
                         const { createModuleContext } = await import('@server/shared/utils/createModuleContext');

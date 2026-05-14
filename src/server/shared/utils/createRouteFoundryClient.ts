@@ -3,8 +3,22 @@ import type { CoreSocket } from '@core/foundry/sockets/CoreSocket';
 import type { ClientSocket } from '@core/foundry/sockets/ClientSocket';
 import type { ChatSendBody } from '@server/shared/types/documents';
 import type { RouteFoundryClient } from '@server/shared/types/requestContext';
+import { systemService } from '@core/system/SystemService';
+import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
+import {
+    DOCUMENT_VISIBILITY,
+    FoundryUserRole,
+    createDocumentAccessSubject,
+} from '@server/core/documents/primary/base/ownership';
+
+function getUserRole(userId?: string | null): number {
+    if (!userId) return FoundryUserRole.GAMEMASTER;
+    return systemService.getSystemClient().getUser(userId)?.role ?? FoundryUserRole.NONE;
+}
 
 function createBaseRouteFoundryClient(client: CoreSocket | ClientSocket): Omit<RouteFoundryClient, 'sendMessage'> {
+    const getSubject = () => createDocumentAccessSubject(client.userId, getUserRole(client.userId));
+
     return {
         get isConnected() {
             return client.isConnected;
@@ -14,9 +28,22 @@ function createBaseRouteFoundryClient(client: CoreSocket | ClientSocket): Omit<R
         on: client.on.bind(client),
         off: client.off.bind(client),
         getSystem: () => client.getSystem(),
-        getActors: () => client.getActors(),
-        getActor: (actorId: string) => client.getActor(actorId),
-        getActorRaw: (actorId: string) => client.getActorRaw(actorId),
+        getActors: async () => {
+            if (!actorStore.isReady()) return client.getActors();
+            const subject = getSubject();
+            if (!subject) return actorStore.list();
+            return actorStore.listActors({ subject, minOwnership: DOCUMENT_VISIBILITY.LIST_VISIBLE });
+        },
+        getActor: async (actorId: string) => {
+            if (!actorStore.isReady()) return client.getActor(actorId);
+            const subject = getSubject();
+            if (!subject) return actorStore.get(actorId);
+            return actorStore.getActor(actorId, { subject, minOwnership: DOCUMENT_VISIBILITY.LIST_VISIBLE });
+        },
+        getActorRaw: async (actorId: string) => {
+            if (!actorStore.isReady()) return client.getActorRaw(actorId);
+            return actorStore.get(actorId);
+        },
         createActor: (actorData: Record<string, unknown>) => client.createActor(actorData),
         deleteActor: (actorId: string) => client.deleteActor(actorId),
         updateActor: (actorId: string, payload: Record<string, unknown>) => client.updateActor(actorId, payload),
