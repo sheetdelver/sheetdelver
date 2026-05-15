@@ -229,6 +229,16 @@ The end-state validation is structural:
 - `grep`-ing for `getActor(`, `getCombats(`, `getJournals(` etc. on the socket layer returns no live callers outside the Store/Repository implementation files.
 - Adding a hypothetical new primary doc type (say, the day Foundry adds one) is mechanically a single subsystem extension against the base, not a re-derivation of patterns from scratch.
 
+**Phase 1 verification addendum (May 15, 2026):**
+
+- `npx tsc --noEmit` passed.
+- `npm run test:unit` passed when rerun outside the sandbox; the sandboxed run failed before tests started because `tsx` could not open its IPC pipe.
+- Structural Phase 1 pieces are present: base Store/Repository abstractions, `modifyDocumentRouter`, cache coordinator, `ChatMessageStore` / `ChatMessageRepository`, and `ActorStore` / `ActorRepository` lifted onto the base.
+- [x] Fix blind-message visibility ordering in `ChatMessageStore.resolveOwnership`: `blind: true` must restrict visibility to author + GMs before whisper recipients are considered.
+- [x] Align browser realtime listeners with the new server events. Server-side Phase 1 emits `chatMessageChanged` / `chatMessageListInvalidated`; `ChatContext` now listens for those events while retaining the legacy `chatUpdate` listener for compatibility.
+- [x] Complete chat write-path migration onto `ChatMessageRepository`: `ChatService.sendChatMessage()` no longer uses `client.sendMessage()` for writes, and slash-roll output is created through request-scoped `ChatMessage` document dispatch after local roll evaluation.
+- [x] Preserve the route-facing chat DTO projection when reads come from `ChatMessageStore`. Store-backed reads now project raw messages into enriched fields such as `user`, `isRoll`, `rollTotal`, and `rollFormula`.
+
 ---
 
 ## Exit Criteria

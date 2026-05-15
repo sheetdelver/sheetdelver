@@ -40,6 +40,9 @@ export class ChatMessageStore extends PrimaryDocumentStore<RawChatMessage> {
         const author = typeof message.author === 'string' ? message.author : null;
         if (author && author === subject.userId) return DocumentOwnershipLevel.OBSERVER;
 
+        // Blind rolls are stricter than whispers: only author + GMs can see them.
+        if (message.blind === true) return DocumentOwnershipLevel.NONE;
+
         // Whispered messages: visibility limited to listed recipients.
         const whisper = Array.isArray(message.whisper) ? message.whisper : [];
         if (whisper.length > 0) {
@@ -47,9 +50,6 @@ export class ChatMessageStore extends PrimaryDocumentStore<RawChatMessage> {
                 ? DocumentOwnershipLevel.OBSERVER
                 : DocumentOwnershipLevel.NONE;
         }
-
-        // Blind rolls: only the author and GMs see them (handled above already).
-        if (message.blind === true) return DocumentOwnershipLevel.NONE;
 
         // World-visible.
         return DocumentOwnershipLevel.OBSERVER;

@@ -1,6 +1,6 @@
 import type { AppConfig } from '@shared/interfaces';
-import type { ChatClientLike, ChatSendBody } from '@server/shared/types/documents';
-import type { ChatLogPayload, ChatSendSuccessPayload, ChatErrorPayload } from '@shared/contracts/chat';
+import type { ChatClientLike, ChatSendBody, RawChatMessage } from '@server/shared/types/documents';
+import type { ChatLogPayload, ChatSendSuccessPayload, ChatErrorPayload, ChatMessageDto } from '@shared/contracts/chat';
 import { chatMessageStore } from '@server/core/documents/primary/chat-messages/ChatMessageStore';
 import { systemService } from '@core/system/SystemService';
 import {
@@ -11,6 +11,65 @@ import {
 
 interface ChatServiceDeps {
     config: AppConfig;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function normalizeSpeaker(speaker: ChatSendBody['speaker']): ChatSendBody['speaker'] | undefined {
+    if (!speaker) return undefined;
+    return typeof speaker === 'string' ? { alias: speaker } : speaker;
+}
+
+async function resolveRollMode(mode: string | undefined, userId: string | null | undefined): Promise<Record<string, unknown>> {
+    if (!mode || mode === 'publicroll' || mode === 'public') return {};
+    if (mode === 'selfroll' || mode === 'self') return { whisper: userId ? [userId] : [] };
+
+    const users = await systemService.getSystemClient().getUsers();
+    const gmIds = users
+        .filter((u: any) => (u.role || u.permissions?.role || 0) >= FoundryUserRole.ASSISTANT)
+        .map((u: any) => u._id || u.id)
+        .filter((id: unknown): id is string => typeof id === 'string');
+    const authorId = userId ? [userId] : [];
+
+    if (mode === 'gmroll' || mode === 'gm' || mode === 'private') {
+        return { whisper: Array.from(new Set([...gmIds, ...authorId])) };
+    }
+    if (mode === 'blindroll' || mode === 'blind') return { blind: true, whisper: gmIds };
+
+    return {};
+}
+
+function projectChatMessage(message: RawChatMessage, subjectUserId: string | null, subjectRole: number): ChatMessageDto {
+    const rolls = (Array.isArray(message.rolls) ? message.rolls : []).map((roll: unknown) => {
+        if (typeof roll !== 'string') return roll;
+        try {
+            return JSON.parse(roll);
+        } catch {
+            return roll;
+        }
+    });
+    const roll = rolls[0] as { total?: number; formula?: string } | undefined;
+    const isRoll = message.type === 5;
+    const isBlind = message.blind === true;
+    const isGmLike = subjectRole >= FoundryUserRole.ASSISTANT;
+    const isAuthor = typeof message.author === 'string' && message.author === subjectUserId;
+    const shouldMask = isBlind && !isGmLike && !isAuthor;
+    const author = typeof message.author === 'string'
+        ? systemService.getSystemClient().getUser(message.author)
+        : null;
+
+    return {
+        ...message,
+        user: author?.name || (typeof message.alias === 'string' ? message.alias : undefined) || 'Unknown',
+        timestamp: typeof message.timestamp === 'number' ? message.timestamp : Date.now(),
+        isRoll,
+        rolls: shouldMask ? [] : rolls,
+        rollTotal: shouldMask ? undefined : (roll?.total !== undefined ? roll.total : (isRoll ? Number(message.content) : undefined)),
+        rollFormula: shouldMask ? '???' : (roll?.formula || (isRoll && typeof message.flavor === 'string' ? message.flavor : undefined)),
+        flavor: typeof message.flavor === 'string' ? message.flavor : undefined,
+    };
 }
 
 export function createChatService(deps: ChatServiceDeps) {
@@ -45,9 +104,9 @@ export function createChatService(deps: ChatServiceDeps) {
         const visible = subject
             ? chatMessageStore.list({ subject, minOwnership: DOCUMENT_VISIBILITY.LIST_VISIBLE })
             : chatMessageStore.list();
-        // Most-recent N. Foundry chat log is typically already in timestamp order,
-        // but slice from the tail to be safe.
-        const messages = visible.slice(Math.max(visible.length - limit, 0));
+        const sorted = [...visible].sort((a, b) => ((a.timestamp as number) || 0) - ((b.timestamp as number) || 0));
+        const rawMessages = sorted.slice(Math.max(sorted.length - limit, 0));
+        const messages = rawMessages.map(message => projectChatMessage(message, userId ?? null, role));
         return { messages };
     };
 
@@ -71,17 +130,33 @@ export function createChatService(deps: ChatServiceDeps) {
             if (cmd === 'r' || cmd === 'roll') rollMode = 'publicroll';
 
             const cleanFormula = message.trim().replace(ROLL_CMD, '').trim();
-            const result = await client.roll(cleanFormula, undefined, {
+            const synthetic = await client.roll(cleanFormula, undefined, {
                 rollMode,
-                speaker: body.speaker
+                speaker: normalizeSpeaker(body.speaker),
+                displayChat: false,
             });
-            return { success: true, type: 'roll', result };
+            const chatData: Record<string, unknown> = isRecord(synthetic)
+                ? { ...synthetic }
+                : { content: String(synthetic), type: 5 };
+            delete chatData._synthetic;
+            if (!chatData.author && client.userId) chatData.author = client.userId;
+            if (!chatData.author) throw new Error('Cannot send message: Author ID missing');
+            const response = await client.dispatchDocument('ChatMessage', 'create', { data: [chatData] });
+            return { success: true, type: 'roll', result: isRecord(response) ? response.result ?? response : response };
         }
 
-        await client.sendMessage(message, {
-            rollMode: body.rollMode,
-            speaker: body.speaker
-        });
+        const author = client.userId;
+        if (!author) throw new Error('Cannot send message: Author ID missing');
+        const chatData: Record<string, unknown> = {
+            content: message,
+            type: 1,
+            author,
+        };
+        const speaker = normalizeSpeaker(body.speaker);
+        if (speaker) chatData.speaker = speaker;
+        Object.assign(chatData, await resolveRollMode(body.rollMode, author));
+
+        await client.dispatchDocument('ChatMessage', 'create', { data: [chatData] });
         return { success: true, type: 'chat' };
     };
 

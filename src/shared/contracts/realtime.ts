@@ -23,3 +23,12 @@ export interface RealtimeSharedContentPayload {
 
 export type RealtimeCombatUpdatePayload = Record<string, unknown>;
 export type RealtimeChatUpdatePayload = Record<string, unknown>;
+export interface RealtimeChatMessageChangedPayload {
+    messageId: string;
+    action: 'create' | 'update' | 'delete';
+}
+export interface RealtimeChatMessageListInvalidatedPayload {
+    reason: string;
+    messageId?: string;
+    targetUserIds?: string[];
+}

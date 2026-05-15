@@ -1,5 +1,6 @@
 import type { RawChatMessage } from '@server/shared/types/documents';
 import { PrimaryDocumentRepository, type DocumentTransport } from '../base/PrimaryDocumentRepository';
+import type { ModifyDocumentAction } from '../base/PrimaryDocumentStore';
 import { chatMessageStore } from './ChatMessageStore';
 
 /**
@@ -17,6 +18,15 @@ import { chatMessageStore } from './ChatMessageStore';
 export class ChatMessageRepository extends PrimaryDocumentRepository<RawChatMessage> {
     constructor(transport: DocumentTransport) {
         super(transport, chatMessageStore);
+    }
+
+    async dispatchDocument(
+        type: string,
+        action: ModifyDocumentAction,
+        operation: Record<string, unknown> = {},
+        parent?: { type: string; id: string },
+    ): Promise<any> {
+        return super.dispatchDocument(type, action, operation, parent);
     }
 
     /**

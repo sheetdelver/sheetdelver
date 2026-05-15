@@ -12,6 +12,7 @@ export async function run() {
     await runWorldVisibleMessages();
     await runWhisperRestrictsVisibility();
     await runBlindRollHidesFromOthersButAuthor();
+    await runBlindRollOverridesWhisperRecipients();
     await runGmSeesEverything();
     await runBroadcastUpdatesStoreAndEmits();
     await runFullMirrorRetention();
@@ -64,6 +65,23 @@ async function runBlindRollHidesFromOthersButAuthor() {
     // Other players do not.
     assert.equal(store.canReadDocument('m-blind', recipient, DOCUMENT_VISIBILITY.LIST_VISIBLE), false);
     assert.equal(store.canReadDocument('m-blind', bystander, DOCUMENT_VISIBILITY.LIST_VISIBLE), false);
+}
+
+async function runBlindRollOverridesWhisperRecipients() {
+    const store = new ChatMessageStore();
+    await store.seed(async () => [
+        {
+            _id: 'm-blind-whisper',
+            author: 'p-author',
+            whisper: ['p-recipient'],
+            blind: true,
+            content: 'secret blind roll',
+        },
+    ]);
+
+    assert.equal(store.canReadDocument('m-blind-whisper', author, DOCUMENT_VISIBILITY.LIST_VISIBLE), true);
+    assert.equal(store.canReadDocument('m-blind-whisper', gm, DOCUMENT_VISIBILITY.LIST_VISIBLE), true);
+    assert.equal(store.canReadDocument('m-blind-whisper', recipient, DOCUMENT_VISIBILITY.LIST_VISIBLE), false);
 }
 
 async function runGmSeesEverything() {

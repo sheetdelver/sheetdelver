@@ -8,7 +8,11 @@ import * as foundryApi from '@client/ui/api/foundryApi';
 import { useSession } from '@client/ui/context/SessionContext';
 import { useRealtime } from '@client/ui/context/RealtimeContext';
 import type { ChatMessageDto } from '@shared/contracts/chat';
-import type { RealtimeChatUpdatePayload } from '@shared/contracts/realtime';
+import type {
+    RealtimeChatMessageChangedPayload,
+    RealtimeChatMessageListInvalidatedPayload,
+    RealtimeChatUpdatePayload,
+} from '@shared/contracts/realtime';
 
 interface ChatContextType {
     messages: ChatMessageDto[];
@@ -79,13 +83,23 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     useEffect(() => {
         if (!appSocket) return;
 
-        const handleChatUpdate = (_data: RealtimeChatUpdatePayload) => {
+        const handleLegacyChatUpdate = (_data: RealtimeChatUpdatePayload) => {
+            fetchChat();
+        };
+        const handleChatMessageChanged = (_data: RealtimeChatMessageChangedPayload) => {
+            fetchChat();
+        };
+        const handleChatMessageListInvalidated = (_data: RealtimeChatMessageListInvalidatedPayload) => {
             fetchChat();
         };
 
-        appSocket.on('chatUpdate', handleChatUpdate);
+        appSocket.on('chatUpdate', handleLegacyChatUpdate);
+        appSocket.on('chatMessageChanged', handleChatMessageChanged);
+        appSocket.on('chatMessageListInvalidated', handleChatMessageListInvalidated);
         return () => {
-            appSocket.off('chatUpdate', handleChatUpdate);
+            appSocket.off('chatUpdate', handleLegacyChatUpdate);
+            appSocket.off('chatMessageChanged', handleChatMessageChanged);
+            appSocket.off('chatMessageListInvalidated', handleChatMessageListInvalidated);
         };
     }, [appSocket, fetchChat]);
 

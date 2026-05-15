@@ -61,7 +61,7 @@ export interface JournalDeleteQuery {
 export interface ChatSendBody {
     message?: string;
     rollMode?: RollMode;
-    speaker?: {
+    speaker?: string | {
         actor?: string;
         alias?: string;
         [key: string]: unknown;
@@ -88,12 +88,19 @@ export interface JournalClientLike extends FoundryClientLike {
 
 export interface ChatClientLike extends FoundryClientLike {
     getChatLog(limit: number): Promise<RawChatMessage[]>;
+    dispatchDocument(
+        type: string,
+        action: string,
+        operation?: unknown,
+        parent?: { type: string; id: string }
+    ): Promise<unknown>;
     roll(
         formula: string,
         label?: string,
         options?: {
             rollMode?: RollMode;
             speaker?: ChatSendBody['speaker'];
+            displayChat?: boolean;
             [key: string]: unknown;
         }
     ): Promise<unknown>;

@@ -6,6 +6,7 @@ import type { RouteFoundryClient } from '@server/shared/types/requestContext';
 import { systemService } from '@core/system/SystemService';
 import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
 import { ActorRepository } from '@server/core/documents/primary/actors/ActorRepository';
+import { ChatMessageRepository } from '@server/core/documents/primary/chat-messages/ChatMessageRepository';
 import {
     DOCUMENT_VISIBILITY,
     FoundryUserRole,
@@ -25,15 +26,17 @@ function ensureActorStoreReady(): void {
 
 function createBaseRouteFoundryClient(client: CoreSocket | ClientSocket): Omit<RouteFoundryClient, 'sendMessage'> {
     const getSubject = () => createDocumentAccessSubject(client.userId, getUserRole(client.userId));
-    // ActorRepository wraps the request-bound socket so Foundry sees the right user.
-    const actorRepository = new ActorRepository({
+    // Repositories wrap the request-bound socket so Foundry sees the right user.
+    const documentTransport = {
         dispatchDocument: (
             type: string,
             action: string,
             operation?: unknown,
             parent?: { type: string; id: string },
         ) => client.dispatchDocument(type, action, operation, parent),
-    });
+    };
+    const actorRepository = new ActorRepository(documentTransport);
+    const chatMessageRepository = new ChatMessageRepository(documentTransport);
 
     return {
         get isConnected() {
@@ -74,7 +77,20 @@ function createBaseRouteFoundryClient(client: CoreSocket | ClientSocket): Omit<R
             action: string,
             operation?: unknown,
             parent?: { type: string; id: string }
-        ) => actorRepository.dispatchDocument(type, action as any, operation as Record<string, unknown> | undefined, parent),
+        ) => {
+            const normalizedAction = action as 'get' | 'create' | 'update' | 'delete';
+            const normalizedOperation = operation as Record<string, unknown> | undefined;
+
+            if (type === 'Actor' || type === 'Item' || type === 'ActiveEffect') {
+                return actorRepository.dispatchDocument(type, normalizedAction, normalizedOperation, parent);
+            }
+
+            if (type === 'ChatMessage') {
+                return chatMessageRepository.dispatchDocument(type, normalizedAction, normalizedOperation, parent);
+            }
+
+            return client.dispatchDocument(type, action, operation, parent);
+        },
         roll: (
             formula: string,
             label?: string,
