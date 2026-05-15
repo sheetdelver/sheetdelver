@@ -4,6 +4,7 @@ import { logger } from '@shared/utils/logger';
 import type { SessionManagerLike, UserSessionLike, FoundryClientLike } from '@server/shared/types/foundry';
 import type { SystemStatusPayload } from '@shared/contracts/status';
 import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
+import { chatMessageStore } from '@server/core/documents/primary/chat-messages/ChatMessageStore';
 import {
     DOCUMENT_VISIBILITY,
     FoundryUserRole,
@@ -11,7 +12,6 @@ import {
 } from '@server/core/documents/primary/base/ownership';
 import type {
     RealtimeActorUpdatePayload,
-    RealtimeChatUpdatePayload,
     RealtimeCombatUpdatePayload,
     RealtimeSharedContentPayload,
 } from '@shared/contracts/realtime';
@@ -85,29 +85,48 @@ export function registerAppSocketGateway({
         if (foundryClient) {
             logger.info(`App Socket | Attaching per-user listeners for ${foundryClient.username} (${socket.id})`);
 
+            // Subject builder closes over the current session; ownership checks
+            // are dynamic per event (ADR-0012's fan-out rule).
+            const getSubject = () => {
+                const userId = socket.userSession?.client.userId;
+                if (!userId) return null;
+                const user = systemService.getSystemClient().getUser(userId);
+                return createDocumentAccessSubject(userId, user?.role ?? FoundryUserRole.NONE);
+            };
+
             const handleCombatUpdate = (...args: unknown[]) => {
                 const data = (args[0] || {}) as RealtimeCombatUpdatePayload;
                 socket.emit('combatUpdate', data);
-            };
-            const handleChatUpdate = (...args: unknown[]) => {
-                const data = (args[0] || {}) as RealtimeChatUpdatePayload;
-                socket.emit('chatUpdate', data);
             };
             const handleActorUpdate = (...args: unknown[]) => {
                 const data = (args[0] || {}) as RealtimeActorUpdatePayload;
                 // Actor updates originate globally from ActorStore, so each socket
                 // re-checks current ownership immediately before fan-out.
-                if (data.action !== 'delete' && data.actorId && socket.userSession?.client.userId) {
-                    const user = systemService.getSystemClient().getUser(socket.userSession.client.userId);
-                    const subject = createDocumentAccessSubject(
-                        socket.userSession.client.userId,
-                        user?.role ?? FoundryUserRole.NONE,
-                    );
+                if (data.action !== 'delete' && data.actorId) {
+                    const subject = getSubject();
                     if (!subject || !actorStore.canReadActor(data.actorId, subject, DOCUMENT_VISIBILITY.LIST_VISIBLE)) {
                         return;
                     }
                 }
                 socket.emit('actorUpdate', data);
+            };
+            const handleChatMessageChanged = (...args: unknown[]) => {
+                const data = (args[0] || {}) as { messageId: string; action: 'create' | 'update' | 'delete' };
+                // Whisper / blind filtering happens at the Store via canReadDocument.
+                // Deletes bypass — a user who could see the message should know it's gone.
+                if (data.action !== 'delete' && data.messageId) {
+                    const subject = getSubject();
+                    if (!subject || !chatMessageStore.canReadDocument(data.messageId, subject, DOCUMENT_VISIBILITY.LIST_VISIBLE)) {
+                        return;
+                    }
+                }
+                socket.emit('chatMessageChanged', data);
+            };
+            const handleChatMessageListInvalidated = (...args: unknown[]) => {
+                const data = (args[0] || {}) as { reason: string; messageId?: string; targetUserIds?: string[] };
+                const userId = socket.userSession?.client.userId;
+                if (data.targetUserIds && (!userId || !data.targetUserIds.includes(userId))) return;
+                socket.emit('chatMessageListInvalidated', data);
             };
             const handleSharedUpdate = (...args: unknown[]) => {
                 const data = (args[0] || {}) as RealtimeSharedContentPayload;
@@ -115,9 +134,12 @@ export function registerAppSocketGateway({
             };
 
             foundryClient.on('combatUpdate', handleCombatUpdate);
-            foundryClient.on('chatUpdate', handleChatUpdate);
-            // ActorStore events are bridged through the system client, not per-user sockets.
+            // ActorStore + ChatMessageStore events are bridged through the system client,
+            // not per-user sockets — per ADR-0012 each Store's events fan out from a single
+            // canonical source with ownership filtering applied per socket.
             systemService.getSystemClient().on('actorUpdate', handleActorUpdate);
+            systemService.getSystemClient().on('chatMessageChanged', handleChatMessageChanged);
+            systemService.getSystemClient().on('chatMessageListInvalidated', handleChatMessageListInvalidated);
             foundryClient.on('sharedContentUpdate', handleSharedUpdate);
 
             // New relays for world lifecycle and system status
@@ -131,8 +153,9 @@ export function registerAppSocketGateway({
                 systemService.getSystemClient().updateActiveBrowserCount(remaining);
 
                 foundryClient.off('combatUpdate', handleCombatUpdate);
-                foundryClient.off('chatUpdate', handleChatUpdate);
                 systemService.getSystemClient().off('actorUpdate', handleActorUpdate);
+                systemService.getSystemClient().off('chatMessageChanged', handleChatMessageChanged);
+                systemService.getSystemClient().off('chatMessageListInvalidated', handleChatMessageListInvalidated);
                 foundryClient.off('sharedContentUpdate', handleSharedUpdate);
                 foundryClient.off('systemStatusUpdate', broadcastSystemStatus);
                 foundryClient.off('worldShutdown', broadcastSystemStatus);

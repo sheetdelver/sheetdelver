@@ -393,17 +393,14 @@ export class ClientSocket extends SocketBase {
 
     private setupDocumentListeners(socket: any) {
         socket.on('modifyDocument', (data: any) => {
-            // Combat & Combatant relay
+            // Combat & Combatant relay — preserved until Phase 5 introduces CombatStore.
             if (data.type === 'Combat' || data.type === 'Combatant') {
                 logger.debug(`ClientSocket | Relay: Combat modification [${data.action}] for ${this.userId}`);
                 this.emit('combatUpdate', data);
             }
 
-            // Chat relay
-            if (data.type === 'ChatMessage') {
-                logger.debug(`ClientSocket | Relay: Chat modification [${data.action}] for ${this.userId}`);
-                this.emit('chatUpdate', data);
-            }
+            // ChatMessage relay removed — Phase 1 routes chat events through ChatMessageStore
+            // → SystemService bridge → AppSocketGateway with ownership filtering.
 
             // Actor cache updates are relayed from the system ActorStore path so
             // per-user sockets do not duplicate actorUpdate emissions.

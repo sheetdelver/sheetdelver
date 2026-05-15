@@ -10,6 +10,9 @@ import { getAdapter } from '@modules/registry/server';
 import { SystemAdapter } from '@modules/registry/types';
 import { CompendiumCache } from '../compendium-cache';
 import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
+import { modifyDocumentRouter } from '@server/core/documents/primary/base/modifyDocumentRouter';
+// Side-effect import: registers Stores with the coordinator and router.
+import '@server/core/documents/primary/PrimaryDocumentCacheCoordinator';
 import { DOCUMENT_VISIBILITY, FoundryUserRole, createDocumentAccessSubject } from '@server/core/documents/primary/base/ownership';
 import { PrimaryDocumentCacheNotReadyError } from '@server/core/documents/primary/errors';
 import fs from 'node:fs/promises';
@@ -43,8 +46,16 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
     private activeBrowserCount = 0;
     private lastUserActivityTimestamp = Date.now();
 
-    private _applyActorDocumentMutation(type: string, action: string, result: any, operation?: any) {
-        actorStore.applyModifyDocument(type, action as any, result, operation);
+    private _routeModifyDocument(type: string, action: string, result: any, operation?: any) {
+        // Single inbound dispatch point — routes to whichever Store handles
+        // this type (Actor/Item/ActiveEffect → ActorStore; ChatMessage → ChatMessageStore;
+        // unrouted types like ActorDelta/Macro/Playlist drop silently).
+        modifyDocumentRouter.route({
+            type,
+            action: action as 'get' | 'create' | 'update' | 'delete',
+            result,
+            operation,
+        });
 
         if (action === 'create' || action === 'update' || action === 'delete') {
             if (type === 'Actor' || type === 'Item') {
@@ -443,24 +454,18 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
                         });
                     }
                     else {
-                        this._applyActorDocumentMutation(data.type, data.action, data.result, data.operation);
+                        // Route to per-type Store via the modifyDocument router.
+                        // ChatMessage / Actor / Item / ActiveEffect changes flow into their respective
+                        // Stores, which emit documentChanged / documentListInvalidated events.
+                        this._routeModifyDocument(data.type, data.action, data.result, data.operation);
 
-                        // Notify subscribers of Combat changes
+                        // Combat still uses the bespoke per-type emit until Phase 5 introduces CombatStore.
                         if (data.type === 'Combat' || data.type === 'Combatant') {
                             logger.debug(`CoreSocket | Combat modification detected: ${data.type} ${data.action}`);
                             this.emit('combatUpdate', data);
                         }
 
-                        // Notify subscribers of Chat changes
-                        if (data.type === 'ChatMessage') {
-                            logger.debug(`CoreSocket | Chat modification detected: ${data.action}`);
-                            this.emit('chatUpdate', data);
-                        }
-
-                        // Actor cache events are emitted by ActorStore after it applies the mutation.
-                        if (data.type === 'Actor' || data.type === 'Item' || data.type === 'ActiveEffect') {
-                            logger.debug(`CoreSocket | Actor-related modification detected: ${data.type} ${data.action}`);
-                        }
+                        // chatUpdate emission removed — ChatMessage events flow through ChatMessageStore.
                     }
                 });
 
@@ -632,9 +637,11 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
             const result: any = await this.emitSocketEvent('modifyDocument', { type, action, operation }, 5000);
             this.consecutiveFailures = 0;
 
-            // Proactive Cache Update (Initiator Confirmation)
-            if (result && (type === 'Actor' || type === 'Item' || type === 'ActiveEffect')) {
-                this._applyActorDocumentMutation(type, action, result.result, result.operation || operation);
+            // Proactive cache update (initiator confirmation). The router fan-outs to
+            // whichever Store handles this type. Broadcast that follows is idempotent
+            // via each Store's emit-only-on-change rule.
+            if (result) {
+                this._routeModifyDocument(type, action, result.result, result.operation || operation);
             }
 
             return result;

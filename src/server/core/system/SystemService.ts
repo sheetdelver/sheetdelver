@@ -9,6 +9,8 @@ import { discoveryService } from '../foundry/DiscoveryService';
 import { CompendiumCache } from '../foundry/compendium-cache';
 import { clearDocumentCache, seedDocumentCache } from '../documents/primary/PrimaryDocumentCacheCoordinator';
 import { actorStore } from '../documents/primary/actors/ActorStore';
+import { chatMessageStore } from '../documents/primary/chat-messages/ChatMessageStore';
+import type { DocumentChangedEvent, DocumentListInvalidatedEvent } from '../documents/primary/base/PrimaryDocumentStore';
 
 /**
  * SystemService: The authoritative provider for the Backend "World Context".
@@ -25,10 +27,29 @@ export class SystemService extends EventEmitter {
         super();
         // ActorStore is the single actor-change source; SystemService bridges it onto
         // the existing realtime event name so browser/module subscriptions stay stable.
-        actorStore.onActorStoreEvent((event) => {
-            if (event.type === 'actorChanged') {
-                this.systemClient?.emit('actorUpdate', { actorId: event.actorId, action: event.action });
-            }
+        // The wire-event rename (actorUpdate → actorChanged) is deferred per ADR-0012.
+        actorStore.on('documentChanged', (event: DocumentChangedEvent) => {
+            this.systemClient?.emit('actorUpdate', { actorId: event.id, action: event.action });
+        });
+        actorStore.on('documentListInvalidated', (event: DocumentListInvalidatedEvent) => {
+            this.systemClient?.emit('actorListInvalidated', {
+                reason: event.reason,
+                actorId: event.documentId,
+                targetUserIds: event.targetUserIds,
+            });
+        });
+
+        // ChatMessageStore is the chat-event source going forward. Per ADR-0012,
+        // ChatMessage uses the new event names — wire-level chatUpdate is removed.
+        chatMessageStore.on('documentChanged', (event: DocumentChangedEvent) => {
+            this.systemClient?.emit('chatMessageChanged', { messageId: event.id, action: event.action });
+        });
+        chatMessageStore.on('documentListInvalidated', (event: DocumentListInvalidatedEvent) => {
+            this.systemClient?.emit('chatMessageListInvalidated', {
+                reason: event.reason,
+                messageId: event.documentId,
+                targetUserIds: event.targetUserIds,
+            });
         });
     }
 

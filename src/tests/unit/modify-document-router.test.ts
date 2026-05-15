@@ -1,0 +1,174 @@
+import { strict as assert } from 'node:assert';
+import {
+    ModifyDocumentRouter,
+} from '@server/core/documents/primary/base/modifyDocumentRouter';
+import {
+    PrimaryDocumentStore,
+    type ModifyDocumentAction,
+    type PrimaryDocumentType,
+} from '@server/core/documents/primary/base/PrimaryDocumentStore';
+import {
+    DocumentOwnershipLevel,
+    getEffectiveOwnership,
+    type DocumentAccessSubject,
+    type DocumentOwnershipMap,
+    type ResolvedDocumentOwnershipLevel,
+} from '@server/core/documents/primary/base/ownership';
+
+interface TestDoc {
+    _id?: string;
+    id?: string;
+    ownership?: DocumentOwnershipMap;
+}
+
+/**
+ * Lightweight Store that records the routing it observes.
+ */
+class RecordingStore extends PrimaryDocumentStore<TestDoc> {
+    public readonly documentType: PrimaryDocumentType;
+    public received: Array<{ type: string; action: ModifyDocumentAction; parentUuid?: string }> = [];
+
+    constructor(type: PrimaryDocumentType) {
+        super();
+        this.documentType = type;
+    }
+
+    protected resolveOwnership(
+        doc: TestDoc,
+        subject: DocumentAccessSubject,
+    ): ResolvedDocumentOwnershipLevel {
+        return getEffectiveOwnership(doc.ownership, subject);
+    }
+
+    public applyModifyDocument(
+        type: string,
+        action: ModifyDocumentAction,
+        _result: unknown,
+        operation?: Record<string, unknown>,
+    ): void {
+        this.received.push({
+            type,
+            action,
+            parentUuid: typeof operation?.parentUuid === 'string' ? operation.parentUuid : undefined,
+        });
+    }
+}
+
+export async function run() {
+    await runDirectTypeRouting();
+    await runEmbeddedParentRouting();
+    await runActorDeltaDroppedSilently();
+    await runUnregisteredTypeDroppedSilently();
+    await runResetClearsRegistrations();
+    await runMalformedPayloadDoesNotThrow();
+    console.log('  - ModifyDocumentRouter: all checks passed');
+}
+
+async function runDirectTypeRouting() {
+    const router = new ModifyDocumentRouter();
+    const actor = new RecordingStore('Actor');
+    const chat = new RecordingStore('ChatMessage');
+    router.register(actor);
+    router.register(chat);
+
+    router.route({ type: 'Actor', action: 'update', result: [{ _id: 'a' }] });
+    router.route({ type: 'ChatMessage', action: 'create', result: [{ _id: 'm' }] });
+
+    assert.equal(actor.received.length, 1);
+    assert.equal(actor.received[0].type, 'Actor');
+    assert.equal(chat.received.length, 1);
+    assert.equal(chat.received[0].type, 'ChatMessage');
+}
+
+async function runEmbeddedParentRouting() {
+    const router = new ModifyDocumentRouter();
+    const actor = new RecordingStore('Actor');
+    router.register(actor);
+    router.registerEmbeddedHandler('Actor', actor);
+
+    // Item under an Actor → routes to ActorStore via embedded handler.
+    router.route({
+        type: 'Item',
+        action: 'create',
+        result: [{ _id: 'i' }],
+        operation: { parentUuid: 'Actor.actor-1' },
+    });
+
+    // ActiveEffect under an Actor.<id>.Item → same handler.
+    router.route({
+        type: 'ActiveEffect',
+        action: 'update',
+        result: [{ _id: 'e' }],
+        operation: { parentUuid: 'Actor.actor-1.Item.item-1' },
+    });
+
+    assert.equal(actor.received.length, 2);
+    assert.equal(actor.received[0].type, 'Item');
+    assert.equal(actor.received[0].parentUuid, 'Actor.actor-1');
+    assert.equal(actor.received[1].type, 'ActiveEffect');
+    assert.equal(actor.received[1].parentUuid, 'Actor.actor-1.Item.item-1');
+}
+
+async function runActorDeltaDroppedSilently() {
+    const router = new ModifyDocumentRouter();
+    const actor = new RecordingStore('Actor');
+    router.register(actor);
+    router.registerEmbeddedHandler('Actor', actor);
+
+    // ActorDelta is the synthetic-token-actor wire type — out of scope per ADR-0011.
+    // Direct-type route: no 'ActorDelta' registration, no embedded handler for 'ActorDelta'.
+    router.route({ type: 'ActorDelta', action: 'update', result: [{ _id: 'd' }] });
+
+    // Embedded under ActorDelta — same.
+    router.route({
+        type: 'Item',
+        action: 'update',
+        result: [{ _id: 'i' }],
+        operation: { parentUuid: 'ActorDelta.delta-1.Item.item-1' },
+    });
+
+    // Nothing reached the actor store.
+    assert.equal(actor.received.length, 0);
+}
+
+async function runUnregisteredTypeDroppedSilently() {
+    const router = new ModifyDocumentRouter();
+    // Macro / Playlist / Cards not registered — router should drop without throwing.
+    router.route({ type: 'Macro', action: 'update', result: [{ _id: 'macro' }] });
+    router.route({ type: 'Playlist', action: 'create', result: [{ _id: 'p' }] });
+    // No assertion needed — the lack of a throw is the success.
+    assert.ok(true);
+}
+
+async function runResetClearsRegistrations() {
+    const router = new ModifyDocumentRouter();
+    const actor = new RecordingStore('Actor');
+    router.register(actor);
+    router.route({ type: 'Actor', action: 'update', result: [{ _id: 'a' }] });
+    assert.equal(actor.received.length, 1);
+
+    router.reset();
+    router.route({ type: 'Actor', action: 'update', result: [{ _id: 'b' }] });
+    assert.equal(actor.received.length, 1); // still 1 — no new routing
+}
+
+async function runMalformedPayloadDoesNotThrow() {
+    const router = new ModifyDocumentRouter();
+    const actor = new RecordingStore('Actor');
+    router.register(actor);
+
+    // Missing result, missing operation — should still route by type without throwing.
+    router.route({ type: 'Actor', action: 'delete' });
+    assert.equal(actor.received.length, 1);
+
+    // Non-string parentUuid in operation — should fall through to "no parent" path.
+    router.route({
+        type: 'UnknownType',
+        action: 'update',
+        operation: { parentUuid: 12345 as unknown as string },
+    });
+    // No additional actor receipt (UnknownType isn't registered).
+    assert.equal(actor.received.length, 1);
+
+    void DocumentOwnershipLevel;
+}

@@ -1,106 +1,71 @@
-import { EventEmitter } from 'node:events';
 import type { RawActor, RawItem } from '@server/shared/types/actors';
 import {
     cloneDocument,
+    deepMerge,
     getDocumentId,
-    type PrimaryDocumentStore,
+    getOperationIds,
+    isRecord,
+    PrimaryDocumentStore,
+    stableJson,
+    toDocumentArray,
+    type ChangeAction,
+    type DocumentChangedEvent,
+    type DocumentListInvalidatedEvent,
+    type ModifyDocumentAction,
+    type PrimaryDocumentType,
 } from '../base/PrimaryDocumentStore';
 import {
-    DOCUMENT_VISIBILITY,
     getEffectiveOwnership,
     type DocumentAccessSubject,
     type DocumentOwnershipMap,
     type ResolvedDocumentOwnershipLevel,
 } from '../base/ownership';
 
-export type ActorMutationAction = 'create' | 'update' | 'delete' | 'get';
+/**
+ * @deprecated kept for Round 01 callers; use ChangeAction.
+ */
+export type ActorMutationAction = ModifyDocumentAction;
 
+/**
+ * Round 01 discriminated-union event payload. Re-emitted alongside the base
+ * documentChanged / documentListInvalidated events so any existing subscribers
+ * (e.g., SystemService's actorUpdate bridge) keep working unchanged.
+ */
 export type ActorStoreEvent =
-    | { type: 'actorChanged'; actorId: string; action: Exclude<ActorMutationAction, 'get'> }
+    | { type: 'actorChanged'; actorId: string; action: ChangeAction }
     | { type: 'actorListInvalidated'; reason: string; actorId?: string; targetUserIds?: string[] };
 
 type ActorStoreListener = (event: ActorStoreEvent) => void;
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null;
-}
+/**
+ * Actor primary-document Store. Full hydration + bootstrap seed. Ownership map
+ * is the standard Foundry `{ default, userId }` shape; embedded Item and
+ * ActiveEffect mutations are routed here from the broadcast router and applied
+ * to the appropriate parent actor.
+ *
+ * Round 01 API surface (`listActors`, `getActor`, `canReadActor`, `onActorStoreEvent`)
+ * is preserved as thin wrappers over the base — callers don't migrate.
+ */
+export class ActorStore extends PrimaryDocumentStore<RawActor> {
+    public readonly documentType: PrimaryDocumentType = 'Actor';
 
-function deepMerge(target: Record<string, unknown>, source: Record<string, unknown>): Record<string, unknown> {
-    for (const [key, value] of Object.entries(source)) {
-        // Foundry update payloads often use flattened paths such as "system.hp.value".
-        if (key.includes('.')) {
-            const parts = key.split('.');
-            let current = target;
-            for (let i = 0; i < parts.length - 1; i += 1) {
-                const part = parts[i];
-                if (!isRecord(current[part])) current[part] = {};
-                current = current[part] as Record<string, unknown>;
-            }
-            current[parts[parts.length - 1]] = value;
-            continue;
-        }
-
-        if (isRecord(value) && isRecord(target[key]) && !Array.isArray(value)) {
-            deepMerge(target[key] as Record<string, unknown>, value);
-        } else {
-            target[key] = value;
-        }
-    }
-    return target;
-}
-
-function stableJson(value: unknown): string {
-    // Used only for cache-event de-dupe; the actor objects are plain Foundry data.
-    return JSON.stringify(value);
-}
-
-export class ActorStore extends EventEmitter implements PrimaryDocumentStore<RawActor> {
-    public readonly documentType = 'Actor';
-    private documents = new Map<string, RawActor>();
-    private ready = false;
-    private staleDocumentIds = new Set<string>();
-
-    public async seed(loader: () => Promise<RawActor[]>): Promise<void> {
-        // Bootstrap replaces the entire world-actor snapshot; runtime events patch it afterward.
-        const actors = await loader();
-        this.documents.clear();
-        for (const actor of actors) {
-            const id = getDocumentId(actor);
-            if (id) this.documents.set(id, cloneDocument(actor));
-        }
-        this.staleDocumentIds.clear();
-        this.ready = true;
+    protected resolveOwnership(
+        actor: RawActor,
+        subject: DocumentAccessSubject,
+    ): ResolvedDocumentOwnershipLevel {
+        const ownership = actor.ownership as DocumentOwnershipMap | undefined;
+        return getEffectiveOwnership(ownership, subject);
     }
 
-    public clear(_reason?: string): void {
-        this.documents.clear();
-        this.staleDocumentIds.clear();
-        this.ready = false;
-    }
-
-    public isReady(): boolean {
-        return this.ready;
-    }
-
-    public list(): RawActor[] {
-        // Raw list is privileged/internal; user-facing callers should use listActors().
-        return Array.from(this.documents.values(), actor => cloneDocument(actor));
-    }
-
-    public get(documentId: string): RawActor | null {
-        const actor = this.documents.get(documentId);
-        return actor ? cloneDocument(actor) : null;
-    }
+    // ---------------------------------------------------------------------
+    // Round 01 backwards-compat surface — thin wrappers over the base.
+    // ---------------------------------------------------------------------
 
     public listActors(options: {
         subject: DocumentAccessSubject;
         minOwnership?: ResolvedDocumentOwnershipLevel;
     }): RawActor[] {
-        return this.list().filter(actor => this.canReadActorByDocument(
-            actor,
-            options.subject,
-            options.minOwnership ?? DOCUMENT_VISIBILITY.LIST_VISIBLE,
-        ));
+        return this.list(options);
     }
 
     public getActor(
@@ -110,67 +75,15 @@ export class ActorStore extends EventEmitter implements PrimaryDocumentStore<Raw
             minOwnership?: ResolvedDocumentOwnershipLevel;
         },
     ): RawActor | null {
-        const actor = this.documents.get(actorId);
-        if (!actor) return null;
-        if (!this.canReadActorByDocument(
-            actor,
-            options.subject,
-            options.minOwnership ?? DOCUMENT_VISIBILITY.DETAIL_VISIBLE,
-        )) {
-            return null;
-        }
-        return cloneDocument(actor);
+        return this.get(actorId, options);
     }
 
     public canReadActor(
         actorId: string,
         subject: DocumentAccessSubject,
-        minOwnership: ResolvedDocumentOwnershipLevel = DOCUMENT_VISIBILITY.DETAIL_VISIBLE,
+        minOwnership?: ResolvedDocumentOwnershipLevel,
     ): boolean {
-        const actor = this.documents.get(actorId);
-        return actor ? this.canReadActorByDocument(actor, subject, minOwnership) : false;
-    }
-
-    public upsert(document: RawActor): void {
-        const id = getDocumentId(document);
-        if (!id) return;
-        this.documents.set(id, cloneDocument(document));
-    }
-
-    public patch(documentId: string, diff: Record<string, unknown>): void {
-        const existing = this.documents.get(documentId);
-        if (!existing) {
-            this.markStale(documentId, 'patch-miss');
-            return;
-        }
-        deepMerge(existing as Record<string, unknown>, diff);
-        this.documents.set(documentId, existing);
-    }
-
-    public delete(documentId: string): void {
-        this.documents.delete(documentId);
-        this.staleDocumentIds.delete(documentId);
-    }
-
-    public markStale(documentId?: string, _reason?: string): void {
-        if (documentId) this.staleDocumentIds.add(documentId);
-        else this.ready = false;
-    }
-
-    public applyModifyDocument(
-        type: string,
-        action: ActorMutationAction,
-        result: unknown,
-        operation?: Record<string, unknown>,
-    ): void {
-        // Foundry emits embedded Item/ActiveEffect writes as their own document type.
-        if (type === 'Actor') {
-            this.applyActorChange(action, result, operation);
-        } else if (type === 'Item') {
-            this.applyEmbeddedItemChangeFromResult(action, result, operation);
-        } else if (type === 'ActiveEffect') {
-            this.applyEmbeddedEffectChangeFromResult(action, result, operation);
-        }
+        return this.canReadDocument(actorId, subject, minOwnership);
     }
 
     public onActorStoreEvent(listener: ActorStoreListener): void {
@@ -181,53 +94,50 @@ export class ActorStore extends EventEmitter implements PrimaryDocumentStore<Raw
         this.off('actorStoreEvent', listener);
     }
 
-    private canReadActorByDocument(
-        actor: RawActor,
-        subject: DocumentAccessSubject,
-        minOwnership: ResolvedDocumentOwnershipLevel,
-    ): boolean {
-        const ownership = actor.ownership as DocumentOwnershipMap | undefined;
-        return getEffectiveOwnership(ownership, subject) >= minOwnership;
+    // ---------------------------------------------------------------------
+    // Subclass overrides for emit shaping and embedded children.
+    // ---------------------------------------------------------------------
+
+    protected emitChanged(actorId: string, action: ChangeAction): void {
+        super.emitChanged(actorId, action);
+        // Round 01 compatibility: re-emit on the discriminated-union event so
+        // existing subscribers (SystemService.actorUpdate bridge) keep working.
+        this.emit('actorStoreEvent', { type: 'actorChanged', actorId, action } satisfies ActorStoreEvent);
     }
 
-    private applyActorChange(
-        action: ActorMutationAction,
+    protected emitListInvalidated(
+        reason: string,
+        options?: { documentId?: string; targetUserIds?: string[] },
+    ): void {
+        super.emitListInvalidated(reason, options);
+        // Round 01 compatibility: bridge to actorListInvalidated discriminated union.
+        this.emit('actorStoreEvent', {
+            type: 'actorListInvalidated',
+            reason,
+            actorId: options?.documentId,
+            targetUserIds: options?.targetUserIds,
+        } satisfies ActorStoreEvent);
+    }
+
+    /**
+     * Embedded children for Actor: Item (actor-owned items) and ActiveEffect
+     * (on the actor or on actor-owned items via the Actor.<id>.Item.<id> parentUuid).
+     */
+    protected applyEmbeddedChange(
+        type: string,
+        action: ModifyDocumentAction,
         result: unknown,
         operation?: Record<string, unknown>,
     ): void {
-        const docs = this.toDocumentArray(result);
-        if (action === 'delete') {
-            const ids = this.getOperationIds(operation, docs);
-            for (const id of ids) {
-                const existed = this.documents.delete(id);
-                this.staleDocumentIds.delete(id);
-                if (existed) this.emitChanged(id, 'delete');
-            }
-            return;
-        }
-
-        for (const actor of docs) {
-            const id = getDocumentId(actor);
-            if (!id) continue;
-            const existing = this.documents.get(id);
-            if (existing && action === 'update') {
-                const before = stableJson(existing);
-                deepMerge(existing as Record<string, unknown>, actor as Record<string, unknown>);
-                this.documents.set(id, existing);
-                if (stableJson(existing) !== before) this.emitChanged(id, 'update');
-            } else if (action === 'update') {
-                // A partial update without a cached base is unsafe to apply blindly.
-                this.markStale(id, 'actor-update-miss');
-            } else {
-                const before = existing ? stableJson(existing) : null;
-                this.documents.set(id, cloneDocument(actor));
-                if (action === 'create' && stableJson(actor) !== before) this.emitChanged(id, 'create');
-            }
+        if (type === 'Item') {
+            this.applyEmbeddedItemChangeFromResult(action, result, operation);
+        } else if (type === 'ActiveEffect') {
+            this.applyEmbeddedEffectChangeFromResult(action, result, operation);
         }
     }
 
     private applyEmbeddedItemChangeFromResult(
-        action: ActorMutationAction,
+        action: ModifyDocumentAction,
         result: unknown,
         operation?: Record<string, unknown>,
     ): void {
@@ -237,11 +147,11 @@ export class ActorStore extends EventEmitter implements PrimaryDocumentStore<Raw
         if (!actor) return;
         const before = stableJson(actor);
 
-        const docs = this.toDocumentArray<RawItem>(result);
+        const docs = toDocumentArray<RawItem>(result);
         actor.items = actor.items || [];
 
         if (action === 'delete') {
-            const ids = this.getOperationIds(operation, docs);
+            const ids = getOperationIds(operation, docs);
             actor.items = actor.items.filter(item => {
                 const id = getDocumentId(item);
                 return !id || !ids.includes(id);
@@ -263,13 +173,13 @@ export class ActorStore extends EventEmitter implements PrimaryDocumentStore<Raw
     }
 
     private applyEmbeddedEffectChangeFromResult(
-        action: ActorMutationAction,
+        action: ModifyDocumentAction,
         result: unknown,
         operation?: Record<string, unknown>,
     ): void {
         const parentUuid = typeof operation?.parentUuid === 'string' ? operation.parentUuid : '';
         const parts = parentUuid.split('.');
-        // ActorDelta/synthetic token actors are intentionally outside this cache.
+        // ActorDelta / synthetic token actors are intentionally outside this cache.
         if (parts[0] !== 'Actor') return;
 
         const actorId = parts[1];
@@ -293,15 +203,15 @@ export class ActorStore extends EventEmitter implements PrimaryDocumentStore<Raw
 
     private applyEffectArray(
         current: unknown[] | undefined,
-        action: ActorMutationAction,
+        action: ModifyDocumentAction,
         result: unknown,
         operation?: Record<string, unknown>,
     ): unknown[] {
         const effects = [...(current || [])];
-        const docs = this.toDocumentArray<Record<string, unknown>>(result);
+        const docs = toDocumentArray<Record<string, unknown>>(result);
 
         if (action === 'delete') {
-            const ids = this.getOperationIds(operation, docs);
+            const ids = getOperationIds(operation, docs);
             return effects.filter(effect => {
                 const id = isRecord(effect) ? getDocumentId(effect) : null;
                 return !id || !ids.includes(id);
@@ -329,30 +239,13 @@ export class ActorStore extends EventEmitter implements PrimaryDocumentStore<Raw
     private getActorIdFromOperation(operation?: Record<string, unknown>): string | null {
         if (typeof operation?.parentId === 'string') return operation.parentId;
         if (typeof operation?.parentUuid !== 'string') return null;
-
         const parts = operation.parentUuid.split('.');
         if (parts[0] === 'Actor') return parts[1] || null;
         return null;
     }
-
-    private getOperationIds<TDocument extends { id?: string; _id?: string }>(
-        operation: Record<string, unknown> | undefined,
-        docs: TDocument[],
-    ): string[] {
-        if (Array.isArray(operation?.ids)) return operation.ids.filter((id): id is string => typeof id === 'string');
-        return docs.map(doc => getDocumentId(doc)).filter((id): id is string => Boolean(id));
-    }
-
-    private toDocumentArray<TDocument extends { id?: string; _id?: string } = RawActor>(result: unknown): TDocument[] {
-        if (!result) return [];
-        if (Array.isArray(result)) return result.filter(isRecord) as TDocument[];
-        if (isRecord(result)) return [result as TDocument];
-        return [];
-    }
-
-    private emitChanged(actorId: string, action: Exclude<ActorMutationAction, 'get'>): void {
-        this.emit('actorStoreEvent', { type: 'actorChanged', actorId, action } satisfies ActorStoreEvent);
-    }
 }
 
 export const actorStore = new ActorStore();
+
+// Re-exports so unrelated modules don't need a cross-import dance.
+export type { DocumentChangedEvent, DocumentListInvalidatedEvent } from '../base/PrimaryDocumentStore';

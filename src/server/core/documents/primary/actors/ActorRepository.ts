@@ -1,35 +1,34 @@
+import type { RawActor } from '@server/shared/types/actors';
+import { PrimaryDocumentRepository, type DocumentTransport } from '../base/PrimaryDocumentRepository';
+import type { ModifyDocumentAction } from '../base/PrimaryDocumentStore';
 import { actorStore } from './ActorStore';
-import type { ActorMutationAction } from './ActorStore';
 
-export interface ActorDocumentTransport {
-    dispatchDocument(
-        type: string,
-        action: string,
-        operation?: unknown,
-        parent?: { type: string; id: string },
-    ): Promise<any>;
-}
+/**
+ * @deprecated Round 01 alias preserved for callers that import the old shape.
+ * Use {@link DocumentTransport} directly in new code.
+ */
+export type ActorDocumentTransport = DocumentTransport;
 
-export class ActorRepository {
-    constructor(private readonly transport: ActorDocumentTransport) {}
+/**
+ * Actor primary-document Repository. Per-request transport binding ensures
+ * writes dispatch over the requesting user's authenticated socket/session
+ * so Foundry enforces per-user permissions. Mirrors mutation results into
+ * {@link ActorStore} via the base; the broadcast that follows is idempotent.
+ */
+export class ActorRepository extends PrimaryDocumentRepository<RawActor> {
+    constructor(transport: DocumentTransport) {
+        super(transport, actorStore);
+    }
 
+    // Public passthrough so route-scoped wrappers can still drive raw dispatches
+    // (e.g., for ActiveEffect ops where the wrapper composes the parent type at the call site).
     async dispatchDocument(
         type: string,
-        action: ActorMutationAction,
+        action: ModifyDocumentAction,
         operation: Record<string, unknown> = {},
         parent?: { type: string; id: string },
     ): Promise<any> {
-        // Repository transport is request-scoped; identity comes from the socket/session it wraps.
-        const cacheOperation = { ...operation };
-        if (parent) cacheOperation.parentUuid = `${parent.type}.${parent.id}`;
-
-        const response = await this.transport.dispatchDocument(type, action, operation, parent);
-        // Apply the initiator result immediately; the later Foundry broadcast is idempotent.
-        const appliedOperation = response?.operation
-            ? { ...cacheOperation, ...response.operation }
-            : cacheOperation;
-        actorStore.applyModifyDocument(type, action, response?.result ?? response, appliedOperation);
-        return response;
+        return super.dispatchDocument(type, action, operation, parent);
     }
 
     async createActor(actorData: Record<string, unknown>): Promise<Record<string, unknown> | null> {
@@ -42,7 +41,10 @@ export class ActorRepository {
         await this.dispatchDocument('Actor', 'delete', { ids: [actorId] });
     }
 
-    async createActorItem(actorId: string, itemData: Record<string, unknown> | Array<Record<string, unknown>>): Promise<any> {
+    async createActorItem(
+        actorId: string,
+        itemData: Record<string, unknown> | Array<Record<string, unknown>>,
+    ): Promise<any> {
         const batch = Array.isArray(itemData) ? itemData : [itemData];
         const response = await this.dispatchDocument('Item', 'create', { data: batch }, { type: 'Actor', id: actorId });
         return Array.isArray(itemData) ? response?.result : response?.result?.[0]?._id;
@@ -51,7 +53,12 @@ export class ActorRepository {
     async updateActorItem(actorId: string, itemData: Record<string, unknown>): Promise<any> {
         const { _id, id, ...updates } = itemData;
         const targetId = _id || id;
-        return this.dispatchDocument('Item', 'update', { updates: [{ _id: targetId, ...updates }] }, { type: 'Actor', id: actorId });
+        return this.dispatchDocument(
+            'Item',
+            'update',
+            { updates: [{ _id: targetId, ...updates }] },
+            { type: 'Actor', id: actorId },
+        );
     }
 
     async deleteActorItem(actorId: string, itemId: string): Promise<void> {
@@ -59,30 +66,73 @@ export class ActorRepository {
     }
 
     async createActorEffect(actorId: string, effectData: Record<string, unknown>): Promise<Record<string, unknown>> {
-        const response = await this.dispatchDocument('ActiveEffect', 'create', { data: [effectData] }, { type: 'Actor', id: actorId });
+        const response = await this.dispatchDocument(
+            'ActiveEffect',
+            'create',
+            { data: [effectData] },
+            { type: 'Actor', id: actorId },
+        );
         return response?.result?.[0] ?? response;
     }
 
-    async updateActorEffect(actorId: string, effectId: string, updates: Record<string, unknown>): Promise<Record<string, unknown>> {
-        const response = await this.dispatchDocument('ActiveEffect', 'update', { updates: [{ _id: effectId, ...updates }] }, { type: 'Actor', id: actorId });
+    async updateActorEffect(
+        actorId: string,
+        effectId: string,
+        updates: Record<string, unknown>,
+    ): Promise<Record<string, unknown>> {
+        const response = await this.dispatchDocument(
+            'ActiveEffect',
+            'update',
+            { updates: [{ _id: effectId, ...updates }] },
+            { type: 'Actor', id: actorId },
+        );
         return response?.result?.[0] ?? response;
     }
 
     async deleteActorEffect(actorId: string, effectId: string): Promise<void> {
-        await this.dispatchDocument('ActiveEffect', 'delete', { ids: [effectId] }, { type: 'Actor', id: actorId });
+        await this.dispatchDocument(
+            'ActiveEffect',
+            'delete',
+            { ids: [effectId] },
+            { type: 'Actor', id: actorId },
+        );
     }
 
-    async createItemEffect(actorId: string, itemId: string, effectData: Record<string, unknown>): Promise<Record<string, unknown>> {
-        const response = await this.dispatchDocument('ActiveEffect', 'create', { data: [effectData] }, { type: `Actor.${actorId}.Item`, id: itemId });
+    async createItemEffect(
+        actorId: string,
+        itemId: string,
+        effectData: Record<string, unknown>,
+    ): Promise<Record<string, unknown>> {
+        const response = await this.dispatchDocument(
+            'ActiveEffect',
+            'create',
+            { data: [effectData] },
+            { type: `Actor.${actorId}.Item`, id: itemId },
+        );
         return response?.result?.[0] ?? response;
     }
 
-    async updateItemEffect(actorId: string, itemId: string, effectId: string, updates: Record<string, unknown>): Promise<Record<string, unknown>> {
-        const response = await this.dispatchDocument('ActiveEffect', 'update', { updates: [{ _id: effectId, ...updates }] }, { type: `Actor.${actorId}.Item`, id: itemId });
+    async updateItemEffect(
+        actorId: string,
+        itemId: string,
+        effectId: string,
+        updates: Record<string, unknown>,
+    ): Promise<Record<string, unknown>> {
+        const response = await this.dispatchDocument(
+            'ActiveEffect',
+            'update',
+            { updates: [{ _id: effectId, ...updates }] },
+            { type: `Actor.${actorId}.Item`, id: itemId },
+        );
         return response?.result?.[0] ?? response;
     }
 
     async deleteItemEffect(actorId: string, itemId: string, effectId: string): Promise<void> {
-        await this.dispatchDocument('ActiveEffect', 'delete', { ids: [effectId] }, { type: `Actor.${actorId}.Item`, id: itemId });
+        await this.dispatchDocument(
+            'ActiveEffect',
+            'delete',
+            { ids: [effectId] },
+            { type: `Actor.${actorId}.Item`, id: itemId },
+        );
     }
 }
