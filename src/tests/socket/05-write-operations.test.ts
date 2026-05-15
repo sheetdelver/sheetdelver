@@ -1,5 +1,6 @@
 import { CoreSocket } from '@core/foundry/sockets/CoreSocket';
 import { loadConfig } from '@core/config';
+import { createSystemRouteFoundryClient } from '@server/shared/utils/createRouteFoundryClient';
 
 /**
  * Test 5: Write Operations (Safe CRUD)
@@ -113,12 +114,17 @@ export async function testWriteOperations() {
         // Test 5d: Chat Message
         logger.info('\n5d. Sending test chat message...');
         try {
-            await client.sendMessage("🧪 Socket Test: Write Operations Verified");
+            const routeClient = createSystemRouteFoundryClient(client);
+            await routeClient.createChatMessage({
+                content: "🧪 Socket Test: Write Operations Verified",
+                type: 1,
+                author: client.userId,
+            });
             logger.info(`   ✅ Sent chat message`);
-            results.tests.push({ name: 'sendMessage', success: true });
+            results.tests.push({ name: 'createChatMessage', success: true });
         } catch (error: any) {
             logger.info(`   ❌ Failed: ${error.message}`);
-            results.tests.push({ name: 'sendMessage', success: false, error: error.message });
+            results.tests.push({ name: 'createChatMessage', success: false, error: error.message });
         }
 
         const successCount = results.tests.filter((t: any) => t.success).length;

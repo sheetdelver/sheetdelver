@@ -171,7 +171,6 @@ async function runRouteClientReadsFromActorStore() {
         fetchByUuid: async () => null,
         getAllCompendiumIndices: async () => [],
         getSharedContent: () => null,
-        sendMessage: async () => ({}),
     } as any);
 
     assert.equal((await client.getActors()).length, 1);
@@ -222,7 +221,6 @@ async function runRouteClientBlocksActorReadsBeforeStoreReady() {
         fetchByUuid: async () => null,
         getAllCompendiumIndices: async () => [],
         getSharedContent: () => null,
-        sendMessage: async () => ({}),
     } as any);
 
     await assert.rejects(() => client.getActors(), /Actor document cache is not ready/);

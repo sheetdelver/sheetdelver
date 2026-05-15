@@ -64,7 +64,7 @@ function createMockRouteClient(userId = 'user-1') {
         deleteActorItem: noop,
         resolveUrl: (url?: string) => url || '',
         getChatLog: noop,
-        sendMessage: noop,
+        createChatMessage: noop,
         getCombats: noop,
         getUsers: noop,
         getJournals: noop,

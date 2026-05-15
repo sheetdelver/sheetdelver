@@ -59,7 +59,6 @@ export interface FoundryClient extends Partial<FoundryMetadataClient> {
     fetchByUuid(uuid: string): Promise<any>;
 
     getChatLog(limit?: number): Promise<any[]>;
-    sendMessage(content: string | any, options?: { rollMode?: string, speaker?: any }): Promise<any>;
 
     useItem(actorId: string, itemId: string): Promise<any>;
     roll(formula: string, flavor?: string, options?: { rollMode?: string, speaker?: any }): Promise<any>;

@@ -10,11 +10,13 @@ import { getAdapter } from '@modules/registry/server';
 import { SystemAdapter } from '@modules/registry/types';
 import { CompendiumCache } from '../compendium-cache';
 import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
+import { ChatMessageRepository } from '@server/core/documents/primary/chat-messages/ChatMessageRepository';
 import { modifyDocumentRouter } from '@server/core/documents/primary/base/modifyDocumentRouter';
 // Side-effect import: registers Stores with the coordinator and router.
 import '@server/core/documents/primary/PrimaryDocumentCacheCoordinator';
 import { DOCUMENT_VISIBILITY, FoundryUserRole, createDocumentAccessSubject } from '@server/core/documents/primary/base/ownership';
 import { PrimaryDocumentCacheNotReadyError } from '@server/core/documents/primary/errors';
+import { createTextChatMessageData } from '@server/core/documents/primary/chat-messages/chatMessagePayload';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
@@ -1196,36 +1198,13 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
         });
     }
 
-    public async sendMessage(content: string | any, userId?: string, options?: { rollMode?: string, speaker?: any }): Promise<any> {
-        // If userId is provided, we try to create the message AS that user.
-        // Since we are GM/Service, we can set 'author' to any user ID.
-        const auth = userId || this.userId;
-        if (!auth) throw new Error("Cannot send message: Author ID missing");
-
-        const isRoll = typeof content !== 'string' && (content.rolls || content.type === 5);
-
-        // NOTE: Foundry V13 ChatMessage.author must be a valid 16-character alphanumeric user ID.
-        // Author is set BEFORE the content spread so it cannot be clobbered by any `author` field in content.
-        const data: any = typeof content === 'string'
-            ? { content, type: 1, author: auth }
-            : { type: isRoll ? 5 : 1, author: auth, ...content };
-
-        // Handle Speaker
-        if (options?.speaker) {
-            if (typeof options.speaker === 'string') {
-                data.speaker = { alias: options.speaker };
-            } else {
-                data.speaker = options.speaker;
-            }
-        }
-
-        // Handle Roll Mode
-        if (options?.rollMode) {
-            const modeData = await this.resolveRollMode(options.rollMode, auth);
-            Object.assign(data, modeData);
-        }
-
-        return await this.dispatchDocumentSocket('ChatMessage', 'create', { data: [data] });
+    private async createChatMessageDocument(data: Record<string, unknown>): Promise<any> {
+        const repository = new ChatMessageRepository({
+            dispatchDocument: (type, action, operation, parent) =>
+                this.dispatchDocument(type, action, operation, parent),
+        });
+        const response = await repository.send(data);
+        return response?.result?.[0] ?? response;
     }
 
     public async roll(formula: string, flavor?: string, options?: { userId?: string, rollMode?: string, speaker?: any, displayChat?: boolean, flags?: any }): Promise<any> {
@@ -1264,8 +1243,7 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
             }
 
             if (displayChat) {
-                const response: any = await this.dispatchDocumentSocket('ChatMessage', 'create', { data: [chatData] });
-                return response?.result?.[0];
+                return await this.createChatMessageDocument(chatData);
             }
 
             // Return a synthetic message object if chat is suppressed
@@ -1277,8 +1255,12 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
             const msg = getErrorMessage(error);
             logger.error(`CoreSocket | Roll failed: ${msg}`);
             if (options?.displayChat !== false) {
-                // Fallback to text message
-                return await this.sendMessage(`Rolling ${formula}: ${flavor || ''} (Error: ${msg})`, options?.userId);
+                const fallbackData = await createTextChatMessageData({
+                    content: `Rolling ${formula}: ${flavor || ''} (Error: ${msg})`,
+                    author: options?.userId || this.userId,
+                    getUsers: () => this.getUsers(),
+                });
+                return await this.createChatMessageDocument(fallbackData);
             }
             throw error;
         }
@@ -1324,7 +1306,12 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
         const actor = await this.getActor(actorId);
         const item = actor.items?.find((i: any) => i._id === itemId || i.id === itemId);
         if (!item) return false;
-        await this.sendMessage(`<b>${actor.name}</b> uses <b>${item.name}</b>`, this.userId || undefined);
+        const chatData = await createTextChatMessageData({
+            content: `<b>${actor.name}</b> uses <b>${item.name}</b>`,
+            author: this.userId,
+            getUsers: () => this.getUsers(),
+        });
+        await this.createChatMessageDocument(chatData);
         return true;
     }
 

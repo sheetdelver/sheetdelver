@@ -239,13 +239,35 @@ The end-state validation is structural:
 - [x] Complete chat write-path migration onto `ChatMessageRepository`: `ChatService.sendChatMessage()` no longer uses `client.sendMessage()` for writes, and slash-roll output is created through request-scoped `ChatMessage` document dispatch after local roll evaluation.
 - [x] Preserve the route-facing chat DTO projection when reads come from `ChatMessageStore`. Store-backed reads now project raw messages into enriched fields such as `user`, `isRoll`, `rollTotal`, and `rollFormula`.
 
+**Phase 1 addendum 2: remove socket-owned chat writes**
+
+Phase 1 still has a legacy socket-owned `sendMessage` surface on `CoreSocket` and `ClientSocket`. That surface should be removed now that `ChatMessageRepository` exists. Primary document writes must flow through the primary-document repository framework; raw `modifyDocument` dispatch should remain behind `PrimaryDocumentRepository` / `DocumentTransport`, not at service, module facade, or socket helper call sites.
+
+This addendum is about the internal server route client (`RouteFoundryClient`, built by `src/server/shared/utils/createRouteFoundryClient.ts`), not the public module SDK API. The public SDK can keep `sendMessage(data, options?)`; its implementation should delegate to the internal repository-backed helper.
+
+- [x] Add a repository-backed internal route-client chat helper, e.g. `createChatMessage(data)`, implemented by `createRouteFoundryClient()` with `ChatMessageRepository.send(data)`.
+  Files: `src/server/shared/types/documents.ts`, `src/server/shared/types/requestContext.ts` if needed, `src/server/shared/utils/createRouteFoundryClient.ts`, `src/server/core/documents/primary/chat-messages/ChatMessageRepository.ts` if the repository surface needs a small adjustment, `src/server/core/documents/primary/chat-messages/chatMessagePayload.ts`.
+- [x] Update `ChatService.sendChatMessage()` to call the repository-backed helper for both plain chat and slash-roll chat output. It should not call `client.sendMessage()` and should not issue raw `dispatchDocument('ChatMessage', ...)` itself.
+  Files: `src/server/services/chat/ChatService.ts`, `src/tests/unit/chat-service.test.ts`.
+- [x] Keep the public module SDK `sendMessage(data, options?)` facade for compatibility, but reimplement `createModuleFoundryClient().sendMessage` through the repository-backed route-client helper.
+  Files: `src/server/shared/utils/createModuleFoundryClient.ts`, `src/shared/sdk/contracts.ts` only if docs/comments need clarification, `src/tests/unit/sdk-integrity.test.ts`.
+- [x] Replace `CoreSocket.roll()` fallback chat creation and `CoreSocket.useItem()` chat creation with repository-backed chat creation, or move those flows behind route/module service helpers that already use `ChatMessageRepository`.
+  Files: `src/server/core/foundry/sockets/CoreSocket.ts` plus any route/service wrapper introduced for the replacement.
+- [x] Remove `CoreSocket.sendMessage()` and `ClientSocket.sendMessage()` after all callers are migrated.
+  Files: `src/server/core/foundry/sockets/CoreSocket.ts`, `src/server/core/foundry/sockets/ClientSocket.ts`.
+- [x] Remove `sendMessage` from internal socket/client interfaces and route-client type requirements; update unit mocks and socket probes accordingly.
+  Files: `src/server/core/foundry/interfaces.ts`, `src/server/shared/types/documents.ts`, `src/server/shared/types/requestContext.ts` if touched, `src/tests/unit/*.test.ts`.
+- [x] Update `src/tests/socket/05-write-operations.test.ts` to verify chat writes through the repository-backed path rather than `client.sendMessage()`.
+
+Closure verification (May 15, 2026): `rg "sendMessage\b|\.sendMessage\(" src/server src/tests src/shared -g "*.ts"` now finds only the public SDK contract/facade and SDK integrity mock. `npx tsc --noEmit` passed. `npm run test:unit` passed when rerun outside the sandbox; the sandboxed run failed before tests started because `tsx` could not open its IPC pipe.
+
 ---
 
 ## Exit Criteria
 
 This ADR is fulfilled when every Foundry primary doc type covered by the alignment plan has its `<Type>Store` + `<Type>Repository` implementation against the shared base — including stubs for the types Sheet Delver doesn't currently use.
 
-- [ ] Phase 1: Base abstractions + `ChatMessageStore` + `ChatMessageRepository`. `ActorStore` / `ActorRepository` lifted onto the base.
+- [X] Phase 1: Base abstractions + `ChatMessageStore` + `ChatMessageRepository`. `ActorStore` / `ActorRepository` lifted onto the base.
 - [ ] Phase 2: `UserStore` + `UserRepository`. `userMap` / `gameDataCache.users` consolidate.
 - [ ] Phase 3: `FolderStore` + `FolderRepository`.
 - [ ] Phase 4: `JournalStore` + `JournalRepository` with two-level ownership.

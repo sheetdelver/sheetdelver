@@ -17,19 +17,17 @@ function createMockClient(overrides: Partial<ChatClientLike> = {}): ChatClientLi
         on: () => undefined,
         off: () => undefined,
         getChatLog: async () => [],
+        createChatMessage: async () => ({ result: [] }),
         dispatchDocument: async () => ({ result: [] }),
         roll: async () => ({ author: 'p-author', content: '7', type: 5, rolls: ['{"total":7,"formula":"1d20"}'] }),
-        sendMessage: async () => {
-            throw new Error('sendMessage should not be used by ChatService writes');
-        },
         ...overrides,
     };
 }
 
 export async function run() {
     await runStoreBackedReadsProjectChatDto();
-    await runNormalChatWritesThroughDispatchDocument();
-    await runRollChatWritesThroughDispatchDocument();
+    await runNormalChatWritesThroughCreateChatMessage();
+    await runRollChatWritesThroughCreateChatMessage();
     console.log('  - ChatService: all checks passed');
 }
 
@@ -75,39 +73,46 @@ async function runStoreBackedReadsProjectChatDto() {
     });
 }
 
-async function runNormalChatWritesThroughDispatchDocument() {
+async function runNormalChatWritesThroughCreateChatMessage() {
     await withMockSystemClient(async () => {
-        const dispatches: Array<{ type: string; action: string; operation?: unknown }> = [];
-        let sendMessageCalls = 0;
+        const createdMessages: Array<Record<string, unknown>> = [];
+        let rawDispatchCalls = 0;
         const service = createChatService(config);
         const payload = await service.sendChatMessage(createMockClient({
-            dispatchDocument: async (type, action, operation) => {
-                dispatches.push({ type, action, operation });
+            createChatMessage: async (data) => {
+                createdMessages.push(data);
                 return { result: [{ _id: 'chat-1' }] };
             },
-            sendMessage: async () => {
-                sendMessageCalls += 1;
-                return {};
+            dispatchDocument: async () => {
+                rawDispatchCalls += 1;
+                return { result: [] };
             },
-        }), { message: 'Hello' });
+        }), { message: 'Hello', speaker: 'Narrator' });
 
         assert.equal('success' in payload && payload.success, true);
-        assert.equal(dispatches.length, 1);
-        assert.equal(dispatches[0].type, 'ChatMessage');
-        assert.equal(dispatches[0].action, 'create');
-        assert.equal(sendMessageCalls, 0);
+        assert.equal(createdMessages.length, 1);
+        assert.equal(createdMessages[0].content, 'Hello');
+        assert.equal(createdMessages[0].author, 'p-author');
+        assert.equal(createdMessages[0].type, 1);
+        assert.deepEqual(createdMessages[0].speaker, { alias: 'Narrator' });
+        assert.equal(rawDispatchCalls, 0);
     });
 }
 
-async function runRollChatWritesThroughDispatchDocument() {
+async function runRollChatWritesThroughCreateChatMessage() {
     await withMockSystemClient(async () => {
-        const dispatches: Array<{ type: string; action: string; operation?: any }> = [];
+        const createdMessages: Array<Record<string, unknown>> = [];
+        let rawDispatchCalls = 0;
         const rollOptions: unknown[] = [];
         const service = createChatService(config);
         const payload = await service.sendChatMessage(createMockClient({
-            dispatchDocument: async (type, action, operation) => {
-                dispatches.push({ type, action, operation });
+            createChatMessage: async (data) => {
+                createdMessages.push(data);
                 return { result: [{ _id: 'roll-1' }] };
+            },
+            dispatchDocument: async () => {
+                rawDispatchCalls += 1;
+                return { result: [] };
             },
             roll: async (_formula, _label, options) => {
                 rollOptions.push(options);
@@ -122,9 +127,10 @@ async function runRollChatWritesThroughDispatchDocument() {
         }), { message: '/roll 1d20' });
 
         assert.equal('success' in payload && payload.success, true);
-        assert.equal(dispatches.length, 1);
-        assert.equal(dispatches[0].type, 'ChatMessage');
-        assert.equal(dispatches[0].operation.data[0]._synthetic, undefined);
+        assert.equal(createdMessages.length, 1);
+        assert.equal(createdMessages[0]._synthetic, undefined);
+        assert.equal(createdMessages[0].type, 5);
         assert.equal((rollOptions[0] as any).displayChat, false);
+        assert.equal(rawDispatchCalls, 0);
     });
 }

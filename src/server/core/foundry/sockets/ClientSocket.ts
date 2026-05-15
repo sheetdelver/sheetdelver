@@ -230,12 +230,6 @@ export class ClientSocket extends SocketBase {
         return systemService.getSystemClient().getChatLog(limit, this.userId || undefined);
     }
 
-
-    public async sendMessage(content: string | any, options?: { rollMode?: string, speaker?: any }): Promise<any> {
-        if (!this.userId) throw new Error("User ID not set on ClientSocket");
-        return systemService.getSystemClient().sendMessage(content, this.userId, options);
-    }
-
     public async roll(formula: string, flavor?: string, options?: { userId?: string, rollMode?: string, speaker?: any, displayChat?: boolean, flags?: any }): Promise<any> {
         return systemService.getSystemClient().roll(formula, flavor, {
             userId: this.userId || options?.userId,

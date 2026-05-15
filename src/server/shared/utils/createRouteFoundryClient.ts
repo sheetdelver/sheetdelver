@@ -24,7 +24,7 @@ function ensureActorStoreReady(): void {
     if (!actorStore.isReady()) throw new PrimaryDocumentCacheNotReadyError('Actor');
 }
 
-function createBaseRouteFoundryClient(client: CoreSocket | ClientSocket): Omit<RouteFoundryClient, 'sendMessage'> {
+function createBaseRouteFoundryClient(client: CoreSocket | ClientSocket): RouteFoundryClient {
     const getSubject = () => createDocumentAccessSubject(client.userId, getUserRole(client.userId));
     // Repositories wrap the request-bound socket so Foundry sees the right user.
     const documentTransport = {
@@ -110,6 +110,7 @@ function createBaseRouteFoundryClient(client: CoreSocket | ClientSocket): Omit<R
         deleteActorItem: (actorId: string, itemId: string) => actorRepository.deleteActorItem(actorId, itemId),
         resolveUrl: (url?: string) => client.resolveUrl(url || ''),
         getChatLog: (limit: number) => client.getChatLog(limit),
+        createChatMessage: (data: Record<string, unknown>) => chatMessageRepository.send(data),
         getCombats: () => client.getCombats(),
         getUsers: () => client.getUsers(),
         getJournals: () => client.getJournals(),
@@ -126,32 +127,12 @@ function createBaseRouteFoundryClient(client: CoreSocket | ClientSocket): Omit<R
 }
 
 export function createSystemRouteFoundryClient(client: CoreSocket): RouteFoundryClient {
-    return {
-        ...createBaseRouteFoundryClient(client),
-        // Core socket sendMessage accepts an explicit userId position, which system routes leave undefined.
-        sendMessage: (
-            message: string,
-            options?: {
-                rollMode?: RollMode;
-                speaker?: ChatSendBody['speaker'];
-                [key: string]: unknown;
-            }
-        ) => client.sendMessage(message, undefined, options),
-    };
+    return createBaseRouteFoundryClient(client);
 }
 
 export function createSessionRouteFoundryClient(client: ClientSocket, username?: string): RouteFoundryClient {
     return {
         ...createBaseRouteFoundryClient(client),
         username,
-        // Client socket already binds the call to a specific authenticated user session.
-        sendMessage: (
-            message: string,
-            options?: {
-                rollMode?: RollMode;
-                speaker?: ChatSendBody['speaker'];
-                [key: string]: unknown;
-            }
-        ) => client.sendMessage(message, options),
     };
 }

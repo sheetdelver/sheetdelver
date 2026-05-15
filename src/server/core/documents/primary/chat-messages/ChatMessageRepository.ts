@@ -11,9 +11,9 @@ import { chatMessageStore } from './ChatMessageStore';
  * — the initiator-side mirror in {@link dispatchDocument} makes the
  * second apply idempotent via emit-only-on-change.
  *
- * Phase 1 does not migrate ChatService write paths onto this Repository
- * (ChatService still uses RouteFoundryClient.sendMessage / roll). The
- * Repository is present for shape uniformity and for future use.
+ * Chat write paths use this Repository through the request-scoped route-client
+ * helper. Public SDK compatibility facades may keep their old method names,
+ * but they should delegate here for primary-document writes.
  */
 export class ChatMessageRepository extends PrimaryDocumentRepository<RawChatMessage> {
     constructor(transport: DocumentTransport) {

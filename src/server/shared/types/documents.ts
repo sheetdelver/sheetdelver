@@ -88,6 +88,7 @@ export interface JournalClientLike extends FoundryClientLike {
 
 export interface ChatClientLike extends FoundryClientLike {
     getChatLog(limit: number): Promise<RawChatMessage[]>;
+    createChatMessage(data: Record<string, unknown>): Promise<unknown>;
     dispatchDocument(
         type: string,
         action: string,
@@ -101,14 +102,6 @@ export interface ChatClientLike extends FoundryClientLike {
             rollMode?: RollMode;
             speaker?: ChatSendBody['speaker'];
             displayChat?: boolean;
-            [key: string]: unknown;
-        }
-    ): Promise<unknown>;
-    sendMessage(
-        message: string,
-        options?: {
-            rollMode?: RollMode;
-            speaker?: ChatSendBody['speaker'];
             [key: string]: unknown;
         }
     ): Promise<unknown>;
