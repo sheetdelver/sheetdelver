@@ -325,6 +325,19 @@ Structural end-state validation:
 - `grep` for ad-hoc visibility filtering in services (the current `JournalService.listJournals` pattern) returns no live callers; all filtering goes through `Store.list({ subject, minOwnership })`.
 - A reader can trace any visibility decision from HTTP boundary to data layer: route applies `DOCUMENT_VISIBILITY.X`; Store's `list/get/canReadDocument` consumes it; subclass `resolveOwnership` implements per-type policy. Three layers, one path per type.
 
+## ADR-0011 Phase 1 Notes
+
+**May 15, 2026 — ADR-0011 Phase 1 ChatMessage blind visibility ordering.** ADR-0011 Phase 1 tightened the ChatMessage policy implemented by `ChatMessageStore.resolveOwnership`: blind visibility is stricter than whisper visibility. For non-GM subjects, the effective order is:
+
+1. The author can see their own message, including blind rolls.
+2. If `blind === true`, non-author, non-GM users get `NONE`, even if their id appears in `whisper`.
+3. If the message is not blind and has a non-empty `whisper` list, listed users get `OBSERVER`; unlisted users get `NONE`.
+4. If the message is not blind and has no whisper recipients, authenticated users get `OBSERVER`.
+
+This note supersedes any shorthand wording above that could be read as "whisper recipient always sees the message." Blind rolls remain author + GM visible only.
+
+**May 15, 2026 — ADR-0011 Phase 1 fan-out uses Store visibility for chat events.** ADR-0011 Phase 1 routes `chatMessageChanged` fan-out through `ChatMessageStore.canReadDocument(..., LIST_VISIBLE)` in `AppSocketGateway`, so the blind/whisper/author policy above controls realtime delivery as well as `/api/chat` reads. `ChatService` also keeps defensive DTO masking for blind roll fields.
+
 ---
 
 ## Exit Criteria
