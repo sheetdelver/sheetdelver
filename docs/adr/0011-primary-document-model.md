@@ -261,6 +261,20 @@ This addendum is about the internal server route client (`RouteFoundryClient`, b
 
 Closure verification (May 15, 2026): `rg "sendMessage\b|\.sendMessage\(" src/server src/tests src/shared -g "*.ts"` now finds only the public SDK contract/facade and SDK integrity mock. `npx tsc --noEmit` passed. `npm run test:unit` passed when rerun outside the sandbox; the sandboxed run failed before tests started because `tsx` could not open its IPC pipe.
 
+**Phase 1 addendum 3: coalesce client refreshes from semantic event bursts**
+
+Phase 1 Store events can correctly emit both a document-level change and a list-level invalidation for a single create. That is useful semantic information: one event says the document changed, the other says a user's visible list may have changed. The issue found after Phase 1 was in the browser reaction layer, where each event path independently refetched the same resource.
+
+Observed symptom: a chat send or actor update could produce duplicate or triplicate requests such as repeated `GET /api/chat` or repeated `GET /api/actors/:id`. For chat, the sender could refresh after `POST /api/chat/send`, then refresh again on `chatMessageChanged`, then refresh again on `chatMessageListInvalidated`. For actor detail pages, bursty `actorUpdate` delivery could stack duplicate detail fetches for the same actor.
+
+The fix preserves the primary-document event contract and coalesces the client refresh behavior:
+
+- [x] `ChatContext` now debounces chat refresh requests and reuses an in-flight `/api/chat` request, so a burst of send-success + realtime events produces one fetch.
+  Files: `src/client/ui/context/ChatContext.tsx`.
+- [x] `GenericActorPage` now debounces actor-detail refresh requests and reuses an in-flight `/api/actors/:id` request for the same actor.
+  Files: `src/client/ui/pages/GenericActorPage.tsx`.
+- [x] Verification passed: `npx tsc --noEmit`, `npm run test:unit`, and `git diff --check`.
+
 ---
 
 ## Exit Criteria

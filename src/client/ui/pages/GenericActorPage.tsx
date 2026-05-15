@@ -46,36 +46,63 @@ export default function GenericActorPage({ actorId }: GenericActorPageProps) {
         addToast(content, type, { html: true });
     }, [addToast]);
 
-    const fetchActor = useCallback(async (id: string, silent = false) => {
-        if (!silent) setLoading(true);
-        try {
-            const res = await fetchWithAuth(`/api/actors/${id}`);
-            if (res.status === 503 || res.status === 401) {
-                router.push('/');
-                return;
-            }
-            if (res.status === 404) {
-                setShowDeleteModal(true);
-                return;
-            }
+    const actorFetchInFlightRef = useRef<{ actorId: string; request: Promise<void> } | null>(null);
+    const actorRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-            const data = await res.json();
-            if (data && !data.error) {
-                setActor(data);
-                if (data.foundryUrl) setFoundryUrl(data.foundryUrl);
-            } else {
-                if (res.status >= 500) {
-                    addNotification('Server Error: ' + (data?.error || 'Unknown Error'), 'error');
-                } else {
-                    setShowDeleteModal(true);
+    const fetchActor = useCallback(async (id: string, silent = false) => {
+        const inFlight = actorFetchInFlightRef.current;
+        if (inFlight?.actorId === id) return inFlight.request;
+
+        if (!silent) setLoading(true);
+        const request = (async () => {
+            try {
+                const res = await fetchWithAuth(`/api/actors/${id}`);
+                if (res.status === 503 || res.status === 401) {
+                    router.push('/');
+                    return;
                 }
+                if (res.status === 404) {
+                    setShowDeleteModal(true);
+                    return;
+                }
+
+                const data = await res.json();
+                if (data && !data.error) {
+                    setActor(data);
+                    if (data.foundryUrl) setFoundryUrl(data.foundryUrl);
+                } else {
+                    if (res.status >= 500) {
+                        addNotification('Server Error: ' + (data?.error || 'Unknown Error'), 'error');
+                    } else {
+                        setShowDeleteModal(true);
+                    }
+                }
+            } catch (e: any) {
+                addNotification('Connection Error: ' + e.message, 'error');
+            } finally {
+                if (!silent) setLoading(false);
             }
-        } catch (e: any) {
-            addNotification('Connection Error: ' + e.message, 'error');
-        } finally {
-            if (!silent) setLoading(false);
-        }
+        })();
+
+        actorFetchInFlightRef.current = { actorId: id, request };
+        request.finally(() => {
+            if (actorFetchInFlightRef.current?.request === request) {
+                actorFetchInFlightRef.current = null;
+            }
+        });
+        return request;
     }, [router, fetchWithAuth, addNotification, setFoundryUrl]);
+
+    const requestActorRefresh = useCallback((id: string) => {
+        if (actorRefreshTimerRef.current) {
+            clearTimeout(actorRefreshTimerRef.current);
+        }
+
+        actorRefreshTimerRef.current = setTimeout(() => {
+            actorRefreshTimerRef.current = null;
+            void fetchActor(id, true);
+        }, 75);
+    }, [fetchActor]);
 
     const loadingRef = useRef(loading);
     useEffect(() => { loadingRef.current = loading; }, [loading]);
@@ -86,7 +113,7 @@ export default function GenericActorPage({ actorId }: GenericActorPageProps) {
 
         if (appSocket) {
             const handleActorUpdate = (data: RealtimeActorUpdatePayload) => {
-                if (data.actorId === actorId) fetchActor(actorId, true);
+                if (data.actorId === actorId) requestActorRefresh(actorId);
             };
             appSocket.on('actorUpdate', handleActorUpdate);
             return () => { appSocket.off('actorUpdate', handleActorUpdate); };
@@ -99,7 +126,14 @@ export default function GenericActorPage({ actorId }: GenericActorPageProps) {
         }, 15000);
 
         return () => { clearTimeout(timeout); };
-    }, [actorId, fetchActor, addNotification, appSocket]);
+    }, [actorId, fetchActor, requestActorRefresh, addNotification, appSocket]);
+
+    useEffect(() => () => {
+        if (actorRefreshTimerRef.current) {
+            clearTimeout(actorRefreshTimerRef.current);
+            actorRefreshTimerRef.current = null;
+        }
+    }, []);
 
     const handleRoll = async (type: string, key: string, options: any = {}) => {
         if (!actor) return;

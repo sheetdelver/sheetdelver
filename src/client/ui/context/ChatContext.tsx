@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { logger } from '@shared/utils/logger';
 import { useNotifications } from '@client/ui/components/NotificationSystem';
 import { UnauthorizedApiError } from '@client/ui/api/http';
@@ -28,22 +28,47 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     const { appSocket } = useRealtime();
     const { addNotification } = useNotifications();
     const [messages, setMessages] = useState<ChatMessageDto[]>([]);
+    const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const fetchInFlightRef = useRef<Promise<void> | null>(null);
 
     const fetchChat = useCallback(async () => {
         if (step !== 'dashboard' || !token) return;
-        try {
-            const data = await foundryApi.fetchChatLog(token);
-            if (Array.isArray(data.messages)) {
-                setMessages(data.messages);
+        if (fetchInFlightRef.current) return fetchInFlightRef.current;
+
+        const request = (async () => {
+            try {
+                const data = await foundryApi.fetchChatLog(token);
+                if (Array.isArray(data.messages)) {
+                    setMessages(data.messages);
+                }
+            } catch (error) {
+                if (error instanceof UnauthorizedApiError) {
+                    setToken(null);
+                    return;
+                }
+                logger.error('ChatContext | Failed to fetch chat:', error);
             }
-        } catch (error) {
-            if (error instanceof UnauthorizedApiError) {
-                setToken(null);
-                return;
+        })();
+
+        fetchInFlightRef.current = request;
+        request.finally(() => {
+            if (fetchInFlightRef.current === request) {
+                fetchInFlightRef.current = null;
             }
-            logger.error('ChatContext | Failed to fetch chat:', error);
-        }
+        });
+        return request;
     }, [step, token, setToken]);
+
+    const requestChatRefresh = useCallback(() => {
+        if (refreshTimerRef.current) {
+            clearTimeout(refreshTimerRef.current);
+        }
+
+        refreshTimerRef.current = setTimeout(() => {
+            refreshTimerRef.current = null;
+            void fetchChat();
+        }, 75);
+    }, [fetchChat]);
 
     const handleChatSend = useCallback(async (message: string, options?: { rollMode?: string; speaker?: string }) => {
         try {
@@ -53,7 +78,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
                 speaker: options?.speaker,
             });
             if (data.success) {
-                await fetchChat();
+                requestChatRefresh();
             } else {
                 addNotification('Failed: ' + data.error, 'error');
             }
@@ -61,7 +86,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             const messageText = error instanceof Error ? error.message : 'Unknown chat error';
             addNotification('Error: ' + messageText, 'error');
         }
-    }, [addNotification, fetchChat, token]);
+    }, [addNotification, requestChatRefresh, token]);
 
     const resetChatState = useCallback(() => {
         setMessages([]);
@@ -80,17 +105,24 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         }
     }, [fetchChat, step, token]);
 
+    useEffect(() => () => {
+        if (refreshTimerRef.current) {
+            clearTimeout(refreshTimerRef.current);
+            refreshTimerRef.current = null;
+        }
+    }, []);
+
     useEffect(() => {
         if (!appSocket) return;
 
         const handleLegacyChatUpdate = (_data: RealtimeChatUpdatePayload) => {
-            fetchChat();
+            requestChatRefresh();
         };
         const handleChatMessageChanged = (_data: RealtimeChatMessageChangedPayload) => {
-            fetchChat();
+            requestChatRefresh();
         };
         const handleChatMessageListInvalidated = (_data: RealtimeChatMessageListInvalidatedPayload) => {
-            fetchChat();
+            requestChatRefresh();
         };
 
         appSocket.on('chatUpdate', handleLegacyChatUpdate);
@@ -101,7 +133,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             appSocket.off('chatMessageChanged', handleChatMessageChanged);
             appSocket.off('chatMessageListInvalidated', handleChatMessageListInvalidated);
         };
-    }, [appSocket, fetchChat]);
+    }, [appSocket, requestChatRefresh]);
 
     const value = useMemo(() => ({
         messages,
