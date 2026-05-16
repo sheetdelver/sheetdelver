@@ -1,7 +1,8 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { useSession } from './SessionContext';
+import { useRealtime } from '@client/ui/context/RealtimeContext';
 import { logger } from '@shared/utils/logger';
 import { UnauthorizedApiError } from '@client/ui/api/http';
 import * as journalApi from '@client/ui/api/journalApi';
@@ -37,28 +38,49 @@ const JournalContext = createContext<JournalContextType | undefined>(undefined);
 
 export function JournalProvider({ children }: { children: React.ReactNode }) {
     const { token, step } = useSession();
+    const { appSocket } = useRealtime();
     const [journals, setJournals] = useState<JournalEntry[]>([]);
     const [folders, setFolders] = useState<Folder[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const fetchInFlightRef = useRef<Promise<void> | null>(null);
 
     const fetchJournals = useCallback(async () => {
         if (!token) return;
+        if (fetchInFlightRef.current) return fetchInFlightRef.current;
         setLoading(true);
-        try {
-            const data = await journalApi.fetchJournals(token);
-            setJournals(data.journals || []);
-            setFolders(data.folders || []);
-        } catch (err: any) {
-            if (err instanceof UnauthorizedApiError) {
-                return;
+        const request = (async () => {
+            try {
+                const data = await journalApi.fetchJournals(token);
+                setJournals(data.journals || []);
+                setFolders(data.folders || []);
+            } catch (err: any) {
+                if (err instanceof UnauthorizedApiError) {
+                    return;
+                }
+                logger.error('JournalProvider | Fetch failed:', err);
+                setError(err.message);
+            } finally {
+                setLoading(false);
             }
-            logger.error('JournalProvider | Fetch failed:', err);
-            setError(err.message);
-        } finally {
-            setLoading(false);
-        }
+        })();
+        fetchInFlightRef.current = request;
+        request.finally(() => {
+            if (fetchInFlightRef.current === request) {
+                fetchInFlightRef.current = null;
+            }
+        });
+        return request;
     }, [token]);
+
+    const requestJournalsRefresh = useCallback(() => {
+        if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+        refreshTimerRef.current = setTimeout(() => {
+            refreshTimerRef.current = null;
+            void fetchJournals();
+        }, 75);
+    }, [fetchJournals]);
 
     useEffect(() => {
         // Only fetch journals when we're in the dashboard state
@@ -67,6 +89,29 @@ export function JournalProvider({ children }: { children: React.ReactNode }) {
             fetchJournals();
         }
     }, [token, step, fetchJournals]);
+
+    useEffect(() => () => {
+        if (refreshTimerRef.current) {
+            clearTimeout(refreshTimerRef.current);
+            refreshTimerRef.current = null;
+        }
+    }, []);
+
+    // FolderStore broadcasts folder mutations through the system bridge. The
+    // /api/journals payload includes folders, so a folder rename/move/permission
+    // change simply triggers a debounced re-fetch.
+    useEffect(() => {
+        if (!appSocket) return;
+        const handleFolderChanged = () => { requestJournalsRefresh(); };
+        const handleFolderListInvalidated = () => { requestJournalsRefresh(); };
+
+        appSocket.on('folderChanged', handleFolderChanged);
+        appSocket.on('folderListInvalidated', handleFolderListInvalidated);
+        return () => {
+            appSocket.off('folderChanged', handleFolderChanged);
+            appSocket.off('folderListInvalidated', handleFolderListInvalidated);
+        };
+    }, [appSocket, requestJournalsRefresh]);
 
     const getJournal = useCallback(async (id: string) => {
         if (!token) return null;

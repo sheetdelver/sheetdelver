@@ -170,14 +170,14 @@ This matches the `ActorStore` pattern — it mirrors all world actors regardless
 - **Drift prevention.** The base enforces idempotency, observable-change-only emission, ownership-aware fan-out, and per-type listener registration. New stores get these for free; old stores can't drift away from them.
 - **Type safety.** `<Type>Store<RawType>` and `<Type>Repository<RawType>` preserve the Foundry document shape per type; embedded handlers are typed against the right embedded shape.
 - **Compile-time enforcement of policy decisions.** `resolveOwnership` is `abstract` on the base; the compiler flags any subclass that forgets to implement it.
-- **Scattered patterns consolidate.** `userMap` + `gameDataCache.users` → `UserStore`. Dual broadcast emit points → single `modifyDocumentRouter`. Inline journal folder pruning → `FolderStore` consumed by `JournalStore`. Authorization helpers per service → `Store.canReadDocument`. Each migration phase closes one or more of these silos as a side effect.
+- **Scattered patterns consolidate.** `userMap` + `gameDataCache.users` → `UserStore`. Dual broadcast emit points → single `modifyDocumentRouter`. Inline folder pruning → `FolderStore` consumed by folder-aware Stores through each document's `folder` id. Authorization helpers per service → `Store.canReadDocument`. Each migration phase closes one or more of these silos as a side effect.
 
 ### Tradeoffs
 
 - **More files per type.** Three files per subsystem (Store, Repository, document-events) plus optional test files. For minimal types (Macro, Playlist, Cards, stubs) this is mostly boilerplate. The cost is real but bounded.
 - **A learning curve for the abstraction.** Future contributors need to understand the base/subclass split and where policy lives versus protocol. This ADR (and the related event/ownership ADRs to follow) is the mitigation; subclasses themselves should be small enough to read alongside the base for orientation.
 - **One additional dispatch layer in the hot path.** Reads go through `Store.get` instead of a direct cache map lookup. This is microseconds — not measurable in normal use — but worth noting.
-- **Cross-store dependencies must be declared.** `CombatStore` needs `ActorStore` for combatant visibility; `JournalStore` consumes `FolderStore` for folder-organized list views. These dependencies need explicit wiring at module-init time. The plan documents which Stores depend on which.
+- **Cross-store dependencies must be declared.** `CombatStore` needs `ActorStore` for combatant visibility; folder-aware Stores consume `FolderStore` for folder-organized list views by joining from their own `folder` field. These dependencies need explicit wiring at module-init time. The plan documents which Stores depend on which.
 
 ---
 
@@ -341,9 +341,11 @@ Closure verification (May 16, 2026): Store-backed user helpers now own role look
 
 **Phase 3 staging: FolderStore + FolderRepository**
 
-ADR-0011 Phase 3 promotes Foundry `Folder` documents into the primary-document framework. `FolderStore` models the folder tree itself, not the primary documents that happen to be nested under it. Its core helpers should be generic over folder ids and ancestry; Foundry's Folder `type` is metadata for optional filtering, not a reason for FolderStore to understand Actor, JournalEntry, Item, or any other document payload. JournalService is the first existing call site to migrate because it currently owns inline folder ancestry pruning.
+ADR-0011 Phase 3 promotes Foundry `Folder` documents into the primary-document framework. `FolderStore` models the folder tree itself, not the primary documents that happen to be nested under it. Its core helpers should be generic over folder ids and ancestry; Foundry's Folder `type` is metadata for optional filtering, not a reason for FolderStore to understand Actor, JournalEntry, Item, or any other document payload. JournalService is the first existing call site to migrate because it currently owns inline folder ancestry pruning, not because Journals are the only folder-aware document type.
 
 Foundry Folder schema assumptions for this phase: core fields include `_id`, `name`, `type`, `parent`, `sort`, `color`, `flags`, optional `children`, optional `private`, optional `img`, and optional `permission`. `permission` is a map keyed by user id or role id when explicit permissions are set; if Foundry omits the map or a key because nothing is explicitly set, `FolderStore` should normalize that absence to effective `NONE`. `type` identifies the contained collection (`Actor`, `Item`, `JournalEntry`, `Scene`, `RollTable`, `Card`, `Playlist`, `Macro`, `Compendium`, etc.) but does not make FolderStore responsible for validating contained document schemas. Current Sheet Delver DTOs may still expose a `folder` parent alias; Phase 3 should normalize that to `parent` at the Store/type boundary.
+
+Observed v13 dump note: folderable primary documents carry their own `folder` id and join to the Folder collection from the document side. In `game-data-dump-example-02.json`, `actors`, `items`, `journal`, `tables`, `macros`, `playlists`, and `scenes` all expose a `folder` field, with non-null examples for all except playlists in that sample. FolderStore therefore owns folder docs/tree/type metadata only; it must not maintain child document collections or store nested primary document payloads.
 
 Scope:
 
@@ -369,7 +371,7 @@ Scope:
 Non-goals for Phase 3:
 
 - `JournalStore` and JournalEntry folder-aware visibility stay in Phase 4. Phase 3 creates the general Store-backed folder tree and removes Folder reads/writes from socket-owned surfaces.
-- Actor, Item, RollTable, Scene, Macro, Playlist, and other folder-aware Stores do not need to consume `FolderStore` in this phase unless a narrow call-site cleanup requires it. The helpers should remain document-payload agnostic so later phases can pass folder ids into the same Folder infrastructure.
+- Actor, Item, RollTable, Scene, Macro, Playlist, and other folder-aware Stores do not need to consume `FolderStore` in this phase unless a narrow call-site cleanup requires it, even though observed payloads already expose `folder` ids. The helpers should remain document-payload agnostic so later phases can join those document stores to the same Folder infrastructure.
 - Folder embedded children are out of scope; Folder is treated as a primary document with parent-folder ancestry, not as an embedded-document owner.
 - Full ADR-0012 wire-event rename remains out of scope. Folder events should use the primary-document bridge shape, but browser-facing event naming can remain compatibility-oriented unless the implementation naturally adds `folderChanged` / `folderListInvalidated`.
 
@@ -381,6 +383,93 @@ Exit for Phase 3: `FolderStore` / `FolderRepository` exist, Folder document muta
 - `npm run test:unit` passed when rerun outside the sandbox; the sandboxed run failed before tests started because `tsx` could not open its IPC pipe.
 - Exact cleanup grep found no `getFolders` call sites under `src/server` or `src/tests`.
 - Structural Phase 3 pieces are present: `FolderStore`, `FolderRepository`, `RawFolder` schema expansion, coordinator seeding, modifyDocument router registration, `folderChanged` / `folderListInvalidated` bridge events, JournalService folder pruning through `FolderStore`, and Folder create/update/delete through `FolderRepository`.
+
+**Phase 2/3 audit addendum (May 16, 2026): wire-event surface for User and Folder is emit-only**
+
+Audit of the Phase 2 and Phase 3 work surfaced one shared gap and a few smaller observations. The User/Folder Store-to-systemClient bridges are in place, but no consumer subscribes to the new wire events, so they are decorative until a downstream subscriber is added. Browsers keep seeing user-presence transitions through the broader `systemStatusUpdate` rebroadcast (driven by `userConnected` / `userDisconnected` / `userActivity`), and they pick up roster/folder snapshots from REST refetch and from the `systemStatus` payload — but a bare User document mutation (rename, color, role change) or a bare Folder mutation (rename, move, permission change) does not currently push through any realtime path. This is consistent with the Phase 2 / Phase 3 staging "Full ADR-0012 wire-event rename remains outside this phase" language, but the wire surface is wired up partway and worth tracking explicitly.
+
+- [x] Wire `userChanged` / `userListInvalidated` fan-out in `AppSocketGateway` alongside the existing `chatMessageChanged` subscription, with per-socket subject resolution and `targetUserIds` filtering for invalidations.
+  Files: `src/server/realtime/AppSocketGateway.ts`, `src/tests/unit/app-socket-gateway.test.ts` (system-handler count assertion now 7).
+- [x] Wire `folderChanged` / `folderListInvalidated` fan-out in `AppSocketGateway`. Folder reads have no per-user ownership map today, so the gate is world-broadcast to authenticated sockets pending Phase 4 / future folder visibility policy; `targetUserIds` is still honored if a future emit populates it.
+  Files: `src/server/realtime/AppSocketGateway.ts`, `src/tests/unit/app-socket-gateway.test.ts`.
+- [x] Add a client-side subscriber for `userChanged` / `userListInvalidated` so user roster/role/color changes refresh without waiting for a `systemStatus` broadcast. Implemented as an in-flight-coalesced `/api/status` refetch that updates the `users` slice only.
+  Files: `src/client/ui/context/FoundryContext.tsx`.
+- [x] Add a client-side subscriber for `folderChanged` / `folderListInvalidated` so folder rename/move/permission updates refresh the journal/folder view without manual reload. Implemented with the same in-flight-coalesce + 75 ms debounce shape used by `ChatContext`.
+  Files: `src/client/ui/context/JournalProvider.tsx`.
+- [x] Confirm `documentListInvalidated` ownership-change diffs on `UserStore` populate `targetUserIds` where applicable. Result: User docs carry no `ownership` field, so the base `diffOwnershipAndEmitInvalidation` and `usersWithEffectiveVisibility` always produce `undefined` for User events; `userListInvalidated` is always broadcast-wide. Documented on the `UserStore` class header.
+  Files: `src/server/core/documents/primary/users/UserStore.ts`.
+
+Closure verification (May 16, 2026): `npx tsc --noEmit` passed. `npm run test:unit` passed (`unit test suite passed`), with the updated `app-socket-gateway.test.ts` assertion against 7 system handlers / 5 foundry handlers reflecting the new user + folder bridge wiring.
+
+Secondary audit notes (no action required for Phase 2/3, but worth recording for Phase 4 and beyond):
+
+- `FolderStore.canReadDocument()` permission resolution (direct id, role id, default, `INHERIT` with cycle guard, missing-parent fail-closed) is implemented and covered by `folder-store.test.ts`, but no production read path calls it. `JournalService.listJournals()` derives "visible folders" from the ancestry of visible JournalEntries, not from `folderStore.canReadDocument()`. That matches Phase 3 scope ("Journal visibility stays in Phase 4"), but the implemented Folder permission policy is unexercised by callers today. Phase 4 should decide whether JournalStore consults FolderStore permission or stays journal-ownership-only.
+- `UserStore.seed()` runs twice on connect: once from `CoreSocket` on socket-`connect` using the `gameData.users` snapshot (so role lookups work before bootstrap), and again from `PrimaryDocumentCacheCoordinator.seedAll()` during `SystemService.bootstrap()` using `dispatchDocumentSocket('User', 'get', ...)`. Both apply the same emit-only-on-observable-change rule, so the second seed is idempotent in practice. Practical purpose of the early seed: it runs before `emit('connect')` in `CoreSocket`, so the first `systemStatus` broadcast (driven by `world:connected` on `SystemService`) already carries the user roster instead of an empty list. Removing the early seed would put browsers in a brief "empty player dropdown" state until `world:ready` fires. The cleaner split is described in the deferred-refactor note below — it is not a "fix one of the two seed sites" change.
+
+**Deferred refactor — split CoreSocket connect handler responsibilities (no work in this pass)**
+
+CoreSocket's `socket.on('connect', ...)` handler currently mixes several concerns:
+
+- Transport: post-connect handshake, `getWorldStatus()`, soft-reset to `setup` state when the world isn't active.
+- Raw world-data fetch + cache: `getWorldData()` / `fetchSceneData()` plus the resulting `gameDataCache` / `sceneDataCache` fields.
+- Presence init: `userPresence.setActiveUsers(gameData.activeUsers)` (genuinely wire state — belongs here).
+- Document Store seeding: the early `userStore.seed(...)` from the `gameData.users` snapshot.
+- Identity: setting `this.userId = gameData.userId` (the service-account id).
+- Adapter loading: `loadSystemAdapter(systemId)`.
+
+Of those, only transport, raw cache, and presence init are clearly CoreSocket's job. Store seeding and adapter loading are orchestration concerns that `SystemService.bootstrap()` already owns later in the cycle. The clean split is roughly:
+
+- **CoreSocket** keeps transport, raw `gameDataCache` / `sceneDataCache`, `userPresence` initialization from `gameData.activeUsers`, and emits a richer "ready with snapshot" signal (e.g. `connect` carrying or making available the already-cached `gameData` / `sceneData`).
+- **SystemService** consumes that signal in `handleConnect` and orchestrates: eager `UserStore` seed from the snapshot (replacing the in-socket seed), `loadSystemAdapter` for the resolved system id, then the existing `bootstrap()` for compendium / discovery / coordinator seedAll / adapter init.
+
+With that split, the "double seed" becomes two seeds both owned by `SystemService` (eager + authoritative), both idempotent, both at the orchestration layer — which is the layering ADR-0011 implies. It also lets the lifecycle clears (currently `userStore.clear(...)`, `actorStore.clear(...)` peppered through CoreSocket transport branches) collapse into `clearDocumentCache(reason)` on the SystemService side.
+
+This is deferred because:
+
+- It touches transport, lifecycle, and bootstrap simultaneously — risk surface is broader than the Phase 2/3 audit scope.
+- It interacts with the still-pending Phase 5+ Stores (`CombatStore`, `ItemStore`) which will add more "seed me eagerly?" decisions and should be designed against the new layering, not the current one.
+- It changes the ordering of operations around `emit('world:connected')` in subtle ways (eager seed before vs. after) and needs explicit test coverage for the connect-state transitions.
+
+Tracked here so it isn't lost; planning happens in a later pass.
+- `RawFolder.folder` (legacy DTO alias) is live, not vestigial. Foundry's actual Folder field is `parent`, but Sheet Delver's `JournalFolderDto.folder` carries the parent reference on the wire. Live callers in both directions: `createJournalFolder` in `src/client/ui/api/journalApi.ts` posts `{ folder: parentId }` (normalized in `FolderRepository.normalizeFolderInput`), and `JournalBrowser.tsx` reads `f.folder` after `JournalService.toFolderDto` writes `parent → folder` on output. The alias should remain scoped to the DTO/wire boundary — server-side Folder logic must continue to read `folder.parent`, not `folder.folder`. A future cleanup could rename the DTO field to `parent` for clarity, but it is a coordinated client + contract + server change (touches `src/shared/contracts/journals.ts`, `src/client/ui/api/journalApi.ts`, `src/client/ui/components/JournalBrowser.tsx`, `src/server/services/journals/JournalService.ts`, `src/server/core/documents/primary/folders/FolderStore.ts`, `src/server/core/documents/primary/folders/FolderRepository.ts`, `src/server/shared/types/documents.ts`) and is intentionally out of Phase 3 scope.
+
+**Phase 4 staging: JournalStore + JournalRepository**
+
+ADR-0011 Phase 4 promotes Foundry `JournalEntry` documents into the primary-document framework. `JournalStore` owns the hydrated JournalEntry cache, entry-level visibility, embedded `JournalEntryPage` visibility, page mutation application, and folder-aware list projection by joining `journal.folder` to `FolderStore`. `JournalService` remains the route-facing orchestration layer for DTO projection and compatibility routes, but it should read from `JournalStore` and write through `JournalRepository` rather than fetching or mutating JournalEntry documents directly through the socket.
+
+Foundry Journal assumptions for this phase: observed v13 JournalEntry payloads use a standard `ownership` map at the entry level, carry an optional `folder` id, and embed `pages`. Folder membership is read from `journal.folder` and joined against `FolderStore` for tree projection; `FolderStore` should not hold JournalEntry payloads or maintain a child-document collection. Each `JournalEntryPage` has its own `_id`, `name`, `type`, content payload fields such as `text`, `image`, `video`, `src`, optional `ownership`, `flags`, and `_stats`. Page visibility is two-level: the caller must be able to read the entry, then the page's own ownership is applied. An explicit page `INHERIT` should resolve to the entry's effective ownership; omitted page ownership should fail closed unless Foundry's actual payload semantics prove a different default during implementation.
+
+Shared-content note: Foundry GM sharing is currently integrated through `SocketBase.setupSharedContentListeners()` (`shareImage` and `showEntry`), `UtilityService.getSharedContent()`, `/shared-content`, and realtime `sharedContentUpdate`. The exact Foundry semantics still need verification: sharing a journal page may be a live reference, a copied/snapshotted presentation payload, or a temporary GM presentation grant. Phase 4 should not create a second JournalEntry read path for shared journal content. If shared journal content is hydrated in this phase, resolve it through `JournalService` / `JournalStore` using the requesting user's subject and the shared UUID/id as input; if Foundry actually sends copied content, preserve it as a shared-content snapshot instead of refetching. A richer GM-share handler is likely needed later, and that policy should live in shared-content handling rather than weakening normal JournalStore ownership.
+
+Scope:
+
+- [ ] Add `JournalStore` and `JournalRepository` under `src/server/core/documents/primary/journals/`, plus RawJournal/RawJournalPage types that reflect entry ownership, folder id, and embedded page ownership/content fields.
+  Files: `src/server/core/documents/primary/journals/JournalStore.ts`, `src/server/core/documents/primary/journals/JournalRepository.ts`, `src/server/shared/types/documents.ts`.
+- [ ] Register `JournalStore` with `PrimaryDocumentCacheCoordinator` and `modifyDocumentRouter`; seed from Foundry's `JournalEntry` documents at bootstrap after `FolderStore` is ready.
+  Files: `src/server/core/documents/primary/PrimaryDocumentCacheCoordinator.ts`.
+- [ ] Implement JournalEntry visibility in `JournalStore.resolveOwnership()` using the standard entry `ownership` map and `UserStore` subject roles; keep folder access lookups isolated to folder-organized list projection unless implementation confirms Folder permission gates entry visibility in Foundry. If Foundry confirms that folder permission gates entry visibility, route the check through `FolderStore.canReadDocument(folderId, subject, DOCUMENT_VISIBILITY.LIST_VISIBLE)` rather than reimplementing the permission walk — that helper already handles `INHERIT` with cycle guard and missing-parent fail-closed, and is the production lever for the permission policy currently exercised only in unit tests.
+  Files: `src/server/core/documents/primary/journals/JournalStore.ts`, `src/tests/unit/journal-store.test.ts`.
+- [ ] Implement embedded `JournalEntryPage` handling: apply create/update/delete events with `parentUuid: JournalEntry.<id>`, expose `canReadPage(entryId, pageId, subject)`, and filter pages for route DTOs.
+  Files: `src/server/core/documents/primary/journals/JournalStore.ts`, `src/tests/unit/journal-store.test.ts`, `src/tests/unit/modify-document-router.test.ts`.
+- [ ] Move `JournalService.listJournals()` and `getJournalById()` reads to `JournalStore`; keep `JournalService` as the route-facing DTO/projection layer and continue to use `FolderStore` for visible folder ancestry.
+  Files: `src/server/services/journals/JournalService.ts`, `src/tests/unit/journal-smoke.test.ts`.
+- [ ] Route JournalEntry create/update/delete through `JournalRepository`; preserve the existing `type === 'Folder'` branch through `FolderRepository`.
+  Files: `src/server/services/journals/JournalService.ts`, `src/server/shared/utils/createRouteFoundryClient.ts`, `src/server/shared/types/documents.ts`.
+- [ ] Investigate Foundry `showEntry` / journal-page sharing semantics. If Foundry sends copied content, preserve it as shared-content snapshot state; if it sends only a reference, hydrate through `JournalService` / `JournalStore`; leave the current shared-content event capture in `SocketBase` as a lightweight hint until a dedicated GM-share policy handler is designed.
+  Files: `src/server/core/foundry/sockets/SocketBase.ts`, `src/server/services/utility/UtilityService.ts`, `src/server/routes/protected/registerUtilityRoutes.ts`, `src/shared/contracts/realtime.ts`, `src/tests/unit/*shared-content*.test.ts` or the nearest utility/realtime unit test.
+- [ ] Remove socket/client-owned JournalEntry reads once callers are migrated.
+  Files: `src/server/core/foundry/sockets/CoreSocket.ts`, `src/server/shared/utils/createRouteFoundryClient.ts`, `src/server/shared/types/documents.ts`, affected unit mocks.
+- [ ] Add Phase 4 tests covering seed/clear, clone-on-read, entry ownership, page ownership, page `INHERIT`, folder-aware list projection, detail authorization, embedded page mutation routing, repository writes, JournalService DTO projection, shared-content journal resolution notes/guardrails, and removal of socket-owned Journal reads.
+  Files: `src/tests/unit/journal-store.test.ts`, `src/tests/unit/journal-smoke.test.ts`, `src/tests/unit/modify-document-router.test.ts`, `src/tests/unit/run.ts`.
+
+Non-goals for Phase 4:
+
+- Do not implement the full GM shared-content grant model unless it is necessary to keep existing behavior working. Track it as a later custom shared-content handler if normal Journal visibility and "GM deliberately showed this" need different policy.
+- Do not migrate client/UI or public SDK journal helpers unless a server type change forces a compile update.
+- Do not retrofit Actor, Item, RollTable, Scene, Macro, Playlist, or other folder-aware documents to consume `FolderStore` yet; their later phases should use the same document-side `folder` join pattern.
+- Do not make Journal folder operations separate routes in this phase; existing folder operations can continue to flow through the journal route surface until a broader folder API is designed.
+
+Exit for Phase 4: `JournalStore` / `JournalRepository` exist, JournalEntry and JournalEntryPage mutations route through the primary-document framework, JournalService reads from `JournalStore`, JournalEntry writes use `JournalRepository`, shared-content journal access is documented or routed through JournalService without bypassing Store visibility, socket/client-owned JournalEntry reads are removed from server call sites, and `npx tsc --noEmit` plus `npm run test:unit` pass.
 
 ---
 

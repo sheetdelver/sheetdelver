@@ -35,6 +35,12 @@ function getRawUserRole(user: RawUser | null | undefined): FoundryUserRole {
  * Users are *subjects* of ownership, not targets. All authenticated callers
  * see the roster (OBSERVER); GMs see it as OWNER.
  *
+ * Because User docs have no `ownership` field, the base
+ * `diffOwnershipAndEmitInvalidation` and `usersWithEffectiveVisibility`
+ * never produce a `targetUserIds` list for User events — `documentListInvalidated`
+ * for User is always broadcast-wide. Gateways consuming `userListInvalidated`
+ * can treat a missing `targetUserIds` as "everyone authenticated."
+ *
  * UserStore is foundational: every other Store's subject construction reads
  * role information from here via {@link getRole}. Don't introduce cross-store
  * subscriptions back into UserStore — it sits below the other Stores.

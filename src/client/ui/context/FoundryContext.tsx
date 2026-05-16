@@ -101,6 +101,10 @@ export function FoundryProvider({ children }: { children: ReactNode }) {
     const actorCardsRef = useRef(actorCards);
     useEffect(() => { actorCardsRef.current = actorCards; }, [actorCards]);
 
+    // In-flight coalescer for user-roster refetches. A burst of userChanged /
+    // userListInvalidated events collapses into a single /api/status request.
+    const userRefreshInFlight = useRef<Promise<void> | null>(null);
+
     const isEqual = (a: any, b: any) => JSON.stringify(a) === JSON.stringify(b);
 
     useEffect(() => {
@@ -270,9 +274,34 @@ export function FoundryProvider({ children }: { children: ReactNode }) {
             }
         };
 
+        const refreshUsers = (): Promise<void> => {
+            if (userRefreshInFlight.current) return userRefreshInFlight.current;
+            const promise = (async () => {
+                try {
+                    const data = await foundryApi.fetchStatus(token);
+                    if (Array.isArray(data.users) && !isEqual(users, data.users)) {
+                        setUsers(data.users as User[]);
+                    }
+                } catch (e) {
+                    if (!(e instanceof UnauthorizedApiError)) {
+                        logger.error('FoundryProvider | User refresh failed', e);
+                    }
+                } finally {
+                    userRefreshInFlight.current = null;
+                }
+            })();
+            userRefreshInFlight.current = promise;
+            return promise;
+        };
+
+        const handleUserChanged = () => { refreshUsers(); };
+        const handleUserListInvalidated = () => { refreshUsers(); };
+
         appSocket.on('systemStatus', handleSystemStatus);
         appSocket.on('sharedContentUpdate', handleSharedContentUpdate);
         appSocket.on('actorUpdate', handleActorUpdate);
+        appSocket.on('userChanged', handleUserChanged);
+        appSocket.on('userListInvalidated', handleUserListInvalidated);
         appSocket.on('moduleSourceChanged',   handleModuleCacheInvalidation);
         appSocket.on('moduleStateChanged',    handleModuleCacheInvalidation);
         appSocket.on('moduleRegistryChanged', handleModuleCacheInvalidation);
@@ -281,6 +310,8 @@ export function FoundryProvider({ children }: { children: ReactNode }) {
             appSocket.off('systemStatus', handleSystemStatus);
             appSocket.off('sharedContentUpdate', handleSharedContentUpdate);
             appSocket.off('actorUpdate', handleActorUpdate);
+            appSocket.off('userChanged', handleUserChanged);
+            appSocket.off('userListInvalidated', handleUserListInvalidated);
             appSocket.off('moduleSourceChanged',   handleModuleCacheInvalidation);
             appSocket.off('moduleStateChanged',    handleModuleCacheInvalidation);
             appSocket.off('moduleRegistryChanged', handleModuleCacheInvalidation);

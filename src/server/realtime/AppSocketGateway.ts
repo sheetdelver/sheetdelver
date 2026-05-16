@@ -125,18 +125,49 @@ export function registerAppSocketGateway({
                 if (data.targetUserIds && (!userId || !data.targetUserIds.includes(userId))) return;
                 socket.emit('chatMessageListInvalidated', data);
             };
+            // User document fan-out. Per ADR-0013 User docs have no per-user
+            // ownership map; every authenticated subject sees the roster.
+            // `targetUserIds` is honored if present for future-proofing.
+            const handleUserChanged = (...args: unknown[]) => {
+                const data = (args[0] || {}) as { userId: string; action: 'create' | 'update' | 'delete' };
+                socket.emit('userChanged', data);
+            };
+            const handleUserListInvalidated = (...args: unknown[]) => {
+                const data = (args[0] || {}) as { reason: string; userId?: string; targetUserIds?: string[] };
+                const userId = socket.userSession?.client.userId;
+                if (data.targetUserIds && (!userId || !data.targetUserIds.includes(userId))) return;
+                socket.emit('userListInvalidated', data);
+            };
+            // Folder document fan-out. FolderStore emits broadcast-wide today;
+            // per-user folder visibility is a Phase 4 concern. Honor targetUserIds
+            // if the Store ever populates it.
+            const handleFolderChanged = (...args: unknown[]) => {
+                const data = (args[0] || {}) as { folderId: string; action: 'create' | 'update' | 'delete' };
+                socket.emit('folderChanged', data);
+            };
+            const handleFolderListInvalidated = (...args: unknown[]) => {
+                const data = (args[0] || {}) as { reason: string; folderId?: string; targetUserIds?: string[] };
+                const userId = socket.userSession?.client.userId;
+                if (data.targetUserIds && (!userId || !data.targetUserIds.includes(userId))) return;
+                socket.emit('folderListInvalidated', data);
+            };
             const handleSharedUpdate = (...args: unknown[]) => {
                 const data = (args[0] || {}) as RealtimeSharedContentPayload;
                 socket.emit('sharedContentUpdate', data);
             };
 
             foundryClient.on('combatUpdate', handleCombatUpdate);
-            // ActorStore + ChatMessageStore events are bridged through the system client,
-            // not per-user sockets — per ADR-0012 each Store's events fan out from a single
-            // canonical source with ownership filtering applied per socket.
+            // ActorStore + ChatMessageStore + UserStore + FolderStore events are
+            // bridged through the system client, not per-user sockets — per ADR-0012
+            // each Store's events fan out from a single canonical source with
+            // ownership filtering applied per socket.
             systemService.getSystemClient().on('actorUpdate', handleActorUpdate);
             systemService.getSystemClient().on('chatMessageChanged', handleChatMessageChanged);
             systemService.getSystemClient().on('chatMessageListInvalidated', handleChatMessageListInvalidated);
+            systemService.getSystemClient().on('userChanged', handleUserChanged);
+            systemService.getSystemClient().on('userListInvalidated', handleUserListInvalidated);
+            systemService.getSystemClient().on('folderChanged', handleFolderChanged);
+            systemService.getSystemClient().on('folderListInvalidated', handleFolderListInvalidated);
             foundryClient.on('sharedContentUpdate', handleSharedUpdate);
 
             // New relays for world lifecycle and system status
@@ -153,6 +184,10 @@ export function registerAppSocketGateway({
                 systemService.getSystemClient().off('actorUpdate', handleActorUpdate);
                 systemService.getSystemClient().off('chatMessageChanged', handleChatMessageChanged);
                 systemService.getSystemClient().off('chatMessageListInvalidated', handleChatMessageListInvalidated);
+                systemService.getSystemClient().off('userChanged', handleUserChanged);
+                systemService.getSystemClient().off('userListInvalidated', handleUserListInvalidated);
+                systemService.getSystemClient().off('folderChanged', handleFolderChanged);
+                systemService.getSystemClient().off('folderListInvalidated', handleFolderListInvalidated);
                 foundryClient.off('sharedContentUpdate', handleSharedUpdate);
                 foundryClient.off('systemStatusUpdate', broadcastSystemStatus);
                 foundryClient.off('worldShutdown', broadcastSystemStatus);
