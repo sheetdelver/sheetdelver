@@ -5,6 +5,7 @@ import { modifyDocumentRouter } from './base/modifyDocumentRouter';
 import { actorStore } from './actors/ActorStore';
 import { chatMessageStore } from './chat-messages/ChatMessageStore';
 import { folderStore } from './folders/FolderStore';
+import { journalStore } from './journals/JournalStore';
 import { userStore } from './users/UserStore';
 
 /**
@@ -132,13 +133,36 @@ primaryDocumentCacheCoordinator.register({
     },
 });
 
+// JournalStore seeds after FolderStore so folder-organized list projection has
+// the folder tree available immediately. JournalStore does not hold folder
+// docs; it joins entry.folder against FolderStore at projection time.
+primaryDocumentCacheCoordinator.register({
+    type: 'JournalEntry',
+    async seed(client) {
+        await journalStore.seed(async () => {
+            const response: any = await client.dispatchDocumentSocket('JournalEntry', 'get', { broadcast: false });
+            return response?.result || [];
+        });
+        logger.info(`PrimaryDocumentCacheCoordinator | Seeded ${journalStore.list().length} journals.`);
+    },
+    clear(reason) {
+        journalStore.clear(reason);
+    },
+    isReady() {
+        return journalStore.isReady();
+    },
+});
+
 // modifyDocument router bindings
 modifyDocumentRouter.register(actorStore);
 modifyDocumentRouter.register(chatMessageStore);
 modifyDocumentRouter.register(folderStore);
 modifyDocumentRouter.register(userStore);
+modifyDocumentRouter.register(journalStore);
 // Embedded children: Actor owns Item + ActiveEffect with parentUuid 'Actor.xxx...'.
 modifyDocumentRouter.registerEmbeddedHandler('Actor', actorStore);
+// JournalEntry owns JournalEntryPage with parentUuid 'JournalEntry.<id>'.
+modifyDocumentRouter.registerEmbeddedHandler('JournalEntry', journalStore);
 
 /**
  * @deprecated Use {@link primaryDocumentCacheCoordinator}.seedAll(client) directly.

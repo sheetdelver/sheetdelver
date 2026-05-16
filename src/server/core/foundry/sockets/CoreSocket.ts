@@ -935,20 +935,6 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
         return result?.result || [];
     }
 
-    public async getJournals(userId?: string): Promise<any[]> {
-        const result: any = await this.dispatchDocumentSocket('JournalEntry', 'get', { broadcast: false });
-        const all = result?.result || [];
-        if (!userId) return all;
-
-        // Basic filtering for implicit User View
-        // 0 = None, 1 = Limited, 2 = Observer, 3 = Owner
-        // If no ownership[userId], check ownership['default']
-        return all.filter((j: any) => {
-            const level = j.ownership?.[userId] !== undefined ? j.ownership[userId] : (j.ownership?.default || 0);
-            return level >= 2; // Observer or better
-        });
-    }
-
     public async getActors(userId?: string): Promise<any[]> {
         if (!actorStore.isReady()) throw new PrimaryDocumentCacheNotReadyError('Actor');
 

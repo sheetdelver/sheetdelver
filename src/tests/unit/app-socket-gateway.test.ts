@@ -129,16 +129,17 @@ async function runGatewayTests() {
         // Per-user foundry client receives combat/shared/status/worldShutdown/worldReload (5).
         // The system client carries Store-bridged events:
         //   actorUpdate + chatMessageChanged + chatMessageListInvalidated
-        //   + userChanged + userListInvalidated + folderChanged + folderListInvalidated (7).
+        //   + userChanged + userListInvalidated + folderChanged + folderListInvalidated
+        //   + journalChanged + journalListInvalidated (9).
         assert.equal(attachedHandlers.length, 5);
-        assert.equal(systemAttachedHandlers.length, 7);
+        assert.equal(systemAttachedHandlers.length, 9);
         assert.ok(browserCounts.includes(1));
 
         io.engine.clientsCount = 0;
         disconnectHandler?.();
 
         assert.equal(detachedHandlers.length, 5);
-        assert.equal(systemDetachedHandlers.length, 7);
+        assert.equal(systemDetachedHandlers.length, 9);
         assert.ok(browserCounts.includes(0));
 
         // Guest degradation path (no token): middleware should still call next.

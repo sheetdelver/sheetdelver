@@ -97,19 +97,25 @@ export function JournalProvider({ children }: { children: React.ReactNode }) {
         }
     }, []);
 
-    // FolderStore broadcasts folder mutations through the system bridge. The
-    // /api/journals payload includes folders, so a folder rename/move/permission
-    // change simply triggers a debounced re-fetch.
+    // FolderStore and JournalStore broadcast through the system bridge. The
+    // /api/journals payload includes both, so any folder rename/move/permission
+    // change or journal entry/page mutation triggers a debounced re-fetch.
     useEffect(() => {
         if (!appSocket) return;
         const handleFolderChanged = () => { requestJournalsRefresh(); };
         const handleFolderListInvalidated = () => { requestJournalsRefresh(); };
+        const handleJournalChanged = () => { requestJournalsRefresh(); };
+        const handleJournalListInvalidated = () => { requestJournalsRefresh(); };
 
         appSocket.on('folderChanged', handleFolderChanged);
         appSocket.on('folderListInvalidated', handleFolderListInvalidated);
+        appSocket.on('journalChanged', handleJournalChanged);
+        appSocket.on('journalListInvalidated', handleJournalListInvalidated);
         return () => {
             appSocket.off('folderChanged', handleFolderChanged);
             appSocket.off('folderListInvalidated', handleFolderListInvalidated);
+            appSocket.off('journalChanged', handleJournalChanged);
+            appSocket.off('journalListInvalidated', handleJournalListInvalidated);
         };
     }, [appSocket, requestJournalsRefresh]);
 

@@ -153,10 +153,6 @@ export class ClientSocket extends SocketBase {
 
     // --- Data Operations (Proxied to CoreSocket with userId filtering) ---
 
-    public async getJournals(): Promise<any[]> {
-        return systemService.getSystemClient().getJournals(this.userId || undefined);
-    }
-
     public async getChatLog(limit = 100): Promise<any[]> {
         // If we have an active user socket, use it to leverage Foundry's native filtering
         if (this.isConnected && this.socket) {

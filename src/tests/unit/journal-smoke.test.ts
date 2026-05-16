@@ -1,6 +1,7 @@
 import { strict as assert } from 'node:assert';
 import { createJournalService } from '@server/services/journals/JournalService';
 import { folderStore } from '@server/core/documents/primary/folders/FolderStore';
+import { journalStore } from '@server/core/documents/primary/journals/JournalStore';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
 
 async function runJournalSmokeTests() {
@@ -33,51 +34,38 @@ async function runJournalSmokeTests() {
             folder: null,
         },
     ]);
+    await journalStore.seed(async () => [
+        {
+            _id: 'j-visible-1',
+            id: 'j-visible-1',
+            name: 'Visible Journal',
+            folder: 'folder-child',
+            ownership: { default: 2 },
+        },
+        {
+            _id: 'j-hidden-1',
+            id: 'j-hidden-1',
+            name: 'Hidden Journal',
+            folder: 'folder-hidden',
+            ownership: { default: 0 },
+        },
+        {
+            _id: 'j-visible-2',
+            id: 'j-visible-2',
+            name: 'Visible Root Journal',
+            folder: null,
+            ownership: { default: 2 },
+        },
+    ]);
     const client = {
         userId: 'user-1',
-        getJournals: async () => ([
-            {
-                _id: 'j-visible-1',
-                id: 'j-visible-1',
-                name: 'Visible Journal',
-                folder: 'folder-child',
-                ownership: { default: 2 },
-            },
-            {
-                _id: 'j-hidden-1',
-                id: 'j-hidden-1',
-                name: 'Hidden Journal',
-                folder: 'folder-hidden',
-                ownership: { default: 1 },
-            },
-            {
-                _id: 'j-visible-2',
-                id: 'j-visible-2',
-                name: 'Visible Root Journal',
-                folder: null,
-                ownership: { default: 2 },
-            },
-        ]),
         dispatchDocument: async (collection: string, action: string, payload: unknown) => {
             dispatchCalls.push({ collection, action, payload });
-            return { ok: true };
-        },
-        dispatchDocumentSocket: async (collection: string, action: string, payload: unknown) => {
-            dispatchCalls.push({ collection, action, payload });
-
-            if (collection === 'JournalEntry' && action === 'get') {
+            if (collection === 'JournalEntry' && action === 'update') {
                 return {
-                    result: [
-                        {
-                            _id: 'j-visible-1',
-                            id: 'j-visible-1',
-                            name: 'Visible Journal',
-                            folder: 'folder-child',
-                        },
-                    ],
+                    result: [{ _id: 'j-visible-1', name: 'Renamed Journal' }],
                 };
             }
-
             return { ok: true };
         },
     } as any;
@@ -100,17 +88,21 @@ async function runJournalSmokeTests() {
     assert.equal(detailPayload._id, 'j-visible-1');
     assert.equal(detailPayload.name, 'Visible Journal');
 
-    const updatePayload = await journalService.updateJournal(client, 'j-visible-1', {
+    // Detail fetch on a hidden entry returns 404 — Store-backed visibility filter.
+    const hiddenDetail = await journalService.getJournalById(client, 'j-hidden-1');
+    assert.ok('error' in hiddenDetail);
+    if ('error' in hiddenDetail) {
+        assert.equal(hiddenDetail.status, 404);
+    }
+
+    await journalService.updateJournal(client, 'j-visible-1', {
         data: { name: 'Renamed Journal' },
     } as any);
-
-    assert.deepEqual(updatePayload, { ok: true });
 
     const updateCall = dispatchCalls.find((call) => call.collection === 'JournalEntry' && call.action === 'update');
     assert.ok(updateCall);
     assert.deepEqual(updateCall!.payload, {
         updates: [{ _id: 'j-visible-1', name: 'Renamed Journal' }],
-        broadcast: true,
     });
 
     await journalService.createJournal(client, {
@@ -122,12 +114,24 @@ async function runJournalSmokeTests() {
     assert.deepEqual(folderCreateCall!.payload, {
         data: [{ name: 'New Folder', type: 'JournalEntry', parent: null }],
     });
+
+    // JournalEntry create routes through JournalRepository.
+    await journalService.createJournal(client, {
+        type: 'JournalEntry',
+        data: { name: 'New Journal', folder: null },
+    });
+    const journalCreateCall = dispatchCalls.find((call) => call.collection === 'JournalEntry' && call.action === 'create');
+    assert.ok(journalCreateCall);
+    assert.deepEqual(journalCreateCall!.payload, {
+        data: [{ name: 'New Journal', folder: null }],
+    });
 }
 
 export async function run() {
     try {
         await runJournalSmokeTests();
     } finally {
+        journalStore.clear('journal-smoke-test');
         folderStore.clear('journal-smoke-test');
         userStore.clear('journal-smoke-test');
     }

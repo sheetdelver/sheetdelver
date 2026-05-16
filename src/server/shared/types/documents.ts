@@ -20,11 +20,39 @@ export interface RawFolder {
     [key: string]: unknown;
 }
 
+/**
+ * A single embedded JournalEntryPage. Pages carry their own ownership map;
+ * an explicit `INHERIT` (-1) resolves to the parent entry's effective ownership.
+ * Omitted page ownership fails closed unless real Foundry payloads prove a
+ * different default during Phase 4 integration.
+ */
+export interface RawJournalPage {
+    id?: string;
+    _id?: string;
+    name?: string;
+    type?: string;
+    sort?: number;
+    text?: { content?: string; format?: number; [key: string]: unknown };
+    image?: { caption?: string; [key: string]: unknown };
+    video?: { [key: string]: unknown };
+    src?: string | null;
+    title?: { show?: boolean; level?: number; [key: string]: unknown };
+    ownership?: Record<string, number>;
+    flags?: Record<string, unknown>;
+    _stats?: Record<string, unknown>;
+    [key: string]: unknown;
+}
+
 export interface RawJournal {
     id?: string;
     _id?: string;
+    name?: string;
     folder?: string | null;
     ownership?: Record<string, number>;
+    pages?: RawJournalPage[];
+    flags?: Record<string, unknown>;
+    _stats?: Record<string, unknown>;
+    sort?: number;
     [key: string]: unknown;
 }
 
@@ -85,18 +113,12 @@ export interface RollChatMessageLike {
 
 export interface JournalClientLike extends FoundryClientLike {
     userId?: string | null;
-    getJournals(): Promise<RawJournal[]>;
     dispatchDocument(
         type: string,
         action: string,
         operation?: unknown,
         parent?: { type: string; id: string }
     ): Promise<unknown>;
-    dispatchDocumentSocket(
-        type: string,
-        action: 'create' | 'get' | 'update' | 'delete',
-        payload: Record<string, unknown>
-    ): Promise<DocumentSocketResponse<RawJournal> | Record<string, unknown>>;
 }
 
 export interface ChatClientLike extends FoundryClientLike {

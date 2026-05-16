@@ -5,6 +5,7 @@ import type { SessionManagerLike, UserSessionLike, FoundryClientLike } from '@se
 import type { SystemStatusPayload } from '@shared/contracts/status';
 import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
 import { chatMessageStore } from '@server/core/documents/primary/chat-messages/ChatMessageStore';
+import { journalStore } from '@server/core/documents/primary/journals/JournalStore';
 import {
     DOCUMENT_VISIBILITY,
 } from '@server/core/documents/primary/base/ownership';
@@ -151,6 +152,26 @@ export function registerAppSocketGateway({
                 if (data.targetUserIds && (!userId || !data.targetUserIds.includes(userId))) return;
                 socket.emit('folderListInvalidated', data);
             };
+            // Journal document fan-out. JournalEntry carries a standard per-user
+            // ownership map, so per-document changes get a Store-side ownership
+            // gate; deletes bypass (a caller who could see the entry should know
+            // it's gone). Invalidations honor `targetUserIds`.
+            const handleJournalChanged = (...args: unknown[]) => {
+                const data = (args[0] || {}) as { journalId: string; action: 'create' | 'update' | 'delete' };
+                if (data.action !== 'delete' && data.journalId) {
+                    const subject = getSubject();
+                    if (!subject || !journalStore.canReadDocument(data.journalId, subject, DOCUMENT_VISIBILITY.LIST_VISIBLE)) {
+                        return;
+                    }
+                }
+                socket.emit('journalChanged', data);
+            };
+            const handleJournalListInvalidated = (...args: unknown[]) => {
+                const data = (args[0] || {}) as { reason: string; journalId?: string; targetUserIds?: string[] };
+                const userId = socket.userSession?.client.userId;
+                if (data.targetUserIds && (!userId || !data.targetUserIds.includes(userId))) return;
+                socket.emit('journalListInvalidated', data);
+            };
             const handleSharedUpdate = (...args: unknown[]) => {
                 const data = (args[0] || {}) as RealtimeSharedContentPayload;
                 socket.emit('sharedContentUpdate', data);
@@ -168,6 +189,8 @@ export function registerAppSocketGateway({
             systemService.getSystemClient().on('userListInvalidated', handleUserListInvalidated);
             systemService.getSystemClient().on('folderChanged', handleFolderChanged);
             systemService.getSystemClient().on('folderListInvalidated', handleFolderListInvalidated);
+            systemService.getSystemClient().on('journalChanged', handleJournalChanged);
+            systemService.getSystemClient().on('journalListInvalidated', handleJournalListInvalidated);
             foundryClient.on('sharedContentUpdate', handleSharedUpdate);
 
             // New relays for world lifecycle and system status
@@ -188,6 +211,8 @@ export function registerAppSocketGateway({
                 systemService.getSystemClient().off('userListInvalidated', handleUserListInvalidated);
                 systemService.getSystemClient().off('folderChanged', handleFolderChanged);
                 systemService.getSystemClient().off('folderListInvalidated', handleFolderListInvalidated);
+                systemService.getSystemClient().off('journalChanged', handleJournalChanged);
+                systemService.getSystemClient().off('journalListInvalidated', handleJournalListInvalidated);
                 foundryClient.off('sharedContentUpdate', handleSharedUpdate);
                 foundryClient.off('systemStatusUpdate', broadcastSystemStatus);
                 foundryClient.off('worldShutdown', broadcastSystemStatus);

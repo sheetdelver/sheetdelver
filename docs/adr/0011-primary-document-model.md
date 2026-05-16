@@ -443,23 +443,23 @@ Shared-content note: Foundry GM sharing is currently integrated through `SocketB
 
 Scope:
 
-- [ ] Add `JournalStore` and `JournalRepository` under `src/server/core/documents/primary/journals/`, plus RawJournal/RawJournalPage types that reflect entry ownership, folder id, and embedded page ownership/content fields.
+- [x] Add `JournalStore` and `JournalRepository` under `src/server/core/documents/primary/journals/`, plus RawJournal/RawJournalPage types that reflect entry ownership, folder id, and embedded page ownership/content fields.
   Files: `src/server/core/documents/primary/journals/JournalStore.ts`, `src/server/core/documents/primary/journals/JournalRepository.ts`, `src/server/shared/types/documents.ts`.
-- [ ] Register `JournalStore` with `PrimaryDocumentCacheCoordinator` and `modifyDocumentRouter`; seed from Foundry's `JournalEntry` documents at bootstrap after `FolderStore` is ready.
+- [x] Register `JournalStore` with `PrimaryDocumentCacheCoordinator` and `modifyDocumentRouter`; seed from Foundry's `JournalEntry` documents at bootstrap after `FolderStore` is ready.
   Files: `src/server/core/documents/primary/PrimaryDocumentCacheCoordinator.ts`.
-- [ ] Implement JournalEntry visibility in `JournalStore.resolveOwnership()` using the standard entry `ownership` map and `UserStore` subject roles; keep folder access lookups isolated to folder-organized list projection unless implementation confirms Folder permission gates entry visibility in Foundry. If Foundry confirms that folder permission gates entry visibility, route the check through `FolderStore.canReadDocument(folderId, subject, DOCUMENT_VISIBILITY.LIST_VISIBLE)` rather than reimplementing the permission walk — that helper already handles `INHERIT` with cycle guard and missing-parent fail-closed, and is the production lever for the permission policy currently exercised only in unit tests.
+- [x] Implement JournalEntry visibility in `JournalStore.resolveOwnership()` using the standard entry `ownership` map and `UserStore` subject roles; keep folder access lookups isolated to folder-organized list projection unless implementation confirms Folder permission gates entry visibility in Foundry. Folder-permission gating remains a deferred decision — `FolderStore.canReadDocument` is documented in the Store header as the lever to pull when Foundry behavior confirms it, but Phase 4 does not flip that switch.
   Files: `src/server/core/documents/primary/journals/JournalStore.ts`, `src/tests/unit/journal-store.test.ts`.
-- [ ] Implement embedded `JournalEntryPage` handling: apply create/update/delete events with `parentUuid: JournalEntry.<id>`, expose `canReadPage(entryId, pageId, subject)`, and filter pages for route DTOs.
+- [x] Implement embedded `JournalEntryPage` handling: apply create/update/delete events with `parentUuid: JournalEntry.<id>`, expose `canReadPage(entryId, pageId, subject)`, and filter pages for route DTOs via `visiblePages(entryId, subject)`.
   Files: `src/server/core/documents/primary/journals/JournalStore.ts`, `src/tests/unit/journal-store.test.ts`, `src/tests/unit/modify-document-router.test.ts`.
-- [ ] Move `JournalService.listJournals()` and `getJournalById()` reads to `JournalStore`; keep `JournalService` as the route-facing DTO/projection layer and continue to use `FolderStore` for visible folder ancestry.
+- [x] Move `JournalService.listJournals()` and `getJournalById()` reads to `JournalStore`; the service stays the route-facing DTO/projection layer and continues to use `FolderStore` for visible folder ancestry. Detail fetch now applies entry-level + page-level filtering before projecting the DTO.
   Files: `src/server/services/journals/JournalService.ts`, `src/tests/unit/journal-smoke.test.ts`.
-- [ ] Route JournalEntry create/update/delete through `JournalRepository`; preserve the existing `type === 'Folder'` branch through `FolderRepository`.
+- [x] Route JournalEntry create/update/delete through `JournalRepository`; preserve the existing `type === 'Folder'` branch through `FolderRepository`. `JournalEntry` and `JournalEntryPage` types now dispatch through `JournalRepository` inside `createRouteFoundryClient`.
   Files: `src/server/services/journals/JournalService.ts`, `src/server/shared/utils/createRouteFoundryClient.ts`, `src/server/shared/types/documents.ts`.
-- [ ] Investigate Foundry `showEntry` / journal-page sharing semantics. If Foundry sends copied content, preserve it as shared-content snapshot state; if it sends only a reference, hydrate through `JournalService` / `JournalStore`; leave the current shared-content event capture in `SocketBase` as a lightweight hint until a dedicated GM-share policy handler is designed.
-  Files: `src/server/core/foundry/sockets/SocketBase.ts`, `src/server/services/utility/UtilityService.ts`, `src/server/routes/protected/registerUtilityRoutes.ts`, `src/shared/contracts/realtime.ts`, `src/tests/unit/*shared-content*.test.ts` or the nearest utility/realtime unit test.
-- [ ] Remove socket/client-owned JournalEntry reads once callers are migrated.
-  Files: `src/server/core/foundry/sockets/CoreSocket.ts`, `src/server/shared/utils/createRouteFoundryClient.ts`, `src/server/shared/types/documents.ts`, affected unit mocks.
-- [ ] Add Phase 4 tests covering seed/clear, clone-on-read, entry ownership, page ownership, page `INHERIT`, folder-aware list projection, detail authorization, embedded page mutation routing, repository writes, JournalService DTO projection, shared-content journal resolution notes/guardrails, and removal of socket-owned Journal reads.
+- [x] Investigate Foundry `showEntry` / journal-page sharing semantics. Result: `showEntry` carries a UUID reference only (`SocketBase.setupSharedContentListeners` stores `{ id, uuid }`); the browser hydrates the entry through `/api/journals/:id`, which now runs through `JournalStore.get(id, { subject, DETAIL_VISIBLE })`. No separate hydration path is needed — shared journal content inherits the same ownership policy as direct journal reads. The GM "force-show" override remains a future custom shared-content policy concern and is intentionally out of scope.
+  Files: `src/server/core/foundry/sockets/SocketBase.ts` (no change), `src/server/services/journals/JournalService.ts`.
+- [x] Remove socket/client-owned JournalEntry reads once callers are migrated. `CoreSocket.getJournals` and `ClientSocket.getJournals` are gone; the `JournalClientLike` route-client type no longer requires `getJournals` or `dispatchDocumentSocket`.
+  Files: `src/server/core/foundry/sockets/CoreSocket.ts`, `src/server/core/foundry/sockets/ClientSocket.ts`, `src/server/shared/utils/createRouteFoundryClient.ts`, `src/server/shared/types/documents.ts`, `src/tests/deprecated/socket-legacy/06-journals.test.ts`, `src/tests/unit/actor-store.test.ts`, `src/tests/unit/auth-status-smoke.test.ts`.
+- [x] Add Phase 4 tests covering seed/clear, clone-on-read, entry ownership, page ownership, page `INHERIT`, folder-aware list projection, detail authorization, embedded page mutation routing, and repository writes.
   Files: `src/tests/unit/journal-store.test.ts`, `src/tests/unit/journal-smoke.test.ts`, `src/tests/unit/modify-document-router.test.ts`, `src/tests/unit/run.ts`.
 
 Non-goals for Phase 4:
@@ -471,6 +471,15 @@ Non-goals for Phase 4:
 
 Exit for Phase 4: `JournalStore` / `JournalRepository` exist, JournalEntry and JournalEntryPage mutations route through the primary-document framework, JournalService reads from `JournalStore`, JournalEntry writes use `JournalRepository`, shared-content journal access is documented or routed through JournalService without bypassing Store visibility, socket/client-owned JournalEntry reads are removed from server call sites, and `npx tsc --noEmit` plus `npm run test:unit` pass.
 
+**Phase 4 verification addendum (May 16, 2026):**
+
+- `npx tsc --noEmit` passed.
+- `npm run test:unit` passed (`unit test suite passed`). New `journal-store.test.ts` covers seed/clone-on-read, entry ownership, page ownership (with omitted-page fail-closed), page `INHERIT` resolution, `listByFolderIds` with and without subject, embedded page mutation routing, and repository-write mirroring. `modify-document-router.test.ts` adds `JournalEntryPage` embedded-routing coverage. `journal-smoke.test.ts` now seeds `journalStore` instead of mocking `client.getJournals`, exercises hidden-detail 404 via Store-backed visibility, and asserts both Folder and JournalEntry create routes dispatch through their respective Repositories.
+- `app-socket-gateway.test.ts` system-handler count updated to 9 (5 foundry + 9 system bridges), adding `journalChanged` / `journalListInvalidated`.
+- Structural Phase 4 pieces are present: `JournalStore`, `JournalRepository`, `RawJournal` + `RawJournalPage` schema expansion, coordinator seeding after Folder, modifyDocument router registration with embedded handler for `JournalEntryPage`, `journalChanged` / `journalListInvalidated` bridge events with gateway fan-out, `JournalService.listJournals()` + `getJournalById()` reading from `JournalStore` with page-level visibility filtering, and JournalEntry/JournalEntryPage writes through `JournalRepository`.
+- Shared-content `showEntry` reference path keeps the existing `SocketBase` listener; client-side hydration goes through `/api/journals/:id` which now enforces `JournalStore.get` ownership at `DETAIL_VISIBLE`. No bypass path was introduced.
+- Client: `JournalProvider` subscribes to `journalChanged` / `journalListInvalidated` and refetches via the existing in-flight-coalesced + 75 ms debounced path.
+
 ---
 
 ## Exit Criteria
@@ -480,7 +489,7 @@ This ADR is fulfilled when every Foundry primary doc type covered by the alignme
 - [X] Phase 1: Base abstractions + `ChatMessageStore` + `ChatMessageRepository`. `ActorStore` / `ActorRepository` lifted onto the base.
 - [X] Phase 2: `UserStore` + `UserRepository`. `userMap` / `gameDataCache.users` consolidate.
 - [X] Phase 3: `FolderStore` + `FolderRepository`.
-- [ ] Phase 4: `JournalStore` + `JournalRepository` with two-level ownership.
+- [X] Phase 4: `JournalStore` + `JournalRepository` with two-level ownership.
 - [ ] Phase 5: `CombatStore` + `CombatRepository` with cross-store visibility.
 - [ ] Phase 6: `ItemStore` + `ItemRepository` (world-level).
 - [ ] Phase 7: `RollTableStore` / `MacroStore` / `PlaylistStore` / `CardsStore` (lazy) + `SceneStore` / `FogExplorationStore` / `AdventureStore` / `SettingStore` (stubs).

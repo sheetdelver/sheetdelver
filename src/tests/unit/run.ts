@@ -16,6 +16,7 @@ import { run as runUserStore } from './user-store.test';
 import { run as runCombatSort } from './combat-sort.test';
 import { run as runActorNormalization } from './actor-normalization.test';
 import { run as runJournalSmoke } from './journal-smoke.test';
+import { run as runJournalStore } from './journal-store.test';
 import { run as runModuleProxyMatcher } from './module-proxy-matcher.test';
 import { run as runModuleLifecycleState } from './module-lifecycle-state.test';
 import { run as runModuleManifestValidation } from './module-manifest-validation.test';
@@ -69,6 +70,7 @@ async function runAllUnitTests() {
     runModuleManifestValidation();
     await runModuleRegistryManager();
     await runActorNormalization();
+    await runJournalStore();
     await runJournalSmoke();
     await runRealtimeBroadcaster();
     await runAppSocketGateway();

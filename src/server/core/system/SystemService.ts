@@ -11,6 +11,7 @@ import { clearDocumentCache, seedDocumentCache } from '../documents/primary/Prim
 import { actorStore } from '../documents/primary/actors/ActorStore';
 import { chatMessageStore } from '../documents/primary/chat-messages/ChatMessageStore';
 import { folderStore } from '../documents/primary/folders/FolderStore';
+import { journalStore } from '../documents/primary/journals/JournalStore';
 import { userStore } from '../documents/primary/users/UserStore';
 import type { DocumentChangedEvent, DocumentListInvalidatedEvent } from '../documents/primary/base/PrimaryDocumentStore';
 
@@ -79,6 +80,21 @@ export class SystemService extends EventEmitter {
             this.systemClient?.emit('userListInvalidated', {
                 reason: event.reason,
                 userId: event.documentId,
+                targetUserIds: event.targetUserIds,
+            });
+        });
+
+        // JournalStore is the JournalEntry document-event source. Embedded
+        // JournalEntryPage mutations are reported as `update` events on the
+        // parent entry — gateway consumers refetch the entry detail to pick
+        // up the new page state.
+        journalStore.on('documentChanged', (event: DocumentChangedEvent) => {
+            this.systemClient?.emit('journalChanged', { journalId: event.id, action: event.action });
+        });
+        journalStore.on('documentListInvalidated', (event: DocumentListInvalidatedEvent) => {
+            this.systemClient?.emit('journalListInvalidated', {
+                reason: event.reason,
+                journalId: event.documentId,
                 targetUserIds: event.targetUserIds,
             });
         });

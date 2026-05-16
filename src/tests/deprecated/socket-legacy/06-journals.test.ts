@@ -4,6 +4,7 @@ import { loadConfig } from '@core/config';
 import 'dotenv/config';
 import { logger } from '@shared/utils/logger';
 import { folderStore } from '@server/core/documents/primary/folders/FolderStore';
+import { journalStore } from '@server/core/documents/primary/journals/JournalStore';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
 
 // Force test env (Ignore read-only error for test script)
@@ -34,9 +35,13 @@ async function testJournals() {
         // or GM? Let's use the config default (which was doratheexplorer in previous tests)
         logger.info(`👤 Identifying as: ${(client as any).config.username}`);
 
-        // 1. List
+        // 1. List (Store-backed)
         logger.info('📚 Fetching Journals...');
-        const journals = await client.getJournals();
+        await journalStore.seed(async () => {
+            const response = await core.dispatchDocumentSocket('JournalEntry', 'get', { broadcast: false });
+            return response?.result || [];
+        });
+        const journals = journalStore.list();
         logger.info(`✅ Fetched ${journals.length} Journal Entries`);
 
         logger.info('📁 Fetching Folders...');

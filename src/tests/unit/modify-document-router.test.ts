@@ -57,6 +57,7 @@ class RecordingStore extends PrimaryDocumentStore<TestDoc> {
 export async function run() {
     await runDirectTypeRouting();
     await runEmbeddedParentRouting();
+    await runJournalEntryPageEmbeddedRouting();
     await runActorDeltaDroppedSilently();
     await runUnregisteredTypeDroppedSilently();
     await runResetClearsRegistrations();
@@ -112,6 +113,32 @@ async function runEmbeddedParentRouting() {
     assert.equal(actor.received[0].parentUuid, 'Actor.actor-1');
     assert.equal(actor.received[1].type, 'ActiveEffect');
     assert.equal(actor.received[1].parentUuid, 'Actor.actor-1.Item.item-1');
+}
+
+async function runJournalEntryPageEmbeddedRouting() {
+    const router = new ModifyDocumentRouter();
+    const journal = new RecordingStore('JournalEntry');
+    router.register(journal);
+    router.registerEmbeddedHandler('JournalEntry', journal);
+
+    // JournalEntryPage under a JournalEntry → routes to JournalStore embedded handler.
+    router.route({
+        type: 'JournalEntryPage',
+        action: 'create',
+        result: [{ _id: 'page-1' }],
+        operation: { parentUuid: 'JournalEntry.entry-1' },
+    });
+    router.route({
+        type: 'JournalEntryPage',
+        action: 'update',
+        result: [{ _id: 'page-1', name: 'Renamed' }],
+        operation: { parentUuid: 'JournalEntry.entry-1' },
+    });
+
+    assert.equal(journal.received.length, 2);
+    assert.equal(journal.received[0].type, 'JournalEntryPage');
+    assert.equal(journal.received[0].parentUuid, 'JournalEntry.entry-1');
+    assert.equal(journal.received[1].action, 'update');
 }
 
 async function runActorDeltaDroppedSilently() {
