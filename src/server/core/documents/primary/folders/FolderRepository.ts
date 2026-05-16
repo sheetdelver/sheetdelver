@@ -3,15 +3,6 @@ import { PrimaryDocumentRepository, type DocumentTransport } from '../base/Prima
 import type { ModifyDocumentAction } from '../base/PrimaryDocumentStore';
 import { folderStore } from './FolderStore';
 
-function normalizeFolderInput(data: Record<string, unknown>): Record<string, unknown> {
-    const normalized = { ...data };
-    if (normalized.parent === undefined && normalized.folder !== undefined) {
-        normalized.parent = normalized.folder;
-    }
-    delete normalized.folder;
-    return normalized;
-}
-
 /**
  * Folder primary-document Repository. All Folder writes go through the same
  * request-scoped Repository path as other primary documents so Foundry enforces
@@ -32,12 +23,12 @@ export class FolderRepository extends PrimaryDocumentRepository<RawFolder> {
     }
 
     async create(folderData: Record<string, unknown>): Promise<any> {
-        return this.dispatchDocument('Folder', 'create', { data: [normalizeFolderInput(folderData)] });
+        return this.dispatchDocument('Folder', 'create', { data: [folderData] });
     }
 
     async update(folderId: string, updates: Record<string, unknown>): Promise<any> {
         return this.dispatchDocument('Folder', 'update', {
-            updates: [{ _id: folderId, ...normalizeFolderInput(updates) }],
+            updates: [{ _id: folderId, ...updates }],
         });
     }
 

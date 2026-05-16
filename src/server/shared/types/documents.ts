@@ -8,8 +8,6 @@ export interface RawFolder {
     name?: string;
     type?: string | null;
     parent?: string | null;
-    // Local/legacy DTO alias. Stores normalize this to `parent` at the boundary.
-    folder?: string | null;
     sort?: number;
     color?: string | null;
     permission?: Record<string, number>;

@@ -30,8 +30,7 @@ function normalizePermissionMap(value: unknown): FolderPermissionMap | undefined
 
 function normalizeFolderDocument(folder: RawFolder): RawFolder {
     const normalized = cloneDocument(folder) as RawFolder;
-    normalized.parent = normalized.parent ?? normalized.folder ?? null;
-    delete normalized.folder;
+    normalized.parent = normalized.parent ?? null;
 
     const permission = normalizePermissionMap(normalized.permission);
     if (permission) normalized.permission = permission as Record<string, number>;
@@ -42,10 +41,6 @@ function normalizeFolderDocument(folder: RawFolder): RawFolder {
 
 function normalizeFolderPatch(folder: RawFolder): RawFolder {
     const normalized = cloneDocument(folder) as RawFolder;
-    if (normalized.parent === undefined && normalized.folder !== undefined) {
-        normalized.parent = normalized.folder;
-    }
-    delete normalized.folder;
 
     if (normalized.permission !== undefined) {
         const permission = normalizePermissionMap(normalized.permission);

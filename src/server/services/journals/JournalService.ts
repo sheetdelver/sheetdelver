@@ -54,7 +54,7 @@ export function createJournalService() {
         _id: String(folder._id || folder.id || ''),
         name: String(folder.name || ''),
         type: String(folder.type || ''),
-        folder: (folder.parent ?? folder.folder ?? null) as string | null,
+        parent: (folder.parent ?? null) as string | null,
         sort: getNumberField(folder['sort']),
         color: getNullableStringField(folder['color']),
     });

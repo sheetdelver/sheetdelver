@@ -47,7 +47,7 @@ export function createJournalFolder(token: string | null, name: string, parentId
             data: {
                 name,
                 type: 'JournalEntry',
-                folder: parentId || null,
+                parent: parentId || null,
             },
         },
     });

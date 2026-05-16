@@ -55,7 +55,7 @@ export default function JournalBrowser() {
 
     const renderFolder = (folder: Folder) => {
         const isExpanded = expandedFolders[folder._id];
-        const childFolders = folders.filter(f => f.folder === folder._id);
+        const childFolders = folders.filter(f => f.parent === folder._id);
         const childJournals = filteredJournals.filter(j => j.folder === folder._id);
 
         return (
@@ -91,7 +91,7 @@ export default function JournalBrowser() {
         );
     };
 
-    const rootFolders = folders.filter(f => !f.folder);
+    const rootFolders = folders.filter(f => !f.parent);
     const rootJournals = filteredJournals.filter(j => !j.folder);
 
     if (!isJournalOpen) return null;

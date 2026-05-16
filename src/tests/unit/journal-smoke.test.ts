@@ -17,21 +17,21 @@ async function runJournalSmokeTests() {
             id: 'folder-root',
             name: 'Root Folder',
             type: 'JournalEntry',
-            folder: null,
+            parent: null,
         },
         {
             _id: 'folder-child',
             id: 'folder-child',
             name: 'Child Folder',
             type: 'JournalEntry',
-            folder: 'folder-root',
+            parent: 'folder-root',
         },
         {
             _id: 'folder-hidden',
             id: 'folder-hidden',
             name: 'Hidden Folder',
             type: 'JournalEntry',
-            folder: null,
+            parent: null,
         },
     ]);
     await journalStore.seed(async () => [
@@ -107,7 +107,7 @@ async function runJournalSmokeTests() {
 
     await journalService.createJournal(client, {
         type: 'Folder',
-        data: { name: 'New Folder', type: 'JournalEntry', folder: null },
+        data: { name: 'New Folder', type: 'JournalEntry', parent: null },
     });
     const folderCreateCall = dispatchCalls.find((call) => call.collection === 'Folder' && call.action === 'create');
     assert.ok(folderCreateCall);

@@ -25,7 +25,7 @@ export interface JournalFolderDto {
     _id: string;
     name: string;
     type: string;
-    folder: string | null;
+    parent: string | null;
     sort: number;
     color: string | null;
     ownership?: Record<string, number>;
