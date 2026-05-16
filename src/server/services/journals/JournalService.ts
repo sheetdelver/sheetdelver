@@ -11,6 +11,8 @@ import type {
     JournalEntryDto,
     JournalErrorPayload,
 } from '@shared/contracts/journals';
+import { FoundryUserRole } from '@server/core/documents/primary/base/ownership';
+import { userStore } from '@server/core/documents/primary/users/UserStore';
 
 export function createJournalService() {
     const getStringField = (value: unknown, fallback = ''): string => typeof value === 'string' ? value : fallback;
@@ -40,9 +42,7 @@ export function createJournalService() {
         const allJournals = await client.getJournals();
         const allFolders = await client.getFolders('JournalEntry');
 
-        const users = await client.getUsers();
-        const currentUser = users.find((u) => (u._id || u.id) === currentUserId);
-        const isGM = (currentUser?.role || 0) >= 3;
+        const isGM = !!currentUserId && userStore.getRole(currentUserId) >= FoundryUserRole.ASSISTANT;
         const resolvedUserId = currentUserId || undefined;
 
         const visibleJournals = allJournals.filter((j) => {

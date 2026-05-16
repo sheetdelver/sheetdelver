@@ -2,12 +2,10 @@ import express from 'express';
 import { logger } from '@shared/utils/logger';
 import { createUtilityService } from '@server/services/utility/UtilityService';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
-import type { FoundryUserLike } from '@server/shared/types/foundry';
 import type { RouteFoundryClient } from '@server/shared/types/requestContext';
 import { isErrorPayload } from '@server/shared/utils/isErrorPayload';
 
 interface UtilityRouteDeps {
-    getSystemUsers: () => Promise<FoundryUserLike[]>;
     getFallbackSharedContentClient: () => RouteFoundryClient;
 }
 

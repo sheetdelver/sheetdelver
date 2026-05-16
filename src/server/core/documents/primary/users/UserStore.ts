@@ -1,14 +1,31 @@
-import type { RawUser } from '@server/shared/types/users';
+import type { RawUser, UserWithPresence } from '@server/shared/types/users';
 import {
     PrimaryDocumentStore,
     type PrimaryDocumentType,
+    cloneDocument,
 } from '../base/PrimaryDocumentStore';
 import {
     DocumentOwnershipLevel,
     FoundryUserRole,
+    createDocumentAccessSubject,
     type DocumentAccessSubject,
     type ResolvedDocumentOwnershipLevel,
 } from '../base/ownership';
+import { userPresence } from './UserPresence';
+
+function getRawUserId(user: RawUser | null | undefined): string | null {
+    return user?._id || user?.id || null;
+}
+
+function getRawUserRole(user: RawUser | null | undefined): FoundryUserRole {
+    const directRole = user?.role;
+    if (typeof directRole === 'number') return directRole as FoundryUserRole;
+
+    const permissionRole = user?.permissions?.role;
+    if (typeof permissionRole === 'number') return permissionRole as FoundryUserRole;
+
+    return FoundryUserRole.NONE;
+}
 
 /**
  * User primary-document Store. Full hydration + bootstrap seed: mirrors
@@ -44,8 +61,27 @@ export class UserStore extends PrimaryDocumentStore<RawUser> {
      */
     public getRole(userId: string): FoundryUserRole {
         const user = this.documents.get(userId);
-        const role = typeof user?.role === 'number' ? user.role : null;
-        return role !== null ? (role as FoundryUserRole) : FoundryUserRole.NONE;
+        return getRawUserRole(user);
+    }
+
+    public createAccessSubject(userId: string | null | undefined): DocumentAccessSubject | null {
+        return createDocumentAccessSubject(userId, userId ? this.getRole(userId) : FoundryUserRole.NONE);
+    }
+
+    public getWithPresence(userId: string): UserWithPresence | null {
+        const user = this.get(userId);
+        return user ? userPresence.compose(user) : null;
+    }
+
+    public listWithPresence(): UserWithPresence[] {
+        return this.list().map(user => userPresence.compose(user));
+    }
+
+    public getGmUserIds(minRole: FoundryUserRole = FoundryUserRole.ASSISTANT): string[] {
+        return Array.from(this.documents.values())
+            .filter(user => getRawUserRole(user) >= minRole)
+            .map(getRawUserId)
+            .filter((userId): userId is string => typeof userId === 'string');
     }
 
     /**
@@ -54,7 +90,7 @@ export class UserStore extends PrimaryDocumentStore<RawUser> {
      */
     public findByName(name: string): RawUser | null {
         for (const user of this.documents.values()) {
-            if (user.name === name) return user;
+            if (user.name === name) return cloneDocument(user);
         }
         return null;
     }

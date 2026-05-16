@@ -1,5 +1,5 @@
 import type { RollMode } from '@shared/sdk';
-import type { FoundryClientLike, FoundryUserLike } from '@server/shared/types/foundry';
+import type { FoundryClientLike } from '@server/shared/types/foundry';
 import type { RawActor, ActorServiceClientLike } from '@server/shared/types/actors';
 
 export interface RawFolder {
@@ -78,7 +78,6 @@ export interface JournalClientLike extends FoundryClientLike {
     userId?: string | null;
     getJournals(): Promise<RawJournal[]>;
     getFolders(type: string): Promise<RawFolder[]>;
-    getUsers(): Promise<FoundryUserLike[]>;
     dispatchDocumentSocket(
         type: string,
         action: 'create' | 'get' | 'update' | 'delete',
@@ -109,7 +108,6 @@ export interface ChatClientLike extends FoundryClientLike {
 
 export interface CombatClientLike extends ActorServiceClientLike {
     getCombats(): Promise<RawCombat[]>;
-    getUsers(): Promise<FoundryUserLike[]>;
     getActor(actorId: string): Promise<(RawActor & { error?: string }) | null | undefined>;
     dispatchDocumentSocket(
         type: string,

@@ -3,29 +3,21 @@ import type { CoreSocket } from '@core/foundry/sockets/CoreSocket';
 import type { ClientSocket } from '@core/foundry/sockets/ClientSocket';
 import type { ChatSendBody } from '@server/shared/types/documents';
 import type { RouteFoundryClient } from '@server/shared/types/requestContext';
-import { systemService } from '@core/system/SystemService';
 import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
 import { ActorRepository } from '@server/core/documents/primary/actors/ActorRepository';
 import { ChatMessageRepository } from '@server/core/documents/primary/chat-messages/ChatMessageRepository';
 import {
     DOCUMENT_VISIBILITY,
-    FoundryUserRole,
-    createDocumentAccessSubject,
 } from '@server/core/documents/primary/base/ownership';
 import { PrimaryDocumentCacheNotReadyError } from '@server/core/documents/primary/errors';
-
-function getUserRole(userId?: string | null): number {
-    // System routes act as the service account and intentionally bypass user filtering.
-    if (!userId) return FoundryUserRole.GAMEMASTER;
-    return systemService.getSystemClient().getUser(userId)?.role ?? FoundryUserRole.NONE;
-}
+import { userStore } from '@server/core/documents/primary/users/UserStore';
 
 function ensureActorStoreReady(): void {
     if (!actorStore.isReady()) throw new PrimaryDocumentCacheNotReadyError('Actor');
 }
 
 function createBaseRouteFoundryClient(client: CoreSocket | ClientSocket): RouteFoundryClient {
-    const getSubject = () => createDocumentAccessSubject(client.userId, getUserRole(client.userId));
+    const getSubject = () => userStore.createAccessSubject(client.userId);
     // Repositories wrap the request-bound socket so Foundry sees the right user.
     const documentTransport = {
         dispatchDocument: (
@@ -112,7 +104,6 @@ function createBaseRouteFoundryClient(client: CoreSocket | ClientSocket): RouteF
         getChatLog: (limit: number) => client.getChatLog(limit),
         createChatMessage: (data: Record<string, unknown>) => chatMessageRepository.send(data),
         getCombats: () => client.getCombats(),
-        getUsers: () => client.getUsers(),
         getJournals: () => client.getJournals(),
         getFolders: (type: string) => client.getFolders(type),
         dispatchDocumentSocket: (

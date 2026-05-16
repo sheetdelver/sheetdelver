@@ -11,11 +11,12 @@ import { SystemAdapter } from '@modules/registry/types';
 import { CompendiumCache } from '../compendium-cache';
 import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
+import { userPresence } from '@server/core/documents/primary/users/UserPresence';
 import { ChatMessageRepository } from '@server/core/documents/primary/chat-messages/ChatMessageRepository';
 import { modifyDocumentRouter } from '@server/core/documents/primary/base/modifyDocumentRouter';
 // Side-effect import: registers Stores with the coordinator and router.
 import '@server/core/documents/primary/PrimaryDocumentCacheCoordinator';
-import { DOCUMENT_VISIBILITY, FoundryUserRole, createDocumentAccessSubject } from '@server/core/documents/primary/base/ownership';
+import { DOCUMENT_VISIBILITY, FoundryUserRole } from '@server/core/documents/primary/base/ownership';
 import { PrimaryDocumentCacheNotReadyError } from '@server/core/documents/primary/errors';
 import { createTextChatMessageData } from '@server/core/documents/primary/chat-messages/chatMessagePayload';
 import type { RawUser } from '@server/shared/types/users';
@@ -52,11 +53,6 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
     private consecutiveFailures = 0;
     private lastLaunchActivity = 0;
     private heartbeatPaused = false;
-    // Ephemeral presence state — runtime-only `active: boolean` per userId.
-    // User document fields live in UserStore (the primary-document subsystem).
-    // Presence is delivered through `userConnected` / `userDisconnected` /
-    // `userActivity` socket events and is NOT a User document field per Foundry.
-    private userPresence = new Map<string, boolean>();
     private retryCount = 0;
     private activeBrowserCount = 0;
     private lastUserActivityTimestamp = Date.now();
@@ -325,7 +321,7 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
                         this.worldState = 'setup';
                         this.gameDataCache = null; // Clear potential stale cache
                         this.sceneDataCache = null; // Clear scene cache
-                        this.userPresence.clear();
+                        userPresence.clear();
                         userStore.clear('world-setup');
                         clearTimeout(timeout);
                         // Still emit connect for setup mode to release the bootstrap lock
@@ -366,11 +362,8 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
                             await userStore.seed(async () => snapshot);
 
                             // Populate presence from activeUsers — ephemeral, not a doc field.
-                            this.userPresence.clear();
-                            const activeIds: string[] = Array.isArray(gameData.activeUsers) ? gameData.activeUsers : [];
-                            for (const id of activeIds) {
-                                if (typeof id === 'string') this.userPresence.set(id, true);
-                            }
+                            const activeIds: unknown[] = Array.isArray(gameData.activeUsers) ? gameData.activeUsers : [];
+                            userPresence.setActiveUsers(activeIds);
                         }
                         if (gameData.userId) {
                             this.userId = gameData.userId;
@@ -402,7 +395,7 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
                     }
                     this.gameDataCache = null; // Clear cache to prevent stale data
                     this.sceneDataCache = null; // Clear scene cache
-                    this.userPresence.clear();
+                    userPresence.clear();
                     userStore.clear('core-disconnect');
                     this.emit('disconnect', reason);
 
@@ -452,19 +445,19 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
                 this.socket.on('userConnected', (user: any) => {
                     const id = user._id || user.id;
                     logger.info(`CoreSocket | User connected: ${user.name} (${id})`);
-                    if (id) this.userPresence.set(id, true);
+                    userPresence.setActive(id, true);
                 });
 
                 this.socket.on('userDisconnected', (data: any) => {
                     const id = typeof data === 'string' ? data : (data.userId || data._id || data.id);
                     logger.info(`CoreSocket | User disconnected: ${id}`);
-                    if (id) this.userPresence.set(id, false);
+                    userPresence.setActive(id, false);
                 });
 
                 this.socket.on('userActivity', (userId: string, data: any) => {
                     if (userId && data) {
                         const isActive = data.active !== false;
-                        this.userPresence.set(userId, isActive);
+                        userPresence.setActive(userId, isActive);
                     }
                 });
 
@@ -496,7 +489,7 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
                     if (!userId) return;
                     logger.info(`CoreSocket | User deleted: ${userId}`);
                     this._routeModifyDocument('User', 'delete', null, { ids: [userId] });
-                    this.userPresence.delete(userId);
+                    userPresence.delete(userId);
                 });
             });
 
@@ -593,7 +586,7 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
 
             this.gameDataCache = null;
             this.sceneDataCache = null;
-            this.userPresence.clear();
+            userPresence.clear();
             userStore.clear('core-disconnect');
             actorStore.clear('core-disconnect');
             logger.info('CoreSocket | Explicitly disconnected.');
@@ -972,8 +965,7 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
 
         // Compatibility read surface: route clients now hit ActorStore first.
         if (!userId) return actorStore.list();
-        const user = this.getUser(userId);
-        const subject = createDocumentAccessSubject(userId, user?.role ?? FoundryUserRole.NONE);
+        const subject = userStore.createAccessSubject(userId);
         return subject
             ? actorStore.listActors({ subject, minOwnership: DOCUMENT_VISIBILITY.LIST_VISIBLE })
             : [];
@@ -1275,7 +1267,7 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
                 const fallbackData = await createTextChatMessageData({
                     content: `Rolling ${formula}: ${flavor || ''} (Error: ${msg})`,
                     author: options?.userId || this.userId,
-                    getUsers: () => this.getUsers(),
+                    getGmUserIds: () => userStore.getGmUserIds(),
                 });
                 return await this.createChatMessageDocument(fallbackData);
             }
@@ -1297,10 +1289,7 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
         if (mode === 'publicroll') return {};
         if (mode === 'selfroll') return { whisper: userId ? [userId] : [] };
 
-        // For blind/private/gm, we need GM users
-        const users = await this.getUsers();
-        // Role 4 is GM, 3 is Assistant GM
-        const gmIds = users.filter((u: any) => (u.role || u.permissions?.role) >= 3).map((u: any) => u._id || u.id);
+        const gmIds = userStore.getGmUserIds(FoundryUserRole.ASSISTANT);
 
         // Include author (userId) in whisper array for non-blind rolls so they can see their own result
         const authorId = userId ? [userId] : [];
@@ -1326,7 +1315,7 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
         const chatData = await createTextChatMessageData({
             content: `<b>${actor.name}</b> uses <b>${item.name}</b>`,
             author: this.userId,
-            getUsers: () => this.getUsers(),
+            getGmUserIds: () => userStore.getGmUserIds(),
         });
         await this.createChatMessageDocument(chatData);
         return true;
@@ -1340,43 +1329,7 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
         return this.gameDataCache?.system || {};
     }
 
-    public async getUsers(failHard: boolean = false): Promise<any[]> {
-        // After bootstrap, UserStore is the source of truth. During the bootstrap
-        // window (between socket connect and coordinator seeding), the gameData
-        // snapshot is the fallback. Presence (`active`) is composed at the read
-        // boundary from the ephemeral userPresence map.
-        if (userStore.isReady()) {
-            return userStore.list().map((u: RawUser) => ({
-                ...u,
-                active: this.userPresence.get(u._id || u.id || '') ?? false,
-            }));
-        }
-        if (this.gameDataCache?.users?.length) {
-            return this.gameDataCache.users.map((u: any) => ({
-                ...u,
-                active: this.userPresence.get(u._id || u.id) ?? Boolean(u.active),
-            }));
-        }
-        const response: any = await this.dispatchDocumentSocket('User', 'get', { broadcast: false }, undefined, failHard);
-        return response?.result || [];
-    }
-
     async evaluate<T>(): Promise<T> {
         return this.gameDataCache as any;
-    }
-
-    public getUser(userId: string): any {
-        // UserStore is the source of truth for the User document; presence is composed
-        // from the ephemeral userPresence map. During bootstrap the gameData snapshot
-        // serves as a fallback so consumers don't see undefined in the narrow window
-        // between socket connect and the coordinator seeding the Store.
-        if (userStore.isReady()) {
-            const doc = userStore.get(userId);
-            if (doc) return { ...doc, active: this.userPresence.get(userId) ?? false };
-            return null;
-        }
-        const fallback = this.gameDataCache?.users?.find((u: any) => (u._id === userId || u.id === userId));
-        if (fallback) return { ...fallback, active: this.userPresence.get(userId) ?? Boolean(fallback.active) };
-        return null;
     }
 }

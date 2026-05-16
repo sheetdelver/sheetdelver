@@ -2,7 +2,6 @@ import type { AppConfig } from '@shared/interfaces';
 import type { ChatClientLike, ChatSendBody, RawChatMessage } from '@server/shared/types/documents';
 import type { ChatLogPayload, ChatSendSuccessPayload, ChatErrorPayload, ChatMessageDto } from '@shared/contracts/chat';
 import { chatMessageStore } from '@server/core/documents/primary/chat-messages/ChatMessageStore';
-import { systemService } from '@core/system/SystemService';
 import {
     DOCUMENT_VISIBILITY,
     FoundryUserRole,
@@ -13,6 +12,7 @@ import {
     isRecord,
     normalizeSpeaker,
 } from '@server/core/documents/primary/chat-messages/chatMessagePayload';
+import { userStore } from '@server/core/documents/primary/users/UserStore';
 
 interface ChatServiceDeps {
     config: AppConfig;
@@ -34,7 +34,7 @@ function projectChatMessage(message: RawChatMessage, subjectUserId: string | nul
     const isAuthor = typeof message.author === 'string' && message.author === subjectUserId;
     const shouldMask = isBlind && !isGmLike && !isAuthor;
     const author = typeof message.author === 'string'
-        ? systemService.getSystemClient().getUser(message.author)
+        ? userStore.get(message.author)
         : null;
 
     return {
@@ -67,7 +67,7 @@ export function createChatService(deps: ChatServiceDeps) {
         // mostly world-visible anyway).
         const userId = client.userId;
         const role = userId
-            ? (systemService.getSystemClient().getUser(userId)?.role ?? FoundryUserRole.NONE)
+            ? userStore.getRole(userId)
             : FoundryUserRole.GAMEMASTER;
         const subject = createDocumentAccessSubject(userId ?? 'system', role);
 
@@ -127,7 +127,7 @@ export function createChatService(deps: ChatServiceDeps) {
             author: client.userId,
             rollMode: body.rollMode,
             speaker: body.speaker,
-            getUsers: () => systemService.getSystemClient().getUsers(),
+            getGmUserIds: () => userStore.getGmUserIds(),
         });
 
         await client.createChatMessage(chatData);

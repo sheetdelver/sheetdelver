@@ -2,6 +2,8 @@ import { logger } from '@shared/utils/logger';
 import { getAdapter } from '@modules/registry/server';
 import type { RawActor } from '@server/shared/types/actors';
 import type { CombatClientLike, RawCombat, RawCombatant } from '@server/shared/types/documents';
+import { FoundryUserRole } from '@server/core/documents/primary/base/ownership';
+import { userStore } from '@server/core/documents/primary/users/UserStore';
 import type {
     CombatDto,
     CombatListPayload,
@@ -35,6 +37,10 @@ export function sortCombatants(combatants: RawCombatant[] = []): RawCombatant[] 
         const bid = String(b._id || b.id || '');
         return (ib - ia) || (aid > bid ? 1 : -1);
     });
+}
+
+function isGmLike(userId: string | null | undefined): boolean {
+    return !!userId && userStore.getRole(userId) >= FoundryUserRole.ASSISTANT;
 }
 
 export function createCombatService(deps: CombatServiceDeps) {
@@ -76,10 +82,7 @@ export function createCombatService(deps: CombatServiceDeps) {
 
     // Authorization helper for turn advancement rules.
     const isAuthorizedForCombatTurn = async (client: CombatClientLike, combat: RawCombat, userId: string): Promise<boolean> => {
-        const users = await client.getUsers();
-        const user = users.find((u) => (u._id || u.id) === userId);
-        const isGM = (user?.role || 0) >= 3;
-        if (isGM) return true;
+        if (isGmLike(userId)) return true;
 
         const currentTurn = combat.turn ?? 0;
         const sortedCombatants = sortCombatants(combat.combatants || []);
@@ -145,11 +148,7 @@ export function createCombatService(deps: CombatServiceDeps) {
             return { error: 'Combat not found', status: 404 };
         }
 
-        const users = await client.getUsers();
-        const user = users.find((u) => (u._id || u.id) === client.userId);
-        const isGM = (user?.role || 0) >= 3;
-
-        if (!isGM) {
+        if (!isGmLike(client.userId)) {
             return { error: 'Unauthorized: Only GMs can move to previous turns', status: 403 };
         }
 

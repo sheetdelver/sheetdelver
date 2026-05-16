@@ -22,3 +22,7 @@ export interface RawUser {
     _stats?: Record<string, unknown>;
     [key: string]: unknown;
 }
+
+export type UserWithPresence = RawUser & {
+    active: boolean;
+};

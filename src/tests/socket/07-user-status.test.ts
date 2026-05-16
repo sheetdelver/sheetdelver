@@ -1,5 +1,6 @@
 import { CoreSocket } from '@core/foundry/sockets/CoreSocket';
 import { loadConfig } from '@core/config';
+import { userStore } from '@server/core/documents/primary/users/UserStore';
 
 /**
  * Test 7: Exploratory - User Status
@@ -19,13 +20,12 @@ export async function testUserStatus() {
         logger.info('📡 Connecting...');
         await client.connect();
 
-        // Wait for async User Sync (getUsers) to complete
+        // Wait for async UserStore seeding to complete
         await new Promise(resolve => setTimeout(resolve, 2000));
 
         logger.info('🔍 Fetching Users...');
 
-        // Use getUsersDetails() to check the internal state map which should be identifying active users
-        const users = await client.getUsers();
+        const users = userStore.listWithPresence();
 
         logger.info(`✅ Fetched ${users.length} Users`);
 

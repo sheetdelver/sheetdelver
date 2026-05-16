@@ -3,19 +3,20 @@ import { systemService } from '@core/system/SystemService';
 import { SetupManager } from '@core/foundry/SetupManager';
 import { UserRole } from '@shared/constants';
 import type { SystemStatusPayload } from '@shared/contracts/status';
+import { userStore } from '@server/core/documents/primary/users/UserStore';
 import type {
-    FoundryUserLike,
     FoundrySystemClientLike,
     SessionManagerLike,
     StatusServiceConfigLike,
 } from '@server/shared/types/foundry';
+import type { UserWithPresence } from '@server/shared/types/users';
 
 interface StatusServiceDeps {
     config: StatusServiceConfigLike;
     sessionManager: Pick<SessionManagerLike, 'isCacheReady'>;
 }
 
-export const sanitizeStatusUser = (user: FoundryUserLike, client: FoundrySystemClientLike) => ({
+export const sanitizeStatusUser = (user: Partial<UserWithPresence>, client: Pick<FoundrySystemClientLike, 'resolveUrl'>) => ({
     _id: user._id || user.id,
     name: user.name,
     role: user.role,
@@ -38,12 +39,12 @@ export function createStatusService(deps: StatusServiceDeps) {
             status: systemClient.worldState === 'closed' ? 'closed' : systemClient.worldState,
             worldTitle: 'Reconnecting...'
         };
-        let users: FoundryUserLike[] = [];
+        let users: UserWithPresence[] = [];
 
         try {
             const gameData = systemClient.getGameData();
             if (gameData) {
-                const usersList = gameData.users || [];
+                const usersList = userStore.isReady() ? userStore.listWithPresence() : [];
                 const activeCount = usersList.filter((u) => u.active).length;
                 const totalCount = usersList.length;
 

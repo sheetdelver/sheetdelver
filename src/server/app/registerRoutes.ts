@@ -128,7 +128,6 @@ export function registerRoutes(deps: RegisterRoutesDeps): void {
     registerCombatRoutes(appRouter, { normalizeActors });
     registerJournalRoutes(appRouter);
     registerUtilityRoutes(appRouter, {
-        getSystemUsers: async () => systemService.getSystemClient().getUsers(),
         getFallbackSharedContentClient: () => createSystemRouteFoundryClient(systemService.getSystemClient())
     });
 

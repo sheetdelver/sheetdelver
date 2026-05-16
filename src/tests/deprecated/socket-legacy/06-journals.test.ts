@@ -3,6 +3,7 @@ import { CoreSocket } from '@core/foundry/sockets/CoreSocket';
 import { loadConfig } from '@core/config';
 import 'dotenv/config';
 import { logger } from '@shared/utils/logger';
+import { userStore } from '@server/core/documents/primary/users/UserStore';
 
 // Force test env (Ignore read-only error for test script)
 // @ts-ignore
@@ -42,7 +43,7 @@ async function testJournals() {
         logger.info(`✅ Fetched ${folders.length} Journal Folders`);
 
         logger.info('👥 Fetching Users...');
-        const users = await client.getUsers();
+        const users = userStore.listWithPresence();
         logger.info(`✅ Fetched ${users.length} Users`);
 
         // 2. Create Journal

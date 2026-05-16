@@ -6,7 +6,6 @@ export type { FoundrySystemMeta };
 export interface FoundryMetadataClient {
     getAllCompendiumIndices(): Promise<any[]>;
     getSystem(): Promise<FoundrySystemMeta>;
-    getUsers(): Promise<any[]>;
     url: string;
 }
 
@@ -32,8 +31,6 @@ export interface FoundryClient extends Partial<FoundryMetadataClient> {
     evaluate<T>(pageFunction: any, arg?: any): Promise<T>;
 
     getSystem(): Promise<FoundrySystemMeta>;
-    getUsers(): Promise<any[]>;
-    getUsersDetails(): Promise<any[]>;
     getCurrentUserId(): string | null;
     getSystemData(): Promise<any>;
     getActors(): Promise<any[]>;

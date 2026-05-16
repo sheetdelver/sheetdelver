@@ -315,27 +315,29 @@ Exit for Phase 2: `UserStore` / `UserRepository` exist, user document mutations 
 
 Phase 2 introduced `UserStore`, but several call sites still ask the socket/client layer for users through `getUser()` or `getUsers()`. Those methods now mostly delegate to `UserStore`, but they keep user-document reads conceptually owned by the socket surface. As with the Phase 1 `sendMessage` cleanup, primary document reads should move to Store/repository utilities and route-client helpers, leaving sockets as transport/presence infrastructure rather than document read APIs.
 
-- [ ] Add Store-backed user read helpers for the common projections:
+- [x] Add Store-backed user read helpers for the common projections:
   - role lookup for `DocumentAccessSubject` construction,
   - full roster with composed presence,
   - GM-recipient lookup for roll-mode/chat helpers,
   - sanitized status-user projection if that remains server-side.
-  Files: `src/server/core/documents/primary/users/UserStore.ts`, optional `src/server/core/documents/primary/users/userPresence.ts` or a small projection helper near `StatusService`, `src/server/shared/types/users.ts`.
-- [ ] Replace subject-role lookups that still call `systemService.getSystemClient().getUser(...)`.
+  Files: `src/server/core/documents/primary/users/UserStore.ts`, `src/server/core/documents/primary/users/UserPresence.ts`, `src/server/shared/types/users.ts`.
+- [x] Replace subject-role lookups that still call `systemService.getSystemClient().getUser(...)`.
   Files: `src/server/shared/utils/createRouteFoundryClient.ts`, `src/server/realtime/AppSocketGateway.ts`, `src/server/services/chat/ChatService.ts`, `src/server/core/foundry/sockets/CoreSocket.ts`.
-- [ ] Replace GM/roster lookups that still call `client.getUsers()` or `systemService.getSystemClient().getUsers()`.
+- [x] Replace GM/roster lookups that still call `client.getUsers()` or `systemService.getSystemClient().getUsers()`.
   Files: `src/server/services/chat/ChatService.ts`, `src/server/shared/utils/createModuleFoundryClient.ts`, `src/server/shared/utils/createRouteFoundryClient.ts`, `src/server/core/documents/primary/chat-messages/chatMessagePayload.ts`, `src/server/core/foundry/sockets/CoreSocket.ts`, `src/server/services/combats/CombatService.ts`, `src/server/services/journals/JournalService.ts`, `src/server/app/registerRoutes.ts`.
-- [ ] Replace fallback chat author/user decoration that still calls `systemService.getSystemClient().getUser(...)`.
+- [x] Replace fallback chat author/user decoration that still calls `systemService.getSystemClient().getUser(...)`.
   Files: `src/server/core/foundry/sockets/ClientSocket.ts`.
-- [ ] Move status payload user data off `gameData.users` and onto the Store-backed roster plus composed presence state.
+- [x] Move status payload user data off `gameData.users` and onto the Store-backed roster plus composed presence state.
   Files: `src/server/services/status/StatusService.ts`, `src/server/core/foundry/sockets/CoreSocket.ts`, `src/server/shared/types/foundry.ts`.
-- [ ] Remove or deprecate `CoreSocket.getUser()` / `CoreSocket.getUsers()` and `ClientSocket.getUsers()` once all callers are migrated.
+- [x] Remove or deprecate `CoreSocket.getUser()` / `CoreSocket.getUsers()` and `ClientSocket.getUsers()` once all callers are migrated.
   Files: `src/server/core/foundry/sockets/CoreSocket.ts`, `src/server/core/foundry/sockets/ClientSocket.ts`, `src/server/core/foundry/interfaces.ts`.
-- [ ] Remove `getUsers` from internal route-client/service type requirements once user reads no longer flow through the socket/client surface.
+- [x] Remove `getUsers` from internal route-client/service type requirements once user reads no longer flow through the socket/client surface.
   Files: `src/server/shared/types/documents.ts`, `src/server/shared/types/utility.ts`, `src/server/shared/types/foundry.ts`, affected unit mocks.
-- [ ] Update socket probes or legacy tests that still exercise `client.getUsers()` so they verify the new Store-backed route/helper path instead.
+- [x] Update socket probes or legacy tests that still exercise `client.getUsers()` so they verify the new Store-backed route/helper path instead.
   Files: `src/tests/socket/04-users-compendia.test.ts`, `src/tests/socket/07-user-status.test.ts`, `src/tests/unit/*.test.ts`.
-- [ ] Verify the cleanup with `rg "\.getUser\(|\.getUsers\(|getUser\(|getUsers\(" src/server -g "*.ts"`, `npx tsc --noEmit`, and `npm run test:unit`.
+- [x] Verify the cleanup with `rg "\.getUser\(|\.getUsers\(|getUser\(|getUsers\(" src/server -g "*.ts"`, `npx tsc --noEmit`, and `npm run test:unit`.
+
+Closure verification (May 16, 2026): Store-backed user helpers now own role lookup, presence-composed rosters, and GM recipient lookup. `UserPresence` owns runtime `active` state outside User documents. Exact cleanup grep finds no `getUser()` / `getUsers()` call sites under `src/server` or `src`. `npx tsc --noEmit` passed. `npm run test:unit` passed when rerun outside the sandbox; the sandboxed run failed before tests started because `tsx` could not open its IPC pipe.
 
 ---
 
@@ -344,7 +346,7 @@ Phase 2 introduced `UserStore`, but several call sites still ask the socket/clie
 This ADR is fulfilled when every Foundry primary doc type covered by the alignment plan has its `<Type>Store` + `<Type>Repository` implementation against the shared base — including stubs for the types Sheet Delver doesn't currently use.
 
 - [X] Phase 1: Base abstractions + `ChatMessageStore` + `ChatMessageRepository`. `ActorStore` / `ActorRepository` lifted onto the base.
-- [ ] Phase 2: `UserStore` + `UserRepository`. `userMap` / `gameDataCache.users` consolidate.
+- [X] Phase 2: `UserStore` + `UserRepository`. `userMap` / `gameDataCache.users` consolidate.
 - [ ] Phase 3: `FolderStore` + `FolderRepository`.
 - [ ] Phase 4: `JournalStore` + `JournalRepository` with two-level ownership.
 - [ ] Phase 5: `CombatStore` + `CombatRepository` with cross-store visibility.

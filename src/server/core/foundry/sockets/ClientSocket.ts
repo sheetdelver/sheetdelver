@@ -4,6 +4,7 @@ import { logger } from '@shared/utils/logger';
 import { systemService } from '../../system/SystemService';
 import { FoundryConfig } from '../types';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
+import { userStore } from '@server/core/documents/primary/users/UserStore';
 
 export class ClientSocket extends SocketBase {
     public userId: string | null = null;
@@ -170,8 +171,7 @@ export class ClientSocket extends SocketBase {
                 const sorted = [...raw].sort((a: any, b: any) => (a.timestamp || 0) - (b.timestamp || 0));
 
                 // 2. Filter based on visibility (replicate Foundry's ChatMessage.visible)
-                const user = systemService.getSystemClient().getUser(this.userId || '');
-                const isGM = (user?.role || 0) >= 3;
+                const isGM = !!this.userId && userStore.getRole(this.userId) >= 3;
 
                 const visible = sorted.filter((msg: any) => {
                     // Replicate Foundry's ChatMessage.visible getter logic
@@ -208,7 +208,7 @@ export class ClientSocket extends SocketBase {
                     const shouldMask = isBlind && !isGM;
 
                     // Resolve Name: Prioritize User Name from author ID map
-                    const author = systemService.getSystemClient().getUser(msg.author);
+                    const author = typeof msg.author === 'string' ? userStore.get(msg.author) : null;
                     const userName = author?.name || msg.alias || 'Unknown';
 
                     return {
@@ -250,10 +250,6 @@ export class ClientSocket extends SocketBase {
 
     public async getSystem(): Promise<any> {
         return systemService.getSystemClient().getSystem();
-    }
-
-    public async getUsers(): Promise<any[]> {
-        return systemService.getSystemClient().getUsers();
     }
 
     public async getCombats(): Promise<any[]> {

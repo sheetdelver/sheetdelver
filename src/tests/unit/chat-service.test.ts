@@ -1,7 +1,8 @@
 import { strict as assert } from 'node:assert';
 import { createChatService } from '@server/services/chat/ChatService';
 import { chatMessageStore } from '@server/core/documents/primary/chat-messages/ChatMessageStore';
-import { systemService } from '@core/system/SystemService';
+import { userStore } from '@server/core/documents/primary/users/UserStore';
+import { FoundryUserRole } from '@server/core/documents/primary/base/ownership';
 import type { ChatClientLike } from '@server/shared/types/documents';
 
 const config = {
@@ -31,23 +32,22 @@ export async function run() {
     console.log('  - ChatService: all checks passed');
 }
 
-async function withMockSystemClient(callback: () => Promise<void>) {
-    const originalGetSystemClient = (systemService as any).getSystemClient;
-    (systemService as any).getSystemClient = () => ({
-        getUser: (userId: string) => userId === 'p-author' ? { _id: 'p-author', name: 'Alice', role: 1 } : null,
-        getUsers: async () => [{ _id: 'gm-1', role: 4 }],
-    });
+async function withMockUsers(callback: () => Promise<void>) {
+    await userStore.seed(async () => [
+        { _id: 'p-author', name: 'Alice', role: FoundryUserRole.PLAYER },
+        { _id: 'gm-1', name: 'GM', role: FoundryUserRole.GAMEMASTER },
+    ]);
 
     try {
         await callback();
     } finally {
-        (systemService as any).getSystemClient = originalGetSystemClient;
         chatMessageStore.clear('chat-service-test');
+        userStore.clear('chat-service-test');
     }
 }
 
 async function runStoreBackedReadsProjectChatDto() {
-    await withMockSystemClient(async () => {
+    await withMockUsers(async () => {
         await chatMessageStore.seed(async () => [
             {
                 _id: 'roll-message',
@@ -74,7 +74,7 @@ async function runStoreBackedReadsProjectChatDto() {
 }
 
 async function runNormalChatWritesThroughCreateChatMessage() {
-    await withMockSystemClient(async () => {
+    await withMockUsers(async () => {
         const createdMessages: Array<Record<string, unknown>> = [];
         let rawDispatchCalls = 0;
         const service = createChatService(config);
@@ -100,7 +100,7 @@ async function runNormalChatWritesThroughCreateChatMessage() {
 }
 
 async function runRollChatWritesThroughCreateChatMessage() {
-    await withMockSystemClient(async () => {
+    await withMockUsers(async () => {
         const createdMessages: Array<Record<string, unknown>> = [];
         let rawDispatchCalls = 0;
         const rollOptions: unknown[] = [];

@@ -2,6 +2,7 @@ import type { RouteFoundryClient } from '@server/shared/types/requestContext';
 import type { ModuleFoundryClient } from '@shared/sdk';
 import { simulateTableDraw } from '@shared/sdk/utils';
 import { createTextChatMessageData } from '@server/core/documents/primary/chat-messages/chatMessagePayload';
+import { userStore } from '@server/core/documents/primary/users/UserStore';
 
 /**
  * Wraps a RouteFoundryClient (the core's internal type) to satisfy the
@@ -28,7 +29,7 @@ export function createModuleFoundryClient(client: RouteFoundryClient): ModuleFou
                 author: client.userId,
                 rollMode: options?.rollMode,
                 speaker: options?.speaker,
-                getUsers: () => client.getUsers(),
+                getGmUserIds: () => userStore.getGmUserIds(),
                 extra,
             });
             const response = await client.createChatMessage(chatData) as any;

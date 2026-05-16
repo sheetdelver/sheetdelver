@@ -1,11 +1,10 @@
 import { UserRole } from '@shared/constants';
 import { logger } from '@shared/utils/logger';
-import type { UtilityClientLike, UtilitySystemClientLike } from '@server/shared/types/utility';
-import type { FoundryUserLike } from '@server/shared/types/foundry';
+import type { UtilityClientLike } from '@server/shared/types/utility';
 import type { RouteFoundryClient } from '@server/shared/types/requestContext';
+import { userStore } from '@server/core/documents/primary/users/UserStore';
 
 interface UtilityServiceDeps {
-    getSystemUsers: () => Promise<FoundryUserLike[]>;
     getFallbackSharedContentClient: () => RouteFoundryClient;
 }
 
@@ -22,10 +21,10 @@ export function createUtilityService(deps: UtilityServiceDeps) {
 
     // Session user projection mirrors the public status user shape for dashboard consumers.
     const getSessionUsers = async (client: UtilityClientLike) => {
-        const users = await deps.getSystemUsers();
-        logger.debug(`[API] /session/users: Found ${users.length} users via System Client`);
+        const users = userStore.isReady() ? userStore.listWithPresence() : [];
+        logger.debug(`[API] /session/users: Found ${users.length} users via UserStore`);
 
-        const sanitizedUsers = users.map((u: FoundryUserLike) => ({
+        const sanitizedUsers = users.map((u) => ({
             _id: u._id || u.id,
             name: u.name,
             role: u.role,

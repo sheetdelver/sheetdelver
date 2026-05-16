@@ -1,10 +1,14 @@
 import { strict as assert } from 'node:assert';
 import { createJournalService } from '@server/services/journals/JournalService';
+import { userStore } from '@server/core/documents/primary/users/UserStore';
 
 async function runJournalSmokeTests() {
     const dispatchCalls: Array<{ collection: string; action: string; payload: unknown }> = [];
 
     const journalService = createJournalService();
+    await userStore.seed(async () => [
+        { _id: 'user-1', id: 'user-1', role: 2 },
+    ]);
 
     const client = {
         userId: 'user-1',
@@ -53,9 +57,6 @@ async function runJournalSmokeTests() {
                 type: 'JournalEntry',
                 folder: null,
             },
-        ]),
-        getUsers: async () => ([
-            { _id: 'user-1', id: 'user-1', role: 2 },
         ]),
         dispatchDocumentSocket: async (collection: string, action: string, payload: unknown) => {
             dispatchCalls.push({ collection, action, payload });
@@ -110,7 +111,11 @@ async function runJournalSmokeTests() {
 }
 
 export async function run() {
-    await runJournalSmokeTests();
+    try {
+        await runJournalSmokeTests();
+    } finally {
+        userStore.clear('journal-smoke-test');
+    }
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

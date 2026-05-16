@@ -1,5 +1,6 @@
 import { CoreSocket } from '@core/foundry/sockets/CoreSocket';
 import { loadConfig } from '@core/config';
+import { userStore } from '@server/core/documents/primary/users/UserStore';
 
 /**
  * Test 4: User and Compendium Data
@@ -20,29 +21,29 @@ export async function testUsersAndCompendia() {
         await client.connect();
         logger.info('✅ Connected\n');
 
-        // Test 4a: getUsers()
-        logger.info('4a. Testing getUsers()...');
+        // Test 4a: UserStore roster
+        logger.info('4a. Testing UserStore roster...');
         try {
-            const users = await client.getUsers();
+            const users = userStore.listWithPresence();
             logger.info(`   ✅ Found ${users.length} users`);
             users.forEach((u: any) => {
                 logger.info(`      - ${u.name}: Role ${u.role} (${typeof u.role})`);
             });
-            results.tests.push({ name: 'getUsers', success: true, data: { count: users.length } });
+            results.tests.push({ name: 'UserStore roster', success: true, data: { count: users.length } });
         } catch (error: any) {
             logger.info(`   ❌ Failed: ${error.message}`);
-            results.tests.push({ name: 'getUsers', success: false, error: error.message });
+            results.tests.push({ name: 'UserStore roster', success: false, error: error.message });
         }
 
-        // Test 4b: getUsersDetails()
-        logger.info('\n4b. Testing getUsersDetails()...');
+        // Test 4b: gameData users snapshot
+        logger.info('\n4b. Testing gameData users snapshot...');
         try {
             await client.getGameData()['users'];
             logger.info(`   ✅ Retrieved detailed user info`);
-            results.tests.push({ name: 'getUsersDetails', success: true });
+            results.tests.push({ name: 'gameData users snapshot', success: true });
         } catch (error: any) {
             logger.info(`   ❌ Failed: ${error.message}`);
-            results.tests.push({ name: 'getUsersDetails', success: false, error: error.message });
+            results.tests.push({ name: 'gameData users snapshot', success: false, error: error.message });
         }
 
         // Test 4c: getAllCompendiumIndices()

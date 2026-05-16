@@ -1,5 +1,4 @@
 import type { ChatSendBody } from '@server/shared/types/documents';
-import { FoundryUserRole } from '@server/core/documents/primary/base/ownership';
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -14,16 +13,12 @@ export function normalizeSpeaker(speaker: ChatSendBody['speaker'] | unknown): Ch
 export async function resolveRollModeData(
     mode: string | undefined,
     userId: string | null | undefined,
-    getUsers: () => Promise<any[]>,
+    getGmUserIds: () => Promise<string[]> | string[],
 ): Promise<Record<string, unknown>> {
     if (!mode || mode === 'publicroll' || mode === 'public') return {};
     if (mode === 'selfroll' || mode === 'self') return { whisper: userId ? [userId] : [] };
 
-    const users = await getUsers();
-    const gmIds = users
-        .filter((u: any) => (u.role || u.permissions?.role || 0) >= FoundryUserRole.ASSISTANT)
-        .map((u: any) => u._id || u.id)
-        .filter((id: unknown): id is string => typeof id === 'string');
+    const gmIds = await getGmUserIds();
     const authorId = userId ? [userId] : [];
 
     if (mode === 'gmroll' || mode === 'gm' || mode === 'private') {
@@ -39,10 +34,10 @@ export async function createTextChatMessageData(options: {
     author: string | null | undefined;
     rollMode?: string;
     speaker?: ChatSendBody['speaker'] | unknown;
-    getUsers: () => Promise<any[]>;
+    getGmUserIds: () => Promise<string[]> | string[];
     extra?: Record<string, unknown>;
 }): Promise<Record<string, unknown>> {
-    const { content, author, rollMode, speaker, getUsers, extra } = options;
+    const { content, author, rollMode, speaker, getGmUserIds, extra } = options;
     if (!author) throw new Error('Cannot send message: Author ID missing');
 
     const data: Record<string, unknown> = {
@@ -53,6 +48,6 @@ export async function createTextChatMessageData(options: {
     };
     const normalizedSpeaker = normalizeSpeaker(speaker);
     if (normalizedSpeaker) data.speaker = normalizedSpeaker;
-    Object.assign(data, await resolveRollModeData(rollMode, author, getUsers));
+    Object.assign(data, await resolveRollModeData(rollMode, author, getGmUserIds));
     return data;
 }

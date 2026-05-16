@@ -7,9 +7,8 @@ import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
 import { chatMessageStore } from '@server/core/documents/primary/chat-messages/ChatMessageStore';
 import {
     DOCUMENT_VISIBILITY,
-    FoundryUserRole,
-    createDocumentAccessSubject,
 } from '@server/core/documents/primary/base/ownership';
+import { userStore } from '@server/core/documents/primary/users/UserStore';
 import type {
     RealtimeActorUpdatePayload,
     RealtimeCombatUpdatePayload,
@@ -89,9 +88,7 @@ export function registerAppSocketGateway({
             // are dynamic per event (ADR-0012's fan-out rule).
             const getSubject = () => {
                 const userId = socket.userSession?.client.userId;
-                if (!userId) return null;
-                const user = systemService.getSystemClient().getUser(userId);
-                return createDocumentAccessSubject(userId, user?.role ?? FoundryUserRole.NONE);
+                return userStore.createAccessSubject(userId);
             };
 
             const handleCombatUpdate = (...args: unknown[]) => {

@@ -1,6 +1,8 @@
 import { strict as assert } from 'node:assert';
 import { registerAppSocketGateway } from '@server/realtime/AppSocketGateway';
 import { systemService } from '@core/system/SystemService';
+import { userStore } from '@server/core/documents/primary/users/UserStore';
+import { FoundryUserRole } from '@server/core/documents/primary/base/ownership';
 import type { SystemStatusPayload } from '@shared/contracts/status';
 
 type EventHandler = (...args: unknown[]) => void;
@@ -63,9 +65,12 @@ async function runGatewayTests() {
     const browserCounts: number[] = [];
 
     try {
+        await userStore.seed(async () => [
+            { _id: 'user-1', name: 'Gateway User', role: FoundryUserRole.GAMEMASTER },
+        ]);
+
         (systemService as any).getSystemClient = () => ({
             updateActiveBrowserCount: (count: number) => browserCounts.push(count),
-            getUser: () => ({ role: 4 }),
             on: (event: string, handler: EventHandler) => systemAttachedHandlers.push({ event, handler }),
             off: (event: string, handler: EventHandler) => systemDetachedHandlers.push({ event, handler }),
         });
@@ -155,6 +160,7 @@ async function runGatewayTests() {
         assert.equal(guestSocket.rooms.has('authenticated'), false);
     } finally {
         (systemService as any).getSystemClient = originalGetSystemClient;
+        userStore.clear('app-socket-gateway-test');
     }
 }
 

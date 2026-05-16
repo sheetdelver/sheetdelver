@@ -1,6 +1,7 @@
 import { strict as assert } from 'node:assert';
 import { createActorService } from '@server/services/actors/ActorService';
 import { createCombatService } from '@server/services/combats/CombatService';
+import { userStore } from '@server/core/documents/primary/users/UserStore';
 
 async function runActorReadWriteSmoke() {
     const normalizeCalls: Array<{ ids: string[] }> = [];
@@ -103,6 +104,17 @@ async function runCombatReadActionSmoke() {
         },
     });
 
+    await userStore.seed(async () => [
+        { _id: 'gm-1', id: 'gm-1', role: 4 },
+        { _id: 'player-1', id: 'player-1', role: 1 },
+        { _id: 'player-owner', id: 'player-owner', role: 1 },
+        { _id: 'gm-wrap', id: 'gm-wrap', role: 4 },
+        { _id: 'gm-not-found', id: 'gm-not-found', role: 4 },
+        { _id: 'gm-prev-happy', id: 'gm-prev-happy', role: 4 },
+        { _id: 'gm-prev-wrap', id: 'gm-prev-wrap', role: 4 },
+        { _id: 'gm-prev-start', id: 'gm-prev-start', role: 4 },
+    ]);
+
     const combatClient = {
         userId: 'gm-1',
         getCombats: async () => ([
@@ -123,9 +135,6 @@ async function runCombatReadActionSmoke() {
             name: `Actor ${id}`,
             ownership: { 'gm-1': 3 },
         }),
-        getUsers: async () => ([
-            { _id: 'gm-1', id: 'gm-1', role: 4 },
-        ]),
         dispatchDocumentSocket: async (collection: string, action: string, payload: unknown) => {
             dispatchCalls.push({ collection, action, payload });
         },
@@ -168,7 +177,6 @@ async function runCombatReadActionSmoke() {
         const client = {
             userId: params.userId,
             getCombats: async () => ([params.combat]),
-            getUsers: async () => ([{ _id: params.userId, id: params.userId, role: params.role }]),
             getActor: async (id: string) => ({
                 _id: id,
                 id,
@@ -362,7 +370,11 @@ async function runCombatReadActionSmoke() {
 
 export async function run() {
     await runActorReadWriteSmoke();
-    await runCombatReadActionSmoke();
+    try {
+        await runCombatReadActionSmoke();
+    } finally {
+        userStore.clear('actor-combat-smoke-test');
+    }
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

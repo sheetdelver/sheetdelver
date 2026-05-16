@@ -1,5 +1,6 @@
 import { strict as assert } from 'node:assert';
 import { UserStore } from '@server/core/documents/primary/users/UserStore';
+import { userPresence } from '@server/core/documents/primary/users/UserPresence';
 import {
     DocumentOwnershipLevel,
     DOCUMENT_VISIBILITY,
@@ -22,6 +23,7 @@ export async function run() {
     await runSeedAndList();
     await runOwnershipPolicy();
     await runRoleLookup();
+    await runReadModelHelpers();
     await runFindByName();
     await runBroadcastUpdatesStore();
     await runNoUserOwnershipMap();
@@ -74,6 +76,31 @@ async function runRoleLookup() {
     assert.equal(store.getRole('p-2'), FoundryUserRole.TRUSTED);
     // Missing user returns NONE — fail-closed for unknown subjects.
     assert.equal(store.getRole('missing'), FoundryUserRole.NONE);
+}
+
+async function runReadModelHelpers() {
+    const store = new UserStore();
+    await store.seed(async () => users);
+    userPresence.clear();
+    userPresence.setActive('p-1', true);
+
+    try {
+        assert.equal(store.createAccessSubject('gm-1')?.role, FoundryUserRole.GAMEMASTER);
+        assert.equal(store.createAccessSubject('missing')?.role, FoundryUserRole.NONE);
+        assert.equal(store.createAccessSubject(null), null);
+
+        assert.deepEqual(store.getGmUserIds(), ['gm-1']);
+
+        const activeUser = store.getWithPresence('p-1');
+        assert.equal(activeUser?.active, true);
+        assert.equal(activeUser?.name, 'Alice');
+
+        const roster = store.listWithPresence();
+        assert.equal(roster.find(u => u._id === 'p-1')?.active, true);
+        assert.equal(roster.find(u => u._id === 'p-2')?.active, false);
+    } finally {
+        userPresence.clear();
+    }
 }
 
 async function runFindByName() {
