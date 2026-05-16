@@ -10,6 +10,7 @@ import { CompendiumCache } from '../foundry/compendium-cache';
 import { clearDocumentCache, seedDocumentCache } from '../documents/primary/PrimaryDocumentCacheCoordinator';
 import { actorStore } from '../documents/primary/actors/ActorStore';
 import { chatMessageStore } from '../documents/primary/chat-messages/ChatMessageStore';
+import { userStore } from '../documents/primary/users/UserStore';
 import type { DocumentChangedEvent, DocumentListInvalidatedEvent } from '../documents/primary/base/PrimaryDocumentStore';
 
 /**
@@ -48,6 +49,21 @@ export class SystemService extends EventEmitter {
             this.systemClient?.emit('chatMessageListInvalidated', {
                 reason: event.reason,
                 messageId: event.documentId,
+                targetUserIds: event.targetUserIds,
+            });
+        });
+
+        // UserStore is the User-document-event source. Per ADR-0011 Phase 2,
+        // user-document changes get their own event surface, separate from the
+        // broader systemStatusUpdate broadcast (which stays for connection /
+        // world-status transitions and presence shifts).
+        userStore.on('documentChanged', (event: DocumentChangedEvent) => {
+            this.systemClient?.emit('userChanged', { userId: event.id, action: event.action });
+        });
+        userStore.on('documentListInvalidated', (event: DocumentListInvalidatedEvent) => {
+            this.systemClient?.emit('userListInvalidated', {
+                reason: event.reason,
+                userId: event.documentId,
                 targetUserIds: event.targetUserIds,
             });
         });

@@ -4,6 +4,7 @@ import type { PrimaryDocumentType } from './base/PrimaryDocumentStore';
 import { modifyDocumentRouter } from './base/modifyDocumentRouter';
 import { actorStore } from './actors/ActorStore';
 import { chatMessageStore } from './chat-messages/ChatMessageStore';
+import { userStore } from './users/UserStore';
 
 /**
  * One bootstrap-seed contributor. Registered with the coordinator so the
@@ -93,9 +94,30 @@ primaryDocumentCacheCoordinator.register({
     },
 });
 
+primaryDocumentCacheCoordinator.register({
+    type: 'User',
+    async seed(client) {
+        await userStore.seed(async () => {
+            // Foundry's `User.get` returns the full roster. Per ADR-0013 user docs
+            // carry no per-user ownership map; presence (`active`) is delivered
+            // separately by `userConnected` / `userDisconnected` socket events.
+            const response: any = await client.dispatchDocumentSocket('User', 'get', { broadcast: false });
+            return response?.result || [];
+        });
+        logger.info(`PrimaryDocumentCacheCoordinator | Seeded ${userStore.list().length} users.`);
+    },
+    clear(reason) {
+        userStore.clear(reason);
+    },
+    isReady() {
+        return userStore.isReady();
+    },
+});
+
 // modifyDocument router bindings
 modifyDocumentRouter.register(actorStore);
 modifyDocumentRouter.register(chatMessageStore);
+modifyDocumentRouter.register(userStore);
 // Embedded children: Actor owns Item + ActiveEffect with parentUuid 'Actor.xxx...'.
 modifyDocumentRouter.registerEmbeddedHandler('Actor', actorStore);
 

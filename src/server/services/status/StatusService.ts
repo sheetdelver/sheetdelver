@@ -75,9 +75,11 @@ export function createStatusService(deps: StatusServiceDeps) {
                 if (probeData) {
                     system.worldTitle = probeData.title || system.worldTitle;
                     system.worldDescription = probeData.description || null;
-                    // Surface user count discovered by the guest probe.
-                    const userMapSize = systemClient.userMap?.size || 0;
-                    system.users = { active: 0, total: userMapSize };
+                    // Surface user count discovered by the guest probe. UserStore is
+                    // not seeded yet in this state; probeUserCount preserves the figure
+                    // for the closed/probe-only UI surface.
+                    const probeTotal = systemClient.probeUserCount ?? 0;
+                    system.users = { active: 0, total: probeTotal };
                 }
                 system.appVersion = deps.config.app.version;
             }

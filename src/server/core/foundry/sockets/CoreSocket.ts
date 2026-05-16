@@ -10,6 +10,7 @@ import { getAdapter } from '@modules/registry/server';
 import { SystemAdapter } from '@modules/registry/types';
 import { CompendiumCache } from '../compendium-cache';
 import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
+import { userStore } from '@server/core/documents/primary/users/UserStore';
 import { ChatMessageRepository } from '@server/core/documents/primary/chat-messages/ChatMessageRepository';
 import { modifyDocumentRouter } from '@server/core/documents/primary/base/modifyDocumentRouter';
 // Side-effect import: registers Stores with the coordinator and router.
@@ -17,6 +18,7 @@ import '@server/core/documents/primary/PrimaryDocumentCacheCoordinator';
 import { DOCUMENT_VISIBILITY, FoundryUserRole, createDocumentAccessSubject } from '@server/core/documents/primary/base/ownership';
 import { PrimaryDocumentCacheNotReadyError } from '@server/core/documents/primary/errors';
 import { createTextChatMessageData } from '@server/core/documents/primary/chat-messages/chatMessagePayload';
+import type { RawUser } from '@server/shared/types/users';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
@@ -39,11 +41,22 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
      */
     public probeWorldData: any = null;
 
+    /**
+     * Count of users discovered during the guest probe. Used by the status
+     * payload when the world is discovered but Sheet Delver can't fully connect
+     * (UserStore is not yet seeded in that state).
+     */
+    public probeUserCount: number = 0;
+
     // Core Socket maintains the singular connection
     private consecutiveFailures = 0;
     private lastLaunchActivity = 0;
     private heartbeatPaused = false;
-    private userMap = new Map<string, any>();
+    // Ephemeral presence state — runtime-only `active: boolean` per userId.
+    // User document fields live in UserStore (the primary-document subsystem).
+    // Presence is delivered through `userConnected` / `userDisconnected` /
+    // `userActivity` socket events and is NOT a User document field per Foundry.
+    private userPresence = new Map<string, boolean>();
     private retryCount = 0;
     private activeBrowserCount = 0;
     private lastUserActivityTimestamp = Date.now();
@@ -221,10 +234,10 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
                 // and getWorldStatus() confirms the world is fully active.
                 this.worldState = 'startup';
                 this.probeWorldData = joinData.world;  // Cache for UI surface during recovery
-                // Update Cache and User Map
-                if (joinData.users) {
-                    joinData.users.forEach((u: any) => this.userMap.set(u._id, u));
-                }
+                this.probeUserCount = Array.isArray(joinData.users) ? joinData.users.length : 0;
+                // Probe-time user data stays on the local joinData object — it's used
+                // only for service-account name resolution (below). UserStore is seeded
+                // properly at the gameData step after the main socket connects.
             } else {
                 this.worldState = 'offline';
 
@@ -244,16 +257,19 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
                 return;
             }
 
-            // Identify Service Account ID (Resolve ID from username)
+            // Identify Service Account ID (Resolve ID from username). UserStore isn't
+            // seeded yet at this point (the coordinator runs after the main socket connects),
+            // so look up the service account directly from the probe's joinData.users.
             if (this.config.username) {
-                const user = Array.from(this.userMap.values()).find((u: any) => u.name === this.config.username);
+                const probeUsers: any[] = Array.isArray(joinData?.users) ? joinData.users : [];
+                const user = probeUsers.find((u: any) => u.name === this.config.username);
                 if (user) {
                     this.userId = user._id;
                     logger.info(`CoreSocket | Resolved Service Account ID: ${this.userId} (Username: ${this.config.username})`);
                 } else {
                     // The world is running but the service account doesn't exist in it.
                     // Surface world info and halt retries until admin intervention.
-                    const availableUsers = Array.from(this.userMap.values()).map((u: any) => `${u.name} (role: ${u.role})`).join(', ');
+                    const availableUsers = probeUsers.map((u: any) => `${u.name} (role: ${u.role})`).join(', ');
                     logger.error(`CoreSocket | Service account "${this.config.username}" not found in world "${this.probeWorldData?.title || 'unknown'}".\nAvailable users: [${availableUsers || 'none'}].\nWorld state set to 'closed'. No further retries until admin action.\nAdmin action required: Create or configure the service account in Foundry, then trigger a manual retry from the admin backend.`);
                     this.worldState = 'closed'; // New state for unavailable world
                     // Optionally, emit an event or notify admin backend here
@@ -309,7 +325,8 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
                         this.worldState = 'setup';
                         this.gameDataCache = null; // Clear potential stale cache
                         this.sceneDataCache = null; // Clear scene cache
-                        this.userMap.clear();
+                        this.userPresence.clear();
+                        userStore.clear('world-setup');
                         clearTimeout(timeout);
                         // Still emit connect for setup mode to release the bootstrap lock
                         this.emit('connect');
@@ -338,18 +355,22 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
                             logger.warn('CoreSocket | Scene data unavailable');
                         }
                         if (gameData.users) {
-                            const activeIds = gameData.activeUsers || [];
-                            gameData.users.forEach((u: any) => {
-                                const isActive = activeIds.includes(u._id || u.id);
-                                const userData = { ...u, active: isActive };
-                                this.userMap.set(u._id || u.id, userData);
+                            // Seed the UserStore with the User-document set from this snapshot.
+                            // Document fields only — presence (`active`) is tracked separately.
+                            // Coordinator may re-seed during bootstrap; both paths are idempotent.
+                            const snapshot: RawUser[] = gameData.users.map((u: any) => {
+                                const { active: _stripActive, ...doc } = u;
+                                void _stripActive;
+                                return doc as RawUser;
                             });
-                            // Sync the cache array as well
-                            gameData.users = gameData.users.map((u: any) => ({
-                                ...u,
-                                ...this.userMap.get(u._id || u.id),
-                                active: activeIds.includes(u._id || u.id)
-                            }));
+                            await userStore.seed(async () => snapshot);
+
+                            // Populate presence from activeUsers — ephemeral, not a doc field.
+                            this.userPresence.clear();
+                            const activeIds: string[] = Array.isArray(gameData.activeUsers) ? gameData.activeUsers : [];
+                            for (const id of activeIds) {
+                                if (typeof id === 'string') this.userPresence.set(id, true);
+                            }
                         }
                         if (gameData.userId) {
                             this.userId = gameData.userId;
@@ -381,7 +402,8 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
                     }
                     this.gameDataCache = null; // Clear cache to prevent stale data
                     this.sceneDataCache = null; // Clear scene cache
-                    this.userMap.clear();
+                    this.userPresence.clear();
+                    userStore.clear('core-disconnect');
                     this.emit('disconnect', reason);
 
                     // Immediate verification handshake if disconnect was unexpected
@@ -425,62 +447,56 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
                     }
                 });
 
-                // User Presence & Activity Listeners
+                // User Presence & Activity Listeners — touch the ephemeral presence map only.
+                // The User document itself is mutated through the modifyDocument router into UserStore.
                 this.socket.on('userConnected', (user: any) => {
                     const id = user._id || user.id;
                     logger.info(`CoreSocket | User connected: ${user.name} (${id})`);
-                    this.updateUserInCache(id, { ...user, active: true });
+                    if (id) this.userPresence.set(id, true);
                 });
 
                 this.socket.on('userDisconnected', (data: any) => {
                     const id = typeof data === 'string' ? data : (data.userId || data._id || data.id);
                     logger.info(`CoreSocket | User disconnected: ${id}`);
-                    this.updateUserInCache(id, { active: false });
+                    if (id) this.userPresence.set(id, false);
                 });
 
                 this.socket.on('userActivity', (userId: string, data: any) => {
                     if (userId && data) {
                         const isActive = data.active !== false;
-                        this.updateUserInCache(userId, { active: isActive });
+                        this.userPresence.set(userId, isActive);
                     }
                 });
 
                 this.socket.on('modifyDocument', (data: any) => {
-                    if (data.type === 'User' && (data.action === 'update' || data.action === 'create')) {
-                        const users = data.result || [];
-                        users.forEach((u: any) => {
-                            const id = u._id || u.id;
-                            if (id) {
-                                this.updateUserInCache(id, u);
-                            }
-                        });
-                    }
-                    else {
-                        // Route to per-type Store via the modifyDocument router.
-                        // ChatMessage / Actor / Item / ActiveEffect changes flow into their respective
-                        // Stores, which emit documentChanged / documentListInvalidated events.
-                        this._routeModifyDocument(data.type, data.action, data.result, data.operation);
+                    // All Document mutations — including User — route through the modifyDocument
+                    // router. Each type's Store handles its own apply path and emits the right events.
+                    this._routeModifyDocument(data.type, data.action, data.result, data.operation);
 
-                        // Combat still uses the bespoke per-type emit until Phase 5 introduces CombatStore.
-                        if (data.type === 'Combat' || data.type === 'Combatant') {
-                            logger.debug(`CoreSocket | Combat modification detected: ${data.type} ${data.action}`);
-                            this.emit('combatUpdate', data);
-                        }
-
-                        // chatUpdate emission removed — ChatMessage events flow through ChatMessageStore.
+                    // Combat still uses the bespoke per-type emit until Phase 5 introduces CombatStore.
+                    if (data.type === 'Combat' || data.type === 'Combatant') {
+                        logger.debug(`CoreSocket | Combat modification detected: ${data.type} ${data.action}`);
+                        this.emit('combatUpdate', data);
                     }
+
+                    // chatUpdate emission removed in Phase 1 — ChatMessage events flow through ChatMessageStore.
                 });
 
-                // Legacy/Module Compatibility Listeners
-                this.socket.on('createUser', (user: any) => this.updateUserInCache(user._id || user.id, user));
-                this.socket.on('updateUser', (user: any) => this.updateUserInCache(user._id || user.id, user));
+                // Legacy/Module compatibility listeners — older Foundry versions and some modules
+                // emit these alongside modifyDocument. Route through the same path; the Store's
+                // emit-only-on-observable-change rule keeps duplicate applies idempotent.
+                this.socket.on('createUser', (user: any) => {
+                    this._routeModifyDocument('User', 'create', [user]);
+                });
+                this.socket.on('updateUser', (user: any) => {
+                    this._routeModifyDocument('User', 'update', [user]);
+                });
                 this.socket.on('deleteUser', (id: string | any) => {
-                    const userId = typeof id === 'string' ? id : (id._id || id.id);
+                    const userId = typeof id === 'string' ? id : (id?._id || id?.id);
+                    if (!userId) return;
                     logger.info(`CoreSocket | User deleted: ${userId}`);
-                    this.userMap.delete(userId);
-                    if (this.gameDataCache && Array.isArray(this.gameDataCache.users)) {
-                        this.gameDataCache.users = this.gameDataCache.users.filter((u: any) => (u._id !== userId && u.id !== userId));
-                    }
+                    this._routeModifyDocument('User', 'delete', null, { ids: [userId] });
+                    this.userPresence.delete(userId);
                 });
             });
 
@@ -577,7 +593,8 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
 
             this.gameDataCache = null;
             this.sceneDataCache = null;
-            this.userMap.clear();
+            this.userPresence.clear();
+            userStore.clear('core-disconnect');
             actorStore.clear('core-disconnect');
             logger.info('CoreSocket | Explicitly disconnected.');
         }
@@ -1139,8 +1156,8 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
         const filtered = sorted.filter((msg: any) => {
             if (!userId) return true; // Internal calls see all
 
-            const requestingUser = userId ? this.userMap.get(userId) : null;
-            const isGM = (requestingUser?.role || requestingUser?.permissions?.role || 0) >= 3;
+            const requestingUser = userId ? userStore.get(userId) : null;
+            const isGM = (requestingUser?.role || (requestingUser?.permissions as any)?.role || 0) >= 3;
 
             const whisper = msg.whisper || [];
             const isPublic = whisper.length === 0;
@@ -1159,8 +1176,8 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
         const latest = filtered.slice(-limit);
 
         return latest.map((msg: any) => {
-            const requestingUser = userId ? this.userMap.get(userId) : null;
-            const isGM = (requestingUser?.role || requestingUser?.permissions?.role || 0) >= 3;
+            const requestingUser = userId ? userStore.get(userId) : null;
+            const isGM = (requestingUser?.role || (requestingUser?.permissions as any)?.role || 0) >= 3;
 
             // Support both stringified and object-based rolls
             const rolls = (msg.rolls || []).map((r: any) => {
@@ -1181,8 +1198,8 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
             // Masking: Hide roll results from non-GMs if message is blind
             const shouldMask = isBlind && !isGM;
 
-            // Resolve Name: Prioritize User Name from author ID map
-            const author = this.userMap.get(msg.author);
+            // Resolve Name: Prioritize User Name from the UserStore
+            const author = msg.author ? userStore.get(msg.author) : null;
             const userName = author?.name || msg.alias || 'Unknown';
 
             return {
@@ -1324,9 +1341,21 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
     }
 
     public async getUsers(failHard: boolean = false): Promise<any[]> {
-        // Prefer cached users from the initial game data handshake; avoids a round-trip socket call
+        // After bootstrap, UserStore is the source of truth. During the bootstrap
+        // window (between socket connect and coordinator seeding), the gameData
+        // snapshot is the fallback. Presence (`active`) is composed at the read
+        // boundary from the ephemeral userPresence map.
+        if (userStore.isReady()) {
+            return userStore.list().map((u: RawUser) => ({
+                ...u,
+                active: this.userPresence.get(u._id || u.id || '') ?? false,
+            }));
+        }
         if (this.gameDataCache?.users?.length) {
-            return this.gameDataCache.users;
+            return this.gameDataCache.users.map((u: any) => ({
+                ...u,
+                active: this.userPresence.get(u._id || u.id) ?? Boolean(u.active),
+            }));
         }
         const response: any = await this.dispatchDocumentSocket('User', 'get', { broadcast: false }, undefined, failHard);
         return response?.result || [];
@@ -1336,39 +1365,18 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
         return this.gameDataCache as any;
     }
 
-    /**
-     * Internal helper to keep userMap and gameDataCache in sync with real-time events.
-     */
-    private updateUserInCache(userId: string, data: Partial<any>) {
-        const existing = this.userMap.get(userId);
-        const updated = existing ? { ...existing, ...data } : { _id: userId, ...data };
-
-        // Update User Map
-        this.userMap.set(userId, updated);
-
-        // Update gameDataCache for Status Handler
-        if (this.gameDataCache && Array.isArray(this.gameDataCache.users)) {
-            const index = this.gameDataCache.users.findIndex((u: any) => (u._id === userId || u.id === userId));
-            if (index !== -1) {
-                this.gameDataCache.users[index] = { ...this.gameDataCache.users[index], ...data };
-            } else {
-                this.gameDataCache.users.push(updated);
-            }
-        }
-
-        // If user was unknown but became active, try healing data
-        if (!existing && data.active === true && !data.name) {
-            this.getUsers().then(dbUsers => {
-                const fullUser = dbUsers.find((u: any) => (u._id === userId || u.id === userId));
-                if (fullUser) {
-                    this.updateUserInCache(userId, fullUser);
-                    logger.debug(`CoreSocket | Self-healed user data for ${fullUser.name}`);
-                }
-            }).catch(() => { });
-        }
-    }
-
     public getUser(userId: string): any {
-        return this.userMap.get(userId);
+        // UserStore is the source of truth for the User document; presence is composed
+        // from the ephemeral userPresence map. During bootstrap the gameData snapshot
+        // serves as a fallback so consumers don't see undefined in the narrow window
+        // between socket connect and the coordinator seeding the Store.
+        if (userStore.isReady()) {
+            const doc = userStore.get(userId);
+            if (doc) return { ...doc, active: this.userPresence.get(userId) ?? false };
+            return null;
+        }
+        const fallback = this.gameDataCache?.users?.find((u: any) => (u._id === userId || u.id === userId));
+        if (fallback) return { ...fallback, active: this.userPresence.get(userId) ?? Boolean(fallback.active) };
+        return null;
     }
 }

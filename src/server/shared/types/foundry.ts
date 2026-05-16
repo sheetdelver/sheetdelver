@@ -48,7 +48,7 @@ export interface FoundrySystemClientLike {
     lastActorChange?: string;
     sceneDataCache?: Record<string, { background?: { src?: string } }>;
     probeWorldData?: { title?: string; description?: string | null };
-    userMap?: { size: number };
+    probeUserCount?: number;
 
     getGameData(): FoundryGameDataLike | null | undefined;
     resolveUrl(url?: string): string;

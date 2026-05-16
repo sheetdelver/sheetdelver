@@ -11,6 +11,7 @@ import { run as runPrimaryDocumentBase } from './primary-document-base.test';
 import { run as runChatMessageStore } from './chat-message-store.test';
 import { run as runChatService } from './chat-service.test';
 import { run as runModifyDocumentRouter } from './modify-document-router.test';
+import { run as runUserStore } from './user-store.test';
 import { run as runCombatSort } from './combat-sort.test';
 import { run as runActorNormalization } from './actor-normalization.test';
 import { run as runJournalSmoke } from './journal-smoke.test';
@@ -59,6 +60,7 @@ async function runAllUnitTests() {
     await runChatMessageStore();
     await runChatService();
     await runModifyDocumentRouter();
+    await runUserStore();
     runCombatSort();
     runModuleProxyMatcher();
     runModuleLifecycleState();
