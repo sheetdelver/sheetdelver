@@ -4,6 +4,7 @@ import type { PrimaryDocumentType } from './base/PrimaryDocumentStore';
 import { modifyDocumentRouter } from './base/modifyDocumentRouter';
 import { actorStore } from './actors/ActorStore';
 import { chatMessageStore } from './chat-messages/ChatMessageStore';
+import { combatStore } from './combats/CombatStore';
 import { folderStore } from './folders/FolderStore';
 import { journalStore } from './journals/JournalStore';
 import { userStore } from './users/UserStore';
@@ -153,16 +154,45 @@ primaryDocumentCacheCoordinator.register({
     },
 });
 
+// CombatStore seeds after ActorStore so combat visibility resolution against
+// ActorStore has actors available immediately. Combat docs carry no ownership
+// map; visibility derives from combatant.actorId cross-referenced against
+// `actorStore.canReadActor` (see `CombatStore.resolveOwnership`).
+primaryDocumentCacheCoordinator.register({
+    type: 'Combat',
+    async seed(client) {
+        await combatStore.seed(async () => {
+            const response: any = await client.dispatchDocumentSocket('Combat', 'get', { broadcast: false });
+            return response?.result || [];
+        });
+        logger.info(`PrimaryDocumentCacheCoordinator | Seeded ${combatStore.list().length} combats.`);
+    },
+    clear(reason) {
+        combatStore.clear(reason);
+    },
+    isReady() {
+        return combatStore.isReady();
+    },
+});
+
 // modifyDocument router bindings
 modifyDocumentRouter.register(actorStore);
 modifyDocumentRouter.register(chatMessageStore);
 modifyDocumentRouter.register(folderStore);
 modifyDocumentRouter.register(userStore);
 modifyDocumentRouter.register(journalStore);
+modifyDocumentRouter.register(combatStore);
 // Embedded children: Actor owns Item + ActiveEffect with parentUuid 'Actor.xxx...'.
 modifyDocumentRouter.registerEmbeddedHandler('Actor', actorStore);
 // JournalEntry owns JournalEntryPage with parentUuid 'JournalEntry.<id>'.
 modifyDocumentRouter.registerEmbeddedHandler('JournalEntry', journalStore);
+// Combat owns Combatant with parentUuid 'Combat.<id>'.
+modifyDocumentRouter.registerEmbeddedHandler('Combat', combatStore);
+
+// Cross-store visibility dependency (ADR-0011 Phase 5): CombatStore consumes
+// ActorStore for `resolveOwnership` lookups and re-emits its own list
+// invalidation when actor ownership crossings affect combat visibility.
+combatStore.bindActorVisibilityBridge(actorStore);
 
 /**
  * @deprecated Use {@link primaryDocumentCacheCoordinator}.seedAll(client) directly.

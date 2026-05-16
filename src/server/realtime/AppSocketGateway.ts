@@ -5,6 +5,7 @@ import type { SessionManagerLike, UserSessionLike, FoundryClientLike } from '@se
 import type { SystemStatusPayload } from '@shared/contracts/status';
 import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
 import { chatMessageStore } from '@server/core/documents/primary/chat-messages/ChatMessageStore';
+import { combatStore } from '@server/core/documents/primary/combats/CombatStore';
 import { journalStore } from '@server/core/documents/primary/journals/JournalStore';
 import {
     DOCUMENT_VISIBILITY,
@@ -12,7 +13,6 @@ import {
 import { userStore } from '@server/core/documents/primary/users/UserStore';
 import type {
     RealtimeActorUpdatePayload,
-    RealtimeCombatUpdatePayload,
     RealtimeSharedContentPayload,
 } from '@shared/contracts/realtime';
 
@@ -92,9 +92,25 @@ export function registerAppSocketGateway({
                 return userStore.createAccessSubject(userId);
             };
 
-            const handleCombatUpdate = (...args: unknown[]) => {
-                const data = (args[0] || {}) as RealtimeCombatUpdatePayload;
-                socket.emit('combatUpdate', data);
+            // Combat document fan-out (Phase 5). CombatStore has no per-doc
+            // ownership map — visibility is cross-referenced against ActorStore
+            // via `combatStore.canReadDocument`. Deletes bypass the gate so a
+            // caller who could see the combat learns it's gone.
+            const handleCombatChanged = (...args: unknown[]) => {
+                const data = (args[0] || {}) as { combatId: string; action: 'create' | 'update' | 'delete' };
+                if (data.action !== 'delete' && data.combatId) {
+                    const subject = getSubject();
+                    if (!subject || !combatStore.canReadDocument(data.combatId, subject, DOCUMENT_VISIBILITY.LIST_VISIBLE)) {
+                        return;
+                    }
+                }
+                socket.emit('combatChanged', data);
+            };
+            const handleCombatListInvalidated = (...args: unknown[]) => {
+                const data = (args[0] || {}) as { reason: string; combatId?: string; targetUserIds?: string[] };
+                const userId = socket.userSession?.client.userId;
+                if (data.targetUserIds && (!userId || !data.targetUserIds.includes(userId))) return;
+                socket.emit('combatListInvalidated', data);
             };
             const handleActorUpdate = (...args: unknown[]) => {
                 const data = (args[0] || {}) as RealtimeActorUpdatePayload;
@@ -177,11 +193,11 @@ export function registerAppSocketGateway({
                 socket.emit('sharedContentUpdate', data);
             };
 
-            foundryClient.on('combatUpdate', handleCombatUpdate);
-            // ActorStore + ChatMessageStore + UserStore + FolderStore events are
-            // bridged through the system client, not per-user sockets — per ADR-0012
-            // each Store's events fan out from a single canonical source with
-            // ownership filtering applied per socket.
+            // Store events are bridged through the system client, not per-user
+            // sockets — per ADR-0012 each Store's events fan out from a single
+            // canonical source with ownership filtering applied per socket.
+            // Phase 5 moved combatUpdate from foundryClient onto the system
+            // client as combatChanged / combatListInvalidated.
             systemService.getSystemClient().on('actorUpdate', handleActorUpdate);
             systemService.getSystemClient().on('chatMessageChanged', handleChatMessageChanged);
             systemService.getSystemClient().on('chatMessageListInvalidated', handleChatMessageListInvalidated);
@@ -191,6 +207,8 @@ export function registerAppSocketGateway({
             systemService.getSystemClient().on('folderListInvalidated', handleFolderListInvalidated);
             systemService.getSystemClient().on('journalChanged', handleJournalChanged);
             systemService.getSystemClient().on('journalListInvalidated', handleJournalListInvalidated);
+            systemService.getSystemClient().on('combatChanged', handleCombatChanged);
+            systemService.getSystemClient().on('combatListInvalidated', handleCombatListInvalidated);
             foundryClient.on('sharedContentUpdate', handleSharedUpdate);
 
             // New relays for world lifecycle and system status
@@ -203,7 +221,6 @@ export function registerAppSocketGateway({
                 logger.debug(`App Socket | Client disconnected: ${socket.id}. Remaining: ${remaining}`);
                 systemService.getSystemClient().updateActiveBrowserCount(remaining);
 
-                foundryClient.off('combatUpdate', handleCombatUpdate);
                 systemService.getSystemClient().off('actorUpdate', handleActorUpdate);
                 systemService.getSystemClient().off('chatMessageChanged', handleChatMessageChanged);
                 systemService.getSystemClient().off('chatMessageListInvalidated', handleChatMessageListInvalidated);
@@ -213,6 +230,8 @@ export function registerAppSocketGateway({
                 systemService.getSystemClient().off('folderListInvalidated', handleFolderListInvalidated);
                 systemService.getSystemClient().off('journalChanged', handleJournalChanged);
                 systemService.getSystemClient().off('journalListInvalidated', handleJournalListInvalidated);
+                systemService.getSystemClient().off('combatChanged', handleCombatChanged);
+                systemService.getSystemClient().off('combatListInvalidated', handleCombatListInvalidated);
                 foundryClient.off('sharedContentUpdate', handleSharedUpdate);
                 foundryClient.off('systemStatusUpdate', broadcastSystemStatus);
                 foundryClient.off('worldShutdown', broadcastSystemStatus);

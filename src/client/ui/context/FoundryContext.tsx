@@ -18,7 +18,6 @@ import type { CombatDto, CombatListPayload } from '@shared/contracts/combats';
 import type { ChatMessageDto } from '@shared/contracts/chat';
 import type {
     RealtimeSharedContentPayload,
-    RealtimeCombatUpdatePayload,
 } from '@shared/contracts/realtime';
 
 interface FoundryContextType {
@@ -337,21 +336,23 @@ export function FoundryProvider({ children }: { children: ReactNode }) {
         return () => { isMounted = false; };
     }, [system?.id]);
 
-    // Combat real-time sync
+    // Combat real-time sync. Phase 5 renamed `combatUpdate` to skinny
+    // `combatChanged` / `combatListInvalidated` events; both trigger a debounced
+    // coalesced refetch (matches the Phase 1 addendum 3 ChatContext shape).
     useEffect(() => {
         if (step === 'dashboard' && token) {
             fetchCombats(); // Initial fetch
 
             if (appSocket) {
-                const handleCombatUpdate = (data: RealtimeCombatUpdatePayload) => {
-                    //logger.debug('FoundryContext | Socket Combat Update received:', data);
-                    fetchCombats();
-                };
+                const handleCombatChanged = () => { fetchCombats(); };
+                const handleCombatListInvalidated = () => { fetchCombats(); };
 
-                appSocket.on('combatUpdate', handleCombatUpdate);
+                appSocket.on('combatChanged', handleCombatChanged);
+                appSocket.on('combatListInvalidated', handleCombatListInvalidated);
 
                 return () => {
-                    appSocket.off('combatUpdate', handleCombatUpdate);
+                    appSocket.off('combatChanged', handleCombatChanged);
+                    appSocket.off('combatListInvalidated', handleCombatListInvalidated);
                 };
             }
         }

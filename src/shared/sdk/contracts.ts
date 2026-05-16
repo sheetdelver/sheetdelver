@@ -93,15 +93,16 @@ export interface StatusCombatant {
     [key: string]: unknown;
 }
 
-/** Payload for realtime combat updates. */
-export interface RealtimeCombatUpdatePayload {
-    _id: string;
-    active: boolean;
-    round: number;
-    turn: number;
-    combatants: StatusCombatant[];
-    sceneId: string | null;
-    [key: string]: unknown;
+/** Payload for realtime combat document changes (skinny invalidation hint). */
+export interface RealtimeCombatChangedPayload {
+    combatId: string;
+    action: 'create' | 'update' | 'delete';
+}
+/** Payload for realtime combat list invalidations (ownership/visibility crossings). */
+export interface RealtimeCombatListInvalidatedPayload {
+    reason: string;
+    combatId?: string;
+    targetUserIds?: string[];
 }
 
 /** Payload for realtime chat updates. */

@@ -65,17 +65,36 @@ export interface RawChatMessage {
 export interface RawCombatant {
     id?: string;
     _id?: string;
+    name?: string;
+    img?: string | null;
     actorId?: string;
-    initiative?: number;
+    tokenId?: string;
+    sceneId?: string | null;
+    hidden?: boolean;
+    defeated?: boolean;
+    initiative?: number | null;
+    group?: string | null;
+    type?: string;
+    system?: Record<string, unknown>;
+    flags?: Record<string, unknown>;
+    _stats?: Record<string, unknown>;
     [key: string]: unknown;
 }
 
 export interface RawCombat {
     id?: string;
     _id?: string;
+    active?: boolean;
+    type?: string;
+    scene?: string | null;
+    groups?: unknown[];
     round?: number;
     turn?: number;
+    sort?: number;
     combatants?: RawCombatant[];
+    system?: Record<string, unknown>;
+    flags?: Record<string, unknown>;
+    _stats?: Record<string, unknown>;
     [key: string]: unknown;
 }
 
@@ -141,13 +160,12 @@ export interface ChatClientLike extends FoundryClientLike {
 }
 
 export interface CombatClientLike extends ActorServiceClientLike {
-    getCombats(): Promise<RawCombat[]>;
     getActor(actorId: string): Promise<(RawActor & { error?: string }) | null | undefined>;
-    dispatchDocumentSocket(
+    dispatchDocument(
         type: string,
-        action: 'update',
-        payload: Record<string, unknown>,
-        context?: Record<string, unknown>
+        action: string,
+        operation?: unknown,
+        parent?: { type: string; id: string }
     ): Promise<unknown>;
     roll(
         formula: string,

@@ -462,17 +462,10 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
                 });
 
                 this.socket.on('modifyDocument', (data: any) => {
-                    // All Document mutations — including User — route through the modifyDocument
-                    // router. Each type's Store handles its own apply path and emits the right events.
+                    // All Document mutations route through the modifyDocument router. Each type's
+                    // Store handles its own apply path and emits the right events.
+                    // chatUpdate emission removed in Phase 1; combatUpdate emission removed in Phase 5.
                     this._routeModifyDocument(data.type, data.action, data.result, data.operation);
-
-                    // Combat still uses the bespoke per-type emit until Phase 5 introduces CombatStore.
-                    if (data.type === 'Combat' || data.type === 'Combatant') {
-                        logger.debug(`CoreSocket | Combat modification detected: ${data.type} ${data.action}`);
-                        this.emit('combatUpdate', data);
-                    }
-
-                    // chatUpdate emission removed in Phase 1 — ChatMessage events flow through ChatMessageStore.
                 });
 
                 // Legacy/Module compatibility listeners — older Foundry versions and some modules
@@ -928,11 +921,6 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
         } catch (e) {
             logger.error(`CoreSocket | Failed load adapter: ${e}`);
         }
-    }
-
-    public async getCombats(): Promise<any[]> {
-        const result: any = await this.dispatchDocumentSocket('Combat', 'get', { broadcast: false });
-        return result?.result || [];
     }
 
     public async getActors(userId?: string): Promise<any[]> {

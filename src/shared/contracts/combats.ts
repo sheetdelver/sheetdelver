@@ -4,7 +4,8 @@ export interface CombatantDto {
     id?: string;
     _id?: string;
     actorId?: string;
-    initiative?: number;
+    // Foundry sends `null` for unrolled combatants.
+    initiative?: number | null;
     actor?: ActorDto | null;
     [key: string]: unknown;
 }

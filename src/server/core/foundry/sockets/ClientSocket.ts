@@ -248,9 +248,6 @@ export class ClientSocket extends SocketBase {
         return systemService.getSystemClient().getSystem();
     }
 
-    public async getCombats(): Promise<any[]> {
-        return systemService.getSystemClient().getCombats();
-    }
 
     public async updateActor(id: string, data: any): Promise<any> {
         // --- Update Funnel (Defensive Approver) ---
@@ -375,17 +372,10 @@ export class ClientSocket extends SocketBase {
 
     private setupDocumentListeners(socket: any) {
         socket.on('modifyDocument', (data: any) => {
-            // Combat & Combatant relay — preserved until Phase 5 introduces CombatStore.
-            if (data.type === 'Combat' || data.type === 'Combatant') {
-                logger.debug(`ClientSocket | Relay: Combat modification [${data.action}] for ${this.userId}`);
-                this.emit('combatUpdate', data);
-            }
-
-            // ChatMessage relay removed — Phase 1 routes chat events through ChatMessageStore
-            // → SystemService bridge → AppSocketGateway with ownership filtering.
-
-            // Actor cache updates are relayed from the system ActorStore path so
-            // per-user sockets do not duplicate actorUpdate emissions.
+            // Phase-1+ note: ChatMessage / Combat / Combatant relays removed from this per-user
+            // listener — those Stores fan out through the SystemService bridge with ownership
+            // filtering. Actor cache updates also flow from the system ActorStore path so
+            // per-user sockets do not duplicate `actorUpdate` emissions.
 
             // User relay (triggers dashboard systemStatus updates)
             if (data.type === 'User') {

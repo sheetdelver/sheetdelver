@@ -3,6 +3,7 @@ import { CoreSocket } from '@core/foundry/sockets/CoreSocket';
 import { loadConfig } from '@core/config';
 import 'dotenv/config';
 import { logger } from '@shared/utils/logger';
+import { combatStore } from '@server/core/documents/primary/combats/CombatStore';
 
 // Force test env (Ignore read-only error for test script)
 // @ts-ignore
@@ -32,9 +33,13 @@ async function testCombats() {
         // or GM? Let's use the config default (which was doratheexplorer in previous tests)
         logger.info(`👤 Identifying as: ${(client as any).config.username}`);
 
-        // 1. List
+        // 1. List (Store-backed)
         logger.info('📚 Fetching Combats...');
-        const combats = await client.getCombats();
+        await combatStore.seed(async () => {
+            const response = await core.dispatchDocumentSocket('Combat', 'get', { broadcast: false });
+            return response?.result || [];
+        });
+        const combats = combatStore.list();
         logger.info(`✅ Fetched ${combats.length} Combats`);
         const combat = combats[0];
         logger.info(JSON.stringify(combat, null, 2));

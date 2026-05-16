@@ -21,7 +21,15 @@ export interface RealtimeSharedContentPayload {
     [key: string]: unknown;
 }
 
-export type RealtimeCombatUpdatePayload = Record<string, unknown>;
+export interface RealtimeCombatChangedPayload {
+    combatId: string;
+    action: 'create' | 'update' | 'delete';
+}
+export interface RealtimeCombatListInvalidatedPayload {
+    reason: string;
+    combatId?: string;
+    targetUserIds?: string[];
+}
 export type RealtimeChatUpdatePayload = Record<string, unknown>;
 export interface RealtimeChatMessageChangedPayload {
     messageId: string;

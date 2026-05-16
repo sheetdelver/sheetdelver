@@ -58,6 +58,7 @@ export async function run() {
     await runDirectTypeRouting();
     await runEmbeddedParentRouting();
     await runJournalEntryPageEmbeddedRouting();
+    await runCombatantEmbeddedRouting();
     await runActorDeltaDroppedSilently();
     await runUnregisteredTypeDroppedSilently();
     await runResetClearsRegistrations();
@@ -139,6 +140,32 @@ async function runJournalEntryPageEmbeddedRouting() {
     assert.equal(journal.received[0].type, 'JournalEntryPage');
     assert.equal(journal.received[0].parentUuid, 'JournalEntry.entry-1');
     assert.equal(journal.received[1].action, 'update');
+}
+
+async function runCombatantEmbeddedRouting() {
+    const router = new ModifyDocumentRouter();
+    const combat = new RecordingStore('Combat');
+    router.register(combat);
+    router.registerEmbeddedHandler('Combat', combat);
+
+    // Combatant under a Combat → routes to CombatStore embedded handler.
+    router.route({
+        type: 'Combatant',
+        action: 'create',
+        result: [{ _id: 'c-1', actorId: 'a-1' }],
+        operation: { parentUuid: 'Combat.combat-1' },
+    });
+    router.route({
+        type: 'Combatant',
+        action: 'update',
+        result: [{ _id: 'c-1', initiative: 12 }],
+        operation: { parentUuid: 'Combat.combat-1' },
+    });
+
+    assert.equal(combat.received.length, 2);
+    assert.equal(combat.received[0].type, 'Combatant');
+    assert.equal(combat.received[0].parentUuid, 'Combat.combat-1');
+    assert.equal(combat.received[1].action, 'update');
 }
 
 async function runActorDeltaDroppedSilently() {

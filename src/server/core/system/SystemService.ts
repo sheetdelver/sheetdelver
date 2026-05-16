@@ -10,6 +10,7 @@ import { CompendiumCache } from '../foundry/compendium-cache';
 import { clearDocumentCache, seedDocumentCache } from '../documents/primary/PrimaryDocumentCacheCoordinator';
 import { actorStore } from '../documents/primary/actors/ActorStore';
 import { chatMessageStore } from '../documents/primary/chat-messages/ChatMessageStore';
+import { combatStore } from '../documents/primary/combats/CombatStore';
 import { folderStore } from '../documents/primary/folders/FolderStore';
 import { journalStore } from '../documents/primary/journals/JournalStore';
 import { userStore } from '../documents/primary/users/UserStore';
@@ -95,6 +96,23 @@ export class SystemService extends EventEmitter {
             this.systemClient?.emit('journalListInvalidated', {
                 reason: event.reason,
                 journalId: event.documentId,
+                targetUserIds: event.targetUserIds,
+            });
+        });
+
+        // CombatStore is the Combat document-event source (Phase 5). Embedded
+        // Combatant mutations are reported as `update` events on the parent
+        // combat — gateway consumers refetch combat detail to pick up the new
+        // combatant state. Combat visibility crossings driven by actor ownership
+        // changes propagate via CombatStore.bindActorVisibilityBridge and
+        // surface here as `combatListInvalidated` events with `actor-visibility-changed`.
+        combatStore.on('documentChanged', (event: DocumentChangedEvent) => {
+            this.systemClient?.emit('combatChanged', { combatId: event.id, action: event.action });
+        });
+        combatStore.on('documentListInvalidated', (event: DocumentListInvalidatedEvent) => {
+            this.systemClient?.emit('combatListInvalidated', {
+                reason: event.reason,
+                combatId: event.documentId,
                 targetUserIds: event.targetUserIds,
             });
         });

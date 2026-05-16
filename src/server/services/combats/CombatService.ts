@@ -3,6 +3,9 @@ import { getAdapter } from '@modules/registry/server';
 import type { RawActor } from '@server/shared/types/actors';
 import type { CombatClientLike, RawCombat, RawCombatant } from '@server/shared/types/documents';
 import { FoundryUserRole } from '@server/core/documents/primary/base/ownership';
+import { combatStore } from '@server/core/documents/primary/combats/CombatStore';
+import { PrimaryDocumentCacheNotReadyError } from '@server/core/documents/primary/errors';
+import { CombatRepository } from '@server/core/documents/primary/combats/CombatRepository';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
 import type {
     CombatDto,
@@ -44,12 +47,35 @@ function isGmLike(userId: string | null | undefined): boolean {
 }
 
 export function createCombatService(deps: CombatServiceDeps) {
-    // Combat list projection with enriched/normalized combatant actor payloads.
-    const listCombats = async (client: CombatClientLike): Promise<CombatListPayload> => {
-        const combats = await client.getCombats();
+    const createCombatRepository = (client: CombatClientLike): CombatRepository => new CombatRepository({
+        dispatchDocument: (
+            type: string,
+            action: string,
+            operation?: unknown,
+            parent?: { type: string; id: string },
+        ) => client.dispatchDocument(type, action, operation, parent),
+    });
 
-        const enrichedCombats = await Promise.all(combats.map(async (combat): Promise<CombatProjection> => {
-            const actorIds = [...new Set((combat.combatants || []).map((c) => c.actorId).filter(Boolean) as string[])];
+    const ensureReady = (): void => {
+        if (!combatStore.isReady()) throw new PrimaryDocumentCacheNotReadyError('Combat');
+    };
+
+    // Combat list projection with enriched/normalized combatant actor payloads.
+    // Non-GM subjects see only combats they can read; hidden combatants are
+    // pruned from non-GM views at the DTO boundary.
+    const listCombats = async (client: CombatClientLike): Promise<CombatListPayload> => {
+        ensureReady();
+        const subject = userStore.createAccessSubject(client.userId);
+        const userIsGm = isGmLike(client.userId);
+
+        const visible = subject ? combatStore.list({ subject }) : [];
+
+        const enrichedCombats = await Promise.all(visible.map(async (combat): Promise<CombatProjection> => {
+            const combatants = userIsGm
+                ? (combat.combatants || [])
+                : (combat.combatants || []).filter(c => !c.hidden);
+
+            const actorIds = [...new Set(combatants.map((c) => c.actorId).filter(Boolean) as string[])];
             const actorsMap: Record<string, RawActor> = {};
 
             await Promise.all(actorIds.map(async (id) => {
@@ -69,7 +95,7 @@ export function createCombatService(deps: CombatServiceDeps) {
                 if (id) normalizedMap[id] = a;
             });
 
-            const enrichedCombatants = (combat.combatants || []).map((c) => ({
+            const enrichedCombatants = combatants.map((c) => ({
                 ...c,
                 actor: c.actorId ? (normalizedMap[c.actorId] || null) : null
             }));
@@ -102,8 +128,8 @@ export function createCombatService(deps: CombatServiceDeps) {
         client: CombatClientLike,
         combatId: string
     ): Promise<CombatTurnSuccessPayload | CombatErrorPayload> => {
-        const combats = await client.getCombats();
-        const combat = combats.find((c) => (c._id || c.id) === combatId);
+        ensureReady();
+        const combat = combatStore.get(combatId);
 
         if (!combat) {
             return { error: 'Combat not found', status: 404 };
@@ -129,9 +155,7 @@ export function createCombatService(deps: CombatServiceDeps) {
             }
         }
 
-        await client.dispatchDocumentSocket('Combat', 'update', {
-            updates: [{ _id: combatId, round: currentRound, turn: currentTurn }]
-        });
+        await createCombatRepository(client).update(combatId, { round: currentRound, turn: currentTurn });
 
         return { success: true, round: currentRound, turn: currentTurn };
     };
@@ -141,8 +165,8 @@ export function createCombatService(deps: CombatServiceDeps) {
         client: CombatClientLike,
         combatId: string
     ): Promise<CombatTurnSuccessPayload | CombatErrorPayload> => {
-        const combats = await client.getCombats();
-        const combat = combats.find((c) => (c._id || c.id) === combatId);
+        ensureReady();
+        const combat = combatStore.get(combatId);
 
         if (!combat) {
             return { error: 'Combat not found', status: 404 };
@@ -171,9 +195,7 @@ export function createCombatService(deps: CombatServiceDeps) {
             currentTurn -= 1;
         }
 
-        await client.dispatchDocumentSocket('Combat', 'update', {
-            updates: [{ _id: combatId, round: currentRound, turn: currentTurn }]
-        });
+        await createCombatRepository(client).update(combatId, { round: currentRound, turn: currentTurn });
 
         return { success: true, round: currentRound, turn: currentTurn };
     };
@@ -185,14 +207,14 @@ export function createCombatService(deps: CombatServiceDeps) {
         combatantId: string,
         body: InitiativeBody
     ): Promise<CombatInitiativeSuccessPayload | CombatErrorPayload> => {
+        ensureReady();
         const { formula, advantageMode } = body;
 
         const systemInfo = await client.getSystem();
         const adapter = await getAdapter(systemInfo.id.toLowerCase());
         if (!adapter) throw new Error(`Adapter ${systemInfo.id} not found`);
 
-        const combats = await client.getCombats();
-        const combat = combats.find((c) => (c._id || c.id) === combatId);
+        const combat = combatStore.get(combatId);
         if (!combat) return { error: 'Combat not found', status: 404 };
 
         const combatant = combat.combatants?.find((c) => (c._id || c.id) === combatantId);
@@ -232,9 +254,7 @@ export function createCombatService(deps: CombatServiceDeps) {
             throw new Error('Failed to parse roll total from chat message');
         }
 
-        await client.dispatchDocumentSocket('Combatant', 'update', {
-            updates: [{ _id: combatantId, initiative: total }]
-        }, { type: 'Combat', id: combatId });
+        await createCombatRepository(client).updateCombatant(combatId, combatantId, { initiative: total });
 
         return { success: true, initiative: total };
     };

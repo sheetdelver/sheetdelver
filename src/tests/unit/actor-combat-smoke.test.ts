@@ -1,7 +1,9 @@
 import { strict as assert } from 'node:assert';
 import { createActorService } from '@server/services/actors/ActorService';
 import { createCombatService } from '@server/services/combats/CombatService';
+import { combatStore } from '@server/core/documents/primary/combats/CombatStore';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
+import type { RawCombat } from '@server/shared/types/documents';
 
 async function runActorReadWriteSmoke() {
     const normalizeCalls: Array<{ ids: string[] }> = [];
@@ -95,7 +97,6 @@ async function runActorReadWriteSmoke() {
 
 async function runCombatReadActionSmoke() {
     const normalizeCalls: Array<{ ids: string[] }> = [];
-    const dispatchCalls: Array<{ collection: string; action: string; payload: unknown }> = [];
 
     const combatService = createCombatService({
         normalizeActors: async (actorList) => {
@@ -115,85 +116,72 @@ async function runCombatReadActionSmoke() {
         { _id: 'gm-prev-start', id: 'gm-prev-start', role: 4 },
     ]);
 
-    const combatClient = {
-        userId: 'gm-1',
-        getCombats: async () => ([
-            {
-                _id: 'combat-1',
-                id: 'combat-1',
-                round: 0,
-                turn: -1,
-                combatants: [
-                    { _id: 'c1', id: 'c1', actorId: 'actor-a', initiative: 15 },
-                    { _id: 'c2', id: 'c2', actorId: 'actor-b', initiative: 12 },
-                ],
-            },
-        ]),
-        getActor: async (id: string) => ({
-            _id: id,
-            id,
-            name: `Actor ${id}`,
-            ownership: { 'gm-1': 3 },
-        }),
-        dispatchDocumentSocket: async (collection: string, action: string, payload: unknown) => {
-            dispatchCalls.push({ collection, action, payload });
-        },
-    } as any;
+    // Helper: seed combatStore with a single combat for a case, return a mock
+    // route client + the dispatch capture array. Each call replaces the seeded
+    // set so cases stay isolated.
+    const buildCase = (params: {
+        userId: string;
+        ownershipByActorId?: Record<string, number>;
+        combat: RawCombat;
+    }) => {
+        const dispatchCalls: Array<{ type: string; action: string; operation: unknown; parent?: any }> = [];
+        // `combatStore.seed` clears prior docs and re-populates.
+        return combatStore.seed(async () => [params.combat]).then(() => {
+            const client = {
+                userId: params.userId,
+                getActor: async (id: string) => ({
+                    _id: id,
+                    id,
+                    name: `Actor ${id}`,
+                    ownership: { [params.userId]: params.ownershipByActorId?.[id] || 0 },
+                }),
+                dispatchDocument: async (type: string, action: string, operation: unknown, parent?: any) => {
+                    dispatchCalls.push({ type, action, operation, parent });
+                    return { result: [], operation };
+                },
+            } as any;
+            return { client, dispatchCalls };
+        });
+    };
 
-    const listPayload = await combatService.listCombats(combatClient);
+    // ---- listCombats + first advanceTurn (round 0 → 1) ----
+    const initial = await buildCase({
+        userId: 'gm-1',
+        combat: {
+            _id: 'combat-1',
+            id: 'combat-1',
+            round: 0,
+            turn: -1,
+            combatants: [
+                { _id: 'c1', id: 'c1', actorId: 'actor-a', initiative: 15 },
+                { _id: 'c2', id: 'c2', actorId: 'actor-b', initiative: 12 },
+            ],
+        },
+    });
+
+    const listPayload = await combatService.listCombats(initial.client);
     assert.equal(listPayload.success, true);
     assert.equal(listPayload.combats.length, 1);
     assert.equal(listPayload.combats[0].combatants?.[0].actor?.name, 'Actor actor-a');
     assert.equal(normalizeCalls.length, 1);
 
-    const turnResult = await combatService.advanceTurn(combatClient, 'combat-1');
+    const turnResult = await combatService.advanceTurn(initial.client, 'combat-1');
     if ('error' in turnResult) {
         assert.fail(`Expected combat turn success, got error: ${turnResult.error}`);
     }
-
     assert.equal(turnResult.success, true);
     assert.equal(turnResult.round, 1);
     assert.equal(turnResult.turn, 0);
-    assert.equal(dispatchCalls.length, 1);
-    assert.equal(dispatchCalls[0].collection, 'Combat');
-    assert.equal(dispatchCalls[0].action, 'update');
-    assert.deepEqual(dispatchCalls[0].payload, {
+    assert.equal(initial.dispatchCalls.length, 1);
+    assert.equal(initial.dispatchCalls[0].type, 'Combat');
+    assert.equal(initial.dispatchCalls[0].action, 'update');
+    assert.deepEqual(initial.dispatchCalls[0].operation, {
         updates: [{ _id: 'combat-1', round: 1, turn: 0 }],
     });
 
-    const buildCombatClient = (params: {
-        userId: string;
-        role: number;
-        ownershipByActorId?: Record<string, number>;
-        combat: {
-            _id: string;
-            id: string;
-            round: number;
-            turn: number;
-            combatants: Array<{ _id: string; id: string; actorId: string; initiative: number }>;
-        };
-    }) => {
-        const localDispatchCalls: Array<{ collection: string; action: string; payload: unknown }> = [];
-        const client = {
-            userId: params.userId,
-            getCombats: async () => ([params.combat]),
-            getActor: async (id: string) => ({
-                _id: id,
-                id,
-                name: `Actor ${id}`,
-                ownership: { [params.userId]: params.ownershipByActorId?.[id] || 0 },
-            }),
-            dispatchDocumentSocket: async (collection: string, action: string, payload: unknown) => {
-                localDispatchCalls.push({ collection, action, payload });
-            },
-        } as any;
-
-        return { client, localDispatchCalls };
-    };
-
-    const unauthorizedCase = buildCombatClient({
+    // ---- unauthorized player ----
+    const unauthorizedCase = await buildCase({
         userId: 'player-1',
-        role: 1,
         ownershipByActorId: { 'actor-a': 0, 'actor-b': 0 },
         combat: {
             _id: 'combat-auth-deny',
@@ -212,11 +200,11 @@ async function runCombatReadActionSmoke() {
         assert.fail('Expected unauthorized combat turn error');
     }
     assert.equal(unauthorizedResult.status, 403);
-    assert.equal(unauthorizedCase.localDispatchCalls.length, 0);
+    assert.equal(unauthorizedCase.dispatchCalls.length, 0);
 
-    const ownerCase = buildCombatClient({
+    // ---- player owns active combatant ----
+    const ownerCase = await buildCase({
         userId: 'player-owner',
-        role: 1,
         ownershipByActorId: { 'actor-a': 3, 'actor-b': 0 },
         combat: {
             _id: 'combat-owner-advance',
@@ -237,14 +225,14 @@ async function runCombatReadActionSmoke() {
     assert.equal(ownerResult.success, true);
     assert.equal(ownerResult.round, 1);
     assert.equal(ownerResult.turn, 1);
-    assert.equal(ownerCase.localDispatchCalls.length, 1);
-    assert.deepEqual(ownerCase.localDispatchCalls[0].payload, {
+    assert.equal(ownerCase.dispatchCalls.length, 1);
+    assert.deepEqual(ownerCase.dispatchCalls[0].operation, {
         updates: [{ _id: 'combat-owner-advance', round: 1, turn: 1 }],
     });
 
-    const wrapCase = buildCombatClient({
+    // ---- round wrap (turn N → round+1, turn 0) ----
+    const wrapCase = await buildCase({
         userId: 'gm-wrap',
-        role: 4,
         combat: {
             _id: 'combat-wrap',
             id: 'combat-wrap',
@@ -263,14 +251,14 @@ async function runCombatReadActionSmoke() {
     }
     assert.equal(wrapResult.round, 2);
     assert.equal(wrapResult.turn, 0);
-    assert.equal(wrapCase.localDispatchCalls.length, 1);
-    assert.deepEqual(wrapCase.localDispatchCalls[0].payload, {
+    assert.equal(wrapCase.dispatchCalls.length, 1);
+    assert.deepEqual(wrapCase.dispatchCalls[0].operation, {
         updates: [{ _id: 'combat-wrap', round: 2, turn: 0 }],
     });
 
-    const notFoundCase = buildCombatClient({
+    // ---- combat not found ----
+    const notFoundCase = await buildCase({
         userId: 'gm-not-found',
-        role: 4,
         combat: {
             _id: 'combat-existing',
             id: 'combat-existing',
@@ -287,11 +275,11 @@ async function runCombatReadActionSmoke() {
         assert.fail('Expected combat not found error');
     }
     assert.equal(notFoundResult.status, 404);
-    assert.equal(notFoundCase.localDispatchCalls.length, 0);
+    assert.equal(notFoundCase.dispatchCalls.length, 0);
 
-    const previousHappyCase = buildCombatClient({
+    // ---- previousTurn happy path (turn N → turn N-1, same round) ----
+    const previousHappyCase = await buildCase({
         userId: 'gm-prev-happy',
-        role: 4,
         combat: {
             _id: 'combat-prev-happy',
             id: 'combat-prev-happy',
@@ -310,14 +298,14 @@ async function runCombatReadActionSmoke() {
     }
     assert.equal(previousHappyResult.round, 2);
     assert.equal(previousHappyResult.turn, 0);
-    assert.equal(previousHappyCase.localDispatchCalls.length, 1);
-    assert.deepEqual(previousHappyCase.localDispatchCalls[0].payload, {
+    assert.equal(previousHappyCase.dispatchCalls.length, 1);
+    assert.deepEqual(previousHappyCase.dispatchCalls[0].operation, {
         updates: [{ _id: 'combat-prev-happy', round: 2, turn: 0 }],
     });
 
-    const previousRoundWrapCase = buildCombatClient({
+    // ---- previousTurn at start of round (turn 0 → round-1, last turn) ----
+    const previousRoundWrapCase = await buildCase({
         userId: 'gm-prev-wrap',
-        role: 4,
         combat: {
             _id: 'combat-prev-wrap',
             id: 'combat-prev-wrap',
@@ -336,14 +324,14 @@ async function runCombatReadActionSmoke() {
     }
     assert.equal(previousWrapResult.round, 1);
     assert.equal(previousWrapResult.turn, 1);
-    assert.equal(previousRoundWrapCase.localDispatchCalls.length, 1);
-    assert.deepEqual(previousRoundWrapCase.localDispatchCalls[0].payload, {
+    assert.equal(previousRoundWrapCase.dispatchCalls.length, 1);
+    assert.deepEqual(previousRoundWrapCase.dispatchCalls[0].operation, {
         updates: [{ _id: 'combat-prev-wrap', round: 1, turn: 1 }],
     });
 
-    const previousStartCase = buildCombatClient({
+    // ---- previousTurn at round 1, turn 0 → boundary (round 0) ----
+    const previousStartCase = await buildCase({
         userId: 'gm-prev-start',
-        role: 4,
         combat: {
             _id: 'combat-prev-start',
             id: 'combat-prev-start',
@@ -362,8 +350,8 @@ async function runCombatReadActionSmoke() {
     }
     assert.equal(previousStartResult.round, 0);
     assert.equal(previousStartResult.turn, 0);
-    assert.equal(previousStartCase.localDispatchCalls.length, 1);
-    assert.deepEqual(previousStartCase.localDispatchCalls[0].payload, {
+    assert.equal(previousStartCase.dispatchCalls.length, 1);
+    assert.deepEqual(previousStartCase.dispatchCalls[0].operation, {
         updates: [{ _id: 'combat-prev-start', round: 0, turn: 0 }],
     });
 }
@@ -373,6 +361,7 @@ export async function run() {
     try {
         await runCombatReadActionSmoke();
     } finally {
+        combatStore.clear('actor-combat-smoke-test');
         userStore.clear('actor-combat-smoke-test');
     }
 }
