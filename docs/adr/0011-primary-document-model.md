@@ -101,7 +101,7 @@ The protocol is uniform because Foundry's wire format is uniform:
 
 Policy differs by type:
 
-- **Ownership.** Actor / Item / RollTable / Macro / Playlist / Scene / JournalEntry use the standard `{ default, userId }` map. ChatMessage uses `whisper` + `blind` + `author`. Combat derives from combatants. User has none (users are subjects, not targets). Folder has none in v13 (confirmed across all six folder types in the audit dumps).
+- **Ownership.** Actor / Item / RollTable / Macro / Playlist / Scene / JournalEntry use the standard `{ default, userId }` map. ChatMessage uses `whisper` + `blind` + `author`. Combat derives from combatants. User has none (users are subjects, not targets). Folder uses Foundry's `permission` map; when the map or a key is omitted, the effective permission is `NONE`.
 - **Embedded children.** Actor has Items + Effects. Combat has Combatants. Journal has Pages. RollTable has results with mutable `drawn` state. Playlist has sounds with playback state. Macro / ChatMessage / Folder / Cards / Macro / etc. have none.
 - **Cross-store deps.** Combat depends on Actor for combatant visibility. Every Store depends on User for subject role resolution.
 - **Retention.** Most types use full hydration with bootstrap seed. The rarely-touched types (Macro / Playlist / RollTable / Cards) use lazy hydration. The Sheet-Delver-unused types (Scene / FogExploration / Adventure / Setting) get stubs.
@@ -190,8 +190,8 @@ Captured here for durability (not in working planning docs). Subclass implementa
 | Actor | `ownership` map (standard) | `Item`, `ActiveEffect` | `UserStore` (subject role) | Full + bootstrap seed |
 | ChatMessage | `whisper[]` + `blind` + `author` (no ownership map) | none | `UserStore` | Full + bootstrap seed |
 | User | None — users are subjects, not targets | none | none | Full + bootstrap seed |
-| Folder | None — confirmed absent in Foundry v13 across all six folder types | none | none | Full + bootstrap seed |
-| JournalEntry | `ownership` map at entry level AND per-page | `JournalEntryPage` (each has own ownership map) | `FolderStore` (organizational list views only) | Full + bootstrap seed |
+| Folder | `permission` map; omitted map/key means effective `NONE` | none | none | Full + bootstrap seed |
+| JournalEntry | `ownership` map at entry level AND per-page | `JournalEntryPage` (each has own ownership map) | `FolderStore` (folder ancestry/permission where applicable) | Full + bootstrap seed |
 | Combat | None on the Combat doc — derived from combatants (`hidden` flag + actor visibility) | `Combatant` | `ActorStore` (combatant visibility), `UserStore` | Full + bootstrap seed |
 | Item (world) | `ownership` map (standard) | `ActiveEffect` | `UserStore` | Full + bootstrap seed |
 | RollTable | `ownership` map (standard) | `RollTableResult` (with mutable `drawn` state) | `UserStore` | Lazy |
@@ -338,6 +338,42 @@ Phase 2 introduced `UserStore`, but several call sites still ask the socket/clie
 - [x] Verify the cleanup with `rg "\.getUser\(|\.getUsers\(|getUser\(|getUsers\(" src/server -g "*.ts"`, `npx tsc --noEmit`, and `npm run test:unit`.
 
 Closure verification (May 16, 2026): Store-backed user helpers now own role lookup, presence-composed rosters, and GM recipient lookup. `UserPresence` owns runtime `active` state outside User documents. Exact cleanup grep finds no `getUser()` / `getUsers()` call sites under `src/server` or `src`. `npx tsc --noEmit` passed. `npm run test:unit` passed when rerun outside the sandbox; the sandboxed run failed before tests started because `tsx` could not open its IPC pipe.
+
+**Phase 3 staging: FolderStore + FolderRepository**
+
+ADR-0011 Phase 3 promotes Foundry `Folder` documents into the primary-document framework. `FolderStore` models the folder tree itself, not the primary documents that happen to be nested under it. Its core helpers should be generic over folder ids and ancestry; Foundry's Folder `type` is metadata for optional filtering, not a reason for FolderStore to understand Actor, JournalEntry, Item, or any other document payload. JournalService is the first existing call site to migrate because it currently owns inline folder ancestry pruning.
+
+Foundry Folder schema assumptions for this phase: core fields include `_id`, `name`, `type`, `parent`, `sort`, `color`, `flags`, optional `children`, optional `private`, optional `img`, and optional `permission`. `permission` is a map keyed by user id or role id when explicit permissions are set; if Foundry omits the map or a key because nothing is explicitly set, `FolderStore` should normalize that absence to effective `NONE`. `type` identifies the contained collection (`Actor`, `Item`, `JournalEntry`, `Scene`, `RollTable`, `Card`, `Playlist`, `Macro`, `Compendium`, etc.) but does not make FolderStore responsible for validating contained document schemas. Current Sheet Delver DTOs may still expose a `folder` parent alias; Phase 3 should normalize that to `parent` at the Store/type boundary.
+
+Scope:
+
+- [ ] Add `FolderStore` and `FolderRepository` under `src/server/core/documents/primary/folders/`, plus a RawFolder type that reflects Foundry's Folder schema and normalizes legacy/local parent aliases.
+  Files: `src/server/core/documents/primary/folders/FolderStore.ts`, `src/server/core/documents/primary/folders/FolderRepository.ts`, `src/server/shared/types/documents.ts` or `src/server/shared/types/folders.ts`.
+- [ ] Register `FolderStore` with `PrimaryDocumentCacheCoordinator` and `modifyDocumentRouter`; seed from Foundry's `Folder` documents at bootstrap.
+  Files: `src/server/core/documents/primary/PrimaryDocumentCacheCoordinator.ts`.
+- [ ] Model Folder read helpers around the folder tree itself: list folders, optionally filter by Folder `type`, lookup by id, traverse ancestors/descendants using `parent`, resolve permission/visibility with omitted maps/keys defaulting to `NONE`, and return the folder ids required to display a visible tree. These helpers should not inspect or depend on the document type nested under the folder.
+  Files: `src/server/core/documents/primary/folders/FolderStore.ts`, `src/server/services/journals/JournalService.ts`.
+- [ ] Implement Folder permission resolution. Direct folder `permission` wins; omitted map/key normalizes to effective `NONE`. Only an explicit inherited permission value, if present in the Foundry payload/version, walks `parent` ancestry with a cycle guard and fail-closed behavior for missing parents.
+  Files: `src/server/core/documents/primary/folders/FolderStore.ts`, `src/tests/unit/folder-store.test.ts`.
+- [ ] Move JournalService's inline folder ancestry pruning to `FolderStore` helpers while keeping `JournalEntry` reads/writes on the existing path until Phase 4.
+  Files: `src/server/services/journals/JournalService.ts`, `src/tests/unit/journal-smoke.test.ts`.
+- [ ] Route Folder create/update/delete through `FolderRepository` for existing Journal route flows where `type === 'Folder'`; leave `JournalEntry` mutation responsibility unchanged until Phase 4.
+  Files: `src/server/services/journals/JournalService.ts`, `src/server/shared/utils/createRouteFoundryClient.ts`, `src/server/shared/types/documents.ts`.
+- [ ] Remove socket/client-owned Folder reads once callers are migrated.
+  Files: `src/server/core/foundry/sockets/CoreSocket.ts`, `src/server/core/foundry/sockets/ClientSocket.ts`, `src/server/shared/utils/createRouteFoundryClient.ts`, `src/server/shared/types/documents.ts`, `src/tests/unit/*.test.ts`.
+- [ ] Update socket probes or legacy tests that still exercise `client.getFolders()` so they verify the Store-backed Folder path instead.
+  Files: `src/tests/deprecated/socket-legacy/06-journals.test.ts`, `src/tests/unit/journal-smoke.test.ts`.
+- [ ] Add Phase 3 tests covering seed/clear, schema normalization, type filtering, permission resolution, default-`NONE` normalization, explicit inheritance if present, tree mutation, router application, repository writes, JournalService folder pruning, and removal of socket-owned Folder reads.
+  Files: `src/tests/unit/folder-store.test.ts`, `src/tests/unit/modify-document-router.test.ts`, `src/tests/unit/journal-smoke.test.ts`, `src/tests/unit/run.ts`.
+
+Non-goals for Phase 3:
+
+- `JournalStore` and JournalEntry folder-aware visibility stay in Phase 4. Phase 3 creates the general Store-backed folder tree and removes Folder reads/writes from socket-owned surfaces.
+- Actor, Item, RollTable, Scene, Macro, Playlist, and other folder-aware Stores do not need to consume `FolderStore` in this phase unless a narrow call-site cleanup requires it. The helpers should remain document-payload agnostic so later phases can pass folder ids into the same Folder infrastructure.
+- Folder embedded children are out of scope; Folder is treated as a primary document with parent-folder ancestry, not as an embedded-document owner.
+- Full ADR-0012 wire-event rename remains out of scope. Folder events should use the primary-document bridge shape, but browser-facing event naming can remain compatibility-oriented unless the implementation naturally adds `folderChanged` / `folderListInvalidated`.
+
+Exit for Phase 3: `FolderStore` / `FolderRepository` exist, Folder document mutations route through the primary-document framework, JournalService folder pruning reads from `FolderStore`, socket/client-owned Folder reads are removed from server call sites, and `npx tsc --noEmit` plus `npm run test:unit` pass.
 
 ---
 
