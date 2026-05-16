@@ -5,9 +5,18 @@ import type { RawActor, ActorServiceClientLike } from '@server/shared/types/acto
 export interface RawFolder {
     id?: string;
     _id?: string;
-    folder?: string | null;
     name?: string;
-    type?: string;
+    type?: string | null;
+    parent?: string | null;
+    // Local/legacy DTO alias. Stores normalize this to `parent` at the boundary.
+    folder?: string | null;
+    sort?: number;
+    color?: string | null;
+    permission?: Record<string, number>;
+    flags?: Record<string, unknown>;
+    children?: string[];
+    private?: boolean;
+    img?: string | null;
     [key: string]: unknown;
 }
 
@@ -77,7 +86,12 @@ export interface RollChatMessageLike {
 export interface JournalClientLike extends FoundryClientLike {
     userId?: string | null;
     getJournals(): Promise<RawJournal[]>;
-    getFolders(type: string): Promise<RawFolder[]>;
+    dispatchDocument(
+        type: string,
+        action: string,
+        operation?: unknown,
+        parent?: { type: string; id: string }
+    ): Promise<unknown>;
     dispatchDocumentSocket(
         type: string,
         action: 'create' | 'get' | 'update' | 'delete',

@@ -256,10 +256,6 @@ export class ClientSocket extends SocketBase {
         return systemService.getSystemClient().getCombats();
     }
 
-    public async getFolders(type?: string): Promise<any[]> {
-        return systemService.getSystemClient().getFolders(type);
-    }
-
     public async updateActor(id: string, data: any): Promise<any> {
         // --- Update Funnel (Defensive Approver) ---
         const adapter = this.getSystemAdapter();

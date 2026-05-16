@@ -9,6 +9,7 @@ import { run as runActorCombatSmoke } from './actor-combat-smoke.test';
 import { run as runActorStore } from './actor-store.test';
 import { run as runPrimaryDocumentBase } from './primary-document-base.test';
 import { run as runChatMessageStore } from './chat-message-store.test';
+import { run as runFolderStore } from './folder-store.test';
 import { run as runChatService } from './chat-service.test';
 import { run as runModifyDocumentRouter } from './modify-document-router.test';
 import { run as runUserStore } from './user-store.test';
@@ -58,6 +59,7 @@ async function runAllUnitTests() {
     await runActorStore();
     await runPrimaryDocumentBase();
     await runChatMessageStore();
+    await runFolderStore();
     await runChatService();
     await runModifyDocumentRouter();
     await runUserStore();

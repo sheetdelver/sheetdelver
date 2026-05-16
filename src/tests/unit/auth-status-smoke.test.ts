@@ -67,7 +67,7 @@ function createMockRouteClient(userId = 'user-1') {
         createChatMessage: noop,
         getCombats: noop,
         getJournals: noop,
-        getFolders: noop,
+        dispatchDocument: noop,
         dispatchDocumentSocket: noop,
         fetchByUuid: noop,
         getSharedContent: () => null,

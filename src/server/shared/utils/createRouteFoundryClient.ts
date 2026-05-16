@@ -6,6 +6,7 @@ import type { RouteFoundryClient } from '@server/shared/types/requestContext';
 import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
 import { ActorRepository } from '@server/core/documents/primary/actors/ActorRepository';
 import { ChatMessageRepository } from '@server/core/documents/primary/chat-messages/ChatMessageRepository';
+import { FolderRepository } from '@server/core/documents/primary/folders/FolderRepository';
 import {
     DOCUMENT_VISIBILITY,
 } from '@server/core/documents/primary/base/ownership';
@@ -29,6 +30,7 @@ function createBaseRouteFoundryClient(client: CoreSocket | ClientSocket): RouteF
     };
     const actorRepository = new ActorRepository(documentTransport);
     const chatMessageRepository = new ChatMessageRepository(documentTransport);
+    const folderRepository = new FolderRepository(documentTransport);
 
     return {
         get isConnected() {
@@ -81,6 +83,10 @@ function createBaseRouteFoundryClient(client: CoreSocket | ClientSocket): RouteF
                 return chatMessageRepository.dispatchDocument(type, normalizedAction, normalizedOperation, parent);
             }
 
+            if (type === 'Folder') {
+                return folderRepository.dispatchDocument(type, normalizedAction, normalizedOperation, parent);
+            }
+
             return client.dispatchDocument(type, action, operation, parent);
         },
         roll: (
@@ -105,7 +111,6 @@ function createBaseRouteFoundryClient(client: CoreSocket | ClientSocket): RouteF
         createChatMessage: (data: Record<string, unknown>) => chatMessageRepository.send(data),
         getCombats: () => client.getCombats(),
         getJournals: () => client.getJournals(),
-        getFolders: (type: string) => client.getFolders(type),
         dispatchDocumentSocket: (
             type: string,
             action: 'create' | 'get' | 'update' | 'delete',

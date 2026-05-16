@@ -1,5 +1,6 @@
 import { strict as assert } from 'node:assert';
 import { createJournalService } from '@server/services/journals/JournalService';
+import { folderStore } from '@server/core/documents/primary/folders/FolderStore';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
 
 async function runJournalSmokeTests() {
@@ -9,7 +10,29 @@ async function runJournalSmokeTests() {
     await userStore.seed(async () => [
         { _id: 'user-1', id: 'user-1', role: 2 },
     ]);
-
+    await folderStore.seed(async () => [
+        {
+            _id: 'folder-root',
+            id: 'folder-root',
+            name: 'Root Folder',
+            type: 'JournalEntry',
+            folder: null,
+        },
+        {
+            _id: 'folder-child',
+            id: 'folder-child',
+            name: 'Child Folder',
+            type: 'JournalEntry',
+            folder: 'folder-root',
+        },
+        {
+            _id: 'folder-hidden',
+            id: 'folder-hidden',
+            name: 'Hidden Folder',
+            type: 'JournalEntry',
+            folder: null,
+        },
+    ]);
     const client = {
         userId: 'user-1',
         getJournals: async () => ([
@@ -35,29 +58,10 @@ async function runJournalSmokeTests() {
                 ownership: { default: 2 },
             },
         ]),
-        getFolders: async () => ([
-            {
-                _id: 'folder-root',
-                id: 'folder-root',
-                name: 'Root Folder',
-                type: 'JournalEntry',
-                folder: null,
-            },
-            {
-                _id: 'folder-child',
-                id: 'folder-child',
-                name: 'Child Folder',
-                type: 'JournalEntry',
-                folder: 'folder-root',
-            },
-            {
-                _id: 'folder-hidden',
-                id: 'folder-hidden',
-                name: 'Hidden Folder',
-                type: 'JournalEntry',
-                folder: null,
-            },
-        ]),
+        dispatchDocument: async (collection: string, action: string, payload: unknown) => {
+            dispatchCalls.push({ collection, action, payload });
+            return { ok: true };
+        },
         dispatchDocumentSocket: async (collection: string, action: string, payload: unknown) => {
             dispatchCalls.push({ collection, action, payload });
 
@@ -108,12 +112,23 @@ async function runJournalSmokeTests() {
         updates: [{ _id: 'j-visible-1', name: 'Renamed Journal' }],
         broadcast: true,
     });
+
+    await journalService.createJournal(client, {
+        type: 'Folder',
+        data: { name: 'New Folder', type: 'JournalEntry', folder: null },
+    });
+    const folderCreateCall = dispatchCalls.find((call) => call.collection === 'Folder' && call.action === 'create');
+    assert.ok(folderCreateCall);
+    assert.deepEqual(folderCreateCall!.payload, {
+        data: [{ name: 'New Folder', type: 'JournalEntry', parent: null }],
+    });
 }
 
 export async function run() {
     try {
         await runJournalSmokeTests();
     } finally {
+        folderStore.clear('journal-smoke-test');
         userStore.clear('journal-smoke-test');
     }
 }

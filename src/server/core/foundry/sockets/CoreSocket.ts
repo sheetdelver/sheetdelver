@@ -949,17 +949,6 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
         });
     }
 
-    public async getFolders(type?: string): Promise<any[]> {
-        const result: any = await this.dispatchDocumentSocket('Folder', 'get', { broadcast: false });
-        let all = result?.result || [];
-
-        if (type) {
-            all = all.filter((f: any) => f.type === type);
-        }
-
-        return all;
-    }
-
     public async getActors(userId?: string): Promise<any[]> {
         if (!actorStore.isReady()) throw new PrimaryDocumentCacheNotReadyError('Actor');
 

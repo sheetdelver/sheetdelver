@@ -68,16 +68,21 @@ async function runDirectTypeRouting() {
     const router = new ModifyDocumentRouter();
     const actor = new RecordingStore('Actor');
     const chat = new RecordingStore('ChatMessage');
+    const folder = new RecordingStore('Folder');
     router.register(actor);
     router.register(chat);
+    router.register(folder);
 
     router.route({ type: 'Actor', action: 'update', result: [{ _id: 'a' }] });
     router.route({ type: 'ChatMessage', action: 'create', result: [{ _id: 'm' }] });
+    router.route({ type: 'Folder', action: 'update', result: [{ _id: 'f' }] });
 
     assert.equal(actor.received.length, 1);
     assert.equal(actor.received[0].type, 'Actor');
     assert.equal(chat.received.length, 1);
     assert.equal(chat.received[0].type, 'ChatMessage');
+    assert.equal(folder.received.length, 1);
+    assert.equal(folder.received[0].type, 'Folder');
 }
 
 async function runEmbeddedParentRouting() {

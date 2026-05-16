@@ -10,6 +10,7 @@ import { CompendiumCache } from '../foundry/compendium-cache';
 import { clearDocumentCache, seedDocumentCache } from '../documents/primary/PrimaryDocumentCacheCoordinator';
 import { actorStore } from '../documents/primary/actors/ActorStore';
 import { chatMessageStore } from '../documents/primary/chat-messages/ChatMessageStore';
+import { folderStore } from '../documents/primary/folders/FolderStore';
 import { userStore } from '../documents/primary/users/UserStore';
 import type { DocumentChangedEvent, DocumentListInvalidatedEvent } from '../documents/primary/base/PrimaryDocumentStore';
 
@@ -49,6 +50,20 @@ export class SystemService extends EventEmitter {
             this.systemClient?.emit('chatMessageListInvalidated', {
                 reason: event.reason,
                 messageId: event.documentId,
+                targetUserIds: event.targetUserIds,
+            });
+        });
+
+        // FolderStore is the Folder document-event source. Folder events are
+        // document-type generic; contained Actor/Item/Journal documents emit
+        // through their own Stores.
+        folderStore.on('documentChanged', (event: DocumentChangedEvent) => {
+            this.systemClient?.emit('folderChanged', { folderId: event.id, action: event.action });
+        });
+        folderStore.on('documentListInvalidated', (event: DocumentListInvalidatedEvent) => {
+            this.systemClient?.emit('folderListInvalidated', {
+                reason: event.reason,
+                folderId: event.documentId,
                 targetUserIds: event.targetUserIds,
             });
         });

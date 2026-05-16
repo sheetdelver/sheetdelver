@@ -3,6 +3,7 @@ import { CoreSocket } from '@core/foundry/sockets/CoreSocket';
 import { loadConfig } from '@core/config';
 import 'dotenv/config';
 import { logger } from '@shared/utils/logger';
+import { folderStore } from '@server/core/documents/primary/folders/FolderStore';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
 
 // Force test env (Ignore read-only error for test script)
@@ -39,7 +40,11 @@ async function testJournals() {
         logger.info(`✅ Fetched ${journals.length} Journal Entries`);
 
         logger.info('📁 Fetching Folders...');
-        const folders = await client.getFolders('JournalEntry');
+        await folderStore.seed(async () => {
+            const response = await core.dispatchDocumentSocket('Folder', 'get', { broadcast: false });
+            return response?.result || [];
+        });
+        const folders = folderStore.listByType('JournalEntry');
         logger.info(`✅ Fetched ${folders.length} Journal Folders`);
 
         logger.info('👥 Fetching Users...');
@@ -68,7 +73,7 @@ async function testJournals() {
         // 4. Create Folder
         logger.info('📂 Creating Test Folder...');
         const folderResult = await core.dispatchDocumentSocket('Folder', 'create', {
-            data: [{ name: 'Test Test Folder', type: 'JournalEntry', folder: null }],
+            data: [{ name: 'Test Test Folder', type: 'JournalEntry', parent: null }],
             broadcast: true
         });
         const newFolder = folderResult?.result?.[0];

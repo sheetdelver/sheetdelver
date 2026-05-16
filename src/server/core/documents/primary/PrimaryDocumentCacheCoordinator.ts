@@ -4,6 +4,7 @@ import type { PrimaryDocumentType } from './base/PrimaryDocumentStore';
 import { modifyDocumentRouter } from './base/modifyDocumentRouter';
 import { actorStore } from './actors/ActorStore';
 import { chatMessageStore } from './chat-messages/ChatMessageStore';
+import { folderStore } from './folders/FolderStore';
 import { userStore } from './users/UserStore';
 
 /**
@@ -95,6 +96,23 @@ primaryDocumentCacheCoordinator.register({
 });
 
 primaryDocumentCacheCoordinator.register({
+    type: 'Folder',
+    async seed(client) {
+        await folderStore.seed(async () => {
+            const response: any = await client.dispatchDocumentSocket('Folder', 'get', { broadcast: false });
+            return response?.result || [];
+        });
+        logger.info(`PrimaryDocumentCacheCoordinator | Seeded ${folderStore.list().length} folders.`);
+    },
+    clear(reason) {
+        folderStore.clear(reason);
+    },
+    isReady() {
+        return folderStore.isReady();
+    },
+});
+
+primaryDocumentCacheCoordinator.register({
     type: 'User',
     async seed(client) {
         await userStore.seed(async () => {
@@ -117,6 +135,7 @@ primaryDocumentCacheCoordinator.register({
 // modifyDocument router bindings
 modifyDocumentRouter.register(actorStore);
 modifyDocumentRouter.register(chatMessageStore);
+modifyDocumentRouter.register(folderStore);
 modifyDocumentRouter.register(userStore);
 // Embedded children: Actor owns Item + ActiveEffect with parentUuid 'Actor.xxx...'.
 modifyDocumentRouter.registerEmbeddedHandler('Actor', actorStore);
