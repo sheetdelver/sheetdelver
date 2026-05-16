@@ -30,6 +30,7 @@ export function ActorCombatProvider({ children }: { children: React.ReactNode })
     const [actorCards, setActorCards] = useState<Record<string, ActorCardData>>({});
     const [combats, setCombats] = useState<CombatDto[]>([]);
     const lastActorFetchTimeRef = useRef<number>(0);
+    const combatFetchInFlightRef = useRef<Promise<CombatListPayload | void> | null>(null);
     const FETCH_THROTTLE_MS = 2000;
 
     const fetchActorCards = useCallback(async () => {
@@ -84,19 +85,33 @@ export function ActorCombatProvider({ children }: { children: React.ReactNode })
 
     const fetchCombats = useCallback(async () => {
         if (!token) return;
-        try {
-            const data = await foundryApi.fetchCombats(token);
-            if (data.combats) {
-                setCombats(data.combats as CombatDto[]);
-            }
-            return data;
-        } catch (error: any) {
-            if (error instanceof UnauthorizedApiError) {
-                setToken(null);
+        if (combatFetchInFlightRef.current) return combatFetchInFlightRef.current;
+
+        const request = (async () => {
+            try {
+                const data = await foundryApi.fetchCombats(token);
+                if (data.combats) {
+                    setCombats(data.combats as CombatDto[]);
+                }
+                return data;
+            } catch (error: any) {
+                if (error instanceof UnauthorizedApiError) {
+                    setToken(null);
+                    return;
+                }
+                logger.error('ActorCombatContext | Fetch combat failed:', error.message);
                 return;
             }
-            logger.error('ActorCombatContext | Fetch combat failed:', error.message);
-        }
+        })();
+
+        combatFetchInFlightRef.current = request;
+        request.finally(() => {
+            if (combatFetchInFlightRef.current === request) {
+                combatFetchInFlightRef.current = null;
+            }
+        });
+
+        return request;
     }, [token, setToken]);
 
     const patchActorCard = useCallback((actorId: string, card: ActorCardData) => {

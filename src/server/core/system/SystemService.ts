@@ -104,8 +104,8 @@ export class SystemService extends EventEmitter {
         // Combatant mutations are reported as `update` events on the parent
         // combat — gateway consumers refetch combat detail to pick up the new
         // combatant state. Combat visibility crossings driven by actor ownership
-        // changes propagate via CombatStore.bindActorVisibilityBridge and
-        // surface here as `combatListInvalidated` events with `actor-visibility-changed`.
+        // changes propagate via CombatStore.bindActorVisibilityBridge; embedded
+        // combatant actor-id / hidden changes can also invalidate combat lists.
         combatStore.on('documentChanged', (event: DocumentChangedEvent) => {
             this.systemClient?.emit('combatChanged', { combatId: event.id, action: event.action });
         });

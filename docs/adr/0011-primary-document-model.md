@@ -541,6 +541,18 @@ Exit for Phase 5: `CombatStore` / `CombatRepository` exist, Combat and Combatant
 - Wire-event cleanup: `combatUpdate` is gone from `CoreSocket`, `ClientSocket`, the SDK contracts (`RealtimeCombatUpdatePayload` → `RealtimeCombatChangedPayload` + `RealtimeCombatListInvalidatedPayload`), and the browser subscriber (`FoundryContext` listens on `combatChanged` / `combatListInvalidated`). Exact cleanup grep finds only documentation comments under `src/server`, `src/client`, `src/shared`.
 - Incidental cleanup: `RouteFoundryClient.dispatchDocumentSocket` was removed because no route-client consumer required it anymore after Phase 5; the type narrowed correspondingly. The Phase 5 audit found this dead surface while migrating CombatService off it.
 
+**Phase 5 audit/fix addendum 1 (May 16, 2026): combatant visibility invalidation + browser refetch coalescing**
+
+Follow-up audit found two implementation gaps and one documentation staleness note after Phase 5 landed:
+
+- [x] Fix stale combat lists when an embedded `Combatant` mutation removes a user's combat visibility. `CombatStore.applyEmbeddedChange()` previously emitted only `combatChanged` on parent updates. Because `AppSocketGateway` gates `combatChanged` against post-change visibility, a user who lost access could miss the event and keep a stale combat in the browser. `CombatStore` now compares the non-hidden combatant actor-id source set before/after embedded `Combatant` changes and emits `combatListInvalidated { reason: "combatant-visibility-changed", combatId }` when that source set changes.
+  Files: `src/server/core/documents/primary/combats/CombatStore.ts`, `src/tests/unit/combat-store.test.ts`.
+- [x] Coalesce browser combat refetches from paired `combatChanged` + `combatListInvalidated` events. `FoundryContext` now debounces realtime combat refreshes, and `ActorCombatContext.fetchCombats()` reuses an in-flight `/api/combats` request so bursts collapse to one fetch.
+  Files: `src/client/ui/context/FoundryContext.tsx`, `src/client/ui/context/ActorCombatContext.tsx`.
+- [x] Treat the Phase 5 staging paragraphs that say `RawCombat` is "currently bare" and `combatUpdate` is "currently" emitted as pre-implementation historical text. The verification addendum and this audit/fix addendum supersede that language; the source now has expanded combat types and no live `combatUpdate` emitters.
+  Files: `docs/adr/0011-primary-document-model.md`.
+- [x] Verify the fix with `npx tsc --noEmit`, `npm run test:unit`, and `git diff --check`.
+
 ---
 
 ## Exit Criteria

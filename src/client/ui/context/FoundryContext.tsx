@@ -103,6 +103,7 @@ export function FoundryProvider({ children }: { children: ReactNode }) {
     // In-flight coalescer for user-roster refetches. A burst of userChanged /
     // userListInvalidated events collapses into a single /api/status request.
     const userRefreshInFlight = useRef<Promise<void> | null>(null);
+    const combatRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const isEqual = (a: any, b: any) => JSON.stringify(a) === JSON.stringify(b);
 
@@ -115,6 +116,21 @@ export function FoundryProvider({ children }: { children: ReactNode }) {
         });
         return unregister;
     }, [registerLogoutCleanup, resetActorCombatState, resetChatState, setCurrentUserId]);
+
+    const requestCombatRefresh = useCallback(() => {
+        if (combatRefreshTimerRef.current) clearTimeout(combatRefreshTimerRef.current);
+        combatRefreshTimerRef.current = setTimeout(() => {
+            combatRefreshTimerRef.current = null;
+            void fetchCombats();
+        }, 75);
+    }, [fetchCombats]);
+
+    useEffect(() => () => {
+        if (combatRefreshTimerRef.current) {
+            clearTimeout(combatRefreshTimerRef.current);
+            combatRefreshTimerRef.current = null;
+        }
+    }, []);
 
     // --- Initial Status Bootstrap ---
     useEffect(() => {
@@ -344,8 +360,8 @@ export function FoundryProvider({ children }: { children: ReactNode }) {
             fetchCombats(); // Initial fetch
 
             if (appSocket) {
-                const handleCombatChanged = () => { fetchCombats(); };
-                const handleCombatListInvalidated = () => { fetchCombats(); };
+                const handleCombatChanged = () => { requestCombatRefresh(); };
+                const handleCombatListInvalidated = () => { requestCombatRefresh(); };
 
                 appSocket.on('combatChanged', handleCombatChanged);
                 appSocket.on('combatListInvalidated', handleCombatListInvalidated);
@@ -356,7 +372,7 @@ export function FoundryProvider({ children }: { children: ReactNode }) {
                 };
             }
         }
-    }, [step, token, fetchCombats, appSocket]);
+    }, [step, token, fetchCombats, requestCombatRefresh, appSocket]);
 
     const contextValue = React.useMemo(() => ({
         step, setStep,

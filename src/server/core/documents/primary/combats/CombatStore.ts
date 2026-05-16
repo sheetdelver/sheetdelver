@@ -24,6 +24,15 @@ function combatantId(combatant: RawCombatant | null | undefined): string | null 
     return getDocumentId(combatant);
 }
 
+function combatVisibilitySourceState(combat: RawCombat): string {
+    const actorIds = new Set<string>();
+    for (const combatant of combat.combatants || []) {
+        if (combatant.hidden) continue;
+        if (combatant.actorId) actorIds.add(combatant.actorId);
+    }
+    return stableJson(Array.from(actorIds).sort());
+}
+
 /**
  * Combat primary-document Store. Full hydration + bootstrap seed.
  *
@@ -37,14 +46,16 @@ function combatantId(combatant: RawCombatant | null | undefined): string | null 
  *   - Missing actors fail closed.
  *
  * Embedded children: `Combatant` arrives with `parentUuid: Combat.<id>`. The
- * parent combat's `combatants[]` array is mutated in place.
+     * parent combat's `combatants[]` array is mutated in place. Changes to the
+     * non-hidden combatant actor-id source set emit a list invalidation because
+     * they can add or remove combat visibility for non-GM subjects.
  *
  * Cross-store dependency: CombatStore consumes ActorStore for visibility
  * resolution. The dependency is declared explicitly via
  * {@link bindActorVisibilityBridge}: the coordinator wires it at module-init
  * alongside the standard Store registrations, and CombatStore subscribes to
- * `actorStore.documentListInvalidated` to re-emit its own list invalidation
- * for combats containing the affected actor.
+     * `actorStore.documentListInvalidated` to re-emit its own list invalidation
+     * for combats containing the affected actor.
  */
 export class CombatStore extends PrimaryDocumentStore<RawCombat> {
     public readonly documentType: PrimaryDocumentType = 'Combat';
@@ -127,6 +138,7 @@ export class CombatStore extends PrimaryDocumentStore<RawCombat> {
         if (!combat) return;
 
         const before = stableJson(combat);
+        const beforeVisibilitySource = combatVisibilitySourceState(combat);
         const docs = toDocumentArray<RawCombatant>(result);
         combat.combatants = combat.combatants || [];
 
@@ -152,6 +164,11 @@ export class CombatStore extends PrimaryDocumentStore<RawCombat> {
         this.documents.set(combatId, combat);
         if (action !== 'get' && stableJson(combat) !== before) {
             this.emitChanged(combatId, 'update');
+            if (combatVisibilitySourceState(combat) !== beforeVisibilitySource) {
+                this.emitListInvalidated('combatant-visibility-changed', {
+                    documentId: combatId,
+                });
+            }
         }
     }
 

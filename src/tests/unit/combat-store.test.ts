@@ -124,6 +124,7 @@ async function runFailClosedWithoutActorBinding() {
 async function runEmbeddedCombatantRouting() {
     const actor = await seedActorsFor([
         { _id: 'actor-a', ownership: { 'p-1': DocumentOwnershipLevel.OBSERVER } },
+        { _id: 'actor-b', ownership: { 'p-1': DocumentOwnershipLevel.OBSERVER } },
     ]);
     const store = new CombatStore();
     store.bindActorVisibilityBridge(actor);
@@ -137,14 +138,19 @@ async function runEmbeddedCombatantRouting() {
     ] as RawCombat[]);
 
     const events: DocumentChangedEvent[] = [];
+    const invalidations: DocumentListInvalidatedEvent[] = [];
     store.on('documentChanged', (e) => events.push(e as DocumentChangedEvent));
+    store.on('documentListInvalidated', (e) => invalidations.push(e as DocumentListInvalidatedEvent));
 
     // Create combatant via embedded routing.
     store.applyModifyDocument('Combatant', 'create', [
-        { _id: 'c-new', actorId: 'actor-a', initiative: 5 },
+        { _id: 'c-new', actorId: 'actor-b', initiative: 5 },
     ], { parentUuid: 'Combat.combat-emb' });
     assert.equal(store.get('combat-emb')?.combatants?.length, 2);
     assert.equal(events.find((e) => e.id === 'combat-emb')?.action, 'update');
+    assert.equal(invalidations.length, 1, 'new readable actor source invalidates combat list visibility');
+    assert.equal(invalidations[0].reason, 'combatant-visibility-changed');
+    assert.equal(invalidations[0].documentId, 'combat-emb');
 
     // Update combatant in place.
     store.applyModifyDocument('Combatant', 'update', [
@@ -152,6 +158,7 @@ async function runEmbeddedCombatantRouting() {
     ], { parentUuid: 'Combat.combat-emb' });
     const c = store.get('combat-emb')?.combatants?.find((x) => x._id === 'c-existing');
     assert.equal(c?.initiative, 20);
+    assert.equal(invalidations.length, 1, 'initiative-only updates do not invalidate combat list visibility');
 
     // Idempotent update.
     const before = events.length;
@@ -159,6 +166,14 @@ async function runEmbeddedCombatantRouting() {
         { _id: 'c-existing', initiative: 20 },
     ], { parentUuid: 'Combat.combat-emb' });
     assert.equal(events.length, before, 'no-op update emits nothing');
+    assert.equal(invalidations.length, 1, 'no-op update emits no list invalidation');
+
+    // Hide a readable combatant — the visible combatant source set changes.
+    store.applyModifyDocument('Combatant', 'update', [
+        { _id: 'c-existing', hidden: true },
+    ], { parentUuid: 'Combat.combat-emb' });
+    assert.equal(store.get('combat-emb')?.combatants?.find((x) => x._id === 'c-existing')?.hidden, true);
+    assert.equal(invalidations.length, 2, 'hidden toggle invalidates combat list visibility');
 
     // Delete combatant.
     store.applyModifyDocument('Combatant', 'delete', null, {
@@ -166,6 +181,7 @@ async function runEmbeddedCombatantRouting() {
         ids: ['c-new'],
     });
     assert.equal(store.get('combat-emb')?.combatants?.length, 1);
+    assert.equal(invalidations.length, 3, 'deleting last visible actor source invalidates combat list visibility');
 
     // Unknown embedded type silently dropped.
     store.applyModifyDocument('NotACombatChild', 'create', [{ _id: 'x' }], {
