@@ -275,6 +275,35 @@ The fix preserves the primary-document event contract and coalesces the client r
   Files: `src/client/ui/pages/GenericActorPage.tsx`.
 - [x] Verification passed: `npx tsc --noEmit`, `npm run test:unit`, and `git diff --check`.
 
+**Phase 2 staging: UserStore + UserRepository**
+
+ADR-0011 Phase 2 promotes Foundry `User` documents into the primary-document framework. The goal is to make user documents and role lookups a Store-backed source of truth rather than maintaining the current split between `CoreSocket.userMap` and `gameDataCache.users`.
+
+Scope:
+
+- [ ] Add `UserStore` and `UserRepository` under `src/server/core/documents/primary/users/`.
+  Files: `src/server/core/documents/primary/users/UserStore.ts`, `src/server/core/documents/primary/users/UserRepository.ts`, optional `userDocumentEvents.ts`.
+- [ ] Register `UserStore` with `PrimaryDocumentCacheCoordinator` and `modifyDocumentRouter`; seed from Foundry's `User` documents at bootstrap.
+  Files: `src/server/core/documents/primary/PrimaryDocumentCacheCoordinator.ts`, `src/server/core/documents/primary/base/PrimaryDocumentStore.ts` if `PrimaryDocumentType` needs the `User` path verified.
+- [ ] Move user create/update/delete broadcast application into `UserStore` and remove `userMap` / `gameDataCache.users` as primary mutation targets.
+  Files: `src/server/core/foundry/sockets/CoreSocket.ts`, `src/server/core/foundry/sockets/ClientSocket.ts` if user relay behavior changes.
+- [ ] Route subject-role lookups through `UserStore` so Actor/ChatMessage and future Stores construct `DocumentAccessSubject` from one user source.
+  Files: `src/server/shared/utils/createRouteFoundryClient.ts`, `src/server/services/chat/ChatService.ts`, `src/server/realtime/AppSocketGateway.ts`, `src/server/core/system/SystemService.ts`.
+- [ ] Decide and document where active-user presence belongs. `users` are primary documents; `activeUsers` is presence state and may remain outside the Store or become a separate Store-owned presence projection.
+  Files: `src/server/core/foundry/sockets/CoreSocket.ts`, `src/server/core/system/SystemService.ts`, status payload builders if touched.
+- [ ] Split user document changes from broad system-status refreshes where practical. `UserStore` should emit user-document events; status broadcasts should remain for connection/world-status changes.
+  Files: `src/server/core/system/SystemService.ts`, `src/server/realtime/AppSocketGateway.ts`.
+- [ ] Add Phase 2 tests covering UserStore ownership policy, bootstrap seed, modifyDocument routing, role lookup, and removal of `userMap` / `gameDataCache.users` as sources of truth.
+  Files: `src/tests/unit/user-store.test.ts`, `src/tests/unit/run.ts`, plus focused updates to route-client/realtime tests.
+
+Non-goals for Phase 2:
+
+- `sceneDataCache` and non-document world metadata remain on `CoreSocket`; broader world-state consolidation is outside this phase.
+- Full ADR-0012 wire-event rename remains outside this phase unless needed for user events.
+- User documents have no embedded children and no ownership map; visibility policy is the ADR-0013 user policy: authenticated users can observe the roster, GMs are owners.
+
+Exit for Phase 2: `UserStore` / `UserRepository` exist, user document mutations route through the primary-document framework, role/subject lookup reads from `UserStore`, duplicate user state is no longer authoritative, and `npx tsc --noEmit` plus `npm run test:unit` pass.
+
 ---
 
 ## Exit Criteria

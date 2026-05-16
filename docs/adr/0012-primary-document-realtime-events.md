@@ -255,7 +255,7 @@ The structural end-state validation:
 
 Browser consumers must not treat each event in a burst as an independent network-refresh command. They should either choose the narrowest useful response or coalesce refreshes. ADR-0011 Phase 1 added that coalescing in `ChatContext` for `chatMessageChanged` / `chatMessageListInvalidated` / send-success refreshes, and in `GenericActorPage` for bursty `actorUpdate` refreshes.
 
-**May 15, 2026 — ADR-0011 Phase 1 transitional wire surface.** ADR-0011 Phase 1 is intentionally hybrid while the broader ADR remains open. `ChatMessageStore` emits through the new `chatMessageChanged` / `chatMessageListInvalidated` path; `chatUpdate` is no longer emitted from the server, though the client keeps a legacy listener harmlessly. Actor events still bridge to the legacy `actorUpdate` wire event until the full ADR-0012 rename is completed. This keeps ADR-0011 Phase 1 compatible while later phases finish the global event-surface migration.
+**May 15, 2026 — ADR-0011 Phase 1 transitional wire surface.** ADR-0011 Phase 1 is intentionally hybrid while the broader ADR remains open. Foundry still emits native `modifyDocument` events for `ChatMessage`; Sheet Delver's server realtime layer no longer re-emits those as the legacy `chatUpdate` app event. Instead, `ChatMessageStore` emits through the new `chatMessageChanged` / `chatMessageListInvalidated` path, while the client keeps a legacy `chatUpdate` listener harmlessly. Actor events still bridge to the legacy `actorUpdate` wire event until the full ADR-0012 rename is completed. This keeps ADR-0011 Phase 1 compatible while later phases finish the global event-surface migration.
 
 ---
 
