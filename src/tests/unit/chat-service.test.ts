@@ -17,7 +17,6 @@ function createMockClient(overrides: Partial<ChatClientLike> = {}): ChatClientLi
         username: 'Player',
         on: () => undefined,
         off: () => undefined,
-        getChatLog: async () => [],
         createChatMessage: async () => ({ result: [] }),
         dispatchDocument: async () => ({ result: [] }),
         roll: async () => ({ author: 'p-author', content: '7', type: 5, rolls: ['{"total":7,"formula":"1d20"}'] }),

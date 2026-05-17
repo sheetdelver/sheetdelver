@@ -321,7 +321,6 @@ export interface JournalClientLike extends FoundryClientLike {
 }
 
 export interface ChatClientLike extends FoundryClientLike {
-    getChatLog(limit: number): Promise<RawChatMessage[]>;
     createChatMessage(data: Record<string, unknown>): Promise<unknown>;
     dispatchDocument(
         type: string,

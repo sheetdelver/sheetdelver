@@ -1,5 +1,6 @@
 import { CoreSocket } from '@core/foundry/sockets/CoreSocket';
 import { loadConfig } from '@core/config';
+import { createSystemRouteFoundryClient } from '@server/shared/utils/createRouteFoundryClient';
 
 /**
  * Test 10: Batch Operations
@@ -16,20 +17,21 @@ export async function testBatchOperations() {
 
     try {
         await client.connect();
+        const routeClient = createSystemRouteFoundryClient(client);
 
         // 1. Single Actor Creation
         logger.info('1. Testing Single Actor Creation...');
-        const singleActor = await client.createActor({
+        const singleActor = await routeClient.createActor({
             name: "Single Test Actor " + Date.now(),
             type: "NPC"
-        });
+        }) as any;
         if (!singleActor || !singleActor._id) throw new Error("Single actor creation failed");
         tempActorId = singleActor._id;
         logger.info(`   ✅ Success: ${singleActor._id}`);
 
         // 2. Single Item Creation
         logger.info('\n2. Testing Single Item Creation on Actor...');
-        const itemId = await client.createActorItem(tempActorId!, {
+        const itemId = await routeClient.createActorItem(tempActorId!, {
             name: "Single Item",
             type: "Basic"
         });
@@ -42,7 +44,7 @@ export async function testBatchOperations() {
             { name: "Batch Item 1", type: "Basic" },
             { name: "Batch Item 2", type: "Basic" }
         ];
-        const itemResults = await client.createActorItem(tempActorId!, items);
+        const itemResults = await routeClient.createActorItem(tempActorId!, items) as any[];
         if (!Array.isArray(itemResults) || itemResults.length !== 2) {
             throw new Error(`Batch item creation failed. Expected 2 results, got: ${JSON.stringify(itemResults)}`);
         }
@@ -54,7 +56,7 @@ export async function testBatchOperations() {
             { name: "Batch Actor 1", type: "NPC" },
             { name: "Batch Actor 2", type: "NPC" }
         ];
-        const actorResults = await client.createActor(actors);
+        const actorResults = await routeClient.createActor(actors) as any[];
         if (!Array.isArray(actorResults) || actorResults.length !== 2) {
             throw new Error(`Batch actor creation failed. Expected 2 results, got: ${JSON.stringify(actorResults)}`);
         }
@@ -69,9 +71,10 @@ export async function testBatchOperations() {
         return { success: false, error: e.message };
     } finally {
         logger.info('\n🧹 Cleaning up...');
-        if (tempActorId) await client.deleteActor(tempActorId).catch(() => { });
+        const routeClient = createSystemRouteFoundryClient(client);
+        if (tempActorId) await routeClient.deleteActor(tempActorId).catch(() => { });
         for (const id of tempActorIds) {
-            if (id) await client.deleteActor(id).catch(() => { });
+            if (id) await routeClient.deleteActor(id).catch(() => { });
         }
         await client.disconnect();
     }

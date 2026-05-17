@@ -1,11 +1,11 @@
 import express from 'express';
 import { createDebugService } from '@server/services/debug/DebugService';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
-import type { ActorServiceClientLike } from '@server/shared/types/actors';
+import type { ClientSocket } from '@server/core/foundry/sockets/ClientSocket';
 import type { UserSessionLike } from '@server/shared/types/foundry';
 
 type DebugSession = UserSessionLike & {
-    client: ActorServiceClientLike;
+    client: ClientSocket;
 };
 
 type GetOrRestoreSession = (token: string) => Promise<DebugSession | undefined>;

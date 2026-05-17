@@ -25,20 +25,6 @@ export async function testRolling() {
         // Wait for ready state if needed, though connect() usually handles it
         if (!client.isConnected) throw new Error('Failed to connect');
 
-        /*
-        const result = await client.rollTable({
-            "rolls": [
-                "{\"class\":\"Roll\",\"options\":{},\"dice\":[],\"formula\":\"{1d8,1d8}\",\"terms\":[{\"class\":\"PoolTerm\",\"options\":{},\"evaluated\":true,\"terms\":[\"1d8\",\"1d8\"],\"modifiers\":[],\"rolls\":[{\"class\":\"Roll\",\"options\":{},\"dice\":[],\"formula\":\"1d8\",\"terms\":[{\"class\":\"Die\",\"options\":{\"flavor\":null},\"evaluated\":true,\"number\":1,\"faces\":8,\"modifiers\":[],\"results\":[{\"result\":3,\"active\":true}]}],\"total\":3,\"evaluated\":true},{\"class\":\"Roll\",\"options\":{},\"dice\":[],\"formula\":\"1d8\",\"terms\":[{\"class\":\"Die\",\"options\":{\"flavor\":null},\"evaluated\":true,\"number\":1,\"faces\":8,\"modifiers\":[],\"results\":[{\"result\":5,\"active\":true}]}],\"total\":5,\"evaluated\":true}],\"results\":[{\"result\":3,\"active\":true},{\"result\":5,\"active\":true}]}],\"total\":8,\"evaluated\":true}"
-            ],
-            flags: {
-                "core": {
-                    "RollTable": "9HXT5mQtNkSQB8lY"
-                }
-            }
-        });
-        */
-        //logger.info('Result: ' + JSON.stringify(result, null, 2));
-
         logger.info('✅ Execute Macro Tests Passed');
         return { success: true };
 

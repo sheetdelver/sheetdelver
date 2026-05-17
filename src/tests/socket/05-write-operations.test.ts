@@ -18,9 +18,10 @@ export async function testWriteOperations() {
     const results: any = { tests: [] };
     let tempActorId: string | null = null;
     let tempItemId: string | null = null;
+    let routeClient: ReturnType<typeof createSystemRouteFoundryClient> | null = null;
 
     const resolveValidActorType = async (): Promise<string> => {
-        const existingActors = await client.getActors();
+        const existingActors = await routeClient!.getActors();
         const actorTypeFromWorld = existingActors.find((actor: any) => typeof actor?.type === 'string' && actor.type.length > 0)?.type;
         if (actorTypeFromWorld) return actorTypeFromWorld;
 
@@ -40,6 +41,7 @@ export async function testWriteOperations() {
 
     try {
         await client.connect();
+        routeClient = createSystemRouteFoundryClient(client);
         logger.info('✅ Connected\n');
 
         // Test 5a: Create Temporary Actor
@@ -52,7 +54,8 @@ export async function testWriteOperations() {
                 type: actorType,
                 img: "icons/svg/mystery-man.svg"
             };
-            const createdActor = await client.createActor(actorData);
+            const createdActor = await routeClient.createActor(actorData) as Record<string, any> | null | undefined;
+            if (!createdActor?._id) throw new Error('Actor creation returned no document id');
             tempActorId = createdActor._id;
             logger.info(`   ✅ Created actor: ${createdActor.name} (${tempActorId})`);
             results.tests.push({ name: 'createActor', success: true, data: { id: tempActorId } });
@@ -71,11 +74,11 @@ export async function testWriteOperations() {
                     name: "UPDATED_TEST_ACTOR_" + Date.now(),
                     "system.details.biography": "<p>Updated via socket test</p>"
                 };
-                await client.updateActor(tempActorId, updateData);
+                await routeClient.updateActor(tempActorId, updateData);
 
                 // Verify update
-                const updatedActor = await client.getActor(tempActorId);
-                if (updatedActor.name.startsWith("UPDATED_TEST_ACTOR")) {
+                const updatedActor = await routeClient.getActor(tempActorId);
+                if (updatedActor?.name?.startsWith("UPDATED_TEST_ACTOR")) {
                     logger.info(`   ✅ Updated actor name to: ${updatedActor.name}`);
                     results.tests.push({ name: 'updateActor', success: true });
                 } else {
@@ -100,7 +103,7 @@ export async function testWriteOperations() {
                 // Using 'Item' as a broad guess, or we can try to inspect system types if we had them.
                 // Let's try to be generic.
 
-                tempItemId = await client.createActorItem(tempActorId, itemData);
+                tempItemId = await routeClient.createActorItem(tempActorId, itemData) as string;
                 logger.info(`   ✅ Created item: ${tempItemId}`);
                 results.tests.push({ name: 'createActorItem', success: true, data: { id: tempItemId } });
             } catch (error: any) {
@@ -114,7 +117,6 @@ export async function testWriteOperations() {
         // Test 5d: Chat Message
         logger.info('\n5d. Sending test chat message...');
         try {
-            const routeClient = createSystemRouteFoundryClient(client);
             await routeClient.createChatMessage({
                 content: "🧪 Socket Test: Write Operations Verified",
                 type: 1,
@@ -141,7 +143,7 @@ export async function testWriteOperations() {
         if (tempActorId) {
             logger.info('\n🧹 Cleaning up: Deleting temporary actor...');
             try {
-                await client.deleteActor(tempActorId);
+                await routeClient?.deleteActor(tempActorId);
                 logger.info('   ✅ cleanup successful');
             } catch (cleanupError: any) {
                 logger.error(`   ⚠️ Cleanup failed: ${cleanupError.message}. Please manually delete actor ${tempActorId}`);

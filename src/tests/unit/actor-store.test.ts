@@ -20,6 +20,7 @@ export async function run() {
     await runActorRepositoryAppliesEffects();
     await runRouteClientReadsFromActorStore();
     await runRouteClientRoutesNestedActorItemEffectsThroughActorRepository();
+    await runRouteClientActorWritesUseGenericTransportOnly();
     await runRouteClientBlocksActorReadsBeforeStoreReady();
     await runCoreSocketActorUuidReadsFromActorStore();
 }
@@ -144,26 +145,9 @@ async function runRouteClientReadsFromActorStore() {
         on: () => undefined,
         off: () => undefined,
         getSystem: async () => ({ id: 'generic' }),
-        getActors: async () => {
-            socketFetches += 1;
-            return [];
-        },
-        getActor: async () => {
-            socketFetches += 1;
-            return null;
-        },
-        getActorRaw: async () => null,
-        createActor: async () => null,
-        deleteActor: async () => undefined,
-        updateActor: async () => undefined,
+        getSystemAdapter: () => null,
         dispatchDocument: async () => ({}),
-        roll: async () => ({}),
-        useItem: async () => ({}),
-        createActorItem: async () => ({}),
-        updateActorItem: async () => undefined,
-        deleteActorItem: async () => undefined,
         resolveUrl: (url?: string) => url || '',
-        getChatLog: async () => [],
         dispatchDocumentSocket: async () => ({}),
         fetchByUuid: async () => null,
         getAllCompendiumIndices: async () => [],
@@ -194,12 +178,7 @@ async function runRouteClientRoutesNestedActorItemEffectsThroughActorRepository(
         on: () => undefined,
         off: () => undefined,
         getSystem: async () => ({ id: 'generic' }),
-        getActors: async () => [],
-        getActor: async () => null,
-        getActorRaw: async () => null,
-        createActor: async () => null,
-        deleteActor: async () => undefined,
-        updateActor: async () => undefined,
+        getSystemAdapter: () => null,
         dispatchDocument: async (type: string, action: string, operation: unknown, parent?: { type: string; id: string }) => {
             dispatchCalls.push({ type, action, operation, parent });
             return {
@@ -207,13 +186,7 @@ async function runRouteClientRoutesNestedActorItemEffectsThroughActorRepository(
                 operation,
             };
         },
-        roll: async () => ({}),
-        useItem: async () => ({}),
-        createActorItem: async () => ({}),
-        updateActorItem: async () => undefined,
-        deleteActorItem: async () => undefined,
         resolveUrl: (url?: string) => url || '',
-        getChatLog: async () => [],
         dispatchDocumentSocket: async () => ({}),
         fetchByUuid: async () => null,
         getAllCompendiumIndices: async () => [],
@@ -234,6 +207,62 @@ async function runRouteClientRoutesNestedActorItemEffectsThroughActorRepository(
     actorStore.clear('route-client-nested-effect-test');
 }
 
+async function runRouteClientActorWritesUseGenericTransportOnly() {
+    await actorStore.seed(async () => ([
+        {
+            _id: 'actor-write',
+            name: 'Actor Before Write',
+            items: [],
+            ownership: { default: DocumentOwnershipLevel.OWNER },
+        },
+    ]));
+
+    const dispatchCalls: Array<{ type: string; action: string; operation: unknown; parent?: { type: string; id: string } }> = [];
+    const client = createSystemRouteFoundryClient({
+        isConnected: true,
+        userId: null,
+        on: () => undefined,
+        off: () => undefined,
+        getSystem: async () => ({ id: 'generic' }),
+        getSystemAdapter: () => null,
+        dispatchDocument: async (type: string, action: string, operation: unknown, parent?: { type: string; id: string }) => {
+            dispatchCalls.push({ type, action, operation, parent });
+            if (type === 'Actor' && action === 'create') return { result: [{ _id: 'actor-created', name: 'Created Actor' }], operation };
+            if (type === 'Actor' && action === 'update') return { result: [{ _id: 'actor-write', name: 'Actor After Write' }], operation };
+            if (type === 'Actor' && action === 'delete') return { result: [{ _id: 'actor-write' }], operation };
+            if (type === 'Item' && action === 'create') return { result: [{ _id: 'item-write', name: 'Created Item' }], operation };
+            if (type === 'Item' && action === 'update') return { result: [{ _id: 'item-write', name: 'Updated Item' }], operation };
+            if (type === 'Item' && action === 'delete') return { result: [{ _id: 'item-write' }], operation };
+            return { result: [], operation };
+        },
+        resolveUrl: (url?: string) => url || '',
+        dispatchDocumentSocket: async () => ({}),
+        fetchByUuid: async () => null,
+        getAllCompendiumIndices: async () => [],
+        getSharedContent: () => null,
+    } as any);
+
+    const created = await client.createActor({ name: 'Created Actor' }) as any;
+    assert.equal(created._id, 'actor-created');
+
+    await client.updateActor('actor-write', { name: 'Actor After Write' });
+    assert.equal(actorStore.get('actor-write')?.name, 'Actor After Write');
+
+    const itemId = await client.createActorItem('actor-write', { name: 'Created Item' });
+    assert.equal(itemId, 'item-write');
+
+    await client.updateActorItem('actor-write', { _id: 'item-write', name: 'Updated Item' });
+    await client.deleteActorItem('actor-write', 'item-write');
+    await client.deleteActor('actor-write');
+
+    assert.deepEqual(
+        dispatchCalls.map(call => `${call.type}:${call.action}`),
+        ['Actor:create', 'Actor:update', 'Item:create', 'Item:update', 'Item:delete', 'Actor:delete'],
+    );
+
+    actorStore.clear('route-client-actor-write-test');
+}
+
 async function runRouteClientBlocksActorReadsBeforeStoreReady() {
     actorStore.clear('not-ready-test');
 
@@ -244,29 +273,9 @@ async function runRouteClientBlocksActorReadsBeforeStoreReady() {
         on: () => undefined,
         off: () => undefined,
         getSystem: async () => ({ id: 'generic' }),
-        getActors: async () => {
-            socketFetches += 1;
-            return [];
-        },
-        getActor: async () => {
-            socketFetches += 1;
-            return null;
-        },
-        getActorRaw: async () => {
-            socketFetches += 1;
-            return null;
-        },
-        createActor: async () => null,
-        deleteActor: async () => undefined,
-        updateActor: async () => undefined,
+        getSystemAdapter: () => null,
         dispatchDocument: async () => ({}),
-        roll: async () => ({}),
-        useItem: async () => ({}),
-        createActorItem: async () => ({}),
-        updateActorItem: async () => undefined,
-        deleteActorItem: async () => undefined,
         resolveUrl: (url?: string) => url || '',
-        getChatLog: async () => [],
         dispatchDocumentSocket: async () => ({}),
         fetchByUuid: async () => null,
         getAllCompendiumIndices: async () => [],

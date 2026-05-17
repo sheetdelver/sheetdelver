@@ -241,7 +241,7 @@ export function createActorService(deps: ActorServiceDeps) {
         }
 
         logger.debug('Core Service | Create Actor:', actorData);
-        const newActor = await client.createActor(actorData);
+        const newActor = await client.createActor(actorData) as RawActor | null | undefined;
         if (!newActor) throw new Error('Failed to create actor');
 
         return { success: true, id: newActor._id || newActor.id, actor: newActor };

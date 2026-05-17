@@ -792,7 +792,7 @@ Route / SDK / service facade
   -> socket-owned primary-document helper
 ```
 
-Current gaps found in the socket audit:
+Gaps found by the Phase 8 socket audit before implementation:
 
 - `ClientSocket` still exposes actor-shaped read/write helpers (`getActors`, `getActor`, `getActorRaw`, `createActor`, `updateActor`, `deleteActor`, `createActorItem`, `updateActorItem`, `deleteActorItem`). Some are direct user-socket dispatches; some proxy to `CoreSocket` or `systemService`. All forms leak primary-document ownership back into the socket layer.
 - `CoreSocket` still exposes the same actor-shaped read/write helpers. Some are already Store-backed, which is behaviorally correct, but the socket surface is still wrong; these should be route/system facade responsibilities over `ActorStore` / `ActorRepository`.
@@ -812,33 +812,41 @@ Allowed socket surface after Phase 8:
 
 Phase 8 action items:
 
-- [ ] Add `ActorRepository.updateActor(actorId, updates)` so all Actor CRUD has repository-owned create/update/delete parity.
+- [x] Add `ActorRepository.updateActor(actorId, updates)` so all Actor CRUD has repository-owned create/update/delete parity.
   Files: `src/server/core/documents/primary/actors/ActorRepository.ts`, `src/tests/unit/actor-store.test.ts` or a dedicated repository test.
-- [ ] Verify `createRouteFoundryClient.getActors/getActor/getActorRaw` remain Store-backed and become the only route-facing Actor read surface. Any route/debug/service call currently reaching through `session.client.getActor(...)` or socket actor getters should move to the route-client facade or directly to the appropriate Store-backed service boundary.
+- [x] Verify `createRouteFoundryClient.getActors/getActor/getActorRaw` remain Store-backed and become the only route-facing Actor read surface. Any route/debug/service call currently reaching through `session.client.getActor(...)` or socket actor getters should move to the route-client facade or directly to the appropriate Store-backed service boundary.
   Files: `src/server/shared/utils/createRouteFoundryClient.ts`, `src/server/services/debug/DebugService.ts`, `src/server/services/actors/ActorService.ts`, `src/server/services/combats/CombatService.ts`.
-- [ ] Move adapter `validateUpdate` filtering out of `ClientSocket.updateActor`. The validation can live in a small Actor write-policy helper or in `createRouteFoundryClient.updateActor(...)` immediately before calling `ActorRepository.updateActor(...)`; the socket must not own the policy.
+- [x] Move adapter `validateUpdate` filtering out of `ClientSocket.updateActor`. The validation can live in a small Actor write-policy helper or in `createRouteFoundryClient.updateActor(...)` immediately before calling `ActorRepository.updateActor(...)`; the socket must not own the policy.
   Files: `src/server/shared/utils/createRouteFoundryClient.ts`, `src/server/core/foundry/sockets/ClientSocket.ts`, actor service tests if touched.
-- [ ] Change `createRouteFoundryClient.createActor/updateActor/deleteActor` and actor embedded item helpers to call `ActorRepository` exclusively. `updateActor` must no longer call `client.updateActor(...)` or manually mirror into `ActorStore`.
+- [x] Change `createRouteFoundryClient.createActor/updateActor/deleteActor` and actor embedded item helpers to call `ActorRepository` exclusively. `updateActor` must no longer call `client.updateActor(...)` or manually mirror into `ActorStore`.
   Files: `src/server/shared/utils/createRouteFoundryClient.ts`, `src/server/core/documents/primary/actors/ActorRepository.ts`.
-- [ ] Remove `getChatLog` from `ClientSocket` and `CoreSocket`. `ChatService.getChatLog(...)` should keep the Store-backed path and either fail closed while `ChatMessageStore` is cold or perform any explicit cold-cache fallback through a repository/service-owned facade, not a socket-shaped `ChatMessage` helper.
+- [x] Remove `getChatLog` from `ClientSocket` and `CoreSocket`. `ChatService.getChatLog(...)` should keep the Store-backed path and either fail closed while `ChatMessageStore` is cold or perform any explicit cold-cache fallback through a repository/service-owned facade, not a socket-shaped `ChatMessage` helper.
   Files: `src/server/core/foundry/sockets/ClientSocket.ts`, `src/server/core/foundry/sockets/CoreSocket.ts`, `src/server/services/chat/ChatService.ts`, `src/server/shared/utils/createRouteFoundryClient.ts`, `src/server/shared/types/documents.ts`.
-- [ ] Move `roll` / `useItem` route-module behavior off socket classes or explicitly document a narrower non-primary-document exception. The replacement path should use Store-backed Actor reads and `ChatMessageRepository` for chat creation without calling socket actor/chat helpers.
+- [x] Move `roll` / `useItem` route-module behavior off socket classes or explicitly document a narrower non-primary-document exception. The replacement path should use Store-backed Actor reads and `ChatMessageRepository` for chat creation without calling socket actor/chat helpers.
   Files: `src/server/core/foundry/sockets/ClientSocket.ts`, `src/server/core/foundry/sockets/CoreSocket.ts`, `src/server/services/chat/ChatService.ts`, `src/server/services/actors/ActorService.ts`, `src/server/services/combats/CombatService.ts`, `src/server/shared/utils/createRouteFoundryClient.ts`, `src/server/shared/utils/createModuleFoundryClient.ts`.
 - [x] Enforce fail-closed user transport: `ClientSocket.dispatchDocument(...)` throws when the user socket is unavailable and has no CoreSocket fallback. Add regression coverage that a disconnected user client does not call `systemService.getSystemClient().dispatchDocument(...)`.
   Files: `src/server/core/foundry/sockets/ClientSocket.ts`, `src/tests/unit/client-socket-transport.test.ts`.
 - [x] Remove the unauthenticated module API fallback to the system route client. Module API requests without an authenticated Foundry route client now return 401 instead of receiving `CoreSocket` as an implicit fallback.
   Files: `src/server/services/modules/ModuleProxyService.ts`, `src/server/routes/modules/createModuleRouter.ts`, `src/server/app/registerRoutes.ts`.
-- [ ] Remove type-specific Actor read/write helpers from `ClientSocket` and `CoreSocket`: `getActors`, `getActor`, `getActorRaw`, `createActor`, `updateActor`, `deleteActor`, `createActorItem`, `updateActorItem`, `deleteActorItem`.
+- [x] Remove type-specific Actor read/write helpers from `ClientSocket` and `CoreSocket`: `getActors`, `getActor`, `getActorRaw`, `createActor`, `updateActor`, `deleteActor`, `createActorItem`, `updateActorItem`, `deleteActorItem`.
   Files: `src/server/core/foundry/sockets/ClientSocket.ts`, `src/server/core/foundry/sockets/CoreSocket.ts`.
-- [ ] Remove actor read/write methods from socket-facing interfaces/types so TypeScript prevents new socket-owned primary-document call sites.
-  Files: `src/server/core/foundry/interfaces.ts`, `src/server/shared/types/actors.ts`, `src/server/shared/types/documents.ts`, any route-client types that currently require socket-shaped actor/chat methods.
-- [ ] Keep `createModuleFoundryClient`'s public Actor SDK shape intact, but ensure each method delegates to the repository-backed route client rather than socket helper methods.
+- [x] Remove actor read/write methods from socket-facing interfaces/types so TypeScript prevents new socket-owned primary-document call sites. Route/service-facing actor methods remain on `ActorServiceClientLike`; that type represents the route-client facade, not the socket surface.
+  Files: `src/server/core/foundry/interfaces.ts`, `src/server/shared/types/documents.ts`, route-client types verified as facade-only.
+- [x] Keep `createModuleFoundryClient`'s public Actor SDK shape intact, but ensure each method delegates to the repository-backed route client rather than socket helper methods.
   Files: `src/server/shared/utils/createModuleFoundryClient.ts`, `src/server/shared/utils/createRouteFoundryClient.ts`.
-- [ ] Add regression coverage proving route/module Actor reads and writes work with a fake client that exposes generic `dispatchDocument` but no type-specific actor helper methods.
-  Files: `src/tests/unit/*route-foundry-client*.test.ts` or a new focused unit test.
-- [ ] Update or retire socket-specific legacy tests that directly exercise actor-shaped socket helpers. The replacement assertions should target route/module facades and the repository/store path; low-level socket tests may cover only generic transport.
-  Files: `src/tests/socket/*.test.ts`, `src/tests/deprecated/**/*.test.ts`, route-client tests.
-- [ ] Add a source-audit check to the Phase 8 verification notes: no live code outside repository/transport/bootstrap internals calls socket-owned primary-document read/write helpers, and no `ClientSocket`/`CoreSocket` actor helper methods remain.
+- [x] Add regression coverage proving route/module Actor reads and writes work with a fake client that exposes generic `dispatchDocument` but no type-specific actor helper methods.
+  Files: `src/tests/unit/actor-store.test.ts`.
+- [x] Update or retire socket-specific legacy tests that directly exercise actor-shaped socket helpers. The replacement assertions should target route/module facades and the repository/store path; low-level socket tests may cover only generic transport.
+  Files: active `src/tests/socket/*.test.ts` callers now use route clients; deprecated socket tests remain excluded from active verification.
+- [x] Add a source-audit check to the Phase 8 verification notes: no live code outside repository/transport/bootstrap internals calls socket-owned primary-document read/write helpers, and no `ClientSocket`/`CoreSocket` actor helper methods remain.
+
+Phase 8 completion notes:
+
+- `ClientSocket` and `CoreSocket` no longer expose Actor helper methods, `getChatLog`, `roll`, or `useItem`; sockets retain only generic transport (`dispatchDocument` / `dispatchDocumentSocket`) plus non-primary-document metadata/session utilities.
+- `createRouteFoundryClient` now owns Actor Store reads, Actor Repository writes, adapter `validateUpdate` filtering, route-scoped `roll`, and `useItem`. `roll` / `useItem` create chat output through `ChatMessageRepository` and read Actors through the Store-backed route facade.
+- `ChatService.getChatLog(...)` now fails closed with `PrimaryDocumentCacheNotReadyError('ChatMessage')` while `ChatMessageStore` is cold instead of falling back to a socket chat-log helper.
+- `DebugService` and socket integration tests now wrap raw sessions/sockets in route clients before using Actor facades. Unit coverage in `src/tests/unit/actor-store.test.ts` verifies route-client reads and writes with a fake transport that has generic `dispatchDocument` but no type-specific Actor socket helpers.
+- Source audit: no `ClientSocket` / `CoreSocket` definitions remain for `getActors`, `getActor`, `getActorRaw`, `createActor`, `updateActor`, `deleteActor`, `createActorItem`, `updateActorItem`, `deleteActorItem`, `getChatLog`, `roll`, `useItem`, or `rollTable`; no live non-deprecated code calls `systemService.getSystemClient()` for those removed helpers.
 
 Non-goals for Phase 8:
 

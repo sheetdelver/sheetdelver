@@ -1,6 +1,7 @@
 
 import { SessionManager } from '@core/session/SessionManager';
 import { loadConfig } from '@core/config';
+import { createSessionRouteFoundryClient } from '@server/shared/utils/createRouteFoundryClient';
 import readline from 'readline';
 import { logger } from '@shared/utils/logger';
 
@@ -39,7 +40,8 @@ async function testSessionPersistence() {
         if (!session) throw new Error('Session not found after creation');
 
         logger.info('8c. Verifying data fetch (Actors)...');
-        const actors = await session.client.getActors();
+        const routeClient = createSessionRouteFoundryClient(session.client, session.username);
+        const actors = await routeClient.getActors();
         logger.info(`   ✅ Fetched ${actors.length} actors.`);
 
         logger.info('\n8d. Simulating Server Restart (clearing in-memory sessions)...');
@@ -53,7 +55,8 @@ async function testSessionPersistence() {
             logger.info('   ✅ Session restored successfully.');
 
             logger.info('8f. Verifying data fetch with restored session...');
-            const restoredActors = await restoredSession.client.getActors();
+            const restoredRouteClient = createSessionRouteFoundryClient(restoredSession.client, restoredSession.username);
+            const restoredActors = await restoredRouteClient.getActors();
             logger.info(`   ✅ Fetched ${restoredActors.length} actors with restored session.`);
 
             if (restoredActors.length === actors.length) {

@@ -13,6 +13,7 @@ import {
     normalizeSpeaker,
 } from '@server/core/documents/primary/chat-messages/chatMessagePayload';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
+import { PrimaryDocumentCacheNotReadyError } from '@server/core/documents/primary/errors';
 
 interface ChatServiceDeps {
     config: AppConfig;
@@ -71,11 +72,8 @@ export function createChatService(deps: ChatServiceDeps) {
             : FoundryUserRole.GAMEMASTER;
         const subject = createDocumentAccessSubject(userId ?? 'system', role);
 
-        // Store may be cold during early bootstrap; fall back to a fresh fetch
-        // so existing callers don't see an empty payload during the seed window.
         if (!chatMessageStore.isReady()) {
-            const messages = await client.getChatLog(limit);
-            return { messages };
+            throw new PrimaryDocumentCacheNotReadyError('ChatMessage');
         }
 
         const visible = subject

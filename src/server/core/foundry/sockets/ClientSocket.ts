@@ -4,7 +4,6 @@ import { logger } from '@shared/utils/logger';
 import { systemService } from '../../system/SystemService';
 import { FoundryConfig } from '../types';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
-import { userStore } from '@server/core/documents/primary/users/UserStore';
 
 export class ClientSocket extends SocketBase {
     public userId: string | null = null;
@@ -151,166 +150,14 @@ export class ClientSocket extends SocketBase {
         return currentWorldId === expectedWorldId;
     }
 
-    // --- Data Operations (Proxied to CoreSocket with userId filtering) ---
-
-    public async getChatLog(limit = 100): Promise<any[]> {
-        // If we have an active user socket, use it to leverage Foundry's native filtering
-        if (this.isConnected && this.socket) {
-            try {
-                const response: any = await this.dispatchDocumentSocket('ChatMessage', 'get', {
-                    broadcast: false,
-                    limit: limit
-                });
-                const raw = response?.result || [];
-
-                // 1. Sort Chronologically (Oldest -> Newest)
-                const sorted = [...raw].sort((a: any, b: any) => (a.timestamp || 0) - (b.timestamp || 0));
-
-                // 2. Filter based on visibility (replicate Foundry's ChatMessage.visible)
-                const isGM = !!this.userId && userStore.getRole(this.userId) >= 3;
-
-                const visible = sorted.filter((msg: any) => {
-                    // Replicate Foundry's ChatMessage.visible getter logic
-                    if (msg.whisper && msg.whisper.length > 0) {
-                        // Whispers: visible to author, recipients, or GM
-                        const isAuthor = msg.user === this.userId;
-                        const isRecipient = msg.whisper.includes(this.userId);
-                        return isAuthor || isRecipient || isGM;
-                    }
-                    // Public messages: visible to all
-                    return true;
-                });
-
-                logger.debug(`ClientSocket | User Socket: ${sorted.length} total, ${visible.length} visible (filtered ${sorted.length - visible.length})`);
-
-                return visible.map((msg: any) => {
-                    const rolls = (msg.rolls || []).map((r: any) => {
-                        if (typeof r === 'string') {
-                            try {
-                                return JSON.parse(r);
-                            } catch (error) {
-                                logger.debug(`ClientSocket | Failed to parse chat roll JSON for message ${msg._id || msg.id || 'unknown'}. Returning raw roll value.`);
-                                return r;
-                            }
-                        }
-                        return r;
-                    });
-
-                    const roll = rolls[0];
-                    const isRoll = msg.type === 5;
-                    const isBlind = msg.blind === true;
-
-                    // Masking: Hide roll results from non-GMs if message is blind
-                    const shouldMask = isBlind && !isGM;
-
-                    // Resolve Name: Prioritize User Name from author ID map
-                    const author = typeof msg.author === 'string' ? userStore.get(msg.author) : null;
-                    const userName = author?.name || msg.alias || 'Unknown';
-
-                    return {
-                        ...msg,
-                        user: userName,
-                        timestamp: msg.timestamp || Date.now(),
-                        isRoll: isRoll,
-                        rolls: shouldMask ? [] : rolls,
-                        rollTotal: shouldMask ? undefined : (roll?.total !== undefined ? roll.total : (isRoll ? msg.content : undefined)),
-                        rollFormula: shouldMask ? "???" : (roll?.formula || (isRoll ? msg.flavor : undefined)),
-                        flavor: msg.flavor
-                    };
-                });
-            } catch (error: unknown) {
-                logger.warn(`ClientSocket | Failed to fetch chat via user socket: ${getErrorMessage(error)}. Falling back to proxy.`);
-            }
-        }
-
-        return systemService.getSystemClient().getChatLog(limit, this.userId || undefined);
-    }
-
-    public async roll(formula: string, flavor?: string, options?: { userId?: string, rollMode?: string, speaker?: any, displayChat?: boolean, flags?: any }): Promise<any> {
-        return systemService.getSystemClient().roll(formula, flavor, {
-            userId: this.userId || options?.userId,
-            rollMode: options?.rollMode,
-            speaker: options?.speaker,
-            displayChat: options?.displayChat,
-            flags: options?.flags
-        });
-    }
-
-    public async getActors(): Promise<any[]> {
-        return systemService.getSystemClient().getActors(this.userId || undefined);
-    }
-
-    public async getActor(id: string): Promise<any> {
-        return systemService.getSystemClient().getActor(id);
-    }
+    // --- Public API / transport helpers ---
 
     public async getSystem(): Promise<any> {
         return systemService.getSystemClient().getSystem();
     }
 
-
-    public async updateActor(id: string, data: any): Promise<any> {
-        // --- Update Funnel (Defensive Approver) ---
-        const adapter = this.getSystemAdapter();
-        if (adapter && adapter.validateUpdate) {
-            const filteredData: any = {};
-            let hasValidUpdates = false;
-
-            for (const [path, value] of Object.entries(data)) {
-                if (adapter.validateUpdate(path, value)) {
-                    filteredData[path] = value;
-                    hasValidUpdates = true;
-                } else {
-                    logger.warn(`ClientSocket | Rejected unsanctioned update path: ${path} for actor ${id}`);
-                }
-            }
-
-            if (!hasValidUpdates) {
-                logger.info(`ClientSocket | No sanctioned updates to process for actor ${id}`);
-                return { success: true, message: 'No sanctioned updates' };
-            }
-
-            return this.dispatchDocument('Actor', 'update', { updates: [{ _id: id, ...filteredData }] });
-        }
-
-        // Fallback or generic systems
-        return this.dispatchDocument('Actor', 'update', { updates: [{ _id: id, ...data }] });
-    }
-
-    public async createActor(data: any): Promise<any> {
-        // Normalize to array for 'data' field in socket operation
-        const batch = Array.isArray(data) ? data : [data];
-        const response = await this.dispatchDocument('Actor', 'create', { data: batch });
-        // Return first document if single creation, otherwise full result array
-        return Array.isArray(data) ? response?.result : response?.result?.[0];
-
-        //return systemService.getSystemClient().createActor(data);
-    }
-
-    public async deleteActor(id: string): Promise<any> {
-        return systemService.getSystemClient().deleteActor(id);
-    }
-
-    public async createActorItem(actorId: string, itemData: any): Promise<any> {
-        return systemService.getSystemClient().createActorItem(actorId, itemData);
-    }
-
-    public async updateActorItem(actorId: string, itemData: any): Promise<any> {
-        const { _id, id, ...updates } = itemData;
-        const targetId = _id || id;
-        return this.dispatchDocument('Item', 'update', { updates: [{ _id: targetId, ...updates }] }, { type: 'Actor', id: actorId });
-    }
-
-    public async deleteActorItem(actorId: string, itemId: string): Promise<any> {
-        return this.dispatchDocument('Item', 'delete', { ids: [itemId] }, { type: 'Actor', id: actorId });
-    }
-
     public async fetchByUuid(uuid: string): Promise<any> {
         return systemService.getSystemClient().fetchByUuid(uuid);
-    }
-
-    public async useItem(actorId: string, itemId: string): Promise<any> {
-        return systemService.getSystemClient().useItem(actorId, itemId);
     }
 
     public async getAllCompendiumIndices(): Promise<any[]> {
@@ -358,10 +205,6 @@ export class ClientSocket extends SocketBase {
 
     public async dispatchDocumentSocket(type: string, action: string, data?: any, parent?: any): Promise<any> {
         return this.dispatchDocument(type, action, data, parent);
-    }
-
-    public async getActorRaw(id: string): Promise<any> {
-        return systemService.getSystemClient().getActorRaw(id);
     }
 
     public getSystemAdapter() {

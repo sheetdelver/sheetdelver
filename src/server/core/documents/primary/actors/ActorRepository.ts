@@ -31,10 +31,16 @@ export class ActorRepository extends PrimaryDocumentRepository<RawActor> {
         return super.dispatchDocument(type, action, operation, parent);
     }
 
-    async createActor(actorData: Record<string, unknown>): Promise<Record<string, unknown> | null> {
+    async createActor(
+        actorData: Record<string, unknown> | Array<Record<string, unknown>>,
+    ): Promise<Record<string, unknown> | Array<Record<string, unknown>> | null> {
         const batch = Array.isArray(actorData) ? actorData : [actorData];
         const response = await this.dispatchDocument('Actor', 'create', { data: batch });
         return Array.isArray(actorData) ? response?.result : response?.result?.[0] ?? null;
+    }
+
+    async updateActor(actorId: string, updates: Record<string, unknown>): Promise<any> {
+        return this.dispatchDocument('Actor', 'update', { updates: [{ _id: actorId, ...updates }] });
     }
 
     async deleteActor(actorId: string): Promise<void> {

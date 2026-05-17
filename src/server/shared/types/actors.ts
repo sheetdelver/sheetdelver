@@ -81,7 +81,9 @@ export interface ActorServiceClientLike extends FoundryClientLike {
     getActor(actorId: string): Promise<(RawActor & { error?: string }) | null | undefined>;
     getActorRaw(actorId: string): Promise<(RawActor & { error?: string }) | null | undefined>;
 
-    createActor(actorData: Record<string, unknown>): Promise<RawActor | null | undefined>;
+    createActor(
+        actorData: Record<string, unknown> | Array<Record<string, unknown>>
+    ): Promise<RawActor | RawActor[] | null | undefined>;
     deleteActor(actorId: string): Promise<void>;
     updateActor(actorId: string, payload: Record<string, unknown>): Promise<unknown>;
     dispatchDocument(
