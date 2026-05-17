@@ -333,25 +333,27 @@ export class ClientSocket extends SocketBase {
     }
 
     public async dispatchDocument(type: string, action: string, operation: any = {}, parent?: { type: string, id: string }): Promise<any> {
-        // If we represent a user session and are connected, USE OUR OWN SOCKET to act as the User
-        if (this.isConnected && this.socket) {
-            if (parent) {
-                operation.parentUuid = `${parent.type}.${parent.id}`;
-            }
-            else if (operation.parent && typeof operation.parent === 'object') {
-                operation.parentUuid = `${operation.parent.type}.${operation.parent.id}`;
-                delete operation.parent;
-            }
-
-            try {
-                return await this.emitSocketEvent('modifyDocument', { type, action, operation }, 5000);
-            } catch (error: unknown) {
-                logger.warn(`ClientSocket | Dispatch failed on user socket: ${getErrorMessage(error)}`);
-                throw error;
-            }
+        // User-scoped document writes must fail closed if the user's Foundry
+        // socket is unavailable. Falling back to CoreSocket would perform the
+        // write as the system account and bypass the user's Foundry ownership.
+        if (!this.isConnected || !this.socket) {
+            throw new Error('Cannot dispatch Foundry document mutation: user socket is not connected');
         }
 
-        return systemService.getSystemClient().dispatchDocument(type, action, operation, parent);
+        if (parent) {
+            operation.parentUuid = `${parent.type}.${parent.id}`;
+        }
+        else if (operation.parent && typeof operation.parent === 'object') {
+            operation.parentUuid = `${operation.parent.type}.${operation.parent.id}`;
+            delete operation.parent;
+        }
+
+        try {
+            return await this.emitSocketEvent('modifyDocument', { type, action, operation }, 5000);
+        } catch (error: unknown) {
+            logger.warn(`ClientSocket | Dispatch failed on user socket: ${getErrorMessage(error)}`);
+            throw error;
+        }
     }
 
     public async dispatchDocumentSocket(type: string, action: string, data?: any, parent?: any): Promise<any> {

@@ -24,6 +24,7 @@ import { run as runMacroStore } from './macro-store.test';
 import { run as runPlaylistStore } from './playlist-store.test';
 import { run as runCardsStore } from './cards-store.test';
 import { run as runStubStores } from './stub-stores.test';
+import { run as runClientSocketTransport } from './client-socket-transport.test';
 import { run as runModuleProxyMatcher } from './module-proxy-matcher.test';
 import { run as runModuleLifecycleState } from './module-lifecycle-state.test';
 import { run as runModuleManifestValidation } from './module-manifest-validation.test';
@@ -86,6 +87,7 @@ async function runAllUnitTests() {
     await runPlaylistStore();
     await runCardsStore();
     await runStubStores();
+    await runClientSocketTransport();
     await runRealtimeBroadcaster();
     await runAppSocketGateway();
     await runAdminCredentialStore();

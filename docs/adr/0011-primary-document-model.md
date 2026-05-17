@@ -1,6 +1,6 @@
 # ADR-0011: Primary Document Model — Per-Type Store + Repository via Shared Base
 
-**Status:** Accepted — all seven phases shipped. Round 01 (`ActorStore`) was the reference implementation; this ADR generalized its pattern across every primary document type.
+**Status:** Accepted — Phases 1-7 shipped. Phase 8 tracks a post-acceptance boundary-enforcement amendment. Round 01 (`ActorStore`) was the reference implementation; this ADR generalized its pattern across every primary document type.
 **Date:** May 15, 2026 (Accepted: May 17, 2026)
 **Phase:** Primary Documents (Phases 1–7)
 **Supersedes:** None. Builds on Round 01's actor lifecycle work.
@@ -768,9 +768,93 @@ Remaining for the next slice:
 
 ---
 
+**Phase 8 amendment: primary-document socket boundary enforcement**
+
+ADR-0011's repository/store rule is stronger than the current implementation: primary-document callers should not target `CoreSocket` or `ClientSocket` type-specific helper methods for either reads or writes. Sockets remain the low-level Foundry transport because Foundry permission checks require the acting user/session on outbound `modifyDocument` writes. They should not own primary-document semantics, even when a helper is only a transient relay to `systemService` or a Store-backed read.
+
+The intended boundary is:
+
+```text
+Route / SDK / service facade
+  -> RouteFoundryClient or ModuleFoundryClient
+  -> <Type>Repository
+  -> DocumentTransport
+  -> socket.dispatchDocument(...) as transport only
+  -> Foundry modifyDocument
+  -> <Type>Store mirror + inbound modifyDocument idempotency
+```
+
+The anti-pattern Phase 8 removes is:
+
+```text
+Route / SDK / service facade
+  -> client.getActor(...) / client.updateActor(...) / client.createActor(...)
+  -> socket-owned primary-document helper
+```
+
+Current gaps found in the socket audit:
+
+- `ClientSocket` still exposes actor-shaped read/write helpers (`getActors`, `getActor`, `getActorRaw`, `createActor`, `updateActor`, `deleteActor`, `createActorItem`, `updateActorItem`, `deleteActorItem`). Some are direct user-socket dispatches; some proxy to `CoreSocket` or `systemService`. All forms leak primary-document ownership back into the socket layer.
+- `CoreSocket` still exposes the same actor-shaped read/write helpers. Some are already Store-backed, which is behaviorally correct, but the socket surface is still wrong; these should be route/system facade responsibilities over `ActorStore` / `ActorRepository`.
+- `ClientSocket.getChatLog(...)` and `CoreSocket.getChatLog(...)` are ChatMessage-shaped read helpers. `ChatService.getChatLog(...)` is Store-backed when `ChatMessageStore` is ready, but its cold-cache fallback still calls the socket helper. That fallback keeps a primary-document read surface alive on the sockets.
+- `ClientSocket.roll(...)` / `CoreSocket.roll(...)` and `ClientSocket.useItem(...)` / `CoreSocket.useItem(...)` are not raw CRUD helpers after the Phase 1 chat write cleanup, but they still keep chat/actor domain semantics on the socket classes. `roll` creates `ChatMessage` documents through `ChatMessageRepository`; `useItem` reads an Actor and creates a `ChatMessage`. They should move behind route/module service facades or be explicitly documented as a non-primary-document exception if retained.
+- `createRouteFoundryClient.updateActor(...)` still calls `client.updateActor(...)` to preserve the adapter `validateUpdate` path, then manually mirrors into `ActorStore`. That validation policy should move outside the socket and the write should mirror through `ActorRepository`.
+- Socket-facing TypeScript interfaces still advertise actor read/write methods, allowing new call sites to compile against the old shape.
+
+Allowed socket surface after Phase 8:
+
+- `dispatchDocument(type, action, operation, parent?)` as the generic request-scoped `DocumentTransport` entry point.
+- User-scoped `ClientSocket.dispatchDocument(...)` must fail closed when the user's Foundry socket is unavailable. It must never fall back to `CoreSocket` / the system account. System-account writes are allowed only when the caller was explicitly given a system route client (for example the service-token path), not as an implicit fallback from a user client.
+- `dispatchDocumentSocket(...)` only for CoreSocket-owned low-level Foundry transport internals and cache-coordinator/bootstrap seeders that intentionally perform raw `get` operations. It must not be the public route/module primary-document CRUD facade.
+- No actor-shaped socket read helpers (`getActors`, `getActor`, `getActorRaw`) or write helpers (`createActor`, `updateActor`, `deleteActor`, actor item CRUD). Route/module/service reads go through Store-backed facades; writes go through Repositories.
+- No ChatMessage-shaped socket read helper (`getChatLog`). Chat reads go through `ChatService` / `ChatMessageStore`, with any cold-cache behavior owned by the service/facade layer rather than sockets.
+- Non-primary-document transport concerns such as session lifecycle, world lifecycle, compendium fetches, setup/admin flows, and explicit subsystem exceptions documented outside ADR-0011.
+
+Phase 8 action items:
+
+- [ ] Add `ActorRepository.updateActor(actorId, updates)` so all Actor CRUD has repository-owned create/update/delete parity.
+  Files: `src/server/core/documents/primary/actors/ActorRepository.ts`, `src/tests/unit/actor-store.test.ts` or a dedicated repository test.
+- [ ] Verify `createRouteFoundryClient.getActors/getActor/getActorRaw` remain Store-backed and become the only route-facing Actor read surface. Any route/debug/service call currently reaching through `session.client.getActor(...)` or socket actor getters should move to the route-client facade or directly to the appropriate Store-backed service boundary.
+  Files: `src/server/shared/utils/createRouteFoundryClient.ts`, `src/server/services/debug/DebugService.ts`, `src/server/services/actors/ActorService.ts`, `src/server/services/combats/CombatService.ts`.
+- [ ] Move adapter `validateUpdate` filtering out of `ClientSocket.updateActor`. The validation can live in a small Actor write-policy helper or in `createRouteFoundryClient.updateActor(...)` immediately before calling `ActorRepository.updateActor(...)`; the socket must not own the policy.
+  Files: `src/server/shared/utils/createRouteFoundryClient.ts`, `src/server/core/foundry/sockets/ClientSocket.ts`, actor service tests if touched.
+- [ ] Change `createRouteFoundryClient.createActor/updateActor/deleteActor` and actor embedded item helpers to call `ActorRepository` exclusively. `updateActor` must no longer call `client.updateActor(...)` or manually mirror into `ActorStore`.
+  Files: `src/server/shared/utils/createRouteFoundryClient.ts`, `src/server/core/documents/primary/actors/ActorRepository.ts`.
+- [ ] Remove `getChatLog` from `ClientSocket` and `CoreSocket`. `ChatService.getChatLog(...)` should keep the Store-backed path and either fail closed while `ChatMessageStore` is cold or perform any explicit cold-cache fallback through a repository/service-owned facade, not a socket-shaped `ChatMessage` helper.
+  Files: `src/server/core/foundry/sockets/ClientSocket.ts`, `src/server/core/foundry/sockets/CoreSocket.ts`, `src/server/services/chat/ChatService.ts`, `src/server/shared/utils/createRouteFoundryClient.ts`, `src/server/shared/types/documents.ts`.
+- [ ] Move `roll` / `useItem` route-module behavior off socket classes or explicitly document a narrower non-primary-document exception. The replacement path should use Store-backed Actor reads and `ChatMessageRepository` for chat creation without calling socket actor/chat helpers.
+  Files: `src/server/core/foundry/sockets/ClientSocket.ts`, `src/server/core/foundry/sockets/CoreSocket.ts`, `src/server/services/chat/ChatService.ts`, `src/server/services/actors/ActorService.ts`, `src/server/services/combats/CombatService.ts`, `src/server/shared/utils/createRouteFoundryClient.ts`, `src/server/shared/utils/createModuleFoundryClient.ts`.
+- [x] Enforce fail-closed user transport: `ClientSocket.dispatchDocument(...)` throws when the user socket is unavailable and has no CoreSocket fallback. Add regression coverage that a disconnected user client does not call `systemService.getSystemClient().dispatchDocument(...)`.
+  Files: `src/server/core/foundry/sockets/ClientSocket.ts`, `src/tests/unit/client-socket-transport.test.ts`.
+- [x] Remove the unauthenticated module API fallback to the system route client. Module API requests without an authenticated Foundry route client now return 401 instead of receiving `CoreSocket` as an implicit fallback.
+  Files: `src/server/services/modules/ModuleProxyService.ts`, `src/server/routes/modules/createModuleRouter.ts`, `src/server/app/registerRoutes.ts`.
+- [ ] Remove type-specific Actor read/write helpers from `ClientSocket` and `CoreSocket`: `getActors`, `getActor`, `getActorRaw`, `createActor`, `updateActor`, `deleteActor`, `createActorItem`, `updateActorItem`, `deleteActorItem`.
+  Files: `src/server/core/foundry/sockets/ClientSocket.ts`, `src/server/core/foundry/sockets/CoreSocket.ts`.
+- [ ] Remove actor read/write methods from socket-facing interfaces/types so TypeScript prevents new socket-owned primary-document call sites.
+  Files: `src/server/core/foundry/interfaces.ts`, `src/server/shared/types/actors.ts`, `src/server/shared/types/documents.ts`, any route-client types that currently require socket-shaped actor/chat methods.
+- [ ] Keep `createModuleFoundryClient`'s public Actor SDK shape intact, but ensure each method delegates to the repository-backed route client rather than socket helper methods.
+  Files: `src/server/shared/utils/createModuleFoundryClient.ts`, `src/server/shared/utils/createRouteFoundryClient.ts`.
+- [ ] Add regression coverage proving route/module Actor reads and writes work with a fake client that exposes generic `dispatchDocument` but no type-specific actor helper methods.
+  Files: `src/tests/unit/*route-foundry-client*.test.ts` or a new focused unit test.
+- [ ] Update or retire socket-specific legacy tests that directly exercise actor-shaped socket helpers. The replacement assertions should target route/module facades and the repository/store path; low-level socket tests may cover only generic transport.
+  Files: `src/tests/socket/*.test.ts`, `src/tests/deprecated/**/*.test.ts`, route-client tests.
+- [ ] Add a source-audit check to the Phase 8 verification notes: no live code outside repository/transport/bootstrap internals calls socket-owned primary-document read/write helpers, and no `ClientSocket`/`CoreSocket` actor helper methods remain.
+
+Non-goals for Phase 8:
+
+- Do not remove socket transport. Foundry writes still flow over an authenticated socket; the change is who owns the primary-document abstraction.
+- Do not treat generic `fetchByUuid(uuid)` as the same fault merely because it can return primary documents. It is a cross-type utility with its own deferred authorization/compendium design noted in Phase 7; Phase 8 targets type-shaped socket helpers and domain helpers that embed primary-document semantics.
+- Do not change Actor ownership or visibility semantics. ADR-0013 remains unchanged unless a later implementation changes the authorization policy itself.
+- Do not change ADR-0012's realtime event contract. Store events, gateway fan-out, and `modifyDocumentRouter` behavior remain as accepted.
+- Do not tackle the deferred CoreSocket connect-handler split or the bootstrap seed-from-`gameData` optimization. Those remain separate post-alignment refactors.
+
+Exit for Phase 8: route/module/service Actor and ChatMessage reads go through Store-backed facades, and primary-document writes reach Foundry only through the matching Repository + request-scoped `DocumentTransport`; user-scoped `ClientSocket.dispatchDocument(...)` fails closed when the user socket is unavailable and never falls back to the system account; `ClientSocket` and `CoreSocket` no longer expose actor-shaped or chat-log-shaped primary-document helper methods; socket-facing interfaces no longer advertise those helpers; adapter update validation lives outside the socket layer; `roll` / `useItem` no longer keep primary-document domain semantics on socket classes unless a narrower exception is explicitly documented; source audit confirms no primary-document read/write caller targets socket helper methods; `npx tsc --noEmit` and `npm run test:unit` pass.
+
+---
+
 ## Exit Criteria
 
-This ADR is fulfilled when every Foundry primary doc type covered by the alignment plan has its `<Type>Store` + `<Type>Repository` implementation against the shared base — including stubs for the types Sheet Delver doesn't currently use.
+This ADR is fulfilled when every Foundry primary doc type covered by the alignment plan has its `<Type>Store` + `<Type>Repository` implementation against the shared base — including stubs for the types Sheet Delver doesn't currently use. Phase 8 is a post-acceptance enforcement amendment with its own exit criteria above; it does not reopen the Phase 1-7 acceptance checklist.
 
 - [X] Phase 1: Base abstractions + `ChatMessageStore` + `ChatMessageRepository`. `ActorStore` / `ActorRepository` lifted onto the base.
 - [X] Phase 2: `UserStore` + `UserRepository`. `userMap` / `gameDataCache.users` consolidate.

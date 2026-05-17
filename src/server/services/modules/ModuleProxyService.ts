@@ -7,11 +7,6 @@ import type {
     ModuleServerLike,
     NextLikeResponse,
 } from '@server/shared/types/moduleProxy';
-import type { RouteFoundryClient } from '@server/shared/types/requestContext';
-
-interface ModuleProxyServiceDeps {
-    getFallbackFoundryClient: () => RouteFoundryClient;
-}
 
 function escapeRegexSegment(value: string): string {
     return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -35,7 +30,7 @@ export function compileModuleRoutePattern(pattern: string): RegExp {
     return new RegExp(compiled);
 }
 
-export function createModuleProxyService(deps: ModuleProxyServiceDeps) {
+export function createModuleProxyService() {
     // Route matcher for module apiRoutes patterns such as [id] segments.
     const findMatchedPattern = (routes: string[], routePath: string): string | undefined => {
         for (const pattern of routes) {
@@ -73,8 +68,12 @@ export function createModuleProxyService(deps: ModuleProxyServiceDeps) {
             return { status: 404, payload: { error: `Route ${routePath} not found` } };
         }
 
+        if (!request.foundryClient) {
+            return { status: 401, payload: { error: 'Unauthorized: Missing Foundry session' } };
+        }
+
         const handler = sysModule.apiRoutes[matchedPattern];
-        const rawClient = request.foundryClient || deps.getFallbackFoundryClient();
+        const rawClient = request.foundryClient;
         const nextRequest = {
             json: async () => request.body,
             method: request.method,

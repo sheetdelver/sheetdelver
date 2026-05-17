@@ -5,11 +5,9 @@ import { createModuleProxyService } from '@server/services/modules/ModuleProxySe
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
 import { logger } from '@shared/utils/logger';
 import { getModulesDataDir } from '@core/paths';
-import type { RouteFoundryClient } from '@server/shared/types/requestContext';
 
 interface ModuleRouterDeps {
     tryAuthenticateSession: express.RequestHandler;
-    getFallbackFoundryClient: () => RouteFoundryClient;
 }
 
 // ─── Module JS rewriter ────────────────────────────────────────────────────────
@@ -190,9 +188,7 @@ export function createModuleRouter(deps: ModuleRouterDeps) {
     });
 
     // Module proxy service: displaced matching and dispatch orchestration for module api routes.
-    const moduleProxyService = createModuleProxyService({
-        getFallbackFoundryClient: deps.getFallbackFoundryClient
-    });
+    const moduleProxyService = createModuleProxyService();
 
     // Express 5: String wildcards (*) must be named or used via RegExp.
     // Named capturing groups (?<name>) populate req.params.name

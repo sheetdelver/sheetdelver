@@ -132,8 +132,7 @@ export function registerRoutes(deps: RegisterRoutesDeps): void {
     });
 
     const moduleRouter = createModuleRouter({
-        tryAuthenticateSession,
-        getFallbackFoundryClient: () => createSystemRouteFoundryClient(systemService.getSystemClient())
+        tryAuthenticateSession
     });
     // io is forwarded as a thin broadcast callback rather than the full Server object
     // so the admin router stays decoupled from the socket layer.
