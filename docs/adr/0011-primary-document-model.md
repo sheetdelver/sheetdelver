@@ -553,6 +553,16 @@ Follow-up audit found two implementation gaps and one documentation staleness no
   Files: `docs/adr/0011-primary-document-model.md`.
 - [x] Verify the fix with `npx tsc --noEmit`, `npm run test:unit`, and `git diff --check`.
 
+**Phase 5 audit/fix addendum 2 (May 17, 2026): combat tracker exposes enemy combatant name/img + URL resolution**
+
+In-game testing surfaced a tracker bug: a player who can see a combat (because they own one combatant's actor) saw enemy combatants render as "Unknown" with no image. Root cause: `CombatService.listCombats` enriches combatants by calling `client.getActor(id)`, which routes through `ActorStore.getActor` with `LIST_VISIBLE` filtering. Enemy NPCs typically have `ownership: { default: 0 }` (NONE), so the route-client read returns null and the projected combatant ends up with `actor: null`. This contradicts Foundry's tracker semantic, where non-hidden combatants in a visible combat are shown by their displayed name/image regardless of whether the player owns the underlying actor doc. Hiding sensitive actor fields elsewhere is correct; hiding the tracker label is not.
+
+- [x] Project a stripped `{ _id, name, img }` actor for non-readable combatants in a visible combat. `CombatService.listCombats` now collects two parallel maps — `readableActors` (full data, flows through `deps.normalizeActors`) and `strippedActors` (name + img only, taken from `client.getActorRaw` after the ownership-filtered read returns null). The merged display map runs through the existing combatant projection so the tracker has a name even when the player can't read the actor doc. Sensitive fields (`system`, `items`, `ownership`, etc.) stay stripped.
+  Files: `src/server/services/combats/CombatService.ts`, `src/tests/unit/actor-combat-smoke.test.ts`.
+- [x] Resolve the stripped `img` against the Foundry URL prefix via `client.resolveUrl(raw.img)`. The readable path picks this up through `deps.normalizeActors` (the system adapter handles asset URL prefixing); the stripped path bypasses the adapter, so the resolution happens inline to avoid 404s on raw relative Foundry paths in the browser.
+  Files: `src/server/services/combats/CombatService.ts`.
+- [x] Verify with `npx tsc --noEmit` and `npm run test:unit`. New `actor-combat-smoke` case asserts that a player who owns one combatant's actor sees the enemy combatant's name + resolved img on the tracker DTO while `system` and `ownership` stay absent.
+
 **Phase 6 staging: ItemStore + ItemRepository (world-level)**
 
 ADR-0011 Phase 6 promotes Foundry world `Item` documents into the primary-document framework. `ItemStore` owns the hydrated world-Item cache, standard-ownership-map visibility, and (where applicable) `ActiveEffect` embedded child handling for world Items. `ItemRepository` owns world-Item create/update/delete + embedded effect ops. The phase makes the embedded-vs-world Item distinction explicit at the type level: `ActorRepository.createItem` (embedded items via `parentUuid: Actor.<id>`) and `ItemRepository.create` (world items, no parent) coexist as clearly separate surfaces. The world Item set is typically small; full hydration with bootstrap seed matches the Actor / Journal / Combat pattern.

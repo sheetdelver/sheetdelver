@@ -4,6 +4,7 @@ import { createCombatService } from '@server/services/combats/CombatService';
 import { combatStore } from '@server/core/documents/primary/combats/CombatStore';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
 import type { RawCombat } from '@server/shared/types/documents';
+import type { RawActor } from '@server/shared/types/actors';
 
 async function runActorReadWriteSmoke() {
     const normalizeCalls: Array<{ ids: string[] }> = [];
@@ -354,6 +355,107 @@ async function runCombatReadActionSmoke() {
     assert.deepEqual(previousStartCase.dispatchCalls[0].operation, {
         updates: [{ _id: 'combat-prev-start', round: 0, turn: 0 }],
     });
+
+    // ---- listCombats stripped-actor fallback for non-readable enemies ----
+    // Phase 5 audit/fix addendum 2: a player who can see the combat (via an
+    // owned-actor combatant) must also see the names/images of non-hidden
+    // enemy combatants whose actor docs the player can't read. Sensitive
+    // actor fields stay stripped.
+    await combatStore.seed(async () => [
+        {
+            _id: 'combat-stripped',
+            id: 'combat-stripped',
+            round: 1,
+            turn: 0,
+            combatants: [
+                { _id: 'c-pc', id: 'c-pc', actorId: 'pc-actor', initiative: 18 },
+                { _id: 'c-npc', id: 'c-npc', actorId: 'npc-actor', initiative: 12 },
+            ],
+        },
+    ]);
+
+    const strippedCaseClient = {
+        userId: 'player-strip',
+        // Player can read the PC; enemy actor returns null (ownership filter).
+        getActor: async (id: string) => {
+            if (id === 'pc-actor') {
+                return {
+                    _id: 'pc-actor',
+                    id: 'pc-actor',
+                    name: 'Hero',
+                    type: 'character',
+                    img: '/pc.webp',
+                    system: { hp: { value: 24 } },
+                    ownership: { 'player-strip': 3 },
+                };
+            }
+            return null;
+        },
+        // Raw read bypasses ownership — returns the enemy actor in full.
+        getActorRaw: async (id: string) => {
+            if (id === 'npc-actor') {
+                return {
+                    _id: 'npc-actor',
+                    id: 'npc-actor',
+                    name: 'Goblin Warlord',
+                    type: 'npc',
+                    img: 'icons/creatures/abominations/goblin.webp',
+                    // Sensitive enemy data — must NOT leak to the player.
+                    system: { hp: { value: 87 }, secret: 'do-not-leak' },
+                    ownership: { default: 0 },
+                };
+            }
+            return null;
+        },
+        // Mimics RouteFoundryClient.resolveUrl: prefixes a Foundry asset path
+        // with the world URL so the browser can fetch it.
+        resolveUrl: (url?: string) => url ? `http://foundry.test/${url.replace(/^\//, '')}` : '',
+        dispatchDocument: async () => ({ result: [], operation: {} }),
+    } as any;
+
+    // Seed the player as a TRUSTED non-GM so they can see combats they own at least one combatant in.
+    await userStore.seed(async () => [
+        { _id: 'gm-1', id: 'gm-1', role: 4 },
+        { _id: 'player-1', id: 'player-1', role: 1 },
+        { _id: 'player-owner', id: 'player-owner', role: 1 },
+        { _id: 'gm-wrap', id: 'gm-wrap', role: 4 },
+        { _id: 'gm-not-found', id: 'gm-not-found', role: 4 },
+        { _id: 'gm-prev-happy', id: 'gm-prev-happy', role: 4 },
+        { _id: 'gm-prev-wrap', id: 'gm-prev-wrap', role: 4 },
+        { _id: 'gm-prev-start', id: 'gm-prev-start', role: 4 },
+        { _id: 'player-strip', id: 'player-strip', role: 1 },
+    ]);
+
+    // Seed ActorStore so combat visibility resolves (CombatStore.bindActorVisibilityBridge
+    // is already wired by the coordinator; we just need the actor docs present).
+    const { actorStore } = await import('@server/core/documents/primary/actors/ActorStore');
+    const strippedActors: RawActor[] = [
+        { _id: 'pc-actor', ownership: { 'player-strip': 3 } },
+        { _id: 'npc-actor', ownership: { default: 0 } },
+    ];
+    await actorStore.seed(async () => strippedActors);
+
+    const strippedPayload = await combatService.listCombats(strippedCaseClient);
+    if (!strippedPayload.success) {
+        assert.fail('Expected stripped-actor combat list to succeed');
+    }
+    const strippedCombat = strippedPayload.combats.find((c) => c._id === 'combat-stripped');
+    assert.ok(strippedCombat, 'player-strip can see the combat (owns one combatant\'s actor)');
+    const pcRow = strippedCombat!.combatants?.find((c) => c._id === 'c-pc');
+    const npcRow = strippedCombat!.combatants?.find((c) => c._id === 'c-npc');
+    assert.ok(pcRow?.actor, 'PC combatant has actor data');
+    assert.equal(pcRow!.actor!.name, 'Hero');
+    assert.ok(npcRow?.actor, 'NPC combatant has stripped actor data (name + img)');
+    assert.equal(npcRow!.actor!.name, 'Goblin Warlord');
+    assert.equal(
+        npcRow!.actor!.img,
+        'http://foundry.test/icons/creatures/abominations/goblin.webp',
+        'stripped img is resolved against the Foundry URL prefix so the browser can fetch it',
+    );
+    assert.equal((npcRow!.actor as any).system, undefined, 'stripped projection does not leak system data');
+    assert.equal((npcRow!.actor as any).ownership, undefined, 'stripped projection does not leak ownership');
+
+    actorStore.clear('combat-stripped-test');
 }
 
 export async function run() {

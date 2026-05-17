@@ -62,7 +62,12 @@ export function createCombatService(deps: CombatServiceDeps) {
 
     // Combat list projection with enriched/normalized combatant actor payloads.
     // Non-GM subjects see only combats they can read; hidden combatants are
-    // pruned from non-GM views at the DTO boundary.
+    // pruned from non-GM views at the DTO boundary. Non-hidden combatants in a
+    // visible combat surface the actor's name + img even when the player can't
+    // read the actor doc itself — matches Foundry's tracker, which uses the
+    // token/actor displayed name for tracker rows regardless of actor ownership.
+    // Sensitive fields (`system`, `items`, `ownership`, etc.) stay stripped for
+    // non-readable actors.
     const listCombats = async (client: CombatClientLike): Promise<CombatListPayload> => {
         ensureReady();
         const subject = userStore.createAccessSubject(client.userId);
@@ -76,28 +81,52 @@ export function createCombatService(deps: CombatServiceDeps) {
                 : (combat.combatants || []).filter(c => !c.hidden);
 
             const actorIds = [...new Set(combatants.map((c) => c.actorId).filter(Boolean) as string[])];
-            const actorsMap: Record<string, RawActor> = {};
+            // Two-track collection: readable actors flow through normalize as
+            // before; non-readable actors yield a stripped name/img fallback so
+            // the tracker has something to render.
+            const readableActors: Record<string, RawActor> = {};
+            const strippedActors: Record<string, RawActor> = {};
 
             await Promise.all(actorIds.map(async (id) => {
                 try {
                     const actor = await client.getActor(id);
-                    if (actor) actorsMap[id] = actor;
+                    if (actor) {
+                        readableActors[id] = actor;
+                        return;
+                    }
+                    const raw = await client.getActorRaw(id);
+                    if (raw) {
+                        // Resolve `img` against the Foundry URL prefix so browser
+                        // requests don't 404 on the raw relative path. The
+                        // readable path picks this up through `normalizeActors`;
+                        // the stripped path does it inline because the system
+                        // adapter doesn't see these projections.
+                        const resolvedImg = typeof raw.img === 'string'
+                            ? client.resolveUrl(raw.img)
+                            : raw.img;
+                        strippedActors[id] = {
+                            _id: raw._id,
+                            id: raw.id,
+                            name: raw.name,
+                            img: resolvedImg,
+                        } as RawActor;
+                    }
                 } catch {
                     logger.error(`Failed to fetch actor ${id} for combat ${combat._id}`);
                 }
             }));
 
-            const actorsToNormalize = Object.values(actorsMap).filter(Boolean);
+            const actorsToNormalize = Object.values(readableActors).filter(Boolean);
             const normalizedActors = await deps.normalizeActors(actorsToNormalize, client);
-            const normalizedMap: Record<string, RawActor> = {};
+            const displayMap: Record<string, RawActor> = { ...strippedActors };
             normalizedActors.forEach((a) => {
                 const id = a._id || a.id;
-                if (id) normalizedMap[id] = a;
+                if (id) displayMap[id] = a;
             });
 
             const enrichedCombatants = combatants.map((c) => ({
                 ...c,
-                actor: c.actorId ? (normalizedMap[c.actorId] || null) : null
+                actor: c.actorId ? (displayMap[c.actorId] || null) : null
             }));
 
             return { ...combat, combatants: enrichedCombatants };
