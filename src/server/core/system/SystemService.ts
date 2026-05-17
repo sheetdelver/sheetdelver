@@ -12,6 +12,7 @@ import { actorStore } from '../documents/primary/actors/ActorStore';
 import { chatMessageStore } from '../documents/primary/chat-messages/ChatMessageStore';
 import { combatStore } from '../documents/primary/combats/CombatStore';
 import { folderStore } from '../documents/primary/folders/FolderStore';
+import { itemStore } from '../documents/primary/items/ItemStore';
 import { journalStore } from '../documents/primary/journals/JournalStore';
 import { userStore } from '../documents/primary/users/UserStore';
 import type { DocumentChangedEvent, DocumentListInvalidatedEvent } from '../documents/primary/base/PrimaryDocumentStore';
@@ -113,6 +114,22 @@ export class SystemService extends EventEmitter {
             this.systemClient?.emit('combatListInvalidated', {
                 reason: event.reason,
                 combatId: event.documentId,
+                targetUserIds: event.targetUserIds,
+            });
+        });
+
+        // ItemStore is the world Item document-event source (Phase 6). Embedded
+        // ActiveEffect mutations on world Items are reported as `update` events
+        // on the parent item. No browser context subscribes today — the bridge
+        // exists for future module-SDK consumers and to keep the wire-event
+        // surface uniform across Stores.
+        itemStore.on('documentChanged', (event: DocumentChangedEvent) => {
+            this.systemClient?.emit('itemChanged', { itemId: event.id, action: event.action });
+        });
+        itemStore.on('documentListInvalidated', (event: DocumentListInvalidatedEvent) => {
+            this.systemClient?.emit('itemListInvalidated', {
+                reason: event.reason,
+                itemId: event.documentId,
                 targetUserIds: event.targetUserIds,
             });
         });

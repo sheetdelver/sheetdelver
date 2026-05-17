@@ -59,6 +59,7 @@ export async function run() {
     await runEmbeddedParentRouting();
     await runJournalEntryPageEmbeddedRouting();
     await runCombatantEmbeddedRouting();
+    await runEmbeddedTakesPriorityOverDirectType();
     await runActorDeltaDroppedSilently();
     await runUnregisteredTypeDroppedSilently();
     await runResetClearsRegistrations();
@@ -166,6 +167,53 @@ async function runCombatantEmbeddedRouting() {
     assert.equal(combat.received[0].type, 'Combatant');
     assert.equal(combat.received[0].parentUuid, 'Combat.combat-1');
     assert.equal(combat.received[1].action, 'update');
+}
+
+async function runEmbeddedTakesPriorityOverDirectType() {
+    // Phase 6 regression: registering ItemStore directly for `Item` must NOT
+    // steal embedded Item events whose parentUuid points to a Store registered
+    // as an embedded handler (e.g., ActorStore for `Actor.<id>.Item.<id>`).
+    const router = new ModifyDocumentRouter();
+    const actor = new RecordingStore('Actor');
+    const item = new RecordingStore('Item');
+    router.register(actor);
+    router.register(item);
+    router.registerEmbeddedHandler('Actor', actor);
+
+    // Embedded: parentUuid points at Actor → ActorStore wins despite ItemStore
+    // having a direct-type registration for `Item`.
+    router.route({
+        type: 'Item',
+        action: 'create',
+        result: [{ _id: 'i-embedded' }],
+        operation: { parentUuid: 'Actor.actor-1' },
+    });
+
+    // World-level: no parentUuid → ItemStore claims it via direct-type.
+    router.route({
+        type: 'Item',
+        action: 'create',
+        result: [{ _id: 'i-world' }],
+    });
+
+    assert.equal(actor.received.length, 1, 'embedded Item routed to ActorStore');
+    assert.equal(actor.received[0].type, 'Item');
+    assert.equal(actor.received[0].parentUuid, 'Actor.actor-1');
+    assert.equal(item.received.length, 1, 'world Item routed to ItemStore');
+    assert.equal(item.received[0].type, 'Item');
+    assert.equal(item.received[0].parentUuid, undefined);
+
+    // parentUuid present but pointing at an unregistered parent type (e.g.
+    // ActorDelta synthetic-token mutations) MUST drop silently — must not
+    // fall through to ItemStore's direct-type binding, otherwise a synthetic
+    // token's embedded item delta would be applied as a world-Item update.
+    router.route({
+        type: 'Item',
+        action: 'update',
+        result: [{ _id: 'i-delta-leak' }],
+        operation: { parentUuid: 'ActorDelta.delta-1.Item.item-1' },
+    });
+    assert.equal(item.received.length, 1, 'embedded event under unrouted parent does not leak to direct-type Store');
 }
 
 async function runActorDeltaDroppedSilently() {

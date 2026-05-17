@@ -132,16 +132,17 @@ async function runGatewayTests() {
         //   actorUpdate + chatMessageChanged + chatMessageListInvalidated
         //   + userChanged + userListInvalidated + folderChanged + folderListInvalidated
         //   + journalChanged + journalListInvalidated
-        //   + combatChanged + combatListInvalidated (11).
+        //   + combatChanged + combatListInvalidated
+        //   + itemChanged + itemListInvalidated (13).
         assert.equal(attachedHandlers.length, 4);
-        assert.equal(systemAttachedHandlers.length, 11);
+        assert.equal(systemAttachedHandlers.length, 13);
         assert.ok(browserCounts.includes(1));
 
         io.engine.clientsCount = 0;
         disconnectHandler?.();
 
         assert.equal(detachedHandlers.length, 4);
-        assert.equal(systemDetachedHandlers.length, 11);
+        assert.equal(systemDetachedHandlers.length, 13);
         assert.ok(browserCounts.includes(0));
 
         // Guest degradation path (no token): middleware should still call next.

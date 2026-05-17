@@ -6,6 +6,7 @@ import type { SystemStatusPayload } from '@shared/contracts/status';
 import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
 import { chatMessageStore } from '@server/core/documents/primary/chat-messages/ChatMessageStore';
 import { combatStore } from '@server/core/documents/primary/combats/CombatStore';
+import { itemStore } from '@server/core/documents/primary/items/ItemStore';
 import { journalStore } from '@server/core/documents/primary/journals/JournalStore';
 import {
     DOCUMENT_VISIBILITY,
@@ -188,6 +189,26 @@ export function registerAppSocketGateway({
                 if (data.targetUserIds && (!userId || !data.targetUserIds.includes(userId))) return;
                 socket.emit('journalListInvalidated', data);
             };
+            // World Item document fan-out (Phase 6). ItemStore uses the standard
+            // ownership map; `canReadDocument` enforces it per-socket. Deletes
+            // bypass so a caller who could see the item learns it's gone.
+            // Invalidations honor `targetUserIds`.
+            const handleItemChanged = (...args: unknown[]) => {
+                const data = (args[0] || {}) as { itemId: string; action: 'create' | 'update' | 'delete' };
+                if (data.action !== 'delete' && data.itemId) {
+                    const subject = getSubject();
+                    if (!subject || !itemStore.canReadDocument(data.itemId, subject, DOCUMENT_VISIBILITY.LIST_VISIBLE)) {
+                        return;
+                    }
+                }
+                socket.emit('itemChanged', data);
+            };
+            const handleItemListInvalidated = (...args: unknown[]) => {
+                const data = (args[0] || {}) as { reason: string; itemId?: string; targetUserIds?: string[] };
+                const userId = socket.userSession?.client.userId;
+                if (data.targetUserIds && (!userId || !data.targetUserIds.includes(userId))) return;
+                socket.emit('itemListInvalidated', data);
+            };
             const handleSharedUpdate = (...args: unknown[]) => {
                 const data = (args[0] || {}) as RealtimeSharedContentPayload;
                 socket.emit('sharedContentUpdate', data);
@@ -209,6 +230,8 @@ export function registerAppSocketGateway({
             systemService.getSystemClient().on('journalListInvalidated', handleJournalListInvalidated);
             systemService.getSystemClient().on('combatChanged', handleCombatChanged);
             systemService.getSystemClient().on('combatListInvalidated', handleCombatListInvalidated);
+            systemService.getSystemClient().on('itemChanged', handleItemChanged);
+            systemService.getSystemClient().on('itemListInvalidated', handleItemListInvalidated);
             foundryClient.on('sharedContentUpdate', handleSharedUpdate);
 
             // New relays for world lifecycle and system status
@@ -232,6 +255,8 @@ export function registerAppSocketGateway({
                 systemService.getSystemClient().off('journalListInvalidated', handleJournalListInvalidated);
                 systemService.getSystemClient().off('combatChanged', handleCombatChanged);
                 systemService.getSystemClient().off('combatListInvalidated', handleCombatListInvalidated);
+                systemService.getSystemClient().off('itemChanged', handleItemChanged);
+                systemService.getSystemClient().off('itemListInvalidated', handleItemListInvalidated);
                 foundryClient.off('sharedContentUpdate', handleSharedUpdate);
                 foundryClient.off('systemStatusUpdate', broadcastSystemStatus);
                 foundryClient.off('worldShutdown', broadcastSystemStatus);

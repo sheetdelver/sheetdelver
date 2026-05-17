@@ -6,6 +6,7 @@ import { actorStore } from './actors/ActorStore';
 import { chatMessageStore } from './chat-messages/ChatMessageStore';
 import { combatStore } from './combats/CombatStore';
 import { folderStore } from './folders/FolderStore';
+import { itemStore } from './items/ItemStore';
 import { journalStore } from './journals/JournalStore';
 import { userStore } from './users/UserStore';
 
@@ -154,6 +155,27 @@ primaryDocumentCacheCoordinator.register({
     },
 });
 
+// ItemStore seeds after FolderStore so a future folder-organized item view
+// can join `item.folder` against `FolderStore` without races. Items use the
+// standard `ownership` map (no cross-store visibility dependency); the embedded
+// `ActiveEffect` handler under `Item.<id>` is registered separately below.
+primaryDocumentCacheCoordinator.register({
+    type: 'Item',
+    async seed(client) {
+        await itemStore.seed(async () => {
+            const response: any = await client.dispatchDocumentSocket('Item', 'get', { broadcast: false });
+            return response?.result || [];
+        });
+        logger.info(`PrimaryDocumentCacheCoordinator | Seeded ${itemStore.list().length} world items.`);
+    },
+    clear(reason) {
+        itemStore.clear(reason);
+    },
+    isReady() {
+        return itemStore.isReady();
+    },
+});
+
 // CombatStore seeds after ActorStore so combat visibility resolution against
 // ActorStore has actors available immediately. Combat docs carry no ownership
 // map; visibility derives from combatant.actorId cross-referenced against
@@ -182,12 +204,18 @@ modifyDocumentRouter.register(folderStore);
 modifyDocumentRouter.register(userStore);
 modifyDocumentRouter.register(journalStore);
 modifyDocumentRouter.register(combatStore);
+modifyDocumentRouter.register(itemStore);
 // Embedded children: Actor owns Item + ActiveEffect with parentUuid 'Actor.xxx...'.
+// The router's parentUuid-first priority (ADR-0011 Phase 6) keeps these on
+// ActorStore even though ItemStore is now registered for direct-type `Item`.
 modifyDocumentRouter.registerEmbeddedHandler('Actor', actorStore);
 // JournalEntry owns JournalEntryPage with parentUuid 'JournalEntry.<id>'.
 modifyDocumentRouter.registerEmbeddedHandler('JournalEntry', journalStore);
 // Combat owns Combatant with parentUuid 'Combat.<id>'.
 modifyDocumentRouter.registerEmbeddedHandler('Combat', combatStore);
+// Item owns ActiveEffect with parentUuid 'Item.<id>' (world-Item effects only;
+// actor-owned item effects still flow through ActorStore via 'Actor.<id>.Item.<id>').
+modifyDocumentRouter.registerEmbeddedHandler('Item', itemStore);
 
 // Cross-store visibility dependency (ADR-0011 Phase 5): CombatStore consumes
 // ActorStore for `resolveOwnership` lookups and re-emits its own list

@@ -10,6 +10,7 @@ import { getAdapter } from '@modules/registry/server';
 import { SystemAdapter } from '@modules/registry/types';
 import { CompendiumCache } from '../compendium-cache';
 import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
+import { itemStore } from '@server/core/documents/primary/items/ItemStore';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
 import { userPresence } from '@server/core/documents/primary/users/UserPresence';
 import { ChatMessageRepository } from '@server/core/documents/primary/chat-messages/ChatMessageRepository';
@@ -962,6 +963,12 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
                     if (type === 'Actor') {
                         if (!actorStore.isReady()) throw new PrimaryDocumentCacheNotReadyError('Actor');
                         return actorStore.get(id);
+                    }
+                    if (type === 'Item') {
+                        // Phase 6: world Items are Store-backed. Fail closed if the
+                        // Store isn't seeded yet (mirrors the Actor path).
+                        if (!itemStore.isReady()) throw new PrimaryDocumentCacheNotReadyError('Item');
+                        return itemStore.get(id);
                     }
                     logger.debug(`[CoreSocket] [TRACE] fetchByUuid World Document: ${type} ${id}`);
                     const response = await this.dispatchDocumentSocket(type, 'get', { query: { _id: id }, broadcast: false });

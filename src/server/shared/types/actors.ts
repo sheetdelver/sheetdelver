@@ -1,13 +1,25 @@
 import type { FoundryClientLike } from '@server/shared/types/foundry';
 import type { RollMode } from '@shared/sdk';
 
+/**
+ * Foundry Item document shape. Shared between embedded-on-Actor items and
+ * world-level items — same Foundry document type with or without a parent.
+ * World-level fields (`folder`, `img`, `sort`, `ownership`, `flags`, `_stats`)
+ * are no-op on embedded items and load-bearing on world items.
+ */
 export interface RawItem {
     id?: string;
     _id?: string;
     name?: string;
     type?: string;
+    img?: string | null;
+    folder?: string | null;
     system?: Record<string, unknown>;
     effects?: unknown[];
+    sort?: number;
+    ownership?: Record<string, number>;
+    flags?: Record<string, unknown>;
+    _stats?: Record<string, unknown>;
     [key: string]: unknown;
 }
 

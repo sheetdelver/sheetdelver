@@ -23,12 +23,12 @@ export interface ModifyDocumentPayload {
  * duplicate relay in ClientSocket. See ADR-0012.
  *
  * Routing rules:
- *   1. If `payload.type` matches a directly-registered Store, route there.
- *   2. Otherwise, parse `operation.parentUuid` and route to the Store registered
- *      as the handler for that parent type (e.g., ActorStore handles 'Item' /
- *      'ActiveEffect' events with parentUuid 'Actor.<id>...').
- *   3. Unrecognized types (e.g., 'ActorDelta' for synthetic token actors) are
- *      logged at debug and dropped silently — never thrown.
+     *   1. If `operation.parentUuid` is present, route to the registered embedded
+     *      handler for its parent type or drop. No direct-type fall-through is
+     *      allowed for parented events.
+     *   2. If no `parentUuid` exists and `payload.type` matches a directly-registered
+     *      Store, route there (the common case for world documents).
+     *   3. Unrecognized events are logged at debug and dropped silently — never thrown.
  */
 export class ModifyDocumentRouter {
     private storesByType = new Map<string, PrimaryDocumentStore<any>>();
@@ -60,12 +60,11 @@ export class ModifyDocumentRouter {
     }
 
     route(payload: ModifyDocumentPayload): void {
-        const direct = this.storesByType.get(payload.type);
-        if (direct) {
-            direct.applyModifyDocument(payload.type, payload.action, payload.result, payload.operation);
-            return;
-        }
-
+        // parentUuid present means this is an embedded event. Route to the
+        // registered handler for the parent type, or drop. No fall-through to
+        // direct-type — an `Item` with `parentUuid: ActorDelta.<id>.Item.<id>`
+        // is a synthetic-token mutation, not a world-Item event, and must not
+        // leak into ItemStore.
         const parentUuid = typeof payload.operation?.parentUuid === 'string'
             ? payload.operation.parentUuid
             : '';
@@ -79,6 +78,14 @@ export class ModifyDocumentRouter {
             logger.debug(
                 `modifyDocumentRouter | Dropping unrouted embedded event: type=${payload.type} parentUuid=${parentUuid}`,
             );
+            return;
+        }
+
+        // No parentUuid → direct-type lookup. This is the common case for
+        // world-level documents.
+        const direct = this.storesByType.get(payload.type);
+        if (direct) {
+            direct.applyModifyDocument(payload.type, payload.action, payload.result, payload.operation);
             return;
         }
 

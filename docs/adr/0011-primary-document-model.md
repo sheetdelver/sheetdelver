@@ -345,7 +345,7 @@ ADR-0011 Phase 3 promotes Foundry `Folder` documents into the primary-document f
 
 Foundry Folder schema assumptions for this phase: core fields include `_id`, `name`, `type`, `parent`, `sort`, `color`, `flags`, optional `children`, optional `private`, optional `img`, and optional `permission`. `permission` is a map keyed by user id or role id when explicit permissions are set; if Foundry omits the map or a key because nothing is explicitly set, `FolderStore` should normalize that absence to effective `NONE`. `type` identifies the contained collection (`Actor`, `Item`, `JournalEntry`, `Scene`, `RollTable`, `Card`, `Playlist`, `Macro`, `Compendium`, etc.) but does not make FolderStore responsible for validating contained document schemas. Current Sheet Delver DTOs may still expose a `folder` parent alias; Phase 3 should normalize that to `parent` at the Store/type boundary.
 
-Observed v13 dump note: folderable primary documents carry their own `folder` id and join to the Folder collection from the document side. In `game-data-dump-example-02.json`, `actors`, `items`, `journal`, `tables`, `macros`, `playlists`, and `scenes` all expose a `folder` field, with non-null examples for all except playlists in that sample. FolderStore therefore owns folder docs/tree/type metadata only; it must not maintain child document collections or store nested primary document payloads.
+Observed v13 sample-payload note: folderable primary documents carry their own `folder` id and join to the Folder collection from the document side. In the reviewed sample, `actors`, `items`, `journal`, `tables`, `macros`, `playlists`, and `scenes` all expose a `folder` field, with non-null examples for all except playlists in that sample. FolderStore therefore owns folder docs/tree/type metadata only; it must not maintain child document collections or store nested primary document payloads.
 
 Scope:
 
@@ -553,6 +553,81 @@ Follow-up audit found two implementation gaps and one documentation staleness no
   Files: `docs/adr/0011-primary-document-model.md`.
 - [x] Verify the fix with `npx tsc --noEmit`, `npm run test:unit`, and `git diff --check`.
 
+**Phase 6 staging: ItemStore + ItemRepository (world-level)**
+
+ADR-0011 Phase 6 promotes Foundry world `Item` documents into the primary-document framework. `ItemStore` owns the hydrated world-Item cache, standard-ownership-map visibility, and (where applicable) `ActiveEffect` embedded child handling for world Items. `ItemRepository` owns world-Item create/update/delete + embedded effect ops. The phase makes the embedded-vs-world Item distinction explicit at the type level: `ActorRepository.createItem` (embedded items via `parentUuid: Actor.<id>`) and `ItemRepository.create` (world items, no parent) coexist as clearly separate surfaces. The world Item set is typically small; full hydration with bootstrap seed matches the Actor / Journal / Combat pattern.
+
+Foundry world Item assumptions for this phase: observed v13 sample world Items carry `_id`, `name`, `type`, `img`, `folder`, `system`, `effects`, `sort`, `ownership` (standard map), `flags`, `_stats`. The standard `ownership` map (`{ default, userId: level }`) drives visibility — same shape as Actor and JournalEntry, so `getEffectiveOwnership` from `ownership.ts` works directly inside `ItemStore.resolveOwnership`. The `RawItem` shape in `src/server/shared/types/actors.ts` is currently bare-bones (`_id`, `name`, `type`, `system`, `effects`) because it was only ever exercised as an embedded-on-Actor type; Phase 6 expands it to cover world-Item fields. The shape stays shared between embedded and world contexts — it's the same Foundry document type with or without a parent — but the expanded fields are no-op on embedded items and load-bearing on world items.
+
+Router priority decision (committed): Phase 6 must change `modifyDocumentRouter.route` priority so `parentUuid` is consulted **before** direct-type lookup when a matching embedded handler is registered. Today the router runs direct-type first, which means once `register(itemStore)` lands, embedded `Item` events with `parentUuid: Actor.<id>` would route to `ItemStore` instead of `ActorStore` — silently breaking Phase 1's actor-owned item handling. The corrected order: if `parentUuid` is present and points to a registered embedded handler, route to the embedded handler; otherwise direct-type. World Item events have no `parentUuid` so they still hit `ItemStore` correctly. This is a one-method change in the base router but it must land in Phase 6 before `ItemStore` registers; the existing `modify-document-router.test.ts` needs an explicit "Item under Actor stays with ActorStore even after ItemStore registers directly" case.
+
+Embedded `ActiveEffect` on world Items: world Items can carry `effects[]` just like actor-owned items. If Foundry's `modifyDocument` for an `ActiveEffect` ever arrives with `parentUuid: Item.<id>.ActiveEffect.<id>` (i.e. parent type starts with `Item`, not `Actor`), `ItemStore` must handle it. Phase 6 registers `ItemStore` as the embedded handler for parent type `Item` and implements `applyEmbeddedChange('ActiveEffect', ...)` mirroring the Actor pattern. This stays scoped to effects on world Items; embedded effects on actor-owned items continue to flow through ActorStore's existing path with `parentUuid: Actor.<id>.Item.<id>.ActiveEffect.<id>` (parent type `Actor`).
+
+Cross-store / consumer notes: ItemStore has no cross-store visibility dependency (item visibility is self-contained in `item.ownership`, no Combat-style actor join). The public Module SDK surface `getWorldItems` (`src/server/shared/utils/createModuleFoundryClient.ts:124`) currently calls `client.dispatchDocument('Item', 'get', ...)` directly; Phase 6 reroutes the implementation to read from `ItemStore.list({ subject, minOwnership: LIST_VISIBLE })`. The SDK signature stays the same, so modules don't change. `CoreSocket.fetchByUuid` has a fallback for `Item.<id>` UUIDs (`CoreSocket.ts:967` calls `dispatchDocumentSocket(type, 'get', ...)`) — that branch should read from `ItemStore` like the existing Actor branch does. No Sheet Delver browser route or React context consumes world items today; the wire-event bridge + gateway fan-out are wired for symmetry and future module/SDK consumers, but no client-side subscriber is added in this phase (matches the "no consumer; gateway is decorative until subscribed" pattern documented in the Phase 2/3 audit addendum).
+
+Scope:
+
+- [x] Add `ItemStore` and `ItemRepository` under `src/server/core/documents/primary/items/`. Expand `RawItem` in `src/server/shared/types/actors.ts` to include world-Item fields (`folder`, `img`, `sort`, `ownership`, `flags`, `_stats`); the type stays shared between embedded and world contexts.
+  Files: `src/server/core/documents/primary/items/ItemStore.ts`, `src/server/core/documents/primary/items/ItemRepository.ts`, `src/server/shared/types/actors.ts`.
+- [x] Fix `modifyDocumentRouter.route` priority: `parentUuid` present routes embedded-or-drop (no fall-through to direct-type, which would let synthetic-token `Item` events on `ActorDelta` leak into `ItemStore`). World events with no `parentUuid` go to direct-type lookup. Added a regression test that `Item` events under `Actor.<id>` route to `ActorStore` even after `ItemStore` registers directly, AND that `Item` events with `parentUuid: ActorDelta.<id>...` still drop silently rather than leaking to `ItemStore`.
+  Files: `src/server/core/documents/primary/base/modifyDocumentRouter.ts`, `src/tests/unit/modify-document-router.test.ts`.
+- [x] Register `ItemStore` with `PrimaryDocumentCacheCoordinator` (after `FolderStore`). Register direct-type binding on `modifyDocumentRouter` and the `Item`-parent embedded handler for `ActiveEffect` on world Items.
+  Files: `src/server/core/documents/primary/PrimaryDocumentCacheCoordinator.ts`.
+- [x] Implement world-Item visibility in `ItemStore.resolveOwnership()` using `getEffectiveOwnership(item.ownership, subject)`.
+  Files: `src/server/core/documents/primary/items/ItemStore.ts`, `src/tests/unit/item-store.test.ts`.
+- [x] Implement embedded `ActiveEffect` mutation handling for world Items via `parentUuid: Item.<id>`. Mirrors the Actor-effect pattern; emits `itemChanged` (update) on the parent.
+  Files: `src/server/core/documents/primary/items/ItemStore.ts`, `src/tests/unit/item-store.test.ts`, `src/tests/unit/modify-document-router.test.ts`.
+- [x] Add `ItemStore.listByFolderIds(folderIds, options?)` mirroring `JournalStore.listByFolderIds`. Not consumed in Phase 6; parity for future folder-organized item views.
+  Files: `src/server/core/documents/primary/items/ItemStore.ts`, `src/tests/unit/item-store.test.ts`.
+- [x] Migrate `createModuleFoundryClient.getWorldItems` to read from `ItemStore.list({ subject, minOwnership: LIST_VISIBLE })` with optional `type` filtering preserved. SDK signature unchanged. Store-readiness guard throws `PrimaryDocumentCacheNotReadyError` pre-bootstrap.
+  Files: `src/server/shared/utils/createModuleFoundryClient.ts`.
+- [x] Reroute `CoreSocket.fetchByUuid` `Item.<id>` branch through `ItemStore.get(id)` with the Actor pattern's Store-ready guard. Compendium-Item lookups stay on the compendium cache path.
+  Files: `src/server/core/foundry/sockets/CoreSocket.ts`.
+- [x] Route world Item create/update/delete through `ItemRepository` in `createRouteFoundryClient.dispatchDocument`. Parent-aware priority: `parent.type === 'Actor'` → `ActorRepository`; `parent.type === 'Item'` → `ItemRepository`; bare `type === 'Item'` → `ItemRepository`. Embedded `ActiveEffect` events under either parent route to the right Repository via the `parent.type` check. Inline-documented in the dispatch helper.
+  Files: `src/server/shared/utils/createRouteFoundryClient.ts`, `src/tests/unit/item-store.test.ts`.
+- [x] Bridge `ItemStore` events through `SystemService` as `itemChanged` / `itemListInvalidated`. `AppSocketGateway` fan-out applies per-socket `itemStore.canReadDocument` on `itemChanged` and honors `targetUserIds` on invalidations. System-handler count goes 11 → 13.
+  Files: `src/server/core/system/SystemService.ts`, `src/server/realtime/AppSocketGateway.ts`, `src/tests/unit/app-socket-gateway.test.ts`.
+- [x] Define skinny SDK + shared realtime contracts `RealtimeItemChangedPayload` and `RealtimeItemListInvalidatedPayload`. No client-side subscriber added (no in-tree consumer); the gateway emits for future module-SDK consumers, matching the pre-subscription pattern from the Phase 2/3 audit.
+  Files: `src/shared/contracts/realtime.ts`, `src/shared/sdk/contracts.ts`.
+- [x] Add Phase 6 tests covering seed/clear, clone-on-read, ownership policy (default + per-user, GM short-circuit), `listByFolderIds`, embedded `ActiveEffect` routing, repository writes, and the router-priority regression case.
+  Files: `src/tests/unit/item-store.test.ts`, `src/tests/unit/modify-document-router.test.ts`, `src/tests/unit/run.ts`.
+- [x] Verify with `npx tsc --noEmit` and `npm run test:unit`.
+
+Non-goals for Phase 6:
+
+- Do not introduce a `/api/items` Express route. No Sheet Delver UI consumes world items today; module access happens via the SDK. If routes are needed later they layer on top of `ItemStore` cleanly.
+- Do not change the SDK `getWorldItems` signature. Module callers must not break — only the underlying read path changes.
+- Do not migrate Compendium-Item lookups. Compendium cache stays on its existing path; Phase 6 is world-Items only.
+- Do not retrofit the embedded-on-Actor Item path. Actor-owned items keep flowing through `ActorStore.applyEmbeddedChange('Item', ...)` from Phase 1.
+- Do not migrate the deferred CoreSocket connect-handler split (still its own pass).
+- Do not implement Item folder permission gating in Phase 6 (same Phase 4 hedge for journals — `FolderStore.canReadDocument` is the lever if Foundry confirms folder permission gates item visibility, but Phase 6 stays item-ownership-only).
+- Do not add browser-side `ItemContext` or refetch coalescing. There's no consumer; the wire-event bridge is decorative until a real subscriber lands.
+
+Exit for Phase 6: `ItemStore` / `ItemRepository` exist; world-Item mutations route through the primary-document framework; embedded `Item` events on Actors keep routing to `ActorStore` via the router-priority fix; `getWorldItems` reads from `ItemStore`; `CoreSocket.fetchByUuid` Item-UUID branch is Store-backed; `itemChanged` / `itemListInvalidated` bridges fire through `SystemService` and fan out through `AppSocketGateway`; `RawItem` covers the world-Item field set; and `npx tsc --noEmit` plus `npm run test:unit` pass.
+
+**Phase 6 verification addendum (May 17, 2026):**
+
+- `npx tsc --noEmit` passed.
+- `npm run test:unit` passed (`unit test suite passed`).
+- Router priority decision tightened during implementation: `parentUuid` present is **embedded-or-drop** (no fall-through to direct-type) so a synthetic-token `Item` event with `parentUuid: ActorDelta.<id>.Item.<id>` cannot leak into `ItemStore` as if it were a world Item with the wrong id. The Phase 6 staging language ("direct-type fallback when parent type has no handler") is superseded by this stricter rule; the `modifyDocumentRouter` doc comment and the regression test in `modify-document-router.test.ts` reflect the final behavior.
+- Dispatch routing in `createRouteFoundryClient` reorganized around `parent.type`: `parent.type === 'Actor'` → `ActorRepository`, `parent.type === 'Item'` → `ItemRepository` (covers `ActiveEffect` under either parent), bare `type === 'Item'` → `ItemRepository`. Inline comment in the helper documents the priority.
+- New `item-store.test.ts` covers seed/clone-on-read, ownership policy (default + per-user + GM short-circuit), `listByFolderIds` (privileged + subject-filtered + root-only), embedded `ActiveEffect` routing (create/update/idempotent/delete + unknown-type drops), and repository write mirroring (`create` / `createEffect` / `update`).
+- `modify-document-router.test.ts` adds `runEmbeddedTakesPriorityOverDirectType`: `Item` under `Actor` stays on `ActorStore` even with `ItemStore` registered for direct `Item`; world `Item` (no parentUuid) reaches `ItemStore`; `Item` with `parentUuid: ActorDelta.<id>...` drops silently rather than leaking.
+- `app-socket-gateway.test.ts` system-handler count updated to 13 (added `itemChanged` + `itemListInvalidated`); foundry-handler count remains 4.
+- Structural Phase 6 pieces are present: `ItemStore`, `ItemRepository`, expanded `RawItem`, coordinator seeding after FolderStore, modifyDocument router registration with embedded `Item` handler for `ActiveEffect`, `itemChanged` / `itemListInvalidated` bridge events with gateway fan-out, `getWorldItems` Store-backed read, `CoreSocket.fetchByUuid` Item-branch Store-backed, route-client dispatch priority for parent-aware routing.
+
+**Phase 6 audit/fix addendum 1 (May 17, 2026): route-client nested actor-item effects + tracked-doc wording**
+
+Follow-up audit found two small alignment gaps after Phase 6 landed:
+
+- [x] Route-client dispatch now treats dotted parent types by their root document type. `parent.type === "Actor.<actorId>.Item"` now routes through `ActorRepository`, so module SDK actor-owned item effect helpers keep repository-backed immediate cache mirroring instead of falling through to raw socket dispatch. `parent.type === "Item"` still routes world-Item effects through `ItemRepository`, and bare `type === "Item"` still routes world Item writes through `ItemRepository`.
+  Files: `src/server/shared/utils/createRouteFoundryClient.ts`, `src/tests/unit/actor-store.test.ts`.
+- [x] `modifyDocumentRouter` comments now match the implementation's final rule: `parentUuid` present is embedded-or-drop, with no direct-type fall-through.
+  Files: `src/server/core/documents/primary/base/modifyDocumentRouter.ts`.
+- [x] ADR wording no longer references untracked temp dump paths. The observed folderable-document and world-Item field notes are written inline.
+  Files: `docs/adr/0011-primary-document-model.md`.
+- [x] Verify the tracked ADR contains no untracked dump-file references, then run `npx tsc --noEmit`, `npm run test:unit`, and `git diff --check`.
+
 ---
 
 ## Exit Criteria
@@ -564,7 +639,7 @@ This ADR is fulfilled when every Foundry primary doc type covered by the alignme
 - [X] Phase 3: `FolderStore` + `FolderRepository`.
 - [X] Phase 4: `JournalStore` + `JournalRepository` with two-level ownership.
 - [X] Phase 5: `CombatStore` + `CombatRepository` with cross-store visibility.
-- [ ] Phase 6: `ItemStore` + `ItemRepository` (world-level).
+- [X] Phase 6: `ItemStore` + `ItemRepository` (world-level).
 - [ ] Phase 7: `RollTableStore` / `MacroStore` / `PlaylistStore` / `CardsStore` (lazy) + `SceneStore` / `FogExplorationStore` / `AdventureStore` / `SettingStore` (stubs).
 - [ ] `modifyDocumentRouter` replaces per-type switches in `CoreSocket` and removes the duplicate relay in `ClientSocket`.
 - [ ] `PrimaryDocumentCacheCoordinator` replaces the hardcoded actor-only seeding path in `SystemService.bootstrap()`.

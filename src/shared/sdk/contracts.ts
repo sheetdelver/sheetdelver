@@ -105,6 +105,18 @@ export interface RealtimeCombatListInvalidatedPayload {
     targetUserIds?: string[];
 }
 
+/** Payload for realtime world Item document changes (skinny invalidation hint). */
+export interface RealtimeItemChangedPayload {
+    itemId: string;
+    action: 'create' | 'update' | 'delete';
+}
+/** Payload for realtime world Item list invalidations. */
+export interface RealtimeItemListInvalidatedPayload {
+    reason: string;
+    itemId?: string;
+    targetUserIds?: string[];
+}
+
 /** Payload for realtime chat updates. */
 export interface RealtimeChatUpdatePayload {
     id: string;

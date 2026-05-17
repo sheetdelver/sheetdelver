@@ -2,6 +2,9 @@ import type { RouteFoundryClient } from '@server/shared/types/requestContext';
 import type { ModuleFoundryClient } from '@shared/sdk';
 import { simulateTableDraw } from '@shared/sdk/utils';
 import { createTextChatMessageData } from '@server/core/documents/primary/chat-messages/chatMessagePayload';
+import { DOCUMENT_VISIBILITY } from '@server/core/documents/primary/base/ownership';
+import { itemStore } from '@server/core/documents/primary/items/ItemStore';
+import { PrimaryDocumentCacheNotReadyError } from '@server/core/documents/primary/errors';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
 
 /**
@@ -122,17 +125,17 @@ export function createModuleFoundryClient(client: RouteFoundryClient): ModuleFou
             client.fetchByUuid(uuid) as Promise<Record<string, unknown>>,
 
         getWorldItems: async (options) => {
-            const response = await client.dispatchDocument(
-                'Item', 'get',
-                { broadcast: false }
-            ) as any;
-            const items: Record<string, unknown>[] = Array.isArray(response)
-                ? response
-                : (response?.result ?? []);
-            if (options?.type) {
-                return items.filter((i: any) => i.type === options.type);
-            }
-            return items;
+            // Phase 6: world Items are Store-backed. Subject-scoped read uses
+            // the requesting user's role from UserStore; missing subject falls
+            // back to the privileged list (module-level callers without an
+            // authenticated user, e.g. system bootstrap).
+            if (!itemStore.isReady()) throw new PrimaryDocumentCacheNotReadyError('Item');
+            const subject = userStore.createAccessSubject(client.userId);
+            const items = subject
+                ? itemStore.list({ subject, minOwnership: DOCUMENT_VISIBILITY.LIST_VISIBLE })
+                : itemStore.list();
+            const filtered = options?.type ? items.filter(i => i.type === options.type) : items;
+            return filtered as unknown as Record<string, unknown>[];
         },
 
         drawTable: async (tableId, options) => {

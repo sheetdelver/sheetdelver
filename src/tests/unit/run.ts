@@ -18,6 +18,7 @@ import { run as runActorNormalization } from './actor-normalization.test';
 import { run as runJournalSmoke } from './journal-smoke.test';
 import { run as runJournalStore } from './journal-store.test';
 import { run as runCombatStore } from './combat-store.test';
+import { run as runItemStore } from './item-store.test';
 import { run as runModuleProxyMatcher } from './module-proxy-matcher.test';
 import { run as runModuleLifecycleState } from './module-lifecycle-state.test';
 import { run as runModuleManifestValidation } from './module-manifest-validation.test';
@@ -74,6 +75,7 @@ async function runAllUnitTests() {
     await runJournalStore();
     await runJournalSmoke();
     await runCombatStore();
+    await runItemStore();
     await runRealtimeBroadcaster();
     await runAppSocketGateway();
     await runAdminCredentialStore();

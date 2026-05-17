@@ -19,6 +19,7 @@ export async function run() {
     await runActorStoreMutations();
     await runActorRepositoryAppliesEffects();
     await runRouteClientReadsFromActorStore();
+    await runRouteClientRoutesNestedActorItemEffectsThroughActorRepository();
     await runRouteClientBlocksActorReadsBeforeStoreReady();
     await runCoreSocketActorUuidReadsFromActorStore();
 }
@@ -174,6 +175,63 @@ async function runRouteClientReadsFromActorStore() {
     assert.equal(socketFetches, 0);
 
     actorStore.clear('unit-test');
+}
+
+async function runRouteClientRoutesNestedActorItemEffectsThroughActorRepository() {
+    await actorStore.seed(async () => ([
+        {
+            _id: 'actor-route',
+            name: 'Route Actor',
+            items: [{ _id: 'item-route', name: 'Route Item', effects: [] }],
+            ownership: { default: DocumentOwnershipLevel.OWNER },
+        },
+    ]));
+
+    const dispatchCalls: Array<{ type: string; action: string; operation: unknown; parent?: { type: string; id: string } }> = [];
+    const client = createSystemRouteFoundryClient({
+        isConnected: true,
+        userId: null,
+        on: () => undefined,
+        off: () => undefined,
+        getSystem: async () => ({ id: 'generic' }),
+        getActors: async () => [],
+        getActor: async () => null,
+        getActorRaw: async () => null,
+        createActor: async () => null,
+        deleteActor: async () => undefined,
+        updateActor: async () => undefined,
+        dispatchDocument: async (type: string, action: string, operation: unknown, parent?: { type: string; id: string }) => {
+            dispatchCalls.push({ type, action, operation, parent });
+            return {
+                result: [{ _id: 'effect-route', name: 'Route Effect' }],
+                operation,
+            };
+        },
+        roll: async () => ({}),
+        useItem: async () => ({}),
+        createActorItem: async () => ({}),
+        updateActorItem: async () => undefined,
+        deleteActorItem: async () => undefined,
+        resolveUrl: (url?: string) => url || '',
+        getChatLog: async () => [],
+        dispatchDocumentSocket: async () => ({}),
+        fetchByUuid: async () => null,
+        getAllCompendiumIndices: async () => [],
+        getSharedContent: () => null,
+    } as any);
+
+    await client.dispatchDocument(
+        'ActiveEffect',
+        'create',
+        { data: [{ name: 'Route Effect' }] },
+        { type: 'Actor.actor-route.Item', id: 'item-route' },
+    );
+
+    assert.equal(dispatchCalls.length, 1);
+    assert.deepEqual(dispatchCalls[0].parent, { type: 'Actor.actor-route.Item', id: 'item-route' });
+    assert.equal((actorStore.get('actor-route')?.items?.[0].effects as any[])?.[0]._id, 'effect-route');
+
+    actorStore.clear('route-client-nested-effect-test');
 }
 
 async function runRouteClientBlocksActorReadsBeforeStoreReady() {

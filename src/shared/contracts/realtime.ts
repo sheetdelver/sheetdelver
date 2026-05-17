@@ -30,6 +30,15 @@ export interface RealtimeCombatListInvalidatedPayload {
     combatId?: string;
     targetUserIds?: string[];
 }
+export interface RealtimeItemChangedPayload {
+    itemId: string;
+    action: 'create' | 'update' | 'delete';
+}
+export interface RealtimeItemListInvalidatedPayload {
+    reason: string;
+    itemId?: string;
+    targetUserIds?: string[];
+}
 export type RealtimeChatUpdatePayload = Record<string, unknown>;
 export interface RealtimeChatMessageChangedPayload {
     messageId: string;

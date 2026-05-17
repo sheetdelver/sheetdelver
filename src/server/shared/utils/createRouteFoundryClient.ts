@@ -8,6 +8,7 @@ import { ActorRepository } from '@server/core/documents/primary/actors/ActorRepo
 import { ChatMessageRepository } from '@server/core/documents/primary/chat-messages/ChatMessageRepository';
 import { CombatRepository } from '@server/core/documents/primary/combats/CombatRepository';
 import { FolderRepository } from '@server/core/documents/primary/folders/FolderRepository';
+import { ItemRepository } from '@server/core/documents/primary/items/ItemRepository';
 import { JournalRepository } from '@server/core/documents/primary/journals/JournalRepository';
 import {
     DOCUMENT_VISIBILITY,
@@ -34,6 +35,7 @@ function createBaseRouteFoundryClient(client: CoreSocket | ClientSocket): RouteF
     const chatMessageRepository = new ChatMessageRepository(documentTransport);
     const combatRepository = new CombatRepository(documentTransport);
     const folderRepository = new FolderRepository(documentTransport);
+    const itemRepository = new ItemRepository(documentTransport);
     const journalRepository = new JournalRepository(documentTransport);
 
     return {
@@ -78,9 +80,30 @@ function createBaseRouteFoundryClient(client: CoreSocket | ClientSocket): RouteF
         ) => {
             const normalizedAction = action as 'get' | 'create' | 'update' | 'delete';
             const normalizedOperation = operation as Record<string, unknown> | undefined;
+            const parentRootType = typeof parent?.type === 'string'
+                ? parent.type.split('.')[0]
+                : undefined;
 
-            if (type === 'Actor' || type === 'Item' || type === 'ActiveEffect') {
+            // Repository routing priority (ADR-0011 Phase 6):
+            //   1. `parent` arg supplied → route to the parent-owning Repository.
+            //      Embedded `Item` / `ActiveEffect` under an Actor go to
+            //      ActorRepository regardless of `type`, including nested parent
+            //      forms like `Actor.<actorId>.Item`. ActiveEffect under a world
+            //      Item goes to ItemRepository.
+            //   2. No parent → direct-type Repository for the world-level doc.
+            if (parentRootType === 'Actor') {
                 return actorRepository.dispatchDocument(type, normalizedAction, normalizedOperation, parent);
+            }
+            if (parentRootType === 'Item') {
+                return itemRepository.dispatchDocument(type, normalizedAction, normalizedOperation, parent);
+            }
+
+            if (type === 'Actor') {
+                return actorRepository.dispatchDocument(type, normalizedAction, normalizedOperation, parent);
+            }
+
+            if (type === 'Item') {
+                return itemRepository.dispatchDocument(type, normalizedAction, normalizedOperation, parent);
             }
 
             if (type === 'ChatMessage') {
