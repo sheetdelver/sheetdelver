@@ -12,8 +12,12 @@ import { actorStore } from '../documents/primary/actors/ActorStore';
 import { chatMessageStore } from '../documents/primary/chat-messages/ChatMessageStore';
 import { combatStore } from '../documents/primary/combats/CombatStore';
 import { folderStore } from '../documents/primary/folders/FolderStore';
+import { cardsStore } from '../documents/primary/cards/CardsStore';
 import { itemStore } from '../documents/primary/items/ItemStore';
 import { journalStore } from '../documents/primary/journals/JournalStore';
+import { macroStore } from '../documents/primary/macros/MacroStore';
+import { playlistStore } from '../documents/primary/playlists/PlaylistStore';
+import { rollTableStore } from '../documents/primary/roll-tables/RollTableStore';
 import { userStore } from '../documents/primary/users/UserStore';
 import type { DocumentChangedEvent, DocumentListInvalidatedEvent } from '../documents/primary/base/PrimaryDocumentStore';
 
@@ -31,10 +35,11 @@ export class SystemService extends EventEmitter {
     private constructor() {
         super();
         // ActorStore is the single actor-change source; SystemService bridges it onto
-        // the existing realtime event name so browser/module subscriptions stay stable.
-        // The wire-event rename (actorUpdate → actorChanged) is deferred per ADR-0012.
+        // the realtime wire event. Phase 7 closure renamed the legacy `actorUpdate`
+        // wire event to `actorChanged` so every primary doc type uses uniform
+        // `<type>Changed` / `<type>ListInvalidated` names.
         actorStore.on('documentChanged', (event: DocumentChangedEvent) => {
-            this.systemClient?.emit('actorUpdate', { actorId: event.id, action: event.action });
+            this.systemClient?.emit('actorChanged', { actorId: event.id, action: event.action });
         });
         actorStore.on('documentListInvalidated', (event: DocumentListInvalidatedEvent) => {
             this.systemClient?.emit('actorListInvalidated', {
@@ -133,6 +138,64 @@ export class SystemService extends EventEmitter {
                 targetUserIds: event.targetUserIds,
             });
         });
+
+        // RollTableStore is the RollTable document-event source (Phase 7).
+        // Embedded RollTableResult mutations (e.g. `drawn` flips) are reported
+        // as `update` events on the parent table. No in-tree consumer today.
+        rollTableStore.on('documentChanged', (event: DocumentChangedEvent) => {
+            this.systemClient?.emit('rollTableChanged', { rollTableId: event.id, action: event.action });
+        });
+        rollTableStore.on('documentListInvalidated', (event: DocumentListInvalidatedEvent) => {
+            this.systemClient?.emit('rollTableListInvalidated', {
+                reason: event.reason,
+                rollTableId: event.documentId,
+                targetUserIds: event.targetUserIds,
+            });
+        });
+
+        // MacroStore is the Macro document-event source (Phase 7). No embedded
+        // children. No in-tree consumer today.
+        macroStore.on('documentChanged', (event: DocumentChangedEvent) => {
+            this.systemClient?.emit('macroChanged', { macroId: event.id, action: event.action });
+        });
+        macroStore.on('documentListInvalidated', (event: DocumentListInvalidatedEvent) => {
+            this.systemClient?.emit('macroListInvalidated', {
+                reason: event.reason,
+                macroId: event.documentId,
+                targetUserIds: event.targetUserIds,
+            });
+        });
+
+        // PlaylistStore is the Playlist document-event source (Phase 7).
+        // Embedded PlaylistSound mutations (`playing`, `pausedTime`, `repeat`)
+        // are reported as `update` events on the parent playlist. No in-tree
+        // consumer today.
+        playlistStore.on('documentChanged', (event: DocumentChangedEvent) => {
+            this.systemClient?.emit('playlistChanged', { playlistId: event.id, action: event.action });
+        });
+        playlistStore.on('documentListInvalidated', (event: DocumentListInvalidatedEvent) => {
+            this.systemClient?.emit('playlistListInvalidated', {
+                reason: event.reason,
+                playlistId: event.documentId,
+                targetUserIds: event.targetUserIds,
+            });
+        });
+
+        // CardsStore is the Cards document-event source (Phase 7). Embedded
+        // Card mutations are reported as `update` events on the parent Cards
+        // doc. Cross-Cards-doc transfers (Cards#pass) arrive as paired events
+        // on both parents — each leg fires its own `cardsChanged`. No in-tree
+        // consumer today.
+        cardsStore.on('documentChanged', (event: DocumentChangedEvent) => {
+            this.systemClient?.emit('cardsChanged', { cardsId: event.id, action: event.action });
+        });
+        cardsStore.on('documentListInvalidated', (event: DocumentListInvalidatedEvent) => {
+            this.systemClient?.emit('cardsListInvalidated', {
+                reason: event.reason,
+                cardsId: event.documentId,
+                targetUserIds: event.targetUserIds,
+            });
+        });
     }
 
     public static getInstance(): SystemService {
@@ -222,7 +285,9 @@ export class SystemService extends EventEmitter {
                     }
 
                     // 3. Required primary document cache seed
-                    // Routes are not considered ready until world actors are cached.
+                    // Routes are not considered ready until every registered Store's
+                    // bootstrap seed completes (Phase 7 closure — `seedAll` is the
+                    // sole bootstrap-seed path; no per-type hardcoded path remains).
                     await seedDocumentCache(client);
 
                     // 4. Adapter Initialization

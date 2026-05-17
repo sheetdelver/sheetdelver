@@ -233,7 +233,7 @@ function MySheet() {
         isDiceTrayOpen, toggleDiceTray,
         isChatOpen, setChatOpen,
         fetchWithAuth,   // (input, init?) => Promise<Response> — auth-injected fetch
-        onActorUpdate,   // (actorId, cb) => () => void — realtime subscription
+        onActorChanged,   // (actorId, cb) => () => void — realtime subscription
         logger,          // { debug, info, warn, error } — prefixed console logger
     } = useSDK();
 
@@ -249,17 +249,17 @@ function MySheet() {
 
 `useSDK()` returns the full platform context. `useSDKComponents()` injects platform UI components — modules must NOT import these from `@client/ui/components/` directly.
 
-**Realtime actor updates — example pattern:**
+**Realtime actor changes — example pattern:**
 
-`onActorUpdate` is an invalidation signal emitted after the backend actor cache has changed. The payload shape is `{ actorId, action }`, where `action` is `create`, `update`, or `delete`; module UI should refetch through the API instead of applying socket diffs directly.
+`onActorChanged` is an invalidation signal emitted after the backend actor cache has changed. The payload shape is `{ actorId, action }`, where `action` is `create`, `update`, or `delete`; module UI should refetch through the API instead of applying socket diffs directly.
 
 ```ts
 import { useSDK } from '@sheet-delver/sdk';
-import type { RealtimeActorUpdatePayload } from '@sheet-delver/sdk';
+import type { RealtimeActorChangedPayload } from '@sheet-delver/sdk';
 import { useEffect, useCallback } from 'react';
 
 function MyActorPage({ actorId }: { actorId: string }) {
-    const { fetchWithAuth, onActorUpdate } = useSDK();
+    const { fetchWithAuth, onActorChanged } = useSDK();
 
     const fetchActor = useCallback(async (silent = false) => {
         const res = await fetchWithAuth(`/api/actors/${actorId}`);
@@ -269,9 +269,9 @@ function MyActorPage({ actorId }: { actorId: string }) {
 
     useEffect(() => {
         fetchActor();
-        const cleanup = onActorUpdate(actorId, () => fetchActor(true));
+        const cleanup = onActorChanged(actorId, () => fetchActor(true));
         return cleanup;
-    }, [actorId, fetchActor, onActorUpdate]);
+    }, [actorId, fetchActor, onActorChanged]);
 }
 ```
 

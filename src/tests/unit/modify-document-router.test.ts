@@ -59,6 +59,9 @@ export async function run() {
     await runEmbeddedParentRouting();
     await runJournalEntryPageEmbeddedRouting();
     await runCombatantEmbeddedRouting();
+    await runRollTableResultEmbeddedRouting();
+    await runPlaylistSoundEmbeddedRouting();
+    await runCardEmbeddedRouting();
     await runEmbeddedTakesPriorityOverDirectType();
     await runActorDeltaDroppedSilently();
     await runUnregisteredTypeDroppedSilently();
@@ -167,6 +170,70 @@ async function runCombatantEmbeddedRouting() {
     assert.equal(combat.received[0].type, 'Combatant');
     assert.equal(combat.received[0].parentUuid, 'Combat.combat-1');
     assert.equal(combat.received[1].action, 'update');
+}
+
+async function runRollTableResultEmbeddedRouting() {
+    const router = new ModifyDocumentRouter();
+    const table = new RecordingStore('RollTable');
+    router.register(table);
+    router.registerEmbeddedHandler('RollTable', table);
+
+    router.route({
+        type: 'RollTableResult',
+        action: 'update',
+        result: [{ _id: 'r-1', drawn: true }],
+        operation: { parentUuid: 'RollTable.t-1' },
+    });
+
+    assert.equal(table.received.length, 1);
+    assert.equal(table.received[0].type, 'RollTableResult');
+    assert.equal(table.received[0].parentUuid, 'RollTable.t-1');
+}
+
+async function runPlaylistSoundEmbeddedRouting() {
+    const router = new ModifyDocumentRouter();
+    const playlist = new RecordingStore('Playlist');
+    router.register(playlist);
+    router.registerEmbeddedHandler('Playlist', playlist);
+
+    router.route({
+        type: 'PlaylistSound',
+        action: 'update',
+        result: [{ _id: 's-1', playing: true }],
+        operation: { parentUuid: 'Playlist.pl-1' },
+    });
+
+    assert.equal(playlist.received.length, 1);
+    assert.equal(playlist.received[0].type, 'PlaylistSound');
+    assert.equal(playlist.received[0].parentUuid, 'Playlist.pl-1');
+}
+
+async function runCardEmbeddedRouting() {
+    const router = new ModifyDocumentRouter();
+    const cards = new RecordingStore('Cards');
+    router.register(cards);
+    router.registerEmbeddedHandler('Cards', cards);
+
+    // Cross-Cards-doc transfer: paired delete on deck + create on hand. Each
+    // leg lands independently on the Cards embedded handler for its parent.
+    router.route({
+        type: 'Card',
+        action: 'delete',
+        result: null,
+        operation: { parentUuid: 'Cards.deck-1', ids: ['c-1'] },
+    });
+    router.route({
+        type: 'Card',
+        action: 'create',
+        result: [{ _id: 'c-1', name: 'King', drawn: false }],
+        operation: { parentUuid: 'Cards.hand-1' },
+    });
+
+    assert.equal(cards.received.length, 2);
+    assert.equal(cards.received[0].parentUuid, 'Cards.deck-1');
+    assert.equal(cards.received[0].action, 'delete');
+    assert.equal(cards.received[1].parentUuid, 'Cards.hand-1');
+    assert.equal(cards.received[1].action, 'create');
 }
 
 async function runEmbeddedTakesPriorityOverDirectType() {

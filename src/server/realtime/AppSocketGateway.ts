@@ -6,14 +6,18 @@ import type { SystemStatusPayload } from '@shared/contracts/status';
 import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
 import { chatMessageStore } from '@server/core/documents/primary/chat-messages/ChatMessageStore';
 import { combatStore } from '@server/core/documents/primary/combats/CombatStore';
+import { cardsStore } from '@server/core/documents/primary/cards/CardsStore';
 import { itemStore } from '@server/core/documents/primary/items/ItemStore';
 import { journalStore } from '@server/core/documents/primary/journals/JournalStore';
+import { macroStore } from '@server/core/documents/primary/macros/MacroStore';
+import { playlistStore } from '@server/core/documents/primary/playlists/PlaylistStore';
+import { rollTableStore } from '@server/core/documents/primary/roll-tables/RollTableStore';
 import {
     DOCUMENT_VISIBILITY,
 } from '@server/core/documents/primary/base/ownership';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
 import type {
-    RealtimeActorUpdatePayload,
+    RealtimeActorChangedPayload,
     RealtimeSharedContentPayload,
 } from '@shared/contracts/realtime';
 
@@ -113,8 +117,8 @@ export function registerAppSocketGateway({
                 if (data.targetUserIds && (!userId || !data.targetUserIds.includes(userId))) return;
                 socket.emit('combatListInvalidated', data);
             };
-            const handleActorUpdate = (...args: unknown[]) => {
-                const data = (args[0] || {}) as RealtimeActorUpdatePayload;
+            const handleActorChanged = (...args: unknown[]) => {
+                const data = (args[0] || {}) as RealtimeActorChangedPayload;
                 // Actor updates originate globally from ActorStore, so each socket
                 // re-checks current ownership immediately before fan-out.
                 if (data.action !== 'delete' && data.actorId) {
@@ -123,7 +127,7 @@ export function registerAppSocketGateway({
                         return;
                     }
                 }
-                socket.emit('actorUpdate', data);
+                socket.emit('actorChanged', data);
             };
             const handleChatMessageChanged = (...args: unknown[]) => {
                 const data = (args[0] || {}) as { messageId: string; action: 'create' | 'update' | 'delete' };
@@ -209,6 +213,78 @@ export function registerAppSocketGateway({
                 if (data.targetUserIds && (!userId || !data.targetUserIds.includes(userId))) return;
                 socket.emit('itemListInvalidated', data);
             };
+            // RollTable document fan-out (Phase 7). Standard ownership map;
+            // `canReadDocument` enforces per-socket. Deletes bypass so a
+            // caller who could see the table learns it's gone.
+            const handleRollTableChanged = (...args: unknown[]) => {
+                const data = (args[0] || {}) as { rollTableId: string; action: 'create' | 'update' | 'delete' };
+                if (data.action !== 'delete' && data.rollTableId) {
+                    const subject = getSubject();
+                    if (!subject || !rollTableStore.canReadDocument(data.rollTableId, subject, DOCUMENT_VISIBILITY.LIST_VISIBLE)) {
+                        return;
+                    }
+                }
+                socket.emit('rollTableChanged', data);
+            };
+            const handleRollTableListInvalidated = (...args: unknown[]) => {
+                const data = (args[0] || {}) as { reason: string; rollTableId?: string; targetUserIds?: string[] };
+                const userId = socket.userSession?.client.userId;
+                if (data.targetUserIds && (!userId || !data.targetUserIds.includes(userId))) return;
+                socket.emit('rollTableListInvalidated', data);
+            };
+            // Macro document fan-out (Phase 7). Standard ownership map.
+            const handleMacroChanged = (...args: unknown[]) => {
+                const data = (args[0] || {}) as { macroId: string; action: 'create' | 'update' | 'delete' };
+                if (data.action !== 'delete' && data.macroId) {
+                    const subject = getSubject();
+                    if (!subject || !macroStore.canReadDocument(data.macroId, subject, DOCUMENT_VISIBILITY.LIST_VISIBLE)) {
+                        return;
+                    }
+                }
+                socket.emit('macroChanged', data);
+            };
+            const handleMacroListInvalidated = (...args: unknown[]) => {
+                const data = (args[0] || {}) as { reason: string; macroId?: string; targetUserIds?: string[] };
+                const userId = socket.userSession?.client.userId;
+                if (data.targetUserIds && (!userId || !data.targetUserIds.includes(userId))) return;
+                socket.emit('macroListInvalidated', data);
+            };
+            // Playlist document fan-out (Phase 7). Standard ownership map.
+            const handlePlaylistChanged = (...args: unknown[]) => {
+                const data = (args[0] || {}) as { playlistId: string; action: 'create' | 'update' | 'delete' };
+                if (data.action !== 'delete' && data.playlistId) {
+                    const subject = getSubject();
+                    if (!subject || !playlistStore.canReadDocument(data.playlistId, subject, DOCUMENT_VISIBILITY.LIST_VISIBLE)) {
+                        return;
+                    }
+                }
+                socket.emit('playlistChanged', data);
+            };
+            const handlePlaylistListInvalidated = (...args: unknown[]) => {
+                const data = (args[0] || {}) as { reason: string; playlistId?: string; targetUserIds?: string[] };
+                const userId = socket.userSession?.client.userId;
+                if (data.targetUserIds && (!userId || !data.targetUserIds.includes(userId))) return;
+                socket.emit('playlistListInvalidated', data);
+            };
+            // Cards document fan-out (Phase 7). Standard ownership map.
+            // Cross-Cards-doc transfers (`Cards#pass`) arrive as paired events
+            // on both parents — each leg flows through this same gate.
+            const handleCardsChanged = (...args: unknown[]) => {
+                const data = (args[0] || {}) as { cardsId: string; action: 'create' | 'update' | 'delete' };
+                if (data.action !== 'delete' && data.cardsId) {
+                    const subject = getSubject();
+                    if (!subject || !cardsStore.canReadDocument(data.cardsId, subject, DOCUMENT_VISIBILITY.LIST_VISIBLE)) {
+                        return;
+                    }
+                }
+                socket.emit('cardsChanged', data);
+            };
+            const handleCardsListInvalidated = (...args: unknown[]) => {
+                const data = (args[0] || {}) as { reason: string; cardsId?: string; targetUserIds?: string[] };
+                const userId = socket.userSession?.client.userId;
+                if (data.targetUserIds && (!userId || !data.targetUserIds.includes(userId))) return;
+                socket.emit('cardsListInvalidated', data);
+            };
             const handleSharedUpdate = (...args: unknown[]) => {
                 const data = (args[0] || {}) as RealtimeSharedContentPayload;
                 socket.emit('sharedContentUpdate', data);
@@ -219,7 +295,7 @@ export function registerAppSocketGateway({
             // canonical source with ownership filtering applied per socket.
             // Phase 5 moved combatUpdate from foundryClient onto the system
             // client as combatChanged / combatListInvalidated.
-            systemService.getSystemClient().on('actorUpdate', handleActorUpdate);
+            systemService.getSystemClient().on('actorChanged', handleActorChanged);
             systemService.getSystemClient().on('chatMessageChanged', handleChatMessageChanged);
             systemService.getSystemClient().on('chatMessageListInvalidated', handleChatMessageListInvalidated);
             systemService.getSystemClient().on('userChanged', handleUserChanged);
@@ -232,6 +308,14 @@ export function registerAppSocketGateway({
             systemService.getSystemClient().on('combatListInvalidated', handleCombatListInvalidated);
             systemService.getSystemClient().on('itemChanged', handleItemChanged);
             systemService.getSystemClient().on('itemListInvalidated', handleItemListInvalidated);
+            systemService.getSystemClient().on('rollTableChanged', handleRollTableChanged);
+            systemService.getSystemClient().on('rollTableListInvalidated', handleRollTableListInvalidated);
+            systemService.getSystemClient().on('macroChanged', handleMacroChanged);
+            systemService.getSystemClient().on('macroListInvalidated', handleMacroListInvalidated);
+            systemService.getSystemClient().on('playlistChanged', handlePlaylistChanged);
+            systemService.getSystemClient().on('playlistListInvalidated', handlePlaylistListInvalidated);
+            systemService.getSystemClient().on('cardsChanged', handleCardsChanged);
+            systemService.getSystemClient().on('cardsListInvalidated', handleCardsListInvalidated);
             foundryClient.on('sharedContentUpdate', handleSharedUpdate);
 
             // New relays for world lifecycle and system status
@@ -244,7 +328,7 @@ export function registerAppSocketGateway({
                 logger.debug(`App Socket | Client disconnected: ${socket.id}. Remaining: ${remaining}`);
                 systemService.getSystemClient().updateActiveBrowserCount(remaining);
 
-                systemService.getSystemClient().off('actorUpdate', handleActorUpdate);
+                systemService.getSystemClient().off('actorChanged', handleActorChanged);
                 systemService.getSystemClient().off('chatMessageChanged', handleChatMessageChanged);
                 systemService.getSystemClient().off('chatMessageListInvalidated', handleChatMessageListInvalidated);
                 systemService.getSystemClient().off('userChanged', handleUserChanged);
@@ -257,6 +341,14 @@ export function registerAppSocketGateway({
                 systemService.getSystemClient().off('combatListInvalidated', handleCombatListInvalidated);
                 systemService.getSystemClient().off('itemChanged', handleItemChanged);
                 systemService.getSystemClient().off('itemListInvalidated', handleItemListInvalidated);
+                systemService.getSystemClient().off('rollTableChanged', handleRollTableChanged);
+                systemService.getSystemClient().off('rollTableListInvalidated', handleRollTableListInvalidated);
+                systemService.getSystemClient().off('macroChanged', handleMacroChanged);
+                systemService.getSystemClient().off('macroListInvalidated', handleMacroListInvalidated);
+                systemService.getSystemClient().off('playlistChanged', handlePlaylistChanged);
+                systemService.getSystemClient().off('playlistListInvalidated', handlePlaylistListInvalidated);
+                systemService.getSystemClient().off('cardsChanged', handleCardsChanged);
+                systemService.getSystemClient().off('cardsListInvalidated', handleCardsListInvalidated);
                 foundryClient.off('sharedContentUpdate', handleSharedUpdate);
                 foundryClient.off('systemStatusUpdate', broadcastSystemStatus);
                 foundryClient.off('worldShutdown', broadcastSystemStatus);

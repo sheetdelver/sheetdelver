@@ -375,7 +375,7 @@ export class ClientSocket extends SocketBase {
             // Phase-1+ note: ChatMessage / Combat / Combatant relays removed from this per-user
             // listener — those Stores fan out through the SystemService bridge with ownership
             // filtering. Actor cache updates also flow from the system ActorStore path so
-            // per-user sockets do not duplicate `actorUpdate` emissions.
+            // per-user sockets do not duplicate `actorChanged` emissions.
 
             // User relay (triggers dashboard systemStatus updates)
             if (data.type === 'User') {

@@ -1,6 +1,6 @@
 import { createContext, useContext } from 'react';
 import type { ComponentType } from 'react';
-import type { RealtimeActorUpdatePayload } from './contracts';
+import type { RealtimeActorChangedPayload } from './contracts';
 
 // ---------------------------------------------------------------------------
 // Logger — client-side, for use in module UI components
@@ -45,11 +45,11 @@ export interface SDKContextValue {
     // Authenticated fetch for platform REST APIs (/api/actors/[id], etc.)
     fetchWithAuth: (input: string, init?: RequestInit) => Promise<Response>;
 
-    // Realtime — subscribe to actor update events for a specific actor
+    // Realtime — subscribe to actor change events for a specific actor.
     // Returns a cleanup function; call it in useEffect cleanup.
-    onActorUpdate: (
+    onActorChanged: (
         actorId: string,
-        callback: (data: RealtimeActorUpdatePayload) => void,
+        callback: (data: RealtimeActorChangedPayload) => void,
     ) => () => void;
 
     // Client logger — prefixed with [module] in the browser console
@@ -99,5 +99,5 @@ export function useSDKComponents(): SDKComponentsValue {
     return ctx;
 }
 
-// Re-export so callers can import RealtimeActorUpdatePayload from '@sheet-delver/sdk'
-export type { RealtimeActorUpdatePayload };
+// Re-export so callers can import RealtimeActorChangedPayload from '@sheet-delver/sdk'
+export type { RealtimeActorChangedPayload };

@@ -8,8 +8,12 @@ import { ActorRepository } from '@server/core/documents/primary/actors/ActorRepo
 import { ChatMessageRepository } from '@server/core/documents/primary/chat-messages/ChatMessageRepository';
 import { CombatRepository } from '@server/core/documents/primary/combats/CombatRepository';
 import { FolderRepository } from '@server/core/documents/primary/folders/FolderRepository';
+import { CardsRepository } from '@server/core/documents/primary/cards/CardsRepository';
 import { ItemRepository } from '@server/core/documents/primary/items/ItemRepository';
 import { JournalRepository } from '@server/core/documents/primary/journals/JournalRepository';
+import { MacroRepository } from '@server/core/documents/primary/macros/MacroRepository';
+import { PlaylistRepository } from '@server/core/documents/primary/playlists/PlaylistRepository';
+import { RollTableRepository } from '@server/core/documents/primary/roll-tables/RollTableRepository';
 import {
     DOCUMENT_VISIBILITY,
 } from '@server/core/documents/primary/base/ownership';
@@ -35,8 +39,12 @@ function createBaseRouteFoundryClient(client: CoreSocket | ClientSocket): RouteF
     const chatMessageRepository = new ChatMessageRepository(documentTransport);
     const combatRepository = new CombatRepository(documentTransport);
     const folderRepository = new FolderRepository(documentTransport);
+    const cardsRepository = new CardsRepository(documentTransport);
     const itemRepository = new ItemRepository(documentTransport);
     const journalRepository = new JournalRepository(documentTransport);
+    const macroRepository = new MacroRepository(documentTransport);
+    const playlistRepository = new PlaylistRepository(documentTransport);
+    const rollTableRepository = new RollTableRepository(documentTransport);
 
     return {
         get isConnected() {
@@ -97,6 +105,15 @@ function createBaseRouteFoundryClient(client: CoreSocket | ClientSocket): RouteF
             if (parentRootType === 'Item') {
                 return itemRepository.dispatchDocument(type, normalizedAction, normalizedOperation, parent);
             }
+            if (parentRootType === 'RollTable') {
+                return rollTableRepository.dispatchDocument(type, normalizedAction, normalizedOperation, parent);
+            }
+            if (parentRootType === 'Playlist') {
+                return playlistRepository.dispatchDocument(type, normalizedAction, normalizedOperation, parent);
+            }
+            if (parentRootType === 'Cards') {
+                return cardsRepository.dispatchDocument(type, normalizedAction, normalizedOperation, parent);
+            }
 
             if (type === 'Actor') {
                 return actorRepository.dispatchDocument(type, normalizedAction, normalizedOperation, parent);
@@ -120,6 +137,22 @@ function createBaseRouteFoundryClient(client: CoreSocket | ClientSocket): RouteF
 
             if (type === 'Combat' || type === 'Combatant') {
                 return combatRepository.dispatchDocument(type, normalizedAction, normalizedOperation, parent);
+            }
+
+            if (type === 'RollTable') {
+                return rollTableRepository.dispatchDocument(type, normalizedAction, normalizedOperation, parent);
+            }
+
+            if (type === 'Macro') {
+                return macroRepository.dispatchDocument(type, normalizedAction, normalizedOperation, parent);
+            }
+
+            if (type === 'Playlist') {
+                return playlistRepository.dispatchDocument(type, normalizedAction, normalizedOperation, parent);
+            }
+
+            if (type === 'Cards') {
+                return cardsRepository.dispatchDocument(type, normalizedAction, normalizedOperation, parent);
             }
 
             return client.dispatchDocument(type, action, operation, parent);

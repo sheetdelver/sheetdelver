@@ -98,6 +98,188 @@ export interface RawCombat {
     [key: string]: unknown;
 }
 
+/**
+ * Embedded RollTable result. `drawn: boolean` is mutable runtime state and
+ * the most common update target; embedded handler maintains the `results[]`
+ * array in place when these change.
+ */
+export interface RawRollTableResult {
+    id?: string;
+    _id?: string;
+    type?: string | number;
+    text?: string;
+    img?: string | null;
+    weight?: number;
+    range?: [number, number];
+    drawn?: boolean;
+    documentCollection?: string;
+    documentId?: string | null;
+    flags?: Record<string, unknown>;
+    [key: string]: unknown;
+}
+
+export interface RawRollTable {
+    id?: string;
+    _id?: string;
+    name?: string;
+    img?: string | null;
+    description?: string;
+    folder?: string | null;
+    sort?: number;
+    formula?: string;
+    replacement?: boolean;
+    displayRoll?: boolean;
+    results?: RawRollTableResult[];
+    ownership?: Record<string, number>;
+    flags?: Record<string, unknown>;
+    _stats?: Record<string, unknown>;
+    [key: string]: unknown;
+}
+
+/**
+ * Embedded PlaylistSound. Playback state (`playing`, `pausedTime`, `repeat`)
+ * is mutable runtime state; embedded handler maintains the `sounds[]` array
+ * in place when these change.
+ */
+export interface RawPlaylistSound {
+    id?: string;
+    _id?: string;
+    name?: string;
+    path?: string;
+    description?: string;
+    channel?: string;
+    playing?: boolean;
+    pausedTime?: number | null;
+    repeat?: boolean;
+    volume?: number;
+    fade?: number | null;
+    sort?: number;
+    flags?: Record<string, unknown>;
+    [key: string]: unknown;
+}
+
+export interface RawPlaylist {
+    id?: string;
+    _id?: string;
+    name?: string;
+    description?: string;
+    mode?: number;
+    playing?: boolean;
+    fade?: number | null;
+    folder?: string | null;
+    sort?: number;
+    seed?: number;
+    channel?: string;
+    sounds?: RawPlaylistSound[];
+    ownership?: Record<string, number>;
+    flags?: Record<string, unknown>;
+    _stats?: Record<string, unknown>;
+    [key: string]: unknown;
+}
+
+/**
+ * Embedded Card record. Carries Foundry card fields without modeling
+ * game-specific semantics (Sheet Delver doesn't currently use cards).
+ */
+export interface RawCard {
+    id?: string;
+    _id?: string;
+    name?: string;
+    description?: string;
+    type?: string;
+    faces?: Array<{ name?: string; img?: string; text?: string; [key: string]: unknown }>;
+    face?: number | null;
+    drawn?: boolean;
+    suit?: string;
+    value?: number | null;
+    origin?: string | null;
+    back?: { name?: string; img?: string; text?: string; [key: string]: unknown };
+    width?: number;
+    height?: number;
+    rotation?: number;
+    sort?: number;
+    flags?: Record<string, unknown>;
+    system?: Record<string, unknown>;
+    _stats?: Record<string, unknown>;
+    [key: string]: unknown;
+}
+
+export interface RawCards {
+    id?: string;
+    _id?: string;
+    name?: string;
+    type?: 'deck' | 'hand' | 'pile' | string;
+    description?: string;
+    img?: string | null;
+    cards?: RawCard[];
+    displayCount?: boolean;
+    folder?: string | null;
+    sort?: number;
+    width?: number;
+    height?: number;
+    rotation?: number;
+    ownership?: Record<string, number>;
+    flags?: Record<string, unknown>;
+    system?: Record<string, unknown>;
+    _stats?: Record<string, unknown>;
+    [key: string]: unknown;
+}
+
+/**
+ * Foundry Macro primary doc. `author` is creator attribution metadata —
+ * NOT part of ownership resolution; access is gated through the `ownership`
+ * map exactly like every other standard-map type (see ADR-0011 Phase 7).
+ */
+export interface RawMacro {
+    id?: string;
+    _id?: string;
+    name?: string;
+    type?: 'script' | 'chat' | string;
+    author?: string;
+    img?: string | null;
+    scope?: 'global' | 'actor' | 'actors' | string;
+    command?: string;
+    folder?: string | null;
+    sort?: number;
+    ownership?: Record<string, number>;
+    flags?: Record<string, unknown>;
+    _stats?: Record<string, unknown>;
+    [key: string]: unknown;
+}
+
+/**
+ * Stub Raw types for Phase 7 unwired primary docs. Shape uniformity only —
+ * these subsystems aren't actively modeled. A future phase that wires any of
+ * them up should expand the shape against real Foundry payloads.
+ */
+export interface RawScene {
+    id?: string;
+    _id?: string;
+    name?: string;
+    ownership?: Record<string, number>;
+    [key: string]: unknown;
+}
+export interface RawFogExploration {
+    id?: string;
+    _id?: string;
+    user?: string;
+    scene?: string;
+    [key: string]: unknown;
+}
+export interface RawAdventure {
+    id?: string;
+    _id?: string;
+    name?: string;
+    [key: string]: unknown;
+}
+export interface RawSetting {
+    id?: string;
+    _id?: string;
+    key?: string;
+    value?: unknown;
+    [key: string]: unknown;
+}
+
 export interface DocumentSocketResponse<T> {
     result?: T[];
     [key: string]: unknown;

@@ -6,8 +6,12 @@ import { actorStore } from './actors/ActorStore';
 import { chatMessageStore } from './chat-messages/ChatMessageStore';
 import { combatStore } from './combats/CombatStore';
 import { folderStore } from './folders/FolderStore';
+import { cardsStore } from './cards/CardsStore';
 import { itemStore } from './items/ItemStore';
 import { journalStore } from './journals/JournalStore';
+import { macroStore } from './macros/MacroStore';
+import { playlistStore } from './playlists/PlaylistStore';
+import { rollTableStore } from './roll-tables/RollTableStore';
 import { userStore } from './users/UserStore';
 
 /**
@@ -197,6 +201,83 @@ primaryDocumentCacheCoordinator.register({
     },
 });
 
+// RollTableStore — standard ownership map; embedded `RollTableResult` events
+// flow via `parentUuid: RollTable.<id>` (handler registered below).
+primaryDocumentCacheCoordinator.register({
+    type: 'RollTable',
+    async seed(client) {
+        await rollTableStore.seed(async () => {
+            const response: any = await client.dispatchDocumentSocket('RollTable', 'get', { broadcast: false });
+            return response?.result || [];
+        });
+        logger.info(`PrimaryDocumentCacheCoordinator | Seeded ${rollTableStore.list().length} roll tables.`);
+    },
+    clear(reason) {
+        rollTableStore.clear(reason);
+    },
+    isReady() {
+        return rollTableStore.isReady();
+    },
+});
+
+// MacroStore — standard ownership map; no embedded children. `author` field
+// is creator attribution, not part of ownership resolution.
+primaryDocumentCacheCoordinator.register({
+    type: 'Macro',
+    async seed(client) {
+        await macroStore.seed(async () => {
+            const response: any = await client.dispatchDocumentSocket('Macro', 'get', { broadcast: false });
+            return response?.result || [];
+        });
+        logger.info(`PrimaryDocumentCacheCoordinator | Seeded ${macroStore.list().length} macros.`);
+    },
+    clear(reason) {
+        macroStore.clear(reason);
+    },
+    isReady() {
+        return macroStore.isReady();
+    },
+});
+
+// PlaylistStore — standard ownership map; embedded `PlaylistSound` events
+// flow via `parentUuid: Playlist.<id>` (handler registered below).
+primaryDocumentCacheCoordinator.register({
+    type: 'Playlist',
+    async seed(client) {
+        await playlistStore.seed(async () => {
+            const response: any = await client.dispatchDocumentSocket('Playlist', 'get', { broadcast: false });
+            return response?.result || [];
+        });
+        logger.info(`PrimaryDocumentCacheCoordinator | Seeded ${playlistStore.list().length} playlists.`);
+    },
+    clear(reason) {
+        playlistStore.clear(reason);
+    },
+    isReady() {
+        return playlistStore.isReady();
+    },
+});
+
+// CardsStore — standard ownership map; embedded `Card` events flow via
+// `parentUuid: Cards.<id>` (handler registered below). Cross-Cards-doc
+// transfers (`Cards#pass`) arrive as paired update/delete legs on both parents.
+primaryDocumentCacheCoordinator.register({
+    type: 'Cards',
+    async seed(client) {
+        await cardsStore.seed(async () => {
+            const response: any = await client.dispatchDocumentSocket('Cards', 'get', { broadcast: false });
+            return response?.result || [];
+        });
+        logger.info(`PrimaryDocumentCacheCoordinator | Seeded ${cardsStore.list().length} cards docs.`);
+    },
+    clear(reason) {
+        cardsStore.clear(reason);
+    },
+    isReady() {
+        return cardsStore.isReady();
+    },
+});
+
 // modifyDocument router bindings
 modifyDocumentRouter.register(actorStore);
 modifyDocumentRouter.register(chatMessageStore);
@@ -205,6 +286,10 @@ modifyDocumentRouter.register(userStore);
 modifyDocumentRouter.register(journalStore);
 modifyDocumentRouter.register(combatStore);
 modifyDocumentRouter.register(itemStore);
+modifyDocumentRouter.register(rollTableStore);
+modifyDocumentRouter.register(macroStore);
+modifyDocumentRouter.register(playlistStore);
+modifyDocumentRouter.register(cardsStore);
 // Embedded children: Actor owns Item + ActiveEffect with parentUuid 'Actor.xxx...'.
 // The router's parentUuid-first priority (ADR-0011 Phase 6) keeps these on
 // ActorStore even though ItemStore is now registered for direct-type `Item`.
@@ -216,6 +301,13 @@ modifyDocumentRouter.registerEmbeddedHandler('Combat', combatStore);
 // Item owns ActiveEffect with parentUuid 'Item.<id>' (world-Item effects only;
 // actor-owned item effects still flow through ActorStore via 'Actor.<id>.Item.<id>').
 modifyDocumentRouter.registerEmbeddedHandler('Item', itemStore);
+// RollTable owns RollTableResult with parentUuid 'RollTable.<id>'.
+modifyDocumentRouter.registerEmbeddedHandler('RollTable', rollTableStore);
+// Playlist owns PlaylistSound with parentUuid 'Playlist.<id>'.
+modifyDocumentRouter.registerEmbeddedHandler('Playlist', playlistStore);
+// Cards owns Card with parentUuid 'Cards.<id>'. Cross-Cards-doc transfers
+// arrive as paired events on two parents; each leg lands here for its parent.
+modifyDocumentRouter.registerEmbeddedHandler('Cards', cardsStore);
 
 // Cross-store visibility dependency (ADR-0011 Phase 5): CombatStore consumes
 // ActorStore for `resolveOwnership` lookups and re-emits its own list

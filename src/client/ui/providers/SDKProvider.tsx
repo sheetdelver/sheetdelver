@@ -11,7 +11,7 @@ import RollDialog from '@client/ui/components/RollDialog';
 import { ConfirmationModal } from '@client/ui/components/ConfirmationModal';
 import RichTextEditor from '@client/ui/components/RichTextEditor';
 import { SharedContentModal } from '@client/ui/components/SharedContentModal';
-import type { RealtimeActorUpdatePayload } from '@shared/sdk/contracts';
+import type { RealtimeActorChangedPayload } from '@shared/sdk/contracts';
 
 /**
  * SDKProvider bridges the platform's internal contexts and components into
@@ -41,17 +41,17 @@ export function SDKProvider({ children }: { children: React.ReactNode }) {
         return fetch(input, { ...init, headers });
     }, [token]);
 
-    const onActorUpdate = useCallback((
+    const onActorChanged = useCallback((
         actorId: string,
-        callback: (data: RealtimeActorUpdatePayload) => void,
+        callback: (data: RealtimeActorChangedPayload) => void,
     ) => {
         const socket = appSocket as any;
         if (!socket) return () => {};
-        const handler = (data: RealtimeActorUpdatePayload) => {
+        const handler = (data: RealtimeActorChangedPayload) => {
             if (data.actorId === actorId) callback(data);
         };
-        socket.on('actorUpdate', handler);
-        return () => { socket.off('actorUpdate', handler); };
+        socket.on('actorChanged', handler);
+        return () => { socket.off('actorChanged', handler); };
     }, [appSocket]);
 
     const logger = useMemo(() => ({
@@ -84,13 +84,13 @@ export function SDKProvider({ children }: { children: React.ReactNode }) {
         isChatOpen,
         setChatOpen,
         fetchWithAuth,
-        onActorUpdate,
+        onActorChanged,
         logger,
     }), [
         token, currentUser, system, isConnected,
         foundryUrl, resolveImageUrl, addNotification,
         isDiceTrayOpen, toggleDiceTray, isChatOpen, setChatOpen,
-        fetchWithAuth, onActorUpdate, logger,
+        fetchWithAuth, onActorChanged, logger,
     ]);
 
     // Components are stable references — useMemo avoids recreating the object

@@ -57,7 +57,7 @@ export interface AuthenticatedStatusPayload extends SystemStatusPayload {
 /**
  * Payload for realtime actor updates. Consumers should refetch the affected actor/card.
  */
-export interface RealtimeActorUpdatePayload {
+export interface RealtimeActorChangedPayload {
     actorId: string;
     action: 'create' | 'update' | 'delete';
 }
@@ -114,6 +114,54 @@ export interface RealtimeItemChangedPayload {
 export interface RealtimeItemListInvalidatedPayload {
     reason: string;
     itemId?: string;
+    targetUserIds?: string[];
+}
+
+/** Payload for realtime RollTable document changes (Phase 7). */
+export interface RealtimeRollTableChangedPayload {
+    rollTableId: string;
+    action: 'create' | 'update' | 'delete';
+}
+/** Payload for realtime RollTable list invalidations (Phase 7). */
+export interface RealtimeRollTableListInvalidatedPayload {
+    reason: string;
+    rollTableId?: string;
+    targetUserIds?: string[];
+}
+
+/** Payload for realtime Macro document changes (Phase 7). */
+export interface RealtimeMacroChangedPayload {
+    macroId: string;
+    action: 'create' | 'update' | 'delete';
+}
+/** Payload for realtime Macro list invalidations (Phase 7). */
+export interface RealtimeMacroListInvalidatedPayload {
+    reason: string;
+    macroId?: string;
+    targetUserIds?: string[];
+}
+
+/** Payload for realtime Playlist document changes (Phase 7). */
+export interface RealtimePlaylistChangedPayload {
+    playlistId: string;
+    action: 'create' | 'update' | 'delete';
+}
+/** Payload for realtime Playlist list invalidations (Phase 7). */
+export interface RealtimePlaylistListInvalidatedPayload {
+    reason: string;
+    playlistId?: string;
+    targetUserIds?: string[];
+}
+
+/** Payload for realtime Cards document changes (Phase 7). */
+export interface RealtimeCardsChangedPayload {
+    cardsId: string;
+    action: 'create' | 'update' | 'delete';
+}
+/** Payload for realtime Cards list invalidations (Phase 7). */
+export interface RealtimeCardsListInvalidatedPayload {
+    reason: string;
+    cardsId?: string;
     targetUserIds?: string[];
 }
 

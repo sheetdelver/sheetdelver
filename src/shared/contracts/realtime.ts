@@ -3,7 +3,7 @@ import type { SystemStatusPayload } from '@shared/contracts/status';
 export type RealtimeSystemStatusPayload = SystemStatusPayload;
 
 // Actor socket events are invalidation hints; clients refetch instead of applying diffs.
-export interface RealtimeActorUpdatePayload {
+export interface RealtimeActorChangedPayload {
     actorId: string;
     action: 'create' | 'update' | 'delete';
 }
@@ -47,5 +47,44 @@ export interface RealtimeChatMessageChangedPayload {
 export interface RealtimeChatMessageListInvalidatedPayload {
     reason: string;
     messageId?: string;
+    targetUserIds?: string[];
+}
+
+// Phase 7 — RollTable + Macro. No in-tree browser consumer yet; contracts
+// ship for SDK consumers and to keep the wire surface uniform across Stores.
+export interface RealtimeRollTableChangedPayload {
+    rollTableId: string;
+    action: 'create' | 'update' | 'delete';
+}
+export interface RealtimeRollTableListInvalidatedPayload {
+    reason: string;
+    rollTableId?: string;
+    targetUserIds?: string[];
+}
+export interface RealtimeMacroChangedPayload {
+    macroId: string;
+    action: 'create' | 'update' | 'delete';
+}
+export interface RealtimeMacroListInvalidatedPayload {
+    reason: string;
+    macroId?: string;
+    targetUserIds?: string[];
+}
+export interface RealtimePlaylistChangedPayload {
+    playlistId: string;
+    action: 'create' | 'update' | 'delete';
+}
+export interface RealtimePlaylistListInvalidatedPayload {
+    reason: string;
+    playlistId?: string;
+    targetUserIds?: string[];
+}
+export interface RealtimeCardsChangedPayload {
+    cardsId: string;
+    action: 'create' | 'update' | 'delete';
+}
+export interface RealtimeCardsListInvalidatedPayload {
+    reason: string;
+    cardsId?: string;
     targetUserIds?: string[];
 }

@@ -254,7 +254,7 @@ export function FoundryProvider({ children }: { children: ReactNode }) {
             if (!isEqual(sharedContent, scData)) setSharedContent(scData);
         };
 
-        const handleActorUpdate = async (data: { actorId?: string }) => {
+        const handleActorChanged = async (data: { actorId?: string }) => {
             if (!data.actorId || !token) return;
             try {
                 const card = await foundryApi.fetchActorCardById(token, data.actorId);
@@ -314,7 +314,7 @@ export function FoundryProvider({ children }: { children: ReactNode }) {
 
         appSocket.on('systemStatus', handleSystemStatus);
         appSocket.on('sharedContentUpdate', handleSharedContentUpdate);
-        appSocket.on('actorUpdate', handleActorUpdate);
+        appSocket.on('actorChanged', handleActorChanged);
         appSocket.on('userChanged', handleUserChanged);
         appSocket.on('userListInvalidated', handleUserListInvalidated);
         appSocket.on('moduleSourceChanged',   handleModuleCacheInvalidation);
@@ -324,7 +324,7 @@ export function FoundryProvider({ children }: { children: ReactNode }) {
         return () => {
             appSocket.off('systemStatus', handleSystemStatus);
             appSocket.off('sharedContentUpdate', handleSharedContentUpdate);
-            appSocket.off('actorUpdate', handleActorUpdate);
+            appSocket.off('actorChanged', handleActorChanged);
             appSocket.off('userChanged', handleUserChanged);
             appSocket.off('userListInvalidated', handleUserListInvalidated);
             appSocket.off('moduleSourceChanged',   handleModuleCacheInvalidation);

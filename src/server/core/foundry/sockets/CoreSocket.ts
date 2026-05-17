@@ -10,7 +10,11 @@ import { getAdapter } from '@modules/registry/server';
 import { SystemAdapter } from '@modules/registry/types';
 import { CompendiumCache } from '../compendium-cache';
 import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
+import { cardsStore } from '@server/core/documents/primary/cards/CardsStore';
 import { itemStore } from '@server/core/documents/primary/items/ItemStore';
+import { macroStore } from '@server/core/documents/primary/macros/MacroStore';
+import { playlistStore } from '@server/core/documents/primary/playlists/PlaylistStore';
+import { rollTableStore } from '@server/core/documents/primary/roll-tables/RollTableStore';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
 import { userPresence } from '@server/core/documents/primary/users/UserPresence';
 import { ChatMessageRepository } from '@server/core/documents/primary/chat-messages/ChatMessageRepository';
@@ -60,8 +64,16 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
 
     private _routeModifyDocument(type: string, action: string, result: any, operation?: any) {
         // Single inbound dispatch point — routes to whichever Store handles
-        // this type (Actor/Item/ActiveEffect → ActorStore; ChatMessage → ChatMessageStore;
-        // unrouted types like ActorDelta/Macro/Playlist drop silently).
+        // this type. After ADR-0011 Phase 7 every modeled primary document is
+        // routed (Actor / Item / ActiveEffect → ActorStore + ItemStore;
+        // ChatMessage → ChatMessageStore; Folder → FolderStore; User → UserStore;
+        // JournalEntry / JournalEntryPage → JournalStore; Combat / Combatant →
+        // CombatStore; RollTable / RollTableResult → RollTableStore;
+        // Macro → MacroStore; Playlist / PlaylistSound → PlaylistStore;
+        // Cards / Card → CardsStore). The Sheet-Delver-unused types (Scene /
+        // FogExploration / Adventure / Setting) have stub Stores but no
+        // router registration — events for them drop silently. Synthetic
+        // tokens like `ActorDelta` similarly drop silently.
         modifyDocumentRouter.route({
             type,
             action: action as 'get' | 'create' | 'update' | 'delete',
@@ -970,6 +982,26 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
                         if (!itemStore.isReady()) throw new PrimaryDocumentCacheNotReadyError('Item');
                         return itemStore.get(id);
                     }
+                    if (type === 'RollTable') {
+                        // Phase 7: world RollTables are Store-backed.
+                        if (!rollTableStore.isReady()) throw new PrimaryDocumentCacheNotReadyError('RollTable');
+                        return rollTableStore.get(id);
+                    }
+                    if (type === 'Macro') {
+                        // Phase 7: world Macros are Store-backed.
+                        if (!macroStore.isReady()) throw new PrimaryDocumentCacheNotReadyError('Macro');
+                        return macroStore.get(id);
+                    }
+                    if (type === 'Playlist') {
+                        // Phase 7: world Playlists are Store-backed.
+                        if (!playlistStore.isReady()) throw new PrimaryDocumentCacheNotReadyError('Playlist');
+                        return playlistStore.get(id);
+                    }
+                    if (type === 'Cards') {
+                        // Phase 7: world Cards are Store-backed.
+                        if (!cardsStore.isReady()) throw new PrimaryDocumentCacheNotReadyError('Cards');
+                        return cardsStore.get(id);
+                    }
                     logger.debug(`[CoreSocket] [TRACE] fetchByUuid World Document: ${type} ${id}`);
                     const response = await this.dispatchDocumentSocket(type, 'get', { query: { _id: id }, broadcast: false });
                     return response?.result?.[0];
@@ -978,6 +1010,16 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
             }
 
             // 2. Compendium Document (Agnostically parse segments)
+            // TODO(post-ADR-0011): full pack-doc hydration at bootstrap is the
+            // recommended next direction — manifest-declared packs are expected
+            // to load whole, and re-fetching the same compendium doc over the
+            // socket for every UUID resolution is a known tax. A future round
+            // should introduce a `CompendiumStore` (or extend the existing
+            // CompendiumCache name-only map) to back this branch. Compendium
+            // docs aren't primary documents (no modify-document write surface,
+            // pack-level `permission` instead of per-doc `ownership`, namespaced
+            // UUIDs) so they fall outside ADR-0011's `PrimaryDocumentStore<T>`
+            // shape and need their own design pass.
             const parts = uuid.split('.');
             if (parts.length < 4) return null;
 

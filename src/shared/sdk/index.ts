@@ -121,7 +121,7 @@ export type {
     SDKContextValue,
     SDKComponentsValue,
     ModuleClientLogger,
-    RealtimeActorUpdatePayload,
+    RealtimeActorChangedPayload,
 } from './react';
 
 // ---------------------------------------------------------------------------

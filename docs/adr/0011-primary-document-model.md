@@ -1,7 +1,7 @@
 # ADR-0011: Primary Document Model — Per-Type Store + Repository via Shared Base
 
-**Status:** Proposed — implementation across the phases listed in Exit Criteria below. Round 01 (`ActorStore`) is the reference implementation; this ADR generalizes its pattern.
-**Date:** May 15, 2026
+**Status:** Accepted — all seven phases shipped. Round 01 (`ActorStore`) was the reference implementation; this ADR generalized its pattern across every primary document type.
+**Date:** May 15, 2026 (Accepted: May 17, 2026)
 **Phase:** Primary Documents (Phases 1–7)
 **Supersedes:** None. Builds on Round 01's actor lifecycle work.
 **Related:** ADR-0010 (external module SDK and operational maturity)
@@ -65,7 +65,7 @@ The per-type subclass provides:
 - `resolveOwnership(doc, subject) → ResolvedDocumentOwnershipLevel`. The policy hook.
 - Embedded-child mutation handlers if the type has embedded docs (`applyEmbeddedItemChange` on Actor, `applyCombatantChange` on Combat, `applyPageChange` on Journal, etc.).
 - Cross-store dependency subscriptions (e.g., `CombatStore` subscribes to `actorStore.actorListInvalidated`).
-- Type-specific retention behavior — full hydration with bootstrap seed, or lazy population on first read.
+- Type-specific retention behavior — full hydration with bootstrap seed for every actively-modeled type. (Earlier drafts proposed a lazy-population tier for rarely-touched types; that distinction was dropped after audit confirmed `game.data` already ships every primary doc type at bootstrap, so the per-type cost is paid regardless. Stub types remain unwired.)
 
 The repository pattern is also unified. Every `<Type>Repository` is constructed per-request, binds to a request-scoped document transport so writes carry the requesting user's authenticated socket/session, dispatches via Foundry's `modifyDocument` channel, and mirrors the result back into the corresponding Store before returning to the caller.
 
@@ -102,9 +102,9 @@ The protocol is uniform because Foundry's wire format is uniform:
 Policy differs by type:
 
 - **Ownership.** Actor / Item / RollTable / Macro / Playlist / Scene / JournalEntry use the standard `{ default, userId }` map. ChatMessage uses `whisper` + `blind` + `author`. Combat derives from combatants. User has none (users are subjects, not targets). Folder uses Foundry's `permission` map; when the map or a key is omitted, the effective permission is `NONE`.
-- **Embedded children.** Actor has Items + Effects. Combat has Combatants. Journal has Pages. RollTable has results with mutable `drawn` state. Playlist has sounds with playback state. Macro / ChatMessage / Folder / Cards / Macro / etc. have none.
+- **Embedded children.** Actor has Items + Effects. Combat has Combatants. Journal has Pages. RollTable has results with mutable `drawn` state. Playlist has sounds with playback state. Cards has embedded `Card` records with face/drawn/display state. Macro / ChatMessage / Folder / User have none.
 - **Cross-store deps.** Combat depends on Actor for combatant visibility. Every Store depends on User for subject role resolution.
-- **Retention.** Most types use full hydration with bootstrap seed. The rarely-touched types (Macro / Playlist / RollTable / Cards) use lazy hydration. The Sheet-Delver-unused types (Scene / FogExploration / Adventure / Setting) get stubs.
+- **Retention.** Every actively-modeled type uses full hydration with bootstrap seed — `game.data` already ships them all at world bootstrap, so there's no saving from a lazy tier. The Sheet-Delver-unused types (Scene / FogExploration / Adventure / Setting) get stubs (classes exist for type-union completeness; not registered with the coordinator or router).
 
 The split is what lets one base abstraction serve all of them.
 
@@ -194,10 +194,10 @@ Captured here for durability (not in working planning docs). Subclass implementa
 | JournalEntry | `ownership` map at entry level AND per-page | `JournalEntryPage` (each has own ownership map) | `FolderStore` (folder ancestry/permission where applicable) | Full + bootstrap seed |
 | Combat | None on the Combat doc — derived from combatants (`hidden` flag + actor visibility) | `Combatant` | `ActorStore` (combatant visibility), `UserStore` | Full + bootstrap seed |
 | Item (world) | `ownership` map (standard) | `ActiveEffect` | `UserStore` | Full + bootstrap seed |
-| RollTable | `ownership` map (standard) | `RollTableResult` (with mutable `drawn` state) | `UserStore` | Lazy |
-| Macro | `ownership` map (standard) + `author` attribution | none | `UserStore` | Lazy |
-| Playlist | `ownership` map (standard) | `PlaylistSound` (with mutable playback state) | `UserStore` | Lazy |
-| Cards | `ownership` map (standard) | `Card` (stub handler) | `UserStore` | Lazy |
+| RollTable | `ownership` map (standard) | `RollTableResult` (with mutable `drawn` state) | `UserStore` | Full + bootstrap seed |
+| Macro | `ownership` map (standard) | none | `UserStore` | Full + bootstrap seed |
+| Playlist | `ownership` map (standard) | `PlaylistSound` (with mutable playback state) | `UserStore` | Full + bootstrap seed |
+| Cards | `ownership` map (standard) | `Card` (in-place `cards[]` handler) | `UserStore` | Full + bootstrap seed |
 | Scene, FogExploration, Adventure, Setting | Per-type — varies | Per-type | Per-type | Stub (uniform shape, not actively wired) |
 
 The "policy 20%" lives in subclass `resolveOwnership` and embedded-mutation handlers. The "protocol 80%" — cache map, seed/clear, list/get, upsert/patch/delete, event emission, lifecycle hooks — lives in the base.
@@ -638,6 +638,132 @@ Follow-up audit found two small alignment gaps after Phase 6 landed:
   Files: `docs/adr/0011-primary-document-model.md`.
 - [x] Verify the tracked ADR contains no untracked dump-file references, then run `npx tsc --noEmit`, `npm run test:unit`, and `git diff --check`.
 
+**Phase 7 staging: Remaining full-hydration types + stubs**
+
+ADR-0011 Phase 7 is the type-uniformity closure: every Foundry primary doc type covered by the alignment plan ends up with a `<Type>Store` + (where applicable) `<Type>Repository` implementation against the shared base. Phase 7 lands two groups — full-hydration Stores for the remaining primary types (RollTable, Macro, Playlist, Cards), and stub Stores for the Sheet-Delver-unused types (Scene, FogExploration, Adventure, Setting). After Phase 7 the ADR's exit checklist clears and the status flips from "Proposed" to "Accepted." Phase 7 also tightens four cross-cutting closure items: (a) confirming `modifyDocumentRouter` is the sole inbound dispatch path, (b) confirming `PrimaryDocumentCacheCoordinator` is the sole bootstrap-seed path, (c) renaming the legacy `actorUpdate` wire event to `actorChanged` so every primary doc type uses uniform `<type>Changed` / `<type>ListInvalidated` event names, and (d) extending the `fetchByUuid` world-doc Store short-circuit to the new full-hydration types — so the ADR can ship green.
+
+Lazy-retention dropped: earlier drafts proposed a `LazyPrimaryDocumentStore<T>` subclass for RollTable / Macro / Playlist / Cards on the grounds that they're "rarely touched." That distinction doesn't survive audit — Foundry's `game.data` already ships every primary doc type in full at world bootstrap, so the per-type wire + parse cost is paid regardless. Modeling these four differently from Actor / Item / Journal / Combat introduces an asymmetry without a real saving. Phase 7 makes them all full-hydration like every other Store; the earlier-rejected "bounded retention" tier (ADR Alternatives Considered) also stays rejected. The data-source optimization (seed-from-`gameData` instead of per-type `dispatchDocumentSocket` round trips) is real but out of scope here — it intersects with the deferred CoreSocket connect-handler split and lands after primary-document alignment is complete.
+
+Stub model: stub Stores are near-empty subclasses against `PrimaryDocumentStore<T>` with `documentType` set and a minimal `resolveOwnership` matching the policy matrix: Scene keeps the standard ownership-map policy, FogExploration is a per-user placeholder, and Adventure / Setting fail closed for non-GMs until their semantics are designed. They are **not** registered with `PrimaryDocumentCacheCoordinator` or `modifyDocumentRouter` — the classes exist so the `PrimaryDocumentType` union is complete and a future phase can wire them up with a single line each, but Phase 7 does not exercise their CRUD or events. The point is shape uniformity, not feature work. The four stub types are chosen on the basis of "no in-tree consumer yet" rather than "rarely used": Scene visibility, FogExploration per-user state, Adventure import/export, and Setting key-value semantics each warrant a deliberate design pass when Sheet Delver actually needs them.
+
+Schema notes per the policy matrix in this ADR (no external file references):
+
+- **RollTable** — standard `ownership` map; embedded `RollTableResult` array with mutable `drawn: boolean` state. The embedded handler maintains the result array in place; `drawn` updates flow through as normal embedded `update` events. The SDK's `drawTable` simulator is left as-is — Foundry doesn't expose draw over the modify-document socket so the application performs its own draw, and the simulator's table-fetch leg already goes through `client.fetchByUuid`. After Phase 7 that fetch benefits transparently from `CoreSocket.fetchByUuid`'s world-doc short-circuit (mirrors Actor/Item) for any RollTable that lives in the world's table sidebar — no socket round-trip. Compendium-only RollTables (not dragged into the sidebar) are not in the Store; the simulator's compendium-side fetch continues over the socket, with an inline TODO at `fetchByUuid` flagging full pack-doc hydration as a follow-up outside ADR-0011.
+- **Macro** — standard `ownership` map. Observed Macro docs carry `name`, `type` (sample: `script`), `_id`, `author` (creator user-id), `img`, `scope` (sample: `global`), `command`, `folder`, `sort`, `ownership`, `flags`, and `_stats` (`coreVersion`, `systemId`, `systemVersion`, created/modified metadata, and `lastModifiedBy`). The `author` field is attribution metadata for projection — it is **not** part of ownership resolution; access is gated through the `ownership` map exactly like every other standard-map type. No embedded children. Macros are admin/GM authoring; player exposure is rare.
+- **Playlist** — standard `ownership` map; embedded `PlaylistSound` with `playing` / `pausedTime` / `repeat` playback state. Same in-place-array embedded pattern as RollTable.
+- **Cards** — standard `ownership` map. Observed Cards primary docs use `type: "deck" | "hand" | "pile"`, carry `cards[]`, `displayCount`, `folder`, dimensions/rotation where applicable, and standard `flags` / `_stats` / `system`. Embedded `Card` records carry `_id`, `name`, `faces[]` (`name` / `img` / `text`), `face`, `drawn`, `type`, `suit`, `value`, `origin`, `back`, dimensions/rotation, `sort`, `flags`, `system`, and `_stats`. Phase 7 ships an in-place array handler that accepts `Card` create/update/delete events and preserves those fields without modeling game-specific card semantics (Sheet Delver doesn't currently use cards). Cross-Cards-doc transfers (Foundry `Cards#pass` deck→hand→pile) arrive as paired update/delete events across two parent docs; each leg is handled independently by its parent's in-place array handler, so both deck and hand caches stay coherent on change. Phase 7 does not model a transfer as a single coordinated operation — the paired per-parent events are sufficient for cache consistency, and a future round can add a transfer-aware affordance if Sheet Delver ever uses cards.
+- **Scene** / **FogExploration** / **Adventure** / **Setting** — stubs only. Scene uses the standard ownership-map policy if/when wired, but is not registered in Phase 7 because canvas/scene visibility needs its own design pass. FogExploration is per-user state (one doc per user), while Adventure import/export and Setting key-value semantics remain GM/admin-tier placeholders. Phase 7 captures the classes; no wiring.
+
+- [X] Add `RollTableStore` + `RollTableRepository` plus a `RawRollTable` / `RawRollTableResult` type pair. Implement the embedded `RollTableResult` handler maintaining the `results[]` array with mutable `drawn` state. Full-hydration Store with bootstrap seed via `PrimaryDocumentCacheCoordinator`.
+  Files: `src/server/core/documents/primary/roll-tables/RollTableStore.ts`, `src/server/core/documents/primary/roll-tables/RollTableRepository.ts`, `src/server/shared/types/documents.ts`, `src/tests/unit/roll-table-store.test.ts`.
+- [X] Add `MacroStore` + `MacroRepository` plus a `RawMacro` type. No embedded children; `RawMacro` includes `author` for projection/attribution, but `MacroStore.resolveOwnership` ignores `author` and resolves access from the standard `ownership` map only. Full-hydration with bootstrap seed. `listByAuthor` helper added for projection convenience (subject-filtered so `author` cannot grant read access on its own).
+  Files: `src/server/core/documents/primary/macros/MacroStore.ts`, `src/server/core/documents/primary/macros/MacroRepository.ts`, `src/server/shared/types/documents.ts`, `src/tests/unit/macro-store.test.ts`.
+- [X] Add `PlaylistStore` + `PlaylistRepository` plus `RawPlaylist` / `RawPlaylistSound` types. Embedded `PlaylistSound` handler maintains the `sounds[]` array with playback state. Full-hydration with bootstrap seed.
+  Files: `src/server/core/documents/primary/playlists/PlaylistStore.ts`, `src/server/core/documents/primary/playlists/PlaylistRepository.ts`, `src/server/shared/types/documents.ts`, `src/tests/unit/playlist-store.test.ts`.
+- [X] Add `CardsStore` + `CardsRepository` plus `RawCards` / `RawCard` types. Embedded `Card` handler maintains the `cards[]` array for create/update/delete while preserving Foundry card fields (`faces[]`, `face`, `drawn`, `suit`, `value`, `origin`, `back`, dimensions, rotation, sort, flags, system, `_stats`) without adding game-specific semantics. Full-hydration with bootstrap seed.
+  Files: `src/server/core/documents/primary/cards/CardsStore.ts`, `src/server/core/documents/primary/cards/CardsRepository.ts`, `src/server/shared/types/documents.ts`, `src/tests/unit/cards-store.test.ts`.
+- [X] Register the four new Stores with `PrimaryDocumentCacheCoordinator` (per-type seeders) AND `modifyDocumentRouter` (direct + embedded handlers where applicable). Coordinator seeders use the existing per-type `dispatchDocumentSocket` pattern; consolidating onto `gameData` is a deferred post-alignment refactor that intersects with the CoreSocket connect-handler split.
+  Files: `src/server/core/documents/primary/PrimaryDocumentCacheCoordinator.ts`.
+- [X] Wire the four new repositories into `createRouteFoundryClient().dispatchDocument(...)` so direct writes for `RollTable`, `Macro`, `Playlist`, and `Cards` and parented writes for `RollTableResult`, `PlaylistSound`, and `Card` mirror through the new Stores instead of falling back to raw `client.dispatchDocument(...)`.
+  Files: `src/server/shared/utils/createRouteFoundryClient.ts`.
+- [X] Bridge the four Stores' events through `SystemService` as `<type>Changed` / `<type>ListInvalidated` matching the other Store bridges. `AppSocketGateway` fan-out adds per-socket `canReadDocument` filtering on the per-doc events and `targetUserIds` honoring on invalidations. Gateway system-client handler count goes 13 → 21 (4 new types × 2 events each).
+  Files: `src/server/core/system/SystemService.ts`, `src/server/realtime/AppSocketGateway.ts`, `src/tests/unit/app-socket-gateway.test.ts`.
+- [X] Add skinny SDK + shared realtime contracts for the four new types (`RealtimeRollTableChangedPayload` / `…ListInvalidatedPayload` and similar for Macro, Playlist, Cards). No browser subscriber is added — no in-tree consumer exists, matching the user/folder/item "decorative until subscribed" pattern.
+  Files: `src/shared/contracts/realtime.ts`, `src/shared/sdk/contracts.ts`.
+- [X] Add stub Stores for `SceneStore`, `FogExplorationStore`, `AdventureStore`, `SettingStore` — near-empty subclasses against `PrimaryDocumentStore<T>` with `documentType` set and a minimal `resolveOwnership` (standard ownership-map policy for Scene; per-user-id placeholder for FogExploration; GM-only placeholders for Adventure and Setting). **Not** registered with the coordinator or router. The classes exist so the `PrimaryDocumentType` union is complete.
+  Files: `src/server/core/documents/primary/scenes/SceneStore.ts`, `src/server/core/documents/primary/fog-explorations/FogExplorationStore.ts`, `src/server/core/documents/primary/adventures/AdventureStore.ts`, `src/server/core/documents/primary/settings/SettingStore.ts`, `src/server/shared/types/documents.ts` (type stubs).
+- [X] Confirm `PrimaryDocumentType` union in `src/server/core/documents/primary/base/PrimaryDocumentStore.ts` lists every Foundry primary doc type covered by the matrix (verified — all 15 types present).
+  Files: `src/server/core/documents/primary/base/PrimaryDocumentStore.ts`.
+- [X] Verify the exit-criteria closure items from earlier phases: (a) `modifyDocumentRouter` is the sole inbound dispatch path — verified at `CoreSocket._routeModifyDocument` (the single `modifyDocument` socket-listener entry calls `modifyDocumentRouter.route(...)`; `ClientSocket`'s `modifyDocument` listener only relays `User` to trigger `systemStatusUpdate` and does not mutate any cache); (b) `PrimaryDocumentCacheCoordinator.seedAll` is the sole bootstrap-seed path — verified at `SystemService.bootstrap()`'s single `await seedDocumentCache(client)` call (the deprecated wrapper calls `seedAll`); no per-type hardcoded actor-only seeding remains.
+  Files: `src/server/core/foundry/sockets/CoreSocket.ts`, `src/server/core/foundry/sockets/ClientSocket.ts`, `src/server/core/system/SystemService.ts`.
+- [X] Rename the legacy Phase 1 wire event `actorUpdate` → `actorChanged` so every primary doc type uses uniform `<type>Changed` event names. The `actorListInvalidated` companion already exists, so this is single-event rename. Touch points completed: `SystemService` bridge emit, `AppSocketGateway` system-handler register/unregister + downstream `socket.emit`, browser subscribers (`FoundryContext`, `SDKProvider`, `GenericActorPage`), SDK React helper `onActorUpdate` → `onActorChanged`, `app-socket-gateway` test, exported realtime contract `RealtimeActorUpdatePayload` → `RealtimeActorChangedPayload`, SDK exports, module documentation (`MODULE_MANIFEST.md`), per-system module ActorPages (dnd5e / morkborg / shadowdark), and stale comments in `ActorStore` + `ClientSocket`. No alias retained — clean break.
+  Files: `src/server/core/system/SystemService.ts`, `src/server/realtime/AppSocketGateway.ts`, `src/client/ui/context/FoundryContext.tsx`, `src/client/ui/providers/SDKProvider.tsx`, `src/client/ui/pages/GenericActorPage.tsx`, `src/shared/contracts/realtime.ts`, `src/shared/sdk/contracts.ts`, `src/shared/sdk/react.ts`, `src/shared/sdk/index.ts`, `src/modules/MODULE_MANIFEST.md`, `src/tests/unit/app-socket-gateway.test.ts`, `docs/adr/0012-primary-document-realtime-events.md`.
+- [X] Extend `CoreSocket.fetchByUuid` world-doc short-circuit to `RollTable`, `Macro`, `Playlist`, `Cards` — mirrors the Actor/Item branches, fails closed with `PrimaryDocumentCacheNotReadyError` if the Store isn't seeded. Compendium UUIDs keep the existing pack-fetch path. Inline `TODO(post-ADR-0011)` comment landed at the compendium branch flagging full pack-doc hydration as the recommended next direction outside ADR-0011 scope.
+  Files: `src/server/core/foundry/sockets/CoreSocket.ts`.
+- [X] Update stale comments that still describe Macro / Playlist / RollTable / Cards as unrouted. The `_routeModifyDocument` comment in `CoreSocket.ts` now enumerates the full routing surface; only stub types (Scene / FogExploration / Adventure / Setting) and synthetic tokens like `ActorDelta` are in the silent-drop list.
+  Files: `src/server/core/foundry/sockets/CoreSocket.ts`.
+- [X] Flip the ADR status to **Accepted** in the front matter and tick the two cross-cutting exit-criteria checkboxes after closure verification.
+  Files: `docs/adr/0011-primary-document-model.md`.
+- [X] Add Phase 7 tests covering seed/clear + per-type ownership policies (standard map; Macro `author` is ignored for visibility but preserved on the raw document; Cards array handling), embedded mutation routing for RollTable / Playlist (`RollTableResult` and `PlaylistSound` array maintenance) and the Cards `Card` embedded handler (including paired cross-Cards-doc transfer events), and a stub-store presence check (exists in the type union, no router/coordinator registration). Router test extended with `RollTableResult` / `PlaylistSound` / `Card` embedded routing cases. Gateway test asserts the 21 handler count.
+  Files: `src/tests/unit/roll-table-store.test.ts`, `src/tests/unit/macro-store.test.ts`, `src/tests/unit/playlist-store.test.ts`, `src/tests/unit/cards-store.test.ts`, `src/tests/unit/modify-document-router.test.ts`, `src/tests/unit/run.ts`.
+- [X] Verify with `npx tsc --noEmit` and `npm run test:unit`. Both pass.
+
+Non-goals for Phase 7:
+
+- Do not add browser-side context providers or refetch coalescing for the new full-hydration or stub types. There are no in-tree consumers; the wire-event surface is decorative until a real subscriber lands.
+- Do not implement SDK helper APIs beyond what the existing `RouteFoundryClient` / `ModuleFoundryClient` already expose. The `drawTable` simulator stays the local-eval path; Macro execution stays on whatever surface it uses today (no `executeMacro` Store method).
+- Do not migrate `fetchByUuid` into a full subject-aware Store lookup for every primary type or call site. Phase 7 **does** extend the existing world-doc short-circuit (Actor / Item) to the four new full-hydration types — that change is a cache read, not an authorization change. Phase 7 does **not** introduce subject filtering at the `fetchByUuid` site, does not rework compendium reads, and does not unify the route/module/utility UUID read paths — those need their own pass because each call site has its own authorization shape.
+- Do not introduce a `CompendiumStore` or pack-doc full-hydration cache in Phase 7. Compendium docs aren't primary documents — they have no modify-document write surface, use pack-level `permission` instead of per-doc `ownership`, are namespaced by `Compendium.<vendor>.<pack>.<type>.<id>`, and don't fit the `PrimaryDocumentStore<T>` shape (no Repository, no `applyModifyDocument`, no embedded mutation routing). Full pack hydration at bootstrap is the recommended direction (Foundry expects manifest-declared packs to load whole), but it lives in its own future round outside ADR-0011. Phase 7 leaves an inline comment at the `fetchByUuid` compendium branch flagging the follow-up so the next round has an anchor. The `drawTable` simulator is unchanged — for world tables it benefits transparently through the new world-doc short-circuit; for compendium tables it continues to socket-fetch through the existing path.
+- Do not introduce a `LazyPrimaryDocumentStore<T>` subclass or any lazy-retention affordance. The earlier-considered "lazy because rarely-touched" hedge was dropped after `game.data` audit confirmed every primary doc type already ships at bootstrap, so the per-type wire cost is paid regardless. The bounded-retention tier stays rejected for the same reason.
+- Do not consolidate bootstrap seeding onto `gameData` (the `CoreSocket.gameDataCache.<key>` shortcut that `UserStore`'s early seed already uses). This is a real optimization but intersects with the deferred CoreSocket connect-handler split and lands as its own post-alignment refactor.
+- Do not wire stub Stores (Scene / FogExploration / Adventure / Setting) into bootstrap, routes, or the modifyDocument router. They're shape-uniformity scaffolding only.
+- Do not migrate the deferred CoreSocket connect-handler split. Phase 7 may verify the coordinator path is authoritative but does not refactor connect-time orchestration.
+- Do not introduce per-type Express routes for any of the new types.
+
+Exit for Phase 7: All four new full-hydration Stores + Repositories exist, are seeded by `PrimaryDocumentCacheCoordinator`, and route through `modifyDocumentRouter`; route-client dispatch for those four types uses the repositories instead of raw primary-document writes; all four stub Stores exist as near-empty subclasses without coordinator or router registration; gateway system-client handler count moves to 21; the legacy `actorUpdate` wire event is renamed to `actorChanged` and every primary doc type uses uniform `<type>Changed` / `<type>ListInvalidated` event names; `CoreSocket.fetchByUuid`'s world-doc short-circuit covers RollTable / Macro / Playlist / Cards on top of the existing Actor / Item branches; bootstrap-ready gating waits on the four new Stores' seeds in addition to the existing Stores (same all-or-nothing semantics — `PrimaryDocumentCacheCoordinator.seedAll` already implies this); `modifyDocumentRouter` is verified as the sole inbound dispatch path; `PrimaryDocumentCacheCoordinator.seedAll` is verified as the sole bootstrap seed path; `npx tsc --noEmit` and `npm run test:unit` pass; ADR status flips to **Accepted**.
+
+**Phase 7 closure addendum (all four full-hydration Stores + four stubs shipped)**
+
+Phase 7 closure — RollTable + Macro landed in slice 1, Playlist + Cards + the four stubs + the `actorUpdate` rename + closure verification landed in slice 2. ADR-0011 flips to **Accepted**.
+
+Slice 2 (this commit):
+
+- `PlaylistStore` + `PlaylistRepository` with embedded `PlaylistSound` handler (in-place `sounds[]`, mutable `playing` / `pausedTime` / `repeat`).
+- `CardsStore` + `CardsRepository` with embedded `Card` handler (in-place `cards[]`). Cross-Cards-doc transfers (`Cards#pass`) arrive as paired update/delete legs on two parents; each leg flows independently through its parent's handler. Covered by the cross-doc test in `cards-store.test.ts`.
+- Stub Stores: `SceneStore` (standard ownership-map policy if/when wired), `FogExplorationStore` (per-user-id placeholder), `AdventureStore` + `SettingStore` (GM-only placeholders). All four are near-empty subclasses, **not** registered with the coordinator or router. Their classes exist so the `PrimaryDocumentType` union covers every Foundry primary doc type. The `stub-stores.test.ts` presence test confirms `documentType`, ownership policies, and the silent-drop contract at the router for unrouted stub-type events.
+- `RawPlaylist` / `RawPlaylistSound` / `RawCards` / `RawCard` types in `documents.ts`. Stub types (`RawScene`, `RawFogExploration`, `RawAdventure`, `RawSetting`) shipped as minimal interfaces — the actual subsystems are out of scope for this round.
+- Coordinator + router registration for Playlist + Cards (direct-type + embedded handlers for `PlaylistSound` and `Card`).
+- `SystemService` bridges: `playlistChanged` / `playlistListInvalidated` and `cardsChanged` / `cardsListInvalidated`.
+- `AppSocketGateway` per-socket handlers for the four new wire events with `canReadDocument` filtering and `targetUserIds` honoring. Handler count moves 17 → 21.
+- `createRouteFoundryClient.dispatchDocument` routes Playlist + Cards direct-type writes and parented writes (`PlaylistSound` via `parentRootType === 'Playlist'`, `Card` via `parentRootType === 'Cards'`).
+- `CoreSocket.fetchByUuid` world-doc short-circuit extended to Playlist + Cards.
+- Realtime contracts for Playlist + Cards in `realtime.ts` and `sdk/contracts.ts`.
+- **`actorUpdate` → `actorChanged` wire-event rename** completed across all touch points: `SystemService` bridge, `AppSocketGateway` handler register/unregister + downstream `socket.emit`, browser subscribers (`FoundryContext`, `SDKProvider`, `GenericActorPage`), SDK React helper `onActorUpdate` → `onActorChanged`, `RealtimeActorUpdatePayload` → `RealtimeActorChangedPayload` (re-exported from `@sheet-delver/sdk`), `app-socket-gateway` test, `MODULE_MANIFEST.md`, per-system module ActorPages (dnd5e / morkborg / shadowdark), and stale comments in `ActorStore` + `ClientSocket`. No alias retained — clean break.
+- Closure verification: (a) `modifyDocumentRouter.route()` confirmed as the sole mutation entry — `CoreSocket._routeModifyDocument` is the only handler that calls it from the inbound `modifyDocument` socket listener; `ClientSocket`'s `modifyDocument` listener only relays `User` events to trigger `systemStatusUpdate` and never mutates cache; (b) `PrimaryDocumentCacheCoordinator.seedAll` confirmed as the sole bootstrap-seed path — `SystemService.bootstrap()` calls `seedDocumentCache` (deprecated wrapper around `seedAll`) once and has no per-type fallback.
+- Router test extended with `runRollTableResultEmbeddedRouting`, `runPlaylistSoundEmbeddedRouting`, and `runCardEmbeddedRouting` (the last covers the paired cross-Cards-doc transfer pattern).
+- Gateway test asserts `attachedHandlers === 4` (foundryClient) and `systemAttachedHandlers === 21` post-Phase 7.
+- `npx tsc --noEmit` and `npm run test:unit` pass.
+
+ADR status: **Accepted** (front matter updated, exit-criteria checklist all green).
+
+---
+
+**Phase 7 partial-completion addendum (RollTable + Macro implemented)**
+
+Shipping Phase 7 in two slices for session-size reasons. This slice lands RollTable + Macro (full-hydration Stores + Repositories) and the cross-cutting infrastructure that needs touching once per type. Playlist + Cards + the four stubs + the `actorUpdate` rename + closure verification remain pending for the next slice.
+
+Done in this slice:
+
+- `RollTableStore` + `RollTableRepository` with embedded `RollTableResult` handler (in-place `results[]` array, mutable `drawn` state). Subject-scoped `listByFolderIds` helper for folder-organized projections.
+- `MacroStore` + `MacroRepository` with no embedded children. `author` carried on `RawMacro` for attribution only; `resolveOwnership` reads the standard `ownership` map exclusively. `listByAuthor` helper is subject-filtered so `author` cannot grant read access on its own.
+- `RawRollTable` / `RawRollTableResult` / `RawMacro` types added to `src/server/shared/types/documents.ts`.
+- Both Stores registered with `PrimaryDocumentCacheCoordinator` for bootstrap seed (per-type `dispatchDocumentSocket('<type>', 'get')` pattern, same as every other Store).
+- Both Stores registered with `modifyDocumentRouter` for direct-type events; `RollTable` registered as an embedded-handler parent for `RollTableResult` events with `parentUuid: RollTable.<id>`.
+- `SystemService` bridges both Stores as `rollTableChanged` / `rollTableListInvalidated` and `macroChanged` / `macroListInvalidated`.
+- `AppSocketGateway` per-socket handlers added for the four new wire events with `canReadDocument` filtering on per-doc events (LIST_VISIBLE) and `targetUserIds` honoring on invalidations. System-client handler count moves 13 → 17 (gateway test asserts the new count).
+- `createRouteFoundryClient.dispatchDocument` routes `RollTable` / `Macro` direct-type writes through the repositories, and `parent.type` starting with `RollTable` routes `RollTableResult` parented writes through `RollTableRepository`.
+- `CoreSocket.fetchByUuid` world-doc short-circuit extended to `RollTable` and `Macro` (fail-closed with `PrimaryDocumentCacheNotReadyError` if the Store isn't seeded yet; mirrors the Actor/Item branches). Compendium branch carries the inline `TODO(post-ADR-0011)` flagging full pack-doc hydration as the next direction outside ADR-0011 scope.
+- `_routeModifyDocument` comment in `CoreSocket` updated — RollTable / RollTableResult / Macro are no longer in the "drops silently" list; remaining silent-drops are ActorDelta / Playlist / Cards.
+- Skinny realtime contracts added in `src/shared/contracts/realtime.ts` and `src/shared/sdk/contracts.ts` for both types.
+- Unit tests: `src/tests/unit/roll-table-store.test.ts` (seed/clone, ownership, folder filter, embedded `RollTableResult` routing including the idempotent re-apply case, repository write-mirror) and `src/tests/unit/macro-store.test.ts` (seed/clone, ownership policy + the `author-is-not-policy` assertion proving `author` doesn't grant access, `listByAuthor` + `listByFolderIds`, repository write-mirror). Both wired into `src/tests/unit/run.ts`. `app-socket-gateway` test updated to expect 17 handlers.
+- `npx tsc --noEmit` and `npm run test:unit` pass.
+
+Remaining for the next slice:
+
+- `PlaylistStore` + `PlaylistRepository` (`PlaylistSound` embedded handler).
+- `CardsStore` + `CardsRepository` (`Card` in-place array handler).
+- Stub Stores for `SceneStore` / `FogExplorationStore` / `AdventureStore` / `SettingStore` (near-empty subclasses, not registered with coordinator or router).
+- Coordinator + router registration for Playlist + Cards (direct + embedded).
+- `SystemService` bridges + `AppSocketGateway` handlers for Playlist + Cards (gateway count moves 17 → 21).
+- Realtime contracts for Playlist + Cards.
+- `createRouteFoundryClient` direct + parent-aware routing for Playlist + Cards.
+- `fetchByUuid` world-doc short-circuit extended to Playlist + Cards.
+- `_routeModifyDocument` comment updated to remove Playlist + Cards from the silent-drops list.
+- `actorUpdate` → `actorChanged` rename (single-event rename; `actorListInvalidated` already exists). Cross-cutting touch points already enumerated in the staged checklist item.
+- Closure verification: `modifyDocumentRouter` sole inbound dispatch path; `PrimaryDocumentCacheCoordinator.seedAll` sole bootstrap-seed path.
+- Unit tests for Playlist + Cards + stub-store presence check; router test updated for the new embedded parent types.
+- ADR status flip to **Accepted** + two cross-cutting exit-criteria checkboxes ticked.
+
 ---
 
 ## Exit Criteria
@@ -650,8 +776,8 @@ This ADR is fulfilled when every Foundry primary doc type covered by the alignme
 - [X] Phase 4: `JournalStore` + `JournalRepository` with two-level ownership.
 - [X] Phase 5: `CombatStore` + `CombatRepository` with cross-store visibility.
 - [X] Phase 6: `ItemStore` + `ItemRepository` (world-level).
-- [ ] Phase 7: `RollTableStore` / `MacroStore` / `PlaylistStore` / `CardsStore` (lazy) + `SceneStore` / `FogExplorationStore` / `AdventureStore` / `SettingStore` (stubs).
-- [ ] `modifyDocumentRouter` replaces per-type switches in `CoreSocket` and removes the duplicate relay in `ClientSocket`.
-- [ ] `PrimaryDocumentCacheCoordinator` replaces the hardcoded actor-only seeding path in `SystemService.bootstrap()`.
-- [ ] Each phase's exit criteria verified before proceeding to the next.
-- [ ] Status flipped to **Accepted** when Phase 7 ships green.
+- [X] Phase 7: `RollTableStore` / `MacroStore` / `PlaylistStore` / `CardsStore` (full hydration) + `SceneStore` / `FogExplorationStore` / `AdventureStore` / `SettingStore` (stubs).
+- [X] `modifyDocumentRouter` replaces per-type switches in `CoreSocket` and removes the duplicate relay in `ClientSocket`.
+- [X] `PrimaryDocumentCacheCoordinator` replaces the hardcoded actor-only seeding path in `SystemService.bootstrap()`.
+- [X] Each phase's exit criteria verified before proceeding to the next.
+- [X] Status flipped to **Accepted** when Phase 7 ships green.

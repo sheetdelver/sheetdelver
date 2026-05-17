@@ -29,7 +29,7 @@ export type ActorMutationAction = ModifyDocumentAction;
 /**
  * Round 01 discriminated-union event payload. Re-emitted alongside the base
  * documentChanged / documentListInvalidated events so any existing subscribers
- * (e.g., SystemService's actorUpdate bridge) keep working unchanged.
+ * (e.g., SystemService's actorChanged bridge) keep working unchanged.
  */
 export type ActorStoreEvent =
     | { type: 'actorChanged'; actorId: string; action: ChangeAction }
@@ -101,7 +101,7 @@ export class ActorStore extends PrimaryDocumentStore<RawActor> {
     protected emitChanged(actorId: string, action: ChangeAction): void {
         super.emitChanged(actorId, action);
         // Round 01 compatibility: re-emit on the discriminated-union event so
-        // existing subscribers (SystemService.actorUpdate bridge) keep working.
+        // existing subscribers (SystemService.actorChanged bridge) keep working.
         this.emit('actorStoreEvent', { type: 'actorChanged', actorId, action } satisfies ActorStoreEvent);
     }
 
