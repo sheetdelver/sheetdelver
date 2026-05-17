@@ -39,7 +39,6 @@ export interface RealtimeItemListInvalidatedPayload {
     itemId?: string;
     targetUserIds?: string[];
 }
-export type RealtimeChatUpdatePayload = Record<string, unknown>;
 export interface RealtimeChatMessageChangedPayload {
     messageId: string;
     action: 'create' | 'update' | 'delete';

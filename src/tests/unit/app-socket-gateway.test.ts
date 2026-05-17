@@ -126,7 +126,8 @@ async function runGatewayTests() {
         await connectionHandler!(socket);
 
         assert.ok(emitted.some((entry) => entry.event === 'systemStatus'));
-        // Per-user foundry client receives shared/status/worldShutdown/worldReload (4).
+        // Per-user foundry client receives shared/worldShutdown/worldReload (3).
+        // User presence/status now broadcasts once from the system client path.
         // combatUpdate moved off the per-user client onto the system bridge in Phase 5.
         // The system client carries Store-bridged events (Phase 7 closure):
         //   actorChanged + chatMessageChanged + chatMessageListInvalidated
@@ -138,14 +139,14 @@ async function runGatewayTests() {
         //   + macroChanged + macroListInvalidated
         //   + playlistChanged + playlistListInvalidated
         //   + cardsChanged + cardsListInvalidated = 21.
-        assert.equal(attachedHandlers.length, 4);
+        assert.equal(attachedHandlers.length, 3);
         assert.equal(systemAttachedHandlers.length, 21);
         assert.ok(browserCounts.includes(1));
 
         io.engine.clientsCount = 0;
         disconnectHandler?.();
 
-        assert.equal(detachedHandlers.length, 4);
+        assert.equal(detachedHandlers.length, 3);
         assert.equal(systemDetachedHandlers.length, 21);
         assert.ok(browserCounts.includes(0));
 

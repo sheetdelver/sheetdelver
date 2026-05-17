@@ -458,26 +458,32 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
                 this.socket.on('userConnected', (user: any) => {
                     const id = user._id || user.id;
                     logger.info(`CoreSocket | User connected: ${user.name} (${id})`);
-                    userPresence.setActive(id, true);
+                    if (userPresence.setActive(id, true)) {
+                        this.emit('systemStatusUpdate');
+                    }
                 });
 
                 this.socket.on('userDisconnected', (data: any) => {
                     const id = typeof data === 'string' ? data : (data.userId || data._id || data.id);
                     logger.info(`CoreSocket | User disconnected: ${id}`);
-                    userPresence.setActive(id, false);
+                    if (userPresence.setActive(id, false)) {
+                        this.emit('systemStatusUpdate');
+                    }
                 });
 
                 this.socket.on('userActivity', (userId: string, data: any) => {
                     if (userId && data) {
                         const isActive = data.active !== false;
-                        userPresence.setActive(userId, isActive);
+                        if (userPresence.setActive(userId, isActive)) {
+                            this.emit('systemStatusUpdate');
+                        }
                     }
                 });
 
                 this.socket.on('modifyDocument', (data: any) => {
                     // All Document mutations route through the modifyDocument router. Each type's
                     // Store handles its own apply path and emits the right events.
-                    // chatUpdate emission removed in Phase 1; combatUpdate emission removed in Phase 5.
+                    // Legacy chat/combat app-event emissions are retired; Stores own fan-out.
                     this._routeModifyDocument(data.type, data.action, data.result, data.operation);
                 });
 
@@ -495,7 +501,9 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
                     if (!userId) return;
                     logger.info(`CoreSocket | User deleted: ${userId}`);
                     this._routeModifyDocument('User', 'delete', null, { ids: [userId] });
-                    userPresence.delete(userId);
+                    if (userPresence.delete(userId)) {
+                        this.emit('systemStatusUpdate');
+                    }
                 });
             });
 

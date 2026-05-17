@@ -15,9 +15,12 @@ export class UserPresence {
         this.activeByUserId.clear();
     }
 
-    public setActive(userId: string | null | undefined, active: boolean): void {
-        if (!userId) return;
+    public setActive(userId: string | null | undefined, active: boolean): boolean {
+        if (!userId) return false;
+        const previous = this.activeByUserId.get(userId) ?? false;
+        if (previous === active) return false;
         this.activeByUserId.set(userId, active);
+        return true;
     }
 
     public setActiveUsers(userIds: unknown[]): void {
@@ -27,9 +30,9 @@ export class UserPresence {
         }
     }
 
-    public delete(userId: string | null | undefined): void {
-        if (!userId) return;
-        this.activeByUserId.delete(userId);
+    public delete(userId: string | null | undefined): boolean {
+        if (!userId) return false;
+        return this.activeByUserId.delete(userId);
     }
 
     public isActive(userId: string | null | undefined): boolean {

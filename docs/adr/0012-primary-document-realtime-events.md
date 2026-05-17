@@ -1,10 +1,10 @@
 # ADR-0012: Primary Document Realtime Events and Per-Type Subscription
 
-**Status:** Proposed — implementation alongside the per-type Store rollout established in ADR-0011.
+**Status:** Accepted — implementation completed by ADR-0011 Phase 7.
 **Date:** May 15, 2026
 **Phase:** Primary Documents (Phase 1 onward)
 **Supersedes:** None. Refines the Round 01 actor-event behavior into a model that applies to every primary doc type.
-**Related:** ADR-0011 (primary document model), ADR-0013 (ownership and visibility — planned)
+**Related:** ADR-0011 (primary document model), ADR-0013 (ownership and visibility)
 
 ---
 
@@ -67,7 +67,7 @@ Each Store emits these as type-specific events for ergonomic per-type subscripti
 - `macroChanged` / `macroListInvalidated`
 - `playlistChanged` / `playlistListInvalidated`
 - `cardsChanged` / `cardsListInvalidated`
-- and equivalents for stubbed types (Scene / FogExploration / Adventure / Setting).
+- and equivalents for stubbed types if/when those stubs are later wired (Scene / FogExploration / Adventure / Setting).
 
 ### Cross-cutting event on the base
 
@@ -103,7 +103,7 @@ These live in the base abstraction; subclasses inherit them automatically:
 
 `AppSocketGateway` subscribes to each Store's events through a `SystemService` event bridge. For each event, it iterates connected users and calls `store.canReadDocument(id, subject, LIST_VISIBLE)` to decide whether the user should receive the event over their socket. The filter is applied **per event, at fan-out time** — not at subscription time. Ownership changes take effect immediately on the next event without re-subscribing.
 
-For `<type>ListInvalidated` events with `targetUserIds`, the gateway fans only to listed users. For `targetUserIds` absent, fan-out applies the ownership filter as for `<type>Changed`.
+For `<type>ListInvalidated` events with `targetUserIds`, the gateway fans only to listed users. For `targetUserIds` absent, the invalidation is broadcast-wide; Stores scope list invalidations when the affected user set is knowable, and omit `targetUserIds` for world-visible or deletion/create cases that should make every subscribed client re-check its list.
 
 For world-visible types (ChatMessage in the no-whisper case), `canReadDocument` returns true uniformly; the filter is still called but always passes. This keeps the fan-out path uniform.
 
@@ -253,9 +253,11 @@ The structural end-state validation:
 
 **May 15, 2026 — ADR-0011 Phase 1 event bursts and client refresh coalescing.** ADR-0011 Phase 1 proved the Store-level event semantics for Actor and ChatMessage, but it also exposed a browser reaction issue: a single create can legitimately produce both a document-level change and a list-level invalidation. That is not a duplicate mutation. It means the document changed and the visible list may have changed.
 
-Browser consumers must not treat each event in a burst as an independent network-refresh command. They should either choose the narrowest useful response or coalesce refreshes. ADR-0011 Phase 1 added that coalescing in `ChatContext` for `chatMessageChanged` / `chatMessageListInvalidated` / send-success refreshes, and in `GenericActorPage` for bursty `actorUpdate` refreshes.
+Browser consumers must not treat each event in a burst as an independent network-refresh command. They should either choose the narrowest useful response or coalesce refreshes. ADR-0011 Phase 1 added that coalescing in `ChatContext` for `chatMessageChanged` / `chatMessageListInvalidated` / send-success refreshes, and in `GenericActorPage` for bursty Actor refreshes.
 
-**May 15, 2026 — ADR-0011 Phase 1 transitional wire surface.** ADR-0011 Phase 1 is intentionally hybrid while the broader ADR remains open. Foundry still emits native `modifyDocument` events for `ChatMessage`; Sheet Delver's server realtime layer no longer re-emits those as the legacy `chatUpdate` app event. Instead, `ChatMessageStore` emits through the new `chatMessageChanged` / `chatMessageListInvalidated` path, while the client keeps a legacy `chatUpdate` listener harmlessly. Actor events still bridge to the legacy `actorUpdate` wire event until the full ADR-0012 rename is completed. This keeps ADR-0011 Phase 1 compatible while later phases finish the global event-surface migration.
+**May 15, 2026 — ADR-0011 Phase 1 transitional wire surface.** ADR-0011 Phase 1 was intentionally hybrid while the broader ADR remained open. Foundry still emitted native `modifyDocument` events for `ChatMessage`; Sheet Delver's server realtime layer no longer re-emitted those as the legacy `chatUpdate` app event. Instead, `ChatMessageStore` emitted through the new `chatMessageChanged` / `chatMessageListInvalidated` path, while the client kept a legacy `chatUpdate` listener harmlessly. Actor events still bridged to the legacy `actorUpdate` wire event until the full ADR-0012 rename completed. This kept ADR-0011 Phase 1 compatible while later phases finished the global event-surface migration.
+
+**May 17, 2026 — ADR-0011 Phase 7 closure.** ADR-0011 Phase 7 completes the realtime surface migration for every shipped primary-document Store. The legacy `actorUpdate` wire event is renamed to `actorChanged` with no server-side alias; browser consumers and SDK exports now use `actorChanged` / `onActorChanged` / `RealtimeActorChangedPayload`. Server-side `chatUpdate` and `combatUpdate` emits were already removed in earlier ADR-0011 phases; the inert `ChatContext` `chatUpdate` listener and `RealtimeChatUpdatePayload` contract exports are removed as part of closure cleanup so new consumers cannot accidentally depend on the retired event. `ClientSocket` no longer listens to `modifyDocument` or Foundry presence events for primary-document/status fan-out. User document changes flow through `UserStore`; login/logout presence shifts update `userPresence` in `CoreSocket` and trigger one system-owned status refresh through `SystemService`.
 
 ---
 
@@ -263,11 +265,11 @@ Browser consumers must not treat each event in a burst as an independent network
 
 This ADR is fulfilled when the event contract is in force across every Store and the duplicate emit points are removed.
 
-- [ ] Base abstraction in `PrimaryDocumentStore<T>` provides the three firing rules and emits the three events consistently.
-- [ ] `modifyDocumentRouter` is the sole inbound dispatch for `modifyDocument` events; the per-type switches in `CoreSocket` are removed.
-- [ ] `ClientSocket` no longer relays `modifyDocument` events; its duplicate per-type emits are removed.
-- [ ] Every Store emits `<type>Changed`, `<type>ListInvalidated`, and the generic `primaryDocumentChanged` per the firing rules.
-- [ ] `AppSocketGateway` fan-out applies dynamic per-event ownership filtering via `canReadDocument`.
-- [ ] Legacy event names (`actorUpdate`, `chatUpdate`, `combatUpdate`) are removed from the wire surface; browser clients switched over.
-- [ ] Each phase's tests cover idempotency, no-emission-during-seeding, and the list-vs-document separation.
-- [ ] Status flipped to **Accepted** when the contract is in force for every shipped Store.
+- [x] Base abstraction in `PrimaryDocumentStore<T>` provides the three firing rules and emits the document/list/generic events consistently.
+- [x] `modifyDocumentRouter` is the sole inbound cache-mutation dispatch for `modifyDocument` events; the per-type realtime switches in `CoreSocket` are removed.
+- [x] `ClientSocket` no longer relays primary-document mutation or presence/status events; its duplicate per-type emits and the transitional `User` status relay are removed.
+- [x] Every shipped Store emits document-change, list-invalidation, and generic `primaryDocumentChanged` events per the firing rules; `SystemService` bridges those to the public `<type>Changed` / `<type>ListInvalidated` wire names.
+- [x] `AppSocketGateway` fan-out applies dynamic per-event ownership filtering via `canReadDocument`.
+- [x] Legacy event names (`actorUpdate`, `chatUpdate`, `combatUpdate`) are removed from the server-emitted wire surface; browser clients switched to the new event names.
+- [x] Each phase's tests cover idempotency, no-emission-during-seeding, and the list-vs-document separation.
+- [x] Status flipped to **Accepted** when the contract is in force for every shipped Store.

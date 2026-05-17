@@ -90,7 +90,7 @@ export class ClientSocket extends SocketBase {
                         this.userId = data.userId;
                         this.isSocketConnected = true;
                         this.setupSharedContentListeners(this.socket!);
-                        this.setupDocumentListeners(this.socket!);
+                        this.setupSocketRelays(this.socket!);
                         clearTimeout(timeout);
                         this.emit('connect');
                         resolve();
@@ -370,24 +370,7 @@ export class ClientSocket extends SocketBase {
         return systemService.getSystemClient().getSystemConfig();
     }
 
-    private setupDocumentListeners(socket: any) {
-        socket.on('modifyDocument', (data: any) => {
-            // Phase-1+ note: ChatMessage / Combat / Combatant relays removed from this per-user
-            // listener — those Stores fan out through the SystemService bridge with ownership
-            // filtering. Actor cache updates also flow from the system ActorStore path so
-            // per-user sockets do not duplicate `actorChanged` emissions.
-
-            // User relay (triggers dashboard systemStatus updates)
-            if (data.type === 'User') {
-                this.emit('systemStatusUpdate');
-            }
-        });
-
-        // Engagement relay
-        socket.on('userConnected', () => this.emit('systemStatusUpdate'));
-        socket.on('userDisconnected', () => this.emit('systemStatusUpdate'));
-        socket.on('userActivity', () => this.emit('systemStatusUpdate'));
-
+    private setupSocketRelays(socket: any) {
         // Lifecycle relay
         socket.on('shutdown', () => {
             logger.warn(`ClientSocket | Relay: World Shutdown detected for ${this.userId}`);

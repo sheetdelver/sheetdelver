@@ -36,15 +36,21 @@ export function createSystemStatusBroadcaster(deps: SystemStatusBroadcasterDeps)
             broadcastSystemStatus();
         };
 
+        const handleSystemStatusUpdate = () => {
+            broadcastSystemStatus();
+        };
+
         systemService.on('world:connected', handleWorldConnected);
         systemService.on('world:disconnected', handleWorldDisconnected);
         systemService.on('world:ready', handleWorldReady);
+        systemService.on('system:status-update', handleSystemStatusUpdate);
 
         return {
             dispose: () => {
                 systemService.off('world:connected', handleWorldConnected);
                 systemService.off('world:disconnected', handleWorldDisconnected);
                 systemService.off('world:ready', handleWorldReady);
+                systemService.off('system:status-update', handleSystemStatusUpdate);
             }
         };
     };

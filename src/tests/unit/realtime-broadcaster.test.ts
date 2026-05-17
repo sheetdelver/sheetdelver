@@ -53,13 +53,15 @@ async function runBroadcasterTests() {
         assert.ok(listeners['world:connected']?.length === 1);
         assert.ok(listeners['world:disconnected']?.length === 1);
         assert.ok(listeners['world:ready']?.length === 1);
+        assert.ok(listeners['system:status-update']?.length === 1);
 
         listeners['world:connected'][0]({ state: 'active' });
+        listeners['system:status-update'][0]();
         await new Promise((resolve) => setTimeout(resolve, 0));
-        assert.ok(emitted.length >= 2);
+        assert.ok(emitted.length >= 3);
 
         registration.dispose();
-        assert.equal(offCalls.length, 3);
+        assert.equal(offCalls.length, 4);
     } finally {
         (systemService as any).on = originalOn;
         (systemService as any).off = originalOff;

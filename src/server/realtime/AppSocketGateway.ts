@@ -318,8 +318,8 @@ export function registerAppSocketGateway({
             systemService.getSystemClient().on('cardsListInvalidated', handleCardsListInvalidated);
             foundryClient.on('sharedContentUpdate', handleSharedUpdate);
 
-            // New relays for world lifecycle and system status
-            foundryClient.on('systemStatusUpdate', broadcastSystemStatus);
+            // Per-user relays retained only for route-client lifecycle/shared-content events.
+            // User presence/status is broadcast once from the system client path.
             foundryClient.on('worldShutdown', broadcastSystemStatus);
             foundryClient.on('worldReload', broadcastSystemStatus);
 
@@ -350,7 +350,6 @@ export function registerAppSocketGateway({
                 systemService.getSystemClient().off('cardsChanged', handleCardsChanged);
                 systemService.getSystemClient().off('cardsListInvalidated', handleCardsListInvalidated);
                 foundryClient.off('sharedContentUpdate', handleSharedUpdate);
-                foundryClient.off('systemStatusUpdate', broadcastSystemStatus);
                 foundryClient.off('worldShutdown', broadcastSystemStatus);
                 foundryClient.off('worldReload', broadcastSystemStatus);
             });

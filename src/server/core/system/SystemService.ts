@@ -50,7 +50,7 @@ export class SystemService extends EventEmitter {
         });
 
         // ChatMessageStore is the chat-event source going forward. Per ADR-0012,
-        // ChatMessage uses the new event names — wire-level chatUpdate is removed.
+        // ChatMessage uses the new event names.
         chatMessageStore.on('documentChanged', (event: DocumentChangedEvent) => {
             this.systemClient?.emit('chatMessageChanged', { messageId: event.id, action: event.action });
         });
@@ -77,11 +77,12 @@ export class SystemService extends EventEmitter {
         });
 
         // UserStore is the User-document-event source. Per ADR-0011 Phase 2,
-        // user-document changes get their own event surface, separate from the
-        // broader systemStatusUpdate broadcast (which stays for connection /
-        // world-status transitions and presence shifts).
+        // user-document changes get their own event surface; they also request
+        // a systemStatus refresh because the dashboard and login dropdown derive
+        // their roster view from the full status payload.
         userStore.on('documentChanged', (event: DocumentChangedEvent) => {
             this.systemClient?.emit('userChanged', { userId: event.id, action: event.action });
+            this.emit('system:status-update');
         });
         userStore.on('documentListInvalidated', (event: DocumentListInvalidatedEvent) => {
             this.systemClient?.emit('userListInvalidated', {
@@ -89,6 +90,7 @@ export class SystemService extends EventEmitter {
                 userId: event.documentId,
                 targetUserIds: event.targetUserIds,
             });
+            this.emit('system:status-update');
         });
 
         // JournalStore is the JournalEntry document-event source. Embedded
@@ -219,6 +221,7 @@ export class SystemService extends EventEmitter {
         // Setup world lifecycle monitoring
         this.systemClient.on('connect', () => this.handleConnect());
         this.systemClient.on('disconnect', () => this.handleDisconnect());
+        this.systemClient.on('systemStatusUpdate', () => this.emit('system:status-update'));
 
         await this.systemClient.connect().catch(err => {
             logger.error(`SystemService | Core socket initial connection failed: ${err.message}`);

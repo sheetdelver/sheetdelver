@@ -165,19 +165,6 @@ export interface RealtimeCardsListInvalidatedPayload {
     targetUserIds?: string[];
 }
 
-/** Payload for realtime chat updates. */
-export interface RealtimeChatUpdatePayload {
-    id: string;
-    user: string;
-    content: string;
-    timestamp: number;
-    isRoll?: boolean;
-    rollTotal?: number;
-    rollFormula?: string;
-    flavor?: string;
-    [key: string]: unknown;
-}
-
 /**
  * ChatMessage represents a message result returned from a Foundry interaction.
  */

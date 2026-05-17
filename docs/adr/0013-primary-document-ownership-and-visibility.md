@@ -23,7 +23,7 @@ Today's visibility checks are scattered and inconsistent:
 
 The audit dumps confirm the underlying Foundry surface is **not** uniform either. Visibility-relevant fields differ by type:
 
-- **Actor, Item (world), RollTable, Macro, Playlist, Scene, JournalEntry, JournalEntryPage** — standard `{ default: number, "userId1": number, ... }` ownership map.
+- **Actor, Item (world), RollTable, Macro, Playlist, Cards, Scene, JournalEntry, JournalEntryPage** — standard `{ default: number, "userId1": number, ... }` ownership map.
 - **ChatMessage** — no ownership map; uses `whisper: string[]`, `blind: boolean`, and `author: string`.
 - **Combat** — no ownership map; derived from the embedded `combatants` array (each combatant has an `actorId` and a `hidden: boolean` flag).
 - **User** — no ownership map; users are subjects of ownership, not targets.
@@ -140,7 +140,8 @@ GMs (`isGM: true`) implicitly satisfy any `minOwnership` threshold on every type
 | **User** | No ownership map. GM → `OWNER`. Non-GM → `OBSERVER` (users are world-visible to authenticated callers). |
 | **Folder** | No ownership map in v13. Authenticated subject → `OBSERVER`. GM → `OWNER`. Folder visibility is effectively world-default; container visibility derives from contained-doc Stores. |
 | **Cards** | Same as Actor (standard ownership map). |
-| **Setting, Adventure, FogExploration** | Stubbed types — placeholders return `NONE` for non-GM, `OWNER` for GM. Revisit when these become in-scope. |
+| **FogExploration** | Stubbed type — GM returns `OWNER`; non-GM returns `OWNER` only for their own fog docs (`doc.user === subject.userId`), otherwise `NONE`. Revisit when FogExploration becomes in-scope. |
+| **Setting, Adventure** | Stubbed types — placeholders return `NONE` for non-GM, `OWNER` for GM. Revisit when these become in-scope. |
 
 The matrix above is the durable contract. New types added later either inherit the standard-ownership-map policy or document their own policy explicitly in the subclass with a reference back to this ADR.
 
@@ -337,6 +338,8 @@ Structural end-state validation:
 This note supersedes any shorthand wording above that could be read as "whisper recipient always sees the message." Blind rolls remain author + GM visible only.
 
 **May 15, 2026 — ADR-0011 Phase 1 fan-out uses Store visibility for chat events.** ADR-0011 Phase 1 routes `chatMessageChanged` fan-out through `ChatMessageStore.canReadDocument(..., LIST_VISIBLE)` in `AppSocketGateway`, so the blind/whisper/author policy above controls realtime delivery as well as `/api/chat` reads. `ChatService` also keeps defensive DTO masking for blind roll fields.
+
+**May 17, 2026 — ADR-0011 Phase 7 stub policy alignment.** Phase 7 added stub Stores for Scene, FogExploration, Adventure, and Setting. Scene keeps the standard ownership-map policy if it is wired later. Adventure and Setting remain GM-only placeholders. FogExploration is a per-user state placeholder instead of a GM-only placeholder: GMs can read all fog docs, while non-GMs can read only docs whose `user` field matches their subject user id. The Store is still not registered with the coordinator or router in Phase 7; this policy only documents the stub's future wiring shape.
 
 ---
 

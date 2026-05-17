@@ -11,7 +11,6 @@ import type { ChatMessageDto } from '@shared/contracts/chat';
 import type {
     RealtimeChatMessageChangedPayload,
     RealtimeChatMessageListInvalidatedPayload,
-    RealtimeChatUpdatePayload,
 } from '@shared/contracts/realtime';
 
 interface ChatContextType {
@@ -115,9 +114,6 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     useEffect(() => {
         if (!appSocket) return;
 
-        const handleLegacyChatUpdate = (_data: RealtimeChatUpdatePayload) => {
-            requestChatRefresh();
-        };
         const handleChatMessageChanged = (_data: RealtimeChatMessageChangedPayload) => {
             requestChatRefresh();
         };
@@ -125,11 +121,9 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             requestChatRefresh();
         };
 
-        appSocket.on('chatUpdate', handleLegacyChatUpdate);
         appSocket.on('chatMessageChanged', handleChatMessageChanged);
         appSocket.on('chatMessageListInvalidated', handleChatMessageListInvalidated);
         return () => {
-            appSocket.off('chatUpdate', handleLegacyChatUpdate);
             appSocket.off('chatMessageChanged', handleChatMessageChanged);
             appSocket.off('chatMessageListInvalidated', handleChatMessageListInvalidated);
         };
