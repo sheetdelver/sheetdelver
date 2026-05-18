@@ -14,7 +14,7 @@ import {
 import {
     DOCUMENT_VISIBILITY,
     DocumentOwnershipLevel,
-    FoundryUserRole,
+    isGM,
     type DocumentAccessSubject,
     type ResolvedDocumentOwnershipLevel,
 } from '../base/ownership';
@@ -103,7 +103,7 @@ export class CombatStore extends PrimaryDocumentStore<RawCombat> {
         combat: RawCombat,
         subject: DocumentAccessSubject,
     ): ResolvedDocumentOwnershipLevel {
-        if (subject.role >= FoundryUserRole.GAMEMASTER) return DocumentOwnershipLevel.OWNER;
+        if (isGM(subject)) return DocumentOwnershipLevel.OWNER;
 
         // Without an ActorStore binding we can't cross-check; fail closed for non-GMs.
         if (!this.actorStore) return DocumentOwnershipLevel.NONE;

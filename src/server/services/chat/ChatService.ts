@@ -6,6 +6,8 @@ import {
     DOCUMENT_VISIBILITY,
     FoundryUserRole,
     createDocumentAccessSubject,
+    isAssistantGM,
+    type DocumentAccessSubject,
 } from '@server/core/documents/primary/base/ownership';
 import {
     createTextChatMessageData,
@@ -19,7 +21,7 @@ interface ChatServiceDeps {
     config: AppConfig;
 }
 
-function projectChatMessage(message: RawChatMessage, subjectUserId: string | null, subjectRole: number): ChatMessageDto {
+function projectChatMessage(message: RawChatMessage, subject: DocumentAccessSubject | null): ChatMessageDto {
     const rolls = (Array.isArray(message.rolls) ? message.rolls : []).map((roll: unknown) => {
         if (typeof roll !== 'string') return roll;
         try {
@@ -31,9 +33,13 @@ function projectChatMessage(message: RawChatMessage, subjectUserId: string | nul
     const roll = rolls[0] as { total?: number; formula?: string } | undefined;
     const isRoll = message.type === 5;
     const isBlind = message.blind === true;
-    const isGmLike = subjectRole >= FoundryUserRole.ASSISTANT;
+    // No subject means the caller is the system account / privileged path
+    // (already the existing semantics via `FoundryUserRole.GAMEMASTER` fallback);
+    // treat it as GM-equivalent so blind/whisper masking is bypassed.
+    const isAssistantGm = subject ? isAssistantGM(subject) : true;
+    const subjectUserId = subject?.userId ?? null;
     const isAuthor = typeof message.author === 'string' && message.author === subjectUserId;
-    const shouldMask = isBlind && !isGmLike && !isAuthor;
+    const shouldMask = isBlind && !isAssistantGm && !isAuthor;
     const author = typeof message.author === 'string'
         ? userStore.get(message.author)
         : null;
@@ -81,7 +87,7 @@ export function createChatService(deps: ChatServiceDeps) {
             : chatMessageStore.list();
         const sorted = [...visible].sort((a, b) => ((a.timestamp as number) || 0) - ((b.timestamp as number) || 0));
         const rawMessages = sorted.slice(Math.max(sorted.length - limit, 0));
-        const messages = rawMessages.map(message => projectChatMessage(message, userId ?? null, role));
+        const messages = rawMessages.map(message => projectChatMessage(message, subject));
         return { messages };
     };
 

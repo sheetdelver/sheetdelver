@@ -5,7 +5,7 @@ import {
 } from '../base/PrimaryDocumentStore';
 import {
     DocumentOwnershipLevel,
-    FoundryUserRole,
+    isGM,
     type DocumentAccessSubject,
     type ResolvedDocumentOwnershipLevel,
 } from '../base/ownership';
@@ -24,9 +24,7 @@ export class AdventureStore extends PrimaryDocumentStore<RawAdventure> {
         _adventure: RawAdventure,
         subject: DocumentAccessSubject,
     ): ResolvedDocumentOwnershipLevel {
-        return subject.role >= FoundryUserRole.GAMEMASTER
-            ? DocumentOwnershipLevel.OWNER
-            : DocumentOwnershipLevel.NONE;
+        return isGM(subject) ? DocumentOwnershipLevel.OWNER : DocumentOwnershipLevel.NONE;
     }
 }
 

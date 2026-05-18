@@ -12,7 +12,7 @@ import type {
 } from '@shared/contracts/journals';
 import {
     DOCUMENT_VISIBILITY,
-    FoundryUserRole,
+    isAssistantGM,
 } from '@server/core/documents/primary/base/ownership';
 import { FolderRepository } from '@server/core/documents/primary/folders/FolderRepository';
 import { folderStore } from '@server/core/documents/primary/folders/FolderStore';
@@ -66,7 +66,9 @@ export function createJournalService() {
 
         const currentUserId = client.userId;
         const subject = userStore.createAccessSubject(currentUserId);
-        const isGM = !!subject && subject.role >= FoundryUserRole.ASSISTANT;
+        // ASSISTANT-GM and above see every folder regardless of contents; players
+        // only see folders that ancestor at least one journal they can read.
+        const isAssistantGm = !!subject && isAssistantGM(subject);
 
         const allFolders = folderStore.listByType('JournalEntry');
         const visibleJournals = subject
@@ -78,7 +80,7 @@ export function createJournalService() {
                 .map(j => j.folder)
                 .filter((folderId): folderId is string => typeof folderId === 'string' && folderId.length > 0),
         ));
-        const visibleFolders = allFolders.filter((f) => isGM || (!!f._id && visibleFolderIds.has(f._id)));
+        const visibleFolders = allFolders.filter((f) => isAssistantGm || (!!f._id && visibleFolderIds.has(f._id)));
 
         return {
             journals: visibleJournals.map(toJournalDto),

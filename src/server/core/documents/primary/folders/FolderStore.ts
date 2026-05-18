@@ -12,7 +12,7 @@ import {
 } from '../base/PrimaryDocumentStore';
 import {
     DocumentOwnershipLevel,
-    FoundryUserRole,
+    isGM,
     type DocumentAccessSubject,
     type ResolvedDocumentOwnershipLevel,
 } from '../base/ownership';
@@ -97,7 +97,7 @@ export class FolderStore extends PrimaryDocumentStore<RawFolder> {
         folder: RawFolder,
         subject: DocumentAccessSubject,
     ): ResolvedDocumentOwnershipLevel {
-        if (subject.role >= FoundryUserRole.GAMEMASTER) return DocumentOwnershipLevel.OWNER;
+        if (isGM(subject)) return DocumentOwnershipLevel.OWNER;
         return this.resolveFolderPermission(folder, subject, new Set<string>());
     }
 

@@ -5,7 +5,7 @@ import {
 } from '../base/PrimaryDocumentStore';
 import {
     DocumentOwnershipLevel,
-    FoundryUserRole,
+    isGM,
     type DocumentAccessSubject,
     type ResolvedDocumentOwnershipLevel,
 } from '../base/ownership';
@@ -34,7 +34,7 @@ export class ChatMessageStore extends PrimaryDocumentStore<RawChatMessage> {
         subject: DocumentAccessSubject,
     ): ResolvedDocumentOwnershipLevel {
         // GMs see everything.
-        if (subject.role >= FoundryUserRole.GAMEMASTER) return DocumentOwnershipLevel.OWNER;
+        if (isGM(subject)) return DocumentOwnershipLevel.OWNER;
 
         // Author always sees their own messages — even blind ones.
         const author = typeof message.author === 'string' ? message.author : null;

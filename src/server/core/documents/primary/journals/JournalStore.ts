@@ -12,8 +12,8 @@ import {
 } from '../base/PrimaryDocumentStore';
 import {
     DocumentOwnershipLevel,
-    FoundryUserRole,
     getEffectiveOwnership,
+    isGM,
     type DocumentAccessSubject,
     type DocumentOwnershipMap,
     type ResolvedDocumentOwnershipLevel,
@@ -86,7 +86,7 @@ export class JournalStore extends PrimaryDocumentStore<RawJournal> {
         entryEffectiveLevel: ResolvedDocumentOwnershipLevel,
         subject: DocumentAccessSubject,
     ): ResolvedDocumentOwnershipLevel {
-        if (subject.role >= FoundryUserRole.GAMEMASTER) return DocumentOwnershipLevel.OWNER;
+        if (isGM(subject)) return DocumentOwnershipLevel.OWNER;
         const ownership = page.ownership as DocumentOwnershipMap | undefined;
         // Omitted ownership fails closed for non-GMs.
         if (!ownership) return DocumentOwnershipLevel.NONE;

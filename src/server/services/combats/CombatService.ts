@@ -2,7 +2,12 @@ import { logger } from '@shared/utils/logger';
 import { getAdapter } from '@modules/registry/server';
 import type { RawActor } from '@server/shared/types/actors';
 import type { CombatClientLike, RawCombat, RawCombatant } from '@server/shared/types/documents';
-import { FoundryUserRole } from '@server/core/documents/primary/base/ownership';
+import {
+    DOCUMENT_VISIBILITY,
+    isAssistantGM,
+    type DocumentAccessSubject,
+} from '@server/core/documents/primary/base/ownership';
+import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
 import { combatStore } from '@server/core/documents/primary/combats/CombatStore';
 import { PrimaryDocumentCacheNotReadyError } from '@server/core/documents/primary/errors';
 import { CombatRepository } from '@server/core/documents/primary/combats/CombatRepository';
@@ -42,8 +47,8 @@ export function sortCombatants(combatants: RawCombatant[] = []): RawCombatant[] 
     });
 }
 
-function isGmLike(userId: string | null | undefined): boolean {
-    return !!userId && userStore.getRole(userId) >= FoundryUserRole.ASSISTANT;
+function resolveSubject(userId: string | null | undefined): DocumentAccessSubject | null {
+    return userStore.createAccessSubject(userId);
 }
 
 export function createCombatService(deps: CombatServiceDeps) {
@@ -71,7 +76,10 @@ export function createCombatService(deps: CombatServiceDeps) {
     const listCombats = async (client: CombatClientLike): Promise<CombatListPayload> => {
         ensureReady();
         const subject = userStore.createAccessSubject(client.userId);
-        const userIsGm = isGmLike(client.userId);
+        // ASSISTANT-GM and above see hidden combatants; players see only the
+        // non-hidden roster. (Combat visibility itself is enforced by the
+        // CombatStore subject filter on the line below.)
+        const userIsGm = !!subject && isAssistantGM(subject);
 
         const visible = subject ? combatStore.list({ subject }) : [];
 
@@ -136,8 +144,18 @@ export function createCombatService(deps: CombatServiceDeps) {
     };
 
     // Authorization helper for turn advancement rules.
-    const isAuthorizedForCombatTurn = async (client: CombatClientLike, combat: RawCombat, userId: string): Promise<boolean> => {
-        if (isGmLike(userId)) return true;
+    //
+    // ASSISTANT-GM and above can advance turns unconditionally. Otherwise the
+    // caller must be OWNER of the active combatant's actor. The OWNER check
+    // routes through `ActorStore.canReadActor(..., WRITEABLE)` so the same
+    // GM short-circuit and INHERIT-resolution rules that govern actor reads
+    // apply to turn-advancement authorization (ADR-0013 Phase 1).
+    const isAuthorizedForCombatTurn = async (
+        _client: CombatClientLike,
+        combat: RawCombat,
+        subject: DocumentAccessSubject,
+    ): Promise<boolean> => {
+        if (isAssistantGM(subject)) return true;
 
         const currentTurn = combat.turn ?? 0;
         const sortedCombatants = sortCombatants(combat.combatants || []);
@@ -145,11 +163,7 @@ export function createCombatService(deps: CombatServiceDeps) {
         const activeCombatant = sortedCombatants[currentTurn];
         if (!activeCombatant || !activeCombatant.actorId) return false;
 
-        const actor = await client.getActor(activeCombatant.actorId);
-        if (!actor) return false;
-
-        const ownership = actor.ownership?.[userId] || 0;
-        return ownership >= 3;
+        return actorStore.canReadActor(activeCombatant.actorId, subject, DOCUMENT_VISIBILITY.WRITEABLE);
     };
 
     // Turn advancement logic mirroring Foundry round/turn progression.
@@ -164,7 +178,8 @@ export function createCombatService(deps: CombatServiceDeps) {
             return { error: 'Combat not found', status: 404 };
         }
 
-        if (!client.userId || !(await isAuthorizedForCombatTurn(client, combat, client.userId))) {
+        const subject = resolveSubject(client.userId);
+        if (!subject || !(await isAuthorizedForCombatTurn(client, combat, subject))) {
             return { error: 'Unauthorized: You do not own the current combatant and are not a GM', status: 403 };
         }
 
@@ -201,7 +216,8 @@ export function createCombatService(deps: CombatServiceDeps) {
             return { error: 'Combat not found', status: 404 };
         }
 
-        if (!isGmLike(client.userId)) {
+        const subject = resolveSubject(client.userId);
+        if (!subject || !isAssistantGM(subject)) {
             return { error: 'Unauthorized: Only GMs can move to previous turns', status: 403 };
         }
 

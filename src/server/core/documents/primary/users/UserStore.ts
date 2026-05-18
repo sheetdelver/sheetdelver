@@ -8,6 +8,7 @@ import {
     DocumentOwnershipLevel,
     FoundryUserRole,
     createDocumentAccessSubject,
+    isGM,
     type DocumentAccessSubject,
     type ResolvedDocumentOwnershipLevel,
 } from '../base/ownership';
@@ -56,7 +57,7 @@ export class UserStore extends PrimaryDocumentStore<RawUser> {
         _user: RawUser,
         subject: DocumentAccessSubject,
     ): ResolvedDocumentOwnershipLevel {
-        if (subject.role >= FoundryUserRole.GAMEMASTER) return DocumentOwnershipLevel.OWNER;
+        if (isGM(subject)) return DocumentOwnershipLevel.OWNER;
         return DocumentOwnershipLevel.OBSERVER;
     }
 

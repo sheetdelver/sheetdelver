@@ -5,7 +5,7 @@ import {
 } from '../base/PrimaryDocumentStore';
 import {
     DocumentOwnershipLevel,
-    FoundryUserRole,
+    isGM,
     type DocumentAccessSubject,
     type ResolvedDocumentOwnershipLevel,
 } from '../base/ownership';
@@ -26,7 +26,7 @@ export class FogExplorationStore extends PrimaryDocumentStore<RawFogExploration>
         fog: RawFogExploration,
         subject: DocumentAccessSubject,
     ): ResolvedDocumentOwnershipLevel {
-        if (subject.role >= FoundryUserRole.GAMEMASTER) return DocumentOwnershipLevel.OWNER;
+        if (isGM(subject)) return DocumentOwnershipLevel.OWNER;
         return fog.user === subject.userId ? DocumentOwnershipLevel.OWNER : DocumentOwnershipLevel.NONE;
     }
 }

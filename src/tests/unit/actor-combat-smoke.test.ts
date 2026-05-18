@@ -98,6 +98,7 @@ async function runActorReadWriteSmoke() {
 
 async function runCombatReadActionSmoke() {
     const normalizeCalls: Array<{ ids: string[] }> = [];
+    const { actorStore } = await import('@server/core/documents/primary/actors/ActorStore');
 
     const combatService = createCombatService({
         normalizeActors: async (actorList) => {
@@ -120,29 +121,43 @@ async function runCombatReadActionSmoke() {
     // Helper: seed combatStore with a single combat for a case, return a mock
     // route client + the dispatch capture array. Each call replaces the seeded
     // set so cases stay isolated.
-    const buildCase = (params: {
+    const buildCase = async (params: {
         userId: string;
         ownershipByActorId?: Record<string, number>;
         combat: RawCombat;
     }) => {
         const dispatchCalls: Array<{ type: string; action: string; operation: unknown; parent?: any }> = [];
         // `combatStore.seed` clears prior docs and re-populates.
-        return combatStore.seed(async () => [params.combat]).then(() => {
-            const client = {
-                userId: params.userId,
-                getActor: async (id: string) => ({
-                    _id: id,
-                    id,
-                    name: `Actor ${id}`,
-                    ownership: { [params.userId]: params.ownershipByActorId?.[id] || 0 },
-                }),
-                dispatchDocument: async (type: string, action: string, operation: unknown, parent?: any) => {
-                    dispatchCalls.push({ type, action, operation, parent });
-                    return { result: [], operation };
-                },
-            } as any;
-            return { client, dispatchCalls };
-        });
+        await combatStore.seed(async () => [params.combat]);
+        // Seed actorStore with the actors referenced by the combat's combatants.
+        // ADR-0013 Phase 1 routes turn-advancement authorization through
+        // `actorStore.canReadActor(..., WRITEABLE)`; the actor must exist in
+        // the Store for the check to see the ownership map.
+        const actorIds = new Set<string>();
+        for (const combatant of params.combat.combatants || []) {
+            if (combatant.actorId) actorIds.add(combatant.actorId);
+        }
+        const ownershipMap = params.ownershipByActorId || {};
+        await actorStore.seed(async () => Array.from(actorIds).map((id) => ({
+            _id: id,
+            id,
+            name: `Actor ${id}`,
+            ownership: { default: 0, [params.userId]: ownershipMap[id] || 0 },
+        }) as RawActor));
+        const client = {
+            userId: params.userId,
+            getActor: async (id: string) => ({
+                _id: id,
+                id,
+                name: `Actor ${id}`,
+                ownership: { default: 0, [params.userId]: ownershipMap[id] || 0 },
+            }),
+            dispatchDocument: async (type: string, action: string, operation: unknown, parent?: any) => {
+                dispatchCalls.push({ type, action, operation, parent });
+                return { result: [], operation };
+            },
+        } as any;
+        return { client, dispatchCalls };
     };
 
     // ---- listCombats + first advanceTurn (round 0 → 1) ----
@@ -230,6 +245,47 @@ async function runCombatReadActionSmoke() {
     assert.deepEqual(ownerCase.dispatchCalls[0].operation, {
         updates: [{ _id: 'combat-owner-advance', round: 1, turn: 1 }],
     });
+
+    // ---- ADR-0013 Phase 1: turn-auth routes through actorStore.canReadActor(WRITEABLE) ----
+    // OBSERVER on the active combatant's actor is NOT enough to advance — the
+    // check now requires OWNER (DOCUMENT_VISIBILITY.WRITEABLE). Same shape as
+    // the unauthorized case above, but with ownership 2 instead of 0 to prove
+    // the threshold is OWNER, not "any ownership."
+    const observerCase = await buildCase({
+        userId: 'player-observer',
+        ownershipByActorId: { 'actor-a': 2, 'actor-b': 2 },
+        combat: {
+            _id: 'combat-observer-deny',
+            id: 'combat-observer-deny',
+            round: 1,
+            turn: 0,
+            combatants: [
+                { _id: 'c1', id: 'c1', actorId: 'actor-a', initiative: 15 },
+                { _id: 'c2', id: 'c2', actorId: 'actor-b', initiative: 12 },
+            ],
+        },
+    });
+
+    // player-observer needs a role; user roster was seeded without them, so
+    // re-seed userStore to include them as a PLAYER (role 1).
+    await userStore.seed(async () => [
+        { _id: 'gm-1', id: 'gm-1', role: 4 },
+        { _id: 'player-1', id: 'player-1', role: 1 },
+        { _id: 'player-owner', id: 'player-owner', role: 1 },
+        { _id: 'player-observer', id: 'player-observer', role: 1 },
+        { _id: 'gm-wrap', id: 'gm-wrap', role: 4 },
+        { _id: 'gm-not-found', id: 'gm-not-found', role: 4 },
+        { _id: 'gm-prev-happy', id: 'gm-prev-happy', role: 4 },
+        { _id: 'gm-prev-wrap', id: 'gm-prev-wrap', role: 4 },
+        { _id: 'gm-prev-start', id: 'gm-prev-start', role: 4 },
+    ]);
+
+    const observerResult = await combatService.advanceTurn(observerCase.client, 'combat-observer-deny');
+    if (!('error' in observerResult)) {
+        assert.fail('Expected OBSERVER-level player to be denied turn advancement (WRITEABLE requires OWNER)');
+    }
+    assert.equal(observerResult.status, 403);
+    assert.equal(observerCase.dispatchCalls.length, 0);
 
     // ---- round wrap (turn N → round+1, turn 0) ----
     const wrapCase = await buildCase({
@@ -428,7 +484,7 @@ async function runCombatReadActionSmoke() {
 
     // Seed ActorStore so combat visibility resolves (CombatStore.bindActorVisibilityBridge
     // is already wired by the coordinator; we just need the actor docs present).
-    const { actorStore } = await import('@server/core/documents/primary/actors/ActorStore');
+    // `actorStore` binding was dynamic-imported at the top of this function.
     const strippedActors: RawActor[] = [
         { _id: 'pc-actor', ownership: { 'player-strip': 3 } },
         { _id: 'npc-actor', ownership: { default: 0 } },
