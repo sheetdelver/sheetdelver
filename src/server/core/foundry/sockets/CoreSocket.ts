@@ -18,6 +18,7 @@ import { rollTableStore } from '@server/core/documents/primary/roll-tables/RollT
 import { userStore } from '@server/core/documents/primary/users/UserStore';
 import { userPresence } from '@server/core/documents/primary/users/UserPresence';
 import { modifyDocumentRouter } from '@server/core/documents/primary/base/modifyDocumentRouter';
+import { worldStateStore } from '@server/core/world/WorldStateStore';
 // Side-effect import: registers Stores with the coordinator and router.
 import '@server/core/documents/primary/PrimaryDocumentCacheCoordinator';
 import { PrimaryDocumentCacheNotReadyError } from '@server/core/documents/primary/errors';
@@ -28,6 +29,10 @@ import path from 'node:path';
 
 export class CoreSocket extends SocketBase implements FoundryMetadataClient {
     public worldState: 'offline' | 'setup' | 'startup' | 'active' | 'closed' = 'offline';
+
+    // ADR-0014 Phase 1: these legacy mirrors remain for CoreSocket internals
+    // and compendium/bootstrap code during the transition. WorldStateStore is
+    // the authoritative read model for routes/services/new code.
     public cachedWorldData: WorldData | null = null;
     public cachedWorlds: Record<string, WorldData> = {};
     private adapter: SystemAdapter | null = null;
@@ -98,6 +103,9 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
             if (cache.currentWorldId && this.cachedWorlds[cache.currentWorldId]) {
                 this.cachedWorldData = this.cachedWorlds[cache.currentWorldId];
             }
+            // Seed setup-mode cache into the Store so status/setup routes do
+            // not need to read these transitional socket fields.
+            worldStateStore.setCachedWorlds(cache);
         } catch (e) {
             logger.warn('CoreSocket | Failed to load initial cache: ' + e);
         }
@@ -241,6 +249,9 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
                 this.worldState = 'startup';
                 this.probeWorldData = joinData.world;  // Cache for UI surface during recovery
                 this.probeUserCount = Array.isArray(joinData.users) ? joinData.users.length : 0;
+                // Probe data is pre-bootstrap state: enough for status UI when
+                // the world exists but service-account login cannot complete.
+                worldStateStore.setProbeData(joinData.world, this.probeUserCount);
                 // Probe-time user data stays on the local joinData object — it's used
                 // only for service-account name resolution (below). UserStore is seeded
                 // properly at the gameData step after the main socket connects.
@@ -331,6 +342,7 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
                         this.worldState = 'setup';
                         this.gameDataCache = null; // Clear potential stale cache
                         this.sceneDataCache = null; // Clear scene cache
+                        worldStateStore.clearRuntimeState('world-setup');
                         userPresence.clear();
                         userStore.clear('world-setup');
                         clearTimeout(timeout);
@@ -343,6 +355,8 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
                     logger.info('CoreSocket | World is ACTIVE. Fetching game data via socket...');
                     this.worldState = 'active';
                     this.probeWorldData = null;  // Full connection established; probe cache no longer needed
+                    this.probeUserCount = 0;
+                    worldStateStore.clearProbeData();
 
                     // 6. Fetch Game Data via Socket (The canonical bootstrap way)
                     const gameData = await this.getWorldData();
@@ -360,6 +374,9 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
                         } else {
                             logger.warn('CoreSocket | Scene data unavailable');
                         }
+                        // This is the ADR-0014 handoff: CoreSocket still fetches
+                        // the wire payload, but WorldStateStore owns the read model.
+                        worldStateStore.seed(gameData, { sceneData: sceneData || null });
                         if (gameData.users) {
                             // Seed the UserStore with the User-document set from this snapshot.
                             // Document fields only — presence (`active`) is tracked separately.
@@ -405,6 +422,8 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
                     }
                     this.gameDataCache = null; // Clear cache to prevent stale data
                     this.sceneDataCache = null; // Clear scene cache
+                    // Preserve setup cache, but remove active-world/probe state.
+                    worldStateStore.clearRuntimeState('core-disconnect');
                     userPresence.clear();
                     userStore.clear('core-disconnect');
                     this.emit('disconnect', reason);
@@ -597,6 +616,7 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
 
             this.gameDataCache = null;
             this.sceneDataCache = null;
+            worldStateStore.clearRuntimeState('core-disconnect');
             userPresence.clear();
             userStore.clear('core-disconnect');
             actorStore.clear('core-disconnect');
@@ -904,16 +924,20 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
         }
     }
 
-    // --- Public API methods (called by Endpoints) ---
+    // --- Transitional public API methods (called by legacy endpoints) ---
+    // These compatibility shims are Store-backed so migrated readers do not
+    // observe socket-owned state. ADR-0014 Phase 5 removes them once callers
+    // use WorldStateStore directly.
 
-    public getGameData() { return this.gameDataCache; }
-    public getSceneData() { return this.sceneDataCache; }
+    public getGameData() { return worldStateStore.getGameDataSnapshot(); }
+    public getSceneData() { return worldStateStore.getSceneData(); }
     public getSystemAdapter() { return this.adapter; }
 
     public async getSystemConfig(): Promise<any> {
         // Return from cache if available
-        if (this.gameDataCache?.system) {
-            return this.gameDataCache.system;
+        const system = worldStateStore.getSystem();
+        if (system) {
+            return system;
         }
 
         // Otherwise, probe for it
@@ -1084,10 +1108,10 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
     public async shutdownWorld() { /* ... */ }
 
     public async getSystem(): Promise<any> {
-        return this.gameDataCache?.system || {};
+        return worldStateStore.getSystem() || {};
     }
 
     async evaluate<T>(): Promise<T> {
-        return this.gameDataCache as any;
+        return worldStateStore.getGameDataSnapshot() as T;
     }
 }

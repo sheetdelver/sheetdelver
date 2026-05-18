@@ -44,13 +44,11 @@ export interface FoundryClientLike {
 export interface FoundrySystemClientLike {
     isConnected: boolean;
     worldState: string;
-    cachedWorldData?: unknown;
-    lastActorChange?: string;
-    sceneDataCache?: Record<string, { background?: { src?: string } }>;
-    probeWorldData?: { title?: string; description?: string | null };
-    probeUserCount?: number;
+    // Non-document world payload fields moved to WorldStateStore in ADR-0014.
+    // These socket-sourced fields are the lifecycle/sync-token leftovers that
+    // later phases still need while StatusService is transitional.
+    lastActorChange?: string | number;
 
-    getGameData(): FoundryGameDataLike | null | undefined;
     resolveUrl(url?: string): string;
 }
 

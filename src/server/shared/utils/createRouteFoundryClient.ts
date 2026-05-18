@@ -25,6 +25,7 @@ import {
 } from '@server/core/documents/primary/base/ownership';
 import { PrimaryDocumentCacheNotReadyError } from '@server/core/documents/primary/errors';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
+import { worldStateStore } from '@server/core/world/WorldStateStore';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
 
 type RouteSocketClient = CoreSocket | ClientSocket;
@@ -183,7 +184,13 @@ function createBaseRouteFoundryClient(client: RouteSocketClient): RouteFoundryCl
         username: undefined,
         on: client.on.bind(client),
         off: client.off.bind(client),
-        getSystem: () => client.getSystem(),
+        getSystem: async () => {
+            // Public facade retained for routes/modules. Internally this is
+            // Store-backed now; callers should not care that CoreSocket no
+            // longer owns system metadata.
+            const system = worldStateStore.getSystem();
+            return { ...(system || {}), id: system?.id || '' };
+        },
         getActors,
         getActor,
         getActorRaw,

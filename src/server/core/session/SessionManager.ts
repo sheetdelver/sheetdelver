@@ -8,6 +8,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { persistentCache } from '../cache/PersistentCache';
 import { systemService } from '../system/SystemService';
+import { worldStateStore } from '@server/core/world/WorldStateStore';
 
 interface Session {
     id: string;
@@ -79,7 +80,10 @@ export class SessionManager {
                 userId: userId,
                 username,
                 lastActive: Date.now(),
-                worldId: systemService.getSystemClient().getGameData()?.world?.id, // Get from System Provider
+                // Bind sessions to the active world via WorldStateStore. This
+                // keeps session validation independent from CoreSocket's legacy
+                // gameData cache while still invalidating on world switches.
+                worldId: worldStateStore.getCurrentWorldId() || undefined,
                 cookie: client.getSessionCookie() ?? undefined
             };
             this.sessions.set(sessionId, session);
@@ -115,8 +119,10 @@ export class SessionManager {
 
         // Check for active session in memory
         if (session) {
-            // Validate world ID for active sessions if world info is available
-            const currentWorldId = systemService.getSystemClient().getGameData()?.world?.id;
+            // Validate world ID only after active-world metadata is available.
+            // Setup/offline/startup states can restore sessions optimistically;
+            // a mismatch is enforceable once WorldStateStore knows the world id.
+            const currentWorldId = worldStateStore.getCurrentWorldId();
 
             if (!currentWorldId || systemService.getSystemClient().worldState !== 'active') {
                 // No world data available or world still starting up - defer validation
@@ -188,13 +194,13 @@ export class SessionManager {
             const foundryUsername = sessionData.username || username;
 
             // Check World State via System Provider
-            let currentWorldId = systemService.getSystemClient().getGameData()?.world?.id;
+            let currentWorldId = worldStateStore.getCurrentWorldId();
 
             if (!currentWorldId && (systemService.getSystemClient().worldState === 'startup' || systemService.getSystemClient().worldState === 'active')) {
                 logger.debug(`SessionManager | World not yet stable. Waiting for ID to restore session ${username}...`);
                 for (let i = 0; i < 5; i++) {
                     await this.waitForRestoreBackoff(i);
-                    currentWorldId = systemService.getSystemClient().getGameData()?.world?.id;
+                    currentWorldId = worldStateStore.getCurrentWorldId();
                     if (currentWorldId) break;
                 }
             }
@@ -243,7 +249,7 @@ export class SessionManager {
                 username: foundryUsername || key,
                 userId: client.userId,
                 cookie: client.getSessionCookie() ?? undefined,
-                worldId: systemService.getSystemClient().getGameData()?.world?.id,
+                worldId: worldStateStore.getCurrentWorldId() || undefined,
                 lastSaved: Date.now()
             };
 

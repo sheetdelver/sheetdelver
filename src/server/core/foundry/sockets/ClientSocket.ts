@@ -4,6 +4,8 @@ import { logger } from '@shared/utils/logger';
 import { systemService } from '../../system/SystemService';
 import { FoundryConfig } from '../types';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
+import { userStore } from '@server/core/documents/primary/users/UserStore';
+import { worldStateStore } from '@server/core/world/WorldStateStore';
 
 export class ClientSocket extends SocketBase {
     public userId: string | null = null;
@@ -37,9 +39,14 @@ export class ClientSocket extends SocketBase {
             // 2. Identification (via Discovery Probe or CoreSocket)
             if (!this.userId) {
                 logger.info('ClientSocket | Identifying user ID...');
-                // Prefer user map from CoreSocket if available
-                const coreData = systemService.getSystemClient().getGameData();
-                const users = coreData?.users || (await this.probeWorldState(baseUrl))?.users;
+                // User lookup priority during ADR-0014:
+                // 1. UserStore after the active-world bootstrap.
+                // 2. WorldStateStore's raw `game.data.users` snapshot while
+                //    compatibility shims still exist.
+                // 3. Probe fallback before a full bootstrap is possible.
+                const storeUser = userStore.isReady() ? userStore.findByName(this.config.username || '') : null;
+                const coreData = worldStateStore.getGameDataSnapshot();
+                const users = storeUser ? [storeUser] : (coreData?.users || (await this.probeWorldState(baseUrl))?.users);
 
                 const user = users?.find((u: any) => u.name === this.config.username);
                 if (user) {
@@ -145,15 +152,18 @@ export class ClientSocket extends SocketBase {
 
     public async validateSession(expectedWorldId: string): Promise<boolean> {
         if (!this.isConnected || !this.userId) return false;
-        // Check core for world ID match
-        const currentWorldId = systemService.getSystemClient().getGameData()?.world?.id;
+        // Session/world matching reads the Store, not CoreSocket, so a user
+        // presence socket does not depend on transport-owned world metadata.
+        const currentWorldId = worldStateStore.getCurrentWorldId();
         return currentWorldId === expectedWorldId;
     }
 
     // --- Public API / transport helpers ---
+    // Remaining delegations are transitional. World metadata is Store-backed in
+    // this ADR; compendium/UUID/adapter methods move in ADR-0015 through 0017.
 
     public async getSystem(): Promise<any> {
-        return systemService.getSystemClient().getSystem();
+        return worldStateStore.getSystem() || {};
     }
 
     public async fetchByUuid(uuid: string): Promise<any> {
@@ -208,11 +218,15 @@ export class ClientSocket extends SocketBase {
     }
 
     public getSystemAdapter() {
+        // Adapter ownership moves to WorldBootstrapper in ADR-0017. Until then,
+        // callers still reach the CoreSocket-held adapter through SystemService.
         return systemService.getSystemClient().getSystemAdapter();
     }
 
     public async getSystemConfig(): Promise<any> {
-        return systemService.getSystemClient().getSystemConfig();
+        // Compatibility name retained for callers that haven't moved to
+        // WorldStateStore.getSystem() yet.
+        return worldStateStore.getSystem();
     }
 
     private setupSocketRelays(socket: any) {

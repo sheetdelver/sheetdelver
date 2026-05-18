@@ -188,6 +188,23 @@ When Foundry v14 arrives, drift surfaces as typed-cast failures or undefined-fie
 
 Per-version handling (refuse below min, warn above max) is deferred to ADR-0019, which gets `WorldBootstrapper` as an insertion point from ADR-0017 and typed `release.generation` from this ADR.
 
+### World-state test data policy
+
+The audit dumps in `temp/game-data-dump-example*.json` were used only as local audit evidence for the v13 shape. They must not be copied into tracked test fixtures, committed under `src/tests/fixtures/`, or used as runtime test dependencies. World-state contract tests should use tiny synthetic in-code fixtures that preserve the shape being exercised without carrying real world data.
+
+The canonical Phase 1 example lives in `src/tests/unit/world-state-store.test.ts` as `createGameDataFixture()` plus `sceneMapFromFixture()`. It intentionally covers the Store surface with minimal synthetic values:
+
+- `world`: `id`, `title`, `description`, `system`, `systemVersion`, `background`, `nextSession`, `playtime`.
+- `system`: `id`, `title`, `version`, `background`, and `documentTypes` for `Actor` / `Item`.
+- `modules`: two small module manifests with `id`, `title`, `version`.
+- Version/config envelopes: `release` (`generation: 13`, `channel`, `build`), `coreUpdate`, `systemUpdate`, `options`, `addresses`, `files`.
+- Runtime flags and diagnostics: `paused`, `demoMode`, `idleLogout`, `packageWarnings`.
+- Identity/presence: `userId`, `activeUsers`, and one synthetic GM user in `users`.
+- Schema and scene projections: `model.Actor`, `model.Item`, and one scene with `_id` plus `background.src`.
+- Probe/setup cache coverage: synthetic `probeWorldData`, `probeUserCount`, and a tiny `CacheData` map with `currentWorldId` / `worlds`.
+
+If later phases need broader shape coverage, extend the synthetic fixture with only the missing fields needed for that behavior. Do not promote real audit dumps into fixtures.
+
 ### Granularity: single `WorldStateStore`, not split
 
 The dumps confirm that all the residual non-doc, non-pack data arrives in a single wire payload (`game.data`), refreshes together at world bootstrap, and clears together at teardown. There's no asymmetric event source within this scope that would justify per-area Stores (`WorldManifestStore`, `ModuleManifestStore`, `SchemaModelStore`, etc.). A single `WorldStateStore` with typed sub-accessors is the right shape. Promote to focused sub-Stores only if a future feature needs per-area events (e.g., a modules-tab UI that wants a modules-only event surface).
@@ -229,6 +246,71 @@ Just transport, plus orchestration that subsequent ADRs will extract:
 - **Stays for now, verified or removed by ADR-0018**: any residual `ClientSocket` delegation left after ADR-0014 / ADR-0016 / ADR-0017, URL utilities on `SocketBase`, session-state half of `restoreSession`.
 
 This ADR removes only the state-reading methods named in *Sockets shrink* above. The rest is each follow-up ADR's scope.
+
+---
+
+## ADR-0014 Phase Staging
+
+This section tracks implementation phases in the same style as ADR-0011 through ADR-0013: each phase has a named scope, status, action checklist with file touchpoints, non-goals, and a concrete exit statement. Phase 1 is intentionally behavior-preserving. It creates the typed world-state home and moves readers off socket-owned state, but it does not delete the old socket shims yet; deletion is Phase 5.
+
+### Phase 1: WorldStateStore and reader migration
+
+**Status:** Closed May 18, 2026.
+
+Phase 1 introduces `WorldStateStore` and the typed v13 world-state contract. `CoreSocket.connect()` remains the seeding caller during this phase, but routes/services stop reading non-document world state from `CoreSocket`. During the transition, `CoreSocket` may keep temporary `getGameData()` / `getSceneData()` / `getSystem()` / `getSystemConfig()` wrappers as Store-backed compatibility shims. New code must not read world state from the socket.
+
+**Action items:**
+
+- [x] Add typed world-state contracts in `src/server/core/world/types.ts`. Include `WorldManifest`, `SystemManifest`, `ModuleManifest`, `FoundryRelease`, `FoundryUpdate`, `ServerOptions`, `ServerAddresses`, `FileStorage`, `SchemaModel`, `PackageWarnings`, and the composed `GameData` envelope.
+  Files: `src/server/core/world/types.ts`.
+
+- [x] Add `WorldStateStore` with clone-on-read snapshots for object/array accessors. Required first-pass accessors: `getGameDataSnapshot()` (temporary compatibility only), `getWorld()`, `getSystem()`, `getModules()`, `getRelease()`, `getCoreUpdate()`, `getSystemUpdate()`, `getOptions()`, `getAddresses()`, `getFiles()`, `isPaused()`, `isDemoMode()`, `isIdleLogout()`, `getModel()`, `getModelForType(typeName)`, `getPackageWarnings()`, `getSceneData()`, `getProbeData()`, `getProbeUserCount()`, `getCachedWorld(worldId)`, `listCachedWorlds()`, `getCurrentWorldId()`, and `getUserId()`.
+  Files: `src/server/core/world/WorldStateStore.ts`, optional `src/server/core/world/index.ts`.
+
+- [x] Add unit coverage for `WorldStateStore` seed, clear, typed accessor projection, clone-on-read behavior, scene-data retention, probe data, cached world list, and current-world id lookup. Tests use tiny synthetic in-code fixtures that preserve the needed shape without committing real world dump data; see *World-state test data policy* for the exact example shape.
+  Files: `src/tests/unit/world-state-store.test.ts`, `src/tests/unit/run.ts`.
+
+- [x] Make `CoreSocket` seed `WorldStateStore` instead of owning the authoritative non-document world snapshot. After `getWorldData()` / scene projection succeeds, call `worldStateStore.seed(rawGameData, { sceneData })`. Setup/probe/cache paths write focused Store state for `probeWorldData`, `probeUserCount`, `cachedWorldData`, and `cachedWorlds`; disconnect/setup/closed paths clear or partially reset the Store.
+  Files: `src/server/core/foundry/sockets/CoreSocket.ts`, `src/server/core/world/WorldStateStore.ts`.
+
+- [x] Convert temporary `CoreSocket.getGameData()`, `getSceneData()`, `getSystem()`, and `getSystemConfig()` wrappers to read from `WorldStateStore` until Phase 5 removes them. Direct socket fields such as `gameDataCache`, `sceneDataCache`, `probeWorldData`, `probeUserCount`, `cachedWorldData`, and `cachedWorlds` stop being read outside `CoreSocket`.
+  Files: `src/server/core/foundry/sockets/CoreSocket.ts`.
+
+- [x] Move status payload world/system/probe/scene/cache reads to `WorldStateStore`. Keep lifecycle reads on the current source until Phase 2 introduces `WorldLifecycleStore`; keep URL resolution as a projection outside the Store.
+  Files: `src/server/services/status/StatusService.ts`, `src/server/shared/types/foundry.ts`.
+
+- [x] Move session world-id reads off `systemService.getSystemClient().getGameData()` and onto `worldStateStore.getCurrentWorldId()` / `getWorld()?.id`. Leave lifecycle-state behavior for Phase 2.
+  Files: `src/server/core/session/SessionManager.ts`.
+
+- [x] Move protected system routes off `getSystemClient().getGameData()` / `getSceneData()`. `/system`, `/system/data`, and `/system/scenes` should read through `WorldStateStore`.
+  Files: `src/server/routes/protected/registerSystemRoutes.ts`.
+
+- [x] Move `SystemService` bootstrap/system-id reads and adapter lookup preconditions to `worldStateStore.getSystem()`. `getSystemAdapter()` stays socket-backed until ADR-0017.
+  Files: `src/server/core/system/SystemService.ts`.
+
+- [x] Replace `ClientSocket` service-client `getGameData()?.users` and world-id checks with `userStore` / `WorldStateStore` reads, retaining the existing probe fallback for user discovery.
+  Files: `src/server/core/foundry/sockets/ClientSocket.ts`.
+
+- [x] Keep the public `RouteFoundryClient.getSystem()` facade, but implement it from `worldStateStore.getSystem()` instead of `client.getSystem()`. Leave `client.getSystemAdapter()` in `filterActorUpdatePayload()` until ADR-0017.
+  Files: `src/server/shared/utils/createRouteFoundryClient.ts`, `src/server/shared/types/actors.ts`, `src/server/shared/types/requestContext.ts`.
+
+- [x] Adjust socket-facing types so migrated readers no longer require `getGameData()` / `getSceneData()` / `getSystemConfig()` from the system client. Keep request-facing `getSystem()` where services/modules use it as a facade.
+  Files: `src/server/shared/types/foundry.ts`, `src/server/core/foundry/interfaces.ts`, `src/server/shared/types/requestContext.ts`.
+
+- [x] Verify Phase 1 with unit/type checks and source audits. Remaining audit hits are allowed only in `CoreSocket`, `WorldStateStore`, phase-documented compatibility shims, and synthetic unit-test data.
+  Commands: `npm run test:unit`; `npx tsc --noEmit`; `rg -n "getSystemClient\(\)\.(getGameData|getSceneData|getSystem\b|getSystemConfig|gameDataCache|sceneDataCache|probeWorldData|probeUserCount|cachedWorldData|cachedWorlds)" src/server`; `rg -n "\.(getGameData|getSceneData|getSystemConfig)\(" src/server`; `rg -n "gameDataCache|sceneDataCache|probeWorldData|probeUserCount|cachedWorldData|cachedWorlds" src/server`.
+
+**Non-goals for Phase 1:**
+
+- No lifecycle timing change and no delayed-`active` behavior. Phase 2 introduces `WorldLifecycleStore`; ADR-0017 changes transition timing.
+- No adapter migration. `getSystemAdapter()` / `loadSystemAdapter()` stay until ADR-0017.
+- No `SharedContentStore`; that is Phase 3.
+- No compendium, UUID resolver, URL utility, or session-state split work.
+- No deletion of the Store-backed socket compatibility shims until Phase 5.
+
+**Exit for Phase 1:** `WorldStateStore` and typed v13 world-state contracts exist; `CoreSocket` seeds the Store and exposes only temporary Store-backed compatibility shims for the old world-state getters; status, session, system routes, system bootstrap reads, `ClientSocket` world-id/user-discovery reads, and `RouteFoundryClient.getSystem()` no longer read non-document world state from the socket; `npm run test:unit`, `npx tsc --noEmit`, and the Phase 1 source audits pass under the allowed-hit policy.
+
+**Phase 1 closed (May 18, 2026).** All action items above ticked. Verification passed: `npx tsc --noEmit`, `npm run test:unit`, `git diff --check`, and the Phase 1 source audits. The remaining `gameDataCache` / `sceneDataCache` / probe/cache field hits are isolated to `CoreSocket` internals and `WorldStateStore`; the remaining `getSceneData()` method hit is the temporary Store-backed `CoreSocket` compatibility shim plus Store call sites.
 
 ---
 
@@ -313,7 +395,7 @@ Adjacent ADRs from other arcs:
 
 Validated at the Store-contract layer and at the migration boundary:
 
-- Base-contract unit tests against `WorldStateStore` assert `seed(rawGameData)` correctly populates every typed accessor, that `clear(reason)` resets all fields, and that the typed accessors return the documented shapes for representative dumps (use `temp/game-data-dump-example*.json` from the audit as test fixtures, copied into `src/tests/fixtures/` as part of this ADR).
+- Base-contract unit tests against `WorldStateStore` assert `seed(rawGameData)` correctly populates every typed accessor, that `clear(reason)` resets all fields, and that the typed accessors return the documented shapes using the synthetic fixture shape documented in *World-state test data policy*. Real audit dump data must not be copied into tracked test fixtures.
 - `WorldLifecycleStore` unit tests assert the state-machine transition rules and that `transition` events fire with `{ from, to, reason }`.
 - `SharedContentStore` unit tests assert `set` / `clear` semantics and the `sharedContentChanged` event surface.
 - Migration audit uses targeted `rg` checks instead of one broad grep:
@@ -330,7 +412,7 @@ Validated at the Store-contract layer and at the migration boundary:
 
 This ADR is fulfilled when the non-document world-state foundation is in place and the rest of the ADR-0014 arc has a clean base to build on.
 
-- [ ] Phase 1: `WorldStateStore` + typed shapes (`core/world/types.ts`) + readers migrated.
+- [x] Phase 1: `WorldStateStore` + typed shapes (`core/world/types.ts`) + readers migrated.
 - [ ] Phase 2: `WorldLifecycleStore` + lifecycle-state migration from `CoreSocket.worldState`.
 - [ ] Phase 3: `SharedContentStore` + `SocketBase.setupSharedContentListeners` writes through to the Store + `getSharedContent` removed.
 - [ ] Phase 4: File-layout outliers — `compendium-cache.ts` renamed and moved to `core/compendium/CompendiumCache.ts`; `classes/Roll.ts` flattened to `foundry/Roll.ts`; `SetupManager.ts` moved to `core/world/`; `instance.ts` audited (deleted if unused).

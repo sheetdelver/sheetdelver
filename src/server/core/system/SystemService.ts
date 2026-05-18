@@ -7,6 +7,7 @@ import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
 import { getAdapter, getRegisteredModules } from '@modules/registry/server';
 import { discoveryService } from '../foundry/DiscoveryService';
 import { CompendiumCache } from '../foundry/compendium-cache';
+import { worldStateStore } from '@server/core/world/WorldStateStore';
 import { clearDocumentCache, seedDocumentCache } from '../documents/primary/PrimaryDocumentCacheCoordinator';
 import { actorStore } from '../documents/primary/actors/ActorStore';
 import { chatMessageStore } from '../documents/primary/chat-messages/ChatMessageStore';
@@ -268,7 +269,9 @@ export class SystemService extends EventEmitter {
                 await cache.initialize(client);
 
                 // 2. Declarative Discovery (Sharding)
-                const sysInfo = await client.getSystem();
+                // System metadata is now read from WorldStateStore; CoreSocket
+                // remains the transport used by compendium/discovery calls.
+                const sysInfo = worldStateStore.getSystem();
                 if (sysInfo?.id) {
                     const sysId = sysInfo.id.toLowerCase();
                     const registered = getRegisteredModules({ includeExperimental: true });
@@ -326,7 +329,9 @@ export class SystemService extends EventEmitter {
 
     public async getAdapter(): Promise<any> {
         if (!this.systemClient) return null;
-        const sysInfo = await this.systemClient.getSystem();
+        // Adapter resolution depends on the active world's system id, but the
+        // adapter lifecycle/cached reference moves later with ADR-0017.
+        const sysInfo = worldStateStore.getSystem();
         if (!sysInfo?.id) return null;
         return getAdapter(sysInfo.id.toLowerCase());
     }

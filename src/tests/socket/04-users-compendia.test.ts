@@ -38,7 +38,8 @@ export async function testUsersAndCompendia() {
         // Test 4b: gameData users snapshot
         logger.info('\n4b. Testing gameData users snapshot...');
         try {
-            await client.getGameData()['users'];
+            const gameData = client.getGameData();
+            if (!gameData?.users) throw new Error('gameData users snapshot unavailable');
             logger.info(`   ✅ Retrieved detailed user info`);
             results.tests.push({ name: 'gameData users snapshot', success: true });
         } catch (error: any) {

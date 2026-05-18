@@ -1,6 +1,7 @@
 import { getAdapter } from '@modules/registry/server';
 import { systemService } from '@core/system/SystemService';
 import { SetupManager } from '@core/foundry/SetupManager';
+import { worldStateStore } from '@server/core/world/WorldStateStore';
 import { UserRole } from '@shared/constants';
 import type { SystemStatusPayload } from '@shared/contracts/status';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
@@ -34,6 +35,9 @@ export function createStatusService(deps: StatusServiceDeps) {
     // Builds the status contract consumed by REST status and socket broadcasts.
     const getSystemStatusPayload = async (): Promise<SystemStatusPayload> => {
         const systemClient = systemService.getSystemClient() as unknown as FoundrySystemClientLike;
+        // ADR-0014 moved non-document world data to WorldStateStore. Lifecycle
+        // and actor sync token still come from CoreSocket until the later
+        // lifecycle/bootstrap phases split those responsibilities.
         let system: SystemStatusPayload['system'] = {
             id: null,
             status: systemClient.worldState === 'closed' ? 'closed' : systemClient.worldState,
@@ -42,7 +46,10 @@ export function createStatusService(deps: StatusServiceDeps) {
         let users: UserWithPresence[] = [];
 
         try {
-            const gameData = systemClient.getGameData();
+            // Full active-world status is projected from the Store snapshot.
+            // The whole snapshot is still used here because status combines
+            // world, system, scene, and user summary fields into one contract.
+            const gameData = worldStateStore.getGameDataSnapshot();
             if (gameData) {
                 const usersList = userStore.isReady() ? userStore.listWithPresence() : [];
                 const activeCount = usersList.filter((u) => u.active).length;
@@ -51,35 +58,38 @@ export function createStatusService(deps: StatusServiceDeps) {
                 system = {
                     ...gameData.system,
                     id: gameData.system?.id || null,
+                    version: gameData.system?.version ?? undefined,
                     appVersion: deps.config.app.version,
                     worldTitle: gameData.world?.title || 'Foundry VTT',
                     worldDescription: gameData.world?.description,
-                    worldBackground: systemClient.resolveUrl(gameData.world?.background),
+                    worldBackground: systemClient.resolveUrl(gameData.world?.background || undefined),
                     background: systemClient.resolveUrl(
                         gameData.system?.background ||
                         gameData.system?.worldBackground ||
                         (() => {
-                            const sceneData = systemClient.sceneDataCache;
+                            // Scene data remains a world-state projection for
+                            // now; a later phase may derive this from Scene docs.
+                            const sceneData = worldStateStore.getSceneData();
                             return sceneData?.NUEDEFAULTSCENE0?.background?.src;
                         })()
                     ),
                     nextSession: gameData.world?.nextSession,
                     status: systemClient.worldState === 'closed' ? 'closed' : (systemClient.worldState === 'active' ? 'active' : systemClient.worldState),
-                    actorSyncToken: systemClient.lastActorChange,
+                    actorSyncToken: systemClient.lastActorChange == null ? undefined : String(systemClient.lastActorChange),
                     users: { active: activeCount, total: totalCount }
                 };
                 users = usersList;
             } else {
                 // No full game data available yet.
                 // If the probe discovered the world (service account missing), surface that info.
-                const probeData = systemClient.probeWorldData;
+                const probeData = worldStateStore.getProbeData();
                 if (probeData) {
                     system.worldTitle = probeData.title || system.worldTitle;
                     system.worldDescription = probeData.description || null;
                     // Surface user count discovered by the guest probe. UserStore is
-                    // not seeded yet in this state; probeUserCount preserves the figure
+                    // not seeded yet in this state; the world Store preserves the figure
                     // for the closed/probe-only UI surface.
-                    const probeTotal = systemClient.probeUserCount ?? 0;
+                    const probeTotal = worldStateStore.getProbeUserCount();
                     system.users = { active: 0, total: probeTotal };
                 }
                 system.appVersion = deps.config.app.version;
@@ -103,9 +113,11 @@ export function createStatusService(deps: StatusServiceDeps) {
 
         return {
             connected: systemClient.isConnected,
-            worldId: systemClient.getGameData()?.world?.id || null,
+            worldId: worldStateStore.getCurrentWorldId(),
             initialized: deps.sessionManager.isCacheReady(),
-            isConfigured: !!(systemClient.cachedWorldData || (await SetupManager.loadCache()).currentWorldId),
+            // During setup/offline states, SetupManager's disk cache may be the
+            // only known configured-world source, so keep the Store/disk fallback.
+            isConfigured: !!(worldStateStore.getCachedWorldData() || (await SetupManager.loadCache()).currentWorldId),
             users: sanitizedUsers,
             system,
             url: deps.config.foundry.url,
