@@ -1,5 +1,6 @@
 import { ServerConnectionStatus } from '@shared/types/connection';
 import { FoundrySystemMeta } from '@shared/interfaces';
+import type { WorldLifecycleState } from '@server/core/world/WorldLifecycleStore';
 
 export type { FoundrySystemMeta };
 
@@ -17,7 +18,8 @@ export interface FoundryClient extends Partial<FoundryMetadataClient> {
 
     // Strict Separation
     isSocketConnected: boolean; // Physical socket connection
-    worldState: 'offline' | 'setup' | 'active'; // World Availability
+    // Compatibility read only. Use WorldLifecycleStore for lifecycle ownership.
+    worldState: WorldLifecycleState;
     isUserAuthenticated: boolean; // User Session
 
     url: string;

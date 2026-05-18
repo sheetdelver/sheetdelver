@@ -2,6 +2,7 @@ import { getAdapter } from '@modules/registry/server';
 import { systemService } from '@core/system/SystemService';
 import { SetupManager } from '@core/foundry/SetupManager';
 import { worldStateStore } from '@server/core/world/WorldStateStore';
+import { worldLifecycleStore } from '@server/core/world/WorldLifecycleStore';
 import { UserRole } from '@shared/constants';
 import type { SystemStatusPayload } from '@shared/contracts/status';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
@@ -35,12 +36,12 @@ export function createStatusService(deps: StatusServiceDeps) {
     // Builds the status contract consumed by REST status and socket broadcasts.
     const getSystemStatusPayload = async (): Promise<SystemStatusPayload> => {
         const systemClient = systemService.getSystemClient() as unknown as FoundrySystemClientLike;
-        // ADR-0014 moved non-document world data to WorldStateStore. Lifecycle
-        // and actor sync token still come from CoreSocket until the later
-        // lifecycle/bootstrap phases split those responsibilities.
+        const lifecycleState = worldLifecycleStore.getState();
+        // ADR-0014 moved non-document world data/lifecycle into Stores. The
+        // actor sync token still comes from CoreSocket until a later phase moves it.
         let system: SystemStatusPayload['system'] = {
             id: null,
-            status: systemClient.worldState === 'closed' ? 'closed' : systemClient.worldState,
+            status: lifecycleState === 'closed' ? 'closed' : lifecycleState,
             worldTitle: 'Reconnecting...'
         };
         let users: UserWithPresence[] = [];
@@ -74,7 +75,7 @@ export function createStatusService(deps: StatusServiceDeps) {
                         })()
                     ),
                     nextSession: gameData.world?.nextSession,
-                    status: systemClient.worldState === 'closed' ? 'closed' : (systemClient.worldState === 'active' ? 'active' : systemClient.worldState),
+                    status: lifecycleState === 'closed' ? 'closed' : (lifecycleState === 'active' ? 'active' : lifecycleState),
                     actorSyncToken: systemClient.lastActorChange == null ? undefined : String(systemClient.lastActorChange),
                     users: { active: activeCount, total: totalCount }
                 };

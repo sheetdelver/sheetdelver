@@ -1,6 +1,7 @@
 
 import { CoreSocket } from '@core/foundry/sockets/CoreSocket';
 import { loadConfig } from '@core/config';
+import { worldLifecycleStore } from '@server/core/world/WorldLifecycleStore';
 import * as readline from 'readline';
 import { logger } from '@shared/utils/logger';
 
@@ -36,11 +37,11 @@ export async function testWorldTransition() {
     // Give it a moment to probe
     await new Promise(r => setTimeout(r, 2000));
 
-    logger.info(`Current World State: ${client.worldState}`);
-    if (client.worldState === 'setup') {
+    logger.info(`Current World State: ${worldLifecycleStore.getState()}`);
+    if (worldLifecycleStore.isState('setup')) {
         logger.info('✅  Detected Setup Mode correctly.');
     } else {
-        logger.info(`❌  Expected 'setup', got '${client.worldState}'`);
+        logger.info(`❌  Expected 'setup', got '${worldLifecycleStore.getState()}'`);
     }
 
     logger.info('\n--- Step 2: Start World ---');
@@ -52,8 +53,8 @@ export async function testWorldTransition() {
     // Poll for state changes
     let attempts = 0;
     let startupLogged = false;
-    while (client.worldState !== 'active' && attempts < 20) {
-        if (!startupLogged && client.worldState === 'startup') {
+    while (!worldLifecycleStore.isState('active') && attempts < 20) {
+        if (!startupLogged && worldLifecycleStore.isState('startup')) {
             logger.info('✅  Detected Startup State (World Starting...)');
             startupLogged = true;
         }
@@ -63,10 +64,10 @@ export async function testWorldTransition() {
     }
     logger.info('');
 
-    if (client.worldState === 'active') {
+    if (worldLifecycleStore.isState('active')) {
         logger.info(`✅  Detected Active World: "${client.cachedWorldData?.worldTitle || 'Unknown'}"`);
     } else {
-        logger.error(`❌  Failed to detect active world. State: ${client.worldState}`);
+        logger.error(`❌  Failed to detect active world. State: ${worldLifecycleStore.getState()}`);
     }
 
     logger.info('\n--- Step 3: Shutdown World ---');
@@ -77,19 +78,20 @@ export async function testWorldTransition() {
     // The heartbeat is 15s. We'll wait up to 30s.
     attempts = 0;
     const maxWait = 30; // seconds
-    const startState = client.worldState;
+    const startState = worldLifecycleStore.getState();
+    void startState;
 
-    while (client.worldState === 'active' && attempts < maxWait) {
+    while (worldLifecycleStore.isState('active') && attempts < maxWait) {
         await new Promise(r => setTimeout(r, 1000));
         process.stdout.write('.');
         attempts++;
     }
     logger.info('');
 
-    if (client.worldState === 'setup' || client.worldState === 'offline') {
-        logger.info(`✅  Detected State Change to: ${client.worldState}`);
+    if (worldLifecycleStore.isState('setup') || worldLifecycleStore.isState('offline')) {
+        logger.info(`✅  Detected State Change to: ${worldLifecycleStore.getState()}`);
     } else {
-        logger.info(`❌  Failed to detect shutdown. State remains: ${client.worldState}`);
+        logger.info(`❌  Failed to detect shutdown. State remains: ${worldLifecycleStore.getState()}`);
     }
 
     client.disconnect();

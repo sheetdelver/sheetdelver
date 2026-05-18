@@ -19,6 +19,7 @@ import { userStore } from '@server/core/documents/primary/users/UserStore';
 import { userPresence } from '@server/core/documents/primary/users/UserPresence';
 import { modifyDocumentRouter } from '@server/core/documents/primary/base/modifyDocumentRouter';
 import { worldStateStore } from '@server/core/world/WorldStateStore';
+import { worldLifecycleStore, type WorldLifecycleState } from '@server/core/world/WorldLifecycleStore';
 // Side-effect import: registers Stores with the coordinator and router.
 import '@server/core/documents/primary/PrimaryDocumentCacheCoordinator';
 import { PrimaryDocumentCacheNotReadyError } from '@server/core/documents/primary/errors';
@@ -28,7 +29,15 @@ import path from 'node:path';
 
 
 export class CoreSocket extends SocketBase implements FoundryMetadataClient {
-    public worldState: 'offline' | 'setup' | 'startup' | 'active' | 'closed' = 'offline';
+    // Compatibility read for legacy callers/tests. The authoritative lifecycle
+    // owner is WorldLifecycleStore; new code should import the Store directly.
+    public get worldState(): WorldLifecycleState {
+        return worldLifecycleStore.getState();
+    }
+
+    private setWorldState(next: WorldLifecycleState, reason: string): void {
+        worldLifecycleStore.setState(next, reason);
+    }
 
     // ADR-0014 Phase 1: these legacy mirrors remain for CoreSocket internals
     // and compendium/bootstrap code during the transition. WorldStateStore is
@@ -210,7 +219,7 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
             const isGenericOrErrorTitle = !pageTitle || pageTitle === 'Foundry Virtual Tabletop' || pageTitle.includes('Critical Failure');
 
             if (isSetupMatch || (!csrfToken && isGenericOrErrorTitle)) {
-                this.worldState = 'setup';
+                this.setWorldState('setup', 'handshake-setup-or-gray');
                 
                 // Fast-Retry logic: Steady 1s detection for the first 30 seconds, then decay
                 let backoffMs = 5000 * Math.pow(2, Math.min(this.retryCount - 30, 4));
@@ -233,7 +242,7 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
             // If we have a specific world title, transition to STARTUP immediately to give UI feedback
             // This happens before the potentially slow Probe/Login steps.
             if (pageTitle && !isGenericOrErrorTitle && this.worldState !== 'active') {
-                this.worldState = 'startup';
+                this.setWorldState('startup', 'handshake-world-title-detected');
                 logger.info(`CoreSocket | World Detected (${pageTitle}). Transitioning to startup...`);
             }
 
@@ -246,7 +255,7 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
                 // Stay in 'startup' — world is alive but we haven't completed login yet.
                 // Do NOT set 'active' here; that only happens after the socket connects
                 // and getWorldStatus() confirms the world is fully active.
-                this.worldState = 'startup';
+                this.setWorldState('startup', 'probe-world-discovered');
                 this.probeWorldData = joinData.world;  // Cache for UI surface during recovery
                 this.probeUserCount = Array.isArray(joinData.users) ? joinData.users.length : 0;
                 // Probe data is pre-bootstrap state: enough for status UI when
@@ -256,7 +265,7 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
                 // only for service-account name resolution (below). UserStore is seeded
                 // properly at the gameData step after the main socket connects.
             } else {
-                this.worldState = 'offline';
+                this.setWorldState('offline', 'probe-world-missing');
 
                 // Fast-Retry logic: If we just disconnected, try 3 times 1s apart
                 let backoffMs = 5000 * Math.pow(2, Math.min(this.retryCount, 4));
@@ -288,7 +297,7 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
                     // Surface world info and halt retries until admin intervention.
                     const availableUsers = probeUsers.map((u: any) => `${u.name} (role: ${u.role})`).join(', ');
                     logger.error(`CoreSocket | Service account "${this.config.username}" not found in world "${this.probeWorldData?.title || 'unknown'}".\nAvailable users: [${availableUsers || 'none'}].\nWorld state set to 'closed'. No further retries until admin action.\nAdmin action required: Create or configure the service account in Foundry, then trigger a manual retry from the admin backend.`);
-                    this.worldState = 'closed'; // New state for unavailable world
+                    this.setWorldState('closed', 'service-account-missing');
                     // Optionally, emit an event or notify admin backend here
                     return;
                 }
@@ -339,7 +348,7 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
                     const isActive = await this.getWorldStatus();
                     if (!isActive) {
                         logger.warn('CoreSocket | Socket connected but world is NOT active.');
-                        this.worldState = 'setup';
+                        this.setWorldState('setup', 'socket-connected-world-not-active');
                         this.gameDataCache = null; // Clear potential stale cache
                         this.sceneDataCache = null; // Clear scene cache
                         worldStateStore.clearRuntimeState('world-setup');
@@ -353,7 +362,7 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
                     }
 
                     logger.info('CoreSocket | World is ACTIVE. Fetching game data via socket...');
-                    this.worldState = 'active';
+                    this.setWorldState('active', 'foundry-world-active');
                     this.probeWorldData = null;  // Full connection established; probe cache no longer needed
                     this.probeUserCount = 0;
                     worldStateStore.clearProbeData();
@@ -418,7 +427,7 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
                     
                     // Don't overwrite setup state if we manually triggered it via heartbeat
                     if (this.worldState !== 'setup') {
-                        this.worldState = 'offline';
+                        this.setWorldState('offline', 'socket-disconnect');
                     }
                     this.gameDataCache = null; // Clear cache to prevent stale data
                     this.sceneDataCache = null; // Clear scene cache
@@ -436,7 +445,7 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
 
                 this.socket.on('shutdown', () => {
                     logger.warn('CoreSocket | Native Shutdown signal received from Foundry. World is closing.');
-                    this.worldState = 'setup';
+                    this.setWorldState('setup', 'foundry-shutdown');
                     this.disconnect();
                     // Don't immediately reconnect if shutdown was graceful, wait for heartbeat to see when setup is live
                     this.startHeartbeat(true); 
@@ -525,7 +534,7 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
 
         } catch (error: unknown) {
             logger.error(`CoreSocket | Connection flow failed: ${getErrorMessage(error)}`);
-            this.worldState = 'offline';
+            this.setWorldState('offline', 'connection-flow-failed');
             // Retry on error
             setTimeout(() => this.connect(), 5000);
         } finally {
@@ -560,7 +569,7 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
                     // Only log transition if we weren't already aware we were in Setup
                     if (this.worldState !== 'setup') {
                         logger.warn(`CoreSocket | Heartbeat detected transition to Setup/Gray State (Title="${pageTitle}"). Restarting connection flow...`);
-                        this.worldState = 'setup';
+                        this.setWorldState('setup', 'heartbeat-setup-or-gray');
                         this.disconnect();
                         this.connect();
                         return;
@@ -611,7 +620,7 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
 
             // Only drop to offline if we haven't explicitly transitioned to setup
             if (this.worldState !== 'setup') {
-                this.worldState = 'offline';
+                this.setWorldState('offline', 'explicit-disconnect');
             }
 
             this.gameDataCache = null;

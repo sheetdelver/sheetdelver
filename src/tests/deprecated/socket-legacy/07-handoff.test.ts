@@ -2,6 +2,7 @@
 import { CoreSocket } from '@core/foundry/sockets/CoreSocket';
 import { ClientSocket } from '@core/foundry/sockets/ClientSocket';
 import { loadConfig } from '@core/config';
+import { worldLifecycleStore } from '@server/core/world/WorldLifecycleStore';
 import * as readline from 'readline';
 
 async function prompt(question: string, mask: boolean = false): Promise<string> {
@@ -91,8 +92,8 @@ export async function testConnectionHandoff() {
 
         const backgroundPoll = setInterval(async () => {
             try {
-                const sys = await core;
-                logger.info(`   [Background] Polling status | worldState: ${sys.worldState}`);
+                await core;
+                logger.info(`   [Background] Polling status | worldState: ${worldLifecycleStore.getState()}`);
             } catch (e: any) {
                 logger.info(`   [Background] ⚠️ Poll failed: ${e.message}`);
             }

@@ -9,6 +9,7 @@ import crypto from 'node:crypto';
 import { persistentCache } from '../cache/PersistentCache';
 import { systemService } from '../system/SystemService';
 import { worldStateStore } from '@server/core/world/WorldStateStore';
+import { worldLifecycleStore } from '@server/core/world/WorldLifecycleStore';
 
 interface Session {
     id: string;
@@ -104,8 +105,8 @@ export class SessionManager {
         const session = this.sessions.get(sessionId);
 
         // Defer validation if world is not yet active/discovered
-        const worldState = systemService.getSystemClient().worldState;
-        if (worldState === 'setup' || worldState === 'offline') {
+        const lifecycleState = worldLifecycleStore.getState();
+        if (lifecycleState === 'setup' || lifecycleState === 'offline') {
             if (session) {
                 // Return existing session from memory, but avoid world ID checks
                 session.lastActive = Date.now();
@@ -124,9 +125,9 @@ export class SessionManager {
             // a mismatch is enforceable once WorldStateStore knows the world id.
             const currentWorldId = worldStateStore.getCurrentWorldId();
 
-            if (!currentWorldId || systemService.getSystemClient().worldState !== 'active') {
+            if (!currentWorldId || lifecycleState !== 'active') {
                 // No world data available or world still starting up - defer validation
-                logger.debug(`SessionManager | World not fully active (${systemService.getSystemClient().worldState}). Deferring validation for session ${sessionId}.`);
+                logger.debug(`SessionManager | World not fully active (${lifecycleState}). Deferring validation for session ${sessionId}.`);
                 session.lastActive = Date.now();
                 return session;
             }
@@ -196,7 +197,8 @@ export class SessionManager {
             // Check World State via System Provider
             let currentWorldId = worldStateStore.getCurrentWorldId();
 
-            if (!currentWorldId && (systemService.getSystemClient().worldState === 'startup' || systemService.getSystemClient().worldState === 'active')) {
+            const lifecycleState = worldLifecycleStore.getState();
+            if (!currentWorldId && (lifecycleState === 'startup' || lifecycleState === 'active')) {
                 logger.debug(`SessionManager | World not yet stable. Waiting for ID to restore session ${username}...`);
                 for (let i = 0; i < 5; i++) {
                     await this.waitForRestoreBackoff(i);
@@ -213,7 +215,7 @@ export class SessionManager {
             }
 
             if (!currentWorldId) {
-                logger.debug(`SessionManager | Deferring restoration for ${username} - World ID still unknown. (State: ${systemService.getSystemClient().worldState})`);
+                logger.debug(`SessionManager | Deferring restoration for ${username} - World ID still unknown. (State: ${lifecycleState})`);
                 return null; 
             }
 

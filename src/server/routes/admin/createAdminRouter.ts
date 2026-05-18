@@ -856,9 +856,10 @@ export function createAdminRouter(deps: AdminRouterDeps) {
     adminRouter.post('/world/retry', requireAdminAccountExists, requireAdminAuth, requireAdminCsrf, auditAdminAction, async (req, res) => {
         try {
             const { systemService } = await import('@core/system/SystemService');
+            const { worldLifecycleStore } = await import('@server/core/world/WorldLifecycleStore');
             // Only allow retry if world is closed
             const client = systemService.getSystemClient();
-            if (client && (client.worldState === 'closed')) {
+            if (client && worldLifecycleStore.isState('closed')) {
                 await client.connect();
                 // client.emit('connect');
                 res.json({ success: true, message: 'Manual retry triggered. Attempting to reconnect to world.' });

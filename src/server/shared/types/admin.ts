@@ -4,7 +4,6 @@ export type WorldEntry = Partial<WorldData>;
 
 export interface AdminStatusClientLike {
     isConnected: boolean;
-    worldState?: string;
     userId?: string | null;
     isExplicitSession?: boolean;
     discoveredUserId?: string | null;

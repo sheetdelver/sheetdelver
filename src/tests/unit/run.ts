@@ -54,6 +54,7 @@ import { run as runModuleManagerTelemetry } from './module-manager-telemetry.tes
 import { run as runSdkIntegrity } from './sdk-integrity.test';
 import { run as runModuleInitScaffold } from './module-init-scaffold.test';
 import { run as runWorldStateStore } from './world-state-store.test';
+import { run as runWorldLifecycleStore } from './world-lifecycle-store.test';
 
 async function runAllUnitTests() {
     // Initialize test data directory before running any tests
@@ -93,6 +94,7 @@ async function runAllUnitTests() {
     await runCardsStore();
     await runStubStores();
     await runWorldStateStore();
+    await runWorldLifecycleStore();
     await runClientSocketTransport();
     await runRealtimeBroadcaster();
     await runAppSocketGateway();

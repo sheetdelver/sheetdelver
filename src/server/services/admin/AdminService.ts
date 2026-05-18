@@ -1,6 +1,7 @@
 import { logger } from '@shared/utils/logger';
 import { systemService } from '@core/system/SystemService';
 import { SetupManager } from '@core/foundry/SetupManager';
+import { worldLifecycleStore } from '@server/core/world/WorldLifecycleStore';
 import type {
     AdminServiceDeps,
     AdminServiceResult,
@@ -16,7 +17,7 @@ export function createAdminService(deps: AdminServiceDeps): AdminServiceResult {
         return {
             ...systemStatus,
             socket: client.isConnected,
-            worldState: client.worldState,
+            worldState: worldLifecycleStore.getState(),
             userId: client.userId,
             isExplicit: client.isExplicitSession,
             discoveredUserId: client.discoveredUserId

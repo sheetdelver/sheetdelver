@@ -312,6 +312,47 @@ Phase 1 introduces `WorldStateStore` and the typed v13 world-state contract. `Co
 
 **Phase 1 closed (May 18, 2026).** All action items above ticked. Verification passed: `npx tsc --noEmit`, `npm run test:unit`, `git diff --check`, and the Phase 1 source audits. The remaining `gameDataCache` / `sceneDataCache` / probe/cache field hits are isolated to `CoreSocket` internals and `WorldStateStore`; the remaining `getSceneData()` method hit is the temporary Store-backed `CoreSocket` compatibility shim plus Store call sites.
 
+### Phase 2: WorldLifecycleStore and lifecycle reader migration
+
+**Status:** Closed May 18, 2026.
+
+Phase 2 introduces `WorldLifecycleStore` as the authoritative owner for world lifecycle state (`offline | setup | startup | active | closed`). This phase is behavior-preserving: `CoreSocket.connect()` still drives the same transitions at the same points in the existing connection flow. The difference is ownership and reader direction. CoreSocket writes lifecycle transitions into the Store; routes/services/admin/session/status code read lifecycle state from the Store instead of `CoreSocket.worldState`. The public `CoreSocket.worldState` compatibility getter may remain temporarily for legacy/manual tooling, but it is Store-backed and new code must not read lifecycle state from the socket.
+
+**Action items:**
+
+- [x] Add `WorldLifecycleStore` with typed state values, snapshot access, idempotent `setState(next, reason)`, `reset(reason)`, and `transition` events carrying `{ from, to, reason, at }`.
+  Files: `src/server/core/world/WorldLifecycleStore.ts`, `src/server/core/world/index.ts`.
+
+- [x] Add unit coverage for initial state, transition event emission, idempotent same-state writes, defensive transition snapshots, and reset-to-offline behavior.
+  Files: `src/tests/unit/world-lifecycle-store.test.ts`, `src/tests/unit/run.ts`.
+
+- [x] Make `CoreSocket` write lifecycle transitions through a single Store-backed helper. Keep existing transition timing and retry behavior unchanged; do not implement delayed-`active` semantics in this phase.
+  Files: `src/server/core/foundry/sockets/CoreSocket.ts`.
+
+- [x] Replace lifecycle reads in status projection, session validation/restoration, system-service bootstrap gating, admin status, and manual retry gating with `worldLifecycleStore.getState()` / `isState()`.
+  Files: `src/server/services/status/StatusService.ts`, `src/server/core/session/SessionManager.ts`, `src/server/core/system/SystemService.ts`, `src/server/services/admin/AdminService.ts`, `src/server/routes/admin/createAdminRouter.ts`, `src/server/shared/types/foundry.ts`.
+
+- [x] Update socket-facing lifecycle types and tests/manual tooling so they no longer depend on `getSystemClient().worldState` or other direct socket lifecycle reads.
+  Files: `src/server/core/foundry/interfaces.ts`, `src/tests/socket/03-world-transition.test.ts`, `src/tests/deprecated/socket-legacy/07-handoff.test.ts`.
+
+- [x] Bridge lifecycle transitions into existing status fan-out by having `SystemService` emit `system:status-update` when `WorldLifecycleStore` transitions.
+  Files: `src/server/core/system/SystemService.ts`.
+
+- [x] Verify Phase 2 with unit/type checks and source audits. Remaining direct `.worldState` hits are allowed only inside `CoreSocket` as the Store-backed compatibility getter/internal state-machine read, or in type/interface declarations documenting compatibility.
+  Commands: `npm run test:unit`; `npx tsc --noEmit`; `rg -n "getSystemClient\(\)\.worldState|client\.worldState|systemClient\.worldState|sys\.worldState|core\.worldState" src/server src/tests`; `rg -n "\.worldState\b" src/server`.
+
+**Non-goals for Phase 2:**
+
+- No lifecycle timing change. `active` still mirrors the current CoreSocket timing until ADR-0017 moves bootstrap orchestration and delays `active` until Sheet Delver is ready.
+- No adapter migration. `getSystemAdapter()` / `loadSystemAdapter()` stay until ADR-0017.
+- No `SharedContentStore`; that is Phase 3.
+- No deletion of the Store-backed `CoreSocket.worldState` compatibility getter while legacy/manual tooling may still use it.
+- No compendium, UUID resolver, URL utility, engagement-service, heartbeat-policy, or session-state split work.
+
+**Exit for Phase 2:** `WorldLifecycleStore` exists and is exported from `core/world`; CoreSocket writes lifecycle transitions into the Store; status, session, system-service, admin, and test readers no longer read lifecycle state from `CoreSocket`; lifecycle transition events reach the existing status broadcaster through `SystemService`; `npm run test:unit`, `npx tsc --noEmit`, and the Phase 2 source audits pass under the allowed-hit policy.
+
+**Phase 2 closed (May 18, 2026).** All action items above ticked. Verification passed: `npx tsc --noEmit`, `npm run test:unit`, and the Phase 2 source audits. The broad direct `.worldState` audit now hits only `CoreSocket`'s Store-backed compatibility/internal reads under the allowed-hit policy; the targeted external-reader audit returns no hits.
+
 ---
 
 ## Alternatives Considered
@@ -413,7 +454,7 @@ Validated at the Store-contract layer and at the migration boundary:
 This ADR is fulfilled when the non-document world-state foundation is in place and the rest of the ADR-0014 arc has a clean base to build on.
 
 - [x] Phase 1: `WorldStateStore` + typed shapes (`core/world/types.ts`) + readers migrated.
-- [ ] Phase 2: `WorldLifecycleStore` + lifecycle-state migration from `CoreSocket.worldState`.
+- [x] Phase 2: `WorldLifecycleStore` + lifecycle-state migration from `CoreSocket.worldState`.
 - [ ] Phase 3: `SharedContentStore` + `SocketBase.setupSharedContentListeners` writes through to the Store + `getSharedContent` removed.
 - [ ] Phase 4: File-layout outliers — `compendium-cache.ts` renamed and moved to `core/compendium/CompendiumCache.ts`; `classes/Roll.ts` flattened to `foundry/Roll.ts`; `SetupManager.ts` moved to `core/world/`; `instance.ts` audited (deleted if unused).
 - [ ] Phase 5: Remove `getGameData` / `getSceneData` / `getSystem` / `getSystemConfig` from `CoreSocket`; remove matching `getSystem` / `getSystemConfig` delegation methods from `ClientSocket`; remove `getSystemConfig` declaration from `interfaces.ts`'s `FoundryMetadataClient`. Leave `getSystemAdapter` / `loadSystemAdapter` / cached `this.adapter` on `CoreSocket` and the `getSystemAdapter` delegation on `ClientSocket` (ADR-0017 removes them alongside the new `WorldBootstrapper.getActiveAdapter()`).

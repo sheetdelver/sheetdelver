@@ -8,6 +8,7 @@ import { getAdapter, getRegisteredModules } from '@modules/registry/server';
 import { discoveryService } from '../foundry/DiscoveryService';
 import { CompendiumCache } from '../foundry/compendium-cache';
 import { worldStateStore } from '@server/core/world/WorldStateStore';
+import { worldLifecycleStore } from '@server/core/world/WorldLifecycleStore';
 import { clearDocumentCache, seedDocumentCache } from '../documents/primary/PrimaryDocumentCacheCoordinator';
 import { actorStore } from '../documents/primary/actors/ActorStore';
 import { chatMessageStore } from '../documents/primary/chat-messages/ChatMessageStore';
@@ -199,6 +200,12 @@ export class SystemService extends EventEmitter {
                 targetUserIds: event.targetUserIds,
             });
         });
+
+        // Phase 2 lifecycle Store bridge. Consumers still listen to
+        // SystemService events; the state source is no longer CoreSocket.
+        worldLifecycleStore.on('transition', () => {
+            this.emit('system:status-update');
+        });
     }
 
     public static getInstance(): SystemService {
@@ -230,7 +237,7 @@ export class SystemService extends EventEmitter {
     }
 
     private handleConnect() {
-        const state = this.systemClient?.worldState;
+        const state = worldLifecycleStore.getState();
         logger.info(`SystemService | System Client connected. World State: ${state}`);
         
         this.emit('world:connected', { state });
