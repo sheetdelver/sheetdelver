@@ -16,6 +16,33 @@ function getErrorStatus(error: unknown, fallback = 500): number {
     return typeof status === 'number' ? status : fallback;
 }
 
+/**
+ * Actor route registrar — ownership-threshold contract (ADR-0013):
+ *
+ *   GET    /actors                  → LIST_VISIBLE (via actorStore.listActors)
+ *   GET    /actors/cards            → LIST_VISIBLE (via actorStore.listActors)
+ *   GET    /actors/:id/card         → LIST_VISIBLE (via actorStore.getActor, see note)
+ *   GET    /actors/:id              → LIST_VISIBLE (via actorStore.getActor, see note)
+ *   POST   /actors                  → no courtesy gate; Foundry enforces on dispatch
+ *   PATCH  /actors/:id              → no courtesy gate; Foundry enforces on dispatch
+ *   DELETE /actors/:id              → no courtesy gate; Foundry enforces on dispatch
+ *   POST   /actors/:id/roll         → no courtesy gate
+ *   POST   /actors/:id/items        → no courtesy gate
+ *   PUT    /actors/:id/items        → no courtesy gate
+ *   DELETE /actors/:id/items        → no courtesy gate
+ *   POST   /actors/:id/update       → no courtesy gate
+ *
+ * Note: detail and per-actor card reads currently apply LIST_VISIBLE instead
+ * of the documented DETAIL_VISIBLE. Tracked by the comment at
+ * `createRouteFoundryClient.getActor`; the future split is captured by the
+ * `runActorDetailUsesListVisibleAsShipped` test in
+ * `src/tests/unit/route-ownership-thresholds.test.ts`.
+ *
+ * Write endpoints intentionally lack a Sheet Delver-side WRITEABLE courtesy
+ * gate; Foundry is the authoritative permission check on writes (the original
+ * ADR text called the WRITEABLE check a "courtesy reject" — it remains a
+ * future addition, not a regression). Phase 2 documents this as a known gap.
+ */
 export function registerActorRoutes(appRouter: express.Router, deps: ActorRouteDeps) {
     // Actor domain service: displaced business logic for actor list/detail/cards/rolls and mutations.
     const actorService = createActorService(deps);

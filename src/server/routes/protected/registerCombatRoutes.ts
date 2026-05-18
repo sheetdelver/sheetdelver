@@ -7,6 +7,24 @@ interface CombatRouteDeps {
     normalizeActors: (actorList: any[], client: any) => Promise<any[]>;
 }
 
+/**
+ * Combat route registrar — ownership-threshold contract (ADR-0013):
+ *
+ *   GET  /combats                                    → LIST_VISIBLE
+ *                                                       (via combatStore.list; visibility derives from
+ *                                                        actorStore.canReadActor per non-hidden combatant)
+ *   POST /combats/:id/next-turn                      → isAssistantGM OR actorStore.canReadActor(active, WRITEABLE)
+ *                                                       (CombatService.isAuthorizedForCombatTurn; ADR-0013 Phase 1)
+ *   POST /combats/:id/previous-turn                  → isAssistantGM only
+ *                                                       (rewind is GM-only)
+ *   POST /combats/:id/combatants/:combatantId/roll-initiative
+ *                                                    → no courtesy gate; Foundry enforces on dispatch
+ *
+ * Verified by `runCombatListVisibilityCrossesActorStore` in
+ * `src/tests/unit/route-ownership-thresholds.test.ts`, and the existing
+ * `runCombatReadActionSmoke` cases in `actor-combat-smoke.test.ts` cover
+ * turn-advancement authorization at OWNER / OBSERVER / non-owner bands.
+ */
 export function registerCombatRoutes(appRouter: express.Router, deps: CombatRouteDeps) {
     // Combat domain service: displaced logic for listing, turn control, and initiative rolls.
     const combatService = createCombatService(deps);

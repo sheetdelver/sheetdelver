@@ -42,9 +42,10 @@ function clampResolvedLevel(level: DocumentOwnershipLevel): ResolvedDocumentOwne
  *
  * Folder membership is via the document-side `folder` id. JournalStore does not
  * hold Folder docs — `FolderStore` is the source of truth for the folder tree.
- * If Foundry ever confirms folder permission gates entry visibility, route the
- * check through `FolderStore.canReadDocument(folderId, subject, LIST_VISIBLE)`
- * rather than reimplementing the permission walk.
+ * Folder permissions do not dynamically gate JournalEntry visibility in Foundry
+ * v13; folder-level "Configure Ownership" behavior should be modeled as bulk
+ * ownership updates on the affected JournalEntry documents, not as a read-time
+ * join through FolderStore.
  *
  * Embedded children: `JournalEntryPage` arrives with `parentUuid: JournalEntry.<id>`.
  */

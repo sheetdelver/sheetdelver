@@ -20,6 +20,7 @@ import { run as runJournalStore } from './journal-store.test';
 import { run as runCombatStore } from './combat-store.test';
 import { run as runItemStore } from './item-store.test';
 import { run as runOwnershipHelpers } from './ownership.test';
+import { run as runRouteOwnershipThresholds } from './route-ownership-thresholds.test';
 import { run as runRollTableStore } from './roll-table-store.test';
 import { run as runMacroStore } from './macro-store.test';
 import { run as runPlaylistStore } from './playlist-store.test';
@@ -84,6 +85,7 @@ async function runAllUnitTests() {
     await runCombatStore();
     await runItemStore();
     await runOwnershipHelpers();
+    await runRouteOwnershipThresholds();
     await runRollTableStore();
     await runMacroStore();
     await runPlaylistStore();

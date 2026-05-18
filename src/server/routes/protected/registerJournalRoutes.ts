@@ -3,6 +3,22 @@ import { createJournalService } from '@server/services/journals/JournalService';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
 import { isErrorPayload } from '@server/shared/utils/isErrorPayload';
 
+/**
+ * Journal route registrar — ownership-threshold contract (ADR-0013):
+ *
+ *   GET    /journals       → LIST_VISIBLE (via journalStore.list)
+ *                            Folder list filtered to ancestors of any visible
+ *                            journal; ASSISTANT-GM bypasses to see all folders.
+ *   GET    /journals/:id   → DETAIL_VISIBLE on entry + per-page (visiblePages)
+ *                            Journal is the one type where the LIST/DETAIL
+ *                            split is fully realized today.
+ *   POST   /journals       → no courtesy gate; Foundry enforces on dispatch
+ *   PATCH  /journals/:id   → no courtesy gate
+ *   DELETE /journals/:id   → no courtesy gate
+ *
+ * Verified by `runJournalListVsDetailThresholdsDiverge` in
+ * `src/tests/unit/route-ownership-thresholds.test.ts`.
+ */
 export function registerJournalRoutes(appRouter: express.Router) {
     // Journal domain service: displaced logic for visibility-filtered listing and CRUD operations.
     const journalService = createJournalService();
