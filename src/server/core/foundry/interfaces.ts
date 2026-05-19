@@ -1,5 +1,4 @@
 import { ServerConnectionStatus } from '@shared/types/connection';
-import type { WorldLifecycleState } from '@server/core/world/WorldLifecycleStore';
 
 export interface FoundryMetadataClient {
     getAllCompendiumIndices(): Promise<any[]>;
@@ -14,8 +13,6 @@ export interface FoundryClient extends Partial<FoundryMetadataClient> {
 
     // Strict Separation
     isSocketConnected: boolean; // Physical socket connection
-    // Compatibility read only. Use WorldLifecycleStore for lifecycle ownership.
-    worldState: WorldLifecycleState;
     isUserAuthenticated: boolean; // User Session
 
     url: string;

@@ -37,8 +37,8 @@ export function createStatusService(deps: StatusServiceDeps) {
     const getSystemStatusPayload = async (): Promise<SystemStatusPayload> => {
         const systemClient = systemService.getSystemClient() as unknown as FoundrySystemClientLike;
         const lifecycleState = worldLifecycleStore.getState();
-        // ADR-0014 moved non-document world data/lifecycle into Stores. The
-        // actor sync token still comes from CoreSocket until a later phase moves it.
+        // ADR-0014 moved non-document world data/lifecycle into Stores.
+        // ADR-0017 moves this Actor/Item sync token out of CoreSocket.
         let system: SystemStatusPayload['system'] = {
             id: null,
             status: lifecycleState === 'closed' ? 'closed' : lifecycleState,

@@ -44,8 +44,8 @@ export interface FoundryClientLike {
 export interface FoundrySystemClientLike {
     isConnected: boolean;
     // Non-document world payload fields moved to WorldStateStore in ADR-0014.
-    // Lifecycle moved to WorldLifecycleStore in Phase 2. This socket-sourced
-    // field is the sync-token leftover that a later phase still needs.
+    // Lifecycle moved to WorldLifecycleStore in ADR-0014 Phase 2. This
+    // socket-sourced field is the ADR-0017 sync-token leftover.
     lastActorChange?: string | number;
 
     resolveUrl(url?: string): string;

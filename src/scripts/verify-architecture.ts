@@ -7,6 +7,7 @@ import { logger } from '../shared/utils/logger';
 import { resolveDataDir, initDataDir, getConfigFilePath } from '../server/core/paths';
 import { primaryDocumentCacheCoordinator } from '../server/core/documents/primary/PrimaryDocumentCacheCoordinator';
 import { worldStateStore } from '../server/core/world/WorldStateStore';
+import { worldLifecycleStore } from '../server/core/world/WorldLifecycleStore';
 import {
     createSessionRouteFoundryClient,
     createSystemRouteFoundryClient,
@@ -39,7 +40,7 @@ async function verify() {
     try {
         await core.connect();
         logger.info('CoreSocket connected successfully.');
-        logger.info('World State:', core.worldState);
+        logger.info('World State:', worldLifecycleStore.getState());
 
         const gameData = worldStateStore.getGameDataSnapshot();
         logger.info('Game Data loaded:', !!gameData);
