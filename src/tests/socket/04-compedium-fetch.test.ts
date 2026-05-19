@@ -1,5 +1,6 @@
 import { CoreSocket } from '@core/foundry/sockets/CoreSocket';
 import { loadConfig } from '@core/config';
+import { worldStateStore } from '@core/world/WorldStateStore';
 import * as fs from 'fs';
 
 /**
@@ -21,7 +22,8 @@ export async function testUsersAndCompendia() {
         await client.connect();
         logger.info('✅ Connected\n');
 
-        const system = await client.getSystem();
+        const system = worldStateStore.getSystem();
+        if (!system) throw new Error('System metadata unavailable');
         // Output system id
         logger.info(`   ✅ System ID: ${system.id}`);
 

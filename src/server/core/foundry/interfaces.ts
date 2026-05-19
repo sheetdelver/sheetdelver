@@ -1,12 +1,8 @@
 import { ServerConnectionStatus } from '@shared/types/connection';
-import { FoundrySystemMeta } from '@shared/interfaces';
 import type { WorldLifecycleState } from '@server/core/world/WorldLifecycleStore';
-
-export type { FoundrySystemMeta };
 
 export interface FoundryMetadataClient {
     getAllCompendiumIndices(): Promise<any[]>;
-    getSystem(): Promise<FoundrySystemMeta>;
     url: string;
 }
 
@@ -32,10 +28,8 @@ export interface FoundryClient extends Partial<FoundryMetadataClient> {
 
     evaluate<T>(pageFunction: any, arg?: any): Promise<T>;
 
-    getSystem(): Promise<FoundrySystemMeta>;
     getCurrentUserId(): string | null;
     getSystemData(): Promise<any>;
-    getSystemConfig(): Promise<any>;
     getSystemAdapter(): any;
 
     // Removed getAllCompendiumIndices from base FoundryClient for user-level sockets

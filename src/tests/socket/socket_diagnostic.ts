@@ -1,5 +1,6 @@
 import { CoreSocket } from '@core/foundry/sockets/CoreSocket';
 import { loadConfig } from '@core/config';
+import { worldStateStore } from '@core/world/WorldStateStore';
 import { logger } from '@shared/utils/logger';
 import fs from 'fs';
 import path from 'path';
@@ -21,7 +22,8 @@ async function runDiagnostic() {
         logger.info("✅ Connected successfully!");
 
         // 3. Verify System Version
-        const system = await socket.getSystem();
+        const system = worldStateStore.getSystem();
+        if (!system) throw new Error('System metadata unavailable');
         logger.info(`System Detected: ${system.id} v${system.version}`);
         /*
         if (system.id !== 'shadowdark') {

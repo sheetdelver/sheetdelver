@@ -6,7 +6,7 @@ This interactive test script verifies that `SocketFoundryClient` correctly detec
 
 This test verifies the **backend state detection logic** in `SocketFoundryClient.ts`, not the frontend UI. It:
 - Creates a direct connection to your Foundry server
-- Calls `client.status` and `client.getSystem()` to check state
+- Calls `client.status` and `worldStateStore.getSystem()` to check state
 - Verifies that the state machine correctly identifies: setup, startup, connected, loggedIn states
 - Tests state transitions as you manipulate Foundry
 

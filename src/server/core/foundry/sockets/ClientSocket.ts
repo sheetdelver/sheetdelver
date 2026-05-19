@@ -42,7 +42,7 @@ export class ClientSocket extends SocketBase {
                 // User lookup priority during ADR-0014:
                 // 1. UserStore after the active-world bootstrap.
                 // 2. WorldStateStore's raw `game.data.users` snapshot while
-                //    compatibility shims still exist.
+                //    user discovery still depends on the bootstrap payload.
                 // 3. Probe fallback before a full bootstrap is possible.
                 const storeUser = userStore.isReady() ? userStore.findByName(this.config.username || '') : null;
                 const coreData = worldStateStore.getGameDataSnapshot();
@@ -159,12 +159,8 @@ export class ClientSocket extends SocketBase {
     }
 
     // --- Public API / transport helpers ---
-    // Remaining delegations are transitional. World metadata is Store-backed in
-    // this ADR; compendium/UUID/adapter methods move in ADR-0015 through 0017.
-
-    public async getSystem(): Promise<any> {
-        return worldStateStore.getSystem() || {};
-    }
+    // Remaining delegations are transport or later-ADR scope:
+    // compendium/UUID/adapter methods move in ADR-0015 through 0017.
 
     public async fetchByUuid(uuid: string): Promise<any> {
         return systemService.getSystemClient().fetchByUuid(uuid);
@@ -221,12 +217,6 @@ export class ClientSocket extends SocketBase {
         // Adapter ownership moves to WorldBootstrapper in ADR-0017. Until then,
         // callers still reach the CoreSocket-held adapter through SystemService.
         return systemService.getSystemClient().getSystemAdapter();
-    }
-
-    public async getSystemConfig(): Promise<any> {
-        // Compatibility name retained for callers that haven't moved to
-        // WorldStateStore.getSystem() yet.
-        return worldStateStore.getSystem();
     }
 
     private setupSocketRelays(socket: any) {

@@ -940,33 +940,9 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
         }
     }
 
-    // --- Transitional public API methods (called by legacy endpoints) ---
-    // These compatibility shims are Store-backed so migrated readers do not
-    // observe socket-owned state. ADR-0014 Phase 5 removes them once callers
-    // use WorldStateStore directly.
-
-    public getGameData() { return worldStateStore.getGameDataSnapshot(); }
-    public getSceneData() { return worldStateStore.getSceneData(); }
+    // Adapter ownership moves to WorldBootstrapper in ADR-0017. Until then the
+    // active adapter remains cached here while world state readers use Stores.
     public getSystemAdapter() { return this.adapter; }
-
-    public async getSystemConfig(): Promise<any> {
-        // Return from cache if available
-        const system = worldStateStore.getSystem();
-        if (system) {
-            return system;
-        }
-
-        // Otherwise, probe for it
-        if (!this.socket || !this.socket.connected) return null;
-
-        return new Promise((resolve) => {
-            const t = setTimeout(() => resolve(null), 5000);
-            this.socket!.emit('getSystemConfig', (config: any) => {
-                clearTimeout(t);
-                resolve(config);
-            });
-        });
-    }
 
     public async loadSystemAdapter(systemId: string) {
         try {
@@ -1122,10 +1098,6 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
     // Admin / World Control
     public async launchWorld(worldId: string) { /* ... */ }
     public async shutdownWorld() { /* ... */ }
-
-    public async getSystem(): Promise<any> {
-        return worldStateStore.getSystem() || {};
-    }
 
     async evaluate<T>(): Promise<T> {
         return worldStateStore.getGameDataSnapshot() as T;

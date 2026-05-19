@@ -1,6 +1,6 @@
 # ADR-0014: Non-Document World State and the Socket Boundary Principle
 
-**Status:** Proposed — first of five coordinated ADRs in the *ADR-0014 arc* (see below). Implementation across the phases listed in Exit Criteria.
+**Status:** Accepted — first of five coordinated ADRs in the *ADR-0014 arc* (see below). Implementation completed May 19, 2026.
 **Date:** May 18, 2026
 **Phase:** Non-Document Architecture (Phase 1 of the ADR-0014 arc)
 **Supersedes:** None. Extends what ADR-0011 Phase 8 began for primary documents to the non-document surface.
@@ -164,7 +164,7 @@ Remove from `ClientSocket`:
 
 Update `src/server/core/foundry/interfaces.ts`:
 
-- Remove `getSystemConfig(): Promise<any>` from `FoundryMetadataClient`. The interface declaration goes when the methods go.
+- Remove socket-world-state readers from the socket-facing interfaces. In the current file this means `getSystem()` drops from `FoundryMetadataClient`, and `getSystem()` / `getSystemConfig()` drop from `FoundryClient`; route/service client-like interfaces may keep their Store-backed `getSystem()` contracts.
 - Leave `getSystemAdapter(): any` for now; ADR-0017 removes it alongside the socket source methods.
 
 ### Trivial outliers landed in this ADR
@@ -441,6 +441,47 @@ Phase 4 lands the behavior-preserving layout cleanup named by this ADR. It remov
 
 **Phase 4 closed (May 19, 2026).** All action items above ticked. Verification passed: `git diff --check`, `npx tsc --noEmit`, `npm run test:unit`, the old-path import audit, and the file-layout audit. The implementation found additional Shadowdark local-module touchpoints under ignored `data/local/modules`: `Registry.ts` now imports `CompendiumCache` from `@core/compendium/CompendiumCache`, `level-up.ts` imports `Roll` from `@core/foundry/Roll`, and the spell route no longer reads the deleted global `@core/foundry/instance` singleton. Those local ignored changes are workspace verification hygiene and should not be staged.
 
+### Phase 5: Remove residual world-state socket readers
+
+**Status:** Closed May 19, 2026.
+
+Phase 5 removes the remaining world-state compatibility shims from the socket classes now that `WorldStateStore` is the canonical read model. This is the closure pass for ADR-0014's socket-boundary promise: `CoreSocket` may still fetch and seed world data during bootstrap until ADR-0017, but routes, services, scripts, and tests must no longer read world state through socket methods. Route-facing facades like `RouteFoundryClient.getSystem()` may remain where they are Store-backed and part of service contracts; socket-owned `getSystem()` / `getSystemConfig()` methods do not.
+
+**Action items:**
+
+- [x] Remove the remaining Store-backed world-state compatibility methods from `CoreSocket`: `getGameData()`, `getSceneData()`, `getSystem()`, and `getSystemConfig()`. Delete the `getSystemConfig` fallback socket emit path rather than moving it.
+  Files: `src/server/core/foundry/sockets/CoreSocket.ts`.
+
+- [x] Remove the matching world-state delegation methods from `ClientSocket`: `getSystem()` and `getSystemConfig()`. Keep `getSystemAdapter()` until ADR-0017.
+  Files: `src/server/core/foundry/sockets/ClientSocket.ts`.
+
+- [x] Tighten socket-facing interfaces. Remove `getSystem()` from `FoundryMetadataClient` if the interface only needs compendium metadata after this phase, and remove `getSystem()` / `getSystemConfig()` from the socket-level `FoundryClient` contract. Keep route/service client-like interfaces that explicitly need Store-backed `getSystem()`.
+  Files: `src/server/core/foundry/interfaces.ts`, `src/server/shared/types/actors.ts`, `src/server/shared/types/requestContext.ts`.
+
+- [x] Update scripts and socket/debug tests that still read world state through sockets. Replace them with `worldStateStore` reads after `connect()` where the script is still useful, or narrow/remove tests that only asserted the deleted compatibility surface.
+  Files: `src/scripts/capture-world-data.ts`, `src/scripts/verify-architecture.ts`, `src/scripts/TEST_STATES.md`, `src/tests/socket/02-system-info.test.ts`, `src/tests/socket/04-users-compendia.test.ts`, `src/tests/socket/04-compedium-fetch.test.ts`, `src/tests/socket/05-write-operations.test.ts`, `src/tests/socket/debug-scene-data.test.ts`, `src/tests/socket/socket_diagnostic.ts`.
+
+- [x] Confirm route and module service readers still use Store-backed route facades or direct Store access, not socket methods. `ActorService`, `ActorNormalizationService`, `CombatService`, and `createModuleFoundryClient` may continue to call their injected `RouteFoundryClient.getSystem()` because `createRouteFoundryClient` projects that value from `WorldStateStore`.
+  Files: `src/server/shared/utils/createRouteFoundryClient.ts`, `src/server/shared/utils/createModuleFoundryClient.ts`, `src/server/services/actors/ActorService.ts`, `src/server/services/actors/ActorNormalizationService.ts`, `src/server/services/combats/CombatService.ts`.
+
+- [x] Update comments/docs/tests that still describe these methods as socket-owned compatibility shims.
+  Files: `docs/adr/0014-non-document-world-state-and-socket-boundary.md`, `src/server/core/foundry/sockets/ClientSocket.ts`, `src/server/core/world/WorldStateStore.ts`.
+
+- [x] Verify Phase 5 with type/unit checks and targeted socket-reader audits. Remaining `getSystem` hits should be direct `worldStateStore.getSystem()` reads or route-facing Store-backed facades, not methods on `CoreSocket` / `ClientSocket`.
+  Commands: `npm run test:unit`; `npx tsc --noEmit`; `rg -n "public (async )?(getGameData|getSceneData|getSystem|getSystemConfig)\\b|getSystemConfig\\(\\):" src/server/core/foundry`; `rg -n "\\b(client|core|coreSocket|foundryClient|systemClient)\\.(getGameData|getSceneData|getSystemConfig)\\(" src/server src/scripts src/tests data/local/modules`; `rg -n "\\b(core|coreSocket|foundryClient|systemClient)\\.getSystem\\(" src/server src/scripts src/tests data/local/modules`.
+
+**Non-goals for Phase 5:**
+
+- No `getSystemAdapter()` / `loadSystemAdapter()` / adapter cache removal; ADR-0017 owns adapter lifecycle through `WorldBootstrapper`.
+- No compendium method removal (`getAllCompendiumIndices`, `getPackEntries`, `getPackIndex`, `getPackDocuments`); ADR-0015 owns compendium architecture.
+- No UUID resolver removal (`fetchByUuid`); ADR-0016 owns document resolution.
+- No bootstrap orchestration, heartbeat, engagement-service, lifecycle timing, URL utility, or session-state split work.
+- No service-contract cleanup for route-facing `getSystem()` unless the call is socket-backed. Store-backed route facades are allowed.
+
+**Exit for Phase 5:** `CoreSocket` no longer exposes `getGameData()`, `getSceneData()`, `getSystem()`, or `getSystemConfig()`; `ClientSocket` no longer exposes `getSystem()` or `getSystemConfig()`; socket-facing interfaces no longer require those world-state readers; scripts/tests are updated away from socket state reads; route-facing `getSystem()` remains Store-backed; `npm run test:unit`, `npx tsc --noEmit`, and the Phase 5 socket-reader audits pass.
+
+**Phase 5 closed (May 19, 2026).** All action items above ticked. Verification passed: `git diff --check`, `npx tsc --noEmit`, `npm run test:unit`, and the targeted Phase 5 socket-reader audits. Remaining `getSystem()` calls are Store-backed route/service facades or direct `worldStateStore.getSystem()` reads; the socket classes no longer expose the world-state reader methods.
+
 ---
 
 ## Alternatives Considered
@@ -528,11 +569,12 @@ Each phase validates at the Store-contract layer and at the migration boundary:
 - `WorldLifecycleStore` unit tests assert the state-machine transition rules and that `transition` events fire with `{ from, to, reason }`.
 - `SharedContentStore` unit tests assert `set` / `clear` semantics and the `sharedContentChanged` event surface.
 - Migration audit uses targeted `rg` checks instead of one broad grep:
-  - `rg -n "getSystemClient\(\)\.(getGameData|getSceneData|getSystem|getSystemConfig|worldState|gameDataCache|sceneDataCache|probeWorldData|probeUserCount|cachedWorldData|cachedWorlds|lastActorChange)" src/server` returns no hits outside the seeding caller and temporary compatibility shims explicitly listed in the phase notes.
+  - `rg -n "getSystemClient\(\)\.(getGameData|getSceneData|getSystem|getSystemConfig|worldState|gameDataCache|sceneDataCache|probeWorldData|probeUserCount|cachedWorldData|cachedWorlds|lastActorChange)" src/server` returns no hits outside the seeding caller and phase-documented exceptions.
   - `rg -n "\.(getGameData|getSceneData|getSystemConfig|getSharedContent)\(" src/server` returns no socket-reader hits. `RouteFoundryClient.getSystem()` may remain as a facade method, but its implementation must be Store-backed rather than socket-backed.
   - `rg -n "\.worldState\b|gameDataCache|sceneDataCache|probeWorldData|probeUserCount|cachedWorldData|cachedWorlds|lastActorChange" src/server` returns no direct socket-state reads outside `CoreSocket`, the new Stores, and the seeding caller.
   - `getSystemAdapter` / `loadSystemAdapter` intentionally still exist on `CoreSocket` and `ClientSocket` until ADR-0017; their removal audit belongs to ADR-0017.
 - Phase 4 file-layout audit verifies that `compendium-cache.ts` is gone, `core/foundry/classes/` is gone, `core/world/SetupManager.ts` exists, and `core/compendium/CompendiumCache.ts` exists.
+- Phase 5 socket-reader audit verifies that the deleted world-state methods no longer exist on `CoreSocket` / `ClientSocket`, and that any remaining `getSystem()` readers are direct `worldStateStore.getSystem()` calls or Store-backed route facades.
 - `npx tsc --noEmit` and `npm run test:unit` pass.
 
 ---
@@ -545,10 +587,10 @@ This ADR is fulfilled when the non-document world-state foundation is in place a
 - [x] Phase 2: `WorldLifecycleStore` + lifecycle-state migration from `CoreSocket.worldState`.
 - [x] Phase 3: `SharedContentStore` at `core/world/SharedContentStore.ts` with the immutable-snapshot contract (clone-on-write + clone-on-read; stored payload stays relative/raw). `SocketBase.setupSharedContentListeners` writes through to the Store via `sharedContentStore.set(payload)`; `CoreSocket` clears the Store alongside active-world runtime state teardown; the legacy `protected sharedContent` field and public `getSharedContent()` accessor are gone. `UtilityService.getSharedContent()` reads `sharedContentStore.getCurrent()` and projects URL resolution onto the defensive copy. `UtilityClientLike.getSharedContent` removed from the type; `createRouteFoundryClient` no longer exposes the facade method. Realtime gateway subscribes to `sharedContentStore.onSharedContentChanged(...)` directly (no longer to per-session `foundryClient.on('sharedContentUpdate', ...)`); the gateway test asserts the foundryClient handler count drops 3 → 2. Browser sockets still receive the `sharedContentUpdate` wire event unchanged. Tests in [shared-content-store.test.ts](../../src/tests/unit/shared-content-store.test.ts).
 - [x] Phase 4: File-layout outliers — `compendium-cache.ts` renamed and moved to `core/compendium/CompendiumCache.ts`; `classes/Roll.ts` flattened to `foundry/Roll.ts`; `SetupManager.ts` moved to `core/world/`; `instance.ts` audited and deleted after remaining local-module callers moved to request-scoped clients.
-- [ ] Phase 5: Remove `getGameData` / `getSceneData` / `getSystem` / `getSystemConfig` from `CoreSocket`; remove matching `getSystem` / `getSystemConfig` delegation methods from `ClientSocket`; remove `getSystemConfig` declaration from `interfaces.ts`'s `FoundryMetadataClient`. Leave `getSystemAdapter` / `loadSystemAdapter` / cached `this.adapter` on `CoreSocket` and the `getSystemAdapter` delegation on `ClientSocket` (ADR-0017 removes them alongside the new `WorldBootstrapper.getActiveAdapter()`).
-- [ ] `rg` migration audit confirms no remaining socket reads for the migrated fields outside the seeding caller and explicitly documented compatibility shims.
-- [ ] `npx tsc --noEmit` and `npm run test:unit` pass.
-- [ ] Status flipped to **Accepted** when all phases ship green.
-- [ ] Each phase verified before proceeding to the next.
+- [x] Phase 5: Remove `getGameData` / `getSceneData` / `getSystem` / `getSystemConfig` from `CoreSocket`; remove matching `getSystem` / `getSystemConfig` delegation methods from `ClientSocket`; remove socket-world-state reader declarations from `interfaces.ts`. Leave `getSystemAdapter` / `loadSystemAdapter` / cached `this.adapter` on `CoreSocket` and the `getSystemAdapter` delegation on `ClientSocket` (ADR-0017 removes them alongside the new `WorldBootstrapper.getActiveAdapter()`).
+- [x] `rg` migration audit confirms no remaining socket reads for the migrated fields outside the seeding caller and phase-documented exceptions.
+- [x] `npx tsc --noEmit` and `npm run test:unit` pass.
+- [x] Status flipped to **Accepted** when all phases ship green.
+- [x] Each phase verified before proceeding to the next.
 
 Sister ADRs in the arc track their own exit criteria; this ADR is complete when its own phases ship, independent of the others.

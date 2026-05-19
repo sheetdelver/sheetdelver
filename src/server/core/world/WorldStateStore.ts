@@ -34,7 +34,7 @@ function cloneRecord<T>(value: Record<string, T>): Record<string, T> {
  * documents and compendium concerns are handled elsewhere. CoreSocket is still
  * the seed caller during Phase 1; ADR-0017 moves that orchestration into the
  * bootstrapper. New readers should use this Store instead of socket fields or
- * CoreSocket compatibility getters.
+ * socket compatibility getters.
  */
 export class WorldStateStore {
     // Active-world snapshot from Foundry's `game.data` wire payload.

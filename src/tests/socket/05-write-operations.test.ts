@@ -1,6 +1,7 @@
 import { CoreSocket } from '@core/foundry/sockets/CoreSocket';
 import { loadConfig } from '@core/config';
 import { createSystemRouteFoundryClient } from '@server/shared/utils/createRouteFoundryClient';
+import { worldStateStore } from '@core/world/WorldStateStore';
 
 /**
  * Test 5: Write Operations (Safe CRUD)
@@ -26,7 +27,7 @@ export async function testWriteOperations() {
         if (actorTypeFromWorld) return actorTypeFromWorld;
 
         try {
-            const systemData = await client.getSystem();
+            const systemData = worldStateStore.getSystem();
             const actorTypeKeys = Object.keys(systemData?.documentTypes?.Actor || {});
             if (actorTypeKeys.length > 0) {
                 return actorTypeKeys[0];

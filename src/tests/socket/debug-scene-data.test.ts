@@ -1,5 +1,6 @@
 import { CoreSocket } from '@core/foundry/sockets/CoreSocket';
 import { loadConfig } from '@core/config';
+import { worldStateStore } from '@core/world/WorldStateStore';
 
 /**
  * Debug Test: Scene Data Capture
@@ -21,9 +22,9 @@ export async function testSceneData() {
         await client.connect();
         logger.info('✅ Connected\n');
 
-        // Test 1: Check if sceneDataCache is populated
-        logger.info('1. Checking sceneDataCache...');
-        const sceneData = client.getSceneData();
+        // Test 1: Check if WorldStateStore scene snapshot is populated
+        logger.info('1. Checking WorldStateStore scene data...');
+        const sceneData = worldStateStore.getSceneData();
 
         if (sceneData) {
             logger.info('✅ Scene data cached!');
@@ -73,51 +74,36 @@ export async function testSceneData() {
             });
         }
 
-        // Test 2: Try fetching scene data directly via socket
-        logger.info('\n\n2. Testing direct socket scene fetch...');
+        // Test 2: Check game snapshot for comparison
+        logger.info('\n\n2. Checking game data snapshot for comparison...');
         try {
-            // @ts-ignore - accessing private method for debugging
-            const directSceneData = await client.fetchSceneData();
+            const gameData = worldStateStore.getGameDataSnapshot();
 
-            if (directSceneData) {
-                logger.info('✅ Direct fetch succeeded!');
-                logger.info(`   Type: ${typeof directSceneData}`);
-                logger.info(`   Keys: ${Object.keys(directSceneData).length}`);
-                logger.info('\n📋 Direct Fetch Data:');
-                logger.info(JSON.stringify(directSceneData, null, 2));
+            if (gameData) {
+                logger.info('✅ Game data snapshot available');
+                logger.info(`   System: ${gameData.system?.id}`);
+                logger.info(`   World: ${gameData.world?.title}`);
+                logger.info(`   Background: ${gameData.system?.background || 'null'}`);
 
                 results.tests.push({
-                    name: 'direct-fetch',
+                    name: 'game-data-snapshot',
                     success: true
                 });
             } else {
-                logger.info('❌ Direct fetch returned null');
-                logger.info('   The socket.emit("scene") call is not returning data');
+                logger.info('❌ Game data snapshot is null');
                 results.tests.push({
-                    name: 'direct-fetch',
+                    name: 'game-data-snapshot',
                     success: false,
-                    error: 'fetchSceneData returned null'
+                    error: 'WorldStateStore game data snapshot is null'
                 });
             }
         } catch (error: any) {
-            logger.info(`❌ Direct fetch failed: ${error.message}`);
+            logger.info(`❌ Game snapshot check failed: ${error.message}`);
             results.tests.push({
-                name: 'direct-fetch',
+                name: 'game-data-snapshot',
                 success: false,
                 error: error.message
             });
-        }
-
-        // Test 3: Check game data for comparison
-        logger.info('\n\n3. Checking game data for comparison...');
-        const gameData = client.getGameData();
-        if (gameData) {
-            logger.info('✅ Game data available');
-            logger.info(`   System: ${gameData.system?.id}`);
-            logger.info(`   World: ${gameData.world?.title}`);
-            logger.info(`   Background: ${gameData.system?.background || 'null'}`);
-        } else {
-            logger.info('❌ Game data is null');
         }
 
         const successCount = results.tests.filter((t: any) => t.success).length;

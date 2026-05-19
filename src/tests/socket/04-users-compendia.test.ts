@@ -1,6 +1,7 @@
 import { CoreSocket } from '@core/foundry/sockets/CoreSocket';
 import { loadConfig } from '@core/config';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
+import { worldStateStore } from '@core/world/WorldStateStore';
 
 /**
  * Test 4: User and Compendium Data
@@ -35,16 +36,16 @@ export async function testUsersAndCompendia() {
             results.tests.push({ name: 'UserStore roster', success: false, error: error.message });
         }
 
-        // Test 4b: gameData users snapshot
-        logger.info('\n4b. Testing gameData users snapshot...');
+        // Test 4b: world snapshot users from WorldStateStore
+        logger.info('\n4b. Testing WorldStateStore users snapshot...');
         try {
-            const gameData = client.getGameData();
+            const gameData = worldStateStore.getGameDataSnapshot();
             if (!gameData?.users) throw new Error('gameData users snapshot unavailable');
             logger.info(`   ✅ Retrieved detailed user info`);
-            results.tests.push({ name: 'gameData users snapshot', success: true });
+            results.tests.push({ name: 'WorldStateStore users snapshot', success: true });
         } catch (error: any) {
             logger.info(`   ❌ Failed: ${error.message}`);
-            results.tests.push({ name: 'gameData users snapshot', success: false, error: error.message });
+            results.tests.push({ name: 'WorldStateStore users snapshot', success: false, error: error.message });
         }
 
         // Test 4c: getAllCompendiumIndices()

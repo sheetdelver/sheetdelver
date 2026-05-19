@@ -6,6 +6,7 @@ import { ClientSocket } from '../server/core/foundry/sockets/ClientSocket';
 import { logger } from '../shared/utils/logger';
 import { resolveDataDir, initDataDir, getConfigFilePath } from '../server/core/paths';
 import { primaryDocumentCacheCoordinator } from '../server/core/documents/primary/PrimaryDocumentCacheCoordinator';
+import { worldStateStore } from '../server/core/world/WorldStateStore';
 import {
     createSessionRouteFoundryClient,
     createSystemRouteFoundryClient,
@@ -40,7 +41,7 @@ async function verify() {
         logger.info('CoreSocket connected successfully.');
         logger.info('World State:', core.worldState);
 
-        const gameData = core.getGameData();
+        const gameData = worldStateStore.getGameDataSnapshot();
         logger.info('Game Data loaded:', !!gameData);
         if (gameData) {
             logger.info('World Title:', gameData.world.title);
