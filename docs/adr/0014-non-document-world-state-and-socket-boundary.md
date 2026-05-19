@@ -192,7 +192,7 @@ Per-version handling (refuse below min, warn above max) is deferred to ADR-0019,
 
 The audit dumps in `temp/game-data-dump-example*.json` were used only as local audit evidence for the v13 shape. They must not be copied into tracked test fixtures, committed under `src/tests/fixtures/`, or used as runtime test dependencies. World-state contract tests should use tiny synthetic in-code fixtures that preserve the shape being exercised without carrying real world data.
 
-The canonical Phase 1 example lives in `src/tests/unit/world-state-store.test.ts` as `createGameDataFixture()` plus `sceneMapFromFixture()`. It intentionally covers the Store surface with minimal synthetic values:
+The canonical Phase 1 example lives in `src/tests/unit/world/world-state-store.test.ts` as `createGameDataFixture()` plus `sceneMapFromFixture()`. It intentionally covers the Store surface with minimal synthetic values:
 
 - `world`: `id`, `title`, `description`, `system`, `systemVersion`, `background`, `nextSession`, `playtime`.
 - `system`: `id`, `title`, `version`, `background`, and `documentTypes` for `Actor` / `Item`.
@@ -268,7 +268,7 @@ Phase 1 introduces `WorldStateStore` and the typed v13 world-state contract. `Co
   Files: `src/server/core/world/WorldStateStore.ts`, optional `src/server/core/world/index.ts`.
 
 - [x] Add unit coverage for `WorldStateStore` seed, clear, typed accessor projection, clone-on-read behavior, scene-data retention, probe data, cached world list, and current-world id lookup. Tests use tiny synthetic in-code fixtures that preserve the needed shape without committing real world dump data; see *World-state test data policy* for the exact example shape.
-  Files: `src/tests/unit/world-state-store.test.ts`, `src/tests/unit/run.ts`.
+  Files: `src/tests/unit/world/world-state-store.test.ts`, `src/tests/unit/run.ts`.
 
 - [x] Make `CoreSocket` seed `WorldStateStore` instead of owning the authoritative non-document world snapshot. After `getWorldData()` / scene projection succeeds, call `worldStateStore.seed(rawGameData, { sceneData })`. Setup/probe/cache paths write focused Store state for `probeWorldData`, `probeUserCount`, `cachedWorldData`, and `cachedWorlds`; disconnect/setup/closed paths clear or partially reset the Store.
   Files: `src/server/core/foundry/sockets/CoreSocket.ts`, `src/server/core/world/WorldStateStore.ts`.
@@ -324,7 +324,7 @@ Phase 2 introduces `WorldLifecycleStore` as the authoritative owner for world li
   Files: `src/server/core/world/WorldLifecycleStore.ts`, `src/server/core/world/index.ts`.
 
 - [x] Add unit coverage for initial state, transition event emission, idempotent same-state writes, defensive transition snapshots, and reset-to-offline behavior.
-  Files: `src/tests/unit/world-lifecycle-store.test.ts`, `src/tests/unit/run.ts`.
+  Files: `src/tests/unit/world/world-lifecycle-store.test.ts`, `src/tests/unit/run.ts`.
 
 - [x] Make `CoreSocket` write lifecycle transitions through a single Store-backed helper. Keep existing transition timing and retry behavior unchanged; do not implement delayed-`active` semantics in this phase.
   Files: `src/server/core/foundry/sockets/CoreSocket.ts`.
@@ -365,7 +365,7 @@ Phase 3 introduces `SharedContentStore` as the authoritative owner for the lates
   Files: `src/server/core/world/SharedContentStore.ts`, `src/server/core/world/index.ts`.
 
 - [x] Add unit coverage for image payload storage, journal payload storage, timestamp preservation from socket-normalized payloads, clone-on-read, clone-on-write, clear behavior, unsubscribe behavior, and `sharedContentChanged` event emission.
-  Files: `src/tests/unit/shared-content-store.test.ts`, `src/tests/unit/run.ts`.
+  Files: `src/tests/unit/documents/shared-content-store.test.ts`, `src/tests/unit/run.ts`.
 
 - [x] Move `SocketBase.setupSharedContentListeners()` writes to `sharedContentStore.set(...)`. Remove the `SocketBase.sharedContent` field. Realtime fan-out is preserved by subscribing the app gateway to `SharedContentStore` and emitting the existing browser-facing `sharedContentUpdate` event from there.
   Files: `src/server/core/foundry/sockets/SocketBase.ts`.
@@ -380,7 +380,7 @@ Phase 3 introduces `SharedContentStore` as the authoritative owner for the lates
   Files: `src/server/core/foundry/sockets/SocketBase.ts`, `src/server/shared/types/utility.ts`.
 
 - [x] Bridge realtime fan-out from `SharedContentStore` to browser sockets. Browser clients still receive `sharedContentUpdate`; the gateway no longer subscribes to per-session `foundryClient.on('sharedContentUpdate', ...)`.
-  Files: `src/server/realtime/AppSocketGateway.ts`, `src/tests/unit/app-socket-gateway.test.ts`.
+  Files: `src/server/realtime/AppSocketGateway.ts`, `src/tests/unit/sockets/app-socket-gateway.test.ts`.
 
 - [x] Clear `SharedContentStore` when `CoreSocket` tears down active-world runtime state, so browser clients receive the existing empty shared-content payload instead of replaying presentation state from a prior world/session.
   Files: `src/server/core/foundry/sockets/CoreSocket.ts`.
@@ -417,7 +417,7 @@ Phase 4 lands the behavior-preserving layout cleanup named by this ADR. It remov
   Local ignored verification touchpoint: `data/local/modules/shadowdark/src/server/api/level-up.ts`.
 
 - [x] Move `SetupManager` from `src/server/core/foundry/SetupManager.ts` to `src/server/core/world/SetupManager.ts`. Update all imports and keep the public `SetupManager`, `CacheData`, and `WorldData` exports intact so setup/admin/status behavior is unchanged.
-  Files: `src/server/core/foundry/SetupManager.ts`, `src/server/core/world/SetupManager.ts`, `src/server/core/foundry/sockets/CoreSocket.ts`, `src/server/core/world/WorldStateStore.ts`, `src/server/services/status/StatusService.ts`, `src/server/services/admin/AdminService.ts`, `src/server/shared/types/admin.ts`, `src/server/app/registerRoutes.ts`, `src/scripts/tools/admin/import-worlds.ts`, `src/tests/unit/world-state-store.test.ts`.
+  Files: `src/server/core/foundry/SetupManager.ts`, `src/server/core/world/SetupManager.ts`, `src/server/core/foundry/sockets/CoreSocket.ts`, `src/server/core/world/WorldStateStore.ts`, `src/server/services/status/StatusService.ts`, `src/server/services/admin/AdminService.ts`, `src/server/shared/types/admin.ts`, `src/server/app/registerRoutes.ts`, `src/scripts/tools/admin/import-worlds.ts`, `src/tests/unit/world/world-state-store.test.ts`.
 
 - [x] Audit `src/server/core/foundry/instance.ts`. `_foundryClient` / `getClient()` / `setClient()` had no server/runtime callers after migrating the Shadowdark module spell route to the request-scoped module client, so the legacy global singleton file was deleted.
   Files: `src/server/core/foundry/instance.ts`.
@@ -590,7 +590,7 @@ This ADR is fulfilled when the non-document world-state foundation is in place a
 
 - [x] Phase 1: `WorldStateStore` + typed shapes (`core/world/types.ts`) + readers migrated.
 - [x] Phase 2: `WorldLifecycleStore` + lifecycle-state migration from `CoreSocket.worldState`.
-- [x] Phase 3: `SharedContentStore` at `core/world/SharedContentStore.ts` with the immutable-snapshot contract (clone-on-write + clone-on-read; stored payload stays relative/raw). `SocketBase.setupSharedContentListeners` writes through to the Store via `sharedContentStore.set(payload)`; `CoreSocket` clears the Store alongside active-world runtime state teardown; the legacy `protected sharedContent` field and public `getSharedContent()` accessor are gone. `UtilityService.getSharedContent()` reads `sharedContentStore.getCurrent()` and projects URL resolution onto the defensive copy. `UtilityClientLike.getSharedContent` removed from the type; `createRouteFoundryClient` no longer exposes the facade method. Realtime gateway subscribes to `sharedContentStore.onSharedContentChanged(...)` directly (no longer to per-session `foundryClient.on('sharedContentUpdate', ...)`); the gateway test asserts the foundryClient handler count drops 3 → 2. Browser sockets still receive the `sharedContentUpdate` wire event unchanged. Tests in [shared-content-store.test.ts](../../src/tests/unit/shared-content-store.test.ts).
+- [x] Phase 3: `SharedContentStore` at `core/world/SharedContentStore.ts` with the immutable-snapshot contract (clone-on-write + clone-on-read; stored payload stays relative/raw). `SocketBase.setupSharedContentListeners` writes through to the Store via `sharedContentStore.set(payload)`; `CoreSocket` clears the Store alongside active-world runtime state teardown; the legacy `protected sharedContent` field and public `getSharedContent()` accessor are gone. `UtilityService.getSharedContent()` reads `sharedContentStore.getCurrent()` and projects URL resolution onto the defensive copy. `UtilityClientLike.getSharedContent` removed from the type; `createRouteFoundryClient` no longer exposes the facade method. Realtime gateway subscribes to `sharedContentStore.onSharedContentChanged(...)` directly (no longer to per-session `foundryClient.on('sharedContentUpdate', ...)`); the gateway test asserts the foundryClient handler count drops 3 → 2. Browser sockets still receive the `sharedContentUpdate` wire event unchanged. Tests in [shared-content-store.test.ts](../../src/tests/unit/documents/shared-content-store.test.ts).
 - [x] Phase 4: File-layout outliers — `compendium-cache.ts` renamed and moved to `core/compendium/CompendiumCache.ts`; `classes/Roll.ts` flattened to `foundry/Roll.ts`; `SetupManager.ts` moved to `core/world/`; `instance.ts` audited and deleted after remaining local-module callers moved to request-scoped clients.
 - [x] Phase 5: Remove `getGameData` / `getSceneData` / `getSystem` / `getSystemConfig` and the public `worldState` lifecycle reader from `CoreSocket`; remove matching `getSystem` / `getSystemConfig` delegation methods from `ClientSocket`; remove socket-world-state reader declarations from `interfaces.ts`. Leave `getSystemAdapter` / `loadSystemAdapter` / cached `this.adapter` on `CoreSocket` and the `getSystemAdapter` delegation on `ClientSocket` (ADR-0017 removes them alongside the new `WorldBootstrapper.getActiveAdapter()`).
 - [x] `rg` migration audit confirms no remaining socket reads for the migrated fields outside the seeding caller and phase-documented exceptions.

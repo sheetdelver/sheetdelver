@@ -410,7 +410,7 @@ Both helpers live next to `getEffectiveOwnership` in `ownership.ts`. Subject-sha
   Files: `src/server/core/documents/primary/base/ownership.ts`.
 
 - [X] Add per-type unit-test coverage. `ownership.test.ts` (new) covers `isGM` / `isAssistantGM` boundary cases across every `FoundryUserRole` value (proving ASSISTANT does NOT pass `isGM` and DOES pass `isAssistantGM`), `createDocumentAccessSubject` nullable return (empty / null / undefined `userId` → null), and `getEffectiveOwnership` using `isGM` internally (GAMEMASTER short-circuits to OWNER; ASSISTANT reads the map like a normal user). `actor-combat-smoke.test.ts` gained a Phase 1 case proving an OBSERVER-level player is denied turn advancement (because `WRITEABLE` requires OWNER), distinguishing the threshold from a pre-refactor "ownership > 0" misreading.
-  Files: `src/tests/unit/ownership.test.ts` (new), `src/tests/unit/actor-combat-smoke.test.ts`, `src/tests/unit/run.ts`.
+  Files: `src/tests/unit/routing/ownership.test.ts` (new), `src/tests/unit/actors/actor-combat-smoke.test.ts`, `src/tests/unit/run.ts`.
 
 - [X] Verify with `npx tsc --noEmit` and `npm run test:unit`. Source-audit grep: `grep -rn "ownership.*>=\\s*[1-3]\\b" src/server` (excluding tests) returns no hits.
 
@@ -448,7 +448,7 @@ Per-type Store unit tests already exercise `resolveOwnership` (covered by `actor
 **Action items:**
 
 - [X] Add `route-ownership-thresholds.test.ts` covering the LIST_VISIBLE / DETAIL_VISIBLE boundaries through the service + Store-backed facade chain. The test seeds Stores with docs spanning the NONE / LIMITED / OBSERVER / OWNER bands and exercises each service entry point with a PLAYER subject. Four runs landed: chat list filters by `ChatMessageStore.resolveOwnership` (world / whisper / blind / author cases for both `p-target` and `p-other`); journal list returns LIMITED+ while journal detail rejects LIMITED and grants OBSERVER (the only type today with a fully realized LIST/DETAIL split); combat list visibility derives cross-store from `actorStore.canReadActor(LIST_VISIBLE)` per non-hidden combatant; actor detail is pinned at the as-shipped `LIST_VISIBLE` with an explicit forward-contract assertion against `DETAIL_VISIBLE` to capture the future split.
-  Files: `src/tests/unit/route-ownership-thresholds.test.ts` (new), `src/tests/unit/run.ts`.
+  Files: `src/tests/unit/routing/route-ownership-thresholds.test.ts` (new), `src/tests/unit/run.ts`.
 
 - [X] Audit each route registrar and annotate the threshold it applies. Routes are thin pass-throughs to services; the threshold lives in the service + route-client facade + Store layer. Header docblocks on `registerActorRoutes`, `registerChatRoutes`, `registerCombatRoutes`, and `registerJournalRoutes` now enumerate the per-endpoint threshold contract, including the two known gaps (actor detail still uses LIST_VISIBLE; write endpoints have no Sheet Delver-side WRITEABLE courtesy gate — Foundry is the authoritative check).
   Files: `src/server/routes/protected/registerActorRoutes.ts`, `src/server/routes/protected/registerChatRoutes.ts`, `src/server/routes/protected/registerCombatRoutes.ts`, `src/server/routes/protected/registerJournalRoutes.ts`.

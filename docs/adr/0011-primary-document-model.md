@@ -248,15 +248,15 @@ This addendum is about the internal server route client (`RouteFoundryClient`, b
 - [x] Add a repository-backed internal route-client chat helper, e.g. `createChatMessage(data)`, implemented by `createRouteFoundryClient()` with `ChatMessageRepository.send(data)`.
   Files: `src/server/shared/types/documents.ts`, `src/server/shared/types/requestContext.ts` if needed, `src/server/shared/utils/createRouteFoundryClient.ts`, `src/server/core/documents/primary/chat-messages/ChatMessageRepository.ts` if the repository surface needs a small adjustment, `src/server/core/documents/primary/chat-messages/chatMessagePayload.ts`.
 - [x] Update `ChatService.sendChatMessage()` to call the repository-backed helper for both plain chat and slash-roll chat output. It should not call `client.sendMessage()` and should not issue raw `dispatchDocument('ChatMessage', ...)` itself.
-  Files: `src/server/services/chat/ChatService.ts`, `src/tests/unit/chat-service.test.ts`.
+  Files: `src/server/services/chat/ChatService.ts`, `src/tests/unit/services/chat-service.test.ts`.
 - [x] Keep the public module SDK `sendMessage(data, options?)` facade for compatibility, but reimplement `createModuleFoundryClient().sendMessage` through the repository-backed route-client helper.
-  Files: `src/server/shared/utils/createModuleFoundryClient.ts`, `src/shared/sdk/contracts.ts` only if docs/comments need clarification, `src/tests/unit/sdk-integrity.test.ts`.
+  Files: `src/server/shared/utils/createModuleFoundryClient.ts`, `src/shared/sdk/contracts.ts` only if docs/comments need clarification, `src/tests/unit/sdk/sdk-integrity.test.ts`.
 - [x] Replace `CoreSocket.roll()` fallback chat creation and `CoreSocket.useItem()` chat creation with repository-backed chat creation, or move those flows behind route/module service helpers that already use `ChatMessageRepository`.
   Files: `src/server/core/foundry/sockets/CoreSocket.ts` plus any route/service wrapper introduced for the replacement.
 - [x] Remove `CoreSocket.sendMessage()` and `ClientSocket.sendMessage()` after all callers are migrated.
   Files: `src/server/core/foundry/sockets/CoreSocket.ts`, `src/server/core/foundry/sockets/ClientSocket.ts`.
 - [x] Remove `sendMessage` from internal socket/client interfaces and route-client type requirements; update unit mocks and socket probes accordingly.
-  Files: `src/server/core/foundry/interfaces.ts`, `src/server/shared/types/documents.ts`, `src/server/shared/types/requestContext.ts` if touched, `src/tests/unit/*.test.ts`.
+  Files: `src/server/core/foundry/interfaces.ts`, `src/server/shared/types/documents.ts`, `src/server/shared/types/requestContext.ts` if touched, `src/tests/unit/**/*.test.ts`.
 - [x] Update `src/tests/socket/05-write-operations.test.ts` to verify chat writes through the repository-backed path rather than `client.sendMessage()`.
 
 Closure verification (May 15, 2026): `rg "sendMessage\b|\.sendMessage\(" src/server src/tests src/shared -g "*.ts"` now finds only the public SDK contract/facade and SDK integrity mock. `npx tsc --noEmit` passed. `npm run test:unit` passed when rerun outside the sandbox; the sandboxed run failed before tests started because `tsx` could not open its IPC pipe.
@@ -294,7 +294,7 @@ Scope:
 - [x] Split user document changes from broad system-status refreshes where practical. `UserStore` should emit user-document events; status broadcasts should remain for connection/world-status changes.
   Files: `src/server/core/system/SystemService.ts`, `src/server/realtime/AppSocketGateway.ts`.
 - [x] Add Phase 2 tests covering UserStore ownership policy, bootstrap seed, modifyDocument routing, role lookup, and removal of `userMap` / `gameDataCache.users` as sources of truth.
-  Files: `src/tests/unit/user-store.test.ts`, `src/tests/unit/run.ts`, plus focused updates to route-client/realtime tests.
+  Files: `src/tests/unit/documents/user-store.test.ts`, `src/tests/unit/run.ts`, plus focused updates to route-client/realtime tests.
 
 Non-goals for Phase 2:
 
@@ -334,7 +334,7 @@ Phase 2 introduced `UserStore`, but several call sites still ask the socket/clie
 - [x] Remove `getUsers` from internal route-client/service type requirements once user reads no longer flow through the socket/client surface.
   Files: `src/server/shared/types/documents.ts`, `src/server/shared/types/utility.ts`, `src/server/shared/types/foundry.ts`, affected unit mocks.
 - [x] Update socket probes or legacy tests that still exercise `client.getUsers()` so they verify the new Store-backed route/helper path instead.
-  Files: `src/tests/socket/04-users-compendia.test.ts`, `src/tests/socket/07-user-status.test.ts`, `src/tests/unit/*.test.ts`.
+  Files: `src/tests/socket/04-users-compendia.test.ts`, `src/tests/socket/07-user-status.test.ts`, `src/tests/unit/**/*.test.ts`.
 - [x] Verify the cleanup with `rg "\.getUser\(|\.getUsers\(|getUser\(|getUsers\(" src/server -g "*.ts"`, `npx tsc --noEmit`, and `npm run test:unit`.
 
 Closure verification (May 16, 2026): Store-backed user helpers now own role lookup, presence-composed rosters, and GM recipient lookup. `UserPresence` owns runtime `active` state outside User documents. Exact cleanup grep finds no `getUser()` / `getUsers()` call sites under `src/server` or `src`. `npx tsc --noEmit` passed. `npm run test:unit` passed when rerun outside the sandbox; the sandboxed run failed before tests started because `tsx` could not open its IPC pipe.
@@ -356,17 +356,17 @@ Scope:
 - [x] Model Folder read helpers around the folder tree itself: list folders, optionally filter by Folder `type`, lookup by id, traverse ancestors/descendants using `parent`, resolve permission/visibility with omitted maps/keys defaulting to `NONE`, and return the folder ids required to display a visible tree. These helpers should not inspect or depend on the document type nested under the folder.
   Files: `src/server/core/documents/primary/folders/FolderStore.ts`, `src/server/services/journals/JournalService.ts`.
 - [x] Implement Folder permission resolution. Direct folder `permission` wins; omitted map/key normalizes to effective `NONE`. Only an explicit inherited permission value, if present in the Foundry payload/version, walks `parent` ancestry with a cycle guard and fail-closed behavior for missing parents.
-  Files: `src/server/core/documents/primary/folders/FolderStore.ts`, `src/tests/unit/folder-store.test.ts`.
+  Files: `src/server/core/documents/primary/folders/FolderStore.ts`, `src/tests/unit/documents/folder-store.test.ts`.
 - [x] Move JournalService's inline folder ancestry pruning to `FolderStore` helpers while keeping `JournalEntry` reads/writes on the existing path until Phase 4.
-  Files: `src/server/services/journals/JournalService.ts`, `src/tests/unit/journal-smoke.test.ts`.
+  Files: `src/server/services/journals/JournalService.ts`, `src/tests/unit/documents/journal-smoke.test.ts`.
 - [x] Route Folder create/update/delete through `FolderRepository` for existing Journal route flows where `type === 'Folder'`; leave `JournalEntry` mutation responsibility unchanged until Phase 4.
   Files: `src/server/services/journals/JournalService.ts`, `src/server/shared/utils/createRouteFoundryClient.ts`, `src/server/shared/types/documents.ts`.
 - [x] Remove socket/client-owned Folder reads once callers are migrated.
-  Files: `src/server/core/foundry/sockets/CoreSocket.ts`, `src/server/core/foundry/sockets/ClientSocket.ts`, `src/server/shared/utils/createRouteFoundryClient.ts`, `src/server/shared/types/documents.ts`, `src/tests/unit/*.test.ts`.
+  Files: `src/server/core/foundry/sockets/CoreSocket.ts`, `src/server/core/foundry/sockets/ClientSocket.ts`, `src/server/shared/utils/createRouteFoundryClient.ts`, `src/server/shared/types/documents.ts`, `src/tests/unit/**/*.test.ts`.
 - [x] Update socket probes or legacy tests that still exercise `client.getFolders()` so they verify the Store-backed Folder path instead.
-  Files: `src/tests/deprecated/socket-legacy/06-journals.test.ts`, `src/tests/unit/journal-smoke.test.ts`.
+  Files: `src/tests/deprecated/socket-legacy/06-journals.test.ts`, `src/tests/unit/documents/journal-smoke.test.ts`.
 - [x] Add Phase 3 tests covering seed/clear, schema normalization, type filtering, permission resolution, default-`NONE` normalization, explicit inheritance if present, tree mutation, router application, repository writes, JournalService folder pruning, and removal of socket-owned Folder reads.
-  Files: `src/tests/unit/folder-store.test.ts`, `src/tests/unit/modify-document-router.test.ts`, `src/tests/unit/journal-smoke.test.ts`, `src/tests/unit/run.ts`.
+  Files: `src/tests/unit/documents/folder-store.test.ts`, `src/tests/unit/routing/modify-document-router.test.ts`, `src/tests/unit/documents/journal-smoke.test.ts`, `src/tests/unit/run.ts`.
 
 Non-goals for Phase 3:
 
@@ -389,11 +389,11 @@ Exit for Phase 3: `FolderStore` / `FolderRepository` exist, Folder document muta
 Audit of the Phase 2 and Phase 3 work surfaced one shared gap and a few smaller observations. At audit time, the User/Folder Store-to-systemClient bridges existed but no browser consumer subscribed to the new wire events, so they were decorative until downstream fan-out was added. The addendum below closes that gap for authenticated clients. User presence transitions now reach dashboards through the system-owned status refresh path: `CoreSocket` updates `userPresence`, `SystemService` emits a single status-refresh signal, and `SystemStatusBroadcaster` sends the fresh `systemStatus` payload. User document mutations also request that status refresh so roster-derived UI stays current without a `ClientSocket` `modifyDocument` relay.
 
 - [x] Wire `userChanged` / `userListInvalidated` fan-out in `AppSocketGateway` alongside the existing `chatMessageChanged` subscription, with per-socket subject resolution and `targetUserIds` filtering for invalidations.
-  Files: `src/server/realtime/AppSocketGateway.ts`, `src/tests/unit/app-socket-gateway.test.ts` (system-handler count assertion now 7).
+  Files: `src/server/realtime/AppSocketGateway.ts`, `src/tests/unit/sockets/app-socket-gateway.test.ts` (system-handler count assertion now 7).
 - [x] Wire `folderChanged` / `folderListInvalidated` fan-out in `AppSocketGateway`. Folder reads have no per-user ownership map today, so the gate is world-broadcast to authenticated sockets pending Phase 4 / future folder visibility policy; `targetUserIds` is still honored if a future emit populates it.
-  Files: `src/server/realtime/AppSocketGateway.ts`, `src/tests/unit/app-socket-gateway.test.ts`.
+  Files: `src/server/realtime/AppSocketGateway.ts`, `src/tests/unit/sockets/app-socket-gateway.test.ts`.
 - [x] Move dashboard roster freshness off `ClientSocket`: `ClientSocket` no longer listens for Foundry `User` `modifyDocument` or presence events, `CoreSocket` updates `userPresence` and emits one system-owned status-refresh signal on active-state changes, and `UserStore` document changes request the same full status refresh.
-  Files: `src/server/core/foundry/sockets/ClientSocket.ts`, `src/server/core/foundry/sockets/CoreSocket.ts`, `src/server/core/system/SystemService.ts`, `src/server/realtime/SystemStatusBroadcaster.ts`, `src/tests/unit/realtime-broadcaster.test.ts`.
+  Files: `src/server/core/foundry/sockets/ClientSocket.ts`, `src/server/core/foundry/sockets/CoreSocket.ts`, `src/server/core/system/SystemService.ts`, `src/server/realtime/SystemStatusBroadcaster.ts`, `src/tests/unit/sockets/realtime-broadcaster.test.ts`.
 - [x] Add a client-side subscriber for `userChanged` / `userListInvalidated` so user roster/role/color changes refresh without waiting for a `systemStatus` broadcast. Implemented as an in-flight-coalesced `/api/status` refetch that updates the `users` slice only.
   Files: `src/client/ui/context/FoundryContext.tsx`.
 - [x] Add a client-side subscriber for `folderChanged` / `folderListInvalidated` so folder rename/move/permission updates refresh the journal/folder view without manual reload. Implemented with the same in-flight-coalesce + 75 ms debounce shape used by `ChatContext`.
@@ -450,19 +450,19 @@ Scope:
 - [x] Register `JournalStore` with `PrimaryDocumentCacheCoordinator` and `modifyDocumentRouter`; seed from Foundry's `JournalEntry` documents at bootstrap after `FolderStore` is ready.
   Files: `src/server/core/documents/primary/PrimaryDocumentCacheCoordinator.ts`.
 - [x] Implement JournalEntry visibility in `JournalStore.resolveOwnership()` using the standard entry `ownership` map and `UserStore` subject roles; keep folder access lookups isolated to folder-organized list projection. Folder permissions do not gate JournalEntry visibility in Foundry v13; any future folder-level "Configure Ownership" feature should bulk-copy ownership to affected JournalEntry documents through repositories rather than joining reads through `FolderStore.canReadDocument`.
-  Files: `src/server/core/documents/primary/journals/JournalStore.ts`, `src/tests/unit/journal-store.test.ts`.
+  Files: `src/server/core/documents/primary/journals/JournalStore.ts`, `src/tests/unit/documents/journal-store.test.ts`.
 - [x] Implement embedded `JournalEntryPage` handling: apply create/update/delete events with `parentUuid: JournalEntry.<id>`, expose `canReadPage(entryId, pageId, subject)`, and filter pages for route DTOs via `visiblePages(entryId, subject)`.
-  Files: `src/server/core/documents/primary/journals/JournalStore.ts`, `src/tests/unit/journal-store.test.ts`, `src/tests/unit/modify-document-router.test.ts`.
+  Files: `src/server/core/documents/primary/journals/JournalStore.ts`, `src/tests/unit/documents/journal-store.test.ts`, `src/tests/unit/routing/modify-document-router.test.ts`.
 - [x] Move `JournalService.listJournals()` and `getJournalById()` reads to `JournalStore`; the service stays the route-facing DTO/projection layer and continues to use `FolderStore` for visible folder ancestry. Detail fetch now applies entry-level + page-level filtering before projecting the DTO.
-  Files: `src/server/services/journals/JournalService.ts`, `src/tests/unit/journal-smoke.test.ts`.
+  Files: `src/server/services/journals/JournalService.ts`, `src/tests/unit/documents/journal-smoke.test.ts`.
 - [x] Route JournalEntry create/update/delete through `JournalRepository`; preserve the existing `type === 'Folder'` branch through `FolderRepository`. `JournalEntry` and `JournalEntryPage` types now dispatch through `JournalRepository` inside `createRouteFoundryClient`.
   Files: `src/server/services/journals/JournalService.ts`, `src/server/shared/utils/createRouteFoundryClient.ts`, `src/server/shared/types/documents.ts`.
 - [x] Investigate Foundry `showEntry` / journal-page sharing semantics. Result: `showEntry` carries a UUID reference only (`SocketBase.setupSharedContentListeners` stores `{ id, uuid }`); the browser hydrates the entry through `/api/journals/:id`, which now runs through `JournalStore.get(id, { subject, DETAIL_VISIBLE })`. No separate hydration path is needed — shared journal content inherits the same ownership policy as direct journal reads. The GM "force-show" override remains a future custom shared-content policy concern and is intentionally out of scope.
   Files: `src/server/core/foundry/sockets/SocketBase.ts` (no change), `src/server/services/journals/JournalService.ts`.
 - [x] Remove socket/client-owned JournalEntry reads once callers are migrated. `CoreSocket.getJournals` and `ClientSocket.getJournals` are gone; the `JournalClientLike` route-client type no longer requires `getJournals` or `dispatchDocumentSocket`.
-  Files: `src/server/core/foundry/sockets/CoreSocket.ts`, `src/server/core/foundry/sockets/ClientSocket.ts`, `src/server/shared/utils/createRouteFoundryClient.ts`, `src/server/shared/types/documents.ts`, `src/tests/deprecated/socket-legacy/06-journals.test.ts`, `src/tests/unit/actor-store.test.ts`, `src/tests/unit/auth-status-smoke.test.ts`.
+  Files: `src/server/core/foundry/sockets/CoreSocket.ts`, `src/server/core/foundry/sockets/ClientSocket.ts`, `src/server/shared/utils/createRouteFoundryClient.ts`, `src/server/shared/types/documents.ts`, `src/tests/deprecated/socket-legacy/06-journals.test.ts`, `src/tests/unit/actors/actor-store.test.ts`, `src/tests/unit/services/auth-status-smoke.test.ts`.
 - [x] Add Phase 4 tests covering seed/clear, clone-on-read, entry ownership, page ownership, page `INHERIT`, folder-aware list projection, detail authorization, embedded page mutation routing, and repository writes.
-  Files: `src/tests/unit/journal-store.test.ts`, `src/tests/unit/journal-smoke.test.ts`, `src/tests/unit/modify-document-router.test.ts`, `src/tests/unit/run.ts`.
+  Files: `src/tests/unit/documents/journal-store.test.ts`, `src/tests/unit/documents/journal-smoke.test.ts`, `src/tests/unit/routing/modify-document-router.test.ts`, `src/tests/unit/run.ts`.
 
 Non-goals for Phase 4:
 
@@ -499,25 +499,25 @@ Scope:
 - [x] Register `CombatStore` with `PrimaryDocumentCacheCoordinator` after `ActorStore`; register direct-type and `Combat`-parent embedded handlers on `modifyDocumentRouter`.
   Files: `src/server/core/documents/primary/PrimaryDocumentCacheCoordinator.ts`.
 - [x] Implement combat visibility in `CombatStore.resolveOwnership()`: GM → OWNER; non-GM → OBSERVER iff `combat.combatants` contains a non-hidden entry whose `actorId` resolves to an actor the subject can read at `LIST_VISIBLE` via `actorStore.canReadActor`. Missing actors fail closed; combats with zero readable combatants resolve to NONE for non-GMs; a Store without an ActorStore binding also fails closed for non-GMs.
-  Files: `src/server/core/documents/primary/combats/CombatStore.ts`, `src/tests/unit/combat-store.test.ts`.
+  Files: `src/server/core/documents/primary/combats/CombatStore.ts`, `src/tests/unit/combat/combat-store.test.ts`.
 - [x] Implement embedded `Combatant` handling: apply create/update/delete events with `parentUuid: Combat.<combatId>`, mutate the parent combat's `combatants[]` array, and emit `combatChanged` (update) on the parent so newly-added readable combatants are observable to fan-out subscribers.
-  Files: `src/server/core/documents/primary/combats/CombatStore.ts`, `src/tests/unit/combat-store.test.ts`, `src/tests/unit/modify-document-router.test.ts`.
+  Files: `src/server/core/documents/primary/combats/CombatStore.ts`, `src/tests/unit/combat/combat-store.test.ts`, `src/tests/unit/routing/modify-document-router.test.ts`.
 - [x] Wire the cross-store subscription as a Store-owned method: `CombatStore.bindActorVisibilityBridge(actorStore: ActorStore)` subscribes to `actorStore.documentListInvalidated` and emits `combatListInvalidated` for combats containing the affected actor (preserving `targetUserIds`). The coordinator calls this once alongside the existing Store/router registrations. Translation logic (`findCombatsContainingActor`) stays on `CombatStore` next to `resolveOwnership`.
-  Files: `src/server/core/documents/primary/combats/CombatStore.ts`, `src/server/core/documents/primary/PrimaryDocumentCacheCoordinator.ts`, `src/tests/unit/combat-store.test.ts`.
+  Files: `src/server/core/documents/primary/combats/CombatStore.ts`, `src/server/core/documents/primary/PrimaryDocumentCacheCoordinator.ts`, `src/tests/unit/combat/combat-store.test.ts`.
 - [x] Move `CombatService.listCombats()`, `advanceTurn()`, `previousTurn()`, and `rollInitiative()` reads onto `CombatStore`. Service-level enrichment (actor DTO normalization through `deps.normalizeActors`) stays at the service boundary; `ensureReady` gates each entry point.
-  Files: `src/server/services/combats/CombatService.ts`, `src/tests/unit/actor-combat-smoke.test.ts`.
+  Files: `src/server/services/combats/CombatService.ts`, `src/tests/unit/actors/actor-combat-smoke.test.ts`.
 - [x] Route combat and combatant writes through `CombatRepository`. `advanceTurn` / `previousTurn` use `combatRepository.update(combatId, { round, turn })`; `rollInitiative` uses `combatRepository.updateCombatant(combatId, combatantId, { initiative })`. `createRouteFoundryClient.dispatchDocument('Combat'|'Combatant', ...)` routes through `CombatRepository`.
-  Files: `src/server/services/combats/CombatService.ts`, `src/server/shared/utils/createRouteFoundryClient.ts`, `src/server/shared/types/documents.ts`, `src/tests/unit/actor-combat-smoke.test.ts`.
+  Files: `src/server/services/combats/CombatService.ts`, `src/server/shared/utils/createRouteFoundryClient.ts`, `src/server/shared/types/documents.ts`, `src/tests/unit/actors/actor-combat-smoke.test.ts`.
 - [x] Bridge `CombatStore` events through `SystemService` as `combatChanged` / `combatListInvalidated`; remove the bespoke `combatUpdate` emit on `CoreSocket.modifyDocument` listener and the duplicate `combatUpdate` emit from the former `ClientSocket` document listener. `AppSocketGateway` now subscribes to the system-client events with `combatStore.canReadDocument` per-socket on `combatChanged` and `targetUserIds` filtering on invalidations.
-  Files: `src/server/core/system/SystemService.ts`, `src/server/core/foundry/sockets/CoreSocket.ts`, `src/server/core/foundry/sockets/ClientSocket.ts`, `src/server/realtime/AppSocketGateway.ts`, `src/tests/unit/app-socket-gateway.test.ts` (system-handler count goes 9 → 11; foundry-handler count goes 5 → 4).
+  Files: `src/server/core/system/SystemService.ts`, `src/server/core/foundry/sockets/CoreSocket.ts`, `src/server/core/foundry/sockets/ClientSocket.ts`, `src/server/realtime/AppSocketGateway.ts`, `src/tests/unit/sockets/app-socket-gateway.test.ts` (system-handler count goes 9 → 11; foundry-handler count goes 5 → 4).
 - [x] Replace the SDK / shared realtime `RealtimeCombatUpdatePayload` with `RealtimeCombatChangedPayload` and `RealtimeCombatListInvalidatedPayload`; update the browser subscriber `FoundryContext.tsx` to listen on the new event names with refetch.
   Files: `src/shared/sdk/contracts.ts`, `src/shared/contracts/realtime.ts`, `src/client/ui/context/FoundryContext.tsx`.
 - [x] Remove socket/client-owned Combat reads. `CoreSocket.getCombats`, `ClientSocket.getCombats`, the route-client `getCombats` surface, and `RouteFoundryClient.dispatchDocumentSocket` (now dead because no client type requires it) are gone; `CombatClientLike` requires `dispatchDocument` + `getActor` only.
-  Files: `src/server/core/foundry/sockets/CoreSocket.ts`, `src/server/core/foundry/sockets/ClientSocket.ts`, `src/server/shared/utils/createRouteFoundryClient.ts`, `src/server/shared/types/documents.ts` (`CombatClientLike`), `src/tests/unit/actor-store.test.ts`, `src/tests/unit/auth-status-smoke.test.ts`, `src/tests/deprecated/socket-legacy/06-combats.test.ts`.
+  Files: `src/server/core/foundry/sockets/CoreSocket.ts`, `src/server/core/foundry/sockets/ClientSocket.ts`, `src/server/shared/utils/createRouteFoundryClient.ts`, `src/server/shared/types/documents.ts` (`CombatClientLike`), `src/tests/unit/actors/actor-store.test.ts`, `src/tests/unit/services/auth-status-smoke.test.ts`, `src/tests/deprecated/socket-legacy/06-combats.test.ts`.
 - [x] Filter `hidden: true` combatants from non-GM DTO projections in `CombatService.listCombats`. GMs see hidden combatants; players see them pruned. Service-side projection step, not a Store-side filter.
   Files: `src/server/services/combats/CombatService.ts`.
 - [x] Add Phase 5 tests covering seed/clear, GM-vs-non-GM visibility against `ActorStore`, missing-actor fail-closed, unbound-Store fail-closed, hidden-combatant exclusion, embedded combatant mutation routing, repository writes, and cross-store invalidation propagation. Updated `actor-combat-smoke.test.ts` to seed `combatStore` and capture `dispatchDocument` calls.
-  Files: `src/tests/unit/combat-store.test.ts`, `src/tests/unit/actor-combat-smoke.test.ts`, `src/tests/unit/modify-document-router.test.ts`, `src/tests/unit/app-socket-gateway.test.ts`, `src/tests/unit/run.ts`.
+  Files: `src/tests/unit/combat/combat-store.test.ts`, `src/tests/unit/actors/actor-combat-smoke.test.ts`, `src/tests/unit/routing/modify-document-router.test.ts`, `src/tests/unit/sockets/app-socket-gateway.test.ts`, `src/tests/unit/run.ts`.
 - [x] Verify cleanup with `rg "\.getCombats\(|getCombats\(|combatUpdate" src/server src/client src/shared -g "*.ts" -g "*.tsx"`, `npx tsc --noEmit`, and `npm run test:unit`.
 
 Non-goals for Phase 5:
@@ -548,7 +548,7 @@ Exit for Phase 5: `CombatStore` / `CombatRepository` exist, Combat and Combatant
 Follow-up audit found two implementation gaps and one documentation staleness note after Phase 5 landed:
 
 - [x] Fix stale combat lists when an embedded `Combatant` mutation removes a user's combat visibility. `CombatStore.applyEmbeddedChange()` previously emitted only `combatChanged` on parent updates. Because `AppSocketGateway` gates `combatChanged` against post-change visibility, a user who lost access could miss the event and keep a stale combat in the browser. `CombatStore` now compares the non-hidden combatant actor-id source set before/after embedded `Combatant` changes and emits `combatListInvalidated { reason: "combatant-visibility-changed", combatId }` when that source set changes.
-  Files: `src/server/core/documents/primary/combats/CombatStore.ts`, `src/tests/unit/combat-store.test.ts`.
+  Files: `src/server/core/documents/primary/combats/CombatStore.ts`, `src/tests/unit/combat/combat-store.test.ts`.
 - [x] Coalesce browser combat refetches from paired `combatChanged` + `combatListInvalidated` events. `FoundryContext` now debounces realtime combat refreshes, and `ActorCombatContext.fetchCombats()` reuses an in-flight `/api/combats` request so bursts collapse to one fetch.
   Files: `src/client/ui/context/FoundryContext.tsx`, `src/client/ui/context/ActorCombatContext.tsx`.
 - [x] Treat the Phase 5 staging paragraphs that say `RawCombat` is "currently bare" and `combatUpdate` is "currently" emitted as pre-implementation historical text. The verification addendum and this audit/fix addendum supersede that language; the source now has expanded combat types and no live `combatUpdate` emitters.
@@ -560,7 +560,7 @@ Follow-up audit found two implementation gaps and one documentation staleness no
 In-game testing surfaced a tracker bug: a player who can see a combat (because they own one combatant's actor) saw enemy combatants render as "Unknown" with no image. Root cause: `CombatService.listCombats` enriches combatants by calling `client.getActor(id)`, which routes through `ActorStore.getActor` with `LIST_VISIBLE` filtering. Enemy NPCs typically have `ownership: { default: 0 }` (NONE), so the route-client read returns null and the projected combatant ends up with `actor: null`. This contradicts Foundry's tracker semantic, where non-hidden combatants in a visible combat are shown by their displayed name/image regardless of whether the player owns the underlying actor doc. Hiding sensitive actor fields elsewhere is correct; hiding the tracker label is not.
 
 - [x] Project a stripped `{ _id, name, img }` actor for non-readable combatants in a visible combat. `CombatService.listCombats` now collects two parallel maps — `readableActors` (full data, flows through `deps.normalizeActors`) and `strippedActors` (name + img only, taken from `client.getActorRaw` after the ownership-filtered read returns null). The merged display map runs through the existing combatant projection so the tracker has a name even when the player can't read the actor doc. Sensitive fields (`system`, `items`, `ownership`, etc.) stay stripped.
-  Files: `src/server/services/combats/CombatService.ts`, `src/tests/unit/actor-combat-smoke.test.ts`.
+  Files: `src/server/services/combats/CombatService.ts`, `src/tests/unit/actors/actor-combat-smoke.test.ts`.
 - [x] Resolve the stripped `img` against the Foundry URL prefix via `client.resolveUrl(raw.img)`. The readable path picks this up through `deps.normalizeActors` (the system adapter handles asset URL prefixing); the stripped path bypasses the adapter, so the resolution happens inline to avoid 404s on raw relative Foundry paths in the browser.
   Files: `src/server/services/combats/CombatService.ts`.
 - [x] Verify with `npx tsc --noEmit` and `npm run test:unit`. New `actor-combat-smoke` case asserts that a player who owns one combatant's actor sees the enemy combatant's name + resolved img on the tracker DTO while `system` and `ownership` stay absent.
@@ -582,27 +582,27 @@ Scope:
 - [x] Add `ItemStore` and `ItemRepository` under `src/server/core/documents/primary/items/`. Expand `RawItem` in `src/server/shared/types/actors.ts` to include world-Item fields (`folder`, `img`, `sort`, `ownership`, `flags`, `_stats`); the type stays shared between embedded and world contexts.
   Files: `src/server/core/documents/primary/items/ItemStore.ts`, `src/server/core/documents/primary/items/ItemRepository.ts`, `src/server/shared/types/actors.ts`.
 - [x] Fix `modifyDocumentRouter.route` priority: `parentUuid` present routes embedded-or-drop (no fall-through to direct-type, which would let synthetic-token `Item` events on `ActorDelta` leak into `ItemStore`). World events with no `parentUuid` go to direct-type lookup. Added a regression test that `Item` events under `Actor.<id>` route to `ActorStore` even after `ItemStore` registers directly, AND that `Item` events with `parentUuid: ActorDelta.<id>...` still drop silently rather than leaking to `ItemStore`.
-  Files: `src/server/core/documents/primary/base/modifyDocumentRouter.ts`, `src/tests/unit/modify-document-router.test.ts`.
+  Files: `src/server/core/documents/primary/base/modifyDocumentRouter.ts`, `src/tests/unit/routing/modify-document-router.test.ts`.
 - [x] Register `ItemStore` with `PrimaryDocumentCacheCoordinator` (after `FolderStore`). Register direct-type binding on `modifyDocumentRouter` and the `Item`-parent embedded handler for `ActiveEffect` on world Items.
   Files: `src/server/core/documents/primary/PrimaryDocumentCacheCoordinator.ts`.
 - [x] Implement world-Item visibility in `ItemStore.resolveOwnership()` using `getEffectiveOwnership(item.ownership, subject)`.
-  Files: `src/server/core/documents/primary/items/ItemStore.ts`, `src/tests/unit/item-store.test.ts`.
+  Files: `src/server/core/documents/primary/items/ItemStore.ts`, `src/tests/unit/documents/item-store.test.ts`.
 - [x] Implement embedded `ActiveEffect` mutation handling for world Items via `parentUuid: Item.<id>`. Mirrors the Actor-effect pattern; emits `itemChanged` (update) on the parent.
-  Files: `src/server/core/documents/primary/items/ItemStore.ts`, `src/tests/unit/item-store.test.ts`, `src/tests/unit/modify-document-router.test.ts`.
+  Files: `src/server/core/documents/primary/items/ItemStore.ts`, `src/tests/unit/documents/item-store.test.ts`, `src/tests/unit/routing/modify-document-router.test.ts`.
 - [x] Add `ItemStore.listByFolderIds(folderIds, options?)` mirroring `JournalStore.listByFolderIds`. Not consumed in Phase 6; parity for future folder-organized item views.
-  Files: `src/server/core/documents/primary/items/ItemStore.ts`, `src/tests/unit/item-store.test.ts`.
+  Files: `src/server/core/documents/primary/items/ItemStore.ts`, `src/tests/unit/documents/item-store.test.ts`.
 - [x] Migrate `createModuleFoundryClient.getWorldItems` to read from `ItemStore.list({ subject, minOwnership: LIST_VISIBLE })` with optional `type` filtering preserved. SDK signature unchanged. Store-readiness guard throws `PrimaryDocumentCacheNotReadyError` pre-bootstrap.
   Files: `src/server/shared/utils/createModuleFoundryClient.ts`.
 - [x] Reroute `CoreSocket.fetchByUuid` `Item.<id>` branch through `ItemStore.get(id)` with the Actor pattern's Store-ready guard. Compendium-Item lookups stay on the compendium cache path.
   Files: `src/server/core/foundry/sockets/CoreSocket.ts`.
 - [x] Route world Item create/update/delete through `ItemRepository` in `createRouteFoundryClient.dispatchDocument`. Parent-aware priority: `parent.type === 'Actor'` → `ActorRepository`; `parent.type === 'Item'` → `ItemRepository`; bare `type === 'Item'` → `ItemRepository`. Embedded `ActiveEffect` events under either parent route to the right Repository via the `parent.type` check. Inline-documented in the dispatch helper.
-  Files: `src/server/shared/utils/createRouteFoundryClient.ts`, `src/tests/unit/item-store.test.ts`.
+  Files: `src/server/shared/utils/createRouteFoundryClient.ts`, `src/tests/unit/documents/item-store.test.ts`.
 - [x] Bridge `ItemStore` events through `SystemService` as `itemChanged` / `itemListInvalidated`. `AppSocketGateway` fan-out applies per-socket `itemStore.canReadDocument` on `itemChanged` and honors `targetUserIds` on invalidations. System-handler count goes 11 → 13.
-  Files: `src/server/core/system/SystemService.ts`, `src/server/realtime/AppSocketGateway.ts`, `src/tests/unit/app-socket-gateway.test.ts`.
+  Files: `src/server/core/system/SystemService.ts`, `src/server/realtime/AppSocketGateway.ts`, `src/tests/unit/sockets/app-socket-gateway.test.ts`.
 - [x] Define skinny SDK + shared realtime contracts `RealtimeItemChangedPayload` and `RealtimeItemListInvalidatedPayload`. No client-side subscriber added (no in-tree consumer); the gateway emits for future module-SDK consumers, matching the pre-subscription pattern from the Phase 2/3 audit.
   Files: `src/shared/contracts/realtime.ts`, `src/shared/sdk/contracts.ts`.
 - [x] Add Phase 6 tests covering seed/clear, clone-on-read, ownership policy (default + per-user, GM short-circuit), `listByFolderIds`, embedded `ActiveEffect` routing, repository writes, and the router-priority regression case.
-  Files: `src/tests/unit/item-store.test.ts`, `src/tests/unit/modify-document-router.test.ts`, `src/tests/unit/run.ts`.
+  Files: `src/tests/unit/documents/item-store.test.ts`, `src/tests/unit/routing/modify-document-router.test.ts`, `src/tests/unit/run.ts`.
 - [x] Verify with `npx tsc --noEmit` and `npm run test:unit`.
 
 Non-goals for Phase 6:
@@ -633,7 +633,7 @@ Exit for Phase 6: `ItemStore` / `ItemRepository` exist; world-Item mutations rou
 Follow-up audit found two small alignment gaps after Phase 6 landed:
 
 - [x] Route-client dispatch now treats dotted parent types by their root document type. `parent.type === "Actor.<actorId>.Item"` now routes through `ActorRepository`, so module SDK actor-owned item effect helpers keep repository-backed immediate cache mirroring instead of falling through to raw socket dispatch. `parent.type === "Item"` still routes world-Item effects through `ItemRepository`, and bare `type === "Item"` still routes world Item writes through `ItemRepository`.
-  Files: `src/server/shared/utils/createRouteFoundryClient.ts`, `src/tests/unit/actor-store.test.ts`.
+  Files: `src/server/shared/utils/createRouteFoundryClient.ts`, `src/tests/unit/actors/actor-store.test.ts`.
 - [x] `modifyDocumentRouter` comments now match the implementation's final rule: `parentUuid` present is embedded-or-drop, with no direct-type fall-through.
   Files: `src/server/core/documents/primary/base/modifyDocumentRouter.ts`.
 - [x] ADR wording no longer references untracked temp dump paths. The observed folderable-document and world-Item field notes are written inline.
@@ -657,19 +657,19 @@ Schema notes per the policy matrix in this ADR (no external file references):
 - **Scene** / **FogExploration** / **Adventure** / **Setting** — stubs only. Scene uses the standard ownership-map policy if/when wired, but is not registered in Phase 7 because canvas/scene visibility needs its own design pass. FogExploration is per-user state (one doc per user), while Adventure import/export and Setting key-value semantics remain GM/admin-tier placeholders. Phase 7 captures the classes; no wiring.
 
 - [X] Add `RollTableStore` + `RollTableRepository` plus a `RawRollTable` / `RawRollTableResult` type pair. Implement the embedded `RollTableResult` handler maintaining the `results[]` array with mutable `drawn` state. Full-hydration Store with bootstrap seed via `PrimaryDocumentCacheCoordinator`.
-  Files: `src/server/core/documents/primary/roll-tables/RollTableStore.ts`, `src/server/core/documents/primary/roll-tables/RollTableRepository.ts`, `src/server/shared/types/documents.ts`, `src/tests/unit/roll-table-store.test.ts`.
+  Files: `src/server/core/documents/primary/roll-tables/RollTableStore.ts`, `src/server/core/documents/primary/roll-tables/RollTableRepository.ts`, `src/server/shared/types/documents.ts`, `src/tests/unit/documents/roll-table-store.test.ts`.
 - [X] Add `MacroStore` + `MacroRepository` plus a `RawMacro` type. No embedded children; `RawMacro` includes `author` for projection/attribution, but `MacroStore.resolveOwnership` ignores `author` and resolves access from the standard `ownership` map only. Full-hydration with bootstrap seed. `listByAuthor` helper added for projection convenience (subject-filtered so `author` cannot grant read access on its own).
-  Files: `src/server/core/documents/primary/macros/MacroStore.ts`, `src/server/core/documents/primary/macros/MacroRepository.ts`, `src/server/shared/types/documents.ts`, `src/tests/unit/macro-store.test.ts`.
+  Files: `src/server/core/documents/primary/macros/MacroStore.ts`, `src/server/core/documents/primary/macros/MacroRepository.ts`, `src/server/shared/types/documents.ts`, `src/tests/unit/documents/macro-store.test.ts`.
 - [X] Add `PlaylistStore` + `PlaylistRepository` plus `RawPlaylist` / `RawPlaylistSound` types. Embedded `PlaylistSound` handler maintains the `sounds[]` array with playback state. Full-hydration with bootstrap seed.
-  Files: `src/server/core/documents/primary/playlists/PlaylistStore.ts`, `src/server/core/documents/primary/playlists/PlaylistRepository.ts`, `src/server/shared/types/documents.ts`, `src/tests/unit/playlist-store.test.ts`.
+  Files: `src/server/core/documents/primary/playlists/PlaylistStore.ts`, `src/server/core/documents/primary/playlists/PlaylistRepository.ts`, `src/server/shared/types/documents.ts`, `src/tests/unit/documents/playlist-store.test.ts`.
 - [X] Add `CardsStore` + `CardsRepository` plus `RawCards` / `RawCard` types. Embedded `Card` handler maintains the `cards[]` array for create/update/delete while preserving Foundry card fields (`faces[]`, `face`, `drawn`, `suit`, `value`, `origin`, `back`, dimensions, rotation, sort, flags, system, `_stats`) without adding game-specific semantics. Full-hydration with bootstrap seed.
-  Files: `src/server/core/documents/primary/cards/CardsStore.ts`, `src/server/core/documents/primary/cards/CardsRepository.ts`, `src/server/shared/types/documents.ts`, `src/tests/unit/cards-store.test.ts`.
+  Files: `src/server/core/documents/primary/cards/CardsStore.ts`, `src/server/core/documents/primary/cards/CardsRepository.ts`, `src/server/shared/types/documents.ts`, `src/tests/unit/documents/cards-store.test.ts`.
 - [X] Register the four new Stores with `PrimaryDocumentCacheCoordinator` (per-type seeders) AND `modifyDocumentRouter` (direct + embedded handlers where applicable). Coordinator seeders use the existing per-type `dispatchDocumentSocket` pattern; consolidating onto `gameData` is a deferred post-alignment refactor that intersects with the CoreSocket connect-handler split.
   Files: `src/server/core/documents/primary/PrimaryDocumentCacheCoordinator.ts`.
 - [X] Wire the four new repositories into `createRouteFoundryClient().dispatchDocument(...)` so direct writes for `RollTable`, `Macro`, `Playlist`, and `Cards` and parented writes for `RollTableResult`, `PlaylistSound`, and `Card` mirror through the new Stores instead of falling back to raw `client.dispatchDocument(...)`.
   Files: `src/server/shared/utils/createRouteFoundryClient.ts`.
 - [X] Bridge the four Stores' events through `SystemService` as `<type>Changed` / `<type>ListInvalidated` matching the other Store bridges. `AppSocketGateway` fan-out adds per-socket `canReadDocument` filtering on the per-doc events and `targetUserIds` honoring on invalidations. Gateway system-client handler count goes 13 → 21 (4 new types × 2 events each).
-  Files: `src/server/core/system/SystemService.ts`, `src/server/realtime/AppSocketGateway.ts`, `src/tests/unit/app-socket-gateway.test.ts`.
+  Files: `src/server/core/system/SystemService.ts`, `src/server/realtime/AppSocketGateway.ts`, `src/tests/unit/sockets/app-socket-gateway.test.ts`.
 - [X] Add skinny SDK + shared realtime contracts for the four new types (`RealtimeRollTableChangedPayload` / `…ListInvalidatedPayload` and similar for Macro, Playlist, Cards). No browser subscriber is added — no in-tree consumer exists, matching the user/folder/item "decorative until subscribed" pattern.
   Files: `src/shared/contracts/realtime.ts`, `src/shared/sdk/contracts.ts`.
 - [X] Add stub Stores for `SceneStore`, `FogExplorationStore`, `AdventureStore`, `SettingStore` — near-empty subclasses against `PrimaryDocumentStore<T>` with `documentType` set and a minimal `resolveOwnership` (standard ownership-map policy for Scene; per-user-id placeholder for FogExploration; GM-only placeholders for Adventure and Setting). **Not** registered with the coordinator or router. The classes exist so the `PrimaryDocumentType` union is complete.
@@ -679,7 +679,7 @@ Schema notes per the policy matrix in this ADR (no external file references):
 - [X] Verify the exit-criteria closure items from earlier phases: (a) `modifyDocumentRouter` is the sole inbound dispatch path — verified at `CoreSocket._routeModifyDocument` (the single `modifyDocument` socket-listener entry calls `modifyDocumentRouter.route(...)`; `ClientSocket` no longer registers a `modifyDocument` listener); (b) `PrimaryDocumentCacheCoordinator.seedAll` is the sole bootstrap-seed path — verified at `SystemService.bootstrap()`'s single `await seedDocumentCache(client)` call (the deprecated wrapper calls `seedAll`); no per-type hardcoded actor-only seeding remains.
   Files: `src/server/core/foundry/sockets/CoreSocket.ts`, `src/server/core/foundry/sockets/ClientSocket.ts`, `src/server/core/system/SystemService.ts`.
 - [X] Rename the legacy Phase 1 wire event `actorUpdate` → `actorChanged` so every primary doc type uses uniform `<type>Changed` event names. The `actorListInvalidated` companion already exists, so this is single-event rename. Touch points completed: `SystemService` bridge emit, `AppSocketGateway` system-handler register/unregister + downstream `socket.emit`, browser subscribers (`FoundryContext`, `SDKProvider`, `GenericActorPage`), SDK React helper `onActorUpdate` → `onActorChanged`, `app-socket-gateway` test, exported realtime contract `RealtimeActorUpdatePayload` → `RealtimeActorChangedPayload`, SDK exports, module documentation (`MODULE_MANIFEST.md`), per-system module ActorPages (dnd5e / morkborg / shadowdark), and stale comments in `ActorStore` + `ClientSocket`. No alias retained — clean break.
-  Files: `src/server/core/system/SystemService.ts`, `src/server/realtime/AppSocketGateway.ts`, `src/client/ui/context/FoundryContext.tsx`, `src/client/ui/providers/SDKProvider.tsx`, `src/client/ui/pages/GenericActorPage.tsx`, `src/shared/contracts/realtime.ts`, `src/shared/sdk/contracts.ts`, `src/shared/sdk/react.ts`, `src/shared/sdk/index.ts`, `src/modules/MODULE_MANIFEST.md`, `src/tests/unit/app-socket-gateway.test.ts`, `docs/adr/0012-primary-document-realtime-events.md`.
+  Files: `src/server/core/system/SystemService.ts`, `src/server/realtime/AppSocketGateway.ts`, `src/client/ui/context/FoundryContext.tsx`, `src/client/ui/providers/SDKProvider.tsx`, `src/client/ui/pages/GenericActorPage.tsx`, `src/shared/contracts/realtime.ts`, `src/shared/sdk/contracts.ts`, `src/shared/sdk/react.ts`, `src/shared/sdk/index.ts`, `src/modules/MODULE_MANIFEST.md`, `src/tests/unit/sockets/app-socket-gateway.test.ts`, `docs/adr/0012-primary-document-realtime-events.md`.
 - [X] Extend `CoreSocket.fetchByUuid` world-doc short-circuit to `RollTable`, `Macro`, `Playlist`, `Cards` — mirrors the Actor/Item branches, fails closed with `PrimaryDocumentCacheNotReadyError` if the Store isn't seeded. Compendium UUIDs keep the existing pack-fetch path. Inline `TODO(post-ADR-0011)` comment landed at the compendium branch flagging full pack-doc hydration as the recommended next direction outside ADR-0011 scope.
   Files: `src/server/core/foundry/sockets/CoreSocket.ts`.
 - [X] Update stale comments that still describe Macro / Playlist / RollTable / Cards as unrouted. The `_routeModifyDocument` comment in `CoreSocket.ts` now enumerates the full routing surface; only stub types (Scene / FogExploration / Adventure / Setting) and synthetic tokens like `ActorDelta` are in the silent-drop list.
@@ -687,7 +687,7 @@ Schema notes per the policy matrix in this ADR (no external file references):
 - [X] Flip the ADR status to **Accepted** in the front matter and tick the two cross-cutting exit-criteria checkboxes after closure verification.
   Files: `docs/adr/0011-primary-document-model.md`.
 - [X] Add Phase 7 tests covering seed/clear + per-type ownership policies (standard map; Macro `author` is ignored for visibility but preserved on the raw document; Cards array handling), embedded mutation routing for RollTable / Playlist (`RollTableResult` and `PlaylistSound` array maintenance) and the Cards `Card` embedded handler (including paired cross-Cards-doc transfer events), and a stub-store presence check (exists in the type union, no router/coordinator registration). Router test extended with `RollTableResult` / `PlaylistSound` / `Card` embedded routing cases. Gateway test asserts the 21 handler count.
-  Files: `src/tests/unit/roll-table-store.test.ts`, `src/tests/unit/macro-store.test.ts`, `src/tests/unit/playlist-store.test.ts`, `src/tests/unit/cards-store.test.ts`, `src/tests/unit/modify-document-router.test.ts`, `src/tests/unit/run.ts`.
+  Files: `src/tests/unit/documents/roll-table-store.test.ts`, `src/tests/unit/documents/macro-store.test.ts`, `src/tests/unit/documents/playlist-store.test.ts`, `src/tests/unit/documents/cards-store.test.ts`, `src/tests/unit/routing/modify-document-router.test.ts`, `src/tests/unit/run.ts`.
 - [X] Verify with `npx tsc --noEmit` and `npm run test:unit`. Both pass.
 
 Non-goals for Phase 7:
@@ -747,7 +747,7 @@ Done in this slice:
 - `CoreSocket.fetchByUuid` world-doc short-circuit extended to `RollTable` and `Macro` (fail-closed with `PrimaryDocumentCacheNotReadyError` if the Store isn't seeded yet; mirrors the Actor/Item branches). Compendium branch carries the inline `TODO(post-ADR-0011)` flagging full pack-doc hydration as the next direction outside ADR-0011 scope.
 - `_routeModifyDocument` comment in `CoreSocket` updated — RollTable / RollTableResult / Macro are no longer in the "drops silently" list; remaining silent-drops are ActorDelta / Playlist / Cards.
 - Skinny realtime contracts added in `src/shared/contracts/realtime.ts` and `src/shared/sdk/contracts.ts` for both types.
-- Unit tests: `src/tests/unit/roll-table-store.test.ts` (seed/clone, ownership, folder filter, embedded `RollTableResult` routing including the idempotent re-apply case, repository write-mirror) and `src/tests/unit/macro-store.test.ts` (seed/clone, ownership policy + the `author-is-not-policy` assertion proving `author` doesn't grant access, `listByAuthor` + `listByFolderIds`, repository write-mirror). Both wired into `src/tests/unit/run.ts`. `app-socket-gateway` test updated to expect 17 handlers.
+- Unit tests: `src/tests/unit/documents/roll-table-store.test.ts` (seed/clone, ownership, folder filter, embedded `RollTableResult` routing including the idempotent re-apply case, repository write-mirror) and `src/tests/unit/documents/macro-store.test.ts` (seed/clone, ownership policy + the `author-is-not-policy` assertion proving `author` doesn't grant access, `listByAuthor` + `listByFolderIds`, repository write-mirror). Both wired into `src/tests/unit/run.ts`. `app-socket-gateway` test updated to expect 17 handlers.
 - `npx tsc --noEmit` and `npm run test:unit` pass.
 
 Remaining for the next slice:
@@ -813,7 +813,7 @@ Allowed socket surface after Phase 8:
 Phase 8 action items:
 
 - [x] Add `ActorRepository.updateActor(actorId, updates)` so all Actor CRUD has repository-owned create/update/delete parity.
-  Files: `src/server/core/documents/primary/actors/ActorRepository.ts`, `src/tests/unit/actor-store.test.ts` or a dedicated repository test.
+  Files: `src/server/core/documents/primary/actors/ActorRepository.ts`, `src/tests/unit/actors/actor-store.test.ts` or a dedicated repository test.
 - [x] Verify `createRouteFoundryClient.getActors/getActor/getActorRaw` remain Store-backed and become the only route-facing Actor read surface. Any route/debug/service call currently reaching through `session.client.getActor(...)` or socket actor getters should move to the route-client facade or directly to the appropriate Store-backed service boundary.
   Files: `src/server/shared/utils/createRouteFoundryClient.ts`, `src/server/services/debug/DebugService.ts`, `src/server/services/actors/ActorService.ts`, `src/server/services/combats/CombatService.ts`.
 - [x] Move adapter `validateUpdate` filtering out of `ClientSocket.updateActor`. The validation can live in a small Actor write-policy helper or in `createRouteFoundryClient.updateActor(...)` immediately before calling `ActorRepository.updateActor(...)`; the socket must not own the policy.
@@ -825,7 +825,7 @@ Phase 8 action items:
 - [x] Move `roll` / `useItem` route-module behavior off socket classes or explicitly document a narrower non-primary-document exception. The replacement path should use Store-backed Actor reads and `ChatMessageRepository` for chat creation without calling socket actor/chat helpers.
   Files: `src/server/core/foundry/sockets/ClientSocket.ts`, `src/server/core/foundry/sockets/CoreSocket.ts`, `src/server/services/chat/ChatService.ts`, `src/server/services/actors/ActorService.ts`, `src/server/services/combats/CombatService.ts`, `src/server/shared/utils/createRouteFoundryClient.ts`, `src/server/shared/utils/createModuleFoundryClient.ts`.
 - [x] Enforce fail-closed user transport: `ClientSocket.dispatchDocument(...)` throws when the user socket is unavailable and has no CoreSocket fallback. Add regression coverage that a disconnected user client does not call `systemService.getSystemClient().dispatchDocument(...)`.
-  Files: `src/server/core/foundry/sockets/ClientSocket.ts`, `src/tests/unit/client-socket-transport.test.ts`.
+  Files: `src/server/core/foundry/sockets/ClientSocket.ts`, `src/tests/unit/sockets/client-socket-transport.test.ts`.
 - [x] Remove the unauthenticated module API fallback to the system route client. Module API requests without an authenticated Foundry route client now return 401 instead of receiving `CoreSocket` as an implicit fallback.
   Files: `src/server/services/modules/ModuleProxyService.ts`, `src/server/routes/modules/createModuleRouter.ts`, `src/server/app/registerRoutes.ts`.
 - [x] Remove type-specific Actor read/write helpers from `ClientSocket` and `CoreSocket`: `getActors`, `getActor`, `getActorRaw`, `createActor`, `updateActor`, `deleteActor`, `createActorItem`, `updateActorItem`, `deleteActorItem`.
@@ -835,7 +835,7 @@ Phase 8 action items:
 - [x] Keep `createModuleFoundryClient`'s public Actor SDK shape intact, but ensure each method delegates to the repository-backed route client rather than socket helper methods.
   Files: `src/server/shared/utils/createModuleFoundryClient.ts`, `src/server/shared/utils/createRouteFoundryClient.ts`.
 - [x] Add regression coverage proving route/module Actor reads and writes work with a fake client that exposes generic `dispatchDocument` but no type-specific actor helper methods.
-  Files: `src/tests/unit/actor-store.test.ts`.
+  Files: `src/tests/unit/actors/actor-store.test.ts`.
 - [x] Update or retire socket-specific legacy tests that directly exercise actor-shaped socket helpers. The replacement assertions should target route/module facades and the repository/store path; low-level socket tests may cover only generic transport.
   Files: active `src/tests/socket/*.test.ts` callers now use route clients; deprecated socket tests remain excluded from active verification.
 - [x] Add a source-audit check to the Phase 8 verification notes: no live code outside repository/transport/bootstrap internals calls socket-owned primary-document read/write helpers, and no `ClientSocket`/`CoreSocket` actor helper methods remain.
@@ -845,7 +845,7 @@ Phase 8 completion notes:
 - `ClientSocket` and `CoreSocket` no longer expose Actor helper methods, `getChatLog`, `roll`, or `useItem`; sockets retain only generic transport (`dispatchDocument` / `dispatchDocumentSocket`) plus non-primary-document metadata/session utilities.
 - `createRouteFoundryClient` now owns Actor Store reads, Actor Repository writes, adapter `validateUpdate` filtering, route-scoped `roll`, and `useItem`. `roll` / `useItem` create chat output through `ChatMessageRepository` and read Actors through the Store-backed route facade.
 - `ChatService.getChatLog(...)` now fails closed with `PrimaryDocumentCacheNotReadyError('ChatMessage')` while `ChatMessageStore` is cold instead of falling back to a socket chat-log helper.
-- `DebugService` and socket integration tests now wrap raw sessions/sockets in route clients before using Actor facades. Unit coverage in `src/tests/unit/actor-store.test.ts` verifies route-client reads and writes with a fake transport that has generic `dispatchDocument` but no type-specific Actor socket helpers.
+- `DebugService` and socket integration tests now wrap raw sessions/sockets in route clients before using Actor facades. Unit coverage in `src/tests/unit/actors/actor-store.test.ts` verifies route-client reads and writes with a fake transport that has generic `dispatchDocument` but no type-specific Actor socket helpers.
 - Source audit: no `ClientSocket` / `CoreSocket` definitions remain for `getActors`, `getActor`, `getActorRaw`, `createActor`, `updateActor`, `deleteActor`, `createActorItem`, `updateActorItem`, `deleteActorItem`, `getChatLog`, `roll`, `useItem`, or `rollTable`; no live non-deprecated code calls `systemService.getSystemClient()` for those removed helpers.
 
 Non-goals for Phase 8:

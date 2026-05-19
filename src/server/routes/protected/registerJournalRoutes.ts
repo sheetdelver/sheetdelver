@@ -17,7 +17,7 @@ import { isErrorPayload } from '@server/shared/utils/isErrorPayload';
  *   DELETE /journals/:id   → no courtesy gate
  *
  * Verified by `runJournalListVsDetailThresholdsDiverge` in
- * `src/tests/unit/route-ownership-thresholds.test.ts`.
+ * `src/tests/unit/routing/route-ownership-thresholds.test.ts`.
  */
 export function registerJournalRoutes(appRouter: express.Router) {
     // Journal domain service: displaced logic for visibility-filtered listing and CRUD operations.

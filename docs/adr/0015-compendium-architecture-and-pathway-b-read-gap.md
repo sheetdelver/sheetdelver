@@ -246,7 +246,7 @@ Phase 1 introduces the canonical in-memory home for active-world pack indices. E
   Files: `src/server/core/compendium/CompendiumStore.ts`, `src/server/core/compendium/index.ts`.
 
 - [x] Add unit coverage for seed, clear, metadata lookup, default index lookup, field-aware variant lookup, UUID entry lookup, clone-on-read, and clone-on-write behavior using tiny synthetic fixtures.
-  Files: `src/tests/unit/compendium-store.test.ts`, `src/tests/unit/run.ts`.
+  Files: `src/tests/unit/compendium/compendium-store.test.ts`, `src/tests/unit/run.ts`.
 
 - [x] Document the compendium synthetic fixture policy so future tests do not commit real pack or shard data.
   Files: `docs/adr/0015-compendium-architecture-and-pathway-b-read-gap.md`.
@@ -278,7 +278,7 @@ Phase 2 moves platform-wide pack discovery (Pathway A) out of `CoreSocket` and i
   Files: `src/server/services/compendium/CompendiumService.ts`, `src/server/services/compendium/index.ts`.
 
 - [x] Preserve the existing API-compatibility ladders for pack entries, pack index, and full pack docs. If behavior changes, call it out as an explicit compatibility improvement with tests.
-  Files: `src/server/services/compendium/CompendiumService.ts`, `src/tests/unit/compendium-service.test.ts`.
+  Files: `src/server/services/compendium/CompendiumService.ts`, `src/tests/unit/compendium/compendium-service.test.ts`.
 
 - [x] Preserve the current heartbeat-pause behavior for long pack entry fetches through a narrow transport helper or service-local wrapper until ADR-0017 moves heartbeat policy.
   Files: `src/server/core/foundry/sockets/CoreSocket.ts`, `src/server/services/compendium/CompendiumService.ts`.
@@ -331,7 +331,7 @@ Phase 3 closes the Pathway B read gap. Persistent discovery shards that `Discove
   Files: `src/server/shared/utils/createModuleContext.ts`, `src/shared/sdk/context.ts`.
 
 - [ ] Add unit coverage for shard manifest loading, module-scoped shard lookup, empty-scope fail-closed behavior, `findOne`, `findAll`, `getById`, and persisted-shard shape compatibility.
-  Files: `src/tests/unit/discovery-shard-store.test.ts`, `src/tests/unit/module-context-discovery.test.ts`, `src/tests/unit/run.ts`.
+  Files: `src/tests/unit/compendium/discovery-shard-store.test.ts`, `src/tests/unit/compendium/module-context-discovery.test.ts`, `src/tests/unit/run.ts`.
 
 - [ ] Verify Phase 3 with unit/type checks and old-path audits.
   Commands: `npm run test:unit`; `npx tsc --noEmit`; `rg -n "core/foundry/DiscoveryService|from ['\\\"].*foundry/DiscoveryService|@core/foundry/DiscoveryService" src data/local/modules`; `rg -n "findAll: async \\([^)]*\\) => \\[\\]|createScopedDiscovery" src/server/shared/utils/createModuleContext.ts`.
@@ -361,13 +361,13 @@ Phase 4 makes the two pathways collaborate without merging their policy. It also
   Files: `src/server/services/compendium/DiscoveryService.ts`, `src/server/services/compendium/CompendiumService.ts`, `src/server/core/compendium/CompendiumStore.ts`.
 
 - [ ] Preserve manifest hash compatibility unless an explicit manifest version bump is introduced. Existing shards should not rebuild just because the service moved.
-  Files: `src/server/services/compendium/DiscoveryService.ts`, `src/tests/unit/discovery-service.test.ts`.
+  Files: `src/server/services/compendium/DiscoveryService.ts`, `src/tests/unit/compendium/discovery-service.test.ts`.
 
 - [ ] Add a Pathway B shard document lookup such as `DiscoveryShardStore.findDocument(systemId, packId, documentId, type?)`. Declared hydrated shards should be the first place ADR-0016 looks after it parses a compendium UUID.
-  Files: `src/server/core/compendium/DiscoveryShardStore.ts` or `src/server/services/compendium/DiscoveryShardReader.ts`, `src/tests/unit/discovery-shard-store.test.ts`.
+  Files: `src/server/core/compendium/DiscoveryShardStore.ts` or `src/server/services/compendium/DiscoveryShardReader.ts`, `src/tests/unit/compendium/discovery-shard-store.test.ts`.
 
 - [ ] Add a parsed pack-document transport fallback such as `CompendiumService.getPackDocument(packId, documentId, type?)`. It should not parse UUIDs; it receives already-parsed parts and preserves the existing socket API ladder when no declared shard serves the document.
-  Files: `src/server/services/compendium/CompendiumService.ts`, `src/tests/unit/compendium-service.test.ts`.
+  Files: `src/server/services/compendium/CompendiumService.ts`, `src/tests/unit/compendium/compendium-service.test.ts`.
 
 - [ ] Remove or rewrite the stale "full pack-doc hydration at bootstrap" TODO in `CoreSocket.fetchByUuid` so the code points to this ADR's Pathway B policy until ADR-0016 removes the method.
   Files: `src/server/core/foundry/sockets/CoreSocket.ts`.

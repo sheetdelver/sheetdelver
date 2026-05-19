@@ -16,7 +16,7 @@ interface ChatRouteDeps {
  *   POST /chat/send  → no courtesy gate; Foundry enforces on dispatch
  *
  * Verified by `runChatLogListThresholdIsListVisible` in
- * `src/tests/unit/route-ownership-thresholds.test.ts`.
+ * `src/tests/unit/routing/route-ownership-thresholds.test.ts`.
  */
 export function registerChatRoutes(appRouter: express.Router, deps: ChatRouteDeps) {
     // Chat domain service: displaced logic for feed reads and send/roll command handling.

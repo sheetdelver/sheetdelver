@@ -36,7 +36,7 @@ function getErrorStatus(error: unknown, fallback = 500): number {
  * of the documented DETAIL_VISIBLE. Tracked by the comment at
  * `createRouteFoundryClient.getActor`; the future split is captured by the
  * `runActorDetailUsesListVisibleAsShipped` test in
- * `src/tests/unit/route-ownership-thresholds.test.ts`.
+ * `src/tests/unit/routing/route-ownership-thresholds.test.ts`.
  *
  * Write endpoints intentionally lack a Sheet Delver-side WRITEABLE courtesy
  * gate; Foundry is the authoritative permission check on writes (the original

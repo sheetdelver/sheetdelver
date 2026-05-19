@@ -21,7 +21,7 @@ interface CombatRouteDeps {
  *                                                    → no courtesy gate; Foundry enforces on dispatch
  *
  * Verified by `runCombatListVisibilityCrossesActorStore` in
- * `src/tests/unit/route-ownership-thresholds.test.ts`, and the existing
+ * `src/tests/unit/routing/route-ownership-thresholds.test.ts`, and the existing
  * `runCombatReadActionSmoke` cases in `actor-combat-smoke.test.ts` cover
  * turn-advancement authorization at OWNER / OBSERVER / non-owner bands.
  */

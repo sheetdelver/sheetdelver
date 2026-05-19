@@ -208,7 +208,7 @@ Completed May 2026. Summary of what was done:
 - `ModuleServerRequest`, `ModuleServerParams`, `ModuleServerExport`, `ModuleRouteHandler` added to SDK (`src/shared/sdk/server.ts`)
 - `UserSession` added to SDK (already was in contracts.ts)
 - `@sheet-delver/sdk` alias wired into `src/scripts/start-server.ts` generator (persists across restarts) and `next.config.ts` turbopack config
-- SDK integrity test: `src/tests/unit/sdk-integrity.test.ts` — 8 test areas, all passing
+- SDK integrity test: `src/tests/unit/sdk/sdk-integrity.test.ts` — 8 test areas, all passing
 
 **Generic module dissolved:** `src/modules/generic/` was deleted. `GenericSheet` and `GenericActorPage` moved to `src/client/ui/` as platform-owned fallback components. `FallbackAdapter extends BaseSystemAdapter` now lives inline in the registry as the no-match fallback. Eliminates the false impression that "generic" was a real external module.
 
