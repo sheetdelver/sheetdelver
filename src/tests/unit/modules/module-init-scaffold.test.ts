@@ -4,8 +4,8 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { __resetDataDirForTests, initDataDir, resolveDataDir } from '@server/core/paths';
-import { initModule } from '../../scripts/tools/modules/init-module';
-import { checkModule } from '../../scripts/tools/modules/check-module';
+import { initModule } from '../../../scripts/tools/modules/init-module';
+import { checkModule } from '../../../scripts/tools/modules/check-module';
 
 function resolveEntry(modulePath: string, manifestEntry: string): string {
     const base = path.join(modulePath, manifestEntry);

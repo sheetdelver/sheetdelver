@@ -45,7 +45,7 @@ export async function run() {
     process.env.SHEET_DELVER_MODULE_STATE_FILE = stateFilePath;
 
     // Create dummy module directory in test data
-    const { getModulesDataDir } = await import('../../server/core/paths');
+    const { getModulesDataDir } = await import('../../../server/core/paths');
     const testModulesDir = getModulesDataDir();
     const shadowdarkDir = path.join(testModulesDir, 'shadowdark');
     if (!fs.existsSync(shadowdarkDir)) {

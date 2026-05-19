@@ -22,7 +22,7 @@ import {
     type UseNotifications,
     SDK_VERSION,
     API_CONTRACT_VERSIONS,
-} from '../../shared/sdk/index';
+} from '../../../shared/sdk/index';
 
 // ---------------------------------------------------------------------------
 // BaseSystemAdapter defaults

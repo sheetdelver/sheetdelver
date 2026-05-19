@@ -70,7 +70,7 @@ export async function run(): Promise<void> {
         process.env[ARTIFACT_ENV] = artifactFilePath;
 
         // Seed with one fake module that failed manifest validation and one real module.
-        const { getModulesDataDir, initDataDir, resolveDataDir } = await import('../../server/core/paths');
+        const { getModulesDataDir, initDataDir, resolveDataDir } = await import('../../../server/core/paths');
         const testDataDir = path.join(os.tmpdir(), `sheet-delver-gov-test-${Date.now()}`);
         if (!fs.existsSync(testDataDir)) fs.mkdirSync(testDataDir, { recursive: true });
         initDataDir(resolveDataDir(['--data-dir', testDataDir]));

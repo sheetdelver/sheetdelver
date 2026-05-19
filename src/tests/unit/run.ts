@@ -1,63 +1,85 @@
 import path from 'node:path';
 import { resolveDataDir, initDataDir } from '../../server/core/paths';
-import { run as runStatusSanitize } from './status-sanitize.test';
-import { run as runLocalhostPolicy } from './localhost-policy.test';
-import { run as runRealtimeBroadcaster } from './realtime-broadcaster.test';
-import { run as runAppSocketGateway } from './app-socket-gateway.test';
-import { run as runAuthStatusSmoke } from './auth-status-smoke.test';
-import { run as runActorCombatSmoke } from './actor-combat-smoke.test';
-import { run as runActorStore } from './actor-store.test';
-import { run as runPrimaryDocumentBase } from './primary-document-base.test';
-import { run as runChatMessageStore } from './chat-message-store.test';
-import { run as runFolderStore } from './folder-store.test';
-import { run as runChatService } from './chat-service.test';
-import { run as runModifyDocumentRouter } from './modify-document-router.test';
-import { run as runUserStore } from './user-store.test';
-import { run as runCombatSort } from './combat-sort.test';
-import { run as runActorNormalization } from './actor-normalization.test';
-import { run as runJournalSmoke } from './journal-smoke.test';
-import { run as runJournalStore } from './journal-store.test';
-import { run as runCombatStore } from './combat-store.test';
-import { run as runItemStore } from './item-store.test';
-import { run as runOwnershipHelpers } from './ownership.test';
-import { run as runRouteOwnershipThresholds } from './route-ownership-thresholds.test';
-import { run as runRollTableStore } from './roll-table-store.test';
-import { run as runMacroStore } from './macro-store.test';
-import { run as runPlaylistStore } from './playlist-store.test';
-import { run as runCardsStore } from './cards-store.test';
-import { run as runStubStores } from './stub-stores.test';
-import { run as runClientSocketTransport } from './client-socket-transport.test';
-import { run as runModuleProxyMatcher } from './module-proxy-matcher.test';
-import { run as runModuleLifecycleState } from './module-lifecycle-state.test';
-import { run as runModuleManifestValidation } from './module-manifest-validation.test';
-import { run as runModuleRegistryManager } from './module-registry-manager.test';
-import { run as runAdminCredentialStore } from './admin-credential-store.test';
-import { run as runAdminSessionService } from './admin-session-service.test';
-import { run as runAdminAuthMiddleware } from './admin-auth-middleware.test';
-import { run as runAdminCsrfMiddleware } from './admin-csrf-middleware.test';
-import { run as runAdminRateLimiter } from './admin-rate-limiter.test';
-import { run as runAdminAuditLog } from './admin-audit-log.test';
-import { run as runModuleLifecycleTransitions } from './module-lifecycle-transitions.test';
-import { run as runModuleManagerOperations } from './module-manager-operations.test';
-import { run as runModuleManagerGovernance } from './module-manager-governance.test';
-import { run as runModulePolicyConfig } from './module-policy-config.test';
-import { run as runModuleTrustPolicy } from './module-trust-policy.test';
-import { run as runModuleArtifactVerification } from './module-artifact-verification.test';
-import { run as runModulePermissionPolicy } from './module-permission-policy.test';
-import { run as runModuleCompatibilityResolver } from './module-compatibility-resolver.test';
-import { run as runModuleCompatibilityMatrix } from './module-compatibility-matrix.test';
-import { run as runModuleCompatibilityLifecycleIntegration } from './module-compatibility-lifecycle-integration.test';
-import { run as runModuleIndexModel } from './module-index-model.test';
-import { run as runModuleSourceAdapters } from './module-source-adapters.test';
-import { run as runModuleManagerDryRun } from './module-manager-dry-run.test';
-import { run as runModuleManagerTelemetry } from './module-manager-telemetry.test';
-import { run as runSdkIntegrity } from './sdk-integrity.test';
-import { run as runModuleInitScaffold } from './module-init-scaffold.test';
-import { run as runWorldStateStore } from './world-state-store.test';
-import { run as runWorldLifecycleStore } from './world-lifecycle-store.test';
-import { run as runSharedContentStore } from './shared-content-store.test';
-import { run as runCompendiumStore } from './compendium-store.test';
-import { run as runCompendiumService } from './compendium-service.test';
+
+// ── services ──────────────────────────────────────────────────────────────────
+import { run as runStatusSanitize } from './services/status-sanitize.test';
+import { run as runLocalhostPolicy } from './services/localhost-policy.test';
+import { run as runAuthStatusSmoke } from './services/auth-status-smoke.test';
+import { run as runChatService } from './services/chat-service.test';
+
+// ── sockets ───────────────────────────────────────────────────────────────────
+import { run as runRealtimeBroadcaster } from './sockets/realtime-broadcaster.test';
+import { run as runAppSocketGateway } from './sockets/app-socket-gateway.test';
+import { run as runClientSocketTransport } from './sockets/client-socket-transport.test';
+
+// ── actors ────────────────────────────────────────────────────────────────────
+import { run as runActorCombatSmoke } from './actors/actor-combat-smoke.test';
+import { run as runActorStore } from './actors/actor-store.test';
+import { run as runActorNormalization } from './actors/actor-normalization.test';
+
+// ── combat ────────────────────────────────────────────────────────────────────
+import { run as runCombatSort } from './combat/combat-sort.test';
+import { run as runCombatStore } from './combat/combat-store.test';
+
+// ── documents ─────────────────────────────────────────────────────────────────
+import { run as runPrimaryDocumentBase } from './documents/primary-document-base.test';
+import { run as runChatMessageStore } from './documents/chat-message-store.test';
+import { run as runFolderStore } from './documents/folder-store.test';
+import { run as runUserStore } from './documents/user-store.test';
+import { run as runJournalSmoke } from './documents/journal-smoke.test';
+import { run as runJournalStore } from './documents/journal-store.test';
+import { run as runItemStore } from './documents/item-store.test';
+import { run as runRollTableStore } from './documents/roll-table-store.test';
+import { run as runMacroStore } from './documents/macro-store.test';
+import { run as runPlaylistStore } from './documents/playlist-store.test';
+import { run as runCardsStore } from './documents/cards-store.test';
+import { run as runStubStores } from './documents/stub-stores.test';
+import { run as runSharedContentStore } from './documents/shared-content-store.test';
+
+// ── routing ───────────────────────────────────────────────────────────────────
+import { run as runModifyDocumentRouter } from './routing/modify-document-router.test';
+import { run as runOwnershipHelpers } from './routing/ownership.test';
+import { run as runRouteOwnershipThresholds } from './routing/route-ownership-thresholds.test';
+
+// ── compendium ────────────────────────────────────────────────────────────────
+import { run as runCompendiumStore } from './compendium/compendium-store.test';
+import { run as runCompendiumService } from './compendium/compendium-service.test';
+
+// ── world ─────────────────────────────────────────────────────────────────────
+import { run as runWorldStateStore } from './world/world-state-store.test';
+import { run as runWorldLifecycleStore } from './world/world-lifecycle-store.test';
+
+// ── admin ─────────────────────────────────────────────────────────────────────
+import { run as runAdminCredentialStore } from './admin/admin-credential-store.test';
+import { run as runAdminSessionService } from './admin/admin-session-service.test';
+import { run as runAdminAuthMiddleware } from './admin/admin-auth-middleware.test';
+import { run as runAdminCsrfMiddleware } from './admin/admin-csrf-middleware.test';
+import { run as runAdminRateLimiter } from './admin/admin-rate-limiter.test';
+import { run as runAdminAuditLog } from './admin/admin-audit-log.test';
+
+// ── modules ───────────────────────────────────────────────────────────────────
+import { run as runModuleProxyMatcher } from './modules/module-proxy-matcher.test';
+import { run as runModuleLifecycleState } from './modules/module-lifecycle-state.test';
+import { run as runModuleManifestValidation } from './modules/module-manifest-validation.test';
+import { run as runModuleRegistryManager } from './modules/module-registry-manager.test';
+import { run as runModuleLifecycleTransitions } from './modules/module-lifecycle-transitions.test';
+import { run as runModuleManagerOperations } from './modules/module-manager-operations.test';
+import { run as runModuleManagerGovernance } from './modules/module-manager-governance.test';
+import { run as runModulePolicyConfig } from './modules/module-policy-config.test';
+import { run as runModuleTrustPolicy } from './modules/module-trust-policy.test';
+import { run as runModuleArtifactVerification } from './modules/module-artifact-verification.test';
+import { run as runModulePermissionPolicy } from './modules/module-permission-policy.test';
+import { run as runModuleCompatibilityResolver } from './modules/module-compatibility-resolver.test';
+import { run as runModuleCompatibilityMatrix } from './modules/module-compatibility-matrix.test';
+import { run as runModuleCompatibilityLifecycleIntegration } from './modules/module-compatibility-lifecycle-integration.test';
+import { run as runModuleIndexModel } from './modules/module-index-model.test';
+import { run as runModuleSourceAdapters } from './modules/module-source-adapters.test';
+import { run as runModuleManagerDryRun } from './modules/module-manager-dry-run.test';
+import { run as runModuleManagerTelemetry } from './modules/module-manager-telemetry.test';
+import { run as runModuleInitScaffold } from './modules/module-init-scaffold.test';
+
+// ── sdk ───────────────────────────────────────────────────────────────────────
+import { run as runSdkIntegrity } from './sdk/sdk-integrity.test';
 
 async function runAllUnitTests() {
     // Initialize test data directory before running any tests
