@@ -6,7 +6,8 @@ import { logger } from '@shared/utils/logger';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
 import { getAdapter, getRegisteredModules } from '@modules/registry/server';
 import { discoveryService } from '../foundry/DiscoveryService';
-import { CompendiumCache } from '../compendium/CompendiumCache';
+import { CompendiumCache, compendiumStore } from '../compendium';
+import { CompendiumService } from '@server/services/compendium';
 import { worldStateStore } from '@server/core/world/WorldStateStore';
 import { worldLifecycleStore } from '@server/core/world/WorldLifecycleStore';
 import { clearDocumentCache, seedDocumentCache } from '../documents/primary/PrimaryDocumentCacheCoordinator';
@@ -255,6 +256,8 @@ export class SystemService extends EventEmitter {
         this.initialized = false;
         this.bootstrapPromise = null;
         clearDocumentCache('world-disconnected');
+        compendiumStore.clear('world-disconnected');
+        CompendiumCache.getInstance().reset();
     }
 
     /**
@@ -271,9 +274,18 @@ export class SystemService extends EventEmitter {
             logger.info('SystemService | Beginning world bootstrap...');
             
             try {
-                // 1. Compendium Cache Warmup
+                // 1. Pathway A Compendium Discovery
+                // ADR-0015 Phase 2: bootstrap warms indices through the service,
+                // then rebuilds the legacy UUID-name cache from Store-backed
+                // discovery results. The socket remains only the transport.
+                const compendiumService = new CompendiumService({
+                    transport: client,
+                    store: compendiumStore,
+                    getGameDataSnapshot: () => worldStateStore.getGameDataSnapshot(),
+                });
+                const compendiumIndices = await compendiumService.discoverIndices();
                 const cache = CompendiumCache.getInstance();
-                await cache.initialize(client);
+                cache.rebuildFromPacks(compendiumIndices);
 
                 // 2. Declarative Discovery (Sharding)
                 // System metadata is now read from WorldStateStore; CoreSocket

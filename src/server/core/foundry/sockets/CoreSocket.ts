@@ -8,7 +8,8 @@ import { FoundryConfig } from '../types';
 import { FoundryMetadataClient } from '../interfaces';
 import { getAdapter } from '@modules/registry/server';
 import { SystemAdapter } from '@modules/registry/types';
-import { CompendiumCache } from '../../compendium/CompendiumCache';
+import { CompendiumCache, compendiumStore } from '@server/core/compendium';
+import { CompendiumService } from '@server/services/compendium';
 import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
 import { cardsStore } from '@server/core/documents/primary/cards/CardsStore';
 import { itemStore } from '@server/core/documents/primary/items/ItemStore';
@@ -70,6 +71,7 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
     private retryCount = 0;
     private activeBrowserCount = 0;
     private lastUserActivityTimestamp = Date.now();
+    private readonly compendiumService: CompendiumService;
 
     private _routeModifyDocument(type: string, action: string, result: any, operation?: any) {
         // Single inbound dispatch point — routes to whichever Store handles
@@ -100,7 +102,19 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
 
     constructor(config: any) {
         super(config);
+        this.compendiumService = new CompendiumService({
+            transport: this,
+            store: compendiumStore,
+            getGameDataSnapshot: () => worldStateStore.getGameDataSnapshot(),
+        });
         this.loadInitialCache();
+    }
+
+    private clearActiveWorldCompendiumState(reason: string): void {
+        // ADR-0015 Phase 2: Pathway A indices and the UUID-name cache describe
+        // the active world only. Persistent Pathway B shards are left alone.
+        compendiumStore.clear(reason);
+        CompendiumCache.getInstance().reset();
     }
 
     private async loadInitialCache() {
@@ -354,6 +368,7 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
                         // with the runtime snapshot so browser clients don't replay
                         // content from a previous world/session after setup.
                         sharedContentStore.clear('world-setup');
+                        this.clearActiveWorldCompendiumState('world-setup');
                         userPresence.clear();
                         userStore.clear('world-setup');
                         clearTimeout(timeout);
@@ -436,6 +451,7 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
                     // Preserve setup cache, but remove active-world/probe state.
                     worldStateStore.clearRuntimeState('core-disconnect');
                     sharedContentStore.clear('core-disconnect');
+                    this.clearActiveWorldCompendiumState('core-disconnect');
                     userPresence.clear();
                     userStore.clear('core-disconnect');
                     this.emit('disconnect', reason);
@@ -614,6 +630,19 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
         }
     }
 
+    public async withHeartbeatPaused<T>(operation: () => Promise<T>): Promise<T> {
+        // Compendium pack scans can be slow enough to trip the heartbeat loop.
+        // Keep the existing pause behavior behind a narrow helper so the new
+        // CompendiumService does not need to know about CoreSocket internals.
+        const wasPaused = this.heartbeatPaused;
+        this.heartbeatPaused = true;
+        try {
+            return await operation();
+        } finally {
+            this.heartbeatPaused = wasPaused;
+        }
+    }
+
     public disconnect() {
         this.stopHeartbeat();
         this.isConnecting = false;
@@ -631,6 +660,7 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
             this.sceneDataCache = null;
             worldStateStore.clearRuntimeState('core-disconnect');
             sharedContentStore.clear('core-disconnect');
+            this.clearActiveWorldCompendiumState('core-disconnect');
             userPresence.clear();
             userStore.clear('core-disconnect');
             actorStore.clear('core-disconnect');
@@ -709,233 +739,21 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
     }
 
     public async getPackEntries(packId: string, options: any = { index: true }): Promise<any[]> {
-        logger.debug(`CoreSocket | Fetching entries for pack ${packId} (options: ${JSON.stringify(options)})...`);
-        this.heartbeatPaused = true;
-        
-        try {
-            // Strategy 1: Unified modifyDocument API (The CRUD-master V13 approach - PROVEN WINNER)
-            try {
-                logger.debug(`[CoreSocket] [TRACE] getPackEntries Strategy 1 (modifyDocument): ${packId}`);
-                const response: any = await this.emitSocketEvent('modifyDocument', {
-                    type: packId.includes('tables') ? 'RollTable' : 'Item',
-                    action: 'get',
-                    operation: { 
-                        pack: packId, 
-                        index: true,
-                        fields: options.fields || []
-                    }
-                }, 5000);
-                if (response?.result && Array.isArray(response.result)) return response.result;
-            } catch (e) {
-                // Trial fallback
-            }
-
-            // Strategy 2: Modern getDocuments with index flag (Canonical V13)
-            try {
-                logger.debug(`[CoreSocket] [TRACE] getPackEntries Strategy 2 (getDocuments): ${packId}`);
-                const response: any = await this.emitSocketEvent('getDocuments', packId.includes('tables') ? 'RollTable' : 'Item', { 
-                    index: true, 
-                    pack: packId,
-                    fields: options.fields || []
-                }, 5000);
-                if (response?.result && Array.isArray(response.result)) return response.result;
-            } catch (e) {
-                // Trial fallback
-            }
-
-            // Strategy 3: Legacy getCompendiumIndex (V11/V12 Alias)
-            try {
-                logger.debug(`[CoreSocket] [TRACE] getPackEntries Strategy 3 (getCompendiumIndex): ${packId}`);
-                const response: any = await this.emitSocketEvent('getCompendiumIndex', packId, 5000);
-                if (Array.isArray(response)) return response;
-                if (response?.result && Array.isArray(response.result)) return response.result;
-            } catch (e) {
-                // Trial fallback
-            }
-
-            logger.error(`CoreSocket | All entry fetch strategies failed for pack ${packId}`);
-            return [];
-        } finally {
-            this.heartbeatPaused = false;
-        }
+        // Temporary compatibility wrapper. ADR-0015 Phase 5 removes this socket
+        // surface after direct callers move to CompendiumService/Store.
+        return this.compendiumService.getPackEntries(packId, options);
     }
 
     public async getPackIndex(packId: string, type: string): Promise<any[]> {
-        try {
-            logger.debug(`CoreSocket | Fetching index for pack ${packId} (type: ${type})...`);
-
-            // Try 1: getCompendiumIndex (v12/v13)
-            // String payload is the preferred v13 way
-            try {
-                const response: any = await this.emitSocketEvent('getCompendiumIndex', packId, 3000);
-                if (Array.isArray(response)) {
-                    return response;
-                }
-                if (response?.result && Array.isArray(response.result)) {
-                    return response.result;
-                }
-            } catch (e) {
-                // Silently fallback
-            }
-
-            // Try 2: getDocuments (v13 Standard)
-            // Try both singular and plural (v13 often prefers plural collection names)
-            const typesToTry = [type];
-            if (type === 'RollTable') typesToTry.push('Tables', 'RollTables');
-            else if (type === 'Item') typesToTry.push('Items');
-            else if (type === 'JournalEntry') typesToTry.push('Journal');
-
-            for (const t of typesToTry) {
-                try {
-                    const response: any = await this.emitSocketEvent('getDocuments', {
-                        type: t,
-                        operation: { pack: packId, index: true }
-                    }, 2000);
-                    if (response?.result && Array.isArray(response.result)) {
-                        return response.result;
-                    }
-                } catch (e) {
-                    // Try next type
-                }
-            }
-
-            // Fallback: modifyDocument (Legacy)
-            try {
-                const response: any = await this.dispatchDocumentSocket(type, 'get', {
-                    pack: packId,
-                    index: true,
-                    broadcast: false
-                }, undefined, false); // Do not fail hard on this
-                const finalIndex = response?.result || [];
-                if (finalIndex.length > 0) {
-                    return finalIndex;
-                }
-            } catch (_e) {
-                // Ignore packData errors
-            }
-
-            return [];
-        } catch (e) {
-            logger.warn(`CoreSocket | getPackIndex failed for ${packId}: ${e}`);
-            return [];
-        }
+        return this.compendiumService.getPackIndex(packId, type);
     }
 
     public async getPackDocuments(packId: string, type: string): Promise<any[]> {
-        try {
-            logger.debug(`CoreSocket | Fetching full documents for pack ${packId} (type: ${type})...`);
-
-            const typesToTry = [type];
-            if (type === 'RollTable') typesToTry.push('Tables', 'RollTables');
-            else if (type === 'Item') typesToTry.push('Items');
-            else if (type === 'JournalEntry') typesToTry.push('JournalEntries', 'Journal');
-            else if (type === 'Actor') typesToTry.push('Actors');
-
-            for (const t of typesToTry) {
-                try {
-                    const response: any = await this.emitSocketEvent('getDocuments', {
-                        type: t,
-                        operation: { pack: packId }
-                    }, 5000);
-                    if (response?.result && Array.isArray(response.result)) {
-                        return response.result;
-                    }
-                } catch (e) {
-                    // Try next type
-                }
-            }
-
-            // Fallback: modifyDocument (Legacy)
-            try {
-                const response: any = await this.dispatchDocumentSocket(type, 'get', {
-                    pack: packId,
-                    broadcast: false
-                }, undefined, false);
-                const results = response?.result || [];
-                if (results.length > 0) {
-                    return results;
-                }
-            } catch (_e) {
-                // Ignore errors
-            }
-
-            return [];
-        } catch (e) {
-            logger.warn(`CoreSocket | getPackDocuments failed for ${packId}: ${e}`);
-            return [];
-        }
+        return this.compendiumService.getPackDocuments(packId, type);
     }
 
     public async getAllCompendiumIndices(onlyGamePacks: boolean = false): Promise<any[]> {
-        if (!this.isConnected) return [];
-        if (this.gameDataCache?.indices) return this.gameDataCache.indices; // Return cached if already available
-
-        // Deduplication Guard
-        const { CompendiumCache } = await import('../../compendium/CompendiumCache');
-        if (CompendiumCache.getInstance().hasLoaded()) {
-            // We still want to return the indices if they exist
-            // But we need to make sure they are stored in gameDataCache or we re-fetch once and store.
-            // For now, let's just let it run if not loaded, but we should eventually skip if already warming up.
-        }
-
-        try {
-            const game = this.gameDataCache;
-            if (!game) {
-                logger.warn('CoreSocket | No gameData available for discovery.');
-                return [];
-            }
-            logger.debug(`CoreSocket | gameData keys: ${Object.keys(game).join(', ')}`);
-            if (game.packs) logger.debug(`CoreSocket | game.packs found, count: ${game.packs.length}`);
-
-            const packs = new Map<string, any>();
-
-            // 0. Top-level Packs (v12 style)
-            if (Array.isArray(game.packs)) {
-                game.packs.forEach((p: any) => {
-                    const id = p.id || p._id;
-                    if (id) packs.set(id, { ...p, source: 'game.packs' });
-                });
-            }
-
-            // 1. Fallback Discovery (Aggregate from metadata)
-            if (!onlyGamePacks) {
-                // In v13 socket payloads ('world'), packs are usually nested here instead of top-level
-                const worldPacks = game.world?.packs || [];
-                const systemPacks = game.system?.packs || [];
-                const modulePacks = Array.isArray(game.modules)
-                    ? game.modules.flatMap((m: any) => (m.packs || []).map((p: any) => ({ ...p, moduleId: m.id })))
-                    : [];
-
-                const fallbackPacks = [
-                    ...worldPacks.map((p: any) => ({ ...p, source: 'world' })),
-                    ...systemPacks.map((p: any) => ({ ...p, source: 'system' })),
-                    ...modulePacks.map((p: any) => ({ ...p, source: 'module' }))
-                ];
-
-                fallbackPacks.forEach((p: any) => {
-                    // Try to derive a complete ID if only 'name' exists
-                    const id = p.id || p._id || (p.moduleId ? `${p.moduleId}.${p.name}` : `${game.system?.id || 'system'}.${p.name}`);
-                    if (!packs.has(id)) packs.set(id, p);
-                });
-            }
-            logger.info(`CoreSocket | Discovering indices for ${packs.size} packs in parallel...`);
-            const results = await Promise.all(Array.from(packs.entries()).map(async ([packId, metadata]) => {
-                const docType = metadata.type || metadata.entity || metadata.documentName || 'Item';
-                const index = await this.getPackIndex(packId, docType);
-                return {
-                    id: packId,
-                    metadata: metadata,
-                    index: index
-                };
-            }));
-
-            logger.info(`CoreSocket | Compendium discovery complete (${results.length} packs indexed)`);
-            if (this.gameDataCache) this.gameDataCache.indices = results;
-            return results;
-        } catch (e) {
-            logger.warn(`CoreSocket | getAllCompendiumIndices failed: ${e}`);
-            return [];
-        }
+        return this.compendiumService.discoverIndices({ onlyGamePacks });
     }
 
     // Adapter ownership moves to WorldBootstrapper in ADR-0017. Until then the

@@ -57,6 +57,7 @@ import { run as runWorldStateStore } from './world-state-store.test';
 import { run as runWorldLifecycleStore } from './world-lifecycle-store.test';
 import { run as runSharedContentStore } from './shared-content-store.test';
 import { run as runCompendiumStore } from './compendium-store.test';
+import { run as runCompendiumService } from './compendium-service.test';
 
 async function runAllUnitTests() {
     // Initialize test data directory before running any tests
@@ -99,6 +100,7 @@ async function runAllUnitTests() {
     await runWorldLifecycleStore();
     await runSharedContentStore();
     await runCompendiumStore();
+    await runCompendiumService();
     await runClientSocketTransport();
     await runRealtimeBroadcaster();
     await runAppSocketGateway();

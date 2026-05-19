@@ -1,6 +1,6 @@
 # ADR-0015: Compendium Architecture and the Pathway B Read Gap
 
-**Status:** Proposed — Phase 1 completed May 19, 2026; remaining phases not started.
+**Status:** Proposed — Phases 1-2 completed May 19, 2026; Phases 3-5 not started.
 **Date:** May 19, 2026
 **Phase:** Compendium Architecture (Phase 2 of the ADR-0014 arc)
 **Supersedes:** None. Builds on ADR-0014's `core/compendium/` layout and socket-boundary principle.
@@ -268,34 +268,34 @@ Phase 1 introduces the canonical in-memory home for active-world pack indices. E
 
 ### Phase 2: CompendiumService and Pathway A migration
 
-**Status:** Not started.
+**Status:** Closed May 19, 2026.
 
 Phase 2 moves platform-wide pack discovery (Pathway A) out of `CoreSocket` and into `CompendiumService`. The socket may keep temporary compatibility methods during this phase, but they should delegate to the service or remain as thin wrappers only until Phase 5 removes them.
 
 **Action items:**
 
-- [ ] Add `CompendiumService` with a narrow transport dependency and methods for `discoverIndices`, `getPackEntries`, `getPackIndex`, and `getPackDocuments`.
+- [x] Add `CompendiumService` with a narrow transport dependency and methods for `discoverIndices`, `getPackEntries`, `getPackIndex`, and `getPackDocuments`.
   Files: `src/server/services/compendium/CompendiumService.ts`, `src/server/services/compendium/index.ts`.
 
-- [ ] Preserve the existing API-compatibility ladders for pack entries, pack index, and full pack docs. If behavior changes, call it out as an explicit compatibility improvement with tests.
+- [x] Preserve the existing API-compatibility ladders for pack entries, pack index, and full pack docs. If behavior changes, call it out as an explicit compatibility improvement with tests.
   Files: `src/server/services/compendium/CompendiumService.ts`, `src/tests/unit/compendium-service.test.ts`.
 
-- [ ] Preserve the current heartbeat-pause behavior for long pack entry fetches through a narrow transport helper or service-local wrapper until ADR-0017 moves heartbeat policy.
+- [x] Preserve the current heartbeat-pause behavior for long pack entry fetches through a narrow transport helper or service-local wrapper until ADR-0017 moves heartbeat policy.
   Files: `src/server/core/foundry/sockets/CoreSocket.ts`, `src/server/services/compendium/CompendiumService.ts`.
 
-- [ ] Make `discoverIndices()` walk `game.packs`, `world.packs`, `system.packs`, and `modules[].packs` from `WorldStateStore.getGameDataSnapshot()` or typed Store accessors, de-dupe by pack id, fetch indices in parallel, and write results into `CompendiumStore`.
+- [x] Make `discoverIndices()` walk `game.packs`, `world.packs`, `system.packs`, and `modules[].packs` from `WorldStateStore.getGameDataSnapshot()` or typed Store accessors, de-dupe by pack id, fetch indices in parallel, and write results into `CompendiumStore`.
   Files: `src/server/services/compendium/CompendiumService.ts`, `src/server/core/compendium/CompendiumStore.ts`.
 
-- [ ] Change `CompendiumCache` warmup so it rebuilds from `CompendiumStore` / `CompendiumService` results instead of calling `client.getAllCompendiumIndices()`.
+- [x] Change `CompendiumCache` warmup so it rebuilds from `CompendiumStore` / `CompendiumService` results instead of calling `client.getAllCompendiumIndices()`.
   Files: `src/server/core/compendium/CompendiumCache.ts`, `src/server/core/system/SystemService.ts`.
 
-- [ ] Update `SystemService.bootstrap()` to warm Pathway A through `CompendiumService` and rebuild `CompendiumCache` from the Store-backed result.
+- [x] Update `SystemService.bootstrap()` to warm Pathway A through `CompendiumService` and rebuild `CompendiumCache` from the Store-backed result.
   Files: `src/server/core/system/SystemService.ts`.
 
-- [ ] Reset `CompendiumStore` and `CompendiumCache` on world disconnect/setup teardown. Persistent Pathway B shards remain on disk; active-world in-memory indices do not.
+- [x] Reset `CompendiumStore` and `CompendiumCache` on world disconnect/setup teardown. Persistent Pathway B shards remain on disk; active-world in-memory indices do not.
   Files: `src/server/core/system/SystemService.ts`, `src/server/core/foundry/sockets/CoreSocket.ts` if setup teardown is the only reliable hook before ADR-0017.
 
-- [ ] Verify Phase 2 with unit/type checks and Pathway A audits. Remaining socket methods are allowed only as temporary wrappers.
+- [x] Verify Phase 2 with unit/type checks and Pathway A audits. Remaining socket methods are allowed only as temporary wrappers.
   Commands: `npm run test:unit`; `npx tsc --noEmit`; `rg -n "CompendiumCache\\.getInstance\\(\\)\\.initialize\\(|gameDataCache\\.indices|getAllCompendiumIndices\\(" src/server`; `rg -n "getPackEntries\\(|getPackIndex\\(|getPackDocuments\\(" src/server`.
 
 **Non-goals for Phase 2:**
@@ -307,6 +307,8 @@ Phase 2 moves platform-wide pack discovery (Pathway A) out of `CoreSocket` and i
 - No route/module facade cleanup unless a caller is already easy to point at `CompendiumService`.
 
 **Exit for Phase 2:** `CompendiumService` owns Pathway A discovery and pack fetch semantics; `CompendiumStore` holds discovered indices; `CompendiumCache` warms from Store/service results; bootstrap calls the service rather than asking `CompendiumCache` to call the socket; active-world compendium state clears on teardown; unit/type checks pass.
+
+**Phase 2 closed (May 19, 2026).** All action items above ticked. Implementation added `CompendiumService`, converted `CoreSocket` compendium readers into temporary service wrappers, preserved the pack-entry heartbeat pause through `withHeartbeatPaused(...)`, moved bootstrap Pathway A warmup into `SystemService`, rebuilt `CompendiumCache` from Store/service results, and cleared active-world compendium state on setup/disconnect teardown. Route facades may still expose `getAllCompendiumIndices()` for compatibility, but the implementation now calls `CompendiumService` rather than `client.getAllCompendiumIndices()`. Tests use synthetic in-code pack/index shapes only; no real world, pack dump, shard, or fixture content was added.
 
 ### Phase 3: Discovery shard read model and SDK discovery wiring
 
@@ -498,7 +500,7 @@ Each phase validates both the Store/service contract and the socket boundary.
 This ADR is fulfilled when compendium discovery and module shard reads have service/store ownership and sockets no longer expose compendium reader methods.
 
 - [x] Phase 1: `CompendiumStore` + typed index contracts + synthetic fixture policy.
-- [ ] Phase 2: `CompendiumService` owns Pathway A discovery and pack fetch semantics; `CompendiumCache` warms from Store/service results.
+- [x] Phase 2: `CompendiumService` owns Pathway A discovery and pack fetch semantics; `CompendiumCache` warms from Store/service results.
 - [ ] Phase 3: `DiscoveryService` lives under `services/compendium`; Pathway B shards are readable through scoped `context.platform.discovery`.
 - [ ] Phase 4: Pathway A/B index de-duplication lands; declared hydrated shards expose direct document lookup; parsed pack-document fallback through `CompendiumService` preserves the existing transport ladder.
 - [ ] Phase 5: `CoreSocket` / `ClientSocket` compendium reader methods are removed and socket-facing interfaces are tightened.
