@@ -1,6 +1,6 @@
 # ADR-0015: Compendium Architecture and the Pathway B Read Gap
 
-**Status:** Proposed — Phases 1-2 completed May 19, 2026; Phases 3-5 not started.
+**Status:** Proposed — Phases 1-3 completed May 19, 2026; Phases 4-5 not started.
 **Date:** May 19, 2026
 **Phase:** Compendium Architecture (Phase 2 of the ADR-0014 arc)
 **Supersedes:** None. Builds on ADR-0014's `core/compendium/` layout and socket-boundary principle.
@@ -312,28 +312,28 @@ Phase 2 moves platform-wide pack discovery (Pathway A) out of `CoreSocket` and i
 
 ### Phase 3: Discovery shard read model and SDK discovery wiring
 
-**Status:** Not started.
+**Status:** Closed May 19, 2026.
 
 Phase 3 closes the Pathway B read gap. Persistent discovery shards that `DiscoveryService` writes become readable through `context.platform.discovery`.
 
 **Action items:**
 
-- [ ] Move `DiscoveryService` from `src/server/core/foundry/DiscoveryService.ts` to `src/server/services/compendium/DiscoveryService.ts`.
+- [x] Move `DiscoveryService` from `src/server/core/foundry/DiscoveryService.ts` to `src/server/services/compendium/DiscoveryService.ts`.
   Files: `src/server/core/foundry/DiscoveryService.ts`, `src/server/services/compendium/DiscoveryService.ts`, `src/server/core/system/SystemService.ts`.
 
-- [ ] Add `DiscoveryShardStore` or `DiscoveryShardReader` over `PersistentCache` with manifest load, shard read/write, `findOne`, `findAll`, and `getById` helpers.
+- [x] Add `DiscoveryShardStore` or `DiscoveryShardReader` over `PersistentCache` with manifest load, shard read/write, `findOne`, `findAll`, and `getById` helpers.
   Files: `src/server/core/compendium/DiscoveryShardStore.ts` or `src/server/services/compendium/DiscoveryShardReader.ts`.
 
-- [ ] Make shard reads module-scoped. `createScopedDiscovery(moduleId)` should only expose packs declared by that module's discovery config and should fail closed to empty results when no scope is available.
+- [x] Make shard reads module-scoped. `createScopedDiscovery(moduleId)` should only expose packs declared by that module's discovery config and should fail closed to empty results when no scope is available.
   Files: `src/server/shared/utils/createModuleContext.ts`, `src/modules/registry/core/server.ts` if module discovery metadata needs to be exposed to the context factory.
 
-- [ ] Implement SDK discovery methods against shards: `findOne(type, query)`, `findAll(type, query?)`, and `getById(type, id)`. Keep UUID-to-name fallback only where existing behavior already provides it.
+- [x] Implement SDK discovery methods against shards: `findOne(type, query)`, `findAll(type, query?)`, and `getById(type, id)`. Keep UUID-to-name fallback only where existing behavior already provides it.
   Files: `src/server/shared/utils/createModuleContext.ts`, `src/shared/sdk/context.ts`.
 
-- [ ] Add unit coverage for shard manifest loading, module-scoped shard lookup, empty-scope fail-closed behavior, `findOne`, `findAll`, `getById`, and persisted-shard shape compatibility.
+- [x] Add unit coverage for shard manifest loading, module-scoped shard lookup, empty-scope fail-closed behavior, `findOne`, `findAll`, `getById`, and persisted-shard shape compatibility.
   Files: `src/tests/unit/compendium/discovery-shard-store.test.ts`, `src/tests/unit/compendium/module-context-discovery.test.ts`, `src/tests/unit/run.ts`.
 
-- [ ] Verify Phase 3 with unit/type checks and old-path audits.
+- [x] Verify Phase 3 with unit/type checks and old-path audits.
   Commands: `npm run test:unit`; `npx tsc --noEmit`; `rg -n "core/foundry/DiscoveryService|from ['\\\"].*foundry/DiscoveryService|@core/foundry/DiscoveryService" src data/local/modules`; `rg -n "findAll: async \\([^)]*\\) => \\[\\]|createScopedDiscovery" src/server/shared/utils/createModuleContext.ts`.
 
 **Non-goals for Phase 3:**
@@ -345,6 +345,8 @@ Phase 3 closes the Pathway B read gap. Persistent discovery shards that `Discove
 - No broad SDK contract expansion; the existing `CompendiumCache` SDK shape is enough for this phase.
 
 **Exit for Phase 3:** `DiscoveryService` lives under `services/compendium`; Pathway B shards have a real read model; `context.platform.discovery` reads scoped persistent shards instead of returning empty arrays; no old `core/foundry/DiscoveryService` imports remain; unit/type checks pass.
+
+**Phase 3 closed (May 19, 2026).** All action items above ticked. Implementation moved `DiscoveryService` to `services/compendium`, added `DiscoveryShardStore` over the existing `PersistentCache` manifest/shard shape, and rewired `createScopedDiscovery(moduleId)` so SDK discovery reads only packs declared by that module's discovery config. The registry exposes manifest-declared discovery plus already-loaded adapter hook discovery without recursively instantiating adapters. Empty or missing discovery scope now fails closed. The UUID-to-name fallback remains only for scoped compendium UUIDs. Tests use synthetic in-memory shard and module-scope shapes only; no real world, pack dump, shard, or fixture content was added.
 
 ### Phase 4: Pathway A/B de-duplication and pack-document lookup primitives
 
@@ -501,7 +503,7 @@ This ADR is fulfilled when compendium discovery and module shard reads have serv
 
 - [x] Phase 1: `CompendiumStore` + typed index contracts + synthetic fixture policy.
 - [x] Phase 2: `CompendiumService` owns Pathway A discovery and pack fetch semantics; `CompendiumCache` warms from Store/service results.
-- [ ] Phase 3: `DiscoveryService` lives under `services/compendium`; Pathway B shards are readable through scoped `context.platform.discovery`.
+- [x] Phase 3: `DiscoveryService` lives under `services/compendium`; Pathway B shards are readable through scoped `context.platform.discovery`.
 - [ ] Phase 4: Pathway A/B index de-duplication lands; declared hydrated shards expose direct document lookup; parsed pack-document fallback through `CompendiumService` preserves the existing transport ladder.
 - [ ] Phase 5: `CoreSocket` / `ClientSocket` compendium reader methods are removed and socket-facing interfaces are tightened.
 - [ ] No real compendium/world shard data is added to tracked fixtures.

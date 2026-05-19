@@ -14,8 +14,9 @@ export interface PersistentCache {
 }
 
 /**
- * CompendiumCache defines the interface for document discovery and local caching.
- * This service is used to find and retrieve Foundry documents (Actors, Items, etc.).
+ * CompendiumCache is the module-scoped discovery surface for declared packs.
+ * It reads the persistent shards produced from a module's discovery config and
+ * fails closed when the module has no declared discovery scope.
  */
 export interface CompendiumCache {
     /** Find a single document matching the given query. */

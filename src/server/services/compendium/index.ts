@@ -5,3 +5,8 @@ export {
     type DiscoverIndicesOptions,
     type GetPackEntriesOptions,
 } from './CompendiumService';
+export {
+    DiscoveryService,
+    discoveryService,
+    type DiscoverySyncClient,
+} from './DiscoveryService';

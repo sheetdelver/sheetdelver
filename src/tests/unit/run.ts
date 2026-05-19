@@ -44,6 +44,8 @@ import { run as runRouteOwnershipThresholds } from './routing/route-ownership-th
 // ── compendium ────────────────────────────────────────────────────────────────
 import { run as runCompendiumStore } from './compendium/compendium-store.test';
 import { run as runCompendiumService } from './compendium/compendium-service.test';
+import { run as runDiscoveryShardStore } from './compendium/discovery-shard-store.test';
+import { run as runModuleContextDiscovery } from './compendium/module-context-discovery.test';
 
 // ── world ─────────────────────────────────────────────────────────────────────
 import { run as runWorldStateStore } from './world/world-state-store.test';
@@ -123,6 +125,8 @@ async function runAllUnitTests() {
     await runSharedContentStore();
     await runCompendiumStore();
     await runCompendiumService();
+    await runDiscoveryShardStore();
+    await runModuleContextDiscovery();
     await runClientSocketTransport();
     await runRealtimeBroadcaster();
     await runAppSocketGateway();

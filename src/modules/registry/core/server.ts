@@ -1,4 +1,5 @@
-import { hasInitialize, SystemAdapter, SystemModuleInfo, SystemPlugin } from './types';
+import { hasDiscoveryConfig, hasInitialize, SystemAdapter, SystemModuleInfo, SystemPlugin } from './types';
+import type { DiscoveryConfig } from '@shared/sdk';
 export * from './utils';
 import { logger } from '@shared/utils/logger';
 import { BaseSystemAdapter } from '@shared/sdk/base';
@@ -1852,6 +1853,21 @@ export function checkCanDisableModule(moduleId: string): {
 export function getRegisteredModules(options?: { includeExperimental?: boolean }) {
     return listModules({ includeExperimental: options?.includeExperimental, includeDisabled: true })
         .map((entry) => entry.info);
+}
+
+export function getModuleDiscoveryConfig(moduleId: string): DiscoveryConfig | null {
+    const id = moduleId.toLowerCase();
+    const plugin = pluginMap.get(id);
+    const manifestConfig = plugin?.info.discovery;
+    if (manifestConfig?.packs?.length) return manifestConfig;
+
+    // If the adapter is already instantiated, expose its discovery hook without
+    // creating it here. That avoids recursive adapter initialization while still
+    // letting ModuleContext use hook-declared discovery after SystemService has
+    // loaded the adapter.
+    const adapter = adapterInstances.get(id);
+    if (hasDiscoveryConfig(adapter)) return adapter.getDiscoveryConfig();
+    return null;
 }
 
 /**
