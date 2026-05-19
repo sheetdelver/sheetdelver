@@ -38,7 +38,7 @@ async function createScopedCache(moduleId: string): Promise<PersistentCache> {
  * findOne/findAll/getById are best-effort lookups within that index.
  */
 async function createScopedDiscovery(_moduleId: string): Promise<CompendiumCache> {
-    const { CompendiumCache } = await import('@core/foundry/compendium-cache');
+    const { CompendiumCache } = await import('@core/compendium/CompendiumCache');
     const cache = CompendiumCache.getInstance();
 
     return {

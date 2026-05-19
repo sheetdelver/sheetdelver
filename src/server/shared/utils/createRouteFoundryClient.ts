@@ -120,7 +120,7 @@ function createBaseRouteFoundryClient(client: RouteSocketClient): RouteFoundryCl
         },
     ) => {
         try {
-            const { Roll } = await import('@core/foundry/classes/Roll');
+            const { Roll } = await import('@core/foundry/Roll');
             const evaluatedRoll = new Roll(formula);
             await evaluatedRoll.evaluate();
 

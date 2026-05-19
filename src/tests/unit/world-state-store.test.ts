@@ -1,7 +1,7 @@
 import { strict as assert } from 'node:assert';
 import { WorldStateStore } from '@server/core/world/WorldStateStore';
 import type { GameData, SceneDataCache } from '@server/core/world/types';
-import type { CacheData } from '@core/foundry/SetupManager';
+import type { CacheData } from '@core/world/SetupManager';
 
 export async function run() {
     await runSeedAndAccessors();

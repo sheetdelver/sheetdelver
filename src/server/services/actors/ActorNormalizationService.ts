@@ -14,7 +14,7 @@ interface ActorNormalizationDeps {
 export function createActorNormalizationService(deps: ActorNormalizationDeps = {}) {
     const getAdapterBySystemId = deps.getAdapterBySystemId || getAdapter;
     const getCompendiumCache = deps.getCompendiumCache || (async () => {
-        const { CompendiumCache } = await import('@core/foundry/compendium-cache');
+        const { CompendiumCache } = await import('@core/compendium/CompendiumCache');
         return CompendiumCache.getInstance();
     });
 

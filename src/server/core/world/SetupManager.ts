@@ -33,11 +33,15 @@ const CACHE_NS = 'core';
 const CACHE_KEY = 'worlds';
 const CACHE_MAX_AGE_DAYS = 7;
 
+/**
+ * Setup-mode world discovery and disk-cache helper.
+ *
+ * ADR-0014 Phase 4 moved this under `core/world` because it owns world
+ * metadata snapshots for setup/admin/status flows, not Foundry transport.
+ * Bootstrap orchestration still stays in CoreSocket until ADR-0017.
+ */
 export class SetupManager {
 
-    /**
-     * Scrape world data from an authenticated Foundry session
-     */
     /**
      * Scrape world data from an authenticated Foundry session
      * @deprecated Scraping is currently disabled/muted in favor of local import.

@@ -1,5 +1,12 @@
 import { logger } from '@shared/utils/logger';
-// Basic Roll implementation for client-side evaluation
+
+/**
+ * Lightweight Foundry Roll stand-in used by server route helpers.
+ *
+ * ADR-0014 Phase 4 only flattened the file out of the one-file `classes/`
+ * directory. The evaluator remains intentionally minimal until a future dice
+ * or Foundry-runtime pass replaces it.
+ */
 export class Roll {
     private _formula: string;
     private _data: any;

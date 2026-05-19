@@ -158,7 +158,7 @@ export function createActorService(deps: ActorServiceDeps) {
             };
         }
 
-        const { CompendiumCache } = await import('@core/foundry/compendium-cache');
+        const { CompendiumCache } = await import('@core/compendium/CompendiumCache');
         const cache = CompendiumCache.getInstance();
 
         const resolveUUIDs = (obj: unknown): unknown => {

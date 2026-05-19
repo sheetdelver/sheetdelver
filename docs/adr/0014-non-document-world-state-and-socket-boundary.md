@@ -117,8 +117,8 @@ src/server/core/
 │   ├── WorldStateStore.ts
 │   ├── WorldLifecycleStore.ts
 │   ├── SharedContentStore.ts
+│   ├── SetupManager.ts
 │   ├── types.ts                    (WorldManifest, SystemManifest, GameData, etc.)
-│   └── (SetupManager.ts moves here in this ADR)
 ├── compendium/                     (NEW — compendium concerns, populated by ADR-0015)
 │   └── CompendiumCache.ts          (renamed from foundry/compendium-cache.ts in this ADR)
 ├── foundry/                        (slimmed — transport + Foundry-coupled utilities only)
@@ -402,29 +402,32 @@ Phase 3 introduces `SharedContentStore` as the authoritative owner for the lates
 
 ### Phase 4: File-layout outliers
 
-**Status:** Pending implementation.
+**Status:** Closed May 19, 2026.
 
 Phase 4 lands the behavior-preserving layout cleanup named by this ADR. It removes the remaining file-path outliers without changing compendium behavior, Roll behavior, setup cache behavior, or the global-client replacement strategy. The point is to put already-existing concerns in their ADR-0014 homes before later ADRs add more code around them.
 
 **Action items:**
 
-- [ ] Move `CompendiumCache` from `src/server/core/foundry/compendium-cache.ts` to `src/server/core/compendium/CompendiumCache.ts`, with an optional `src/server/core/compendium/index.ts` barrel if useful. Update static and dynamic imports to the new PascalCase path.
+- [x] Move `CompendiumCache` from `src/server/core/foundry/compendium-cache.ts` to `src/server/core/compendium/CompendiumCache.ts`, with an optional `src/server/core/compendium/index.ts` barrel if useful. Update static and dynamic imports to the new PascalCase path.
   Files: `src/server/core/foundry/compendium-cache.ts`, `src/server/core/compendium/CompendiumCache.ts`, `src/server/core/system/SystemService.ts`, `src/server/core/foundry/sockets/CoreSocket.ts`, `src/server/shared/utils/createModuleContext.ts`, `src/server/services/actors/ActorNormalizationService.ts`, `src/server/services/actors/ActorService.ts`, `src/tests/deprecated/module-specific/shadowdark/05-compendium-resolution.test.ts`.
+  Local ignored verification touchpoint: `data/local/modules/shadowdark/src/server/Registry.ts`.
 
-- [ ] Move `Roll` from `src/server/core/foundry/classes/Roll.ts` to `src/server/core/foundry/Roll.ts`. Remove the empty `classes/` directory after the move and update the dynamic import used by route roll helpers.
+- [x] Move `Roll` from `src/server/core/foundry/classes/Roll.ts` to `src/server/core/foundry/Roll.ts`. Remove the empty `classes/` directory after the move and update the dynamic import used by route roll helpers.
   Files: `src/server/core/foundry/classes/Roll.ts`, `src/server/core/foundry/Roll.ts`, `src/server/shared/utils/createRouteFoundryClient.ts`.
+  Local ignored verification touchpoint: `data/local/modules/shadowdark/src/server/api/level-up.ts`.
 
-- [ ] Move `SetupManager` from `src/server/core/foundry/SetupManager.ts` to `src/server/core/world/SetupManager.ts`. Update all imports and keep the public `SetupManager`, `CacheData`, and `WorldData` exports intact so setup/admin/status behavior is unchanged.
+- [x] Move `SetupManager` from `src/server/core/foundry/SetupManager.ts` to `src/server/core/world/SetupManager.ts`. Update all imports and keep the public `SetupManager`, `CacheData`, and `WorldData` exports intact so setup/admin/status behavior is unchanged.
   Files: `src/server/core/foundry/SetupManager.ts`, `src/server/core/world/SetupManager.ts`, `src/server/core/foundry/sockets/CoreSocket.ts`, `src/server/core/world/WorldStateStore.ts`, `src/server/services/status/StatusService.ts`, `src/server/services/admin/AdminService.ts`, `src/server/shared/types/admin.ts`, `src/server/app/registerRoutes.ts`, `src/scripts/tools/admin/import-worlds.ts`, `src/tests/unit/world-state-store.test.ts`.
 
-- [ ] Audit `src/server/core/foundry/instance.ts`. If `_foundryClient` / `getClient()` / `setClient()` have no runtime callers, delete the file. If any callers remain, migrate them to `systemService.getSystemClient()` or a narrower injected dependency before deletion.
-  Files: `src/server/core/foundry/instance.ts`, any caller found by `rg -n "_foundryClient|getClient\(|setClient\(" src/server src/scripts src/tests`.
+- [x] Audit `src/server/core/foundry/instance.ts`. `_foundryClient` / `getClient()` / `setClient()` had no server/runtime callers after migrating the Shadowdark module spell route to the request-scoped module client, so the legacy global singleton file was deleted.
+  Files: `src/server/core/foundry/instance.ts`.
+  Local ignored verification touchpoints: `data/local/modules/shadowdark/src/server/api/spells.ts`, `data/local/modules/shadowdark/src/server/index.ts`.
 
-- [ ] Update comments/docs/tests that refer to the old paths so future grep output points at the canonical layout.
-  Files: `docs/adr/0014-non-document-world-state-and-socket-boundary.md`, any source/test comments discovered during the import updates.
+- [x] Update comments/docs/tests that refer to the old paths so future grep output points at the canonical layout. Source, script, test, and local module old-path audits are clean; this ADR keeps historical source-to-target path references only where they explain the migration.
+  Files: `docs/adr/0014-non-document-world-state-and-socket-boundary.md`.
 
-- [ ] Verify Phase 4 with type/unit checks and file-layout audits. No old-path imports should remain, `core/foundry/classes/` should be gone, and `core/compendium/CompendiumCache.ts` plus `core/world/SetupManager.ts` should exist.
-  Commands: `npm run test:unit`; `npx tsc --noEmit`; `rg -n "core/foundry/compendium-cache|foundry/compendium-cache|../compendium-cache|@core/foundry/classes/Roll|core/foundry/classes/Roll|@core/foundry/SetupManager|core/foundry/SetupManager|from '../SetupManager'" src src/scripts`; `rg --files src/server/core/foundry src/server/core/world src/server/core/compendium | rg "(compendium-cache|CompendiumCache|classes/Roll|SetupManager|instance)\.ts$"`.
+- [x] Verify Phase 4 with type/unit checks and file-layout audits. No old-path imports should remain, `core/foundry/classes/` should be gone, and `core/compendium/CompendiumCache.ts` plus `core/world/SetupManager.ts` should exist.
+  Commands: `npm run test:unit`; `npx tsc --noEmit`; `rg -n "core/foundry/compendium-cache|foundry/compendium-cache|../compendium-cache|@core/foundry/classes/Roll|core/foundry/classes/Roll|@core/foundry/SetupManager|core/foundry/SetupManager|from '../SetupManager'" src src/scripts data/local/modules`; `rg --files src/server/core/foundry src/server/core/world src/server/core/compendium | rg "(compendium-cache|CompendiumCache|classes/Roll|SetupManager|instance)\.ts$"`.
 
 **Non-goals for Phase 4:**
 
@@ -435,6 +438,8 @@ Phase 4 lands the behavior-preserving layout cleanup named by this ADR. It remov
 - No adapter, lifecycle, bootstrap, UUID resolver, URL utility, engagement-service, heartbeat-policy, or session-state split work.
 
 **Exit for Phase 4:** `CompendiumCache`, `SetupManager`, and `Roll` live at the paths declared by this ADR; `core/foundry/classes/` is gone; `instance.ts` is deleted or has a documented migrated-caller outcome; all old-path imports/comments are removed; `npm run test:unit`, `npx tsc --noEmit`, and the Phase 4 file-layout audits pass.
+
+**Phase 4 closed (May 19, 2026).** All action items above ticked. Verification passed: `git diff --check`, `npx tsc --noEmit`, `npm run test:unit`, the old-path import audit, and the file-layout audit. The implementation found additional Shadowdark local-module touchpoints under ignored `data/local/modules`: `Registry.ts` now imports `CompendiumCache` from `@core/compendium/CompendiumCache`, `level-up.ts` imports `Roll` from `@core/foundry/Roll`, and the spell route no longer reads the deleted global `@core/foundry/instance` singleton. Those local ignored changes are workspace verification hygiene and should not be staged.
 
 ---
 
@@ -539,7 +544,7 @@ This ADR is fulfilled when the non-document world-state foundation is in place a
 - [x] Phase 1: `WorldStateStore` + typed shapes (`core/world/types.ts`) + readers migrated.
 - [x] Phase 2: `WorldLifecycleStore` + lifecycle-state migration from `CoreSocket.worldState`.
 - [x] Phase 3: `SharedContentStore` at `core/world/SharedContentStore.ts` with the immutable-snapshot contract (clone-on-write + clone-on-read; stored payload stays relative/raw). `SocketBase.setupSharedContentListeners` writes through to the Store via `sharedContentStore.set(payload)`; `CoreSocket` clears the Store alongside active-world runtime state teardown; the legacy `protected sharedContent` field and public `getSharedContent()` accessor are gone. `UtilityService.getSharedContent()` reads `sharedContentStore.getCurrent()` and projects URL resolution onto the defensive copy. `UtilityClientLike.getSharedContent` removed from the type; `createRouteFoundryClient` no longer exposes the facade method. Realtime gateway subscribes to `sharedContentStore.onSharedContentChanged(...)` directly (no longer to per-session `foundryClient.on('sharedContentUpdate', ...)`); the gateway test asserts the foundryClient handler count drops 3 → 2. Browser sockets still receive the `sharedContentUpdate` wire event unchanged. Tests in [shared-content-store.test.ts](../../src/tests/unit/shared-content-store.test.ts).
-- [ ] Phase 4: File-layout outliers — `compendium-cache.ts` renamed and moved to `core/compendium/CompendiumCache.ts`; `classes/Roll.ts` flattened to `foundry/Roll.ts`; `SetupManager.ts` moved to `core/world/`; `instance.ts` audited (deleted if unused).
+- [x] Phase 4: File-layout outliers — `compendium-cache.ts` renamed and moved to `core/compendium/CompendiumCache.ts`; `classes/Roll.ts` flattened to `foundry/Roll.ts`; `SetupManager.ts` moved to `core/world/`; `instance.ts` audited and deleted after remaining local-module callers moved to request-scoped clients.
 - [ ] Phase 5: Remove `getGameData` / `getSceneData` / `getSystem` / `getSystemConfig` from `CoreSocket`; remove matching `getSystem` / `getSystemConfig` delegation methods from `ClientSocket`; remove `getSystemConfig` declaration from `interfaces.ts`'s `FoundryMetadataClient`. Leave `getSystemAdapter` / `loadSystemAdapter` / cached `this.adapter` on `CoreSocket` and the `getSystemAdapter` delegation on `ClientSocket` (ADR-0017 removes them alongside the new `WorldBootstrapper.getActiveAdapter()`).
 - [ ] `rg` migration audit confirms no remaining socket reads for the migrated fields outside the seeding caller and explicitly documented compatibility shims.
 - [ ] `npx tsc --noEmit` and `npm run test:unit` pass.

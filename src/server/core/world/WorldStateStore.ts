@@ -1,4 +1,4 @@
-import type { CacheData, WorldData } from '@core/foundry/SetupManager';
+import type { CacheData, WorldData } from './SetupManager';
 import { cloneDocument } from '@server/core/documents/primary/base/PrimaryDocumentStore';
 import type {
     FileStorage,

@@ -1,6 +1,6 @@
 import { logger } from '@shared/utils/logger';
 import { systemService } from '@core/system/SystemService';
-import { SetupManager } from '@core/foundry/SetupManager';
+import { SetupManager } from '@core/world/SetupManager';
 import { worldLifecycleStore } from '@server/core/world/WorldLifecycleStore';
 import type {
     AdminServiceDeps,

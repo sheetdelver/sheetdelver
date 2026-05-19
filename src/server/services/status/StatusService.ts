@@ -1,6 +1,6 @@
 import { getAdapter } from '@modules/registry/server';
 import { systemService } from '@core/system/SystemService';
-import { SetupManager } from '@core/foundry/SetupManager';
+import { SetupManager } from '@core/world/SetupManager';
 import { worldStateStore } from '@server/core/world/WorldStateStore';
 import { worldLifecycleStore } from '@server/core/world/WorldLifecycleStore';
 import { UserRole } from '@shared/constants';

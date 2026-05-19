@@ -6,7 +6,7 @@ import { logger } from '@shared/utils/logger';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
 import { getAdapter, getRegisteredModules } from '@modules/registry/server';
 import { discoveryService } from '../foundry/DiscoveryService';
-import { CompendiumCache } from '../foundry/compendium-cache';
+import { CompendiumCache } from '../compendium/CompendiumCache';
 import { worldStateStore } from '@server/core/world/WorldStateStore';
 import { worldLifecycleStore } from '@server/core/world/WorldLifecycleStore';
 import { clearDocumentCache, seedDocumentCache } from '../documents/primary/PrimaryDocumentCacheCoordinator';

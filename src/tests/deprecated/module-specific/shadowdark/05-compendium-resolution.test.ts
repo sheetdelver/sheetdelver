@@ -1,6 +1,6 @@
 
 import { CoreSocket } from '@core/foundry/sockets/CoreSocket';
-import { CompendiumCache } from '@core/foundry/compendium-cache';
+import { CompendiumCache } from '@core/compendium/CompendiumCache';
 import { loadConfig } from '@core/config';
 import { ShadowdarkAdapter } from '../../modules/shadowdark/system';
 import { fileURLToPath } from 'url';

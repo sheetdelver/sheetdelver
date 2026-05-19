@@ -1,4 +1,4 @@
-import type { CacheData, WorldData } from '@core/foundry/SetupManager';
+import type { CacheData, WorldData } from '@core/world/SetupManager';
 
 export type WorldEntry = Partial<WorldData>;
 

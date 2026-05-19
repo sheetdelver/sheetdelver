@@ -3,12 +3,12 @@ import { io, Socket } from 'socket.io-client';
 import { SocketBase } from './SocketBase';
 import { logger } from '@shared/utils/logger';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
-import { WorldData, CacheData, SetupManager } from '../SetupManager';
+import { WorldData, CacheData, SetupManager } from '../../world/SetupManager';
 import { FoundryConfig } from '../types';
 import { FoundryMetadataClient } from '../interfaces';
 import { getAdapter } from '@modules/registry/server';
 import { SystemAdapter } from '@modules/registry/types';
-import { CompendiumCache } from '../compendium-cache';
+import { CompendiumCache } from '../../compendium/CompendiumCache';
 import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
 import { cardsStore } from '@server/core/documents/primary/cards/CardsStore';
 import { itemStore } from '@server/core/documents/primary/items/ItemStore';
@@ -873,7 +873,7 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
         if (this.gameDataCache?.indices) return this.gameDataCache.indices; // Return cached if already available
 
         // Deduplication Guard
-        const { CompendiumCache } = await import('../compendium-cache');
+        const { CompendiumCache } = await import('../../compendium/CompendiumCache');
         if (CompendiumCache.getInstance().hasLoaded()) {
             // We still want to return the indices if they exist
             // But we need to make sure they are stored in gameDataCache or we re-fetch once and store.

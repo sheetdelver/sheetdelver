@@ -1,5 +1,5 @@
 import { DirectScraper } from '@core/foundry/DirectScraper';
-import { SetupManager, WorldData } from '@core/foundry/SetupManager';
+import { SetupManager, WorldData } from '@core/world/SetupManager';
 import path from 'path';
 import fs from 'fs';
 import { logger } from '@shared/utils/logger';

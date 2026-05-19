@@ -1,6 +1,14 @@
 import { logger } from '@shared/utils/logger';
-import { FoundryMetadataClient } from './interfaces';
+import { FoundryMetadataClient } from '../foundry/interfaces';
 
+/**
+ * ADR-0014 Phase 4 home for the legacy UUID-to-name compendium index.
+ *
+ * This is intentionally still a small name lookup cache. The broader
+ * compendium architecture, shard readers, and pathway A/B behavior belong to
+ * ADR-0015; this phase only moved the existing singleton out of `core/foundry`
+ * so later compendium work has a canonical package to grow into.
+ */
 export class CompendiumCache {
     private static instance: CompendiumCache;
     private cache: Map<string, string> = new Map();
@@ -27,6 +35,8 @@ export class CompendiumCache {
         logger.debug('Initializing Compendium Cache...');
         this.loadingPromise = (async () => {
             try {
+                // Source data still comes from the existing Foundry metadata
+                // client; ADR-0015 owns replacing this with Store/service reads.
                 const packs = await client.getAllCompendiumIndices();
                 for (const pack of packs) {
                     const packId = pack.id;
