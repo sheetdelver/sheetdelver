@@ -16,10 +16,8 @@ import {
     DOCUMENT_VISIBILITY,
 } from '@server/core/documents/primary/base/ownership';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
-import type {
-    RealtimeActorChangedPayload,
-    RealtimeSharedContentPayload,
-} from '@shared/contracts/realtime';
+import { sharedContentStore, type SharedContentChangedEvent } from '@server/core/world/SharedContentStore';
+import type { RealtimeActorChangedPayload } from '@shared/contracts/realtime';
 
 type AppSocket = Socket & {
     userSession?: UserSessionLike;
@@ -285,9 +283,14 @@ export function registerAppSocketGateway({
                 if (data.targetUserIds && (!userId || !data.targetUserIds.includes(userId))) return;
                 socket.emit('cardsListInvalidated', data);
             };
-            const handleSharedUpdate = (...args: unknown[]) => {
-                const data = (args[0] || {}) as RealtimeSharedContentPayload;
-                socket.emit('sharedContentUpdate', data);
+            // ADR-0014 Phase 3: shared-content fan-out now subscribes to
+            // SharedContentStore directly. The socket listeners in SocketBase
+            // write through to the Store; the Store emits one canonical
+            // `sharedContentChanged` event per update, and the gateway fans it
+            // out to every browser socket as the existing `sharedContentUpdate`
+            // wire event (callers unchanged).
+            const handleSharedUpdate = (event: SharedContentChangedEvent) => {
+                socket.emit('sharedContentUpdate', event.payload ?? { type: null });
             };
 
             // Store events are bridged through the system client, not per-user
@@ -316,7 +319,7 @@ export function registerAppSocketGateway({
             systemService.getSystemClient().on('playlistListInvalidated', handlePlaylistListInvalidated);
             systemService.getSystemClient().on('cardsChanged', handleCardsChanged);
             systemService.getSystemClient().on('cardsListInvalidated', handleCardsListInvalidated);
-            foundryClient.on('sharedContentUpdate', handleSharedUpdate);
+            const unsubscribeSharedContent = sharedContentStore.onSharedContentChanged(handleSharedUpdate);
 
             // Per-user relays retained only for route-client lifecycle/shared-content events.
             // User presence/status is broadcast once from the system client path.
@@ -349,7 +352,7 @@ export function registerAppSocketGateway({
                 systemService.getSystemClient().off('playlistListInvalidated', handlePlaylistListInvalidated);
                 systemService.getSystemClient().off('cardsChanged', handleCardsChanged);
                 systemService.getSystemClient().off('cardsListInvalidated', handleCardsListInvalidated);
-                foundryClient.off('sharedContentUpdate', handleSharedUpdate);
+                unsubscribeSharedContent();
                 foundryClient.off('worldShutdown', broadcastSystemStatus);
                 foundryClient.off('worldReload', broadcastSystemStatus);
             });

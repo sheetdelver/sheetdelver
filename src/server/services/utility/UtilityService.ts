@@ -3,6 +3,7 @@ import { logger } from '@shared/utils/logger';
 import type { UtilityClientLike } from '@server/shared/types/utility';
 import type { RouteFoundryClient } from '@server/shared/types/requestContext';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
+import { sharedContentStore } from '@server/core/world/SharedContentStore';
 
 interface UtilityServiceDeps {
     getFallbackSharedContentClient: () => RouteFoundryClient;
@@ -38,10 +39,14 @@ export function createUtilityService(deps: UtilityServiceDeps) {
         return { users: sanitizedUsers };
     };
 
-    // Shared content projection resolves stored image URLs for the requesting user context.
+    // Shared content projection reads the canonical snapshot from
+    // SharedContentStore (ADR-0014 Phase 3) and resolves image URLs against
+    // the requesting client's Foundry base URL. The Store returns a defensive
+    // copy, so mutating `data.url` here is safe and does not leak back into
+    // the canonical state.
     const getSharedContent = async (client?: UtilityClientLike) => {
         const resolvedClient = client || deps.getFallbackSharedContentClient();
-        const content = resolvedClient.getSharedContent ? resolvedClient.getSharedContent() : null;
+        const content = sharedContentStore.getCurrent();
 
         if (content && content.type === 'image' && content.data?.url) {
             content.data.url = resolvedClient.resolveUrl(content.data.url);

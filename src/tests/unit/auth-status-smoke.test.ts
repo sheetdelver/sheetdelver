@@ -67,7 +67,6 @@ function createMockRouteClient(userId = 'user-1') {
         dispatchDocument: noop,
         dispatchDocumentSocket: noop,
         fetchByUuid: noop,
-        getSharedContent: () => null,
     };
 }
 

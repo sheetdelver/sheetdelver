@@ -55,6 +55,7 @@ import { run as runSdkIntegrity } from './sdk-integrity.test';
 import { run as runModuleInitScaffold } from './module-init-scaffold.test';
 import { run as runWorldStateStore } from './world-state-store.test';
 import { run as runWorldLifecycleStore } from './world-lifecycle-store.test';
+import { run as runSharedContentStore } from './shared-content-store.test';
 
 async function runAllUnitTests() {
     // Initialize test data directory before running any tests
@@ -95,6 +96,7 @@ async function runAllUnitTests() {
     await runStubStores();
     await runWorldStateStore();
     await runWorldLifecycleStore();
+    await runSharedContentStore();
     await runClientSocketTransport();
     await runRealtimeBroadcaster();
     await runAppSocketGateway();

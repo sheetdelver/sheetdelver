@@ -3,6 +3,8 @@ import { logger } from '@shared/utils/logger';
 import { FoundryConfig } from '../types';
 import { EventEmitter } from 'events';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
+import { sharedContentStore } from '@server/core/world/SharedContentStore';
+import type { RealtimeSharedContentPayload } from '@shared/contracts/realtime';
 
 type HeadersWithSetCookie = Headers & {
     getSetCookie?: () => string[];
@@ -14,7 +16,6 @@ export abstract class SocketBase extends EventEmitter {
     protected sessionCookie: string | null = null;
     public isSocketConnected: boolean = false;
     protected config: FoundryConfig;
-    protected sharedContent: any | null = null;
 
     constructor(config: FoundryConfig) {
         super();
@@ -287,37 +288,38 @@ export abstract class SocketBase extends EventEmitter {
         return this.isSocketConnected;
     }
 
-    public getSharedContent() {
-        return this.sharedContent;
-    }
-
     protected setupSharedContentListeners(socket: Socket) {
+        // ADR-0014 Phase 3: the socket is the wire-event source, but the
+        // canonical snapshot lives in `SharedContentStore`. The Store enforces
+        // an immutable-snapshot contract (defensive copy on read/write) so
+        // request-time projections (URL resolution, journal hydration) cannot
+        // mutate the shared payload other consumers will read next.
         socket.on('shareImage', (data: any) => {
             logger.info(`[${this.constructor.name}] Received shared image: ${data.image}`);
-            this.sharedContent = {
+            const payload: RealtimeSharedContentPayload = {
                 type: 'image',
                 data: {
                     url: data.image,
-                    title: data.title
+                    title: data.title,
                 },
-                timestamp: Date.now()
+                timestamp: Date.now(),
             };
-            this.emit('sharedContentUpdate', this.sharedContent);
+            sharedContentStore.set(payload);
         });
 
-        socket.on('showEntry', (uuid: string, ...args: any[]) => {
+        socket.on('showEntry', (uuid: string, ..._args: any[]) => {
             logger.info(`[${this.constructor.name}] Received shared entry: ${uuid}`);
             const parts = uuid.split('.');
             if (parts.length >= 2 && parts[0] === 'JournalEntry') {
-                this.sharedContent = {
+                const payload: RealtimeSharedContentPayload = {
                     type: 'journal',
                     data: {
                         id: parts[1],
-                        uuid: uuid
+                        uuid,
                     },
-                    timestamp: Date.now()
+                    timestamp: Date.now(),
                 };
-                this.emit('sharedContentUpdate', this.sharedContent);
+                sharedContentStore.set(payload);
             }
         });
     }

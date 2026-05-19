@@ -88,7 +88,7 @@ Plus the legacy non-`game.data` snapshots: `probeWorldData`, `probeUserCount`, `
 - ADR-0017's `WorldBootstrapper` is the central application glue; consumers subscribe to lifecycle transitions through this Store rather than polling state on the socket.
 - This ADR names the target semantics: `active` must mean **Sheet Delver is ready to serve world-backed requests**, not merely "Foundry's `getWorldStatus()` returned true." The bootstrap window (primary-doc seeds, compendium discovery, adapter init) stays in `startup`. This delay is what makes the gateway connection-gate safe in ADR-0017; ADR-0014 gives lifecycle a Store boundary and documents the target, while ADR-0017 changes the transition timing to satisfy it.
 
-**`SharedContentStore`** (`src/server/core/world/SharedContentStore.ts`) — holds the latest GM shared-content payload (`shareImage`, `showEntry` events) and timestamp. Separate from `WorldStateStore` because the event source is asymmetric (live wire events, not the world bootstrap payload) and the lifecycle is different (presentation state can change without re-bootstrapping the world).
+**`SharedContentStore`** (`src/server/core/world/SharedContentStore.ts`) — holds the latest GM shared-content payload (`shareImage`, `showEntry` events) and timestamp. Separate from `WorldStateStore` because the event source is asymmetric (live wire events, not the world bootstrap payload) and the lifecycle is different (presentation state can change without re-bootstrapping the world). The Store keeps the original/raw Foundry payload, including relative image URLs. Client/request-aware URL normalization belongs to `UtilityService` as a projection helper that returns a resolved copy.
 
 ### Typed shapes
 
@@ -154,7 +154,7 @@ Remove from `CoreSocket`:
 
 Remove from `SocketBase`:
 
-- `getSharedContent()` — readers move to `sharedContentStore.getCurrent()`. The socket listeners (`setupSharedContentListeners`) stay on `SocketBase` as event sources, but they now `sharedContentStore.set(payload)` instead of holding the value themselves. `SharedContentStore` returns immutable snapshots (clone-on-write and clone-on-read, or an equivalent readonly-copy contract) so request projections like URL resolution cannot mutate canonical shared-content state.
+- `getSharedContent()` — readers move to `sharedContentStore.getCurrent()` through `UtilityService` projections. The socket listeners (`setupSharedContentListeners`) stay on `SocketBase` as event sources, but they now `sharedContentStore.set(payload)` instead of holding the value themselves. `SharedContentStore` returns immutable snapshots (clone-on-write and clone-on-read, or an equivalent readonly-copy contract) so request projections like URL resolution cannot mutate canonical shared-content state. The stored image URL remains the raw Foundry event value; `UtilityService` resolves it on a copy for the requesting client.
 
 Remove from `ClientSocket`:
 
@@ -231,7 +231,7 @@ The current code transitions to `active` immediately when Foundry reports world-
 
 `WorldLifecycleStore.setState(next, reason)` transitions state; emits `transition` events with `{ from, to, reason }`.
 
-`SharedContentStore.set(payload)` updates the current shared-content snapshot; `clear(reason)` resets. Reads return a defensive copy or immutable snapshot. The stored payload must stay relative/raw; presentation-time URL resolution and other request-specific projections happen outside the Store.
+`SharedContentStore.set(payload)` updates the current shared-content snapshot; `clear(reason)` resets. Reads return a defensive copy or immutable snapshot. The stored payload must stay relative/raw; presentation-time URL resolution and other request-specific projections happen outside the Store. `UtilityService.getSharedContent(client?)` is the Phase 3 home for that projection: it reads the Store snapshot, resolves `image` payload URLs on a copy via `client.resolveUrl(...)`, and never mutates Store-owned data.
 
 `CoreSocket.connect()` is the seed/clear caller today (called inline). After this ADR, it still calls into the Stores (because the bootstrap orchestration extraction is ADR-0017's job, not this ADR's). The point of this slice is that **the state lives in the Stores**, not on the socket; *who calls the seed* is orthogonal and stays where it is for now.
 
@@ -353,6 +353,89 @@ Phase 2 introduces `WorldLifecycleStore` as the authoritative owner for world li
 
 **Phase 2 closed (May 18, 2026).** All action items above ticked. Verification passed: `npx tsc --noEmit`, `npm run test:unit`, and the Phase 2 source audits. The broad direct `.worldState` audit now hits only `CoreSocket`'s Store-backed compatibility/internal reads under the allowed-hit policy; the targeted external-reader audit returns no hits.
 
+### Phase 3: SharedContentStore and client projection
+
+**Status:** Closed May 19, 2026.
+
+Phase 3 introduces `SharedContentStore` as the authoritative owner for the latest GM shared-content payload from Foundry socket events (`shareImage`, `showEntry`). The Store keeps canonical content raw: image URLs stay exactly as Foundry emitted them, usually relative paths. Client/request-specific URL resolution moves into `UtilityService` as an explicit projection helper that returns a copy with `data.url` resolved for the requesting client. Socket listeners remain the event source, but they write through the Store instead of caching on `SocketBase`.
+
+**Action items:**
+
+- [x] Add `SharedContentStore` with typed payload shape, clone-on-write / clone-on-read semantics, `set(payload)`, idempotent `clear(reason?)`, `getCurrent()`, and `sharedContentChanged` events carrying immutable snapshots.
+  Files: `src/server/core/world/SharedContentStore.ts`, `src/server/core/world/index.ts`.
+
+- [x] Add unit coverage for image payload storage, journal payload storage, timestamp preservation from socket-normalized payloads, clone-on-read, clone-on-write, clear behavior, unsubscribe behavior, and `sharedContentChanged` event emission.
+  Files: `src/tests/unit/shared-content-store.test.ts`, `src/tests/unit/run.ts`.
+
+- [x] Move `SocketBase.setupSharedContentListeners()` writes to `sharedContentStore.set(...)`. Remove the `SocketBase.sharedContent` field. Realtime fan-out is preserved by subscribing the app gateway to `SharedContentStore` and emitting the existing browser-facing `sharedContentUpdate` event from there.
+  Files: `src/server/core/foundry/sockets/SocketBase.ts`.
+
+- [x] Move shared-content reads off socket clients. `UtilityService.getSharedContent(client?)` reads `sharedContentStore.getCurrent()` and resolves `image` payload URLs on the defensive copy via `client.resolveUrl(...)`.
+  Files: `src/server/services/utility/UtilityService.ts`, `src/server/shared/types/utility.ts`.
+
+- [x] Remove the unused request-facing `RouteFoundryClient.getSharedContent()` facade instead of preserving it. `UtilityService` is the only route-facing shared-content projection surface.
+  Files: `src/server/shared/utils/createRouteFoundryClient.ts`, `src/server/shared/types/requestContext.ts`.
+
+- [x] Remove `SocketBase.getSharedContent()` once all readers are Store-backed. Update socket-facing types so shared-content reads are no longer optional methods on route/client-like interfaces.
+  Files: `src/server/core/foundry/sockets/SocketBase.ts`, `src/server/shared/types/utility.ts`.
+
+- [x] Bridge realtime fan-out from `SharedContentStore` to browser sockets. Browser clients still receive `sharedContentUpdate`; the gateway no longer subscribes to per-session `foundryClient.on('sharedContentUpdate', ...)`.
+  Files: `src/server/realtime/AppSocketGateway.ts`, `src/tests/unit/app-socket-gateway.test.ts`.
+
+- [x] Clear `SharedContentStore` when `CoreSocket` tears down active-world runtime state, so browser clients receive the existing empty shared-content payload instead of replaying presentation state from a prior world/session.
+  Files: `src/server/core/foundry/sockets/CoreSocket.ts`.
+
+- [x] Verify Phase 3 with unit/type checks and source audits. Remaining `sharedContent` hits should be limited to `SharedContentStore`, realtime UI/client state, documented event names, and test fixtures; remaining `getSharedContent` hits should be request-facing route/service names, not socket reads or route-client mocks.
+  Commands: `npm run test:unit`; `npx tsc --noEmit`; `rg -n "sharedContent|getSharedContent|shareImage|showEntry|setupSharedContentListeners|SharedContentStore" src/server src/tests/unit`; `rg -n "client\.getSharedContent|foundryClient\.getSharedContent|coreSocket\.getSharedContent|systemClient\.getSharedContent" src/server src/tests`.
+
+**Non-goals for Phase 3:**
+
+- No URL utility extraction from `SocketBase`; ADR-0018 owns residual URL utility cleanup.
+- No realtime contract rename. The client-facing event remains `sharedContentUpdate`.
+- No client UI state refactor. React state may still be named `sharedContent`; the socket-boundary concern is server-side ownership.
+- No lifecycle or bootstrap timing changes.
+- No compendium, UUID resolver, adapter, engagement-service, heartbeat-policy, or session-state split work.
+
+**Exit for Phase 3:** `SharedContentStore` exists and is exported from `core/world`; socket listeners write raw shared-content payloads through the Store; `UtilityService` resolves image URLs only on request-specific copies; active-world runtime teardown clears the Store; socket-owned `sharedContent` and `SocketBase.getSharedContent()` are gone; `npm run test:unit`, `npx tsc --noEmit`, and the Phase 3 audits pass under the allowed-hit policy.
+
+**Phase 3 closed (May 19, 2026).** All action items above ticked. Verification passed: `npx tsc --noEmit`, `npm run test:unit`, and the Phase 3 source audits. The implementation chose the cleaner Store-direct realtime path: `AppSocketGateway` subscribes to `sharedContentStore.onSharedContentChanged(...)` and emits the unchanged browser-facing `sharedContentUpdate` event, rather than having `SocketBase` re-emit shared-content updates through each Foundry client. `CoreSocket` clears shared content with active-world runtime state during setup/disconnect teardown. The remaining `getSharedContent` audit hits are request-facing route/service calls; targeted socket-reader audits return no hits.
+
+### Phase 4: File-layout outliers
+
+**Status:** Pending implementation.
+
+Phase 4 lands the behavior-preserving layout cleanup named by this ADR. It removes the remaining file-path outliers without changing compendium behavior, Roll behavior, setup cache behavior, or the global-client replacement strategy. The point is to put already-existing concerns in their ADR-0014 homes before later ADRs add more code around them.
+
+**Action items:**
+
+- [ ] Move `CompendiumCache` from `src/server/core/foundry/compendium-cache.ts` to `src/server/core/compendium/CompendiumCache.ts`, with an optional `src/server/core/compendium/index.ts` barrel if useful. Update static and dynamic imports to the new PascalCase path.
+  Files: `src/server/core/foundry/compendium-cache.ts`, `src/server/core/compendium/CompendiumCache.ts`, `src/server/core/system/SystemService.ts`, `src/server/core/foundry/sockets/CoreSocket.ts`, `src/server/shared/utils/createModuleContext.ts`, `src/server/services/actors/ActorNormalizationService.ts`, `src/server/services/actors/ActorService.ts`, `src/tests/deprecated/module-specific/shadowdark/05-compendium-resolution.test.ts`.
+
+- [ ] Move `Roll` from `src/server/core/foundry/classes/Roll.ts` to `src/server/core/foundry/Roll.ts`. Remove the empty `classes/` directory after the move and update the dynamic import used by route roll helpers.
+  Files: `src/server/core/foundry/classes/Roll.ts`, `src/server/core/foundry/Roll.ts`, `src/server/shared/utils/createRouteFoundryClient.ts`.
+
+- [ ] Move `SetupManager` from `src/server/core/foundry/SetupManager.ts` to `src/server/core/world/SetupManager.ts`. Update all imports and keep the public `SetupManager`, `CacheData`, and `WorldData` exports intact so setup/admin/status behavior is unchanged.
+  Files: `src/server/core/foundry/SetupManager.ts`, `src/server/core/world/SetupManager.ts`, `src/server/core/foundry/sockets/CoreSocket.ts`, `src/server/core/world/WorldStateStore.ts`, `src/server/services/status/StatusService.ts`, `src/server/services/admin/AdminService.ts`, `src/server/shared/types/admin.ts`, `src/server/app/registerRoutes.ts`, `src/scripts/tools/admin/import-worlds.ts`, `src/tests/unit/world-state-store.test.ts`.
+
+- [ ] Audit `src/server/core/foundry/instance.ts`. If `_foundryClient` / `getClient()` / `setClient()` have no runtime callers, delete the file. If any callers remain, migrate them to `systemService.getSystemClient()` or a narrower injected dependency before deletion.
+  Files: `src/server/core/foundry/instance.ts`, any caller found by `rg -n "_foundryClient|getClient\(|setClient\(" src/server src/scripts src/tests`.
+
+- [ ] Update comments/docs/tests that refer to the old paths so future grep output points at the canonical layout.
+  Files: `docs/adr/0014-non-document-world-state-and-socket-boundary.md`, any source/test comments discovered during the import updates.
+
+- [ ] Verify Phase 4 with type/unit checks and file-layout audits. No old-path imports should remain, `core/foundry/classes/` should be gone, and `core/compendium/CompendiumCache.ts` plus `core/world/SetupManager.ts` should exist.
+  Commands: `npm run test:unit`; `npx tsc --noEmit`; `rg -n "core/foundry/compendium-cache|foundry/compendium-cache|../compendium-cache|@core/foundry/classes/Roll|core/foundry/classes/Roll|@core/foundry/SetupManager|core/foundry/SetupManager|from '../SetupManager'" src src/scripts`; `rg --files src/server/core/foundry src/server/core/world src/server/core/compendium | rg "(compendium-cache|CompendiumCache|classes/Roll|SetupManager|instance)\.ts$"`.
+
+**Non-goals for Phase 4:**
+
+- No `CompendiumStore`, `CompendiumService`, shard-reader, or pathway A/B behavior changes; ADR-0015 owns compendium architecture.
+- No SetupManager scrape/cache behavior changes.
+- No Roll evaluator behavior changes.
+- No socket-boundary method deletions beyond stale import-path fallout.
+- No adapter, lifecycle, bootstrap, UUID resolver, URL utility, engagement-service, heartbeat-policy, or session-state split work.
+
+**Exit for Phase 4:** `CompendiumCache`, `SetupManager`, and `Roll` live at the paths declared by this ADR; `core/foundry/classes/` is gone; `instance.ts` is deleted or has a documented migrated-caller outcome; all old-path imports/comments are removed; `npm run test:unit`, `npx tsc --noEmit`, and the Phase 4 file-layout audits pass.
+
 ---
 
 ## Alternatives Considered
@@ -434,7 +517,7 @@ Adjacent ADRs from other arcs:
 
 ## Validation
 
-Validated at the Store-contract layer and at the migration boundary:
+Each phase validates at the Store-contract layer and at the migration boundary:
 
 - Base-contract unit tests against `WorldStateStore` assert `seed(rawGameData)` correctly populates every typed accessor, that `clear(reason)` resets all fields, and that the typed accessors return the documented shapes using the synthetic fixture shape documented in *World-state test data policy*. Real audit dump data must not be copied into tracked test fixtures.
 - `WorldLifecycleStore` unit tests assert the state-machine transition rules and that `transition` events fire with `{ from, to, reason }`.
@@ -444,7 +527,7 @@ Validated at the Store-contract layer and at the migration boundary:
   - `rg -n "\.(getGameData|getSceneData|getSystemConfig|getSharedContent)\(" src/server` returns no socket-reader hits. `RouteFoundryClient.getSystem()` may remain as a facade method, but its implementation must be Store-backed rather than socket-backed.
   - `rg -n "\.worldState\b|gameDataCache|sceneDataCache|probeWorldData|probeUserCount|cachedWorldData|cachedWorlds|lastActorChange" src/server` returns no direct socket-state reads outside `CoreSocket`, the new Stores, and the seeding caller.
   - `getSystemAdapter` / `loadSystemAdapter` intentionally still exist on `CoreSocket` and `ClientSocket` until ADR-0017; their removal audit belongs to ADR-0017.
-- File-layout audit: `compendium-cache.ts` is gone; `core/foundry/classes/` is gone; `core/world/` exists; `core/compendium/CompendiumCache.ts` exists.
+- Phase 4 file-layout audit verifies that `compendium-cache.ts` is gone, `core/foundry/classes/` is gone, `core/world/SetupManager.ts` exists, and `core/compendium/CompendiumCache.ts` exists.
 - `npx tsc --noEmit` and `npm run test:unit` pass.
 
 ---
@@ -455,7 +538,7 @@ This ADR is fulfilled when the non-document world-state foundation is in place a
 
 - [x] Phase 1: `WorldStateStore` + typed shapes (`core/world/types.ts`) + readers migrated.
 - [x] Phase 2: `WorldLifecycleStore` + lifecycle-state migration from `CoreSocket.worldState`.
-- [ ] Phase 3: `SharedContentStore` + `SocketBase.setupSharedContentListeners` writes through to the Store + `getSharedContent` removed.
+- [x] Phase 3: `SharedContentStore` at `core/world/SharedContentStore.ts` with the immutable-snapshot contract (clone-on-write + clone-on-read; stored payload stays relative/raw). `SocketBase.setupSharedContentListeners` writes through to the Store via `sharedContentStore.set(payload)`; `CoreSocket` clears the Store alongside active-world runtime state teardown; the legacy `protected sharedContent` field and public `getSharedContent()` accessor are gone. `UtilityService.getSharedContent()` reads `sharedContentStore.getCurrent()` and projects URL resolution onto the defensive copy. `UtilityClientLike.getSharedContent` removed from the type; `createRouteFoundryClient` no longer exposes the facade method. Realtime gateway subscribes to `sharedContentStore.onSharedContentChanged(...)` directly (no longer to per-session `foundryClient.on('sharedContentUpdate', ...)`); the gateway test asserts the foundryClient handler count drops 3 → 2. Browser sockets still receive the `sharedContentUpdate` wire event unchanged. Tests in [shared-content-store.test.ts](../../src/tests/unit/shared-content-store.test.ts).
 - [ ] Phase 4: File-layout outliers — `compendium-cache.ts` renamed and moved to `core/compendium/CompendiumCache.ts`; `classes/Roll.ts` flattened to `foundry/Roll.ts`; `SetupManager.ts` moved to `core/world/`; `instance.ts` audited (deleted if unused).
 - [ ] Phase 5: Remove `getGameData` / `getSceneData` / `getSystem` / `getSystemConfig` from `CoreSocket`; remove matching `getSystem` / `getSystemConfig` delegation methods from `ClientSocket`; remove `getSystemConfig` declaration from `interfaces.ts`'s `FoundryMetadataClient`. Leave `getSystemAdapter` / `loadSystemAdapter` / cached `this.adapter` on `CoreSocket` and the `getSystemAdapter` delegation on `ClientSocket` (ADR-0017 removes them alongside the new `WorldBootstrapper.getActiveAdapter()`).
 - [ ] `rg` migration audit confirms no remaining socket reads for the migrated fields outside the seeding caller and explicitly documented compatibility shims.

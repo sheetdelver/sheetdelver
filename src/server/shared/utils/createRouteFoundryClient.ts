@@ -290,7 +290,6 @@ function createBaseRouteFoundryClient(client: RouteSocketClient): RouteFoundryCl
         createChatMessage: (data: Record<string, unknown>) => chatMessageRepository.send(data),
         fetchByUuid: (uuid: string) => client.fetchByUuid(uuid),
         getAllCompendiumIndices: () => client.getAllCompendiumIndices(),
-        getSharedContent: () => client.getSharedContent?.() || null,
     };
 }
 

@@ -20,6 +20,7 @@ import { userPresence } from '@server/core/documents/primary/users/UserPresence'
 import { modifyDocumentRouter } from '@server/core/documents/primary/base/modifyDocumentRouter';
 import { worldStateStore } from '@server/core/world/WorldStateStore';
 import { worldLifecycleStore, type WorldLifecycleState } from '@server/core/world/WorldLifecycleStore';
+import { sharedContentStore } from '@server/core/world/SharedContentStore';
 // Side-effect import: registers Stores with the coordinator and router.
 import '@server/core/documents/primary/PrimaryDocumentCacheCoordinator';
 import { PrimaryDocumentCacheNotReadyError } from '@server/core/documents/primary/errors';
@@ -352,6 +353,10 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
                         this.gameDataCache = null; // Clear potential stale cache
                         this.sceneDataCache = null; // Clear scene cache
                         worldStateStore.clearRuntimeState('world-setup');
+                        // Shared content is active-world presentation state; clear it
+                        // with the runtime snapshot so browser clients don't replay
+                        // content from a previous world/session after setup.
+                        sharedContentStore.clear('world-setup');
                         userPresence.clear();
                         userStore.clear('world-setup');
                         clearTimeout(timeout);
@@ -433,6 +438,7 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
                     this.sceneDataCache = null; // Clear scene cache
                     // Preserve setup cache, but remove active-world/probe state.
                     worldStateStore.clearRuntimeState('core-disconnect');
+                    sharedContentStore.clear('core-disconnect');
                     userPresence.clear();
                     userStore.clear('core-disconnect');
                     this.emit('disconnect', reason);
@@ -626,6 +632,7 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
             this.gameDataCache = null;
             this.sceneDataCache = null;
             worldStateStore.clearRuntimeState('core-disconnect');
+            sharedContentStore.clear('core-disconnect');
             userPresence.clear();
             userStore.clear('core-disconnect');
             actorStore.clear('core-disconnect');
