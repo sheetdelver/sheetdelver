@@ -21,6 +21,7 @@ class MemoryShardCache implements DiscoveryShardCache {
 export async function run() {
     await runManifestAndShardRoundTrip();
     await runScopedQueries();
+    await runFindDocument();
     await runLegacyShardKeyCompatibility();
     console.log('  - DiscoveryShardStore: all checks passed');
 }
@@ -112,6 +113,19 @@ async function runScopedQueries() {
     assert.equal((await store.getById('synthetic-system', 'Item', 'spell', { packIds: ['synthetic.items'] }))?.name, 'Spell');
     assert.equal(await store.getById('synthetic-system', 'Item', 'missing', { packIds: ['synthetic.items'] }), null);
     assert.deepEqual(await store.findAll('synthetic-system', 'Item', {}, { packIds: [] }), []);
+}
+
+async function runFindDocument() {
+    const cache = new MemoryShardCache();
+    const store = new DiscoveryShardStore(cache);
+
+    await store.setShard('synthetic-system', 'synthetic.items', itemRows());
+
+    assert.equal((await store.findDocument('synthetic-system', 'synthetic.items', 'torch', 'Item'))?.name, 'Torch');
+    assert.equal((await store.findDocument('synthetic-system', 'synthetic.items', 'Compendium.synthetic.items.Item.spell'))?.name, 'Spell');
+    assert.equal((await store.findDocument('synthetic-system', 'synthetic.items', 'spell', 'Item'))?.name, 'Spell');
+    assert.equal(await store.findDocument('synthetic-system', 'synthetic.items', 'missing', 'Item'), null);
+    assert.equal(await store.findDocument('synthetic-system', 'synthetic.missing', 'torch', 'Item'), null);
 }
 
 async function runLegacyShardKeyCompatibility() {

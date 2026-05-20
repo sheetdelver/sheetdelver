@@ -59,6 +59,9 @@ export async function run() {
     await runPackEntriesFallbackAndHeartbeat();
     await runPackIndexDispatchFallback();
     await runPackDocumentsTypeFallback();
+    await runPackDocumentModifyDocumentFallback();
+    await runPackDocumentGetDocumentsFallback();
+    await runPackDocumentDisconnected();
     await runCacheRebuildFromStore();
     console.log('  - CompendiumService: all checks passed');
 }
@@ -201,6 +204,52 @@ async function runPackDocumentsTypeFallback() {
         'JournalEntry',
         'JournalEntries',
     ]);
+}
+
+async function runPackDocumentModifyDocumentFallback() {
+    const transport = new FakeCompendiumTransport();
+    const service = new CompendiumService({ transport, store: new CompendiumStore() });
+
+    transport.emitHandler = (event, payloads) => {
+        assert.equal(event, 'modifyDocument');
+        const payload = payloads[0] as { type?: string; operation?: { pack?: string; ids?: string[] } };
+        assert.equal(payload.type, 'Item');
+        assert.equal(payload.operation?.pack, 'synthetic.items');
+        assert.deepEqual(payload.operation?.ids, ['torch']);
+        return { result: [{ _id: 'torch', uuid: 'Compendium.synthetic.items.Item.torch', name: 'Torch' }] };
+    };
+
+    const doc = await service.getPackDocument('synthetic.items', 'torch', 'Item');
+
+    assert.equal(doc?.name, 'Torch');
+    assert.deepEqual(transport.calls.map(call => call.event), ['modifyDocument']);
+}
+
+async function runPackDocumentGetDocumentsFallback() {
+    const transport = new FakeCompendiumTransport();
+    const service = new CompendiumService({ transport, store: new CompendiumStore() });
+
+    transport.emitHandler = (event) => {
+        if (event === 'modifyDocument') throw new Error('synthetic modify miss');
+        if (event === 'getDocuments') {
+            return { result: [{ _id: 'torch', uuid: 'Compendium.synthetic.items.Item.torch', name: 'Torch' }] };
+        }
+        throw new Error(`unexpected event ${event}`);
+    };
+
+    const doc = await service.getPackDocument('synthetic.items', 'torch', 'Item');
+
+    assert.equal(doc?.name, 'Torch');
+    assert.deepEqual(transport.calls.map(call => call.event), ['modifyDocument', 'getDocuments']);
+}
+
+async function runPackDocumentDisconnected() {
+    const transport = new FakeCompendiumTransport();
+    const service = new CompendiumService({ transport, store: new CompendiumStore() });
+    transport.isConnected = false;
+
+    assert.equal(await service.getPackDocument('synthetic.items', 'torch', 'Item'), null);
+    assert.equal(transport.calls.length, 0);
 }
 
 async function runCacheRebuildFromStore() {

@@ -821,16 +821,10 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
             }
 
             // 2. Compendium Document (Agnostically parse segments)
-            // TODO(post-ADR-0011): full pack-doc hydration at bootstrap is the
-            // recommended next direction — manifest-declared packs are expected
-            // to load whole, and re-fetching the same compendium doc over the
-            // socket for every UUID resolution is a known tax. A future round
-            // should introduce a `CompendiumStore` (or extend the existing
-            // CompendiumCache name-only map) to back this branch. Compendium
-            // docs aren't primary documents (no modify-document write surface,
-            // pack-level `permission` instead of per-doc `ownership`, namespaced
-            // UUIDs) so they fall outside ADR-0011's `PrimaryDocumentStore<T>`
-            // shape and need their own design pass.
+            // ADR-0015 now owns the compendium pack/shard policy. This legacy
+            // UUID branch stays only until ADR-0016 moves parsing into
+            // DocumentResolver, where declared shards can serve first and
+            // CompendiumService.getPackDocument(...) becomes the parsed fallback.
             const parts = uuid.split('.');
             if (parts.length < 4) return null;
 

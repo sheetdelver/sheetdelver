@@ -30,6 +30,14 @@ function getDocumentId(document: DiscoveryShardDocument): string | null {
     return typeof id === 'string' ? id : null;
 }
 
+function matchesDocumentId(document: DiscoveryShardDocument, documentId: string): boolean {
+    const id = getDocumentId(document);
+    if (id === documentId) return true;
+
+    const uuid = document.uuid;
+    return typeof uuid === 'string' && (uuid === documentId || uuid.endsWith(`.${documentId}`));
+}
+
 function getPathValue(document: DiscoveryShardDocument, path: string): unknown {
     if (Object.prototype.hasOwnProperty.call(document, path)) return document[path];
 
@@ -133,6 +141,20 @@ export class DiscoveryShardStore {
         if (byId) return byId;
 
         return this.findOne(systemId, type, { uuid: id }, options);
+    }
+
+    public async findDocument(
+        systemId: string,
+        packId: string,
+        documentId: string,
+        _type?: string | null,
+    ): Promise<DiscoveryShardDocument | null> {
+        const shard = await this.getShard(systemId, packId);
+        if (!shard) return null;
+
+        // Pack scope tells us the root document type. Row `type` can be an item
+        // subtype in hydrated Item packs, so do not filter on it here.
+        return shard.find(document => matchesDocumentId(document, documentId)) || null;
     }
 
     private async resolvePackIds(systemId: string, packIds?: readonly string[] | null): Promise<string[]> {

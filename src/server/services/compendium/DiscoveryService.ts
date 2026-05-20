@@ -1,8 +1,9 @@
 import { logger } from '@shared/utils/logger';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
+import { CompendiumStore, compendiumStore } from '@server/core/compendium/CompendiumStore';
 import { discoveryShardStore, type DiscoveryShardStore } from '@server/core/compendium/DiscoveryShardStore';
 import type { DiscoveryConfig, PackDiscoveryConfig } from '@shared/sdk';
-import type { DiscoveryShardManifest } from '@server/core/compendium/types';
+import type { CompendiumIndexEntry, CompendiumPackMetadata, DiscoveryShardManifest } from '@server/core/compendium/types';
 import crypto from 'node:crypto';
 
 export interface DiscoverySyncClient {
@@ -10,10 +11,57 @@ export interface DiscoverySyncClient {
     emitSocketEvent<T>(event: string, ...payloads: unknown[]): Promise<T>;
 }
 
+export interface DiscoveryServiceDeps {
+    shardStore?: DiscoveryShardStore;
+    compendiumStore?: CompendiumStore;
+}
+
+const DEFAULT_INDEX_FIELDS = ['name', 'img', 'type'] as const;
+
+function normalizeFields(fields?: readonly string[] | null): string[] {
+    if (!fields?.length) return [];
+    return Array.from(new Set(fields.map(field => String(field).trim()).filter(Boolean))).sort();
+}
+
+function getPathValue(document: Record<string, unknown>, path: string): unknown {
+    if (Object.prototype.hasOwnProperty.call(document, path)) return document[path];
+
+    return path.split('.').reduce<unknown>((current, segment) => {
+        if (!current || typeof current !== 'object') return undefined;
+        return (current as Record<string, unknown>)[segment];
+    }, document);
+}
+
+function indexCoversFields(index: unknown[], fields: readonly string[]): boolean {
+    const required = normalizeFields(fields);
+    if (required.length === 0 || index.length === 0) return true;
+
+    return index.every(entry => {
+        if (!entry || typeof entry !== 'object') return false;
+        const row = entry as Record<string, unknown>;
+        return required.every(field => getPathValue(row, field) !== undefined);
+    });
+}
+
+function hasFreshnessInputs(index: unknown[]): boolean {
+    if (index.length === 0) return true;
+
+    return index.every(entry => {
+        if (!entry || typeof entry !== 'object') return false;
+        const row = entry as { _id?: unknown; id?: unknown; name?: unknown };
+        return typeof (row._id || row.id) === 'string' && row.name !== undefined;
+    });
+}
+
 export class DiscoveryService {
     private static instance: DiscoveryService;
+    private readonly shardStore: DiscoveryShardStore;
+    private readonly compendiumStore: CompendiumStore;
 
-    public constructor(private readonly shardStore: DiscoveryShardStore = discoveryShardStore) { }
+    public constructor(deps: DiscoveryServiceDeps = {}) {
+        this.shardStore = deps.shardStore || discoveryShardStore;
+        this.compendiumStore = deps.compendiumStore || compendiumStore;
+    }
 
     public static getInstance(): DiscoveryService {
         if (!DiscoveryService.instance) {
@@ -25,9 +73,9 @@ export class DiscoveryService {
     /**
      * Synchronize module-declared compendiums with the local persistent shard cache.
      *
-     * ADR-0015 Phase 3 keeps the existing freshness/hash behavior intact while
-     * moving the service out of `core/foundry`. Later phases can de-duplicate
-     * Pathway A/B index fetches without changing the shard read surface.
+     * ADR-0015 Phase 4 keeps the existing freshness/hash behavior intact while
+     * allowing Pathway B to reuse Pathway A's default index for freshness and
+     * fetch field-aware variants only when refreshed shard rows need them.
      */
     public async sync(
         client: DiscoverySyncClient,
@@ -76,7 +124,8 @@ export class DiscoveryService {
     ): Promise<boolean> {
         const packId = packConfig.id;
 
-        const entries = await client.getPackEntries(packId, { index: true });
+        const discoveryFields = this.getDiscoveryFields(packConfig);
+        const entries = await this.getFreshnessIndex(client, packConfig);
         if (!entries || !Array.isArray(entries)) {
             throw new Error(`Could not find pack ${packId} in Foundry or result was not an array.`);
         }
@@ -123,10 +172,7 @@ export class DiscoveryService {
                 }
             }
         } else {
-            documents = await client.getPackEntries(packId, {
-                index: true,
-                fields: packConfig.fields || ['name', 'img', 'type'],
-            }) as Record<string, unknown>[] || [];
+            documents = await this.getIndexedShardRows(client, packConfig, entries, discoveryFields);
         }
 
         await this.shardStore.setShard(systemId, packId, documents);
@@ -154,6 +200,69 @@ export class DiscoveryService {
             .sort()
             .join('|');
         return crypto.createHash('md5').update(signatureString).digest('hex');
+    }
+
+    private getDiscoveryFields(packConfig: PackDiscoveryConfig): string[] {
+        return normalizeFields(packConfig.fields?.length ? packConfig.fields : DEFAULT_INDEX_FIELDS);
+    }
+
+    private getPackMetadata(packConfig: PackDiscoveryConfig): CompendiumPackMetadata {
+        return this.compendiumStore.getPackMetadata(packConfig.id) || {
+            id: packConfig.id,
+            type: packConfig.type,
+        };
+    }
+
+    private async getFreshnessIndex(
+        client: DiscoverySyncClient,
+        packConfig: PackDiscoveryConfig,
+    ): Promise<unknown[]> {
+        const cachedDefault = this.compendiumStore.getPackIndex(packConfig.id);
+        if (cachedDefault && hasFreshnessInputs(cachedDefault)) {
+            return cachedDefault;
+        }
+
+        const fetched = await client.getPackEntries(packConfig.id, { index: true });
+        if (Array.isArray(fetched)) {
+            this.compendiumStore.setPackIndex(
+                packConfig.id,
+                this.getPackMetadata(packConfig),
+                fetched as CompendiumIndexEntry[],
+            );
+        }
+        return fetched;
+    }
+
+    private async getIndexedShardRows(
+        client: DiscoverySyncClient,
+        packConfig: PackDiscoveryConfig,
+        defaultIndex: unknown[],
+        discoveryFields: readonly string[],
+    ): Promise<Record<string, unknown>[]> {
+        // The freshness hash above only needs the default id/name index. Shard
+        // rows may need extra module-declared fields, so fetch a field-aware
+        // variant only when the default index does not already contain them.
+        if (indexCoversFields(defaultIndex, discoveryFields)) {
+            return defaultIndex as Record<string, unknown>[];
+        }
+
+        const cachedVariant = this.compendiumStore.getPackIndex(packConfig.id, { fields: discoveryFields });
+        if (cachedVariant && indexCoversFields(cachedVariant, discoveryFields)) {
+            return cachedVariant as Record<string, unknown>[];
+        }
+
+        const fetched = await client.getPackEntries(packConfig.id, {
+            index: true,
+            fields: discoveryFields,
+        }) as CompendiumIndexEntry[] || [];
+
+        this.compendiumStore.setPackIndex(
+            packConfig.id,
+            this.getPackMetadata(packConfig),
+            fetched,
+            { fields: discoveryFields },
+        );
+        return fetched as Record<string, unknown>[];
     }
 }
 

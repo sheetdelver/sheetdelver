@@ -37,6 +37,9 @@ export interface GetPackEntriesOptions extends CompendiumIndexOptions {
     index?: boolean;
 }
 
+const CORE_PACK_DOCUMENT_TYPES = ['Item', 'Actor', 'JournalEntry', 'RollTable', 'Scene', 'Macro', 'Playlist'] as const;
+const DEFAULT_PACK_DOCUMENT_TYPES = ['Item', 'Actor', 'JournalEntry', 'RollTable'] as const;
+
 function responseArray<T = unknown>(response: unknown): T[] | null {
     if (Array.isArray(response)) return response as T[];
     if (response && typeof response === 'object' && Array.isArray((response as { result?: unknown }).result)) {
@@ -66,6 +69,26 @@ function typeFallbacks(type: string, includeFullDocumentAliases = false): string
     else if (type === 'JournalEntry') typesToTry.push(includeFullDocumentAliases ? 'JournalEntries' : 'Journal', 'Journal');
     else if (includeFullDocumentAliases && type === 'Actor') typesToTry.push('Actors');
     return Array.from(new Set(typesToTry));
+}
+
+function packDocumentTypes(type?: string | null): string[] {
+    const normalized = typeof type === 'string' ? type.trim() : '';
+    if (CORE_PACK_DOCUMENT_TYPES.includes(normalized as typeof CORE_PACK_DOCUMENT_TYPES[number])) {
+        return [normalized];
+    }
+    return [...DEFAULT_PACK_DOCUMENT_TYPES];
+}
+
+function documentMatchesId(document: unknown, documentId: string): document is Record<string, unknown> {
+    if (!document || typeof document !== 'object') return false;
+    const row = document as { _id?: unknown; id?: unknown; uuid?: unknown };
+    if (row._id === documentId || row.id === documentId) return true;
+    return typeof row.uuid === 'string' && (row.uuid === documentId || row.uuid.endsWith(`.${documentId}`));
+}
+
+function findDocumentInResponse(response: unknown, documentId: string): Record<string, unknown> | null {
+    const rows = responseArray<Record<string, unknown>>(response);
+    return rows?.find(row => documentMatchesId(row, documentId)) || null;
 }
 
 function snapshotToDiscoveryResult(snapshot: ReturnType<CompendiumStore['listPackIndices']>[number]): CompendiumDiscoveryResult {
@@ -324,6 +347,46 @@ export class CompendiumService {
             logger.warn(`CompendiumService | getPackDocuments failed for ${packId}: ${error}`);
             return [];
         }
+    }
+
+    public async getPackDocument(
+        packId: string,
+        documentId: string,
+        type?: string | null,
+    ): Promise<Record<string, unknown> | null> {
+        if (!this.transport.isConnected) return null;
+
+        const trialTimeout = 500;
+        for (const t of packDocumentTypes(type)) {
+            if (!this.transport.isConnected) return null;
+
+            try {
+                logger.debug(`[CompendiumService] [TRACE] getPackDocument Strategy 1 (modifyDocument): ${packId} ${t} ${documentId}`);
+                const response = await this.transport.emitSocketEvent<unknown>('modifyDocument', {
+                    type: t,
+                    action: 'get',
+                    operation: { pack: packId, ids: [documentId] },
+                }, trialTimeout);
+                const found = findDocumentInResponse(response, documentId);
+                if (found) return found;
+            } catch {
+                // Preserve the legacy fetchByUuid ladder: failed probes fall through.
+            }
+
+            try {
+                logger.debug(`[CompendiumService] [TRACE] getPackDocument Strategy 2 (getDocuments): ${packId} ${t} ${documentId}`);
+                const response = await this.transport.emitSocketEvent<unknown>('getDocuments', {
+                    type: t,
+                    operation: { pack: packId, ids: [documentId] },
+                }, trialTimeout);
+                const found = findDocumentInResponse(response, documentId);
+                if (found) return found;
+            } catch {
+                // Try the next inferred type.
+            }
+        }
+
+        return null;
     }
 
     private writeIndex(
