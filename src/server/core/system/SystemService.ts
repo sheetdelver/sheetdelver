@@ -1,16 +1,13 @@
 import { EventEmitter } from 'node:events';
 import { CoreSocket } from '../foundry/sockets/CoreSocket';
 import { FoundryConfig } from '../foundry/types';
-import { hasDiscoveryConfig, hasInitialize, type SystemAdapter } from '@modules/registry/types';
+import type { SystemAdapter } from '@modules/registry/types';
 import { logger } from '@shared/utils/logger';
-import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
-import { getRegisteredModules } from '@modules/registry/server';
-import { CompendiumService, discoveryService } from '@server/services/compendium';
 import { worldBootstrapper } from '@server/services/world';
 import { CompendiumCache, compendiumStore } from '../compendium';
 import { worldStateStore } from '@server/core/world/WorldStateStore';
 import { worldLifecycleStore } from '@server/core/world/WorldLifecycleStore';
-import { clearDocumentCache, seedDocumentCache } from '../documents/primary/PrimaryDocumentCacheCoordinator';
+import { clearDocumentCache } from '../documents/primary/PrimaryDocumentCacheCoordinator';
 import { actorStore } from '../documents/primary/actors/ActorStore';
 import { chatMessageStore } from '../documents/primary/chat-messages/ChatMessageStore';
 import { combatStore } from '../documents/primary/combats/CombatStore';
@@ -32,8 +29,6 @@ export class SystemService extends EventEmitter {
     private static instance: SystemService;
     private config: FoundryConfig | null = null;
     private systemClient: CoreSocket | null = null;
-    private initialized: boolean = false;
-    private bootstrapPromise: Promise<void> | null = null;
 
     private constructor() {
         super();
@@ -253,89 +248,23 @@ export class SystemService extends EventEmitter {
     private handleDisconnect() {
         logger.info('SystemService | System Client disconnected.');
         this.emit('world:disconnected');
-        this.initialized = false;
-        this.bootstrapPromise = null;
         clearDocumentCache('world-disconnected');
         compendiumStore.clear('world-disconnected');
         CompendiumCache.getInstance().reset();
-        worldBootstrapper.clearActiveAdapter('world-disconnected');
+        worldBootstrapper.reset('world-disconnected');
     }
 
     /**
-     * Holistic bootstrap sequence to ensure world is ready (Caches, Adapters, Discovery).
+     * Public bootstrap facade. WorldBootstrapper owns the ordering; SystemService
+     * keeps the singleton event surface that the rest of the server already uses.
      */
     public async bootstrap(): Promise<void> {
         if (!this.systemClient) throw new Error("SystemService not initialized");
-        if (this.initialized) return;
-        if (this.bootstrapPromise) return this.bootstrapPromise;
-
-        const client = this.systemClient;
-
-        return this.bootstrapPromise = (async () => {
-            logger.info('SystemService | Beginning world bootstrap...');
-            
-            try {
-                // 1. Pathway A Compendium Discovery
-                // ADR-0015 Phase 2: bootstrap warms indices through the service,
-                // then rebuilds the legacy UUID-name cache from Store-backed
-                // discovery results. The socket remains only the transport.
-                const compendiumService = new CompendiumService({
-                    transport: client,
-                    store: compendiumStore,
-                    getGameDataSnapshot: () => worldStateStore.getGameDataSnapshot(),
-                });
-                const compendiumIndices = await compendiumService.discoverIndices();
-                const cache = CompendiumCache.getInstance();
-                cache.rebuildFromPacks(compendiumIndices);
-
-                // 2. Declarative Discovery (Sharding)
-                // System metadata is now read from WorldStateStore; CoreSocket
-                // remains the transport used by compendium/discovery calls.
-                const sysInfo = worldStateStore.getSystem();
-                if (sysInfo?.id) {
-                    const sysId = sysInfo.id.toLowerCase();
-                    const registered = getRegisteredModules({ includeExperimental: true });
-                    const moduleInfo = registered.find(m => m.id.toLowerCase() === sysId);
-                    const adapter = await worldBootstrapper.loadActiveAdapter(sysId);
-
-                    let discoveryConfig = moduleInfo?.discovery;
-
-                    // Fallback to adapter hook
-                    if (!discoveryConfig && hasDiscoveryConfig(adapter)) {
-                        discoveryConfig = adapter.getDiscoveryConfig();
-                    }
-
-                    if (discoveryConfig) {
-                        logger.info(`SystemService | Running discovery sync for ${sysId}...`);
-                        await discoveryService.sync(client, sysId, discoveryConfig, compendiumService);
-                    }
-
-                    // 3. Required primary document cache seed
-                    // Routes are not considered ready until every registered Store's
-                    // bootstrap seed completes (Phase 7 closure — `seedAll` is the
-                    // sole bootstrap-seed path; no per-type hardcoded path remains).
-                    await seedDocumentCache(client);
-
-                    // 4. Adapter Initialization
-                    if (hasInitialize(adapter)) {
-                        logger.info(`SystemService | Initializing adapter for ${sysInfo.id}...`);
-                        const { createModuleContext } = await import('@server/shared/utils/createModuleContext');
-                        const context = await createModuleContext(sysInfo.id.toLowerCase());
-                        await adapter.initialize(context);
-                    }
-
-                    this.emit('world:ready', { systemId: sysInfo.id });
-                }
-
-                this.initialized = true;
-                this.bootstrapPromise = null;
-                logger.info('SystemService | World bootstrap complete.');
-            } catch (err: unknown) {
-                logger.error(`SystemService | Bootstrap encountered error: ${getErrorMessage(err)}`);
-                this.bootstrapPromise = null;
-                throw err;
-            }
-        })();
+        await worldBootstrapper.bootstrap(this.systemClient, {
+            onReady: ({ systemId }) => {
+                this.emit('world:ready', { systemId });
+            },
+        });
     }
 
     public getSystemClient(): CoreSocket {
@@ -344,7 +273,7 @@ export class SystemService extends EventEmitter {
     }
 
     public isReady(): boolean {
-        return this.initialized;
+        return worldBootstrapper.isReady();
     }
 
     public getActiveAdapter(): SystemAdapter | null {

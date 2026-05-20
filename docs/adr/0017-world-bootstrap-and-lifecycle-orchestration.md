@@ -1,6 +1,6 @@
 # ADR-0017: World Bootstrap and Lifecycle Orchestration
 
-**Status:** Proposed - Phases 1-3 completed May 20, 2026; Phases 4-6 not started.
+**Status:** Proposed - Phases 1-4 completed May 20, 2026; Phases 5-6 not started.
 **Date:** May 20, 2026
 **Phase:** World Bootstrap (Phase 4 of the ADR-0014 arc)
 **Supersedes:** None. Consumes ADR-0014 world/lifecycle Stores, ADR-0015 compendium services, and ADR-0016 document resolution.
@@ -27,7 +27,7 @@ This ADR is the fourth decision in the ADR-0014 arc. ADR-0014 moved non-document
 
 ## Context
 
-The codebase now has the right state/service owners, but the runtime orchestration is still split across `CoreSocket.connect()` and `SystemService.bootstrap()`.
+The codebase now has the right state/service owners, but runtime orchestration is still split across `CoreSocket.connect()` and `WorldBootstrapper.bootstrap()` behind the `SystemService.bootstrap()` facade.
 
 `CoreSocket.connect()` still does more than establish a Foundry socket:
 
@@ -40,10 +40,10 @@ The codebase now has the right state/service owners, but the runtime orchestrati
 - seeds `WorldStateStore`
 - seeds `UserStore` and `UserPresence`
 - asks the world service layer to load the active system adapter
-- starts and tunes the heartbeat loop
-- writes `active` into `WorldLifecycleStore` before `SystemService.bootstrap()` completes
+- starts the heartbeat transport loop through `EngagementService` policy callbacks
+- writes `active` into `WorldLifecycleStore` before `WorldBootstrapper.bootstrap()` completes
 
-`SystemService.bootstrap()` then performs the application bootstrap:
+`WorldBootstrapper.bootstrap()` now performs the application bootstrap:
 
 - Pathway A compendium discovery
 - Pathway B discovery shard sync
@@ -53,13 +53,15 @@ The codebase now has the right state/service owners, but the runtime orchestrati
 
 The important semantic bug is lifecycle timing. ADR-0014 defined `active` as "Sheet Delver is ready to serve world-backed requests," but the current code transitions to `active` as soon as Foundry says the world is active, before compendium discovery, primary-document seeds, and adapter initialization complete.
 
-The remaining socket-boundary leftovers after Phase 3 are narrow and explicit:
+The remaining socket-boundary leftovers after Phase 4 are narrow and explicit:
 
-- `CoreSocket.connect()` still owns bootstrap sequencing that belongs above transport.
+- `CoreSocket.connect()` still owns pre-bootstrap world data acceptance, user/presence seeding, and the premature lifecycle transition that belongs above transport.
+- `CoreSocket.connect()` still writes `active` when Foundry reports an active world; Phase 5 tightens that to mean Sheet Delver is application-ready.
 
 Phase 1 removed the previous `CoreSocket.lastActorChange` status leak; `actorSyncToken` now comes from `SyncTokenService`.
 Phase 2 removed browser-count, last-activity, heartbeat-pause, and adaptive-heartbeat policy from `CoreSocket`; those now live in `EngagementService`.
 Phase 3 removed socket-owned active-adapter state and adapter reader/loader methods; `WorldBootstrapper` now owns the active adapter.
+Phase 4 moved compendium discovery, discovery shard sync, primary-document Store seeding, adapter initialization, and readiness tracking out of `SystemService` and into `WorldBootstrapper`. `SystemService` remains the public event/readiness facade.
 
 ---
 
@@ -263,31 +265,33 @@ Phase 3 moves active adapter ownership out of socket classes.
 
 **Exit for Phase 3:** The active adapter is service-owned; route validation reads the service-owned adapter; `CoreSocket` and `ClientSocket` no longer expose adapter reader/loader methods; tests and audits pass.
 
-### Phase 4: WorldBootstrapper shell and behavior-preserving bootstrap move
+### Phase 4: WorldBootstrapper behavior-preserving bootstrap move
 
-**Status:** Not started.
+**Status:** Completed May 20, 2026.
 
 Phase 4 moves `SystemService.bootstrap()` orchestration into `WorldBootstrapper` without changing lifecycle timing yet.
 
 **Action items:**
 
-- [ ] Move the compendium discovery, discovery shard sync, primary-document seed, adapter initialization, and ready-result logic into `WorldBootstrapper.bootstrap(transport)`.
+- [x] Move the compendium discovery, discovery shard sync, primary-document seed, adapter initialization, and ready-result logic into `WorldBootstrapper.bootstrap(transport)`.
   Files: `src/server/services/world/WorldBootstrapper.ts`, `src/server/core/system/SystemService.ts`.
 
-- [ ] Keep `SystemService` as the public facade for initialization, readiness, and events. It should delegate bootstrap work to `WorldBootstrapper`.
+- [x] Keep `SystemService` as the public facade for initialization, readiness, and events. It should delegate bootstrap work to `WorldBootstrapper`.
   Files: `src/server/core/system/SystemService.ts`.
 
-- [ ] Preserve idempotence: concurrent bootstrap calls share one promise; failures clear the promise; successful bootstrap marks readiness exactly once.
+- [x] Preserve idempotence: concurrent bootstrap calls share one promise; failures clear the promise; successful bootstrap marks readiness exactly once.
   Files: `src/server/services/world/WorldBootstrapper.ts`, tests.
 
-- [ ] Keep current lifecycle timing in this phase. `active` may still be set before bootstrap while the orchestration move lands.
+- [x] Keep current lifecycle timing in this phase. `active` may still be set before bootstrap while the orchestration move lands.
   Files: `src/server/core/system/SystemService.ts`, `src/server/core/foundry/sockets/CoreSocket.ts`.
 
-- [ ] Add unit coverage for bootstrap ordering, idempotence, failure reset, and adapter initialization delegation using synthetic transports/services.
+- [x] Add unit coverage for bootstrap ordering, idempotence, failure reset, and adapter initialization delegation using synthetic transports/services.
   Files: `src/tests/unit/world/world-bootstrapper.test.ts`, `src/tests/unit/run.ts`.
 
-- [ ] Verify Phase 4 with unit/type checks and bootstrap ownership audits.
+- [x] Verify Phase 4 with unit/type checks and bootstrap ownership audits.
   Commands: `npm run test:unit`; `npx tsc --noEmit`; `git diff --check`; `rg -n "Beginning world bootstrap|discoverIndices\\(|seedDocumentCache\\(|adapter.initialize" src/server/core src/server/services`.
+
+**Phase 4 implementation note:** `WorldBootstrapper` now owns the behavior-preserving application bootstrap sequence: Pathway A compendium discovery, Pathway B shard sync, primary-document Store seed, adapter initialization, ready tracking, in-flight promise sharing, and failure reset. `SystemService.bootstrap()` delegates to `WorldBootstrapper.bootstrap(...)` and emits `world:ready` through an `onReady` callback so callers keep the same facade. Lifecycle timing intentionally did not change in this phase; `CoreSocket.connect()` can still set `active` early until Phase 5.
 
 **Non-goals for Phase 4:**
 
@@ -443,7 +447,7 @@ This ADR is fulfilled when world bootstrap and readiness are service-owned and s
 - [x] Phase 1: `SyncTokenService` replaces `CoreSocket.lastActorChange`.
 - [x] Phase 2: `EngagementService` owns browser engagement and heartbeat policy.
 - [x] Phase 3: active adapter ownership moves out of sockets.
-- [ ] Phase 4: `WorldBootstrapper` owns bootstrap orchestration behind behavior-preserving timing.
+- [x] Phase 4: `WorldBootstrapper` owns bootstrap orchestration behind behavior-preserving timing.
 - [ ] Phase 5: `active` is delayed until Sheet Delver bootstrap completes and `CoreSocket.connect()` no longer seeds application Stores.
 - [ ] Phase 6: closure audits pass and ADR-0017 status flips to **Accepted**.
 - [ ] No tracked tests use real world or compendium dumps as fixtures.

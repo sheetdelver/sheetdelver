@@ -16,7 +16,7 @@ import { userStore } from './users/UserStore';
 
 /**
  * One bootstrap-seed contributor. Registered with the coordinator so the
- * SystemService.bootstrap path doesn't grow per-type knowledge.
+ * WorldBootstrapper path doesn't grow per-type knowledge.
  */
 export interface PrimaryDocumentSeeder {
     type: PrimaryDocumentType;
@@ -27,7 +27,7 @@ export interface PrimaryDocumentSeeder {
 
 /**
  * Coordinator for primary-document cache lifecycle. Per ADR-0011, individual
- * Stores register themselves here at module init; SystemService.bootstrap()
+ * Stores register themselves here at module init; WorldBootstrapper.bootstrap()
  * calls `seedAll` and treats failure as bootstrap failure (no readiness signal).
  */
 class PrimaryDocumentCacheCoordinator {
@@ -316,7 +316,7 @@ combatStore.bindActorVisibilityBridge(actorStore);
 
 /**
  * @deprecated Use {@link primaryDocumentCacheCoordinator}.seedAll(client) directly.
- * Preserved for backward compat with `SystemService.bootstrap()`.
+ * Preserved for backward compat with `WorldBootstrapper.bootstrap()`.
  */
 export async function seedDocumentCache(client: CoreSocket): Promise<void> {
     await primaryDocumentCacheCoordinator.seedAll(client);

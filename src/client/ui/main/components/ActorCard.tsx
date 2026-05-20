@@ -1,5 +1,6 @@
 import React from 'react';
 import { Trash2 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import { Theme } from '../hooks/useTheme';
 import { useActorCombat } from '@client/ui/context/ActorCombatContext';
 import { useConfig } from '@client/ui/context/ConfigContext';
@@ -22,6 +23,7 @@ export const ActorCard = ({
     onDelete
 }: ActorCardProps) => {
 
+    const router = useRouter();
     const { actorCards } = useActorCombat();
     const { resolveImageUrl } = useConfig();
     const actorId = actor.id || actor._id || '';
@@ -31,7 +33,9 @@ export const ActorCard = ({
 
     const handleClick = () => {
         if (!clickable || !actorId) return;
-        window.location.href = `/actors/${actorId}`;
+        // Keep actor drill-ins inside the Next player layout so the shared
+        // RealtimeProvider socket is not torn down on every page transition.
+        router.push(`/actors/${actorId}`);
     };
 
     const displayName = customData.name || actor.name;
