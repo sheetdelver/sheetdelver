@@ -7,6 +7,7 @@
 
 import { CoreSocket } from '@core/foundry/sockets/CoreSocket.js';
 import { loadConfig } from '@core/config.js';
+import { createSystemRouteFoundryClient } from '@server/shared/utils/createRouteFoundryClient';
 import { logger } from '@shared/utils/logger';
 
 const TALENT_TABLE_UUID = 'Compendium.shadowdark.rollable-tables.RQ0vogfVtJGuT9oT';
@@ -26,9 +27,11 @@ async function main() {
     await client.connect();
 
     try {
+        const routeClient = createSystemRouteFoundryClient(client);
+
         // First, fetch the table
         logger.info('\n--- Part 1: Fetch Table ---');
-        const table = await client.fetchByUuid(TALENT_TABLE_UUID);
+        const table = await routeClient.fetchByUuid(TALENT_TABLE_UUID) as any;
         logger.info('Table Name:', table.name);
         logger.info('Table ID:', table._id);
         logger.info('Result IDs from table:', table.results);
@@ -60,13 +63,15 @@ async function main() {
             logger.info('Failed:', err.message);
         }
 
-        // Approach 3: Try fetching with embedded UUID format
+        // Approach 3: Try the embedded UUID shape. ADR-0016 intentionally
+        // leaves RollTableResult rows inside the RollTable payload, so the
+        // route-level resolver is expected to return null here.
         logger.info('\nApproach 3: Fetch first result with embedded UUID');
         const firstResultId = table.results[0];
         const embeddedUuid = `${TALENT_TABLE_UUID}.TableResult.${firstResultId}`;
         logger.info('Trying UUID:', embeddedUuid);
         try {
-            const result = await client.fetchByUuid(embeddedUuid);
+            const result = await routeClient.fetchByUuid(embeddedUuid);
             logger.info('Result:', JSON.stringify(result, null, 2));
         } catch (err: any) {
             logger.info('Failed:', err.message);

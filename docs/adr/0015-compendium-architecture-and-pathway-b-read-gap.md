@@ -84,7 +84,7 @@ Remove from `ClientSocket` by the end of this ADR:
 
 Route-facing or module-facing facades may keep a `getAllCompendiumIndices()` method if existing consumers need it, but the implementation must call `CompendiumService` or read `CompendiumStore`. The socket classes must not expose the compendium reader methods.
 
-`fetchByUuid(uuid)` is not moved or removed in ADR-0015. ADR-0015 prepares the compendium pieces ADR-0016 will need: a Pathway B shard lookup for declared packs and a parsed pack-document transport fallback. ADR-0016 owns UUID parsing, `DocumentResolver`, and the clean deletion of `CoreSocket.fetchByUuid()` / `ClientSocket.fetchByUuid()`.
+`fetchByUuid(uuid)` is not moved or removed in ADR-0015. ADR-0015 prepares the compendium pieces ADR-0016 will need: a Pathway B shard lookup for declared packs and a parsed pack-document transport fallback. ADR-0016 owns UUID parsing, `DocumentResolver`, and the clean deletion of `CoreSocket.fetchByUuid()` / `ClientSocket.fetchByUuid()`, which completed on May 20, 2026.
 
 ### Transport Boundary
 
@@ -171,7 +171,7 @@ The service preserves the existing API-compatibility ladders:
 - `getPackEntries()` currently tries `modifyDocument`, then `getDocuments`, then `getCompendiumIndex`.
 - `getPackIndex()` currently tries `getCompendiumIndex`, then `getDocuments` with type fallbacks, then `modifyDocument`.
 - `getPackDocuments()` currently tries `getDocuments` with type fallbacks, then `modifyDocument`.
-- `getPackDocument()` owns only the parsed pack/id/type transport fallback currently embedded inside `CoreSocket.fetchByUuid()`'s compendium branch. It should not parse UUIDs. It preserves the current `modifyDocument` then `getDocuments` strategy across inferred core types. A `getCompendiumIndex` lookup fallback may be added only as an explicitly documented compatibility improvement with tests.
+- `getPackDocument()` owns only the parsed pack/id/type transport fallback that was embedded inside `CoreSocket.fetchByUuid()`'s compendium branch before ADR-0016 removed the socket method. It should not parse UUIDs. It preserves the current `modifyDocument` then `getDocuments` strategy across inferred core types. A `getCompendiumIndex` lookup fallback may be added only as an explicitly documented compatibility improvement with tests.
 
 The service writes successful index results into `CompendiumStore`. It should not write full hydrated docs into `CompendiumStore` unless a later feature needs an active-world in-memory full-doc cache. Hydrated Pathway B docs belong to the discovery shard store.
 
@@ -371,7 +371,7 @@ Phase 4 makes the two pathways collaborate without merging their policy. It also
 - [x] Add a parsed pack-document transport fallback such as `CompendiumService.getPackDocument(packId, documentId, type?)`. It should not parse UUIDs; it receives already-parsed parts and preserves the existing socket API ladder when no declared shard serves the document.
   Files: `src/server/services/compendium/CompendiumService.ts`, `src/tests/unit/compendium/compendium-service.test.ts`.
 
-- [x] Remove or rewrite the stale bootstrap hydration TODO in `CoreSocket.fetchByUuid` so the code points to this ADR's Pathway B policy until ADR-0016 removes the method.
+- [x] Remove or rewrite the stale bootstrap hydration TODO in the then-existing `CoreSocket.fetchByUuid` so the code points to this ADR's Pathway B policy until ADR-0016 removes the method.
   Files: `src/server/core/foundry/sockets/CoreSocket.ts`.
 
 - [x] Verify Phase 4 with unit/type checks and socket-call accounting tests where practical. A declared hydrated shard lookup should serve without a transport call; an undeclared/missing pack document should fall back to `CompendiumService.getPackDocument(...)`.
@@ -387,7 +387,7 @@ Phase 4 makes the two pathways collaborate without merging their policy. It also
 
 **Exit for Phase 4:** Pathway B reuses Pathway A's default index where semantically valid; field-specific variants are fetched only when needed; module-declared hydrated shards have a direct `findDocument`-style lookup that can serve without a socket round trip; missing pack documents can fall back to a parsed `CompendiumService.getPackDocument(...)` transport ladder; unit/type checks pass.
 
-**Phase 4 closed (May 19, 2026).** `DiscoveryService` now reuses `CompendiumStore`'s default id/name index for freshness, writes fetched default indices back into the Store when needed, and fetches/stores field-aware variants only when refreshed non-hydrated shard rows require configured fields. `DiscoveryShardStore.findDocument(systemId, packId, documentId, type?)` gives ADR-0016 a parsed pack/id shard lookup without filtering on row `type`, because hydrated Item packs can carry item subtypes there. `CompendiumService.getPackDocument(packId, documentId, type?)` owns the parsed `modifyDocument` then `getDocuments` fallback currently embedded in `CoreSocket.fetchByUuid`. The old socket comment now points to ADR-0015/ADR-0016 instead of recommending broad bootstrap hydration. Tests cover the synthetic id/name hash shape, projected field variants, direct shard lookup, fallback ordering, and disconnected transport behavior.
+**Phase 4 closed (May 19, 2026).** `DiscoveryService` now reuses `CompendiumStore`'s default id/name index for freshness, writes fetched default indices back into the Store when needed, and fetches/stores field-aware variants only when refreshed non-hydrated shard rows require configured fields. `DiscoveryShardStore.findDocument(systemId, packId, documentId, type?)` gives ADR-0016 a parsed pack/id shard lookup without filtering on row `type`, because hydrated Item packs can carry item subtypes there. `CompendiumService.getPackDocument(packId, documentId, type?)` owns the parsed `modifyDocument` then `getDocuments` fallback that was embedded in `CoreSocket.fetchByUuid` before ADR-0016 moved UUID routing to `DocumentResolver`. The old socket comment pointed to ADR-0015/ADR-0016 instead of recommending broad bootstrap hydration. Tests cover the synthetic id/name hash shape, projected field variants, direct shard lookup, fallback ordering, and disconnected transport behavior.
 
 ### Phase 5: Remove residual compendium socket readers
 

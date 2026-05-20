@@ -2,6 +2,7 @@
 import { CoreSocket } from '@core/foundry/sockets/CoreSocket';
 import { loadConfig } from '@core/config';
 import { fileURLToPath } from 'url';
+import { createSystemRouteFoundryClient } from '@server/shared/utils/createRouteFoundryClient';
 import { logger } from '@shared/utils/logger';
 
 export async function listTables() {
@@ -17,6 +18,7 @@ export async function listTables() {
         logger.info('📡 Connecting...');
         await client.connect();
         if (!client.isConnected) throw new Error('Failed to connect');
+        const routeClient = createSystemRouteFoundryClient(client);
 
         logger.info('Fetching pack shadowdark.rollable-tables...');
         // We can't easily iterate packs with the current CoreSocket implementation 
@@ -28,7 +30,7 @@ export async function listTables() {
 
         const WIZARD_UUID = 'Compendium.shadowdark.rollable-tables.RQ0vogfVtJGuT9oT';
         logger.info(`Testing connection with Wizard Table: ${WIZARD_UUID}`);
-        const wizardTable = await client.fetchByUuid(WIZARD_UUID);
+        const wizardTable = await routeClient.fetchByUuid(WIZARD_UUID) as any;
 
         if (wizardTable) {
             logger.info(`✅ Connection Verified. Found: ${wizardTable.name}`);

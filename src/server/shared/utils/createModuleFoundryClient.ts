@@ -139,6 +139,10 @@ export function createModuleFoundryClient(client: RouteFoundryClient): ModuleFou
         },
 
         drawTable: async (tableId, options) => {
+            // `fetchByUuid` remains the module-facing convenience, but ADR-0016
+            // routes it through DocumentResolver. RollTableResult rows are read
+            // from the table payload; only drawn result document UUIDs need a
+            // second resolver lookup.
             const table = await client.fetchByUuid(tableId) as Record<string, unknown>;
             if (!table) throw new Error(`RollTable not found: ${tableId}`);
 

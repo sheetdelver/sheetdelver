@@ -1,6 +1,6 @@
 # ADR-0016: Document Resolution and UUID Routing
 
-**Status:** Proposed - Phases 1-3 completed May 19, 2026; Phase 4 completed May 20, 2026; Phase 5 not started.
+**Status:** Accepted - Phases 1-5 completed May 20, 2026.
 **Date:** May 19, 2026
 **Phase:** Document Resolution (Phase 3 of the ADR-0014 arc)
 **Supersedes:** None. Consumes ADR-0015's compendium shard lookup and parsed pack-document primitive.
@@ -26,14 +26,14 @@ This ADR is the third decision in the ADR-0014 arc. ADR-0014 moved non-document 
 
 ## Context
 
-`CoreSocket.fetchByUuid(uuid)` is still a routing function living on a transport class.
+At the start of ADR-0016, `CoreSocket.fetchByUuid(uuid)` was still a routing function living on a transport class.
 
-It currently has two branches:
+It had two branches:
 
 - **World UUIDs** such as `Actor.<id>` or `RollTable.<id>` parse the first two segments and sometimes read Stores directly. Actor, Item, RollTable, Macro, Playlist, and Cards short-circuit to Stores. Store-backed types such as JournalEntry, Folder, User, Combat, and ChatMessage still fall through to a generic socket `dispatchDocumentSocket(..., 'get', ...)` path.
 - **Compendium UUIDs** such as `Compendium.<packId>.<type?>.<id>` are parsed inline, then fetched through a compatibility ladder (`modifyDocument` then `getDocuments`) over several inferred core document types.
 
-`ClientSocket.fetchByUuid(uuid)` is only a delegation to `systemService.getSystemClient().fetchByUuid(uuid)`.
+At the start of ADR-0016, `ClientSocket.fetchByUuid(uuid)` was only a delegation to `systemService.getSystemClient().fetchByUuid(uuid)`.
 
 Request and module surfaces still expose `fetchByUuid(uuid)`, but those surfaces should not depend on sockets owning UUID parsing. They should delegate to a resolver service that can read Stores, ask ADR-0015 compendium services for pack documents, and use sockets only as raw transport where a service explicitly needs bytes.
 
@@ -322,35 +322,35 @@ Phase 4 composes ADR-0015's shard lookup and parsed pack-document fallback.
 
 **Exit for Phase 4:** Compendium UUIDs resolve through hydrated discovery shards first, then `CompendiumService.getPackDocument(...)`; non-hydrated shards are not treated as full documents; unit/type checks pass.
 
-**Phase 4 closure:** `DocumentResolver.fetchByUuid` now resolves compendium UUIDs by checking the active system's `DiscoveryShardStore` manifest first. Only manifest entries with `hydrate: true` may satisfy full document resolution from `findDocument(...)`; indexed/non-hydrated shards are skipped even when a matching row exists. If no hydrated shard serves the document, the resolver calls `CompendiumService.getPackDocument(packId, documentId, type?)`. The resolver does not trigger hydration or full-pack reads as a side effect. The legacy compendium parser branch still exists in sockets until Phase 5 removes socket-owned `fetchByUuid`.
+**Phase 4 closure:** `DocumentResolver.fetchByUuid` now resolves compendium UUIDs by checking the active system's `DiscoveryShardStore` manifest first. Only manifest entries with `hydrate: true` may satisfy full document resolution from `findDocument(...)`; indexed/non-hydrated shards are skipped even when a matching row exists. If no hydrated shard serves the document, the resolver calls `CompendiumService.getPackDocument(packId, documentId, type?)`. The resolver does not trigger hydration or full-pack reads as a side effect. The legacy compendium parser branch remained in sockets until Phase 5 removed socket-owned `fetchByUuid`.
 
 ### Phase 5: Caller migration and socket deletion
 
-**Status:** Not started.
+**Status:** Completed May 20, 2026.
 
 Phase 5 closes ADR-0016's socket-boundary promise.
 
 **Action items:**
 
-- [ ] Rewire `RouteFoundryClient.fetchByUuid(uuid)` to call `DocumentResolver.fetchByUuid(uuid)`.
+- [x] Rewire `RouteFoundryClient.fetchByUuid(uuid)` to call `DocumentResolver.fetchByUuid(uuid)`.
   Files: `src/server/shared/utils/createRouteFoundryClient.ts`, `src/server/shared/types/requestContext.ts`, `src/server/services/utility/UtilityService.ts` if constructor wiring changes.
 
-- [ ] Keep `ModuleFoundryClient.fetchByUuid(uuid)` stable while letting it continue to delegate through the route client.
+- [x] Keep `ModuleFoundryClient.fetchByUuid(uuid)` stable while letting it continue to delegate through the route client.
   Files: `src/server/shared/utils/createModuleFoundryClient.ts`, `src/shared/sdk/contracts.ts`.
 
-- [ ] Remove `CoreSocket.fetchByUuid(uuid)` and `ClientSocket.fetchByUuid(uuid)`.
+- [x] Remove `CoreSocket.fetchByUuid(uuid)` and `ClientSocket.fetchByUuid(uuid)`.
   Files: `src/server/core/foundry/sockets/CoreSocket.ts`, `src/server/core/foundry/sockets/ClientSocket.ts`.
 
-- [ ] Tighten socket-facing interfaces by removing `fetchByUuid` from `FoundryClient` / socket-only types while preserving route/module client contracts.
+- [x] Tighten socket-facing interfaces by removing `fetchByUuid` from `FoundryClient` / socket-only types while preserving route/module client contracts.
   Files: `src/server/core/foundry/interfaces.ts`, `src/server/shared/types/utility.ts`, `src/server/shared/types/requestContext.ts` if needed.
 
-- [ ] Migrate direct socket test/diagnostic callers to `DocumentResolver`, `CompendiumService`, or route clients.
+- [x] Migrate direct socket test/diagnostic callers to `DocumentResolver`, `CompendiumService`, or route clients.
   Files: `src/tests/socket/socket_diagnostic.ts`, `src/tests/socket/12-query-table-results.test.ts`, `src/tests/socket/list-tables.test.ts`, `src/tests/deprecated/module-specific/shadowdark/05-compendium-resolution.test.ts`, relevant local ignored module diagnostics if any.
 
-- [ ] Update comments and ADR references that describe `CoreSocket.fetchByUuid` as the UUID router.
+- [x] Update comments and ADR references that describe `CoreSocket.fetchByUuid` as the UUID router.
   Files: `docs/adr/0011-primary-document-model.md`, `docs/adr/0014-non-document-world-state-and-socket-boundary.md`, `docs/adr/0015-compendium-architecture-and-pathway-b-read-gap.md`, code comments near migrated call sites.
 
-- [ ] Verify Phase 5 with unit/type checks and targeted socket-reader audits.
+- [x] Verify Phase 5 with unit/type checks and targeted socket-reader audits.
   Commands: `npm run test:unit`; `npx tsc --noEmit`; `git diff --check`; `rg -n "public async fetchByUuid|fetchByUuid\\(uuid" src/server/core/foundry`; `rg -n "systemService\\.getSystemClient\\(\\)\\.fetchByUuid|socket\\.fetchByUuid\\(|coreSocket\\.fetchByUuid\\(" src/server src/tests data/local/modules`.
 
 **Non-goals for Phase 5:**
@@ -361,6 +361,8 @@ Phase 5 closes ADR-0016's socket-boundary promise.
 - No broad external module import cleanup.
 
 **Exit for Phase 5:** `CoreSocket` and `ClientSocket` no longer expose `fetchByUuid`; route/module facades still expose stable `fetchByUuid` backed by `DocumentResolver`; direct socket callers are migrated; unit/type checks and audits pass.
+
+**Phase 5 closure:** `RouteFoundryClient.fetchByUuid` now builds a `DocumentResolver` and delegates UUID routing to it. The resolver composes Store reads, `DiscoveryShardStore`, and `CompendiumService.getPackDocument(...)`; route/module call sites keep their public `fetchByUuid(uuid)` shape. Session route clients preserve the previous privilege model by using the service-account CoreSocket as the compendium fallback transport, matching the old `ClientSocket.fetchByUuid` delegation while keeping parsing/routing out of sockets. `CoreSocket.fetchByUuid`, `ClientSocket.fetchByUuid`, and the socket-facing `FoundryClient.fetchByUuid` type member are removed. Direct socket diagnostics/tests now use a route client or `DocumentResolver` directly.
 
 ---
 
@@ -433,10 +435,10 @@ This ADR is fulfilled when UUID routing has service ownership and sockets no lon
 - [x] Phase 2: direct world UUIDs resolve from Stores; stub/unwired types fail closed.
 - [x] Phase 3: embedded world UUIDs resolve through parent Stores.
 - [x] Phase 4: compendium UUIDs resolve through hydrated shards first and `CompendiumService.getPackDocument(...)` fallback second.
-- [ ] Phase 5: `CoreSocket` / `ClientSocket` `fetchByUuid` methods are removed and socket-facing interfaces are tightened.
-- [ ] No real world or compendium fixture data is added to tracked tests.
-- [ ] `rg` migration audits confirm no remaining socket `fetchByUuid` declarations or direct socket calls.
-- [ ] `git diff --check`, `npx tsc --noEmit`, and `npm run test:unit` pass.
-- [ ] Status flips to **Accepted** after all phases ship green.
+- [x] Phase 5: `CoreSocket` / `ClientSocket` `fetchByUuid` methods are removed and socket-facing interfaces are tightened.
+- [x] No real world or compendium fixture data is added to tracked tests.
+- [x] `rg` migration audits confirm no remaining socket `fetchByUuid` declarations or direct socket calls.
+- [x] `git diff --check`, `npx tsc --noEmit`, and `npm run test:unit` pass.
+- [x] Status flips to **Accepted** after all phases ship green.
 
 ADR-0017 owns the next step: world bootstrap and lifecycle orchestration.

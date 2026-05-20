@@ -4,6 +4,7 @@ import { CompendiumCache } from '@core/compendium/CompendiumCache';
 import { loadConfig } from '@core/config';
 import { ShadowdarkAdapter } from '../../modules/shadowdark/system';
 import { fileURLToPath } from 'url';
+import { createSystemRouteFoundryClient } from '@server/shared/utils/createRouteFoundryClient';
 import { logger } from '@shared/utils/logger';
 
 export async function testCompendiumResolution() {
@@ -17,6 +18,7 @@ export async function testCompendiumResolution() {
     const socket = new CoreSocket(config);
     try {
         await socket.connect();
+        const routeClient = createSystemRouteFoundryClient(socket);
 
         // Initialize Cache - forcing wait for readiness
         const cache = CompendiumCache.getInstance();
@@ -58,7 +60,7 @@ export async function testCompendiumResolution() {
             logger.warn("Skipping fetchByUuid test - no suitable UUID found in cache");
         } else {
             logger.info(`Testing fetchByUuid with: ${validUuid}`);
-            const doc = await socket.fetchByUuid(validUuid);
+            const doc = await routeClient.fetchByUuid(validUuid) as any;
             if (!doc || !doc.name || !doc._id) {
                 throw new Error(`fetchByUuid failed for ${validUuid}`);
             }

@@ -26,7 +26,6 @@ export interface FoundryClient {
 
     dispatchDocument(type: string, action: string, operation?: any, parent?: { type: string, id: string }): Promise<any>;
     dispatchDocumentSocket(type: string, action: string, data?: any, parent?: any): Promise<any>;
-    fetchByUuid(uuid: string): Promise<any>;
 
     // World Management (Admin CLI)
     getWorlds(): Promise<any[]>;

@@ -4,6 +4,7 @@ import { ClientSocket } from '@core/foundry/sockets/ClientSocket';
 import type { ChatSendBody } from '@server/shared/types/documents';
 import type { RouteFoundryClient } from '@server/shared/types/requestContext';
 import { logger } from '@shared/utils/logger';
+import { systemService } from '@server/core/system/SystemService';
 import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
 import { ActorRepository } from '@server/core/documents/primary/actors/ActorRepository';
 import { ChatMessageRepository } from '@server/core/documents/primary/chat-messages/ChatMessageRepository';
@@ -26,9 +27,53 @@ import {
 import { PrimaryDocumentCacheNotReadyError } from '@server/core/documents/primary/errors';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
 import { worldStateStore } from '@server/core/world/WorldStateStore';
+import { CompendiumService, type CompendiumTransport } from '@server/services/compendium';
+import { DocumentResolver } from '@server/services/documents';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
 
 type RouteSocketClient = CoreSocket | ClientSocket;
+
+function createCompendiumTransport(client: RouteSocketClient): CompendiumTransport {
+    const transport = client as unknown as {
+        emitSocketEvent<T>(event: string, ...payloads: unknown[]): Promise<T>;
+        dispatchDocumentSocket(
+            type: string,
+            action: string,
+            operation?: unknown,
+            parent?: unknown,
+            failHard?: boolean,
+        ): Promise<unknown>;
+    };
+
+    return {
+        get isConnected() {
+            return client.isConnected;
+        },
+        emitSocketEvent: (event, ...payloads) => transport.emitSocketEvent(event, ...payloads),
+        dispatchDocumentSocket: (type, action, operation, parent, failHard) =>
+            transport.dispatchDocumentSocket(type, action, operation, parent, failHard),
+        ...('withHeartbeatPaused' in client
+            ? { withHeartbeatPaused: client.withHeartbeatPaused.bind(client) }
+            : {}),
+    };
+}
+
+function createDocumentResolverForRoute(client: RouteSocketClient): DocumentResolver {
+    // Session clients used to delegate `fetchByUuid` to the service-account
+    // CoreSocket. Keep that privilege model while moving UUID parsing/routing
+    // into DocumentResolver; the socket remains only CompendiumService transport.
+    const transportClient = client instanceof ClientSocket
+        ? systemService.getSystemClient()
+        : client;
+    const compendiumService = new CompendiumService({
+        transport: createCompendiumTransport(transportClient),
+        getGameDataSnapshot: () => worldStateStore.getGameDataSnapshot(),
+    });
+
+    return new DocumentResolver({
+        getCompendiumService: () => compendiumService,
+    });
+}
 
 function ensureActorStoreReady(): void {
     if (!actorStore.isReady()) throw new PrimaryDocumentCacheNotReadyError('Actor');
@@ -64,6 +109,12 @@ function filterActorUpdatePayload(
 
 function createBaseRouteFoundryClient(client: RouteSocketClient): RouteFoundryClient {
     const getSubject = () => userStore.createAccessSubject(client.userId);
+    let documentResolver: DocumentResolver | null = null;
+    const getDocumentResolver = () => {
+        documentResolver ??= createDocumentResolverForRoute(client);
+        return documentResolver;
+    };
+
     // Repositories wrap the request-bound socket so Foundry sees the right user.
     const documentTransport = {
         dispatchDocument: (
@@ -288,7 +339,7 @@ function createBaseRouteFoundryClient(client: RouteSocketClient): RouteFoundryCl
         deleteActorItem: (actorId: string, itemId: string) => actorRepository.deleteActorItem(actorId, itemId),
         resolveUrl: (url?: string) => client.resolveUrl(url || ''),
         createChatMessage: (data: Record<string, unknown>) => chatMessageRepository.send(data),
-        fetchByUuid: (uuid: string) => client.fetchByUuid(uuid),
+        fetchByUuid: (uuid: string) => getDocumentResolver().fetchByUuid(uuid),
     };
 }
 

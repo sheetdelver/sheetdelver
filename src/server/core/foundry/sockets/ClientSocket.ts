@@ -159,12 +159,9 @@ export class ClientSocket extends SocketBase {
     }
 
     // --- Public API / transport helpers ---
-    // Remaining delegations are transport or later-ADR scope:
-    // UUID and adapter methods move in ADR-0016 through ADR-0017.
-
-    public async fetchByUuid(uuid: string): Promise<any> {
-        return systemService.getSystemClient().fetchByUuid(uuid);
-    }
+    // Remaining delegation is later-ADR scope: adapter ownership moves in
+    // ADR-0017. UUID routing moved to DocumentResolver in ADR-0016, so this
+    // user socket exposes only transport-level document helpers.
 
     public async emitSocketEvent<T>(event: string, payload: any, timeoutMs: number = 5000): Promise<T> {
         if (!this.socket || !this.isConnected) throw new Error(`Not connected to Foundry`);

@@ -9,11 +9,6 @@ import { getAdapter } from '@modules/registry/server';
 import { SystemAdapter } from '@modules/registry/types';
 import { CompendiumCache, compendiumStore } from '@server/core/compendium';
 import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
-import { cardsStore } from '@server/core/documents/primary/cards/CardsStore';
-import { itemStore } from '@server/core/documents/primary/items/ItemStore';
-import { macroStore } from '@server/core/documents/primary/macros/MacroStore';
-import { playlistStore } from '@server/core/documents/primary/playlists/PlaylistStore';
-import { rollTableStore } from '@server/core/documents/primary/roll-tables/RollTableStore';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
 import { userPresence } from '@server/core/documents/primary/users/UserPresence';
 import { modifyDocumentRouter } from '@server/core/documents/primary/base/modifyDocumentRouter';
@@ -22,7 +17,6 @@ import { worldLifecycleStore, type WorldLifecycleState } from '@server/core/worl
 import { sharedContentStore } from '@server/core/world/SharedContentStore';
 // Side-effect import: registers Stores with the coordinator and router.
 import '@server/core/documents/primary/PrimaryDocumentCacheCoordinator';
-import { PrimaryDocumentCacheNotReadyError } from '@server/core/documents/primary/errors';
 import type { RawUser } from '@server/shared/types/users';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -744,134 +738,6 @@ export class CoreSocket extends SocketBase {
             }
         } catch (e) {
             logger.error(`CoreSocket | Failed load adapter: ${e}`);
-        }
-    }
-
-    public async fetchByUuid(uuid: string): Promise<any> {
-        if (!uuid || typeof uuid !== 'string') return null;
-
-        try {
-            logger.debug(`[CoreSocket] [TRACE] fetchByUuid START: ${uuid}`);
-
-            // 1. World Document (e.g. Actor.ID, Item.ID)
-            if (!uuid.startsWith('Compendium.')) {
-                const [type, id] = uuid.split('.');
-                if (type && id) {
-                    if (type === 'Actor') {
-                        if (!actorStore.isReady()) throw new PrimaryDocumentCacheNotReadyError('Actor');
-                        return actorStore.get(id);
-                    }
-                    if (type === 'Item') {
-                        // Phase 6: world Items are Store-backed. Fail closed if the
-                        // Store isn't seeded yet (mirrors the Actor path).
-                        if (!itemStore.isReady()) throw new PrimaryDocumentCacheNotReadyError('Item');
-                        return itemStore.get(id);
-                    }
-                    if (type === 'RollTable') {
-                        // Phase 7: world RollTables are Store-backed.
-                        if (!rollTableStore.isReady()) throw new PrimaryDocumentCacheNotReadyError('RollTable');
-                        return rollTableStore.get(id);
-                    }
-                    if (type === 'Macro') {
-                        // Phase 7: world Macros are Store-backed.
-                        if (!macroStore.isReady()) throw new PrimaryDocumentCacheNotReadyError('Macro');
-                        return macroStore.get(id);
-                    }
-                    if (type === 'Playlist') {
-                        // Phase 7: world Playlists are Store-backed.
-                        if (!playlistStore.isReady()) throw new PrimaryDocumentCacheNotReadyError('Playlist');
-                        return playlistStore.get(id);
-                    }
-                    if (type === 'Cards') {
-                        // Phase 7: world Cards are Store-backed.
-                        if (!cardsStore.isReady()) throw new PrimaryDocumentCacheNotReadyError('Cards');
-                        return cardsStore.get(id);
-                    }
-                    logger.debug(`[CoreSocket] [TRACE] fetchByUuid World Document: ${type} ${id}`);
-                    const response = await this.dispatchDocumentSocket(type, 'get', { query: { _id: id }, broadcast: false });
-                    return response?.result?.[0];
-                }
-                return null;
-            }
-
-            // 2. Compendium Document (Agnostically parse segments)
-            // ADR-0015 now owns the compendium pack/shard policy. This legacy
-            // UUID branch stays only until ADR-0016 moves parsing into
-            // DocumentResolver, where declared shards can serve first and
-            // CompendiumService.getPackDocument(...) becomes the parsed fallback.
-            const parts = uuid.split('.');
-            if (parts.length < 4) return null;
-
-            // Anatomy: Compendium.[PACK_VENDOR].[PACK_NAME].[OPTIONAL_TYPE].[ID]
-            const id = parts.pop()!;
-            const lastSegment = parts[parts.length - 1];
-            
-            // Heuristic for type: If the segment before ID starts with a Capital letter, it's likely the Type
-            const hasTypeSegment = lastSegment.match(/^[A-Z]/);
-            const typeFromUuid = hasTypeSegment ? lastSegment : null;
-            
-            // Pack ID is everything after 'Compendium' and before the ID (and Type if present)
-            const packParts = hasTypeSegment ? parts.slice(1, -1) : parts.slice(1);
-            const packId = packParts.join('.');
-
-
-            // Extract type from UUID if possible (e.g., ...Item...)
-            // Since we popped the ID from 'parts', the new last item IS the type segment (if present).
-            const typeInUuid = (parts.length >= 2) ? parts[parts.length - 1] : null;
-            
-            // Core Foundry types that are valid roots for compendium lookups
-            const coreTypes = ['Item', 'Actor', 'JournalEntry', 'RollTable', 'Scene', 'Macro', 'Playlist'];
-            
-            let typesToTry: string[] = [];
-            if (typeInUuid && coreTypes.includes(typeInUuid)) {
-                typesToTry = [typeInUuid];
-            } else {
-                typesToTry = ['Item', 'Actor', 'JournalEntry', 'RollTable'];
-            }
-
-            // Trial timeout: Tighten to 500ms for local speed
-            const TRIAL_TIMEOUT = 500;
-
-            for (const t of typesToTry) {
-                    if (!this.isConnected) return null; // Bail fast if disconnected
-                    
-                    // Strategy 1: modifyDocument (The successful one in latest tests)
-                    try {
-                        logger.debug(`[CoreSocket] [TRACE] fetchByUuid Strategy 1 (modifyDocument): ${packId} ${t} ${id}`);
-                        const resp: any = await this.emitSocketEvent('modifyDocument', {
-                            type: t,
-                            action: 'get',
-                            operation: { pack: packId, ids: [id] }
-                        }, TRIAL_TIMEOUT);
-                        
-                        const found = resp?.result?.find((d: any) => (d._id === id || d.uuid?.endsWith(id)));
-                        if (found) return found;
-                    } catch (e) {
-                         // Fallback
-                    }
-
-                    // Strategy 2: Modern getDocuments (Backup)
-                    try {
-                        logger.debug(`[CoreSocket] [TRACE] fetchByUuid Strategy 2 (getDocuments): ${packId} ${t} ${id}`);
-                        const resp: any = await this.emitSocketEvent('getDocuments', {
-                            type: t,
-                            operation: { pack: packId, ids: [id] }
-                        }, TRIAL_TIMEOUT);
-                        
-                        // Verify result
-                        const found = resp?.result?.find((d: any) => (d._id === id || d.uuid?.endsWith(id)));
-                        if (found) return found;
-                    } catch (e) {
-                         // Fallback
-                    }
-                }
-
-            logger.debug(`[CoreSocket] [TRACE] fetchByUuid FAILED: ${uuid}`);
-            return null;
-        } catch (error) {
-            if (error instanceof PrimaryDocumentCacheNotReadyError) throw error;
-            logger.error(`[CoreSocket] [TRACE] fetchByUuid CRITICAL ERROR: ${uuid}`, error);
-            return null;
         }
     }
 
