@@ -5,11 +5,9 @@ import { logger } from '@shared/utils/logger';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
 import { WorldData, CacheData, SetupManager } from '../../world/SetupManager';
 import { FoundryConfig } from '../types';
-import { FoundryMetadataClient } from '../interfaces';
 import { getAdapter } from '@modules/registry/server';
 import { SystemAdapter } from '@modules/registry/types';
 import { CompendiumCache, compendiumStore } from '@server/core/compendium';
-import { CompendiumService } from '@server/services/compendium';
 import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
 import { cardsStore } from '@server/core/documents/primary/cards/CardsStore';
 import { itemStore } from '@server/core/documents/primary/items/ItemStore';
@@ -30,7 +28,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 
-export class CoreSocket extends SocketBase implements FoundryMetadataClient {
+export class CoreSocket extends SocketBase {
     private setWorldState(next: WorldLifecycleState, reason: string): void {
         worldLifecycleStore.setState(next, reason);
     }
@@ -71,7 +69,6 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
     private retryCount = 0;
     private activeBrowserCount = 0;
     private lastUserActivityTimestamp = Date.now();
-    private readonly compendiumService: CompendiumService;
 
     private _routeModifyDocument(type: string, action: string, result: any, operation?: any) {
         // Single inbound dispatch point — routes to whichever Store handles
@@ -102,11 +99,6 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
 
     constructor(config: any) {
         super(config);
-        this.compendiumService = new CompendiumService({
-            transport: this,
-            store: compendiumStore,
-            getGameDataSnapshot: () => worldStateStore.getGameDataSnapshot(),
-        });
         this.loadInitialCache();
     }
 
@@ -736,24 +728,6 @@ export class CoreSocket extends SocketBase implements FoundryMetadataClient {
             if (failHard) this.consecutiveFailures++;
             throw error;
         }
-    }
-
-    public async getPackEntries(packId: string, options: any = { index: true }): Promise<any[]> {
-        // Temporary compatibility wrapper. ADR-0015 Phase 5 removes this socket
-        // surface after direct callers move to CompendiumService/Store.
-        return this.compendiumService.getPackEntries(packId, options);
-    }
-
-    public async getPackIndex(packId: string, type: string): Promise<any[]> {
-        return this.compendiumService.getPackIndex(packId, type);
-    }
-
-    public async getPackDocuments(packId: string, type: string): Promise<any[]> {
-        return this.compendiumService.getPackDocuments(packId, type);
-    }
-
-    public async getAllCompendiumIndices(onlyGamePacks: boolean = false): Promise<any[]> {
-        return this.compendiumService.discoverIndices({ onlyGamePacks });
     }
 
     // Adapter ownership moves to WorldBootstrapper in ADR-0017. Until then the

@@ -305,7 +305,7 @@ export class SystemService extends EventEmitter {
 
                     if (discoveryConfig) {
                         logger.info(`SystemService | Running discovery sync for ${sysId}...`);
-                        await discoveryService.sync(client, sysId, discoveryConfig);
+                        await discoveryService.sync(client, sysId, discoveryConfig, compendiumService);
                     }
 
                     // 3. Required primary document cache seed

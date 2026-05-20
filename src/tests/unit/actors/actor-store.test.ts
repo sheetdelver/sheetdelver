@@ -150,7 +150,6 @@ async function runRouteClientReadsFromActorStore() {
         resolveUrl: (url?: string) => url || '',
         dispatchDocumentSocket: async () => ({}),
         fetchByUuid: async () => null,
-        getAllCompendiumIndices: async () => [],
     } as any);
 
     assert.equal((await client.getActors()).length, 1);
@@ -188,7 +187,6 @@ async function runRouteClientRoutesNestedActorItemEffectsThroughActorRepository(
         resolveUrl: (url?: string) => url || '',
         dispatchDocumentSocket: async () => ({}),
         fetchByUuid: async () => null,
-        getAllCompendiumIndices: async () => [],
     } as any);
 
     await client.dispatchDocument(
@@ -236,7 +234,6 @@ async function runRouteClientActorWritesUseGenericTransportOnly() {
         resolveUrl: (url?: string) => url || '',
         dispatchDocumentSocket: async () => ({}),
         fetchByUuid: async () => null,
-        getAllCompendiumIndices: async () => [],
     } as any);
 
     const created = await client.createActor({ name: 'Created Actor' }) as any;
@@ -275,7 +272,6 @@ async function runRouteClientBlocksActorReadsBeforeStoreReady() {
         resolveUrl: (url?: string) => url || '',
         dispatchDocumentSocket: async () => ({}),
         fetchByUuid: async () => null,
-        getAllCompendiumIndices: async () => [],
     } as any);
 
     await assert.rejects(() => client.getActors(), /Actor document cache is not ready/);

@@ -7,8 +7,11 @@ import type { CompendiumIndexEntry, CompendiumPackMetadata, DiscoveryShardManife
 import crypto from 'node:crypto';
 
 export interface DiscoverySyncClient {
-    getPackEntries(packId: string, options?: { index?: boolean; fields?: readonly string[] }): Promise<unknown[]>;
     emitSocketEvent<T>(event: string, ...payloads: unknown[]): Promise<T>;
+}
+
+export interface DiscoveryPackReader {
+    getPackEntries(packId: string, options?: { index?: boolean; fields?: readonly string[] }): Promise<unknown[]>;
 }
 
 export interface DiscoveryServiceDeps {
@@ -81,6 +84,7 @@ export class DiscoveryService {
         client: DiscoverySyncClient,
         systemId: string,
         config: DiscoveryConfig,
+        packReader: DiscoveryPackReader,
     ): Promise<DiscoveryShardManifest> {
         logger.info(`DiscoveryService | Starting sync for system: ${systemId}...`);
 
@@ -99,7 +103,7 @@ export class DiscoveryService {
 
         for (const packConfig of config.packs) {
             try {
-                const refreshed = await this.syncPack(client, systemId, packConfig, newManifest);
+                const refreshed = await this.syncPack(client, packReader, systemId, packConfig, newManifest);
                 if (refreshed) updatedCount++;
             } catch (err: unknown) {
                 logger.error(`DiscoveryService | Failed to sync pack ${packConfig.id}: ${getErrorMessage(err)}`);
@@ -118,6 +122,7 @@ export class DiscoveryService {
 
     private async syncPack(
         client: DiscoverySyncClient,
+        packReader: DiscoveryPackReader,
         systemId: string,
         packConfig: PackDiscoveryConfig,
         manifest: DiscoveryShardManifest,
@@ -125,7 +130,7 @@ export class DiscoveryService {
         const packId = packConfig.id;
 
         const discoveryFields = this.getDiscoveryFields(packConfig);
-        const entries = await this.getFreshnessIndex(client, packConfig);
+        const entries = await this.getFreshnessIndex(packReader, packConfig);
         if (!entries || !Array.isArray(entries)) {
             throw new Error(`Could not find pack ${packId} in Foundry or result was not an array.`);
         }
@@ -172,7 +177,7 @@ export class DiscoveryService {
                 }
             }
         } else {
-            documents = await this.getIndexedShardRows(client, packConfig, entries, discoveryFields);
+            documents = await this.getIndexedShardRows(packReader, packConfig, entries, discoveryFields);
         }
 
         await this.shardStore.setShard(systemId, packId, documents);
@@ -214,7 +219,7 @@ export class DiscoveryService {
     }
 
     private async getFreshnessIndex(
-        client: DiscoverySyncClient,
+        packReader: DiscoveryPackReader,
         packConfig: PackDiscoveryConfig,
     ): Promise<unknown[]> {
         const cachedDefault = this.compendiumStore.getPackIndex(packConfig.id);
@@ -222,7 +227,7 @@ export class DiscoveryService {
             return cachedDefault;
         }
 
-        const fetched = await client.getPackEntries(packConfig.id, { index: true });
+        const fetched = await packReader.getPackEntries(packConfig.id, { index: true });
         if (Array.isArray(fetched)) {
             this.compendiumStore.setPackIndex(
                 packConfig.id,
@@ -234,7 +239,7 @@ export class DiscoveryService {
     }
 
     private async getIndexedShardRows(
-        client: DiscoverySyncClient,
+        packReader: DiscoveryPackReader,
         packConfig: PackDiscoveryConfig,
         defaultIndex: unknown[],
         discoveryFields: readonly string[],
@@ -251,7 +256,7 @@ export class DiscoveryService {
             return cachedVariant as Record<string, unknown>[];
         }
 
-        const fetched = await client.getPackEntries(packConfig.id, {
+        const fetched = await packReader.getPackEntries(packConfig.id, {
             index: true,
             fields: discoveryFields,
         }) as CompendiumIndexEntry[] || [];

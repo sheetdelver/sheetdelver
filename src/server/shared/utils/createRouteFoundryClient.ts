@@ -4,9 +4,6 @@ import { ClientSocket } from '@core/foundry/sockets/ClientSocket';
 import type { ChatSendBody } from '@server/shared/types/documents';
 import type { RouteFoundryClient } from '@server/shared/types/requestContext';
 import { logger } from '@shared/utils/logger';
-import { systemService } from '@server/core/system/SystemService';
-import { compendiumStore } from '@server/core/compendium';
-import { CompendiumService } from '@server/services/compendium';
 import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
 import { ActorRepository } from '@server/core/documents/primary/actors/ActorRepository';
 import { ChatMessageRepository } from '@server/core/documents/primary/chat-messages/ChatMessageRepository';
@@ -67,17 +64,6 @@ function filterActorUpdatePayload(
 
 function createBaseRouteFoundryClient(client: RouteSocketClient): RouteFoundryClient {
     const getSubject = () => userStore.createAccessSubject(client.userId);
-    const getCompendiumService = () => {
-        // Route facades keep the legacy method shape for now, but ADR-0015
-        // Phase 2 routes Pathway A reads through CompendiumService. User
-        // sockets continue to use the system socket as the actual transport.
-        const transport = client instanceof ClientSocket ? systemService.getSystemClient() : client;
-        return new CompendiumService({
-            transport,
-            store: compendiumStore,
-            getGameDataSnapshot: () => worldStateStore.getGameDataSnapshot(),
-        });
-    };
     // Repositories wrap the request-bound socket so Foundry sees the right user.
     const documentTransport = {
         dispatchDocument: (
@@ -303,7 +289,6 @@ function createBaseRouteFoundryClient(client: RouteSocketClient): RouteFoundryCl
         resolveUrl: (url?: string) => client.resolveUrl(url || ''),
         createChatMessage: (data: Record<string, unknown>) => chatMessageRepository.send(data),
         fetchByUuid: (uuid: string) => client.fetchByUuid(uuid),
-        getAllCompendiumIndices: () => getCompendiumService().discoverIndices(),
     };
 }
 

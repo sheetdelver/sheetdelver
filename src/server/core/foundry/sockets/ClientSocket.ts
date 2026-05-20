@@ -160,14 +160,10 @@ export class ClientSocket extends SocketBase {
 
     // --- Public API / transport helpers ---
     // Remaining delegations are transport or later-ADR scope:
-    // compendium/UUID/adapter methods move in ADR-0015 through 0017.
+    // UUID and adapter methods move in ADR-0016 through ADR-0017.
 
     public async fetchByUuid(uuid: string): Promise<any> {
         return systemService.getSystemClient().fetchByUuid(uuid);
-    }
-
-    public async getAllCompendiumIndices(): Promise<any[]> {
-        return systemService.getSystemClient().getAllCompendiumIndices();
     }
 
     public async emitSocketEvent<T>(event: string, payload: any, timeoutMs: number = 5000): Promise<T> {

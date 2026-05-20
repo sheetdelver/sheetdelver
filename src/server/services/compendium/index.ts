@@ -8,5 +8,6 @@ export {
 export {
     DiscoveryService,
     discoveryService,
+    type DiscoveryPackReader,
     type DiscoverySyncClient,
 } from './DiscoveryService';

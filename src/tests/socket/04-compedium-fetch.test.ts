@@ -1,5 +1,8 @@
 import { CoreSocket } from '@core/foundry/sockets/CoreSocket';
 import { loadConfig } from '@core/config';
+import { compendiumStore } from '@core/compendium';
+import { CompendiumService } from '@server/services/compendium';
+import type { CompendiumDiscoveryResult } from '@server/core/compendium/types';
 import { worldStateStore } from '@core/world/WorldStateStore';
 import * as fs from 'fs';
 
@@ -26,18 +29,23 @@ export async function testUsersAndCompendia() {
         if (!system) throw new Error('System metadata unavailable');
         // Output system id
         logger.info(`   ✅ System ID: ${system.id}`);
+        const compendiumService = new CompendiumService({
+            transport: client,
+            store: compendiumStore,
+            getGameDataSnapshot: () => worldStateStore.getGameDataSnapshot(),
+        });
 
-        let indices = [];
+        let indices: CompendiumDiscoveryResult[] = [];
 
-        // Test 4c: getAllCompendiumIndices()
-        logger.info('\n4a. Testing getAllCompendiumIndices()...');
+        // Test 4c: service-backed Pathway A discovery
+        logger.info('\n4a. Testing CompendiumService.discoverIndices()...');
         try {
-            indices = await client.getAllCompendiumIndices(true);
+            indices = await compendiumService.discoverIndices({ onlyGamePacks: true });
             logger.info(`   ✅ Found ${indices.length} compendium packs`);
-            results.tests.push({ name: 'getAllCompendiumIndices', success: true, data: { count: indices.length } });
+            results.tests.push({ name: 'CompendiumService.discoverIndices', success: true, data: { count: indices.length } });
         } catch (error: any) {
             logger.info(`   ❌ Failed: ${error.message}`);
-            results.tests.push({ name: 'getAllCompendiumIndices', success: false, error: error.message });
+            results.tests.push({ name: 'CompendiumService.discoverIndices', success: false, error: error.message });
         }
 
         const successCount = results.tests.filter((t: any) => t.success).length;
@@ -45,7 +53,7 @@ export async function testUsersAndCompendia() {
 
         if (indices.length === 0) {
             logger.info(`   ❌ No compendium packs found`);
-            results.tests.push({ name: 'getAllCompendiumIndices', success: false, error: 'No compendium packs found' });
+            results.tests.push({ name: 'CompendiumService.discoverIndices', success: false, error: 'No compendium packs found' });
         }
 
         // Create directory in temp/systemid
@@ -58,7 +66,7 @@ export async function testUsersAndCompendia() {
             // logger.info(`Data: ` + JSON.stringify(index, null, 2));
             logger.info(`   ✅ Found ${index.id} compendium pack`);
             const docType = index.metadata?.type || index.metadata?.entity || 'Item';
-            const items = await client.getPackDocuments(index.id, docType);
+            const items = await compendiumService.getPackDocuments(index.id, docType);
             logger.info(`   ✅ Fetched ${items.length} full documents from ${index.metadata?.name || index.id}`);
             // logger.info(`Data: ` + JSON.stringify(index, null, 2));
             // Output items to file, overwrite if exists

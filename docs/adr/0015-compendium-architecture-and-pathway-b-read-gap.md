@@ -1,6 +1,6 @@
 # ADR-0015: Compendium Architecture and the Pathway B Read Gap
 
-**Status:** Proposed — Phases 1-4 completed May 19, 2026; Phase 5 not started.
+**Status:** Accepted — Phases 1-5 completed May 19, 2026.
 **Date:** May 19, 2026
 **Phase:** Compendium Architecture (Phase 2 of the ADR-0014 arc)
 **Supersedes:** None. Builds on ADR-0014's `core/compendium/` layout and socket-boundary principle.
@@ -391,28 +391,28 @@ Phase 4 makes the two pathways collaborate without merging their policy. It also
 
 ### Phase 5: Remove residual compendium socket readers
 
-**Status:** Not started.
+**Status:** Closed May 19, 2026.
 
 Phase 5 closes ADR-0015's socket-boundary promise. The compendium service/store/shard reader are now the read surfaces; sockets only provide raw transport.
 
 **Action items:**
 
-- [ ] Remove `CoreSocket.getAllCompendiumIndices()`, `getPackEntries()`, `getPackIndex()`, and `getPackDocuments()`.
+- [x] Remove `CoreSocket.getAllCompendiumIndices()`, `getPackEntries()`, `getPackIndex()`, and `getPackDocuments()`.
   Files: `src/server/core/foundry/sockets/CoreSocket.ts`.
 
-- [ ] Remove `ClientSocket.getAllCompendiumIndices()` delegation.
+- [x] Remove `ClientSocket.getAllCompendiumIndices()` delegation.
   Files: `src/server/core/foundry/sockets/ClientSocket.ts`.
 
-- [ ] Tighten socket-facing interfaces by removing compendium reader requirements from `FoundryMetadataClient` / `FoundryClient`. Keep request-facing facades only where they are service-backed.
+- [x] Tighten socket-facing interfaces by removing compendium reader requirements from `FoundryMetadataClient` / `FoundryClient`. Keep request-facing facades only where they are service-backed.
   Files: `src/server/core/foundry/interfaces.ts`, `src/server/shared/types/requestContext.ts`, `src/server/shared/utils/createRouteFoundryClient.ts`.
 
-- [ ] Migrate scripts/tests/direct callers that still invoke compendium readers on sockets to `CompendiumService`, `CompendiumStore`, or a service-backed route facade.
+- [x] Migrate scripts/tests/direct callers that still invoke compendium readers on sockets to `CompendiumService`, `CompendiumStore`, or a service-backed route facade.
   Files: `src/tests/socket/04-users-compendia.test.ts`, `src/tests/socket/04-compedium-fetch.test.ts`, `src/tests/deprecated/module-specific/shadowdark/05-compendium-resolution.test.ts`, `src/tests/socket/socket_diagnostic.ts`, relevant scripts if any.
 
-- [ ] Update local ignored module touchpoints only as verification hygiene where they call service-backed facades. Do not stage ignored local module data unless explicitly requested.
+- [x] Update local ignored module touchpoints only as verification hygiene where they call service-backed facades. Do not stage ignored local module data unless explicitly requested.
   Local ignored verification touchpoints: `data/local/modules/shadowdark/src/server/api/spells.ts`, `data/local/modules/shadowdark/src/server/Registry.ts`.
 
-- [ ] Verify Phase 5 with type/unit checks and targeted socket-reader audits.
+- [x] Verify Phase 5 with type/unit checks and targeted socket-reader audits.
   Commands: `npm run test:unit`; `npx tsc --noEmit`; `rg -n "public async (getAllCompendiumIndices|getPackEntries|getPackIndex|getPackDocuments)\\b|getAllCompendiumIndices\\(\\):" src/server/core/foundry`; `rg -n "\\b(core|client|coreSocket|foundryClient|systemClient)\\.(getAllCompendiumIndices|getPackEntries|getPackIndex|getPackDocuments)\\(" src/server src/scripts src/tests data/local/modules`; `rg -n "FoundryMetadataClient|getAllCompendiumIndices" src/server/core/foundry src/server/shared/types src/server/shared/utils`.
 
 **Non-goals for Phase 5:**
@@ -424,6 +424,8 @@ Phase 5 closes ADR-0015's socket-boundary promise. The compendium service/store/
 - No broad external module import cleanup.
 
 **Exit for Phase 5:** `CoreSocket` no longer exposes compendium reader methods; `ClientSocket` no longer delegates compendium reads; socket-facing interfaces no longer require compendium readers; Pathway A reads go through `CompendiumService` / `CompendiumStore`; Pathway B reads go through the shard reader; service-backed facades remain only where needed; `npm run test:unit`, `npx tsc --noEmit`, and the Phase 5 audits pass.
+
+**Phase 5 closed (May 19, 2026).** The residual compendium reader wrappers were removed from `CoreSocket`, the user `ClientSocket` no longer delegates compendium discovery through the system socket, and the socket-facing `FoundryMetadataClient` surface was deleted. `DiscoveryService.sync(...)` now receives a `DiscoveryPackReader`, so bootstrap passes the already-created `CompendiumService` for Pathway B index reads instead of relying on socket reader methods. Manual socket tests instantiate `CompendiumService` directly when they need compendium discovery or full pack documents. The local Shadowdark spell route reads warmed `CompendiumStore` snapshots for active-world compendium indices instead of calling a route/socket compendium reader. Targeted audits confirm no remaining socket compendium reader declarations, direct socket-reader calls, or `FoundryMetadataClient` references.
 
 ---
 
@@ -507,10 +509,10 @@ This ADR is fulfilled when compendium discovery and module shard reads have serv
 - [x] Phase 2: `CompendiumService` owns Pathway A discovery and pack fetch semantics; `CompendiumCache` warms from Store/service results.
 - [x] Phase 3: `DiscoveryService` lives under `services/compendium`; Pathway B shards are readable through scoped `context.platform.discovery`.
 - [x] Phase 4: Pathway A/B index de-duplication lands; declared hydrated shards expose direct document lookup; parsed pack-document fallback through `CompendiumService` preserves the existing transport ladder.
-- [ ] Phase 5: `CoreSocket` / `ClientSocket` compendium reader methods are removed and socket-facing interfaces are tightened.
-- [ ] No real compendium/world shard data is added to tracked fixtures.
-- [ ] `rg` migration audits confirm no remaining socket compendium reader declarations or direct socket-reader calls.
-- [ ] `git diff --check`, `npx tsc --noEmit`, and `npm run test:unit` pass.
-- [ ] Status flips to **Accepted** after all phases ship green.
+- [x] Phase 5: `CoreSocket` / `ClientSocket` compendium reader methods are removed and socket-facing interfaces are tightened.
+- [x] No real compendium/world shard data is added to tracked fixtures.
+- [x] `rg` migration audits confirm no remaining socket compendium reader declarations or direct socket-reader calls.
+- [x] `git diff --check`, `npx tsc --noEmit`, and `npm run test:unit` pass.
+- [x] Status flips to **Accepted** after all phases ship green.
 
 ADR-0016 owns the next step: full document resolution and UUID routing.

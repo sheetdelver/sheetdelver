@@ -1,5 +1,7 @@
 import { CoreSocket } from '@core/foundry/sockets/CoreSocket';
 import { loadConfig } from '@core/config';
+import { compendiumStore } from '@core/compendium';
+import { CompendiumService } from '@server/services/compendium';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
 import { worldStateStore } from '@core/world/WorldStateStore';
 
@@ -21,6 +23,11 @@ export async function testUsersAndCompendia() {
     try {
         await client.connect();
         logger.info('✅ Connected\n');
+        const compendiumService = new CompendiumService({
+            transport: client,
+            store: compendiumStore,
+            getGameDataSnapshot: () => worldStateStore.getGameDataSnapshot(),
+        });
 
         // Test 4a: UserStore roster
         logger.info('4a. Testing UserStore roster...');
@@ -48,15 +55,15 @@ export async function testUsersAndCompendia() {
             results.tests.push({ name: 'WorldStateStore users snapshot', success: false, error: error.message });
         }
 
-        // Test 4c: getAllCompendiumIndices()
-        logger.info('\n4c. Testing getAllCompendiumIndices()...');
+        // Test 4c: service-backed Pathway A discovery
+        logger.info('\n4c. Testing CompendiumService.discoverIndices()...');
         try {
-            const indices = await client.getAllCompendiumIndices();
+            const indices = await compendiumService.discoverIndices();
             logger.info(`   ✅ Found ${indices.length} compendium packs`);
-            results.tests.push({ name: 'getAllCompendiumIndices', success: true, data: { count: indices.length } });
+            results.tests.push({ name: 'CompendiumService.discoverIndices', success: true, data: { count: indices.length } });
         } catch (error: any) {
             logger.info(`   ❌ Failed: ${error.message}`);
-            results.tests.push({ name: 'getAllCompendiumIndices', success: false, error: error.message });
+            results.tests.push({ name: 'CompendiumService.discoverIndices', success: false, error: error.message });
         }
 
         const successCount = results.tests.filter((t: any) => t.success).length;

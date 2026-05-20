@@ -7,7 +7,7 @@ import {
     type DiscoveryShardDocument,
 } from '@server/core/compendium/DiscoveryShardStore';
 import type { CompendiumIndexEntry } from '@server/core/compendium/types';
-import { DiscoveryService, type DiscoverySyncClient } from '@server/services/compendium';
+import { DiscoveryService, type DiscoveryPackReader, type DiscoverySyncClient } from '@server/services/compendium';
 import type { DiscoveryConfig } from '@shared/sdk';
 
 interface EntryCall {
@@ -35,7 +35,7 @@ class MemoryShardCache implements DiscoveryShardCache {
     }
 }
 
-class FakeDiscoveryClient implements DiscoverySyncClient {
+class FakeDiscoveryClient implements DiscoverySyncClient, DiscoveryPackReader {
     public readonly calls: Array<EntryCall | EmitCall> = [];
     public entryHandler: (packId: string, options?: { index?: boolean; fields?: readonly string[] }) => unknown[] =
         () => { throw new Error('unexpected getPackEntries call'); };
@@ -143,7 +143,7 @@ async function runCachedDefaultIndexSkipsFreshShard() {
     await shardStore.setShard('synthetic-system', 'synthetic.items', rows as DiscoveryShardDocument[]);
 
     const service = new DiscoveryService({ compendiumStore, shardStore });
-    const manifest = await service.sync(client, 'synthetic-system', discoveryConfig());
+    const manifest = await service.sync(client, 'synthetic-system', discoveryConfig(), client);
 
     assert.equal(manifest.packs['synthetic.items'].hash, computeHash(rows, false));
     assert.equal(client.calls.length, 0);
@@ -162,7 +162,7 @@ async function runFieldAwareVariantFetchesOnlyWhenShardRefreshes() {
     };
 
     const service = new DiscoveryService({ compendiumStore, shardStore });
-    await service.sync(client, 'synthetic-system', discoveryConfig(['system.tier', 'name']));
+    await service.sync(client, 'synthetic-system', discoveryConfig(['system.tier', 'name']), client);
 
     const calls = client.calls.filter((call): call is EntryCall => call.kind === 'getPackEntries');
     assert.equal(calls.length, 1);
@@ -182,7 +182,7 @@ async function runManifestHashCompatibility() {
     compendiumStore.setPackIndex('synthetic.items', { id: 'synthetic.items', type: 'Item' }, rows);
 
     const service = new DiscoveryService({ compendiumStore, shardStore });
-    await service.sync(client, 'synthetic-system', discoveryConfig());
+    await service.sync(client, 'synthetic-system', discoveryConfig(), client);
 
     const manifest = await shardStore.getManifest('synthetic-system');
     assert.equal(manifest?.packs['synthetic.items'].hash, computeHash(rows, false));
