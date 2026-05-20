@@ -1,6 +1,7 @@
 import type { Server, Socket } from 'socket.io';
 import { systemService } from '@core/system/SystemService';
 import { logger } from '@shared/utils/logger';
+import { engagementService } from '@server/services/world';
 import type { SessionManagerLike, UserSessionLike, FoundryClientLike } from '@server/shared/types/foundry';
 import type { SystemStatusPayload } from '@shared/contracts/status';
 import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
@@ -73,8 +74,9 @@ export function registerAppSocketGateway({
         const clientCount = io.engine.clientsCount;
         logger.debug(`App Socket | Client connected: ${socket.id} (Total: ${clientCount}, Auth: ${socket.rooms.has('authenticated')})`);
 
-        // Inform SystemService of engagement for adaptive heartbeat
-        systemService.getSystemClient().updateActiveBrowserCount(clientCount);
+        // Browser engagement is application policy, not transport state.
+        // EngagementService may wake the CoreSocket through its narrow callbacks.
+        engagementService.setActiveBrowserCount(clientCount);
 
         // Initial setup for this specific socket connection.
         // Socket clients receive the full payload including users — the login form
@@ -329,7 +331,7 @@ export function registerAppSocketGateway({
             socket.on('disconnect', () => {
                 const remaining = io.engine.clientsCount;
                 logger.debug(`App Socket | Client disconnected: ${socket.id}. Remaining: ${remaining}`);
-                systemService.getSystemClient().updateActiveBrowserCount(remaining);
+                engagementService.setActiveBrowserCount(remaining);
 
                 systemService.getSystemClient().off('actorChanged', handleActorChanged);
                 systemService.getSystemClient().off('chatMessageChanged', handleChatMessageChanged);
@@ -360,7 +362,7 @@ export function registerAppSocketGateway({
             socket.on('disconnect', () => {
                 const remaining = io.engine.clientsCount;
                 logger.debug(`App Socket | Client disconnected: ${socket.id}. Remaining: ${remaining}`);
-                systemService.getSystemClient().updateActiveBrowserCount(remaining);
+                engagementService.setActiveBrowserCount(remaining);
             });
         }
     });

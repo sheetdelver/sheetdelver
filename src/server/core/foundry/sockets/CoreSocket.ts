@@ -15,6 +15,7 @@ import { modifyDocumentRouter } from '@server/core/documents/primary/base/modify
 import { worldStateStore } from '@server/core/world/WorldStateStore';
 import { worldLifecycleStore, type WorldLifecycleState } from '@server/core/world/WorldLifecycleStore';
 import { sharedContentStore } from '@server/core/world/SharedContentStore';
+import { engagementService } from '@server/services/world';
 // Side-effect import: registers Stores with the coordinator and router.
 import '@server/core/documents/primary/PrimaryDocumentCacheCoordinator';
 import type { RawUser } from '@server/shared/types/users';
@@ -54,11 +55,7 @@ export class CoreSocket extends SocketBase {
 
     // Core Socket maintains the singular connection
     private consecutiveFailures = 0;
-    private lastLaunchActivity = 0;
-    private heartbeatPaused = false;
     private retryCount = 0;
-    private activeBrowserCount = 0;
-    private lastUserActivityTimestamp = Date.now();
 
     private _routeModifyDocument(type: string, action: string, result: any, operation?: any) {
         // Single inbound dispatch point — routes to whichever Store handles
@@ -83,6 +80,21 @@ export class CoreSocket extends SocketBase {
 
     constructor(config: any) {
         super(config);
+        // ADR-0017 Phase 2: engagement policy lives in EngagementService.
+        // CoreSocket only supplies the raw transport operations it may request.
+        engagementService.setTransportCallbacks({
+            resetRetryBackoff: () => {
+                this.retryCount = 0;
+            },
+            startHeartbeat: (immediate = false) => {
+                this.startHeartbeat(immediate);
+            },
+            getReconnectInputs: () => ({
+                lifecycleState: worldLifecycleStore.getState(),
+                isConnecting: this.isConnecting,
+            }),
+            reconnect: () => this.connect(),
+        });
         this.loadInitialCache();
     }
 
@@ -162,32 +174,6 @@ export class CoreSocket extends SocketBase {
 
 
     private isConnecting = false;
-
-    /**
-     * Update the count of active browser clients and reset the heartbeat/backoff.
-     */
-    public updateActiveBrowserCount(count: number) {
-        const previousCount = this.activeBrowserCount;
-        this.activeBrowserCount = count;
-        
-        if (count > 0) {
-            this.lastUserActivityTimestamp = Date.now();
-            
-            // If we're transitioning from 0 to >0 users, wake up immediately
-            if (previousCount === 0) {
-                logger.debug('CoreSocket | User engagement detected. Waking up heartbeat.');
-                this.retryCount = 0; // Reset backoff
-                this.startHeartbeat(true); // Immediate trigger
-                
-                // If we were offline/setup, try connecting right now
-                if (!worldLifecycleStore.isState('active') && !this.isConnecting) {
-                    this.connect();
-                }
-            }
-        }
-    }
-
-
     async connect(): Promise<void> {
         // Only return if we are fully active. If we are in setup/offline, we should allow re-checks.
         if (this.isConnected && worldLifecycleStore.isState('active')) return;
@@ -433,7 +419,7 @@ export class CoreSocket extends SocketBase {
                     this.emit('disconnect', reason);
 
                     // Immediate verification handshake if disconnect was unexpected
-                    if (reason !== 'io client disconnect' && this.activeBrowserCount > 0) {
+                    if (engagementService.shouldReconnectAfterUnexpectedDisconnect(reason)) {
                         this.connect();
                     }
                 });
@@ -547,7 +533,11 @@ export class CoreSocket extends SocketBase {
             // Heartbeat can run while disconnected IF we are in setup or offline (acting as a Probe)
             const worldState = worldLifecycleStore.getState();
             const canProbe = worldState === 'setup' || worldState === 'offline';
-            if ((!this.isConnected && !canProbe) || this.isConnecting || worldState === 'startup' || this.heartbeatPaused) return;
+            if (!engagementService.shouldRunHeartbeat({
+                isConnected: this.isConnected,
+                isConnecting: this.isConnecting,
+                lifecycleState: worldState,
+            })) return;
             
             try {
                 const { isSetupMatch, csrfToken, pageTitle } = await this.performHandshake(this.getBaseUrl());
@@ -577,26 +567,13 @@ export class CoreSocket extends SocketBase {
 
             // Schedule next heartbeat with adaptive timing
             if (this.heartbeatInterval !== null) {
-                let nextInterval = 5000; // High frequency default: 5s
-                
-                if (this.activeBrowserCount === 0) {
-                    const idleTime = Date.now() - this.lastUserActivityTimestamp;
-                    
-                    if (idleTime > 1800000) { // > 30m
-                        nextInterval = 120000; // 2m
-                    } else if (idleTime > 600000) { // > 10m
-                        nextInterval = 60000; // 1m
-                    } else {
-                        nextInterval = 30000; // 30s
-                    }
-                }
-                
+                const nextInterval = engagementService.getNextHeartbeatDelayMs();
                 this.heartbeatInterval = setTimeout(runHeartbeat, nextInterval);
             }
         };
 
         // Start the recursive timeout chain
-        this.heartbeatInterval = setTimeout(runHeartbeat, immediate ? 0 : 5000);
+        this.heartbeatInterval = setTimeout(runHeartbeat, engagementService.getInitialHeartbeatDelayMs(immediate));
     }
 
     private stopHeartbeat() {
@@ -608,15 +585,9 @@ export class CoreSocket extends SocketBase {
 
     public async withHeartbeatPaused<T>(operation: () => Promise<T>): Promise<T> {
         // Compendium pack scans can be slow enough to trip the heartbeat loop.
-        // Keep the existing pause behavior behind a narrow helper so the new
-        // CompendiumService does not need to know about CoreSocket internals.
-        const wasPaused = this.heartbeatPaused;
-        this.heartbeatPaused = true;
-        try {
-            return await operation();
-        } finally {
-            this.heartbeatPaused = wasPaused;
-        }
+        // The route/compendium transport shape stays stable, while the pause
+        // state itself is owned by EngagementService.
+        return engagementService.withHeartbeatPaused(operation);
     }
 
     public disconnect() {

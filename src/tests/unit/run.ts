@@ -7,6 +7,7 @@ import { run as runLocalhostPolicy } from './services/localhost-policy.test';
 import { run as runAuthStatusSmoke } from './services/auth-status-smoke.test';
 import { run as runChatService } from './services/chat-service.test';
 import { run as runSyncTokenService } from './services/sync-token-service.test';
+import { run as runEngagementService } from './services/engagement-service.test';
 
 // ── sockets ───────────────────────────────────────────────────────────────────
 import { run as runRealtimeBroadcaster } from './sockets/realtime-broadcaster.test';
@@ -98,6 +99,7 @@ async function runAllUnitTests() {
     runStatusSanitize();
     runLocalhostPolicy();
     runSyncTokenService();
+    await runEngagementService();
     await runAuthStatusSmoke();
     await runActorCombatSmoke();
     await runActorStore();

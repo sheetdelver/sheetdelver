@@ -1,6 +1,7 @@
 import { strict as assert } from 'node:assert';
 import { registerAppSocketGateway } from '@server/realtime/AppSocketGateway';
 import { systemService } from '@core/system/SystemService';
+import { engagementService } from '@server/services/world';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
 import { FoundryUserRole } from '@server/core/documents/primary/base/ownership';
 import type { SystemStatusPayload } from '@shared/contracts/status';
@@ -62,6 +63,7 @@ async function runGatewayTests() {
     };
 
     const originalGetSystemClient = (systemService as any).getSystemClient;
+    const originalSetActiveBrowserCount = engagementService.setActiveBrowserCount;
     const browserCounts: number[] = [];
 
     try {
@@ -70,10 +72,13 @@ async function runGatewayTests() {
         ]);
 
         (systemService as any).getSystemClient = () => ({
-            updateActiveBrowserCount: (count: number) => browserCounts.push(count),
             on: (event: string, handler: EventHandler) => systemAttachedHandlers.push({ event, handler }),
             off: (event: string, handler: EventHandler) => systemDetachedHandlers.push({ event, handler }),
         });
+        engagementService.setActiveBrowserCount = ((count: number) => {
+            browserCounts.push(count);
+            return { previousCount: 0, browserCount: count, becameEngaged: count > 0 };
+        }) as typeof engagementService.setActiveBrowserCount;
 
         const emitted: Array<{ event: string; payload: unknown }> = [];
         let disconnectHandler: EventHandler | undefined;
@@ -174,6 +179,7 @@ async function runGatewayTests() {
         assert.equal(guestSocket.rooms.has('authenticated'), false);
     } finally {
         (systemService as any).getSystemClient = originalGetSystemClient;
+        engagementService.setActiveBrowserCount = originalSetActiveBrowserCount;
         userStore.clear('app-socket-gateway-test');
     }
 }

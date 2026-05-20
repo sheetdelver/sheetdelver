@@ -105,8 +105,9 @@ function snapshotToDiscoveryResult(snapshot: ReturnType<CompendiumStore['listPac
  *
  * The service owns the compatibility ladders that used to live directly on
  * CoreSocket, but it deliberately depends on a tiny transport shape. That keeps
- * compendium behavior from growing new dependencies on socket lifecycle state
- * while ADR-0017 decides where heartbeat/engagement policy ultimately belongs.
+ * compendium behavior from growing new dependencies on socket lifecycle state.
+ * ADR-0017 Phase 2 keeps the pause hook on the transport shape, but
+ * EngagementService owns the pause state and heartbeat policy.
  */
 export class CompendiumService {
     private readonly transport: CompendiumTransport;

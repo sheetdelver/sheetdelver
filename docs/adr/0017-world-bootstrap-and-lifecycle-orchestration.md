@@ -1,6 +1,6 @@
 # ADR-0017: World Bootstrap and Lifecycle Orchestration
 
-**Status:** Proposed - Phase 1 completed May 20, 2026; Phases 2-6 not started.
+**Status:** Proposed - Phases 1-2 completed May 20, 2026; Phases 3-6 not started.
 **Date:** May 20, 2026
 **Phase:** World Bootstrap (Phase 4 of the ADR-0014 arc)
 **Supersedes:** None. Consumes ADR-0014 world/lifecycle Stores, ADR-0015 compendium services, and ADR-0016 document resolution.
@@ -53,15 +53,15 @@ The codebase now has the right state/service owners, but the runtime orchestrati
 
 The important semantic bug is lifecycle timing. ADR-0014 defined `active` as "Sheet Delver is ready to serve world-backed requests," but the current code transitions to `active` as soon as Foundry says the world is active, before compendium discovery, primary-document seeds, and adapter initialization complete.
 
-The remaining socket-boundary leftovers after Phase 1 are narrow and explicit:
+The remaining socket-boundary leftovers after Phase 2 are narrow and explicit:
 
 - `CoreSocket.getSystemAdapter()`, `CoreSocket.loadSystemAdapter(systemId)`, and the cached adapter field.
 - `ClientSocket.getSystemAdapter()` delegation.
 - `FoundryClient`'s socket-facing `getSystemAdapter(): any` declaration.
-- `CoreSocket.updateActiveBrowserCount(...)`, `activeBrowserCount`, `lastUserActivityTimestamp`, and heartbeat scheduling policy.
 - `CoreSocket.connect()` still owns bootstrap sequencing that belongs above transport.
 
 Phase 1 removed the previous `CoreSocket.lastActorChange` status leak; `actorSyncToken` now comes from `SyncTokenService`.
+Phase 2 removed browser-count, last-activity, heartbeat-pause, and adaptive-heartbeat policy from `CoreSocket`; those now live in `EngagementService`.
 
 ---
 
@@ -198,29 +198,31 @@ Phase 1 removes the narrow `lastActorChange` status leak from `CoreSocket`.
 
 ### Phase 2: EngagementService and heartbeat policy extraction
 
-**Status:** Not started.
+**Status:** Completed May 20, 2026.
 
 Phase 2 moves browser engagement and heartbeat policy out of `CoreSocket` while preserving existing reconnect behavior.
 
 **Action items:**
 
-- [ ] Add `EngagementService` with active-browser count, last-activity timestamp, heartbeat pause state, adaptive delay calculation, and a narrow reconnect callback.
+- [x] Add `EngagementService` with active-browser count, last-activity timestamp, heartbeat pause state, adaptive delay calculation, and a narrow reconnect callback.
   Files: `src/server/services/world/EngagementService.ts`, `src/server/services/world/index.ts`.
 
-- [ ] Move `AppSocketGateway` connect/disconnect accounting from `systemService.getSystemClient().updateActiveBrowserCount(count)` to `EngagementService`.
+- [x] Move `AppSocketGateway` connect/disconnect accounting from `systemService.getSystemClient().updateActiveBrowserCount(count)` to `EngagementService`.
   Files: `src/server/realtime/AppSocketGateway.ts`, `src/tests/unit/sockets/app-socket-gateway.test.ts`.
 
-- [ ] Move heartbeat scheduling decisions to `EngagementService`. `CoreSocket` may keep a narrow raw probe/connect primitive, but it should not own the timer cadence or active-client policy.
+- [x] Move heartbeat scheduling decisions to `EngagementService`. `CoreSocket` may keep a narrow raw probe/connect primitive, but it should not own the timer cadence or active-client policy.
   Files: `src/server/core/foundry/sockets/CoreSocket.ts`.
 
-- [ ] Move long-operation heartbeat pause state to `EngagementService` while preserving the `CompendiumService` transport behavior.
+- [x] Move long-operation heartbeat pause state to `EngagementService` while preserving the `CompendiumService` transport behavior.
   Files: `src/server/core/foundry/sockets/CoreSocket.ts`, `src/server/services/compendium/CompendiumService.ts` if transport wiring needs adjustment, `src/server/shared/utils/createRouteFoundryClient.ts`.
 
-- [ ] Remove `CoreSocket.updateActiveBrowserCount(...)` and the socket-owned engagement fields.
+- [x] Remove `CoreSocket.updateActiveBrowserCount(...)` and the socket-owned engagement fields.
   Files: `src/server/core/foundry/sockets/CoreSocket.ts`.
 
-- [ ] Verify Phase 2 with unit/type checks and engagement audits.
+- [x] Verify Phase 2 with unit/type checks and engagement audits.
   Commands: `npm run test:unit`; `npx tsc --noEmit`; `git diff --check`; `rg -n "updateActiveBrowserCount|activeBrowserCount|lastUserActivityTimestamp|heartbeatPaused" src/server`.
+
+**Phase 2 implementation note:** `EngagementService` is the policy owner for browser-count changes, return-from-idle wakeups, reconnect-on-engagement, heartbeat cadence, and long-operation heartbeat suspension. `CoreSocket` registers narrow callbacks for the raw operations (`startHeartbeat`, retry reset, reconnect) and still performs the actual probe/connect work. `AppSocketGateway` is now the browser-count writer.
 
 **Non-goals for Phase 2:**
 
@@ -439,7 +441,7 @@ Each phase validates both behavior and boundary shrinkage.
 This ADR is fulfilled when world bootstrap and readiness are service-owned and sockets no longer own application orchestration.
 
 - [x] Phase 1: `SyncTokenService` replaces `CoreSocket.lastActorChange`.
-- [ ] Phase 2: `EngagementService` owns browser engagement and heartbeat policy.
+- [x] Phase 2: `EngagementService` owns browser engagement and heartbeat policy.
 - [ ] Phase 3: active adapter ownership moves out of sockets.
 - [ ] Phase 4: `WorldBootstrapper` owns bootstrap orchestration behind behavior-preserving timing.
 - [ ] Phase 5: `active` is delayed until Sheet Delver bootstrap completes and `CoreSocket.connect()` no longer seeds application Stores.
