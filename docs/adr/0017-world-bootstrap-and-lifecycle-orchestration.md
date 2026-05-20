@@ -1,6 +1,6 @@
 # ADR-0017: World Bootstrap and Lifecycle Orchestration
 
-**Status:** Proposed - staged May 20, 2026.
+**Status:** Proposed - Phase 1 completed May 20, 2026; Phases 2-6 not started.
 **Date:** May 20, 2026
 **Phase:** World Bootstrap (Phase 4 of the ADR-0014 arc)
 **Supersedes:** None. Consumes ADR-0014 world/lifecycle Stores, ADR-0015 compendium services, and ADR-0016 document resolution.
@@ -53,14 +53,15 @@ The codebase now has the right state/service owners, but the runtime orchestrati
 
 The important semantic bug is lifecycle timing. ADR-0014 defined `active` as "Sheet Delver is ready to serve world-backed requests," but the current code transitions to `active` as soon as Foundry says the world is active, before compendium discovery, primary-document seeds, and adapter initialization complete.
 
-The remaining socket-boundary leftovers are now narrow and explicit:
+The remaining socket-boundary leftovers after Phase 1 are narrow and explicit:
 
 - `CoreSocket.getSystemAdapter()`, `CoreSocket.loadSystemAdapter(systemId)`, and the cached adapter field.
 - `ClientSocket.getSystemAdapter()` delegation.
 - `FoundryClient`'s socket-facing `getSystemAdapter(): any` declaration.
 - `CoreSocket.updateActiveBrowserCount(...)`, `activeBrowserCount`, `lastUserActivityTimestamp`, and heartbeat scheduling policy.
-- `CoreSocket.lastActorChange`, read by `StatusService` as `actorSyncToken`.
 - `CoreSocket.connect()` still owns bootstrap sequencing that belongs above transport.
+
+Phase 1 removed the previous `CoreSocket.lastActorChange` status leak; `actorSyncToken` now comes from `SyncTokenService`.
 
 ---
 
@@ -163,26 +164,28 @@ This section follows ADR-0011 through ADR-0016: each phase has a named scope, st
 
 ### Phase 1: SyncTokenService and status decoupling
 
-**Status:** Not started.
+**Status:** Completed May 20, 2026.
 
 Phase 1 removes the narrow `lastActorChange` status leak from `CoreSocket`.
 
 **Action items:**
 
-- [ ] Add `SyncTokenService` with a monotonic token/timestamp and Store event subscriptions for the Actor/Item changes that currently drive `actorSyncToken`.
+- [x] Add `SyncTokenService` with a monotonic token/timestamp and Store event subscriptions for the Actor/Item changes that currently drive `actorSyncToken`.
   Files: `src/server/services/status/SyncTokenService.ts`, `src/server/services/status/index.ts` if needed.
 
-- [ ] Update `StatusService` to read the sync token from `SyncTokenService` instead of `systemService.getSystemClient().lastActorChange`.
+- [x] Update `StatusService` to read the sync token from `SyncTokenService` instead of `systemService.getSystemClient().lastActorChange`.
   Files: `src/server/services/status/StatusService.ts`.
 
-- [ ] Remove `lastActorChange` from `CoreSocket` and from the narrow status-facing system-client type.
+- [x] Remove `lastActorChange` from `CoreSocket` and from the narrow status-facing system-client type.
   Files: `src/server/core/foundry/sockets/CoreSocket.ts`, `src/server/shared/types/foundry.ts`.
 
-- [ ] Add unit coverage proving Actor/Item changes bump the token and unrelated document types do not unless intentionally added.
+- [x] Add unit coverage proving Actor/Item changes bump the token and unrelated document types do not unless intentionally added.
   Files: `src/tests/unit/services/sync-token-service.test.ts`, `src/tests/unit/run.ts`.
 
-- [ ] Verify Phase 1 with unit/type checks and sync-token audits.
-  Commands: `npm run test:unit`; `npx tsc --noEmit`; `git diff --check`; `rg -n "lastActorChange|actorSyncToken" src/server`.
+- [x] Verify Phase 1 with unit/type checks and sync-token audits.
+  Commands: `npm run test:unit`; `npx tsc --noEmit`; `git diff --check`; `rg -n "lastActorChange" src/server`; `rg -n "actorSyncToken" src/server`.
+
+**Phase 1 implementation note:** `SyncTokenService` subscribes to `ActorStore` and `ItemStore` `documentChanged` events, keeps the status-facing token monotonic even when multiple changes land in the same millisecond, and guards the tracked document types so unrelated Store events do not bump the token. `actorSyncToken` remains in the status payload as the public refetch hint; the remaining server-side `actorSyncToken` audit hit is the expected `StatusService` projection.
 
 **Non-goals for Phase 1:**
 
@@ -348,7 +351,7 @@ Phase 6 closes ADR-0017 and prepares ADR-0018.
   Files: `docs/adr/0017-world-bootstrap-and-lifecycle-orchestration.md`, `temp/audit-reports/socket-boundary-audit.md`.
 
 - [ ] Verify closure with targeted audits.
-  Commands: `npm run test:unit`; `npx tsc --noEmit`; `git diff --check`; `rg -n "lastActorChange|actorSyncToken|updateActiveBrowserCount|activeBrowserCount|lastUserActivityTimestamp|heartbeatPaused|getSystemAdapter|loadSystemAdapter|private adapter" src/server`; `rg -n "setWorldState\\('active'|setState\\('active'|foundry-world-active" src/server/core/foundry`.
+  Commands: `npm run test:unit`; `npx tsc --noEmit`; `git diff --check`; `rg -n "lastActorChange|updateActiveBrowserCount|activeBrowserCount|lastUserActivityTimestamp|heartbeatPaused|getSystemAdapter|loadSystemAdapter|private adapter" src/server`; `rg -n "actorSyncToken" src/server` (expected: status projection only); `rg -n "setWorldState\\('active'|setState\\('active'|foundry-world-active" src/server/core/foundry`.
 
 - [ ] Flip this ADR status to **Accepted** after all phases ship green.
   Files: `docs/adr/0017-world-bootstrap-and-lifecycle-orchestration.md`.
@@ -435,7 +438,7 @@ Each phase validates both behavior and boundary shrinkage.
 
 This ADR is fulfilled when world bootstrap and readiness are service-owned and sockets no longer own application orchestration.
 
-- [ ] Phase 1: `SyncTokenService` replaces `CoreSocket.lastActorChange`.
+- [x] Phase 1: `SyncTokenService` replaces `CoreSocket.lastActorChange`.
 - [ ] Phase 2: `EngagementService` owns browser engagement and heartbeat policy.
 - [ ] Phase 3: active adapter ownership moves out of sockets.
 - [ ] Phase 4: `WorldBootstrapper` owns bootstrap orchestration behind behavior-preserving timing.

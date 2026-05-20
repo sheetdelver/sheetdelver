@@ -36,10 +36,6 @@ export class CoreSocket extends SocketBase {
     public gameDataCache: any = null;
     public sceneDataCache: any = null;
     public userId: string | null = null;
-    // ADR-0017 moves this Actor/Item sync token into SyncTokenService
-    // or the bootstrap/status layer. Until then, keep the socket-owned
-    // timestamp isolated to the status payload compatibility path.
-    public lastActorChange: number = Date.now();
 
     /**
      * World data discovered via the guest probe step.
@@ -82,12 +78,6 @@ export class CoreSocket extends SocketBase {
             result,
             operation,
         });
-
-        if (action === 'create' || action === 'update' || action === 'delete') {
-            if (type === 'Actor' || type === 'Item') {
-                this.lastActorChange = Date.now();
-            }
-        }
     }
 
 

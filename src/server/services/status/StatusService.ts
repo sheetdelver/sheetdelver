@@ -4,6 +4,7 @@ import { SetupManager } from '@core/world/SetupManager';
 import { worldStateStore } from '@server/core/world/WorldStateStore';
 import { worldLifecycleStore } from '@server/core/world/WorldLifecycleStore';
 import { UserRole } from '@shared/constants';
+import { syncTokenService } from '@server/services/status/SyncTokenService';
 import type { SystemStatusPayload } from '@shared/contracts/status';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
 import type {
@@ -38,7 +39,7 @@ export function createStatusService(deps: StatusServiceDeps) {
         const systemClient = systemService.getSystemClient() as unknown as FoundrySystemClientLike;
         const lifecycleState = worldLifecycleStore.getState();
         // ADR-0014 moved non-document world data/lifecycle into Stores.
-        // ADR-0017 moves this Actor/Item sync token out of CoreSocket.
+        // ADR-0017 keeps Actor/Item refresh hints Store-event sourced.
         let system: SystemStatusPayload['system'] = {
             id: null,
             status: lifecycleState === 'closed' ? 'closed' : lifecycleState,
@@ -76,7 +77,7 @@ export function createStatusService(deps: StatusServiceDeps) {
                     ),
                     nextSession: gameData.world?.nextSession,
                     status: lifecycleState === 'closed' ? 'closed' : (lifecycleState === 'active' ? 'active' : lifecycleState),
-                    actorSyncToken: systemClient.lastActorChange == null ? undefined : String(systemClient.lastActorChange),
+                    actorSyncToken: syncTokenService.getCurrentToken(),
                     users: { active: activeCount, total: totalCount }
                 };
                 users = usersList;
