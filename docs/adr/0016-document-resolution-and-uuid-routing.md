@@ -1,6 +1,6 @@
 # ADR-0016: Document Resolution and UUID Routing
 
-**Status:** Proposed - Phase 1 completed May 19, 2026; Phases 2-5 not started.
+**Status:** Proposed - Phases 1-2 completed May 19, 2026; Phases 3-5 not started.
 **Date:** May 19, 2026
 **Phase:** Document Resolution (Phase 3 of the ADR-0014 arc)
 **Supersedes:** None. Consumes ADR-0015's compendium shard lookup and parsed pack-document primitive.
@@ -225,25 +225,25 @@ Phase 1 introduces the service home and parser contract without moving callers y
 
 ### Phase 2: Store-backed world document resolution
 
-**Status:** Not started.
+**Status:** Completed May 19, 2026.
 
 Phase 2 makes direct world UUIDs resolve from primary-document Stores and closes the current fall-through inconsistency for Store-backed types.
 
 **Action items:**
 
-- [ ] Route direct world UUIDs for full Store-backed primary documents: Actor, Item, ChatMessage, Folder, User, JournalEntry, Combat, RollTable, Macro, Playlist, and Cards.
+- [x] Route direct world UUIDs for full Store-backed primary documents: Actor, Item, ChatMessage, Folder, User, JournalEntry, Combat, RollTable, Macro, Playlist, and Cards.
   Files: `src/server/services/documents/DocumentResolver.ts`.
 
-- [ ] Preserve fail-closed readiness behavior by throwing `PrimaryDocumentCacheNotReadyError(type)` when a required Store is not seeded.
+- [x] Preserve fail-closed readiness behavior by throwing `PrimaryDocumentCacheNotReadyError(type)` when a required Store is not seeded.
   Files: `src/server/services/documents/DocumentResolver.ts`.
 
-- [ ] Add explicit stub/unwired policy for Scene, FogExploration, Adventure, and Setting: return `null` with a code comment explaining that seeding/visibility policy must land before these resolve.
+- [x] Add explicit stub/unwired policy for Scene, FogExploration, Adventure, and Setting: return `null` with a code comment explaining that seeding/visibility policy must land before these resolve.
   Files: `src/server/services/documents/DocumentResolver.ts`.
 
-- [ ] Add unit coverage for Store-backed hits, Store-not-ready failures, unknown type nulls, and stub type nulls using synthetic documents.
+- [x] Add unit coverage for Store-backed hits, Store-not-ready failures, unknown type nulls, and stub type nulls using synthetic documents.
   Files: `src/tests/unit/documents/document-resolver.test.ts`.
 
-- [ ] Verify Phase 2 with unit/type checks and an audit that no new generic world-document transport fallback was introduced.
+- [x] Verify Phase 2 with unit/type checks and an audit that no new generic world-document transport fallback was introduced.
   Commands: `npm run test:unit`; `npx tsc --noEmit`; `rg -n "dispatchDocumentSocket\\([^\\n]*['\\\"]get['\\\"]" src/server/services/documents`.
 
 **Non-goals for Phase 2:**
@@ -254,6 +254,8 @@ Phase 2 makes direct world UUIDs resolve from primary-document Stores and closes
 - No socket method deletion.
 
 **Exit for Phase 2:** Direct world UUIDs resolve from Stores, Store-backed types no longer need socket dispatch, stub/unwired types fail closed, and unit/type checks pass.
+
+**Phase 2 closure:** `DocumentResolver.fetchByUuid` now resolves direct world UUIDs for Actor, Item, ChatMessage, Folder, User, JournalEntry, Combat, RollTable, Macro, Playlist, and Cards from primary-document Stores. Store-backed types throw `PrimaryDocumentCacheNotReadyError(type)` when their Store is not seeded. Scene, FogExploration, Adventure, and Setting remain explicit fail-closed `null` results until their seeding and visibility policy is ready. Embedded world UUIDs and compendium UUIDs still return `null` pending Phases 3 and 4.
 
 ### Phase 3: Embedded world UUID resolution
 
@@ -423,7 +425,7 @@ Each phase validates both resolver behavior and socket-boundary shrinkage.
 This ADR is fulfilled when UUID routing has service ownership and sockets no longer expose `fetchByUuid`.
 
 - [x] Phase 1: `DocumentResolver` shell + UUID parser contract.
-- [ ] Phase 2: direct world UUIDs resolve from Stores; stub/unwired types fail closed.
+- [x] Phase 2: direct world UUIDs resolve from Stores; stub/unwired types fail closed.
 - [ ] Phase 3: embedded world UUIDs resolve through parent Stores.
 - [ ] Phase 4: compendium UUIDs resolve through hydrated shards first and `CompendiumService.getPackDocument(...)` fallback second.
 - [ ] Phase 5: `CoreSocket` / `ClientSocket` `fetchByUuid` methods are removed and socket-facing interfaces are tightened.

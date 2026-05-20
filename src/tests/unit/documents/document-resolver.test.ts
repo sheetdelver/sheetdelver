@@ -1,6 +1,9 @@
 import { strict as assert } from 'node:assert';
+import { PrimaryDocumentCacheNotReadyError } from '@server/core/documents/primary/errors';
 import {
     DocumentResolver,
+    type DocumentResolverStoreMap,
+    type DocumentStoreReader,
     parseCompendiumUuid,
     parseDocumentUuid,
     parseWorldUuid,
@@ -12,7 +15,25 @@ export async function run() {
     runEmbeddedWorldUuidParsing();
     runCompendiumUuidParsing();
     await runResolverShell();
+    await runStoreBackedWorldResolution();
+    await runStoreNotReadyFailures();
+    await runUnknownAndDeferredWorldTypes();
     console.log('  - DocumentResolver: all checks passed');
+}
+
+class SyntheticDocumentStore implements DocumentStoreReader {
+    public constructor(
+        private readonly ready: boolean,
+        private readonly documents: Record<string, unknown> = {},
+    ) {}
+
+    public isReady(): boolean {
+        return this.ready;
+    }
+
+    public get(id: string): unknown | null {
+        return this.documents[id] ?? null;
+    }
 }
 
 function runInvalidUuidParsing() {
@@ -99,6 +120,67 @@ async function runResolverShell() {
     assert.ok(parsed && parsed.kind === 'world');
     assert.equal(parsed.documentId, 'actor-1');
 
-    // Phase 1 deliberately avoids changing runtime resolution behavior.
-    assert.equal(await resolver.fetchByUuid('Actor.actor-1'), null);
+    // Phase 2 still leaves embedded world paths and compendium UUIDs dormant.
+    assert.equal(await resolver.fetchByUuid('Actor.actor-1.Item.item-1'), null);
+    assert.equal(await resolver.fetchByUuid('Compendium.synthetic.items.Item.torch'), null);
+}
+
+async function runStoreBackedWorldResolution() {
+    const storeBackedDocuments = {
+        Actor: { _id: 'actor-1', type: 'Actor' },
+        Item: { _id: 'item-1', type: 'Item' },
+        ChatMessage: { _id: 'message-1', type: 'ChatMessage' },
+        Folder: { _id: 'folder-1', type: 'Folder' },
+        User: { _id: 'user-1', type: 'User' },
+        JournalEntry: { _id: 'journal-1', type: 'JournalEntry' },
+        Combat: { _id: 'combat-1', type: 'Combat' },
+        RollTable: { _id: 'table-1', type: 'RollTable' },
+        Macro: { _id: 'macro-1', type: 'Macro' },
+        Playlist: { _id: 'playlist-1', type: 'Playlist' },
+        Cards: { _id: 'cards-1', type: 'Cards' },
+    } as const;
+
+    const documentStores = Object.fromEntries(
+        Object.entries(storeBackedDocuments).map(([type, document]) => [
+            type,
+            new SyntheticDocumentStore(true, { [document._id]: document }),
+        ]),
+    ) as DocumentResolverStoreMap;
+
+    const resolver = new DocumentResolver({ documentStores });
+    for (const [type, document] of Object.entries(storeBackedDocuments)) {
+        assert.deepEqual(await resolver.fetchByUuid(`${type}.${document._id}`), document);
+    }
+    assert.equal(await resolver.fetchByUuid('Actor.missing'), null);
+}
+
+async function runStoreNotReadyFailures() {
+    const resolver = new DocumentResolver({
+        documentStores: {
+            Actor: new SyntheticDocumentStore(false),
+        },
+    });
+
+    await assert.rejects(
+        () => resolver.fetchByUuid('Actor.actor-1'),
+        (error: unknown) => error instanceof PrimaryDocumentCacheNotReadyError
+            && error.message.includes('Actor document cache is not ready'),
+    );
+}
+
+async function runUnknownAndDeferredWorldTypes() {
+    const resolver = new DocumentResolver({
+        documentStores: {
+            Scene: new SyntheticDocumentStore(false, { 'scene-1': { _id: 'scene-1' } }),
+            FogExploration: new SyntheticDocumentStore(false, { 'fog-1': { _id: 'fog-1' } }),
+            Adventure: new SyntheticDocumentStore(false, { 'adventure-1': { _id: 'adventure-1' } }),
+            Setting: new SyntheticDocumentStore(false, { 'setting-1': { _id: 'setting-1' } }),
+        },
+    });
+
+    assert.equal(await resolver.fetchByUuid('Mystery.mystery-1'), null);
+    assert.equal(await resolver.fetchByUuid('Scene.scene-1'), null);
+    assert.equal(await resolver.fetchByUuid('FogExploration.fog-1'), null);
+    assert.equal(await resolver.fetchByUuid('Adventure.adventure-1'), null);
+    assert.equal(await resolver.fetchByUuid('Setting.setting-1'), null);
 }

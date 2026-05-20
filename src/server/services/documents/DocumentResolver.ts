@@ -18,6 +18,7 @@ import {
     discoveryShardStore,
     type DiscoveryShardStore,
 } from '@server/core/compendium/DiscoveryShardStore';
+import { PrimaryDocumentCacheNotReadyError } from '@server/core/documents/primary/errors';
 import type { CompendiumService } from '@server/services/compendium/CompendiumService';
 
 export const COMPENDIUM_DOCUMENT_TYPES = [
@@ -79,6 +80,27 @@ export type DocumentStoreKey =
     | 'Adventure'
     | 'Setting';
 
+const STORE_BACKED_WORLD_DOCUMENT_TYPES = [
+    'Actor',
+    'Item',
+    'ChatMessage',
+    'Folder',
+    'User',
+    'JournalEntry',
+    'Combat',
+    'RollTable',
+    'Macro',
+    'Playlist',
+    'Cards',
+] as const satisfies readonly DocumentStoreKey[];
+
+const DEFERRED_WORLD_DOCUMENT_TYPES = [
+    'Scene',
+    'FogExploration',
+    'Adventure',
+    'Setting',
+] as const satisfies readonly DocumentStoreKey[];
+
 export interface DocumentStoreReader {
     isReady(): boolean;
     get(id: string): unknown | null | undefined;
@@ -108,6 +130,14 @@ function normalizeUuid(uuid: string): string[] | null {
 
 function isCompendiumDocumentType(value: string): value is CompendiumDocumentType {
     return COMPENDIUM_DOCUMENT_TYPES.includes(value as CompendiumDocumentType);
+}
+
+function isStoreBackedWorldDocumentType(value: string): value is DocumentStoreKey {
+    return STORE_BACKED_WORLD_DOCUMENT_TYPES.includes(value as typeof STORE_BACKED_WORLD_DOCUMENT_TYPES[number]);
+}
+
+function isDeferredWorldDocumentType(value: string): value is DocumentStoreKey {
+    return DEFERRED_WORLD_DOCUMENT_TYPES.includes(value as typeof DEFERRED_WORLD_DOCUMENT_TYPES[number]);
 }
 
 function parsePairs(parts: string[]): UuidPathSegment[] | null {
@@ -208,13 +238,32 @@ export class DocumentResolver {
     }
 
     public async fetchByUuid(uuid: string): Promise<unknown | null> {
-        void this.parse(uuid);
-        void this.documentStores;
+        const parsed = this.parse(uuid);
+        if (!parsed) return null;
+        if (parsed.kind === 'world') return this.resolveDirectWorldDocument(parsed);
+
         void this.worldState;
         void this.discoveryShards;
         void this.getCompendiumService;
-        // ADR-0016 Phase 1 only establishes the parser and service home.
-        // Store-backed, embedded, and compendium resolution land in later phases.
+        // Embedded world paths and compendium lookups land in later ADR-0016 phases.
         return null;
+    }
+
+    private resolveDirectWorldDocument(parsed: ParsedWorldUuid): unknown | null {
+        const { documentType, documentId } = parsed;
+
+        if (isDeferredWorldDocumentType(documentType)) {
+            // These Stores are registered as primary-document stubs, but ADR-0016
+            // does not resolve them until their seeding and visibility policy is
+            // explicit. Returning null keeps the resolver fail-closed for now.
+            return null;
+        }
+
+        if (!isStoreBackedWorldDocumentType(documentType)) return null;
+
+        const store = this.documentStores[documentType];
+        if (!store) return null;
+        if (!store.isReady()) throw new PrimaryDocumentCacheNotReadyError(documentType);
+        return store.get(documentId) ?? null;
     }
 }
