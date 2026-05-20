@@ -13,11 +13,8 @@ import { sceneStore } from '@server/core/documents/primary/scenes/SceneStore';
 import { fogExplorationStore } from '@server/core/documents/primary/fog-explorations/FogExplorationStore';
 import { adventureStore } from '@server/core/documents/primary/adventures/AdventureStore';
 import { settingStore } from '@server/core/documents/primary/settings/SettingStore';
-import { worldStateStore, type WorldStateStore } from '@server/core/world/WorldStateStore';
-import {
-    discoveryShardStore,
-    type DiscoveryShardStore,
-} from '@server/core/compendium/DiscoveryShardStore';
+import { worldStateStore } from '@server/core/world/WorldStateStore';
+import { discoveryShardStore, type DiscoveryShardDocument } from '@server/core/compendium/DiscoveryShardStore';
 import {
     cloneDocument,
     getDocumentId,
@@ -25,7 +22,15 @@ import {
 } from '@server/core/documents/primary/base/PrimaryDocumentStore';
 import { PrimaryDocumentCacheNotReadyError } from '@server/core/documents/primary/errors';
 import type { CompendiumService } from '@server/services/compendium/CompendiumService';
+import type { DiscoveryShardManifest } from '@server/core/compendium/types';
 
+// DocumentResolver is the service-layer owner for UUID routing. Callers ask for
+// a UUID; this service decides which Store/service owns the bytes. Socket
+// classes should not grow parsing or fallback policy from this point forward.
+
+// Compendium UUIDs may include an optional document type segment before the id:
+// `Compendium.vendor.pack.Item.item-id`. Only known core pack document types are
+// peeled off here; unknown capitalized segments remain part of the pack id.
 export const COMPENDIUM_DOCUMENT_TYPES = [
     'Item',
     'Actor',
@@ -85,6 +90,8 @@ export type DocumentStoreKey =
     | 'Adventure'
     | 'Setting';
 
+// These world document types are fully hydrated in primary-document Stores.
+// A direct UUID such as `Actor.<id>` can be answered from the Store snapshot.
 const STORE_BACKED_WORLD_DOCUMENT_TYPES = [
     'Actor',
     'Item',
@@ -99,6 +106,8 @@ const STORE_BACKED_WORLD_DOCUMENT_TYPES = [
     'Cards',
 ] as const satisfies readonly DocumentStoreKey[];
 
+// These Stores exist as shape placeholders, but their seeding and visibility
+// rules are not established yet. Keep them fail-closed until that work lands.
 const DEFERRED_WORLD_DOCUMENT_TYPES = [
     'Scene',
     'FogExploration',
@@ -130,6 +139,8 @@ const EMBEDDED_COLLECTIONS_BY_PARENT: Record<string, Record<string, string>> = {
         Card: 'cards',
     },
 };
+// RollTableResult is intentionally absent. Result rows are part of the
+// `RollTable.<id>` payload used by draw simulation, not standalone UUID targets.
 
 export interface DocumentStoreReader {
     isReady(): boolean;
@@ -142,10 +153,24 @@ export interface DocumentResolverCompendiumService {
     getPackDocument(packId: string, documentId: string, type?: string | null): Promise<Record<string, unknown> | null>;
 }
 
+export interface DocumentResolverWorldStateReader {
+    getSystem(): { id?: string | null } | null;
+}
+
+export interface DocumentResolverDiscoveryShardReader {
+    getManifest(systemId: string): Promise<DiscoveryShardManifest | null>;
+    findDocument(
+        systemId: string,
+        packId: string,
+        documentId: string,
+        type?: string | null,
+    ): Promise<DiscoveryShardDocument | null>;
+}
+
 export interface DocumentResolverDeps {
     documentStores?: DocumentResolverStoreMap;
-    worldStateStore?: WorldStateStore;
-    discoveryShardStore?: DiscoveryShardStore;
+    worldStateStore?: DocumentResolverWorldStateReader;
+    discoveryShardStore?: DocumentResolverDiscoveryShardReader;
     getCompendiumService?: () => DocumentResolverCompendiumService | Pick<CompendiumService, 'getPackDocument'> | null;
 }
 
@@ -183,6 +208,9 @@ function parsePairs(parts: string[]): UuidPathSegment[] | null {
 function findEmbeddedChild(parent: unknown, parentType: string, child: UuidPathSegment): unknown | null {
     if (!isRecord(parent)) return null;
 
+    // The child type is only valid under the current parent type. For example,
+    // `Actor.<id>.Item.<id>.ActiveEffect.<id>` is valid because Actor -> Item
+    // and Item -> ActiveEffect are both declared in the map above.
     const collectionKey = EMBEDDED_COLLECTIONS_BY_PARENT[parentType]?.[child.type];
     if (!collectionKey) return null;
 
@@ -191,6 +219,11 @@ function findEmbeddedChild(parent: unknown, parentType: string, child: UuidPathS
 
     const match = collection.find(entry => isRecord(entry) && getDocumentId(entry) === child.id);
     return match ? cloneDocument(match) : null;
+}
+
+function getActiveSystemId(worldState: DocumentResolverWorldStateReader): string | null {
+    const systemId = worldState.getSystem()?.id;
+    return typeof systemId === 'string' && systemId.trim() ? systemId : null;
 }
 
 export function parseWorldUuid(uuid: string): ParsedWorldUuid | ParsedEmbeddedWorldUuid | null {
@@ -224,6 +257,8 @@ export function parseCompendiumUuid(uuid: string): ParsedCompendiumUuid | null {
     const documentId = parts[parts.length - 1];
     const possibleType = parts[parts.length - 2];
     const hasType = isCompendiumDocumentType(possibleType);
+    // Dotted pack ids are preserved by joining everything between `Compendium`
+    // and the document id, minus the optional known type segment.
     const packParts = hasType ? parts.slice(1, -2) : parts.slice(1, -1);
     if (packParts.length === 0) return null;
 
@@ -262,8 +297,8 @@ function defaultDocumentStores(): DocumentResolverStoreMap {
 
 export class DocumentResolver {
     private readonly documentStores: DocumentResolverStoreMap;
-    private readonly worldState: WorldStateStore;
-    private readonly discoveryShards: DiscoveryShardStore;
+    private readonly worldState: DocumentResolverWorldStateReader;
+    private readonly discoveryShards: DocumentResolverDiscoveryShardReader;
     private readonly getCompendiumService?: DocumentResolverDeps['getCompendiumService'];
 
     public constructor(deps: DocumentResolverDeps = {}) {
@@ -283,13 +318,13 @@ export class DocumentResolver {
     public async fetchByUuid(uuid: string): Promise<unknown | null> {
         const parsed = this.parse(uuid);
         if (!parsed) return null;
+
+        // Dispatch by parsed UUID shape first. Each branch owns one lookup
+        // strategy, which keeps socket transport fallbacks out of the resolver.
         if (parsed.kind === 'world') return this.resolveDirectWorldDocument(parsed);
         if (parsed.kind === 'embedded-world') return this.resolveEmbeddedWorldDocument(parsed);
+        if (parsed.kind === 'compendium') return this.resolveCompendiumDocument(parsed);
 
-        void this.worldState;
-        void this.discoveryShards;
-        void this.getCompendiumService;
-        // Compendium lookups land in a later ADR-0016 phase.
         return null;
     }
 
@@ -298,7 +333,6 @@ export class DocumentResolver {
     }
 
     private resolveStoreBackedWorldDocument(documentType: string, documentId: string): unknown | null {
-
         if (isDeferredWorldDocumentType(documentType)) {
             // These Stores are registered as primary-document stubs, but ADR-0016
             // does not resolve them until their seeding and visibility policy is
@@ -310,11 +344,16 @@ export class DocumentResolver {
 
         const store = this.documentStores[documentType];
         if (!store) return null;
+        // Store readiness is part of the boundary contract: never silently fall
+        // through to socket reads when bootstrap has not seeded the cache.
         if (!store.isReady()) throw new PrimaryDocumentCacheNotReadyError(documentType);
         return store.get(documentId) ?? null;
     }
 
     private resolveEmbeddedWorldDocument(parsed: ParsedEmbeddedWorldUuid): unknown | null {
+        // Start from the root world document, then walk child arrays on the
+        // defensive clone returned by the Store. This keeps embedded resolution
+        // read-only and aligned with Store ownership.
         let current = this.resolveStoreBackedWorldDocument(parsed.root.type, parsed.root.id);
         if (!current) return null;
 
@@ -326,5 +365,40 @@ export class DocumentResolver {
         }
 
         return current;
+    }
+
+    private async resolveCompendiumDocument(parsed: ParsedCompendiumUuid): Promise<Record<string, unknown> | null> {
+        const shardHit = await this.resolveHydratedShardDocument(parsed);
+        if (shardHit) return shardHit;
+
+        const service = this.getCompendiumService?.();
+        if (!service) return null;
+
+        try {
+            return await service.getPackDocument(parsed.packId, parsed.documentId, parsed.type);
+        } catch {
+            return null;
+        }
+    }
+
+    private async resolveHydratedShardDocument(
+        parsed: ParsedCompendiumUuid,
+    ): Promise<Record<string, unknown> | null> {
+        const systemId = getActiveSystemId(this.worldState);
+        if (!systemId) return null;
+
+        const manifest = await this.discoveryShards.getManifest(systemId);
+        const packEntry = manifest?.packs?.[parsed.packId];
+        // Only module-declared hydrated shards contain full document payloads.
+        // Indexed shards may have enough shape for search, but not for fetchByUuid.
+        if (!packEntry?.hydrate) return null;
+
+        const document = await this.discoveryShards.findDocument(
+            systemId,
+            parsed.packId,
+            parsed.documentId,
+            parsed.type,
+        );
+        return document ? cloneDocument(document) : null;
     }
 }

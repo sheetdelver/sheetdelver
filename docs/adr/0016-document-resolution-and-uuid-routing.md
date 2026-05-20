@@ -1,6 +1,6 @@
 # ADR-0016: Document Resolution and UUID Routing
 
-**Status:** Proposed - Phases 1-3 completed May 19, 2026; Phases 4-5 not started.
+**Status:** Proposed - Phases 1-3 completed May 19, 2026; Phase 4 completed May 20, 2026; Phase 5 not started.
 **Date:** May 19, 2026
 **Phase:** Document Resolution (Phase 3 of the ADR-0014 arc)
 **Supersedes:** None. Consumes ADR-0015's compendium shard lookup and parsed pack-document primitive.
@@ -291,25 +291,25 @@ Phase 3 adds parent-aware embedded UUID traversal over Store snapshots.
 
 ### Phase 4: Compendium UUID resolution
 
-**Status:** Not started.
+**Status:** Completed May 20, 2026.
 
 Phase 4 composes ADR-0015's shard lookup and parsed pack-document fallback.
 
 **Action items:**
 
-- [ ] Parse compendium UUIDs into `packId`, optional `type`, and `documentId` using known document roots rather than capitalization alone.
+- [x] Parse compendium UUIDs into `packId`, optional `type`, and `documentId` using known document roots rather than capitalization alone.
   Files: `src/server/services/documents/DocumentResolver.ts`.
 
-- [ ] Add shard-first lookup for declared hydrated Pathway B packs. Check the manifest entry and only let `hydrate: true` shards satisfy full document resolution.
+- [x] Add shard-first lookup for declared hydrated Pathway B packs. Check the manifest entry and only let `hydrate: true` shards satisfy full document resolution.
   Files: `src/server/services/documents/DocumentResolver.ts`, `src/server/core/compendium/DiscoveryShardStore.ts` if a manifest helper is needed.
 
-- [ ] Add fallback to `CompendiumService.getPackDocument(packId, documentId, type?)` when no hydrated shard serves the document.
+- [x] Add fallback to `CompendiumService.getPackDocument(packId, documentId, type?)` when no hydrated shard serves the document.
   Files: `src/server/services/documents/DocumentResolver.ts`.
 
-- [ ] Add unit coverage proving hydrated shard hits avoid transport, non-hydrated shard rows do not satisfy full resolution, missing shards fall back to `CompendiumService`, and disconnected fallback returns `null`.
+- [x] Add unit coverage proving hydrated shard hits avoid transport, non-hydrated shard rows do not satisfy full resolution, missing shards fall back to `CompendiumService`, and disconnected fallback returns `null`.
   Files: `src/tests/unit/documents/document-resolver.test.ts`.
 
-- [ ] Verify Phase 4 with unit/type checks and a targeted audit for UUID parsing remaining inside sockets.
+- [x] Verify Phase 4 with unit/type checks and a targeted audit for UUID parsing remaining inside sockets.
   Commands: `npm run test:unit`; `npx tsc --noEmit`; `rg -n "Compendium\\.|fetchByUuid Strategy|Agnostically parse" src/server/core/foundry/sockets`.
 
 **Non-goals for Phase 4:**
@@ -321,6 +321,8 @@ Phase 4 composes ADR-0015's shard lookup and parsed pack-document fallback.
 - No socket method deletion yet.
 
 **Exit for Phase 4:** Compendium UUIDs resolve through hydrated discovery shards first, then `CompendiumService.getPackDocument(...)`; non-hydrated shards are not treated as full documents; unit/type checks pass.
+
+**Phase 4 closure:** `DocumentResolver.fetchByUuid` now resolves compendium UUIDs by checking the active system's `DiscoveryShardStore` manifest first. Only manifest entries with `hydrate: true` may satisfy full document resolution from `findDocument(...)`; indexed/non-hydrated shards are skipped even when a matching row exists. If no hydrated shard serves the document, the resolver calls `CompendiumService.getPackDocument(packId, documentId, type?)`. The resolver does not trigger hydration or full-pack reads as a side effect. The legacy compendium parser branch still exists in sockets until Phase 5 removes socket-owned `fetchByUuid`.
 
 ### Phase 5: Caller migration and socket deletion
 
@@ -430,7 +432,7 @@ This ADR is fulfilled when UUID routing has service ownership and sockets no lon
 - [x] Phase 1: `DocumentResolver` shell + UUID parser contract.
 - [x] Phase 2: direct world UUIDs resolve from Stores; stub/unwired types fail closed.
 - [x] Phase 3: embedded world UUIDs resolve through parent Stores.
-- [ ] Phase 4: compendium UUIDs resolve through hydrated shards first and `CompendiumService.getPackDocument(...)` fallback second.
+- [x] Phase 4: compendium UUIDs resolve through hydrated shards first and `CompendiumService.getPackDocument(...)` fallback second.
 - [ ] Phase 5: `CoreSocket` / `ClientSocket` `fetchByUuid` methods are removed and socket-facing interfaces are tightened.
 - [ ] No real world or compendium fixture data is added to tracked tests.
 - [ ] `rg` migration audits confirm no remaining socket `fetchByUuid` declarations or direct socket calls.
