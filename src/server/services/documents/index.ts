@@ -1,0 +1,18 @@
+export {
+    COMPENDIUM_DOCUMENT_TYPES,
+    DocumentResolver,
+    parseCompendiumUuid,
+    parseDocumentUuid,
+    parseWorldUuid,
+    type CompendiumDocumentType,
+    type DocumentResolverCompendiumService,
+    type DocumentResolverDeps,
+    type DocumentResolverStoreMap,
+    type DocumentStoreKey,
+    type DocumentStoreReader,
+    type ParsedCompendiumUuid,
+    type ParsedDocumentUuid,
+    type ParsedEmbeddedWorldUuid,
+    type ParsedWorldUuid,
+    type UuidPathSegment,
+} from './DocumentResolver';

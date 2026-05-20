@@ -93,7 +93,7 @@ Route-facing or module-facing facades may keep a `getAllCompendiumIndices()` met
 - `isConnected: boolean`
 - `emitSocketEvent<T>(event, ...payloads): Promise<T>`
 - `dispatchDocumentSocket(type, action, operation, parent?, failHard?): Promise<unknown>`
-- optional `runWithHeartbeatPaused<T>(operation): Promise<T>` or equivalent transition helper while heartbeat policy still lives on `CoreSocket`
+- optional `withHeartbeatPaused<T>(operation): Promise<T>` or equivalent transition helper while heartbeat policy still lives on `CoreSocket`
 
 The optional heartbeat wrapper preserves today's `getPackEntries()` behavior, which pauses the heartbeat during long pack fetches. ADR-0017 moves heartbeat/engagement policy out of `CoreSocket`; ADR-0015 should avoid entangling compendium logic further with that private field.
 
@@ -164,7 +164,7 @@ It should not know how to call Foundry. It reads already-discovered index data a
 - `getPackEntries(packId, options?)`
 - `getPackIndex(packId, type, options?)`
 - `getPackDocuments(packId, type, options?)`
-- `getPackDocument(packId, documentId, type?, options?)`
+- `getPackDocument(packId, documentId, type?)`
 
 The service preserves the existing API-compatibility ladders:
 

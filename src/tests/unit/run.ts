@@ -35,6 +35,7 @@ import { run as runPlaylistStore } from './documents/playlist-store.test';
 import { run as runCardsStore } from './documents/cards-store.test';
 import { run as runStubStores } from './documents/stub-stores.test';
 import { run as runSharedContentStore } from './documents/shared-content-store.test';
+import { run as runDocumentResolver } from './documents/document-resolver.test';
 
 // ── routing ───────────────────────────────────────────────────────────────────
 import { run as runModifyDocumentRouter } from './routing/modify-document-router.test';
@@ -124,6 +125,7 @@ async function runAllUnitTests() {
     await runWorldStateStore();
     await runWorldLifecycleStore();
     await runSharedContentStore();
+    await runDocumentResolver();
     await runCompendiumStore();
     await runCompendiumService();
     await runDiscoveryShardStore();
