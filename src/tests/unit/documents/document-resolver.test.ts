@@ -18,6 +18,8 @@ export async function run() {
     await runStoreBackedWorldResolution();
     await runStoreNotReadyFailures();
     await runUnknownAndDeferredWorldTypes();
+    await runEmbeddedWorldResolution();
+    await runEmbeddedMissingAndMalformedResolution();
     console.log('  - DocumentResolver: all checks passed');
 }
 
@@ -120,8 +122,7 @@ async function runResolverShell() {
     assert.ok(parsed && parsed.kind === 'world');
     assert.equal(parsed.documentId, 'actor-1');
 
-    // Phase 2 still leaves embedded world paths and compendium UUIDs dormant.
-    assert.equal(await resolver.fetchByUuid('Actor.actor-1.Item.item-1'), null);
+    // Phase 3 still leaves compendium UUIDs dormant.
     assert.equal(await resolver.fetchByUuid('Compendium.synthetic.items.Item.torch'), null);
 }
 
@@ -183,4 +184,113 @@ async function runUnknownAndDeferredWorldTypes() {
     assert.equal(await resolver.fetchByUuid('FogExploration.fog-1'), null);
     assert.equal(await resolver.fetchByUuid('Adventure.adventure-1'), null);
     assert.equal(await resolver.fetchByUuid('Setting.setting-1'), null);
+}
+
+async function runEmbeddedWorldResolution() {
+    const actorItem = {
+        _id: 'actor-item-1',
+        type: 'weapon',
+        effects: [{ _id: 'item-effect-1', label: 'Item effect' }],
+    };
+    const actorEffect = { _id: 'actor-effect-1', label: 'Actor effect' };
+    const journalPage = { _id: 'page-1', type: 'text', name: 'Arrival' };
+    const combatant = { _id: 'combatant-1', name: 'Rival' };
+    const sound = { _id: 'sound-1', name: 'Door creak' };
+    const card = { _id: 'card-1', name: 'Ace' };
+    const worldItemEffect = { _id: 'world-item-effect-1', label: 'World item effect' };
+
+    const resolver = new DocumentResolver({
+        documentStores: {
+            Actor: new SyntheticDocumentStore(true, {
+                'actor-1': {
+                    _id: 'actor-1',
+                    items: [actorItem],
+                    effects: [actorEffect],
+                },
+            }),
+            Item: new SyntheticDocumentStore(true, {
+                'world-item-1': {
+                    _id: 'world-item-1',
+                    effects: [worldItemEffect],
+                },
+            }),
+            JournalEntry: new SyntheticDocumentStore(true, {
+                'journal-1': {
+                    _id: 'journal-1',
+                    pages: [journalPage],
+                },
+            }),
+            Combat: new SyntheticDocumentStore(true, {
+                'combat-1': {
+                    _id: 'combat-1',
+                    combatants: [combatant],
+                },
+            }),
+            Playlist: new SyntheticDocumentStore(true, {
+                'playlist-1': {
+                    _id: 'playlist-1',
+                    sounds: [sound],
+                },
+            }),
+            Cards: new SyntheticDocumentStore(true, {
+                'deck-1': {
+                    _id: 'deck-1',
+                    cards: [card],
+                },
+            }),
+        },
+    });
+
+    assert.deepEqual(await resolver.fetchByUuid('Actor.actor-1.Item.actor-item-1'), actorItem);
+    assert.deepEqual(await resolver.fetchByUuid('Actor.actor-1.ActiveEffect.actor-effect-1'), actorEffect);
+    assert.deepEqual(
+        await resolver.fetchByUuid('Actor.actor-1.Item.actor-item-1.ActiveEffect.item-effect-1'),
+        actorItem.effects[0],
+    );
+    assert.deepEqual(
+        await resolver.fetchByUuid('Item.world-item-1.ActiveEffect.world-item-effect-1'),
+        worldItemEffect,
+    );
+    assert.deepEqual(await resolver.fetchByUuid('JournalEntry.journal-1.JournalEntryPage.page-1'), journalPage);
+    assert.deepEqual(await resolver.fetchByUuid('Combat.combat-1.Combatant.combatant-1'), combatant);
+    assert.deepEqual(await resolver.fetchByUuid('Playlist.playlist-1.PlaylistSound.sound-1'), sound);
+    assert.deepEqual(await resolver.fetchByUuid('Cards.deck-1.Card.card-1'), card);
+}
+
+async function runEmbeddedMissingAndMalformedResolution() {
+    const rollTable = {
+        _id: 'table-1',
+        results: [{ _id: 'result-1', text: 'A clue' }],
+    };
+
+    const resolver = new DocumentResolver({
+        documentStores: {
+            Actor: new SyntheticDocumentStore(true, {
+                'actor-1': {
+                    _id: 'actor-1',
+                    items: [{ _id: 'item-1', effects: [] }],
+                    effects: [],
+                },
+            }),
+            JournalEntry: new SyntheticDocumentStore(true, {
+                'journal-1': {
+                    _id: 'journal-1',
+                    pages: [],
+                },
+            }),
+            RollTable: new SyntheticDocumentStore(true, {
+                'table-1': rollTable,
+            }),
+        },
+    });
+
+    assert.equal(await resolver.fetchByUuid('Actor.missing.Item.item-1'), null);
+    assert.equal(await resolver.fetchByUuid('Actor.actor-1.Item.missing'), null);
+    assert.equal(await resolver.fetchByUuid('Actor.actor-1.Item.item-1.ActiveEffect.missing'), null);
+    assert.equal(await resolver.fetchByUuid('JournalEntry.journal-1.JournalEntryPage.missing'), null);
+    assert.equal(await resolver.fetchByUuid('Actor.actor-1.JournalEntryPage.page-1'), null);
+    assert.equal(await resolver.fetchByUuid('Actor.actor-1.Item.item-1.JournalEntryPage.page-1'), null);
+    assert.equal(await resolver.fetchByUuid('Actor.actor-1.Item'), null);
+    assert.deepEqual(await resolver.fetchByUuid('RollTable.table-1'), rollTable);
+    assert.equal(await resolver.fetchByUuid('RollTable.table-1.RollTableResult.result-1'), null);
 }

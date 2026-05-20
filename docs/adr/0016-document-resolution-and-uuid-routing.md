@@ -1,6 +1,6 @@
 # ADR-0016: Document Resolution and UUID Routing
 
-**Status:** Proposed - Phases 1-2 completed May 19, 2026; Phases 3-5 not started.
+**Status:** Proposed - Phases 1-3 completed May 19, 2026; Phases 4-5 not started.
 **Date:** May 19, 2026
 **Phase:** Document Resolution (Phase 3 of the ADR-0014 arc)
 **Supersedes:** None. Consumes ADR-0015's compendium shard lookup and parsed pack-document primitive.
@@ -131,9 +131,10 @@ Initial embedded paths:
 - `Actor.<actorId>.Item.<itemId>.ActiveEffect.<effectId>`
 - `JournalEntry.<entryId>.JournalEntryPage.<pageId>`
 - `Combat.<combatId>.Combatant.<combatantId>`
-- `RollTable.<tableId>.RollTableResult.<resultId>`
 - `Playlist.<playlistId>.PlaylistSound.<soundId>`
 - `Cards.<cardsId>.Card.<cardId>`
+
+`RollTableResult` is intentionally not listed as an embedded resolver path. Roll table result data is read as part of the direct `RollTable.<tableId>` document payload; ADR-0016 should not expose a separate result UUID reader.
 
 The first implementation can traverse the parent Store snapshot directly with small resolver-local helpers. If those helpers become useful elsewhere, promote them to Store methods in a later small cleanup. Avoid adding broad abstractions before the embedded read needs are clear.
 
@@ -259,22 +260,22 @@ Phase 2 makes direct world UUIDs resolve from primary-document Stores and closes
 
 ### Phase 3: Embedded world UUID resolution
 
-**Status:** Not started.
+**Status:** Completed May 19, 2026.
 
 Phase 3 adds parent-aware embedded UUID traversal over Store snapshots.
 
 **Action items:**
 
-- [ ] Resolve Actor-owned embedded paths for Actor items, Actor active effects, and active effects under Actor-owned items.
+- [x] Resolve Actor-owned embedded paths for Actor items, Actor active effects, active effects under Actor-owned items, and world Item active effects.
   Files: `src/server/services/documents/DocumentResolver.ts`.
 
-- [ ] Resolve embedded document paths for JournalEntryPage, Combatant, RollTableResult, PlaylistSound, and Card.
+- [x] Resolve embedded document paths for JournalEntryPage, Combatant, PlaylistSound, and Card.
   Files: `src/server/services/documents/DocumentResolver.ts`.
 
-- [ ] Add unit coverage for each supported embedded path, missing parent, missing child, and malformed embedded path.
+- [x] Add unit coverage for each supported embedded path, missing parent, missing child, and malformed embedded path.
   Files: `src/tests/unit/documents/document-resolver.test.ts`.
 
-- [ ] Verify Phase 3 with unit/type checks.
+- [x] Verify Phase 3 with unit/type checks.
   Commands: `npm run test:unit`; `npx tsc --noEmit`; `git diff --check`.
 
 **Non-goals for Phase 3:**
@@ -285,6 +286,8 @@ Phase 3 adds parent-aware embedded UUID traversal over Store snapshots.
 - No socket method deletion.
 
 **Exit for Phase 3:** Supported embedded world UUIDs resolve through parent Stores without socket transport; missing or malformed embedded UUIDs return `null`; unit/type checks pass.
+
+**Phase 3 closure:** `DocumentResolver.fetchByUuid` now resolves embedded world UUIDs by reading the root parent from its primary-document Store and walking supported child arrays on that defensive snapshot. Supported paths are Actor Item, Actor ActiveEffect, Actor Item ActiveEffect, world Item ActiveEffect, JournalEntry JournalEntryPage, Combat Combatant, Playlist PlaylistSound, and Cards Card. Roll table result data stays part of the direct `RollTable.<tableId>` payload, not a separate embedded UUID route. Missing parents, missing children, unsupported child types, and malformed embedded paths return `null`; compendium UUIDs remain queued for Phase 4.
 
 ### Phase 4: Compendium UUID resolution
 
@@ -426,7 +429,7 @@ This ADR is fulfilled when UUID routing has service ownership and sockets no lon
 
 - [x] Phase 1: `DocumentResolver` shell + UUID parser contract.
 - [x] Phase 2: direct world UUIDs resolve from Stores; stub/unwired types fail closed.
-- [ ] Phase 3: embedded world UUIDs resolve through parent Stores.
+- [x] Phase 3: embedded world UUIDs resolve through parent Stores.
 - [ ] Phase 4: compendium UUIDs resolve through hydrated shards first and `CompendiumService.getPackDocument(...)` fallback second.
 - [ ] Phase 5: `CoreSocket` / `ClientSocket` `fetchByUuid` methods are removed and socket-facing interfaces are tightened.
 - [ ] No real world or compendium fixture data is added to tracked tests.

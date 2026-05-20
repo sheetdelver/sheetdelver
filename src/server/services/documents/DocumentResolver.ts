@@ -18,6 +18,11 @@ import {
     discoveryShardStore,
     type DiscoveryShardStore,
 } from '@server/core/compendium/DiscoveryShardStore';
+import {
+    cloneDocument,
+    getDocumentId,
+    isRecord,
+} from '@server/core/documents/primary/base/PrimaryDocumentStore';
 import { PrimaryDocumentCacheNotReadyError } from '@server/core/documents/primary/errors';
 import type { CompendiumService } from '@server/services/compendium/CompendiumService';
 
@@ -101,6 +106,31 @@ const DEFERRED_WORLD_DOCUMENT_TYPES = [
     'Setting',
 ] as const satisfies readonly DocumentStoreKey[];
 
+// Embedded resolution follows the same ownership direction as embedded Store
+// mutations: read the parent document from its Store, then walk child arrays
+// on that defensive snapshot. No socket fallback is involved here.
+const EMBEDDED_COLLECTIONS_BY_PARENT: Record<string, Record<string, string>> = {
+    Actor: {
+        Item: 'items',
+        ActiveEffect: 'effects',
+    },
+    Item: {
+        ActiveEffect: 'effects',
+    },
+    JournalEntry: {
+        JournalEntryPage: 'pages',
+    },
+    Combat: {
+        Combatant: 'combatants',
+    },
+    Playlist: {
+        PlaylistSound: 'sounds',
+    },
+    Cards: {
+        Card: 'cards',
+    },
+};
+
 export interface DocumentStoreReader {
     isReady(): boolean;
     get(id: string): unknown | null | undefined;
@@ -148,6 +178,19 @@ function parsePairs(parts: string[]): UuidPathSegment[] | null {
         pairs.push({ type: parts[i], id: parts[i + 1] });
     }
     return pairs;
+}
+
+function findEmbeddedChild(parent: unknown, parentType: string, child: UuidPathSegment): unknown | null {
+    if (!isRecord(parent)) return null;
+
+    const collectionKey = EMBEDDED_COLLECTIONS_BY_PARENT[parentType]?.[child.type];
+    if (!collectionKey) return null;
+
+    const collection = parent[collectionKey];
+    if (!Array.isArray(collection)) return null;
+
+    const match = collection.find(entry => isRecord(entry) && getDocumentId(entry) === child.id);
+    return match ? cloneDocument(match) : null;
 }
 
 export function parseWorldUuid(uuid: string): ParsedWorldUuid | ParsedEmbeddedWorldUuid | null {
@@ -241,16 +284,20 @@ export class DocumentResolver {
         const parsed = this.parse(uuid);
         if (!parsed) return null;
         if (parsed.kind === 'world') return this.resolveDirectWorldDocument(parsed);
+        if (parsed.kind === 'embedded-world') return this.resolveEmbeddedWorldDocument(parsed);
 
         void this.worldState;
         void this.discoveryShards;
         void this.getCompendiumService;
-        // Embedded world paths and compendium lookups land in later ADR-0016 phases.
+        // Compendium lookups land in a later ADR-0016 phase.
         return null;
     }
 
     private resolveDirectWorldDocument(parsed: ParsedWorldUuid): unknown | null {
-        const { documentType, documentId } = parsed;
+        return this.resolveStoreBackedWorldDocument(parsed.documentType, parsed.documentId);
+    }
+
+    private resolveStoreBackedWorldDocument(documentType: string, documentId: string): unknown | null {
 
         if (isDeferredWorldDocumentType(documentType)) {
             // These Stores are registered as primary-document stubs, but ADR-0016
@@ -265,5 +312,19 @@ export class DocumentResolver {
         if (!store) return null;
         if (!store.isReady()) throw new PrimaryDocumentCacheNotReadyError(documentType);
         return store.get(documentId) ?? null;
+    }
+
+    private resolveEmbeddedWorldDocument(parsed: ParsedEmbeddedWorldUuid): unknown | null {
+        let current = this.resolveStoreBackedWorldDocument(parsed.root.type, parsed.root.id);
+        if (!current) return null;
+
+        let parentType = parsed.root.type;
+        for (const child of parsed.path) {
+            current = findEmbeddedChild(current, parentType, child);
+            if (!current) return null;
+            parentType = child.type;
+        }
+
+        return current;
     }
 }
