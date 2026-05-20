@@ -5,8 +5,6 @@ import { logger } from '@shared/utils/logger';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
 import { WorldData, CacheData, SetupManager } from '../../world/SetupManager';
 import { FoundryConfig } from '../types';
-import { getAdapter } from '@modules/registry/server';
-import { SystemAdapter } from '@modules/registry/types';
 import { CompendiumCache, compendiumStore } from '@server/core/compendium';
 import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
@@ -15,7 +13,7 @@ import { modifyDocumentRouter } from '@server/core/documents/primary/base/modify
 import { worldStateStore } from '@server/core/world/WorldStateStore';
 import { worldLifecycleStore, type WorldLifecycleState } from '@server/core/world/WorldLifecycleStore';
 import { sharedContentStore } from '@server/core/world/SharedContentStore';
-import { engagementService } from '@server/services/world';
+import { engagementService, worldBootstrapper } from '@server/services/world';
 // Side-effect import: registers Stores with the coordinator and router.
 import '@server/core/documents/primary/PrimaryDocumentCacheCoordinator';
 import type { RawUser } from '@server/shared/types/users';
@@ -33,7 +31,6 @@ export class CoreSocket extends SocketBase {
     // the authoritative read model for routes/services/new code.
     public cachedWorldData: WorldData | null = null;
     public cachedWorlds: Record<string, WorldData> = {};
-    private adapter: SystemAdapter | null = null;
     public gameDataCache: any = null;
     public sceneDataCache: any = null;
     public userId: string | null = null;
@@ -386,7 +383,10 @@ export class CoreSocket extends SocketBase {
 
                         const systemId = gameData.system?.id || gameData.system?.name;
                         if (systemId) {
-                            await this.loadSystemAdapter(systemId);
+                            // Adapter ownership is service-side now. CoreSocket
+                            // still reaches this point in the legacy bootstrap
+                            // flow, so preserve timing while moving the cache.
+                            await worldBootstrapper.loadActiveAdapter(systemId);
                         }
                         logger.info(`CoreSocket | Game Data Loaded via Socket (User: ${this.userId})`);
                     } else {
@@ -682,23 +682,6 @@ export class CoreSocket extends SocketBase {
         } catch (error: unknown) {
             if (failHard) this.consecutiveFailures++;
             throw error;
-        }
-    }
-
-    // Adapter ownership moves to WorldBootstrapper in ADR-0017. Until then the
-    // active adapter remains cached here while world state readers use Stores.
-    public getSystemAdapter() { return this.adapter; }
-
-    public async loadSystemAdapter(systemId: string) {
-        try {
-            const { getMatchingAdapter } = await import('@modules/registry/server');
-            const adapter = await getMatchingAdapter(systemId);
-            if (adapter) {
-                this.adapter = adapter;
-                logger.info(`CoreSocket | Loaded System Adapter: ${systemId}`);
-            }
-        } catch (e) {
-            logger.error(`CoreSocket | Failed load adapter: ${e}`);
         }
     }
 

@@ -11,6 +11,7 @@ import {
 } from '@server/core/documents/primary/base/ownership';
 import { createSystemRouteFoundryClient } from '@server/shared/utils/createRouteFoundryClient';
 import { DocumentResolver } from '@server/services/documents';
+import { systemService } from '@server/core/system/SystemService';
 import type { RawActor } from '@server/shared/types/actors';
 
 export async function run() {
@@ -21,6 +22,7 @@ export async function run() {
     await runRouteClientReadsFromActorStore();
     await runRouteClientRoutesNestedActorItemEffectsThroughActorRepository();
     await runRouteClientActorWritesUseGenericTransportOnly();
+    await runRouteClientUsesServiceOwnedAdapterForActorValidation();
     await runRouteClientBlocksActorReadsBeforeStoreReady();
     await runDocumentResolverActorUuidReadsFromActorStore();
 }
@@ -145,7 +147,6 @@ async function runRouteClientReadsFromActorStore() {
         on: () => undefined,
         off: () => undefined,
         getSystem: async () => ({ id: 'generic' }),
-        getSystemAdapter: () => null,
         dispatchDocument: async () => ({}),
         resolveUrl: (url?: string) => url || '',
         dispatchDocumentSocket: async () => ({}),
@@ -175,7 +176,6 @@ async function runRouteClientRoutesNestedActorItemEffectsThroughActorRepository(
         on: () => undefined,
         off: () => undefined,
         getSystem: async () => ({ id: 'generic' }),
-        getSystemAdapter: () => null,
         dispatchDocument: async (type: string, action: string, operation: unknown, parent?: { type: string; id: string }) => {
             dispatchCalls.push({ type, action, operation, parent });
             return {
@@ -218,7 +218,6 @@ async function runRouteClientActorWritesUseGenericTransportOnly() {
         on: () => undefined,
         off: () => undefined,
         getSystem: async () => ({ id: 'generic' }),
-        getSystemAdapter: () => null,
         dispatchDocument: async (type: string, action: string, operation: unknown, parent?: { type: string; id: string }) => {
             dispatchCalls.push({ type, action, operation, parent });
             if (type === 'Actor' && action === 'create') return { result: [{ _id: 'actor-created', name: 'Created Actor' }], operation };
@@ -254,6 +253,62 @@ async function runRouteClientActorWritesUseGenericTransportOnly() {
     actorStore.clear('route-client-actor-write-test');
 }
 
+async function runRouteClientUsesServiceOwnedAdapterForActorValidation() {
+    await actorStore.seed(async () => ([
+        {
+            _id: 'actor-filter',
+            name: 'Actor Before Filter',
+            ownership: { default: DocumentOwnershipLevel.OWNER },
+        },
+    ]));
+
+    const originalGetActiveAdapter = (systemService as any).getActiveAdapter;
+    const dispatchCalls: Array<{ type: string; action: string; operation: unknown }> = [];
+
+    try {
+        (systemService as any).getActiveAdapter = () => ({
+            validateUpdate: (path: string) => path === 'name',
+        });
+
+        const client = createSystemRouteFoundryClient({
+            isConnected: true,
+            userId: null,
+            on: () => undefined,
+            off: () => undefined,
+            getSystem: async () => ({ id: 'generic' }),
+            dispatchDocument: async (type: string, action: string, operation: unknown) => {
+                dispatchCalls.push({ type, action, operation });
+                return {
+                    result: [{ _id: 'actor-filter', name: 'Allowed Name' }],
+                    operation,
+                };
+            },
+            resolveUrl: (url?: string) => url || '',
+            dispatchDocumentSocket: async () => ({}),
+        } as any);
+
+        await client.updateActor('actor-filter', {
+            name: 'Allowed Name',
+            'system.attributes.hp.value': 12,
+        });
+
+        assert.equal(dispatchCalls.length, 1);
+        assert.deepEqual((dispatchCalls[0].operation as any).updates, [
+            { _id: 'actor-filter', name: 'Allowed Name' },
+        ]);
+
+        const noOp = await client.updateActor('actor-filter', {
+            'system.attributes.hp.max': 20,
+        }) as { success?: boolean; message?: string };
+
+        assert.deepEqual(noOp, { success: true, message: 'No sanctioned updates' });
+        assert.equal(dispatchCalls.length, 1);
+    } finally {
+        (systemService as any).getActiveAdapter = originalGetActiveAdapter;
+        actorStore.clear('route-client-adapter-filter-test');
+    }
+}
+
 async function runRouteClientBlocksActorReadsBeforeStoreReady() {
     actorStore.clear('not-ready-test');
 
@@ -264,7 +319,6 @@ async function runRouteClientBlocksActorReadsBeforeStoreReady() {
         on: () => undefined,
         off: () => undefined,
         getSystem: async () => ({ id: 'generic' }),
-        getSystemAdapter: () => null,
         dispatchDocument: async () => ({}),
         resolveUrl: (url?: string) => url || '',
         dispatchDocumentSocket: async () => ({}),

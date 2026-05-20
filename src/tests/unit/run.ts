@@ -54,6 +54,7 @@ import { run as runModuleContextDiscovery } from './compendium/module-context-di
 // ── world ─────────────────────────────────────────────────────────────────────
 import { run as runWorldStateStore } from './world/world-state-store.test';
 import { run as runWorldLifecycleStore } from './world/world-lifecycle-store.test';
+import { run as runWorldBootstrapper } from './world/world-bootstrapper.test';
 
 // ── admin ─────────────────────────────────────────────────────────────────────
 import { run as runAdminCredentialStore } from './admin/admin-credential-store.test';
@@ -128,6 +129,7 @@ async function runAllUnitTests() {
     await runStubStores();
     await runWorldStateStore();
     await runWorldLifecycleStore();
+    await runWorldBootstrapper();
     await runSharedContentStore();
     await runDocumentResolver();
     await runCompendiumStore();

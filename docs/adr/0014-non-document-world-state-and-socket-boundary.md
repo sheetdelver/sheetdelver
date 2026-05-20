@@ -16,7 +16,7 @@ The full scope is too large for a single ADR. It splits along dependency-driven 
 
 | ADR | Scope | Depends on |
 |---|---|---|
-| **ADR-0014 (this ADR)** — Non-Document World State and the Socket Boundary Principle | Umbrella principle + `WorldStateStore`, `WorldLifecycleStore`, `SharedContentStore` with typed v13 shapes. File-layout convention. Cheap outliers (`compendium-cache.ts` rename, `instance.ts` audit, `classes/Roll.ts` flatten). Removes `getGameData` / `getSceneData` / `getSystem` / `getSystemConfig` / `getSharedContent` from sockets. `getSystemAdapter` stays until ADR-0017 (adapter lifecycle belongs with `WorldBootstrapper`). | (none — foundation) |
+| **ADR-0014 (this ADR)** — Non-Document World State and the Socket Boundary Principle | Umbrella principle + `WorldStateStore`, `WorldLifecycleStore`, `SharedContentStore` with typed v13 shapes. File-layout convention. Cheap outliers (`compendium-cache.ts` rename, `instance.ts` audit, `classes/Roll.ts` flatten). Removes `getGameData` / `getSceneData` / `getSystem` / `getSystemConfig` / `getSharedContent` from sockets. Adapter lifecycle is intentionally left to ADR-0017, which moves it to `WorldBootstrapper`. | (none — foundation) |
 | ADR-0015 — Compendium Architecture and the Pathway B Read Gap | `CompendiumStore`, `CompendiumService`, `DiscoveryShardStore` / shard reader. Fixes the latent bug where pathway B writes hydrated shards no SDK caller reads. De-duplicates pathway A/B at the freshness-hash layer. Moves `getAllCompendiumIndices` / `getPackEntries` / `getPackIndex` / `getPackDocuments` off `CoreSocket`. | ADR-0014 (`core/compendium/` layout, naming convention) |
 | ADR-0016 — Document Resolution and UUID Routing | `DocumentResolver`. Removes `fetchByUuid` from `CoreSocket` and `ClientSocket` cleanly (no transitional stub). Embedded-UUID parent-aware parse path. Stub-type resolver policy. | ADR-0015 (`DiscoveryShardStore.findDocument(...)` plus `CompendiumService.getPackDocument(...)` for the compendium branch) |
 | ADR-0017 — World Bootstrap and Lifecycle Orchestration | `WorldBootstrapper` (the central application glue). `EngagementService` as presence signal source. The "`active` means application-ready, not Foundry-active" semantic tightening. Lifecycle-gated gateway acceptance. `SyncTokenService` (or folded into StatusService). | ADR-0014, ADR-0015, ADR-0016 |
@@ -47,7 +47,7 @@ But the socket files still own a meaningful surface of **non-document concerns**
 - GM shared-content payloads (`sharedContent` on `SocketBase`, asymmetric event source from the world payload).
 - Plus everything covered by the sister ADRs: compendium discovery, UUID routing, bootstrap orchestration, engagement/heartbeat policy, URL utilities.
 
-Today every route, service, and orchestration concern that needs any of this reaches *into the socket* to read it (`coreSocket.getGameData()`, `coreSocket.getSystem()`, `coreSocket.getSystemAdapter()`, `coreSocket.getSharedContent()`, etc.). That's the same boundary violation ADR-0011 Phase 8 fixed for primary documents — just on the non-document surface this time.
+At the time this ADR was drafted, every route, service, and orchestration concern that needed any of this reached *into the socket* to read it (`coreSocket.getGameData()`, `coreSocket.getSystem()`, `coreSocket.getSystemAdapter()`, `coreSocket.getSharedContent()`, etc.). That's the same boundary violation ADR-0011 Phase 8 fixed for primary documents — just on the non-document surface this time.
 
 This ADR (and the rest of the ADR-0014 arc) applies the same fix: extract state into typed Stores, move orchestration into services, leave the sockets owning only what's actually transport.
 
@@ -150,7 +150,7 @@ Remove from `CoreSocket`:
 
 **Stays on `CoreSocket` until ADR-0017** (called out so this ADR's exit criteria are honest):
 
-- `getSystemAdapter()`, `loadSystemAdapter(systemId)`, the cached `this.adapter` reference. These are **adapter-lifecycle concerns, not world state.** The adapter is a function of (active world's system id) × (registered modules), resolved via `getMatchingAdapter(systemId)` from the module registry. The active adapter's home is `WorldBootstrapper.getActiveAdapter()` (ADR-0017) — the bootstrapper already loads and initializes it; exposing the cached reference is a natural addition there. Putting the adapter on `WorldStateStore` would conflate world state with module-registry resolution. ADR-0014 leaves the adapter caching on `CoreSocket` so callers (`createRouteFoundryClient.ts:41` uses it for `validateUpdate`) aren't stranded; ADR-0017 migrates the caller and removes the socket methods.
+- `getSystemAdapter()`, `loadSystemAdapter(systemId)`, the cached `this.adapter` reference. These are **adapter-lifecycle concerns, not world state.** The adapter is a function of (active world's system id) × (registered modules), resolved from the module registry. The active adapter's home is `WorldBootstrapper.getActiveAdapter()` (ADR-0017). Putting the adapter on `WorldStateStore` would conflate world state with module-registry resolution. ADR-0014 left the adapter cache on `CoreSocket` so callers were not stranded; ADR-0017 Phase 3 migrated route validation and removed the socket methods.
 
 Remove from `SocketBase`:
 
@@ -160,12 +160,12 @@ Remove from `ClientSocket`:
 
 - `getSystem()` and `getSystemConfig()` delegation methods. Their `CoreSocket` sources are removed in this ADR, so the delegations have nothing to forward to. Callers (none outside the delegations themselves, in the case of `getSystemConfig`) migrate to the Store accessors.
 
-**Stays on `ClientSocket` until ADR-0017:** `getSystemAdapter()` delegation method, paired with the `CoreSocket` source it forwards to. ADR-0017 removes both atomically.
+**Removed by ADR-0017 Phase 3:** `getSystemAdapter()` delegation method, paired with the `CoreSocket` source it forwarded to.
 
 Update `src/server/core/foundry/interfaces.ts`:
 
 - Remove socket-world-state readers from the socket-facing interfaces. In the current file this means `getSystem()` drops from `FoundryMetadataClient`, and `getSystem()` / `getSystemConfig()` drop from `FoundryClient`; route/service client-like interfaces may keep their Store-backed `getSystem()` contracts.
-- Leave `getSystemAdapter(): any` for now; ADR-0017 removes it alongside the socket source methods.
+- `getSystemAdapter(): any` was left to ADR-0017 and removed in ADR-0017 Phase 3 alongside the socket source methods.
 
 ### Trivial outliers landed in this ADR
 
@@ -242,7 +242,7 @@ Just transport, plus orchestration that subsequent ADRs will extract:
 - **Stays** (transport, not in scope for this ADR or any other in the arc): `emitSocketEvent`, `dispatchDocument`, `dispatchDocumentSocket`, `connect` (the wire-level handshake/login parts), `disconnect`, `setupSharedContentListeners` (the event source — the cache moves to the Store), socket.io session management, retry/backoff, the inbound `modifyDocument` listener that calls `modifyDocumentRouter.route(...)`.
 - **Stays for now, removed by ADR-0015**: `getAllCompendiumIndices`, `getPackEntries`, `getPackIndex`, `getPackDocuments`.
 - **Stays for now, removed by ADR-0016**: `fetchByUuid` (on `CoreSocket` and the matching `ClientSocket` delegation).
-- **Stays for now, removed by ADR-0017**: `getSystemAdapter()` + `loadSystemAdapter(systemId)` + cached `this.adapter` reference on `CoreSocket`; `getSystemAdapter()` delegation on `ClientSocket`; `interfaces.ts`'s `getSystemAdapter(): any` declaration. Also `connect()`'s bootstrap orchestration body, `updateActiveBrowserCount` / heartbeat policy, and the temporary `lastActorChange` / `actorSyncToken` bridge. ADR-0017 introduces `SyncTokenService` (or folds that concern into `StatusService`) so status payloads no longer read the socket-owned timestamp.
+- **Left for ADR-0017**: `connect()`'s bootstrap orchestration body, delayed `active`, and later residual cleanup. ADR-0017 Phases 1-3 have already removed the socket-owned `lastActorChange`, browser engagement fields, heartbeat policy, active-adapter cache, adapter reader/loader methods, and `ClientSocket` adapter delegation.
 - **Stays for now, verified or removed by ADR-0018**: any residual `ClientSocket` delegation left after ADR-0014 / ADR-0016 / ADR-0017, URL utilities on `SocketBase`, session-state half of `restoreSession`.
 
 This ADR removes only the state-reading methods named in *Sockets shrink* above. The rest is each follow-up ADR's scope.
@@ -285,13 +285,13 @@ Phase 1 introduces `WorldStateStore` and the typed v13 world-state contract. `Co
 - [x] Move protected system routes off `getSystemClient().getGameData()` / `getSceneData()`. `/system`, `/system/data`, and `/system/scenes` should read through `WorldStateStore`.
   Files: `src/server/routes/protected/registerSystemRoutes.ts`.
 
-- [x] Move `SystemService` bootstrap/system-id reads and adapter lookup preconditions to `worldStateStore.getSystem()`. `getSystemAdapter()` stays socket-backed until ADR-0017.
+- [x] Move `SystemService` bootstrap/system-id reads and adapter lookup preconditions to `worldStateStore.getSystem()`. `getSystemAdapter()` stayed socket-backed for ADR-0014 and was removed in ADR-0017 Phase 3.
   Files: `src/server/core/system/SystemService.ts`.
 
 - [x] Replace `ClientSocket` service-client `getGameData()?.users` and world-id checks with `userStore` / `WorldStateStore` reads, retaining the existing probe fallback for user discovery.
   Files: `src/server/core/foundry/sockets/ClientSocket.ts`.
 
-- [x] Keep the public `RouteFoundryClient.getSystem()` facade, but implement it from `worldStateStore.getSystem()` instead of `client.getSystem()`. Leave `client.getSystemAdapter()` in `filterActorUpdatePayload()` until ADR-0017.
+- [x] Keep the public `RouteFoundryClient.getSystem()` facade, but implement it from `worldStateStore.getSystem()` instead of `client.getSystem()`. `client.getSystemAdapter()` stayed in `filterActorUpdatePayload()` for ADR-0014 and moved to `SystemService.getActiveAdapter()` in ADR-0017 Phase 3.
   Files: `src/server/shared/utils/createRouteFoundryClient.ts`, `src/server/shared/types/actors.ts`, `src/server/shared/types/requestContext.ts`.
 
 - [x] Adjust socket-facing types so migrated readers no longer require `getGameData()` / `getSceneData()` / `getSystemConfig()` from the system client. Keep request-facing `getSystem()` where services/modules use it as a facade.
@@ -303,7 +303,7 @@ Phase 1 introduces `WorldStateStore` and the typed v13 world-state contract. `Co
 **Non-goals for Phase 1:**
 
 - No lifecycle timing change and no delayed-`active` behavior. Phase 2 introduces `WorldLifecycleStore`; ADR-0017 changes transition timing.
-- No adapter migration. `getSystemAdapter()` / `loadSystemAdapter()` stay until ADR-0017.
+- No adapter migration in ADR-0014. `getSystemAdapter()` / `loadSystemAdapter()` stayed until ADR-0017 Phase 3.
 - No `SharedContentStore`; that is Phase 3.
 - No compendium, UUID resolver, URL utility, or session-state split work.
 - No deletion of the Store-backed socket compatibility shims until Phase 5.
@@ -344,7 +344,7 @@ Phase 2 introduces `WorldLifecycleStore` as the authoritative owner for world li
 **Non-goals for Phase 2:**
 
 - No lifecycle timing change. `active` still mirrors the current CoreSocket timing until ADR-0017 moves bootstrap orchestration and delays `active` until Sheet Delver is ready.
-- No adapter migration. `getSystemAdapter()` / `loadSystemAdapter()` stay until ADR-0017.
+- No adapter migration in ADR-0014. `getSystemAdapter()` / `loadSystemAdapter()` stayed until ADR-0017 Phase 3.
 - No `SharedContentStore`; that is Phase 3.
 - No deletion of the Store-backed `CoreSocket.worldState` compatibility getter while legacy/manual tooling may still use it.
 - No compendium, UUID resolver, URL utility, engagement-service, heartbeat-policy, or session-state split work.
@@ -452,7 +452,7 @@ Phase 5 removes the remaining world-state compatibility shims from the socket cl
 - [x] Remove the remaining Store-backed world-state compatibility methods from `CoreSocket`: `getGameData()`, `getSceneData()`, `getSystem()`, and `getSystemConfig()`. Delete the `getSystemConfig` fallback socket emit path rather than moving it.
   Files: `src/server/core/foundry/sockets/CoreSocket.ts`.
 
-- [x] Remove the matching world-state delegation methods from `ClientSocket`: `getSystem()` and `getSystemConfig()`. Keep `getSystemAdapter()` until ADR-0017.
+- [x] Remove the matching world-state delegation methods from `ClientSocket`: `getSystem()` and `getSystemConfig()`. `getSystemAdapter()` stayed until ADR-0017 Phase 3.
   Files: `src/server/core/foundry/sockets/ClientSocket.ts`.
 
 - [x] Remove the final public `CoreSocket.worldState` compatibility getter and switch remaining manual tooling to `WorldLifecycleStore`.
@@ -475,7 +475,7 @@ Phase 5 removes the remaining world-state compatibility shims from the socket cl
 
 **Non-goals for Phase 5:**
 
-- No `getSystemAdapter()` / `loadSystemAdapter()` / adapter cache removal; ADR-0017 owns adapter lifecycle through `WorldBootstrapper`.
+- No `getSystemAdapter()` / `loadSystemAdapter()` / adapter cache removal in ADR-0014; ADR-0017 Phase 3 owns adapter lifecycle through `WorldBootstrapper`.
 - No compendium method removal (`getAllCompendiumIndices`, `getPackEntries`, `getPackIndex`, `getPackDocuments`); ADR-0015 owns compendium architecture.
 - No UUID resolver removal (`fetchByUuid`); ADR-0016 owns document resolution.
 - No bootstrap orchestration, heartbeat, engagement-service, lifecycle timing, URL utility, or session-state split work.
@@ -540,7 +540,7 @@ Rejected because new Stores and services need destinations. If ADR-0014 introduc
 
 ### Tradeoffs
 
-- **Wide migration surface.** Every site that currently reads `coreSocket.getGameData()` / `getSystem()` / `getSystemConfig()` / `getSharedContent()` etc. gets touched. Routes, services, the realtime gateway, the session manager — every reader migrates. Mechanical but not small. (`getSystemAdapter` callers are *not* migrated in this ADR — that's ADR-0017's scope.)
+- **Wide migration surface.** Every site that currently reads `coreSocket.getGameData()` / `getSystem()` / `getSystemConfig()` / `getSharedContent()` etc. gets touched. Routes, services, the realtime gateway, the session manager — every reader migrates. Mechanical but not small. (`getSystemAdapter` callers were not migrated in ADR-0014; ADR-0017 Phase 3 moved them.)
 - **Three new Stores increases the cognitive surface.** Readers used to looking at `coreSocket.gameDataCache` for "world stuff" now need to know about `WorldStateStore`, `WorldLifecycleStore`, and `SharedContentStore`. Mitigated by the typed accessors and by the colocation in `core/world/`.
 - **Typed shapes require maintenance when Foundry drifts.** When v14 ships, the manifest types (`WorldManifest`, `SystemManifest`, `ModuleManifest`, etc.) need updates. This is the *intended* tradeoff — drift becoming visible at the type layer instead of hiding in runtime — but it does mean a typed-update PR is required at each Foundry generation bump.
 - **`CoreSocket.connect()` still owns the bootstrap orchestration body until ADR-0017.** This ADR moves *state* off the socket but doesn't move *who seeds the state*. The seed call stays inline in `connect()` for now. That's fine; subsequent ADRs in the arc unwind it. But during the gap (ADR-0014 shipped, ADR-0017 not yet shipped), `CoreSocket.connect()` continues to be the orchestrator. Implementers should not invest in cleaning up `connect()` further during this ADR's window — ADR-0017 will rewrite it.
@@ -577,7 +577,7 @@ Each phase validates at the Store-contract layer and at the migration boundary:
   - `rg -n "\.(getGameData|getSceneData|getSystemConfig|getSharedContent)\(" src/server` returns no socket-reader hits. `RouteFoundryClient.getSystem()` may remain as a facade method, but its implementation must be Store-backed rather than socket-backed.
   - `rg -n "\.worldState\b|gameDataCache|sceneDataCache|probeWorldData|probeUserCount|cachedWorldData|cachedWorlds" src/server` returns no direct world-state reads outside `CoreSocket`, the new Stores, and the seeding caller.
   - `rg -n "lastActorChange|actorSyncToken" src/server` remains a documented ADR-0017 exception: until `SyncTokenService` lands, the only runtime path is the `CoreSocket` timestamp update, the `StatusService` payload projection, and the narrow `FoundrySystemClientLike` type.
-  - `getSystemAdapter` / `loadSystemAdapter` intentionally still exist on `CoreSocket` and `ClientSocket` until ADR-0017; their removal audit belongs to ADR-0017.
+  - `getSystemAdapter` / `loadSystemAdapter` intentionally remained after ADR-0014; ADR-0017 Phase 3 removed them and owns that audit.
 - Phase 4 file-layout audit verifies that `compendium-cache.ts` is gone, `core/foundry/classes/` is gone, `core/world/SetupManager.ts` exists, and `core/compendium/CompendiumCache.ts` exists.
 - Phase 5 socket-reader audit verifies that the deleted world-state methods no longer exist on `CoreSocket` / `ClientSocket`, and that any remaining `getSystem()` readers are direct `worldStateStore.getSystem()` calls or Store-backed route facades.
 - `npx tsc --noEmit` and `npm run test:unit` pass.
@@ -592,7 +592,7 @@ This ADR is fulfilled when the non-document world-state foundation is in place a
 - [x] Phase 2: `WorldLifecycleStore` + lifecycle-state migration from `CoreSocket.worldState`.
 - [x] Phase 3: `SharedContentStore` at `core/world/SharedContentStore.ts` with the immutable-snapshot contract (clone-on-write + clone-on-read; stored payload stays relative/raw). `SocketBase.setupSharedContentListeners` writes through to the Store via `sharedContentStore.set(payload)`; `CoreSocket` clears the Store alongside active-world runtime state teardown; the legacy `protected sharedContent` field and public `getSharedContent()` accessor are gone. `UtilityService.getSharedContent()` reads `sharedContentStore.getCurrent()` and projects URL resolution onto the defensive copy. `UtilityClientLike.getSharedContent` removed from the type; `createRouteFoundryClient` no longer exposes the facade method. Realtime gateway subscribes to `sharedContentStore.onSharedContentChanged(...)` directly (no longer to per-session `foundryClient.on('sharedContentUpdate', ...)`); the gateway test asserts the foundryClient handler count drops 3 → 2. Browser sockets still receive the `sharedContentUpdate` wire event unchanged. Tests in [shared-content-store.test.ts](../../src/tests/unit/documents/shared-content-store.test.ts).
 - [x] Phase 4: File-layout outliers — `compendium-cache.ts` renamed and moved to `core/compendium/CompendiumCache.ts`; `classes/Roll.ts` flattened to `foundry/Roll.ts`; `SetupManager.ts` moved to `core/world/`; `instance.ts` audited and deleted after remaining local-module callers moved to request-scoped clients.
-- [x] Phase 5: Remove `getGameData` / `getSceneData` / `getSystem` / `getSystemConfig` and the public `worldState` lifecycle reader from `CoreSocket`; remove matching `getSystem` / `getSystemConfig` delegation methods from `ClientSocket`; remove socket-world-state reader declarations from `interfaces.ts`. Leave `getSystemAdapter` / `loadSystemAdapter` / cached `this.adapter` on `CoreSocket` and the `getSystemAdapter` delegation on `ClientSocket` (ADR-0017 removes them alongside the new `WorldBootstrapper.getActiveAdapter()`).
+- [x] Phase 5: Remove `getGameData` / `getSceneData` / `getSystem` / `getSystemConfig` and the public `worldState` lifecycle reader from `CoreSocket`; remove matching `getSystem` / `getSystemConfig` delegation methods from `ClientSocket`; remove socket-world-state reader declarations from `interfaces.ts`. Adapter methods/cache were left for ADR-0017 and removed in ADR-0017 Phase 3 alongside `WorldBootstrapper.getActiveAdapter()`.
 - [x] `rg` migration audit confirms no remaining socket reads for the migrated fields outside the seeding caller and phase-documented exceptions.
 - [x] `npx tsc --noEmit` and `npm run test:unit` pass.
 - [x] Status flipped to **Accepted** when all phases ship green.

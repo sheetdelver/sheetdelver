@@ -1,6 +1,6 @@
 # ADR-0017: World Bootstrap and Lifecycle Orchestration
 
-**Status:** Proposed - Phases 1-2 completed May 20, 2026; Phases 3-6 not started.
+**Status:** Proposed - Phases 1-3 completed May 20, 2026; Phases 4-6 not started.
 **Date:** May 20, 2026
 **Phase:** World Bootstrap (Phase 4 of the ADR-0014 arc)
 **Supersedes:** None. Consumes ADR-0014 world/lifecycle Stores, ADR-0015 compendium services, and ADR-0016 document resolution.
@@ -39,7 +39,7 @@ The codebase now has the right state/service owners, but the runtime orchestrati
 - fetches `game.data` and scene data
 - seeds `WorldStateStore`
 - seeds `UserStore` and `UserPresence`
-- loads and caches the active system adapter
+- asks the world service layer to load the active system adapter
 - starts and tunes the heartbeat loop
 - writes `active` into `WorldLifecycleStore` before `SystemService.bootstrap()` completes
 
@@ -53,15 +53,13 @@ The codebase now has the right state/service owners, but the runtime orchestrati
 
 The important semantic bug is lifecycle timing. ADR-0014 defined `active` as "Sheet Delver is ready to serve world-backed requests," but the current code transitions to `active` as soon as Foundry says the world is active, before compendium discovery, primary-document seeds, and adapter initialization complete.
 
-The remaining socket-boundary leftovers after Phase 2 are narrow and explicit:
+The remaining socket-boundary leftovers after Phase 3 are narrow and explicit:
 
-- `CoreSocket.getSystemAdapter()`, `CoreSocket.loadSystemAdapter(systemId)`, and the cached adapter field.
-- `ClientSocket.getSystemAdapter()` delegation.
-- `FoundryClient`'s socket-facing `getSystemAdapter(): any` declaration.
 - `CoreSocket.connect()` still owns bootstrap sequencing that belongs above transport.
 
 Phase 1 removed the previous `CoreSocket.lastActorChange` status leak; `actorSyncToken` now comes from `SyncTokenService`.
 Phase 2 removed browser-count, last-activity, heartbeat-pause, and adaptive-heartbeat policy from `CoreSocket`; those now live in `EngagementService`.
+Phase 3 removed socket-owned active-adapter state and adapter reader/loader methods; `WorldBootstrapper` now owns the active adapter.
 
 ---
 
@@ -234,26 +232,28 @@ Phase 2 moves browser engagement and heartbeat policy out of `CoreSocket` while 
 
 ### Phase 3: Adapter ownership migration
 
-**Status:** Not started.
+**Status:** Completed May 20, 2026.
 
 Phase 3 moves active adapter ownership out of socket classes.
 
 **Action items:**
 
-- [ ] Add active-adapter ownership to the world service layer. If `WorldBootstrapper` is not ready yet, add the minimal shell needed for `loadActiveAdapter(systemId)`, `getActiveAdapter()`, and `clearActiveAdapter(reason?)`.
+- [x] Add active-adapter ownership to the world service layer. If `WorldBootstrapper` is not ready yet, add the minimal shell needed for `loadActiveAdapter(systemId)`, `getActiveAdapter()`, and `clearActiveAdapter(reason?)`.
   Files: `src/server/services/world/WorldBootstrapper.ts`, `src/server/services/world/index.ts`.
 
-- [ ] Migrate route-client actor update validation to read the active adapter from `SystemService` / `WorldBootstrapper`, not from the request socket.
+- [x] Migrate route-client actor update validation to read the active adapter from `SystemService` / `WorldBootstrapper`, not from the request socket.
   Files: `src/server/shared/utils/createRouteFoundryClient.ts`, `src/tests/unit/actors/actor-store.test.ts` or a focused route-client test.
 
-- [ ] Remove `getSystemAdapter()` and `loadSystemAdapter(systemId)` from `CoreSocket`, the `ClientSocket` delegation, and socket-facing interfaces.
+- [x] Remove `getSystemAdapter()` and `loadSystemAdapter(systemId)` from `CoreSocket`, the `ClientSocket` delegation, and socket-facing interfaces.
   Files: `src/server/core/foundry/sockets/CoreSocket.ts`, `src/server/core/foundry/sockets/ClientSocket.ts`, `src/server/core/foundry/interfaces.ts`.
 
-- [ ] Update comments/docs that still describe adapter ownership as socket-owned.
+- [x] Update comments/docs that still describe adapter ownership as socket-owned.
   Files: `docs/adr/0014-non-document-world-state-and-socket-boundary.md`, `docs/adr/0017-world-bootstrap-and-lifecycle-orchestration.md`, touched code comments.
 
-- [ ] Verify Phase 3 with unit/type checks and adapter audits.
+- [x] Verify Phase 3 with unit/type checks and adapter audits.
   Commands: `npm run test:unit`; `npx tsc --noEmit`; `git diff --check`; `rg -n "getSystemAdapter|loadSystemAdapter|private adapter" src/server`.
+
+**Phase 3 implementation note:** `WorldBootstrapper` now owns the active adapter cache and exposes `loadActiveAdapter(systemId)`, `getActiveAdapter()`, and `clearActiveAdapter(reason?)`. `SystemService` remains the facade for route code. `CoreSocket` still reaches the adapter-load point during the legacy connect flow, but it delegates the load/cache to `WorldBootstrapper` and no longer exposes adapter methods. Route actor-update validation reads `SystemService.getActiveAdapter()`.
 
 **Non-goals for Phase 3:**
 
@@ -442,7 +442,7 @@ This ADR is fulfilled when world bootstrap and readiness are service-owned and s
 
 - [x] Phase 1: `SyncTokenService` replaces `CoreSocket.lastActorChange`.
 - [x] Phase 2: `EngagementService` owns browser engagement and heartbeat policy.
-- [ ] Phase 3: active adapter ownership moves out of sockets.
+- [x] Phase 3: active adapter ownership moves out of sockets.
 - [ ] Phase 4: `WorldBootstrapper` owns bootstrap orchestration behind behavior-preserving timing.
 - [ ] Phase 5: `active` is delayed until Sheet Delver bootstrap completes and `CoreSocket.connect()` no longer seeds application Stores.
 - [ ] Phase 6: closure audits pass and ADR-0017 status flips to **Accepted**.

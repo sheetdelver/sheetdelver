@@ -22,7 +22,6 @@ import { createActorNormalizationService } from '@server/services/actors/ActorNo
 import { createSystemRouteFoundryClient } from '@server/shared/utils/createRouteFoundryClient';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
 import { logger } from '@shared/utils/logger';
-import { getAdapter } from '@modules/registry/server';
 import { SystemStatusPayload } from '@/shared/contracts/status';
 
 type GetSystemStatusPayload = () => Promise<SystemStatusPayload>;
@@ -107,7 +106,7 @@ export function registerRoutes(deps: RegisterRoutesDeps): void {
 
     registerSystemRoutes(appRouter, {
         getSystemClient: () => systemService.getSystemClient(),
-        getAdapter
+        getAdapter: (systemId) => systemService.getAdapter(systemId)
     });
 
     registerActorRoutes(appRouter, {

@@ -1,11 +1,12 @@
 import { EventEmitter } from 'node:events';
 import { CoreSocket } from '../foundry/sockets/CoreSocket';
 import { FoundryConfig } from '../foundry/types';
-import { hasDiscoveryConfig, hasInitialize } from '@modules/registry/types';
+import { hasDiscoveryConfig, hasInitialize, type SystemAdapter } from '@modules/registry/types';
 import { logger } from '@shared/utils/logger';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
-import { getAdapter, getRegisteredModules } from '@modules/registry/server';
+import { getRegisteredModules } from '@modules/registry/server';
 import { CompendiumService, discoveryService } from '@server/services/compendium';
+import { worldBootstrapper } from '@server/services/world';
 import { CompendiumCache, compendiumStore } from '../compendium';
 import { worldStateStore } from '@server/core/world/WorldStateStore';
 import { worldLifecycleStore } from '@server/core/world/WorldLifecycleStore';
@@ -257,6 +258,7 @@ export class SystemService extends EventEmitter {
         clearDocumentCache('world-disconnected');
         compendiumStore.clear('world-disconnected');
         CompendiumCache.getInstance().reset();
+        worldBootstrapper.clearActiveAdapter('world-disconnected');
     }
 
     /**
@@ -294,7 +296,7 @@ export class SystemService extends EventEmitter {
                     const sysId = sysInfo.id.toLowerCase();
                     const registered = getRegisteredModules({ includeExperimental: true });
                     const moduleInfo = registered.find(m => m.id.toLowerCase() === sysId);
-                    const adapter = await getAdapter(sysId);
+                    const adapter = await worldBootstrapper.loadActiveAdapter(sysId);
 
                     let discoveryConfig = moduleInfo?.discovery;
 
@@ -345,13 +347,23 @@ export class SystemService extends EventEmitter {
         return this.initialized;
     }
 
-    public async getAdapter(): Promise<any> {
+    public getActiveAdapter(): SystemAdapter | null {
+        return worldBootstrapper.getActiveAdapter();
+    }
+
+    public async getAdapter(systemId?: string): Promise<SystemAdapter | null> {
         if (!this.systemClient) return null;
-        // Adapter resolution depends on the active world's system id, but the
-        // adapter lifecycle/cached reference moves later with ADR-0017.
-        const sysInfo = worldStateStore.getSystem();
-        if (!sysInfo?.id) return null;
-        return getAdapter(sysInfo.id.toLowerCase());
+        // Adapter resolution is service-owned. This method remains as the
+        // SystemService facade for routes that need adapter-provided data.
+        const requestedSystemId = systemId?.toLowerCase();
+        const active = worldBootstrapper.getActiveAdapter();
+        if (active && (!requestedSystemId || worldBootstrapper.getActiveSystemId() === requestedSystemId)) {
+            return active;
+        }
+
+        const resolvedSystemId = systemId || worldStateStore.getSystem()?.id;
+        if (!resolvedSystemId) return null;
+        return worldBootstrapper.loadActiveAdapter(resolvedSystemId);
     }
 }
 

@@ -22,7 +22,6 @@ export interface FoundryClient {
 
     getCurrentUserId(): string | null;
     getSystemData(): Promise<any>;
-    getSystemAdapter(): any;
 
     dispatchDocument(type: string, action: string, operation?: any, parent?: { type: string, id: string }): Promise<any>;
     dispatchDocumentSocket(type: string, action: string, data?: any, parent?: any): Promise<any>;

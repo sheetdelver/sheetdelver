@@ -1,7 +1,6 @@
 import { io } from 'socket.io-client';
 import { SocketBase } from './SocketBase';
 import { logger } from '@shared/utils/logger';
-import { systemService } from '../../system/SystemService';
 import { FoundryConfig } from '../types';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
@@ -159,9 +158,9 @@ export class ClientSocket extends SocketBase {
     }
 
     // --- Public API / transport helpers ---
-    // Remaining delegation is later-ADR scope: adapter ownership moves in
-    // ADR-0017. UUID routing moved to DocumentResolver in ADR-0016, so this
-    // user socket exposes only transport-level document helpers.
+    // UUID routing moved to DocumentResolver in ADR-0016 and adapter ownership
+    // moved to WorldBootstrapper in ADR-0017 Phase 3, so this user socket
+    // exposes only transport-level document helpers.
 
     public async emitSocketEvent<T>(event: string, payload: any, timeoutMs: number = 5000): Promise<T> {
         if (!this.socket || !this.isConnected) throw new Error(`Not connected to Foundry`);
@@ -204,12 +203,6 @@ export class ClientSocket extends SocketBase {
 
     public async dispatchDocumentSocket(type: string, action: string, data?: any, parent?: any): Promise<any> {
         return this.dispatchDocument(type, action, data, parent);
-    }
-
-    public getSystemAdapter() {
-        // Adapter ownership moves to WorldBootstrapper in ADR-0017. Until then,
-        // callers still reach the CoreSocket-held adapter through SystemService.
-        return systemService.getSystemClient().getSystemAdapter();
     }
 
     private setupSocketRelays(socket: any) {

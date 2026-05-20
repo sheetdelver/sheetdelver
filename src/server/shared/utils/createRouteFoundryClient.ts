@@ -80,11 +80,13 @@ function ensureActorStoreReady(): void {
 }
 
 function filterActorUpdatePayload(
-    client: RouteSocketClient,
     actorId: string,
     payload: Record<string, unknown>,
 ): Record<string, unknown> | null {
-    const adapter = client.getSystemAdapter();
+    // ADR-0017 Phase 3: route validation reads the service-owned active
+    // adapter. Request sockets are transport only and no longer carry adapter
+    // lifecycle state.
+    const adapter = systemService.getActiveAdapter();
     if (!adapter?.validateUpdate) return payload;
 
     const filteredData: Record<string, unknown> = {};
@@ -248,7 +250,7 @@ function createBaseRouteFoundryClient(client: RouteSocketClient): RouteFoundryCl
         createActor: (actorData: Record<string, unknown> | Array<Record<string, unknown>>) => actorRepository.createActor(actorData),
         deleteActor: (actorId: string) => actorRepository.deleteActor(actorId),
         updateActor: async (actorId: string, payload: Record<string, unknown>) => {
-            const filteredPayload = filterActorUpdatePayload(client, actorId, payload);
+            const filteredPayload = filterActorUpdatePayload(actorId, payload);
             if (!filteredPayload) return { success: true, message: 'No sanctioned updates' };
             return actorRepository.updateActor(actorId, filteredPayload);
         },
