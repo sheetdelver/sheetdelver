@@ -12,6 +12,8 @@ function adapter(id: string): SystemAdapter {
     };
 }
 
+const markLifecycleActive = () => undefined;
+
 async function runActiveAdapterLoadAndReuse() {
     const calls: string[] = [];
     const shadowdark = adapter('shadowdark');
@@ -100,6 +102,7 @@ async function runBootstrapOrderingAndReadyCallback() {
             order.push(`context:${systemId}`);
             return {} as ModuleContext;
         },
+        markLifecycleActive,
     });
 
     const result = await bootstrapper.bootstrap({} as any, {
@@ -126,6 +129,77 @@ async function runBootstrapOrderingAndReadyCallback() {
     assert.deepEqual(repeatedResult, { ready: true, systemId: 'SyntheticSystem' });
 }
 
+async function runBootstrapAcceptsSnapshotBeforeServiceWork() {
+    const order: string[] = [];
+    let currentSystem: { id?: string } | null = null;
+
+    const bootstrapper = new WorldBootstrapper({
+        getBootstrapSnapshot: async () => {
+            order.push('snapshot');
+            return {
+                gameData: {
+                    world: { id: 'world-1', title: 'Synthetic World' },
+                    system: { id: 'SyntheticSystem' },
+                    userId: 'gm-user',
+                    users: [{ _id: 'user-1', name: 'Player', role: 1, active: true }],
+                    activeUsers: ['user-1'],
+                },
+                sceneData: {
+                    scene1: { background: { src: 'worlds/synthetic/scene.webp' } },
+                },
+            };
+        },
+        seedWorldSnapshot: (snapshot) => {
+            order.push(`seed-world:${snapshot.gameData.system?.id}`);
+            currentSystem = { id: snapshot.gameData.system?.id };
+        },
+        seedUserSnapshot: async (snapshot) => {
+            const count = Array.isArray(snapshot.gameData.users) ? snapshot.gameData.users.length : 0;
+            order.push(`seed-users:${count}`);
+        },
+        createCompendiumService: () => ({
+            discoverIndices: async () => {
+                order.push('discover');
+                return [];
+            },
+            getPackEntries: async () => [],
+        }),
+        rebuildCompendiumCache: () => {
+            order.push('rebuild');
+        },
+        getSystem: () => currentSystem,
+        getRegisteredModules: () => [],
+        loadAdapter: async (systemId) => {
+            order.push(`load-adapter:${systemId}`);
+            return null;
+        },
+        seedDocuments: async () => {
+            order.push('seed-docs');
+        },
+        markLifecycleActive: (systemId) => {
+            order.push(`active:${systemId}`);
+        },
+    });
+
+    await bootstrapper.bootstrap({} as any, {
+        onReady: ({ systemId }) => {
+            order.push(`ready:${systemId}`);
+        },
+    });
+
+    assert.deepEqual(order, [
+        'snapshot',
+        'seed-world:SyntheticSystem',
+        'seed-users:1',
+        'discover',
+        'rebuild',
+        'load-adapter:syntheticsystem',
+        'seed-docs',
+        'active:SyntheticSystem',
+        'ready:SyntheticSystem',
+    ]);
+}
+
 async function runBootstrapSharesConcurrentPromise() {
     let releaseDiscover: (() => void) | undefined;
     const discoverGate = new Promise<void>((resolve) => {
@@ -148,6 +222,7 @@ async function runBootstrapSharesConcurrentPromise() {
         getRegisteredModules: () => [],
         loadAdapter: async () => null,
         seedDocuments: async () => undefined,
+        markLifecycleActive,
     });
 
     const options = {
@@ -159,6 +234,7 @@ async function runBootstrapSharesConcurrentPromise() {
     const secondBootstrap = bootstrapper.bootstrap({} as any, options);
 
     assert.equal(firstBootstrap, secondBootstrap);
+    await Promise.resolve();
     assert.equal(discoverCalls, 1);
     releaseDiscover?.();
 
@@ -187,6 +263,7 @@ async function runBootstrapFailureResetsForRetry() {
             seedAttempts += 1;
             if (seedAttempts === 1) throw new Error('seed failed');
         },
+        markLifecycleActive,
     });
 
     await assert.rejects(
@@ -224,6 +301,7 @@ async function runResetClearsReadinessAndAdapter() {
         getRegisteredModules: () => [],
         loadAdapter: async () => activeAdapter,
         seedDocuments: async () => undefined,
+        markLifecycleActive,
     });
 
     await bootstrapper.bootstrap({} as any);
@@ -243,6 +321,7 @@ export async function run() {
     await runActiveAdapterClearAndReload();
     await runLoadFailureLeavesNoActiveAdapter();
     await runBootstrapOrderingAndReadyCallback();
+    await runBootstrapAcceptsSnapshotBeforeServiceWork();
     await runBootstrapSharesConcurrentPromise();
     await runBootstrapFailureResetsForRetry();
     await runResetClearsReadinessAndAdapter();

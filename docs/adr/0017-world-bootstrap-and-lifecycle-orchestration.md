@@ -1,6 +1,6 @@
 # ADR-0017: World Bootstrap and Lifecycle Orchestration
 
-**Status:** Proposed - Phases 1-4 completed May 20, 2026; Phases 5-6 not started.
+**Status:** Proposed - Phases 1-5 completed May 20, 2026; Phase 6 not started.
 **Date:** May 20, 2026
 **Phase:** World Bootstrap (Phase 4 of the ADR-0014 arc)
 **Supersedes:** None. Consumes ADR-0014 world/lifecycle Stores, ADR-0015 compendium services, and ADR-0016 document resolution.
@@ -27,7 +27,7 @@ This ADR is the fourth decision in the ADR-0014 arc. ADR-0014 moved non-document
 
 ## Context
 
-The codebase now has the right state/service owners, but runtime orchestration is still split across `CoreSocket.connect()` and `WorldBootstrapper.bootstrap()` behind the `SystemService.bootstrap()` facade.
+The codebase now has the right state/service owners, and `WorldBootstrapper.bootstrap()` is the application-readiness boundary behind the `SystemService.bootstrap()` facade.
 
 `CoreSocket.connect()` still does more than establish a Foundry socket:
 
@@ -35,33 +35,35 @@ The codebase now has the right state/service owners, but runtime orchestration i
 - resolves the service account user id
 - logs in
 - opens the socket.io transport
-- checks Foundry world activity
-- fetches `game.data` and scene data
+- checks Foundry world activity and leaves lifecycle in `startup`
+- exposes a raw bootstrap-snapshot fetch for `game.data` and scene data
+- starts the heartbeat transport loop through `EngagementService` policy callbacks
+
+`WorldBootstrapper.bootstrap()` now performs the application bootstrap and readiness transition:
+
+- accepts the connected-world `game.data` / scene snapshot
 - seeds `WorldStateStore`
 - seeds `UserStore` and `UserPresence`
-- asks the world service layer to load the active system adapter
-- starts the heartbeat transport loop through `EngagementService` policy callbacks
-- writes `active` into `WorldLifecycleStore` before `WorldBootstrapper.bootstrap()` completes
-
-`WorldBootstrapper.bootstrap()` now performs the application bootstrap:
-
 - Pathway A compendium discovery
 - Pathway B discovery shard sync
 - primary-document Store seeding through `seedDocumentCache(client)`
 - adapter initialization
+- lifecycle transition to `active`
 - `world:ready` emission
 
-The important semantic bug is lifecycle timing. ADR-0014 defined `active` as "Sheet Delver is ready to serve world-backed requests," but the current code transitions to `active` as soon as Foundry says the world is active, before compendium discovery, primary-document seeds, and adapter initialization complete.
+ADR-0014 defined `active` as "Sheet Delver is ready to serve world-backed requests." Phase 5 now matches that contract: Foundry-active maps to `startup`, and `active` is written only after Sheet Delver bootstrap completes.
 
-The remaining socket-boundary leftovers after Phase 4 are narrow and explicit:
+The remaining socket-boundary leftovers after Phase 5 are narrow and explicit:
 
-- `CoreSocket.connect()` still owns pre-bootstrap world data acceptance, user/presence seeding, and the premature lifecycle transition that belongs above transport.
-- `CoreSocket.connect()` still writes `active` when Foundry reports an active world; Phase 5 tightens that to mean Sheet Delver is application-ready.
+- `CoreSocket.connect()` still owns the handshake/probe/login/raw socket state machine.
+- `CoreSocket` still owns retry/backoff and the raw heartbeat transport loop; `EngagementService` owns the policy inputs.
+- Residual URL/session cleanup belongs to ADR-0018.
 
 Phase 1 removed the previous `CoreSocket.lastActorChange` status leak; `actorSyncToken` now comes from `SyncTokenService`.
 Phase 2 removed browser-count, last-activity, heartbeat-pause, and adaptive-heartbeat policy from `CoreSocket`; those now live in `EngagementService`.
 Phase 3 removed socket-owned active-adapter state and adapter reader/loader methods; `WorldBootstrapper` now owns the active adapter.
 Phase 4 moved compendium discovery, discovery shard sync, primary-document Store seeding, adapter initialization, and readiness tracking out of `SystemService` and into `WorldBootstrapper`. `SystemService` remains the public event/readiness facade.
+Phase 5 moved connected-world snapshot acceptance and user/presence bootstrap into `WorldBootstrapper`, delayed `active` until bootstrap completion, and gates world-backed realtime fan-out on application readiness.
 
 ---
 
@@ -303,32 +305,34 @@ Phase 4 moves `SystemService.bootstrap()` orchestration into `WorldBootstrapper`
 
 ### Phase 5: Delayed active and CoreSocket connect-handler split
 
-**Status:** Not started.
+**Status:** Completed May 20, 2026.
 
 Phase 5 is the semantic change: `active` becomes application-ready, and `CoreSocket.connect()` shrinks toward transport.
 
 **Action items:**
 
-- [ ] Change the world-active socket path to leave `WorldLifecycleStore` in `startup` until `WorldBootstrapper.bootstrap(...)` completes.
+- [x] Change the world-active socket path to leave `WorldLifecycleStore` in `startup` until `WorldBootstrapper.bootstrap(...)` completes.
   Files: `src/server/core/foundry/sockets/CoreSocket.ts`, `src/server/services/world/WorldBootstrapper.ts`, `src/server/core/system/SystemService.ts`.
 
-- [ ] Move game-data and scene-data acceptance into the bootstrap boundary. `CoreSocket` may fetch raw bytes, but `WorldBootstrapper` owns deciding when the snapshot is accepted and when Stores are seeded.
+- [x] Move game-data and scene-data acceptance into the bootstrap boundary. `CoreSocket` may fetch raw bytes, but `WorldBootstrapper` owns deciding when the snapshot is accepted and when Stores are seeded.
   Files: `src/server/core/foundry/sockets/CoreSocket.ts`, `src/server/services/world/WorldBootstrapper.ts`, `src/server/core/world/WorldStateStore.ts` if helper shape changes.
 
-- [ ] Move UserStore/UserPresence bootstrap seeding out of `CoreSocket.connect()` and into `WorldBootstrapper`.
+- [x] Move UserStore/UserPresence bootstrap seeding out of `CoreSocket.connect()` and into `WorldBootstrapper`.
   Files: `src/server/core/foundry/sockets/CoreSocket.ts`, `src/server/services/world/WorldBootstrapper.ts`.
 
-- [ ] Update `SystemService` lifecycle events so `world:connected` can represent transport/world detection and `world:ready` represents app readiness. Status broadcasts should show `startup` during bootstrap and `active` after ready.
+- [x] Update `SystemService` lifecycle events so `world:connected` can represent transport/world detection and `world:ready` represents app readiness. Status broadcasts should show `startup` during bootstrap and `active` after ready.
   Files: `src/server/core/system/SystemService.ts`, `src/server/realtime/SystemStatusBroadcaster.ts`, `src/server/services/status/StatusService.ts`.
 
-- [ ] Gate world-backed realtime/document behavior on application readiness. App socket status payloads may still flow during `startup`; document fan-out and request assumptions must not treat startup as ready.
+- [x] Gate world-backed realtime/document behavior on application readiness. App socket status payloads may still flow during `startup`; document fan-out and request assumptions must not treat startup as ready.
   Files: `src/server/realtime/AppSocketGateway.ts`, `src/server/core/session/SessionManager.ts`, route middleware if needed.
 
-- [ ] Add lifecycle/bootstrapping tests that prove `active` is delayed until compendium discovery, primary Store seed, and adapter initialization complete.
+- [x] Add lifecycle/bootstrapping tests that prove `active` is delayed until compendium discovery, primary Store seed, and adapter initialization complete.
   Files: `src/tests/unit/world/world-bootstrapper.test.ts`, `src/tests/unit/system/system-service-bootstrap.test.ts` if needed.
 
-- [ ] Verify Phase 5 with unit/type checks and lifecycle audits.
+- [x] Verify Phase 5 with unit/type checks and lifecycle audits.
   Commands: `npm run test:unit`; `npx tsc --noEmit`; `git diff --check`; `rg -n "setWorldState\\('active'|setState\\('active'|foundry-world-active" src/server`.
+
+**Phase 5 implementation note:** `CoreSocket` now treats Foundry-active as a bootstrap signal and leaves `WorldLifecycleStore` in `startup`. It exposes `getBootstrapSnapshot()` as a raw transport fetch and no longer seeds `WorldStateStore`, `UserStore`, `UserPresence`, or the adapter from `connect()`. `WorldBootstrapper` accepts the snapshot, seeds world/user state, runs compendium discovery and primary-document seeds, initializes the adapter, marks lifecycle `active`, and then calls the `SystemService` `world:ready` callback. `SystemService` starts the runtime heartbeat after readiness. `AppSocketGateway` still sends status during `startup`, but world-backed realtime fan-out drops until `SystemService.isReady()` is true.
 
 **Non-goals for Phase 5:**
 
@@ -448,7 +452,7 @@ This ADR is fulfilled when world bootstrap and readiness are service-owned and s
 - [x] Phase 2: `EngagementService` owns browser engagement and heartbeat policy.
 - [x] Phase 3: active adapter ownership moves out of sockets.
 - [x] Phase 4: `WorldBootstrapper` owns bootstrap orchestration behind behavior-preserving timing.
-- [ ] Phase 5: `active` is delayed until Sheet Delver bootstrap completes and `CoreSocket.connect()` no longer seeds application Stores.
+- [x] Phase 5: `active` is delayed until Sheet Delver bootstrap completes and `CoreSocket.connect()` no longer seeds application Stores.
 - [ ] Phase 6: closure audits pass and ADR-0017 status flips to **Accepted**.
 - [ ] No tracked tests use real world or compendium dumps as fixtures.
 - [ ] `git diff --check`, `npx tsc --noEmit`, and `npm run test:unit` pass.

@@ -63,8 +63,10 @@ async function runGatewayTests() {
     };
 
     const originalGetSystemClient = (systemService as any).getSystemClient;
+    const originalIsReady = (systemService as any).isReady;
     const originalSetActiveBrowserCount = engagementService.setActiveBrowserCount;
     const browserCounts: number[] = [];
+    let worldReady = true;
 
     try {
         await userStore.seed(async () => [
@@ -75,6 +77,7 @@ async function runGatewayTests() {
             on: (event: string, handler: EventHandler) => systemAttachedHandlers.push({ event, handler }),
             off: (event: string, handler: EventHandler) => systemDetachedHandlers.push({ event, handler }),
         });
+        (systemService as any).isReady = () => worldReady;
         engagementService.setActiveBrowserCount = ((count: number) => {
             browserCounts.push(count);
             return { previousCount: 0, browserCount: count, becameEngaged: count > 0 };
@@ -152,6 +155,17 @@ async function runGatewayTests() {
         assert.equal(systemAttachedHandlers.length, 21);
         assert.ok(browserCounts.includes(1));
 
+        const userChanged = systemAttachedHandlers.find((entry) => entry.event === 'userChanged')?.handler;
+        assert.ok(userChanged);
+
+        worldReady = false;
+        userChanged!({ userId: 'user-1', action: 'update' });
+        assert.equal(emitted.some((entry) => entry.event === 'userChanged'), false);
+
+        worldReady = true;
+        userChanged!({ userId: 'user-1', action: 'update' });
+        assert.equal(emitted.some((entry) => entry.event === 'userChanged'), true);
+
         io.engine.clientsCount = 0;
         disconnectHandler?.();
 
@@ -179,6 +193,7 @@ async function runGatewayTests() {
         assert.equal(guestSocket.rooms.has('authenticated'), false);
     } finally {
         (systemService as any).getSystemClient = originalGetSystemClient;
+        (systemService as any).isReady = originalIsReady;
         engagementService.setActiveBrowserCount = originalSetActiveBrowserCount;
         userStore.clear('app-socket-gateway-test');
     }

@@ -48,7 +48,7 @@ function getRawUserRole(user: RawUser | null | undefined): FoundryUserRole {
  *
  * Presence (`active: boolean`) is **not** in the User document. It's runtime
  * state delivered through `userConnected` / `userDisconnected` / `userActivity`
- * socket events and lives in a separate presence map on `CoreSocket`.
+ * socket events and lives in `UserPresence`.
  */
 export class UserStore extends PrimaryDocumentStore<RawUser> {
     public readonly documentType: PrimaryDocumentType = 'User';

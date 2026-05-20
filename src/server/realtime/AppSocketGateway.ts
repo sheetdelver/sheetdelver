@@ -93,8 +93,13 @@ export function registerAppSocketGateway({
             // Subject builder closes over the current session; ownership checks
             // are dynamic per event (ADR-0012's fan-out rule).
             const getSubject = () => {
+                if (!systemService.isReady()) return null;
                 const userId = socket.userSession?.client.userId;
                 return userStore.createAccessSubject(userId);
+            };
+            const emitWorldBackedEvent = (event: string, payload: unknown) => {
+                if (!systemService.isReady()) return;
+                socket.emit(event, payload);
             };
 
             // Combat document fan-out (Phase 5). CombatStore has no per-doc
@@ -109,13 +114,13 @@ export function registerAppSocketGateway({
                         return;
                     }
                 }
-                socket.emit('combatChanged', data);
+                emitWorldBackedEvent('combatChanged', data);
             };
             const handleCombatListInvalidated = (...args: unknown[]) => {
                 const data = (args[0] || {}) as { reason: string; combatId?: string; targetUserIds?: string[] };
                 const userId = socket.userSession?.client.userId;
                 if (data.targetUserIds && (!userId || !data.targetUserIds.includes(userId))) return;
-                socket.emit('combatListInvalidated', data);
+                emitWorldBackedEvent('combatListInvalidated', data);
             };
             const handleActorChanged = (...args: unknown[]) => {
                 const data = (args[0] || {}) as RealtimeActorChangedPayload;
@@ -127,7 +132,7 @@ export function registerAppSocketGateway({
                         return;
                     }
                 }
-                socket.emit('actorChanged', data);
+                emitWorldBackedEvent('actorChanged', data);
             };
             const handleChatMessageChanged = (...args: unknown[]) => {
                 const data = (args[0] || {}) as { messageId: string; action: 'create' | 'update' | 'delete' };
@@ -139,39 +144,39 @@ export function registerAppSocketGateway({
                         return;
                     }
                 }
-                socket.emit('chatMessageChanged', data);
+                emitWorldBackedEvent('chatMessageChanged', data);
             };
             const handleChatMessageListInvalidated = (...args: unknown[]) => {
                 const data = (args[0] || {}) as { reason: string; messageId?: string; targetUserIds?: string[] };
                 const userId = socket.userSession?.client.userId;
                 if (data.targetUserIds && (!userId || !data.targetUserIds.includes(userId))) return;
-                socket.emit('chatMessageListInvalidated', data);
+                emitWorldBackedEvent('chatMessageListInvalidated', data);
             };
             // User document fan-out. Per ADR-0013 User docs have no per-user
             // ownership map; every authenticated subject sees the roster.
             // `targetUserIds` is honored if present for future-proofing.
             const handleUserChanged = (...args: unknown[]) => {
                 const data = (args[0] || {}) as { userId: string; action: 'create' | 'update' | 'delete' };
-                socket.emit('userChanged', data);
+                emitWorldBackedEvent('userChanged', data);
             };
             const handleUserListInvalidated = (...args: unknown[]) => {
                 const data = (args[0] || {}) as { reason: string; userId?: string; targetUserIds?: string[] };
                 const userId = socket.userSession?.client.userId;
                 if (data.targetUserIds && (!userId || !data.targetUserIds.includes(userId))) return;
-                socket.emit('userListInvalidated', data);
+                emitWorldBackedEvent('userListInvalidated', data);
             };
             // Folder document fan-out. FolderStore emits broadcast-wide today;
             // per-user folder visibility is a Phase 4 concern. Honor targetUserIds
             // if the Store ever populates it.
             const handleFolderChanged = (...args: unknown[]) => {
                 const data = (args[0] || {}) as { folderId: string; action: 'create' | 'update' | 'delete' };
-                socket.emit('folderChanged', data);
+                emitWorldBackedEvent('folderChanged', data);
             };
             const handleFolderListInvalidated = (...args: unknown[]) => {
                 const data = (args[0] || {}) as { reason: string; folderId?: string; targetUserIds?: string[] };
                 const userId = socket.userSession?.client.userId;
                 if (data.targetUserIds && (!userId || !data.targetUserIds.includes(userId))) return;
-                socket.emit('folderListInvalidated', data);
+                emitWorldBackedEvent('folderListInvalidated', data);
             };
             // Journal document fan-out. JournalEntry carries a standard per-user
             // ownership map, so per-document changes get a Store-side ownership
@@ -185,13 +190,13 @@ export function registerAppSocketGateway({
                         return;
                     }
                 }
-                socket.emit('journalChanged', data);
+                emitWorldBackedEvent('journalChanged', data);
             };
             const handleJournalListInvalidated = (...args: unknown[]) => {
                 const data = (args[0] || {}) as { reason: string; journalId?: string; targetUserIds?: string[] };
                 const userId = socket.userSession?.client.userId;
                 if (data.targetUserIds && (!userId || !data.targetUserIds.includes(userId))) return;
-                socket.emit('journalListInvalidated', data);
+                emitWorldBackedEvent('journalListInvalidated', data);
             };
             // World Item document fan-out (Phase 6). ItemStore uses the standard
             // ownership map; `canReadDocument` enforces it per-socket. Deletes
@@ -205,13 +210,13 @@ export function registerAppSocketGateway({
                         return;
                     }
                 }
-                socket.emit('itemChanged', data);
+                emitWorldBackedEvent('itemChanged', data);
             };
             const handleItemListInvalidated = (...args: unknown[]) => {
                 const data = (args[0] || {}) as { reason: string; itemId?: string; targetUserIds?: string[] };
                 const userId = socket.userSession?.client.userId;
                 if (data.targetUserIds && (!userId || !data.targetUserIds.includes(userId))) return;
-                socket.emit('itemListInvalidated', data);
+                emitWorldBackedEvent('itemListInvalidated', data);
             };
             // RollTable document fan-out (Phase 7). Standard ownership map;
             // `canReadDocument` enforces per-socket. Deletes bypass so a
@@ -224,13 +229,13 @@ export function registerAppSocketGateway({
                         return;
                     }
                 }
-                socket.emit('rollTableChanged', data);
+                emitWorldBackedEvent('rollTableChanged', data);
             };
             const handleRollTableListInvalidated = (...args: unknown[]) => {
                 const data = (args[0] || {}) as { reason: string; rollTableId?: string; targetUserIds?: string[] };
                 const userId = socket.userSession?.client.userId;
                 if (data.targetUserIds && (!userId || !data.targetUserIds.includes(userId))) return;
-                socket.emit('rollTableListInvalidated', data);
+                emitWorldBackedEvent('rollTableListInvalidated', data);
             };
             // Macro document fan-out (Phase 7). Standard ownership map.
             const handleMacroChanged = (...args: unknown[]) => {
@@ -241,13 +246,13 @@ export function registerAppSocketGateway({
                         return;
                     }
                 }
-                socket.emit('macroChanged', data);
+                emitWorldBackedEvent('macroChanged', data);
             };
             const handleMacroListInvalidated = (...args: unknown[]) => {
                 const data = (args[0] || {}) as { reason: string; macroId?: string; targetUserIds?: string[] };
                 const userId = socket.userSession?.client.userId;
                 if (data.targetUserIds && (!userId || !data.targetUserIds.includes(userId))) return;
-                socket.emit('macroListInvalidated', data);
+                emitWorldBackedEvent('macroListInvalidated', data);
             };
             // Playlist document fan-out (Phase 7). Standard ownership map.
             const handlePlaylistChanged = (...args: unknown[]) => {
@@ -258,13 +263,13 @@ export function registerAppSocketGateway({
                         return;
                     }
                 }
-                socket.emit('playlistChanged', data);
+                emitWorldBackedEvent('playlistChanged', data);
             };
             const handlePlaylistListInvalidated = (...args: unknown[]) => {
                 const data = (args[0] || {}) as { reason: string; playlistId?: string; targetUserIds?: string[] };
                 const userId = socket.userSession?.client.userId;
                 if (data.targetUserIds && (!userId || !data.targetUserIds.includes(userId))) return;
-                socket.emit('playlistListInvalidated', data);
+                emitWorldBackedEvent('playlistListInvalidated', data);
             };
             // Cards document fan-out (Phase 7). Standard ownership map.
             // Cross-Cards-doc transfers (`Cards#pass`) arrive as paired events
@@ -277,13 +282,13 @@ export function registerAppSocketGateway({
                         return;
                     }
                 }
-                socket.emit('cardsChanged', data);
+                emitWorldBackedEvent('cardsChanged', data);
             };
             const handleCardsListInvalidated = (...args: unknown[]) => {
                 const data = (args[0] || {}) as { reason: string; cardsId?: string; targetUserIds?: string[] };
                 const userId = socket.userSession?.client.userId;
                 if (data.targetUserIds && (!userId || !data.targetUserIds.includes(userId))) return;
-                socket.emit('cardsListInvalidated', data);
+                emitWorldBackedEvent('cardsListInvalidated', data);
             };
             // ADR-0014 Phase 3: shared-content fan-out now subscribes to
             // SharedContentStore directly. The socket listeners in SocketBase
@@ -292,7 +297,7 @@ export function registerAppSocketGateway({
             // out to every browser socket as the existing `sharedContentUpdate`
             // wire event (callers unchanged).
             const handleSharedUpdate = (event: SharedContentChangedEvent) => {
-                socket.emit('sharedContentUpdate', event.payload ?? { type: null });
+                emitWorldBackedEvent('sharedContentUpdate', event.payload ?? { type: null });
             };
 
             // Store events are bridged through the system client, not per-user

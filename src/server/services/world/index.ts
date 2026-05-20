@@ -14,6 +14,7 @@ export {
     type WorldBootstrapOptions,
     type WorldBootstrapReadyEvent,
     type WorldBootstrapResult,
+    type WorldBootstrapSnapshot,
     type WorldBootstrapTransport,
     type WorldBootstrapperDeps,
 } from './WorldBootstrapper';

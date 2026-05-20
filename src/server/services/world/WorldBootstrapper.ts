@@ -8,8 +8,12 @@ import {
 import { CompendiumCache, compendiumStore } from '@server/core/compendium';
 import type { CompendiumDiscoveryResult } from '@server/core/compendium/types';
 import { seedDocumentCache } from '@server/core/documents/primary/PrimaryDocumentCacheCoordinator';
+import { userPresence } from '@server/core/documents/primary/users/UserPresence';
+import { userStore } from '@server/core/documents/primary/users/UserStore';
 import type { CoreSocket } from '@server/core/foundry/sockets/CoreSocket';
+import { worldLifecycleStore } from '@server/core/world/WorldLifecycleStore';
 import { worldStateStore } from '@server/core/world/WorldStateStore';
+import type { GameData, SceneDataCache } from '@server/core/world/types';
 import {
     CompendiumService,
     discoveryService,
@@ -20,9 +24,13 @@ import {
 import { logger } from '@shared/utils/logger';
 import type { DiscoveryConfig, ModuleContext } from '@shared/sdk';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
+import type { RawUser } from '@server/shared/types/users';
 
 export interface WorldBootstrapperDeps {
     loadAdapter?: (systemId: string) => Promise<SystemAdapter | null>;
+    getBootstrapSnapshot?: (transport: WorldBootstrapTransport) => Promise<WorldBootstrapSnapshot | null>;
+    seedWorldSnapshot?: (snapshot: WorldBootstrapSnapshot) => void;
+    seedUserSnapshot?: (snapshot: WorldBootstrapSnapshot) => Promise<void>;
     createCompendiumService?: (transport: WorldBootstrapTransport) => BootstrapCompendiumService;
     rebuildCompendiumCache?: (indices: CompendiumDiscoveryResult[]) => void;
     getSystem?: () => { id?: string | null } | null;
@@ -35,9 +43,17 @@ export interface WorldBootstrapperDeps {
     ) => Promise<void>;
     seedDocuments?: (transport: WorldBootstrapTransport) => Promise<void>;
     createModuleContext?: (systemId: string) => Promise<ModuleContext>;
+    markLifecycleActive?: (systemId?: string) => void;
 }
 
-export type WorldBootstrapTransport = CompendiumTransport & DiscoverySyncClient;
+export interface WorldBootstrapSnapshot {
+    gameData: GameData;
+    sceneData?: SceneDataCache | null;
+}
+
+export type WorldBootstrapTransport = CompendiumTransport & DiscoverySyncClient & {
+    getBootstrapSnapshot?(): Promise<WorldBootstrapSnapshot | null>;
+};
 
 export type BootstrapCompendiumService = DiscoveryPackReader & {
     discoverIndices(): Promise<CompendiumDiscoveryResult[]>;
@@ -65,6 +81,9 @@ export interface WorldBootstrapOptions {
  */
 export class WorldBootstrapper {
     private readonly loadAdapter: (systemId: string) => Promise<SystemAdapter | null>;
+    private readonly getBootstrapSnapshot: (transport: WorldBootstrapTransport) => Promise<WorldBootstrapSnapshot | null>;
+    private readonly seedWorldSnapshot: (snapshot: WorldBootstrapSnapshot) => void;
+    private readonly seedUserSnapshot: (snapshot: WorldBootstrapSnapshot) => Promise<void>;
     private readonly createCompendiumService: (transport: WorldBootstrapTransport) => BootstrapCompendiumService;
     private readonly rebuildCompendiumCache: (indices: CompendiumDiscoveryResult[]) => void;
     private readonly getSystem: () => { id?: string | null } | null;
@@ -77,6 +96,7 @@ export class WorldBootstrapper {
     ) => Promise<void>;
     private readonly seedDocuments: (transport: WorldBootstrapTransport) => Promise<void>;
     private readonly createModuleContext: (systemId: string) => Promise<ModuleContext>;
+    private readonly markLifecycleActive: (systemId?: string) => void;
     private activeSystemId: string | null = null;
     private activeAdapter: SystemAdapter | null = null;
     private ready = false;
@@ -84,6 +104,34 @@ export class WorldBootstrapper {
 
     public constructor(deps: WorldBootstrapperDeps = {}) {
         this.loadAdapter = deps.loadAdapter ?? ((systemId) => getAdapter(systemId));
+        this.getBootstrapSnapshot = deps.getBootstrapSnapshot ?? (async (transport) => {
+            if (typeof transport.getBootstrapSnapshot !== 'function') return null;
+
+            const snapshot = await transport.getBootstrapSnapshot();
+            if (!snapshot?.gameData) {
+                throw new Error('World bootstrap snapshot unavailable');
+            }
+
+            return snapshot;
+        });
+        this.seedWorldSnapshot = deps.seedWorldSnapshot ?? ((snapshot) => {
+            worldStateStore.seed(snapshot.gameData, { sceneData: snapshot.sceneData ?? null });
+        });
+        this.seedUserSnapshot = deps.seedUserSnapshot ?? (async (snapshot) => {
+            if (Array.isArray(snapshot.gameData.users)) {
+                const users: RawUser[] = snapshot.gameData.users.map((user) => {
+                    const { active: _presenceOnly, ...document } = user as RawUser & { active?: unknown };
+                    void _presenceOnly;
+                    return document;
+                });
+                await userStore.seed(async () => users);
+            }
+
+            const activeUserIds = Array.isArray(snapshot.gameData.activeUsers)
+                ? snapshot.gameData.activeUsers
+                : [];
+            userPresence.setActiveUsers(activeUserIds);
+        });
         this.createCompendiumService = deps.createCompendiumService ?? ((transport) => new CompendiumService({
             transport,
             store: compendiumStore,
@@ -101,6 +149,9 @@ export class WorldBootstrapper {
         this.createModuleContext = deps.createModuleContext ?? (async (systemId) => {
             const { createModuleContext } = await import('@server/shared/utils/createModuleContext');
             return createModuleContext(systemId);
+        });
+        this.markLifecycleActive = deps.markLifecycleActive ?? ((systemId) => {
+            worldLifecycleStore.setState('active', systemId ? `world-bootstrap-ready:${systemId}` : 'world-bootstrap-ready');
         });
     }
 
@@ -141,6 +192,15 @@ export class WorldBootstrapper {
         logger.info('WorldBootstrapper | Beginning world bootstrap...');
 
         try {
+            const snapshot = await this.getBootstrapSnapshot(transport);
+            if (snapshot) {
+                // CoreSocket may fetch the raw bytes, but this is the acceptance
+                // boundary: Stores become current only when bootstrap seeds the
+                // connected-world snapshot.
+                this.seedWorldSnapshot(snapshot);
+                await this.seedUserSnapshot(snapshot);
+            }
+
             // Pathway A compendium discovery warms Store-backed pack indices,
             // then rebuilds the legacy UUID-name cache from those results.
             const compendiumService = this.createCompendiumService(transport);
@@ -174,15 +234,17 @@ export class WorldBootstrapper {
                     await adapter.initialize(context);
                 }
 
-                await options.onReady?.({ systemId: sysInfo.id });
                 this.ready = true;
                 this.bootstrapPromise = null;
+                this.markLifecycleActive(sysInfo.id);
+                await options.onReady?.({ systemId: sysInfo.id });
                 logger.info('WorldBootstrapper | World bootstrap complete.');
                 return { ready: true, systemId: sysInfo.id };
             }
 
             this.ready = true;
             this.bootstrapPromise = null;
+            this.markLifecycleActive();
             logger.info('WorldBootstrapper | World bootstrap complete.');
             return { ready: true };
         } catch (error) {

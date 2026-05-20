@@ -122,6 +122,14 @@ primaryDocumentCacheCoordinator.register({
 primaryDocumentCacheCoordinator.register({
     type: 'User',
     async seed(client) {
+        // ADR-0017 Phase 5: WorldBootstrapper seeds UserStore from the accepted
+        // game.data snapshot before the generic primary-document sweep. When
+        // that snapshot was available, avoid an unnecessary second User.get.
+        if (userStore.isReady()) {
+            logger.info(`PrimaryDocumentCacheCoordinator | UserStore already seeded from bootstrap snapshot (${userStore.list().length} users).`);
+            return;
+        }
+
         await userStore.seed(async () => {
             // Foundry's `User.get` returns the full roster. Per ADR-0013 user docs
             // carry no per-user ownership map; presence (`active`) is delivered

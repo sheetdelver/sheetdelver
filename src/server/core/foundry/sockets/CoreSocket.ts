@@ -13,10 +13,9 @@ import { modifyDocumentRouter } from '@server/core/documents/primary/base/modify
 import { worldStateStore } from '@server/core/world/WorldStateStore';
 import { worldLifecycleStore, type WorldLifecycleState } from '@server/core/world/WorldLifecycleStore';
 import { sharedContentStore } from '@server/core/world/SharedContentStore';
-import { engagementService, worldBootstrapper } from '@server/services/world';
+import { engagementService, type WorldBootstrapSnapshot } from '@server/services/world';
 // Side-effect import: registers Stores with the coordinator and router.
 import '@server/core/documents/primary/PrimaryDocumentCacheCoordinator';
-import type { RawUser } from '@server/shared/types/users';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
@@ -149,15 +148,15 @@ export class CoreSocket extends SocketBase {
      * Request Scene data from server and return it.
      * Extracts scenes from the world data already fetched
      */
-    private async fetchSceneData(): Promise<any> {
+    private async fetchSceneData(worldData?: any): Promise<any> {
         if (!this.socket || !this.socket.connected) return null;
         try {
             // Scenes are already included in the world data
-            const worldData = await this.getWorldData();
-            if (worldData && worldData.scenes) {
+            const data = worldData ?? await this.getWorldData();
+            if (data && data.scenes) {
                 // Convert scenes array to map by ID for easier lookup
                 const sceneMap: any = {};
-                worldData.scenes.forEach((scene: any) => {
+                data.scenes.forEach((scene: any) => {
                     sceneMap[scene._id || scene.id] = scene;
                 });
                 return sceneMap;
@@ -167,6 +166,27 @@ export class CoreSocket extends SocketBase {
             logger.warn(`CoreSocket | Failed to fetch scene data: ${getErrorMessage(error)}`);
             return null;
         }
+    }
+
+    public async getBootstrapSnapshot(): Promise<WorldBootstrapSnapshot | null> {
+        logger.info('CoreSocket | Fetching game data via socket for bootstrap...');
+        const gameData = await this.getWorldData();
+        if (!gameData) return null;
+
+        const sceneData = await this.fetchSceneData(gameData);
+        this.gameDataCache = gameData;
+        this.sceneDataCache = sceneData;
+        if (gameData.userId) {
+            this.userId = gameData.userId;
+        }
+
+        if (sceneData) {
+            logger.info('CoreSocket | Scene Data fetched for bootstrap');
+        } else {
+            logger.warn('CoreSocket | Scene data unavailable during bootstrap');
+        }
+
+        return { gameData, sceneData };
     }
 
 
@@ -223,9 +243,9 @@ export class CoreSocket extends SocketBase {
 
             if (joinData && joinData.world) {
                 logger.info(`CoreSocket | Discovered world "${joinData.world.title}" via Probe.`);
-                // Stay in 'startup' — world is alive but we haven't completed login yet.
-                // Do NOT set 'active' here; that only happens after the socket connects
-                // and getWorldStatus() confirms the world is fully active.
+                // Stay in 'startup' — world is alive but we haven't completed
+                // login or Sheet Delver bootstrap yet. `active` is written by
+                // WorldBootstrapper only after Stores and the adapter are ready.
                 this.setWorldState('startup', 'probe-world-discovered');
                 this.probeWorldData = joinData.world;  // Cache for UI surface during recovery
                 this.probeUserCount = Array.isArray(joinData.users) ? joinData.users.length : 0;
@@ -234,7 +254,7 @@ export class CoreSocket extends SocketBase {
                 worldStateStore.setProbeData(joinData.world, this.probeUserCount);
                 // Probe-time user data stays on the local joinData object — it's used
                 // only for service-account name resolution (below). UserStore is seeded
-                // properly at the gameData step after the main socket connects.
+                // by WorldBootstrapper after the main socket connects.
             } else {
                 this.setWorldState('offline', 'probe-world-missing');
 
@@ -337,61 +357,11 @@ export class CoreSocket extends SocketBase {
                         return;
                     }
 
-                    logger.info('CoreSocket | World is ACTIVE. Fetching game data via socket...');
-                    this.setWorldState('active', 'foundry-world-active');
+                    logger.info('CoreSocket | Foundry world is ACTIVE. Handing application bootstrap to WorldBootstrapper...');
+                    this.setWorldState('startup', 'foundry-world-active');
                     this.probeWorldData = null;  // Full connection established; probe cache no longer needed
                     this.probeUserCount = 0;
                     worldStateStore.clearProbeData();
-
-                    // 6. Fetch Game Data via Socket (The canonical bootstrap way)
-                    const gameData = await this.getWorldData();
-                    const sceneData = await this.fetchSceneData();
-
-                    // 7. Start Heartbeat ONLY after bootstrapping is complete
-                    this.startHeartbeat();
-                    // DEFERRED: We no longer emit 'connect' here, as gameDataCache isn't set yet.
-                    // This prevents bootstrapping races.
-                    if (gameData) {
-                        this.gameDataCache = gameData;
-                        if (sceneData) {
-                            this.sceneDataCache = sceneData;
-                            logger.info('CoreSocket | Scene Data cached');
-                        } else {
-                            logger.warn('CoreSocket | Scene data unavailable');
-                        }
-                        // This is the ADR-0014 handoff: CoreSocket still fetches
-                        // the wire payload, but WorldStateStore owns the read model.
-                        worldStateStore.seed(gameData, { sceneData: sceneData || null });
-                        if (gameData.users) {
-                            // Seed the UserStore with the User-document set from this snapshot.
-                            // Document fields only — presence (`active`) is tracked separately.
-                            // Coordinator may re-seed during bootstrap; both paths are idempotent.
-                            const snapshot: RawUser[] = gameData.users.map((u: any) => {
-                                const { active: _stripActive, ...doc } = u;
-                                void _stripActive;
-                                return doc as RawUser;
-                            });
-                            await userStore.seed(async () => snapshot);
-
-                            // Populate presence from activeUsers — ephemeral, not a doc field.
-                            const activeIds: unknown[] = Array.isArray(gameData.activeUsers) ? gameData.activeUsers : [];
-                            userPresence.setActiveUsers(activeIds);
-                        }
-                        if (gameData.userId) {
-                            this.userId = gameData.userId;
-                        }
-
-                        const systemId = gameData.system?.id || gameData.system?.name;
-                        if (systemId) {
-                            // Adapter ownership is service-side now. CoreSocket
-                            // still reaches this point in the legacy bootstrap
-                            // flow, so preserve timing while moving the cache.
-                            await worldBootstrapper.loadActiveAdapter(systemId);
-                        }
-                        logger.info(`CoreSocket | Game Data Loaded via Socket (User: ${this.userId})`);
-                    } else {
-                        logger.error('CoreSocket | Failed to fetch game data via socket event (session.getData).');
-                    }
 
                     clearTimeout(timeout);
                     this.emit('connect');
@@ -588,6 +558,10 @@ export class CoreSocket extends SocketBase {
         // The route/compendium transport shape stays stable, while the pause
         // state itself is owned by EngagementService.
         return engagementService.withHeartbeatPaused(operation);
+    }
+
+    public startRuntimeHeartbeat(): void {
+        this.startHeartbeat();
     }
 
     public disconnect() {

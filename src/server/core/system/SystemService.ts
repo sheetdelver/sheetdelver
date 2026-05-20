@@ -238,7 +238,7 @@ export class SystemService extends EventEmitter {
         
         this.emit('world:connected', { state });
 
-        if (state === 'active') {
+        if (state === 'startup' || (state === 'active' && !this.isReady())) {
             this.bootstrap().catch(err => {
                 logger.error(`SystemService | Bootstrap failed: ${err.message}`);
             });
@@ -262,6 +262,7 @@ export class SystemService extends EventEmitter {
         if (!this.systemClient) throw new Error("SystemService not initialized");
         await worldBootstrapper.bootstrap(this.systemClient, {
             onReady: ({ systemId }) => {
+                this.systemClient?.startRuntimeHeartbeat();
                 this.emit('world:ready', { systemId });
             },
         });
