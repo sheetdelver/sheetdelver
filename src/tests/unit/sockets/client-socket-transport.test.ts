@@ -27,8 +27,32 @@ async function runClientSocketTransportTests() {
     }
 }
 
+async function runRestoredCredentialConnectIsTransportOnly() {
+    class TestClientSocket extends ClientSocket {
+        public connectCalls = 0;
+
+        async connect(): Promise<void> {
+            this.connectCalls += 1;
+            this.isSocketConnected = true;
+        }
+    }
+
+    const client = new TestClientSocket({ url: 'http://foundry.example', username: 'player' });
+
+    await client.connectWithRestoredCredential({
+        userId: 'user-1',
+        cookie: 'session=abc123; foundry=xyz',
+    });
+
+    assert.equal(client.connectCalls, 1);
+    assert.equal(client.userId, 'user-1');
+    assert.equal(client.isExplicitSession, true);
+    assert.equal(client.getSessionCookie(), 'session=abc123; foundry=xyz');
+}
+
 export async function run() {
     await runClientSocketTransportTests();
+    await runRestoredCredentialConnectIsTransportOnly();
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

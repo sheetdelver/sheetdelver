@@ -12,6 +12,9 @@ import { run as runChatService } from './services/chat-service.test';
 import { run as runSyncTokenService } from './services/sync-token-service.test';
 import { run as runEngagementService } from './services/engagement-service.test';
 
+// ── session ──────────────────────────────────────────────────────────────────
+import { run as runSessionManagerRestore } from './session/session-manager-restore.test';
+
 // ── sockets ───────────────────────────────────────────────────────────────────
 import { run as runRealtimeBroadcaster } from './sockets/realtime-broadcaster.test';
 import { run as runAppSocketGateway } from './sockets/app-socket-gateway.test';
@@ -105,6 +108,7 @@ async function runAllUnitTests() {
     runLocalhostPolicy();
     runSyncTokenService();
     await runEngagementService();
+    await runSessionManagerRestore();
     await runAuthStatusSmoke();
     await runActorCombatSmoke();
     await runActorStore();

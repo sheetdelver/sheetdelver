@@ -159,6 +159,27 @@ export abstract class SocketBase extends EventEmitter {
         return undefined;
     }
 
+    protected hydrateCookieHeader(cookie: string, options: { replace?: boolean } = {}): void {
+        // Restored-session cookies arrive as a browser Cookie header, not as
+        // Set-Cookie response headers. Keep the parsing here because cookie
+        // header state is transport mechanics shared by user/socket clients.
+        if (options.replace !== false) {
+            this.cookieMap.clear();
+        }
+
+        for (const part of cookie.split(';')) {
+            const trimmed = part.trim();
+            const separatorIndex = trimmed.indexOf('=');
+            if (separatorIndex <= 0) continue;
+
+            const key = trimmed.slice(0, separatorIndex).trim();
+            const value = trimmed.slice(separatorIndex + 1).trim();
+            if (key) this.cookieMap.set(key, value);
+        }
+
+        this.sessionCookie = Array.from(this.cookieMap.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
+    }
+
     protected async probeWorldState(baseUrl: string): Promise<any> {
         logger.info(`[${this.constructor.name}] Probing world state (Socket + API)...`);
 

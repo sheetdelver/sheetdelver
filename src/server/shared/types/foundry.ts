@@ -41,6 +41,11 @@ export interface FoundryClientLike {
     off(event: string, handler: (...args: unknown[]) => void): void;
 }
 
+export interface RestoredFoundrySessionCredential {
+    userId: string;
+    cookie: string;
+}
+
 export interface FoundrySystemClientLike {
     isConnected: boolean;
     url: string;

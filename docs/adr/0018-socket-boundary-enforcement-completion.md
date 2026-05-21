@@ -1,6 +1,6 @@
 # ADR-0018: Socket Boundary Enforcement Completion
 
-**Status:** Proposed - Phases 1-2 completed May 21, 2026.
+**Status:** Proposed - Phases 1-3 completed May 21, 2026.
 **Date:** May 20, 2026
 **Phase:** Socket Boundary Completion (Phase 5 of the ADR-0014 arc)
 **Supersedes:** None. Consumes ADR-0014 world/lifecycle Stores, ADR-0015 compendium services, ADR-0016 document resolution, and ADR-0017 bootstrap orchestration.
@@ -196,35 +196,37 @@ Phase 2 removes URL projection from socket classes.
 
 ### Phase 3: ClientSocket session restore ownership split
 
-**Status:** Not started.
+**Status:** Completed May 21, 2026.
 
 Phase 3 moves session restore policy out of `ClientSocket` and removes socket-side session validation.
 
 **Action items:**
 
-- [ ] Define a narrow restored-session credential shape for reconnecting a user socket.
+- [x] Define a narrow restored-session credential shape for reconnecting a user socket.
   Files: `src/server/core/session/SessionManager.ts`, `src/server/shared/types/foundry.ts` or a focused session type file if useful.
 
-- [ ] Move cached-session record interpretation, world-id validation, and restore retry policy fully into `SessionManager`.
+- [x] Move cached-session record interpretation, world-id validation, and restore retry policy fully into `SessionManager`.
   Files: `src/server/core/session/SessionManager.ts`.
 
-- [ ] Add per-session in-flight restore de-duplication to `SessionManager.getOrRestoreSession(...)`. Concurrent calls for the same token must share one restore promise and return the same in-memory session instead of creating multiple `ClientSocket` / presence-anchor connections.
+- [x] Add per-session in-flight restore de-duplication to `SessionManager.getOrRestoreSession(...)`. Concurrent calls for the same token must share one restore promise and return the same in-memory session instead of creating multiple `ClientSocket` / presence-anchor connections.
   Files: `src/server/core/session/SessionManager.ts`.
 
-- [ ] Replace `ClientSocket.restoreSession(cookie, userId)` with a transport-shaped method that accepts an already validated credential and reconnects. It may still hydrate socket cookie state internally because cookie headers are transport mechanics; it must not own cache/session policy.
+- [x] Replace `ClientSocket.restoreSession(cookie, userId)` with a transport-shaped method that accepts an already validated credential and reconnects. It may still hydrate socket cookie state internally because cookie headers are transport mechanics; it must not own cache/session policy.
   Files: `src/server/core/foundry/sockets/ClientSocket.ts`, `src/server/core/foundry/sockets/SocketBase.ts` if a cookie-hydration helper is useful.
 
-- [ ] Ensure failed restore attempts clear any in-flight restore entry and disconnect any partially connected client before returning `undefined`.
+- [x] Ensure failed restore attempts clear any in-flight restore entry and disconnect any partially connected client before returning `undefined`.
   Files: `src/server/core/session/SessionManager.ts`, `src/server/core/foundry/sockets/ClientSocket.ts`.
 
-- [ ] Remove `ClientSocket.validateSession(...)`; world/session validation belongs to `SessionManager`.
+- [x] Remove `ClientSocket.validateSession(...)`; world/session validation belongs to `SessionManager`.
   Files: `src/server/core/foundry/sockets/ClientSocket.ts`, `src/server/core/session/SessionManager.ts`.
 
-- [ ] Add or update unit coverage for restored-session reconnect, concurrent restore de-duplication, world-id mismatch purge, startup restore deferral, and fail-closed user dispatch.
+- [x] Add or update unit coverage for restored-session reconnect, concurrent restore de-duplication, world-id mismatch purge, startup restore deferral, and fail-closed user dispatch.
   Files: `src/tests/unit/session/session-manager-restore.test.ts` or existing session tests, `src/tests/unit/sockets/client-socket-transport.test.ts`, `src/tests/unit/run.ts`.
 
-- [ ] Verify Phase 3 with unit/type checks and session-surface audits.
+- [x] Verify Phase 3 with unit/type checks and session-surface audits.
   Commands: `npm run test:unit`; `npx tsc --noEmit`; `git diff --check`; `rg -n "restoreSession\\(|validateSession\\(" src/server src/tests`.
+
+**Phase 3 implementation note:** `SessionManager` now converts cached records into a narrow `RestoredFoundrySessionCredential`, validates the cached world id before creating a user transport, owns restore retries, and stores one in-flight restore promise per session token so parallel HTTP/API/socket auth paths share the same restored session. `ClientSocket.connectWithRestoredCredential(...)` only hydrates cookie transport state and connects; `SocketBase.hydrateCookieHeader(...)` owns restored Cookie-header parsing because that state is transport mechanics. Failed restore attempts disconnect any partially created client and clear the in-flight guard before returning `undefined`.
 
 **Non-goals for Phase 3:**
 
@@ -368,7 +370,7 @@ This ADR is fulfilled when residual utility/session concerns are removed from so
 
 - [x] Phase 1: Foundry URL utilities exist with tests; `SocketBase` wrappers delegate to them.
 - [x] Phase 2: URL projection callers migrate; `SocketBase.resolveUrl` / `resolveHtml` are gone.
-- [ ] Phase 3: `SessionManager` owns session restore policy, validation, and restore concurrency; `ClientSocket` owns only restored-session reconnect mechanics; `validateSession` is gone.
+- [x] Phase 3: `SessionManager` owns session restore policy, validation, and restore concurrency; `ClientSocket` owns only restored-session reconnect mechanics; `validateSession` is gone.
 - [ ] Phase 4: socket-facing interfaces and debug/session touchpoints match the final socket shape.
 - [ ] Phase 5: closure docs and audits pass; ADR-0018 status flips to **Accepted**.
 - [ ] No tracked tests use real world or compendium dumps as fixtures.

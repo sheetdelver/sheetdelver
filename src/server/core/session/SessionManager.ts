@@ -10,6 +10,7 @@ import { persistentCache } from '../cache/PersistentCache';
 import { systemService } from '../system/SystemService';
 import { worldStateStore } from '@server/core/world/WorldStateStore';
 import { worldLifecycleStore } from '@server/core/world/WorldLifecycleStore';
+import type { RestoredFoundrySessionCredential } from '@server/shared/types/foundry';
 
 interface Session {
     id: string;
@@ -21,9 +22,20 @@ interface Session {
     cookie?: string;
 }
 
+// Persistent cache shape. This stays interpreted here so ClientSocket only
+// receives the already validated wire credential it needs to reconnect.
+interface CachedSessionRecord {
+    username?: string;
+    userId?: string;
+    cookie?: string;
+    worldId?: string;
+    lastSaved?: number;
+}
+
 export class SessionManager {
     private config: FoundryConfig;
     private sessions: Map<string, Session> = new Map();
+    private restorePromises: Map<string, Promise<Session | undefined>> = new Map();
     private readonly SESSION_TIMEOUT_MS = 1000 * 60 * 60 * 24; // 24 Hours
     private readonly CACHE_NS = 'core';
     private readonly CACHE_KEY = 'sessions';
@@ -113,9 +125,7 @@ export class SessionManager {
                 return session;
             }
             // If not in memory, try to restore from disk without strict world verification
-            return this.tryRestoreSession(sessionId).then(restored => 
-                restored ? this.sessions.get(sessionId) : undefined
-            );
+            return this.restoreSessionFromCache(sessionId, 1);
         }
 
         // Check for active session in memory
@@ -142,18 +152,7 @@ export class SessionManager {
             return session;
         }
 
-        // Try to restore from disk with minor retries (for transient startup/world discovery issues)
-        for (let i = 0; i < 3; i++) {
-            const restored = await this.tryRestoreSession(sessionId);
-            if (restored && restored.sessionId === sessionId) {
-                return this.sessions.get(sessionId);
-            }
-            if (i < 2) {
-                await this.waitForRestoreBackoff(i);
-            }
-        }
-
-        return undefined;
+        return this.restoreSessionFromCache(sessionId, 3);
     }
 
     public async destroySession(sessionId: string) {
@@ -180,26 +179,58 @@ export class SessionManager {
         return this.sessions.has(sessionId);
     }
 
-    public async tryRestoreSession(username: string): Promise<{ client: ClientSocket, userId: string, sessionId: string } | null> {
+    private restoreSessionFromCache(sessionId: string, maxAttempts: number): Promise<Session | undefined> {
+        const existingRestore = this.restorePromises.get(sessionId);
+        if (existingRestore) return existingRestore;
+
+        // HTTP status, REST auth middleware, and Socket.IO auth can all ask
+        // for the same token during startup. This guard makes them share one
+        // restore attempt instead of creating duplicate user presence sockets.
+        const restorePromise = this.restoreSessionFromCacheWithRetries(sessionId, maxAttempts)
+            .finally(() => {
+                this.restorePromises.delete(sessionId);
+            });
+
+        this.restorePromises.set(sessionId, restorePromise);
+        return restorePromise;
+    }
+
+    private async restoreSessionFromCacheWithRetries(sessionId: string, maxAttempts: number): Promise<Session | undefined> {
+        for (let i = 0; i < maxAttempts; i++) {
+            const restored = await this.tryRestoreSession(sessionId);
+            if (restored && restored.sessionId === sessionId) {
+                return this.sessions.get(sessionId);
+            }
+            if (i < maxAttempts - 1) {
+                await this.waitForRestoreBackoff(i);
+            }
+        }
+
+        return undefined;
+    }
+
+    private async tryRestoreSession(sessionId: string): Promise<{ client: ClientSocket, userId: string, sessionId: string } | null> {
+        let client: ClientSocket | null = null;
         try {
             const cached = await this.loadSessions();
             if (!cached) return null;
 
-            const sessionData = cached[username];
+            const sessionData = cached[sessionId];
             if (!sessionData) return null;
 
-            if (!sessionData.cookie || !sessionData.userId) {
-                return null;
-            }
+            const credential = this.toRestoredCredential(sessionData);
+            if (!credential) return null;
 
-            const foundryUsername = sessionData.username || username;
+            const foundryUsername = sessionData.username || sessionId;
 
-            // Check World State via System Provider
+            // World/session matching is restore policy, not socket behavior.
+            // Only connect a user transport once the cached session is known
+            // to belong to the active world.
             let currentWorldId = worldStateStore.getCurrentWorldId();
 
             const lifecycleState = worldLifecycleStore.getState();
             if (!currentWorldId && (lifecycleState === 'startup' || lifecycleState === 'active')) {
-                logger.debug(`SessionManager | World not yet stable. Waiting for ID to restore session ${username}...`);
+                logger.debug(`SessionManager | World not yet stable. Waiting for ID to restore session ${sessionId}...`);
                 for (let i = 0; i < 5; i++) {
                     await this.waitForRestoreBackoff(i);
                     currentWorldId = worldStateStore.getCurrentWorldId();
@@ -209,36 +240,46 @@ export class SessionManager {
 
             // Strict Validation: ONLY purge if we are 100% sure we have an ACTUAL mismatch
             if (currentWorldId && sessionData.worldId && currentWorldId !== sessionData.worldId) {
-                logger.warn(`SessionManager | World mismatch (Current: ${currentWorldId}, Session: ${sessionData.worldId}). Purging key ${username}.`);
-                await this.clearSession(username);
+                logger.warn(`SessionManager | World mismatch (Current: ${currentWorldId}, Session: ${sessionData.worldId}). Purging key ${sessionId}.`);
+                await this.clearSession(sessionId);
                 return null;
             }
 
             if (!currentWorldId) {
-                logger.debug(`SessionManager | Deferring restoration for ${username} - World ID still unknown. (State: ${lifecycleState})`);
+                logger.debug(`SessionManager | Deferring restoration for ${sessionId} - World ID still unknown. (State: ${lifecycleState})`);
                 return null; 
             }
 
-            const client = new ClientSocket({
+            client = new ClientSocket({
                 ...this.config,
                 username: foundryUsername,
             });
 
-            await client.restoreSession(sessionData.cookie, sessionData.userId);
+            await client.connectWithRestoredCredential(credential);
 
-            const sessionId = username;
             this.sessions.set(sessionId, {
-                id: sessionId, client, userId: sessionData.userId,
+                id: sessionId, client, userId: credential.userId,
                 username: foundryUsername, lastActive: Date.now(),
-                worldId: sessionData.worldId, cookie: sessionData.cookie
+                worldId: sessionData.worldId, cookie: credential.cookie
             });
 
-            return { client, userId: sessionData.userId, sessionId };
+            return { client, userId: credential.userId, sessionId };
 
         } catch (e) {
             logger.error(`SessionManager | Error during session restoration: ${e}`);
+            client?.disconnect();
             return null;
         }
+    }
+
+    private toRestoredCredential(sessionData: CachedSessionRecord): RestoredFoundrySessionCredential | null {
+        // The transport only needs a Cookie header and Foundry user id. Cache
+        // timestamps, usernames, and world ids remain SessionManager policy.
+        if (!sessionData.cookie || !sessionData.userId) return null;
+        return {
+            cookie: sessionData.cookie,
+            userId: sessionData.userId,
+        };
     }
 
     private async saveSession(key: string, client: any, foundryUsername?: string) {
@@ -264,9 +305,9 @@ export class SessionManager {
         }
     }
 
-    private async loadSessions(): Promise<Record<string, any> | null> {
+    private async loadSessions(): Promise<Record<string, CachedSessionRecord> | null> {
         try {
-            return await persistentCache.get<Record<string, any>>(this.CACHE_NS, this.CACHE_KEY) || {};
+            return await persistentCache.get<Record<string, CachedSessionRecord>>(this.CACHE_NS, this.CACHE_KEY) || {};
         } catch (e) {
             logger.error(`SessionManager | CRITICAL: Failed to load sessions: ${e}`);
             return null; // Signals failure, do not overwrite

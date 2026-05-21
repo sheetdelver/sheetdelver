@@ -5,11 +5,12 @@ import { FoundryConfig } from '../types';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
 import { worldStateStore } from '@server/core/world/WorldStateStore';
+import type { RestoredFoundrySessionCredential } from '@server/shared/types/foundry';
 
 export class ClientSocket extends SocketBase {
     public userId: string | null = null;
     public isExplicitSession: boolean = false;
-    private isRestored: boolean = false;
+    private hasRestoredCredential: boolean = false;
 
     constructor(config: FoundryConfig) {
         super(config);
@@ -21,13 +22,13 @@ export class ClientSocket extends SocketBase {
         logger.info(`ClientSocket | Connecting Presence Anchor for user ${this.config.username}...`);
 
         try {
-            const restoredCookie = this.isRestored ? this.sessionCookie : null;
+            const restoredCookie = this.hasRestoredCredential ? this.sessionCookie : null;
 
             // 1. Handshake & CSRF
             const { csrfToken, isSetupMatch } = await this.performHandshake(baseUrl);
 
-            if (this.isRestored && restoredCookie) {
-                this.updateCookies(restoredCookie);
+            if (this.hasRestoredCredential && restoredCookie) {
+                this.hydrateCookieHeader(restoredCookie, { replace: false });
                 logger.debug(`ClientSocket | Restored authenticated cookie after handshake`);
             }
 
@@ -58,7 +59,7 @@ export class ClientSocket extends SocketBase {
             }
 
             // 3. Login (Skip if we already have a session cookie from restoration)
-            if (!this.isRestored) {
+            if (!this.hasRestoredCredential) {
                 await this.performLogin(baseUrl, this.userId, csrfToken);
             } else {
                 logger.info(`ClientSocket | Bypassing login, using restored session cookie for ${this.userId}`);
@@ -129,32 +130,18 @@ export class ClientSocket extends SocketBase {
         if (username) this.config.username = username;
         if (password) this.config.password = password;
         this.isExplicitSession = true;
+        this.hasRestoredCredential = false;
         await this.connect();
     }
 
-    public async restoreSession(cookie: string, userId: string): Promise<void> {
-        logger.info(`ClientSocket | Restoring session for user ${userId}...`);
-        this.userId = userId;
-        this.sessionCookie = cookie;
+    public async connectWithRestoredCredential(credential: RestoredFoundrySessionCredential): Promise<void> {
+        logger.info(`ClientSocket | Connecting with restored credential for user ${credential.userId}...`);
+        this.userId = credential.userId;
         this.isExplicitSession = true;
-        this.isRestored = true;
-
-        // Populate cookieMap from existing cookie string
-        const parts = cookie.split(';');
-        parts.forEach(p => {
-            const [k, v] = p.split('=');
-            if (k && v) this.cookieMap.set(k.trim(), v.trim());
-        });
+        this.hasRestoredCredential = true;
+        this.hydrateCookieHeader(credential.cookie);
 
         await this.connect();
-    }
-
-    public async validateSession(expectedWorldId: string): Promise<boolean> {
-        if (!this.isConnected || !this.userId) return false;
-        // Session/world matching reads the Store, not CoreSocket, so a user
-        // presence socket does not depend on transport-owned world metadata.
-        const currentWorldId = worldStateStore.getCurrentWorldId();
-        return currentWorldId === expectedWorldId;
     }
 
     // --- Public API / transport helpers ---
