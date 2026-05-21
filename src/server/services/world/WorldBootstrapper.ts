@@ -25,6 +25,11 @@ import { logger } from '@shared/utils/logger';
 import type { DiscoveryConfig, ModuleContext } from '@shared/sdk';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
 import type { RawUser } from '@server/shared/types/users';
+import {
+    assertFoundryVersionSupported,
+    evaluateFoundryVersionCompatibility,
+    type FoundryVersionCompatibilityResult,
+} from './foundryVersionCompatibility';
 
 export interface WorldBootstrapperDeps {
     loadAdapter?: (systemId: string) => Promise<SystemAdapter | null>;
@@ -44,6 +49,8 @@ export interface WorldBootstrapperDeps {
     seedDocuments?: (transport: WorldBootstrapTransport) => Promise<void>;
     createModuleContext?: (systemId: string) => Promise<ModuleContext>;
     markLifecycleActive?: (systemId?: string) => void;
+    markLifecycleClosed?: (reason: string) => void;
+    evaluateCompatibility?: typeof evaluateFoundryVersionCompatibility;
 }
 
 export interface WorldBootstrapSnapshot {
@@ -96,6 +103,8 @@ export class WorldBootstrapper {
     private readonly seedDocuments: (transport: WorldBootstrapTransport) => Promise<void>;
     private readonly createModuleContext: (systemId: string) => Promise<ModuleContext>;
     private readonly markLifecycleActive: (systemId?: string) => void;
+    private readonly markLifecycleClosed: (reason: string) => void;
+    private readonly evaluateCompatibility: typeof evaluateFoundryVersionCompatibility;
     private activeSystemId: string | null = null;
     private activeAdapter: SystemAdapter | null = null;
     private ready = false;
@@ -152,6 +161,10 @@ export class WorldBootstrapper {
         this.markLifecycleActive = deps.markLifecycleActive ?? ((systemId) => {
             worldLifecycleStore.setState('active', systemId ? `world-bootstrap-ready:${systemId}` : 'world-bootstrap-ready');
         });
+        this.markLifecycleClosed = deps.markLifecycleClosed ?? ((reason) => {
+            worldLifecycleStore.setState('closed', reason);
+        });
+        this.evaluateCompatibility = deps.evaluateCompatibility ?? evaluateFoundryVersionCompatibility;
     }
 
     public bootstrap(transport: WorldBootstrapTransport, options: WorldBootstrapOptions = {}): Promise<WorldBootstrapResult> {
@@ -193,9 +206,13 @@ export class WorldBootstrapper {
         try {
             const snapshot = await this.getBootstrapSnapshot(transport);
             if (snapshot) {
-                // CoreSocket may fetch the raw bytes, but this is the acceptance
-                // boundary: Stores become current only when bootstrap seeds the
-                // connected-world snapshot.
+                // Compatibility is evaluated while the snapshot is still raw.
+                // Older known-bad shapes must fail before Stores become current;
+                // newer/unknown shapes proceed with a warning for operators.
+                this.handleCompatibilityResult(this.evaluateCompatibility(snapshot.gameData.release));
+
+                // CoreSocket may fetch the raw bytes, but this is the Store
+                // acceptance boundary for the connected-world snapshot.
                 this.seedWorldSnapshot(snapshot);
                 await this.seedUserSnapshot(snapshot);
             }
@@ -299,6 +316,23 @@ export class WorldBootstrapper {
         logger.debug(`WorldBootstrapper | Clearing active adapter (${reason})`);
         this.activeSystemId = null;
         this.activeAdapter = null;
+    }
+
+    private handleCompatibilityResult(compatibility: FoundryVersionCompatibilityResult): void {
+        if (compatibility.status === 'unsupported') {
+            this.markLifecycleClosed(this.getUnsupportedLifecycleReason(compatibility));
+        }
+
+        assertFoundryVersionSupported(compatibility);
+
+        if (compatibility.status === 'newer-untested' || compatibility.status === 'unknown') {
+            logger.warn(`WorldBootstrapper | ${compatibility.message}`);
+        }
+    }
+
+    private getUnsupportedLifecycleReason(compatibility: FoundryVersionCompatibilityResult): string {
+        const generation = compatibility.generation ?? 'unknown';
+        return `unsupported-foundry-generation:${generation}:min-${compatibility.minGeneration}`;
     }
 }
 

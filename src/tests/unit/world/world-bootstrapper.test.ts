@@ -1,7 +1,11 @@
 import { strict as assert } from 'node:assert';
-import { WorldBootstrapper } from '@server/services/world';
+import {
+    UnsupportedFoundryVersionError,
+    WorldBootstrapper,
+} from '@server/services/world';
 import type { SystemAdapter } from '@modules/registry/types';
 import type { ModuleContext } from '@shared/sdk';
+import { logger } from '@shared/utils/logger';
 
 function adapter(id: string): SystemAdapter {
     return {
@@ -13,6 +17,73 @@ function adapter(id: string): SystemAdapter {
 }
 
 const markLifecycleActive = () => undefined;
+const MISSING_GENERATION = Symbol('missing-generation');
+
+function createBootstrapSnapshot(generation: unknown = 13): any {
+    const release = generation === MISSING_GENERATION ? {} : { generation };
+
+    return {
+        gameData: {
+            world: { id: 'world-1', title: 'Synthetic World' },
+            system: { id: 'SyntheticSystem' },
+            release,
+            userId: 'gm-user',
+            users: [{ _id: 'user-1', name: 'Player', role: 1, active: true }],
+            activeUsers: ['user-1'],
+        },
+        sceneData: {
+            scene1: { background: { src: 'worlds/synthetic/scene.webp' } },
+        },
+    };
+}
+
+function createCompatibilityBootstrapper(
+    getGeneration: () => unknown,
+    events: string[],
+): WorldBootstrapper {
+    let currentSystem: { id?: string } | null = null;
+
+    return new WorldBootstrapper({
+        getBootstrapSnapshot: async () => {
+            const generation = getGeneration();
+            events.push(`snapshot:${String(generation)}`);
+            return createBootstrapSnapshot(generation);
+        },
+        seedWorldSnapshot: (snapshot) => {
+            events.push(`seed-world:${snapshot.gameData.system?.id}`);
+            currentSystem = { id: snapshot.gameData.system?.id };
+        },
+        seedUserSnapshot: async (snapshot) => {
+            const count = Array.isArray(snapshot.gameData.users) ? snapshot.gameData.users.length : 0;
+            events.push(`seed-users:${count}`);
+        },
+        createCompendiumService: () => ({
+            discoverIndices: async () => {
+                events.push('discover');
+                return [];
+            },
+            getPackEntries: async () => [],
+        }),
+        rebuildCompendiumCache: () => {
+            events.push('rebuild');
+        },
+        getSystem: () => currentSystem,
+        getRegisteredModules: () => [],
+        loadAdapter: async (systemId) => {
+            events.push(`load-adapter:${systemId}`);
+            return null;
+        },
+        seedDocuments: async () => {
+            events.push('seed-docs');
+        },
+        markLifecycleActive: (systemId) => {
+            events.push(`active:${systemId}`);
+        },
+        markLifecycleClosed: (reason) => {
+            events.push(`closed:${reason}`);
+        },
+    });
+}
 
 async function runActiveAdapterLoadAndReuse() {
     const calls: string[] = [];
@@ -136,18 +207,7 @@ async function runBootstrapAcceptsSnapshotBeforeServiceWork() {
     const bootstrapper = new WorldBootstrapper({
         getBootstrapSnapshot: async () => {
             order.push('snapshot');
-            return {
-                gameData: {
-                    world: { id: 'world-1', title: 'Synthetic World' },
-                    system: { id: 'SyntheticSystem' },
-                    userId: 'gm-user',
-                    users: [{ _id: 'user-1', name: 'Player', role: 1, active: true }],
-                    activeUsers: ['user-1'],
-                },
-                sceneData: {
-                    scene1: { background: { src: 'worlds/synthetic/scene.webp' } },
-                },
-            };
+            return createBootstrapSnapshot(13);
         },
         seedWorldSnapshot: (snapshot) => {
             order.push(`seed-world:${snapshot.gameData.system?.id}`);
@@ -198,6 +258,88 @@ async function runBootstrapAcceptsSnapshotBeforeServiceWork() {
         'active:SyntheticSystem',
         'ready:SyntheticSystem',
     ]);
+}
+
+async function runBootstrapRejectsUnsupportedGenerationBeforeStoreSeeding() {
+    let generation: unknown = 12;
+    const order: string[] = [];
+    const bootstrapper = createCompatibilityBootstrapper(() => generation, order);
+
+    await assert.rejects(
+        () => bootstrapper.bootstrap({} as any),
+        (error) => {
+            assert.ok(error instanceof UnsupportedFoundryVersionError);
+            assert.equal(error.compatibility.status, 'unsupported');
+            assert.equal(error.compatibility.generation, 12);
+            return true;
+        },
+    );
+
+    assert.deepEqual(order, [
+        'snapshot:12',
+        'closed:unsupported-foundry-generation:12:min-13',
+    ]);
+    assert.equal(bootstrapper.isReady(), false);
+
+    // The rejected run must not poison later retries.
+    order.length = 0;
+    generation = 13;
+    await bootstrapper.bootstrap({} as any);
+
+    assert.deepEqual(order, [
+        'snapshot:13',
+        'seed-world:SyntheticSystem',
+        'seed-users:1',
+        'discover',
+        'rebuild',
+        'load-adapter:syntheticsystem',
+        'seed-docs',
+        'active:SyntheticSystem',
+    ]);
+    assert.equal(bootstrapper.isReady(), true);
+}
+
+async function runBootstrapWarnsAndProceedsForNewerAndUnknownGeneration() {
+    const warnings: string[] = [];
+    const originalWarn = logger.warn;
+
+    try {
+        logger.warn = ((message: string, ...args: unknown[]) => {
+            warnings.push([message, ...args.map(String)].join(' '));
+        }) as typeof logger.warn;
+
+        const newerOrder: string[] = [];
+        const newer = createCompatibilityBootstrapper(() => 14, newerOrder);
+        await newer.bootstrap({} as any);
+
+        assert.equal(newer.isReady(), true);
+        assert.deepEqual(newerOrder.slice(0, 3), [
+            'snapshot:14',
+            'seed-world:SyntheticSystem',
+            'seed-users:1',
+        ]);
+        assert.equal(
+            warnings.some((entry) => entry.includes('generation 14') && entry.includes('newer than known maximum')),
+            true,
+        );
+
+        const unknownOrder: string[] = [];
+        const unknown = createCompatibilityBootstrapper(() => MISSING_GENERATION, unknownOrder);
+        await unknown.bootstrap({} as any);
+
+        assert.equal(unknown.isReady(), true);
+        assert.deepEqual(unknownOrder.slice(0, 3), [
+            `snapshot:${String(MISSING_GENERATION)}`,
+            'seed-world:SyntheticSystem',
+            'seed-users:1',
+        ]);
+        assert.equal(
+            warnings.some((entry) => entry.includes('generation is unavailable or invalid')),
+            true,
+        );
+    } finally {
+        logger.warn = originalWarn;
+    }
 }
 
 async function runBootstrapSharesConcurrentPromise() {
@@ -322,6 +464,8 @@ export async function run() {
     await runLoadFailureLeavesNoActiveAdapter();
     await runBootstrapOrderingAndReadyCallback();
     await runBootstrapAcceptsSnapshotBeforeServiceWork();
+    await runBootstrapRejectsUnsupportedGenerationBeforeStoreSeeding();
+    await runBootstrapWarnsAndProceedsForNewerAndUnknownGeneration();
     await runBootstrapSharesConcurrentPromise();
     await runBootstrapFailureResetsForRetry();
     await runResetClearsReadinessAndAdapter();

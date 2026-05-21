@@ -83,25 +83,25 @@ Phase 1 defines the policy primitives without wiring them into bootstrap.
 
 ### Phase 2: Bootstrap compatibility gate
 
-**Status:** Not started.
+**Status:** Completed May 21, 2026.
 
 Phase 2 makes `WorldBootstrapper` enforce the policy before accepting a connected-world snapshot into Stores.
 
 **Action items:**
 
-- [ ] Run the compatibility evaluator immediately after `getBootstrapSnapshot(...)` returns and before `seedWorldSnapshot(...)`.
+- [x] Run the compatibility evaluator immediately after `getBootstrapSnapshot(...)` returns and before `seedWorldSnapshot(...)`.
   Files: `src/server/services/world/WorldBootstrapper.ts`.
 
-- [ ] Refuse unsupported older generations with the typed error, leave bootstrap `ready=false`, clear the in-flight bootstrap promise, and transition lifecycle to `closed` with a descriptive reason.
+- [x] Refuse unsupported older generations with the typed error, leave bootstrap `ready=false`, clear the in-flight bootstrap promise, and transition lifecycle to `closed` with a descriptive reason.
   Files: `src/server/services/world/WorldBootstrapper.ts`, `src/server/core/world/WorldLifecycleStore.ts` only if a helper is needed.
 
-- [ ] Warn and proceed for newer untested generations and unknown generation.
+- [x] Warn and proceed for newer untested generations and unknown generation.
   Files: `src/server/services/world/WorldBootstrapper.ts`.
 
-- [ ] Add unit coverage for refused older generation, warning-only newer generation, unknown generation, and normal v13 bootstrap.
+- [x] Add unit coverage for refused older generation, warning-only newer generation, unknown generation, and normal v13 bootstrap.
   Files: `src/tests/unit/world/world-bootstrapper.test.ts`, compatibility policy tests.
 
-- [ ] Verify Phase 2 with unit/type checks.
+- [x] Verify Phase 2 with unit/type checks.
   Commands: `npm run test:unit`; `npx tsc --noEmit`; `git diff --check`.
 
 **Non-goals for Phase 2:**
@@ -109,6 +109,8 @@ Phase 2 makes `WorldBootstrapper` enforce the policy before accepting a connecte
 - No public status/admin surface yet.
 - No adapter-level compatibility constraints.
 - No changes to `CoreSocket` transport behavior.
+
+**Phase 2 implementation note:** `WorldBootstrapper` now evaluates `snapshot.gameData.release` before Store acceptance. Generation `12` and other below-min generations mark lifecycle `closed` with `unsupported-foundry-generation:<generation>:min-13`, throw `UnsupportedFoundryVersionError`, keep `ready=false`, and leave the bootstrapper retryable. Generation `13` proceeds normally. Newer and unknown generations log warnings and continue through Store seeding, discovery, primary-document seed, adapter initialization, and readiness.
 
 **Exit for Phase 2:** known-unsupported Foundry generations cannot become active Store state; v13 bootstraps normally; newer/unknown generations produce warnings but do not block bootstrap.
 
@@ -231,7 +233,7 @@ Rejected for core Foundry generation compatibility. Adapters can add system/modu
 ADR-0019 is fulfilled when Foundry generation compatibility is explicit and enforced at bootstrap.
 
 - [x] Phase 1: compatibility policy primitives exist with tests.
-- [ ] Phase 2: `WorldBootstrapper` gates unsupported older generations before Store seeding.
+- [x] Phase 2: `WorldBootstrapper` gates unsupported older generations before Store seeding.
 - [ ] Phase 3: status/admin diagnostics expose compatibility state.
 - [ ] Phase 4: closure docs and audits pass; ADR-0019 status flips to **Accepted**.
 - [ ] `git diff --check`, `npx tsc --noEmit`, and `npm run test:unit` pass.
