@@ -153,6 +153,7 @@ async function main() {
             connector: 'socket',
             username: answers.foundryUsername,
             password: answers.foundryPassword,
+            "allow-live-compendium-uuid-fallback": false,
             ...(answers.foundryDataDir ? { foundryDataDirectory: answers.foundryDataDir } : {})
         },
         debug: {

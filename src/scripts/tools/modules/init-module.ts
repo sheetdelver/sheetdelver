@@ -146,6 +146,7 @@ jobs:
               connector: socket
               username: gamemaster
               password: gamemaster
+              allow-live-compendium-uuid-fallback: false
               foundryDataDirectory: foundryData
           debug:
               enabled: true
