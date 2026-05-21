@@ -4,7 +4,7 @@
 **Date:** May 20, 2026
 **Phase:** Socket Boundary Completion (Phase 5 of the ADR-0014 arc)
 **Supersedes:** None. Consumes ADR-0014 world/lifecycle Stores, ADR-0015 compendium services, ADR-0016 document resolution, and ADR-0017 bootstrap orchestration.
-**Related:** ADR-0011 (primary document model), ADR-0014 (non-document world state and socket boundary), ADR-0015 (compendium architecture), ADR-0016 (document resolution), ADR-0017 (world bootstrap), ADR-0019 (deferred Foundry version compatibility).
+**Related:** ADR-0011 (primary document model), ADR-0014 (non-document world state and socket boundary), ADR-0015 (compendium architecture), ADR-0016 (document resolution), ADR-0017 (world bootstrap), ADR-0019 (Foundry version compatibility).
 
 ---
 
@@ -21,7 +21,7 @@ ADR-0018 is the closure pass. It removes residual utility/session concerns from 
 | ADR-0016 - Document Resolution and UUID Routing | `DocumentResolver`; removes `fetchByUuid` from `CoreSocket` and `ClientSocket`; parses world, embedded, and compendium UUIDs; delegates compendium lookup to ADR-0015 shard/fallback primitives. | ADR-0015 |
 | ADR-0017 - World Bootstrap and Lifecycle Orchestration | `WorldBootstrapper`, delayed `active`, adapter ownership, `EngagementService`, and `SyncTokenService`. Removes adapter, heartbeat-policy, bootstrap-orchestration, and sync-token leftovers from sockets. | ADR-0014 through ADR-0016 |
 | **ADR-0018 (this ADR)** - Socket Boundary Enforcement Completion | URL utility extraction, `ClientSocket` session-restore ownership split, socket-facing interface cleanup, stale-comment cleanup, and final socket-surface verification. | ADR-0014 through ADR-0017 |
-| ADR-0019 - Foundry Version Compatibility | Deferred compatibility policy using the typed `release` shape and the `WorldBootstrapper` insertion point. | ADR-0017 |
+| ADR-0019 - Foundry Version Compatibility | Completed compatibility policy using the typed `release` shape and the `WorldBootstrapper` insertion point. | ADR-0017 |
 
 **Reading order if you land here cold:** read ADR-0014 first, then ADR-0017. ADR-0018 assumes the named state/service extractions are already complete.
 
@@ -123,7 +123,7 @@ ADR-0018 does not remove route/module public facades such as `RouteFoundryClient
 
 ADR-0018 does not redesign session persistence or auth semantics. It only moves restore policy out of `ClientSocket` and into `SessionManager`.
 
-ADR-0018 does not implement Foundry version compatibility checks. ADR-0019 owns that.
+ADR-0018 did not implement Foundry version compatibility checks. ADR-0019 later completed that follow-up.
 
 ---
 
@@ -277,7 +277,7 @@ Phase 4 aligns types, debug services, and comments with the final socket shape.
 
 **Status:** Completed May 21, 2026.
 
-Phase 5 closes ADR-0018 and hands the arc to ADR-0019.
+Phase 5 closes ADR-0018 and handed the compatibility follow-up to ADR-0019.
 
 **Action items:**
 
@@ -303,11 +303,11 @@ Removed concerns now have explicit homes: URL projection in `foundryUrl.ts`; ses
 
 **Non-goals for Phase 5:**
 
-- No ADR-0019 compatibility policy.
+- No ADR-0019 compatibility policy in this ADR; that follow-up is now completed by ADR-0019.
 - No opportunistic refactors outside socket-boundary closure.
 - No tracked real world or compendium dump fixtures.
 
-**Exit for Phase 5:** ADR-0018 is accepted; documentation matches the final socket boundary; unit/type checks and targeted audits pass; ADR-0019 is the only remaining ADR in the arc.
+**Exit for Phase 5:** ADR-0018 is accepted; documentation matches the final socket boundary; unit/type checks and targeted audits pass; ADR-0019 became the compatibility follow-up after this socket-boundary arc.
 
 ---
 
@@ -339,7 +339,7 @@ Rejected. They bind different identities and have different safety semantics. `C
 - URL projection becomes unit-testable without socket instances.
 - Session restoration ownership matches where persistent session records already live.
 - Final audits become smaller and sharper: socket methods should either move bytes or register wire events.
-- ADR-0019 can focus on Foundry compatibility rather than cleanup from prior phases.
+- ADR-0019 could focus on Foundry compatibility rather than cleanup from prior phases, and has now completed that follow-up.
 
 ### Tradeoffs
 
@@ -356,7 +356,7 @@ Rejected. They bind different identities and have different safety semantics. `C
 - **ADR-0015** - moved compendium aggregation out of sockets.
 - **ADR-0016** - moved UUID routing out of sockets.
 - **ADR-0017** - moved bootstrap orchestration, adapter lifecycle, engagement policy, and sync tokens out of sockets.
-- **ADR-0019** - follows this closure with Foundry version compatibility policy.
+- **ADR-0019** - followed this closure with the Foundry version compatibility policy.
 
 ---
 
@@ -386,4 +386,4 @@ This ADR is fulfilled when residual utility/session concerns are removed from so
 - [x] No tracked tests use real world or compendium dumps as fixtures.
 - [x] `git diff --check`, `npx tsc --noEmit`, and `npm run test:unit` pass.
 
-ADR-0019 owns the next step: Foundry version compatibility.
+ADR-0019 completed the Foundry version compatibility follow-up.

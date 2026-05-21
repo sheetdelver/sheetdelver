@@ -5,7 +5,11 @@ import { worldStateStore } from '@server/core/world/WorldStateStore';
 import { worldLifecycleStore } from '@server/core/world/WorldLifecycleStore';
 import { UserRole } from '@shared/constants';
 import { syncTokenService } from '@server/services/status/SyncTokenService';
-import type { SystemStatusPayload } from '@shared/contracts/status';
+import { worldBootstrapper } from '@server/services/world';
+import type {
+    FoundryCompatibilityStatusPayload,
+    SystemStatusPayload,
+} from '@shared/contracts/status';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
 import type {
     FoundrySystemClientLike,
@@ -18,6 +22,7 @@ import { resolveFoundryUrl } from '@server/shared/utils/foundryUrl';
 interface StatusServiceDeps {
     config: StatusServiceConfigLike;
     sessionManager: Pick<SessionManagerLike, 'isCacheReady'>;
+    getFoundryCompatibility?: () => FoundryCompatibilityStatusPayload | null;
 }
 
 export const sanitizeStatusUser = (user: Partial<UserWithPresence>, foundryBaseUrl: string) => ({
@@ -34,6 +39,7 @@ export const sanitizeStatusUser = (user: Partial<UserWithPresence>, foundryBaseU
 export function createStatusService(deps: StatusServiceDeps) {
     // Shared user projection used by status payload consumers.
     const sanitizeUser = sanitizeStatusUser;
+    const getFoundryCompatibility = deps.getFoundryCompatibility ?? (() => worldBootstrapper.getFoundryCompatibility());
 
     // Builds the status contract consumed by REST status and socket broadcasts.
     const getSystemStatusPayload = async (): Promise<SystemStatusPayload> => {
@@ -115,6 +121,7 @@ export function createStatusService(deps: StatusServiceDeps) {
 
         // Keep payload shape stable by always returning a sanitized user array.
         const sanitizedUsers = users?.length > 0 ? users.map((u) => sanitizeUser(u, systemClient.url)) : [];
+        const foundryCompatibility = getFoundryCompatibility();
 
         return {
             connected: systemClient.isConnected,
@@ -123,6 +130,7 @@ export function createStatusService(deps: StatusServiceDeps) {
             // During setup/offline states, SetupManager's disk cache may be the
             // only known configured-world source, so keep the Store/disk fallback.
             isConfigured: !!(worldStateStore.getCachedWorldData() || (await SetupManager.loadCache()).currentWorldId),
+            foundryCompatibility: foundryCompatibility ? { ...foundryCompatibility } : null,
             users: sanitizedUsers,
             system,
             url: deps.config.foundry.url,

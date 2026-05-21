@@ -1,6 +1,6 @@
 # ADR-0014: Non-Document World State and the Socket Boundary Principle
 
-**Status:** Accepted — first of five coordinated ADRs in the *ADR-0014 arc* (see below). Implementation completed May 19, 2026.
+**Status:** Accepted — first of five coordinated socket-boundary ADRs in the *ADR-0014 arc* (see below). Implementation completed May 19, 2026.
 **Date:** May 18, 2026
 **Phase:** Non-Document Architecture (Phase 1 of the ADR-0014 arc)
 **Supersedes:** None. Extends what ADR-0011 Phase 8 began for primary documents to the non-document surface.
@@ -21,7 +21,7 @@ The full scope is too large for a single ADR. It splits along dependency-driven 
 | ADR-0016 — Document Resolution and UUID Routing | `DocumentResolver`. Removes `fetchByUuid` from `CoreSocket` and `ClientSocket` cleanly (no transitional stub). Embedded-UUID parent-aware parse path. Stub-type resolver policy. | ADR-0015 (`DiscoveryShardStore.findDocument(...)` plus `CompendiumService.getPackDocument(...)` for the compendium branch) |
 | ADR-0017 — World Bootstrap and Lifecycle Orchestration | `WorldBootstrapper` (the central application glue). `EngagementService` as presence signal source. The "`active` means application-ready, not Foundry-active" semantic tightening. Lifecycle-gated gateway acceptance. `SyncTokenService` (or folded into StatusService). | ADR-0014, ADR-0015, ADR-0016 |
 | ADR-0018 — Socket Boundary Enforcement Completion | Completed the residual `ClientSocket` boundary verification and cleanup after ADR-0014 / ADR-0016 / ADR-0017 removed the named delegations. Split session restore policy into `SessionManager`, extracted URL utilities, and confirmed the socket surface is transport-only. | ADR-0014 through ADR-0017 |
-| ADR-0019 — Foundry Version Compatibility | Compat flag work. Reads `release.generation`; refuses below min, warns above max. Lands after the socket-boundary arc completes. | ADR-0017 (needs `WorldBootstrapper` as insertion point) and ADR-0014 (typed `release` shape) |
+| ADR-0019 — Foundry Version Compatibility | Completed compatibility policy. Reads `release.generation`; refuses below min, warns above max, and exposes status/admin diagnostics after the socket-boundary arc completes. | ADR-0017 (`WorldBootstrapper` insertion point) and ADR-0014 (typed `release` shape) |
 
 **Why this split:** each ADR is single-concern and reviewable independently. Dependencies are linear and explicit. Each ADR can fail or be revisited without invalidating the others. File-layout reorganization is cross-cutting — ADR-0014 establishes the convention; subsequent ADRs apply it as they touch files.
 
@@ -186,7 +186,7 @@ Every shape `WorldStateStore` holds is a **Foundry v13 contract**. v12 has mater
 
 When Foundry v14 arrives, drift surfaces as typed-cast failures or undefined-field reads at the consumer sites — which is the point. The current `any`-typed cache hides drift; the typed Stores make it visible. **Phase 1 typed shapes are an explicit v13 anchor**; v14 support is a separate effort with its own typed updates.
 
-Per-version handling (refuse below min, warn above max) belongs to ADR-0019, which gets `WorldBootstrapper` as an insertion point from ADR-0017 and typed `release.generation` from this ADR.
+Per-version handling (refuse below min, warn above max) is implemented by ADR-0019, using the `WorldBootstrapper` insertion point from ADR-0017 and the typed `release.generation` contract from this ADR.
 
 ### World-state test data policy
 
@@ -518,7 +518,7 @@ Rejected because the event source is different. Shared content arrives via `shar
 
 Get the Stores in place first; type the shapes later.
 
-Rejected because the whole point of moving state to the Stores is to make drift visible. An `any`-typed `WorldStateStore.getWorld()` is no better than `coreSocket.gameDataCache.world`. The typing IS the contract — without it, the Foundry version coupling stays invisible and ADR-0019's compat flag has nothing typed to gate on. Phase 1 of this ADR includes the types.
+Rejected because the whole point of moving state to the Stores is to make drift visible. An `any`-typed `WorldStateStore.getWorld()` is no better than `coreSocket.gameDataCache.world`. The typing IS the contract — without it, the Foundry version coupling stays invisible and ADR-0019's compatibility gate has nothing typed to evaluate. Phase 1 of this ADR includes the types.
 
 ### Land file-layout reorganization as its own ADR
 
@@ -536,7 +536,7 @@ Rejected because new Stores and services need destinations. If ADR-0014 introduc
 - **Boundary enforcement extends to non-document concerns.** ADR-0011 Phase 8 fixed the primary-doc surface; this ADR is the first slice that does the same for what's left.
 - **`WorldLifecycleStore` names the target semantics up front.** ADR-0014 creates the Store boundary and documents that `active` ultimately means application-ready. ADR-0017 lands the delayed-`active` transition that makes the runtime behavior match that target.
 - **The file-layout convention is established once.** Subsequent ADRs in the arc apply it as they touch files; no per-ADR re-litigation of where things go.
-- **Foundry version coupling becomes explicit.** v13 shapes are now typed contracts; v14 drift surfaces at the typecheck layer, not as undefined-field bugs at runtime.
+- **Foundry version coupling becomes explicit.** v13 shapes are now typed contracts; ADR-0019 adds the bootstrap compatibility gate for below-min/newer/unknown generations; future v14 shape drift still requires typed updates.
 
 ### Tradeoffs
 
@@ -555,7 +555,7 @@ This ADR is the first of five coordinated ADRs (see *Part of the ADR-0014 arc* a
 - **ADR-0016**: Document resolution and UUID routing.
 - **ADR-0017**: World bootstrap and lifecycle orchestration.
 - **ADR-0018**: Socket-boundary enforcement completion (completed).
-- **ADR-0019**: Foundry version compatibility flag.
+- **ADR-0019**: Foundry version compatibility policy (completed).
 
 Adjacent ADRs from other arcs:
 

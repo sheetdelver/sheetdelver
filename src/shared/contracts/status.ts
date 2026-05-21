@@ -11,11 +11,27 @@ export interface StatusUser {
     img?: string;
 }
 
+export type FoundryCompatibilityStatus =
+    | 'supported'
+    | 'newer-untested'
+    | 'unknown'
+    | 'unsupported';
+
+export interface FoundryCompatibilityStatusPayload {
+    status: FoundryCompatibilityStatus;
+    generation: number | null;
+    minGeneration: number;
+    maxGeneration: number;
+    message: string;
+    checkedAt: number;
+}
+
 export interface SystemStatusPayload {
     connected: boolean;
     worldId: string | null;
     initialized: boolean;
     isConfigured: boolean;
+    foundryCompatibility: FoundryCompatibilityStatusPayload | null;
     users: StatusUser[];
     system: {
         id: string | null;

@@ -82,6 +82,7 @@ function createCompatibilityBootstrapper(
         markLifecycleClosed: (reason) => {
             events.push(`closed:${reason}`);
         },
+        now: () => 123456,
     });
 }
 
@@ -280,6 +281,10 @@ async function runBootstrapRejectsUnsupportedGenerationBeforeStoreSeeding() {
         'closed:unsupported-foundry-generation:12:min-13',
     ]);
     assert.equal(bootstrapper.isReady(), false);
+    const rejectedCompatibility = bootstrapper.getFoundryCompatibility();
+    assert.equal(rejectedCompatibility?.status, 'unsupported');
+    assert.equal(rejectedCompatibility?.generation, 12);
+    assert.equal(rejectedCompatibility?.checkedAt, 123456);
 
     // The rejected run must not poison later retries.
     order.length = 0;
@@ -297,6 +302,7 @@ async function runBootstrapRejectsUnsupportedGenerationBeforeStoreSeeding() {
         'active:SyntheticSystem',
     ]);
     assert.equal(bootstrapper.isReady(), true);
+    assert.equal(bootstrapper.getFoundryCompatibility()?.status, 'supported');
 }
 
 async function runBootstrapWarnsAndProceedsForNewerAndUnknownGeneration() {
@@ -313,6 +319,7 @@ async function runBootstrapWarnsAndProceedsForNewerAndUnknownGeneration() {
         await newer.bootstrap({} as any);
 
         assert.equal(newer.isReady(), true);
+        assert.equal(newer.getFoundryCompatibility()?.status, 'newer-untested');
         assert.deepEqual(newerOrder.slice(0, 3), [
             'snapshot:14',
             'seed-world:SyntheticSystem',
@@ -328,6 +335,7 @@ async function runBootstrapWarnsAndProceedsForNewerAndUnknownGeneration() {
         await unknown.bootstrap({} as any);
 
         assert.equal(unknown.isReady(), true);
+        assert.equal(unknown.getFoundryCompatibility()?.status, 'unknown');
         assert.deepEqual(unknownOrder.slice(0, 3), [
             `snapshot:${String(MISSING_GENERATION)}`,
             'seed-world:SyntheticSystem',

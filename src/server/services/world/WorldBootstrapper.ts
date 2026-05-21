@@ -28,6 +28,7 @@ import type { RawUser } from '@server/shared/types/users';
 import {
     assertFoundryVersionSupported,
     evaluateFoundryVersionCompatibility,
+    type FoundryVersionCompatibilityDiagnostic,
     type FoundryVersionCompatibilityResult,
 } from './foundryVersionCompatibility';
 
@@ -51,6 +52,7 @@ export interface WorldBootstrapperDeps {
     markLifecycleActive?: (systemId?: string) => void;
     markLifecycleClosed?: (reason: string) => void;
     evaluateCompatibility?: typeof evaluateFoundryVersionCompatibility;
+    now?: () => number;
 }
 
 export interface WorldBootstrapSnapshot {
@@ -105,8 +107,10 @@ export class WorldBootstrapper {
     private readonly markLifecycleActive: (systemId?: string) => void;
     private readonly markLifecycleClosed: (reason: string) => void;
     private readonly evaluateCompatibility: typeof evaluateFoundryVersionCompatibility;
+    private readonly now: () => number;
     private activeSystemId: string | null = null;
     private activeAdapter: SystemAdapter | null = null;
+    private lastCompatibility: FoundryVersionCompatibilityDiagnostic | null = null;
     private ready = false;
     private bootstrapPromise: Promise<WorldBootstrapResult> | null = null;
 
@@ -165,6 +169,7 @@ export class WorldBootstrapper {
             worldLifecycleStore.setState('closed', reason);
         });
         this.evaluateCompatibility = deps.evaluateCompatibility ?? evaluateFoundryVersionCompatibility;
+        this.now = deps.now ?? Date.now;
     }
 
     public bootstrap(transport: WorldBootstrapTransport, options: WorldBootstrapOptions = {}): Promise<WorldBootstrapResult> {
@@ -189,6 +194,10 @@ export class WorldBootstrapper {
 
     public isReady(): boolean {
         return this.ready;
+    }
+
+    public getFoundryCompatibility(): FoundryVersionCompatibilityDiagnostic | null {
+        return this.lastCompatibility ? { ...this.lastCompatibility } : null;
     }
 
     public reset(reason = 'world-bootstrap-reset'): void {
@@ -319,6 +328,13 @@ export class WorldBootstrapper {
     }
 
     private handleCompatibilityResult(compatibility: FoundryVersionCompatibilityResult): void {
+        // Status/admin diagnostics read this last-check surface. Keep it before
+        // the throw so unsupported generations remain visible after fail-closed.
+        this.lastCompatibility = {
+            ...compatibility,
+            checkedAt: this.now(),
+        };
+
         if (compatibility.status === 'unsupported') {
             this.markLifecycleClosed(this.getUnsupportedLifecycleReason(compatibility));
         }

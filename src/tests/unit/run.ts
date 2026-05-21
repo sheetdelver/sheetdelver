@@ -11,6 +11,7 @@ import { run as runAuthStatusSmoke } from './services/auth-status-smoke.test';
 import { run as runChatService } from './services/chat-service.test';
 import { run as runSyncTokenService } from './services/sync-token-service.test';
 import { run as runEngagementService } from './services/engagement-service.test';
+import { run as runStatusCompatibility } from './services/status-compatibility.test';
 
 // ── session ──────────────────────────────────────────────────────────────────
 import { run as runSessionManagerRestore } from './session/session-manager-restore.test';
@@ -109,6 +110,7 @@ async function runAllUnitTests() {
     runLocalhostPolicy();
     runSyncTokenService();
     await runEngagementService();
+    await runStatusCompatibility();
     await runSessionManagerRestore();
     await runAuthStatusSmoke();
     await runActorCombatSmoke();

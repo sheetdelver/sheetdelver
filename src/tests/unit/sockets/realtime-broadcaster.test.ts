@@ -21,6 +21,7 @@ async function runBroadcasterTests() {
             worldId: 'w1',
             initialized: true,
             isConfigured: true,
+            foundryCompatibility: null,
             users: [],
             system: { id: 'shadowdark', worldTitle: 'Test', status: 'active', actorSyncToken: String(++payloadCounter) },
             url: 'http://localhost:30000',

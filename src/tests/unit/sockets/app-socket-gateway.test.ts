@@ -115,6 +115,7 @@ async function runGatewayTests() {
                 worldId: 'w1',
                 initialized: true,
                 isConfigured: true,
+                foundryCompatibility: null,
                 users: [],
                 system: { id: 'shadowdark', worldTitle: 'Test', status: 'active' },
                 url: 'http://localhost:30000',

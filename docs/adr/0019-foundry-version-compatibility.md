@@ -1,6 +1,6 @@
 # ADR-0019: Foundry Version Compatibility
 
-**Status:** Proposed.
+**Status:** Accepted - Completed May 21, 2026.
 **Date:** May 21, 2026
 **Phase:** Foundry Version Compatibility (post ADR-0014 arc)
 **Supersedes:** None. Follows ADR-0018 socket-boundary closure.
@@ -10,7 +10,7 @@
 
 ## Context
 
-ADR-0014 through ADR-0018 moved state, routing, bootstrap orchestration, session restore policy, URL projection, and residual socket-facing interfaces out of the socket classes. The remaining compatibility concern is not a socket-boundary problem: Sheet Delver now has typed Foundry v13 world-state shapes, but it does not yet have an explicit policy for what happens when the connected Foundry server is older or newer than the version those shapes describe.
+ADR-0014 through ADR-0018 moved state, routing, bootstrap orchestration, session restore policy, URL projection, and residual socket-facing interfaces out of the socket classes. The remaining compatibility concern was not a socket-boundary problem: Sheet Delver had typed Foundry v13 world-state shapes, but did not yet have an explicit policy for what happens when the connected Foundry server is older or newer than the version those shapes describe.
 
 `WorldStateStore` already models the Foundry release envelope with `FoundryRelease.generation`. `WorldBootstrapper` is now the application-ready insertion point: it fetches the connected-world snapshot, accepts it into Stores, runs compendium discovery, seeds primary documents, initializes the adapter, and only then marks the world `active`.
 
@@ -20,7 +20,7 @@ That makes compatibility a bootstrap policy concern.
 
 ## Decision
 
-Add an explicit Foundry-generation compatibility policy:
+ADR-0019 adds an explicit Foundry-generation compatibility policy:
 
 - supported minimum generation: `13`
 - known maximum generation: `13`
@@ -116,25 +116,25 @@ Phase 2 makes `WorldBootstrapper` enforce the policy before accepting a connecte
 
 ### Phase 3: Operator diagnostics and status surface
 
-**Status:** Not started.
+**Status:** Completed May 21, 2026.
 
 Phase 3 makes the compatibility result visible outside logs.
 
 **Action items:**
 
-- [ ] Store the most recent compatibility result in a service-owned diagnostic surface.
+- [x] Store the most recent compatibility result in a service-owned diagnostic surface.
   Files: `src/server/services/world`, `src/server/core/world` only if a Store is justified.
 
-- [ ] Expose compatibility status through system/admin status payloads without making clients parse log text.
+- [x] Expose compatibility status through system/admin status payloads without making clients parse log text.
   Files: `src/server/services/status/StatusService.ts`, shared status contracts, related route tests.
 
-- [ ] Ensure browser/gateway behavior remains readiness-gated. Unsupported worlds should expose status diagnostics but should not become world-backed active sessions.
+- [x] Ensure browser/gateway behavior remains readiness-gated. Unsupported worlds should expose status diagnostics but should not become world-backed active sessions.
   Files: `src/server/realtime/AppSocketGateway.ts` if diagnostics affect gateway behavior.
 
-- [ ] Add unit coverage for status projection in supported, warning, unknown, and unsupported cases.
+- [x] Add unit coverage for status projection in supported, warning, unknown, and unsupported cases.
   Files: `src/tests/unit/services/*status*.test.ts` or a focused status test.
 
-- [ ] Verify Phase 3 with unit/type checks.
+- [x] Verify Phase 3 with unit/type checks.
   Commands: `npm run test:unit`; `npx tsc --noEmit`; `git diff --check`.
 
 **Non-goals for Phase 3:**
@@ -143,32 +143,36 @@ Phase 3 makes the compatibility result visible outside logs.
 - No automatic upgrade guidance beyond clear diagnostics.
 - No module SDK compatibility policy.
 
+**Phase 3 implementation note:** `WorldBootstrapper` now keeps a service-owned last compatibility diagnostic with `checkedAt`; unsupported results are recorded before the typed error is thrown so fail-closed worlds still explain themselves through status. `SystemStatusPayload` now carries `foundryCompatibility` at top level, and the admin status surface inherits it through `AdminService.getStatus()`. This is diagnostic-only: gateway readiness behavior still depends on lifecycle/readiness and does not treat compatibility warnings as active-world permission.
+
 **Exit for Phase 3:** operators can see whether the connected Foundry generation is supported, newer-untested, unknown, or unsupported from status/admin surfaces.
 
 ### Phase 4: Documentation closure
 
-**Status:** Not started.
+**Status:** Completed May 21, 2026.
 
 Phase 4 closes ADR-0019 once the policy, bootstrap gate, and diagnostics are implemented.
 
 **Action items:**
 
-- [ ] Update ADR-0014 / ADR-0017 / ADR-0018 references that describe Foundry compatibility as deferred.
+- [x] Update ADR-0014 / ADR-0017 / ADR-0018 references that describe Foundry compatibility as deferred.
   Files: `docs/adr/0014-non-document-world-state-and-socket-boundary.md`, `docs/adr/0017-world-bootstrap-and-lifecycle-orchestration.md`, `docs/adr/0018-socket-boundary-enforcement-completion.md`, `temp/audit-reports/socket-boundary-audit.md`.
 
-- [ ] Document the compatibility policy and supported generation constants.
+- [x] Document the compatibility policy and supported generation constants.
   Files: this ADR, operator/admin docs if applicable.
 
-- [ ] Run final closure checks.
+- [x] Run final closure checks.
   Commands: `npm run test:unit`; `npx tsc --noEmit`; `git diff --check`; compatibility-policy audit.
 
-- [ ] Flip this ADR status to **Accepted** after all phases ship green.
+- [x] Flip this ADR status to **Accepted** after all phases ship green.
   Files: this ADR.
 
 **Non-goals for Phase 4:**
 
 - No broader Foundry API migration.
 - No support-window expansion beyond the constants chosen by this ADR.
+
+**Phase 4 implementation note:** ADR-0019 is accepted. The supported generation constants are `SUPPORTED_FOUNDRY_GENERATION_MIN = 13` and `KNOWN_FOUNDRY_GENERATION_MAX = 13` in `src/server/services/world/foundryVersionCompatibility.ts`. `WorldBootstrapper` evaluates the raw bootstrap snapshot before Store seeding, records the last compatibility diagnostic with `checkedAt`, fails closed for below-min generations, and exposes `foundryCompatibility` through the shared status/admin payload.
 
 **Exit for Phase 4:** ADR-0019 is accepted; unsupported older Foundry generations fail closed at bootstrap; newer/unknown generations are diagnostic warnings; status/admin surfaces expose the compatibility state; validation passes.
 
@@ -215,7 +219,7 @@ Rejected for core Foundry generation compatibility. Adapters can add system/modu
 
 - **ADR-0014** - introduced typed world-state shapes, including `FoundryRelease`.
 - **ADR-0017** - introduced `WorldBootstrapper` and delayed `active` until application readiness.
-- **ADR-0018** - closed the socket-boundary arc, leaving compatibility as the remaining follow-up.
+- **ADR-0018** - closed the socket-boundary arc and provided the clean insertion point for this compatibility policy.
 
 ---
 
@@ -234,6 +238,6 @@ ADR-0019 is fulfilled when Foundry generation compatibility is explicit and enfo
 
 - [x] Phase 1: compatibility policy primitives exist with tests.
 - [x] Phase 2: `WorldBootstrapper` gates unsupported older generations before Store seeding.
-- [ ] Phase 3: status/admin diagnostics expose compatibility state.
-- [ ] Phase 4: closure docs and audits pass; ADR-0019 status flips to **Accepted**.
-- [ ] `git diff --check`, `npx tsc --noEmit`, and `npm run test:unit` pass.
+- [x] Phase 3: status/admin diagnostics expose compatibility state.
+- [x] Phase 4: closure docs and audits pass; ADR-0019 status flips to **Accepted**.
+- [x] `git diff --check`, `npx tsc --noEmit`, and `npm run test:unit` pass.

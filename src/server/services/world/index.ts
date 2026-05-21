@@ -25,6 +25,7 @@ export {
     UnsupportedFoundryVersionError,
     assertFoundryVersionSupported,
     evaluateFoundryVersionCompatibility,
+    type FoundryVersionCompatibilityDiagnostic,
     type FoundryVersionCompatibilityResult,
     type FoundryVersionCompatibilityStatus,
 } from './foundryVersionCompatibility';

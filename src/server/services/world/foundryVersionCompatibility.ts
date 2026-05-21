@@ -17,6 +17,10 @@ export interface FoundryVersionCompatibilityResult {
     message: string;
 }
 
+export interface FoundryVersionCompatibilityDiagnostic extends FoundryVersionCompatibilityResult {
+    checkedAt: number;
+}
+
 export class UnsupportedFoundryVersionError extends Error {
     public readonly code = 'UNSUPPORTED_FOUNDRY_VERSION';
     public readonly compatibility: FoundryVersionCompatibilityResult;

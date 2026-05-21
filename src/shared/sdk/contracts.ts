@@ -13,6 +13,21 @@ export interface StatusUser {
     img?: string;
 }
 
+export type FoundryCompatibilityStatus =
+    | 'supported'
+    | 'newer-untested'
+    | 'unknown'
+    | 'unsupported';
+
+export interface FoundryCompatibilityStatusPayload {
+    status: FoundryCompatibilityStatus;
+    generation: number | null;
+    minGeneration: number;
+    maxGeneration: number;
+    message: string;
+    checkedAt: number;
+}
+
 /**
  * Payload for system-wide status updates.
  */
@@ -21,6 +36,7 @@ export interface SystemStatusPayload {
     worldId: string | null;
     initialized: boolean;
     isConfigured: boolean;
+    foundryCompatibility: FoundryCompatibilityStatusPayload | null;
     users: StatusUser[];
     system: {
         id: string | null;

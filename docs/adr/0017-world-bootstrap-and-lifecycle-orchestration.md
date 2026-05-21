@@ -19,7 +19,7 @@ This ADR is the fourth decision in the ADR-0014 arc. ADR-0014 moved non-document
 | ADR-0016 - Document Resolution and UUID Routing | `DocumentResolver`; removes `fetchByUuid` from `CoreSocket` and `ClientSocket`; parses world, embedded, and compendium UUIDs; delegates compendium lookup to ADR-0015 shard/fallback primitives. | ADR-0015 |
 | **ADR-0017 (this ADR)** - World Bootstrap and Lifecycle Orchestration | `WorldBootstrapper`, delayed `active`, adapter ownership, `EngagementService`, and `SyncTokenService`. Removes adapter, heartbeat-policy, bootstrap-orchestration, and sync-token leftovers from sockets. | ADR-0014 through ADR-0016 |
 | ADR-0018 - Socket Boundary Enforcement Completion | Completed residual socket-boundary cleanup after the named extractions: URL utility extraction, session-state split, stale-comment cleanup, and final socket-surface verification. | ADR-0014 through ADR-0017 |
-| ADR-0019 - Foundry Version Compatibility | Compatibility policy using the typed `release` shape and the `WorldBootstrapper` insertion point. | ADR-0017 |
+| ADR-0019 - Foundry Version Compatibility | Completed compatibility policy using the typed `release` shape and the `WorldBootstrapper` insertion point. | ADR-0017 |
 
 **Reading order if you land here cold:** read ADR-0014 first, then ADR-0015 and ADR-0016. ADR-0017 assumes Stores/services already own world state, compendium reads, and UUID routing.
 
@@ -152,7 +152,7 @@ ADR-0017 did not move URL helpers off `SocketBase`; ADR-0018 later extracted URL
 
 ADR-0017 did not split `ClientSocket.restoreSession(...)` cookie-state handling; ADR-0018 later moved restore policy to `SessionManager` and left only wire reconnect on `ClientSocket`.
 
-ADR-0017 does not implement Foundry version min/max compatibility checks; ADR-0019 owns that once `WorldBootstrapper` is available as the insertion point.
+ADR-0017 did not implement Foundry version min/max compatibility checks; ADR-0019 later used this ADR's `WorldBootstrapper` insertion point to add that policy.
 
 ADR-0017 does not broadly optimize primary-document seeding from `game.data`. Phase 5 intentionally seeds `UserStore` and `UserPresence` from the accepted bootstrap snapshot because user presence is part of readiness/status semantics. Other primary-document Stores keep `seedDocumentCache(client)` semantics intact; broader seed-from-snapshot optimization is a separate follow-up after the bootstrap boundary is stable.
 
@@ -373,7 +373,7 @@ Phase 6 closed ADR-0017 and prepared the now-complete ADR-0018 residual pass.
 **Non-goals for Phase 6:**
 
 - No ADR-0018 URL/session cleanup.
-- No ADR-0019 compatibility policy.
+- No ADR-0019 compatibility policy in this ADR; that follow-up is now completed by ADR-0019.
 - No opportunistic refactors outside the named socket-boundary leftovers.
 
 **Exit for Phase 6:** `WorldBootstrapper`, `EngagementService`, and `SyncTokenService` own their domains; sockets no longer own adapter state, engagement policy, application bootstrap, delayed-readiness semantics, or sync-token state; unit/type checks and audits pass; ADR status is accepted.
@@ -430,7 +430,7 @@ Rejected for scope. The bootstrap boundary must be clear first. After ADR-0017, 
 - **ADR-0015** - extracted compendium service/shard work consumed during bootstrap.
 - **ADR-0016** - extracted UUID routing, clearing the last dependency before bootstrap cleanup.
 - **ADR-0018** - completed residual socket-boundary cleanup after this ADR.
-- **ADR-0019** - uses `WorldBootstrapper` as the future Foundry version compatibility insertion point.
+- **ADR-0019** - uses `WorldBootstrapper` as the Foundry version compatibility insertion point.
 
 ---
 
@@ -461,4 +461,4 @@ This ADR is fulfilled when world bootstrap and readiness are service-owned and s
 - [x] No tracked tests use real world or compendium dumps as fixtures.
 - [x] `git diff --check`, `npx tsc --noEmit`, and `npm run test:unit` pass.
 
-ADR-0018 closed the residual socket-boundary enforcement pass. ADR-0019 owns the next step: Foundry version compatibility.
+ADR-0018 closed the residual socket-boundary enforcement pass. ADR-0019 then completed the Foundry version compatibility follow-up.
