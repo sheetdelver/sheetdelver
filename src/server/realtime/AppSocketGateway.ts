@@ -2,7 +2,7 @@ import type { Server, Socket } from 'socket.io';
 import { systemService } from '@core/system/SystemService';
 import { logger } from '@shared/utils/logger';
 import { engagementService } from '@server/services/world';
-import type { SessionManagerLike, UserSessionLike, FoundryClientLike } from '@server/shared/types/foundry';
+import type { SessionManagerLike, UserSessionLike, FoundryDocumentClientLike } from '@server/shared/types/foundry';
 import type { SystemStatusPayload } from '@shared/contracts/status';
 import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
 import { chatMessageStore } from '@server/core/documents/primary/chat-messages/ChatMessageStore';
@@ -22,7 +22,7 @@ import type { RealtimeActorChangedPayload } from '@shared/contracts/realtime';
 
 type AppSocket = Socket & {
     userSession?: UserSessionLike;
-    foundryClient?: FoundryClientLike;
+    foundryClient?: FoundryDocumentClientLike;
 };
 
 interface AppSocketGatewayDeps {
@@ -50,7 +50,8 @@ export function registerAppSocketGateway({
 
         try {
             const session = await sessionManager.getOrRestoreSession(token);
-            if (!session || !session.client.userId) {
+            const sessionUserId = session?.userId || session?.client.userId;
+            if (!session || !sessionUserId) {
                 // Invalid token, but still allow guest connection
                 return next();
             }
@@ -88,24 +89,24 @@ export function registerAppSocketGateway({
         // Attach listeners to individual foundry client for sensitive/per-user data
         const foundryClient = socket.foundryClient;
         if (foundryClient) {
-            logger.info(`App Socket | Attaching per-user listeners for ${foundryClient.username} (${socket.id})`);
+            const sessionIdentity = socket.userSession?.username || socket.userSession?.userId || foundryClient.userId || 'unknown';
+            logger.info(`App Socket | Attaching per-user listeners for ${sessionIdentity} (${socket.id})`);
 
             // Subject builder closes over the current session; ownership checks
             // are dynamic per event (ADR-0012's fan-out rule).
+            const getSessionUserId = () => socket.userSession?.userId || foundryClient.userId || null;
             const getSubject = () => {
                 if (!systemService.isReady()) return null;
-                const userId = socket.userSession?.client.userId;
-                return userStore.createAccessSubject(userId);
+                return userStore.createAccessSubject(getSessionUserId());
             };
             const emitWorldBackedEvent = (event: string, payload: unknown) => {
                 if (!systemService.isReady()) return;
                 socket.emit(event, payload);
             };
 
-            // Combat document fan-out (Phase 5). CombatStore has no per-doc
-            // ownership map — visibility is cross-referenced against ActorStore
-            // via `combatStore.canReadDocument`. Deletes bypass the gate so a
-            // caller who could see the combat learns it's gone.
+            // CombatStore has no per-doc ownership map; visibility is
+            // cross-referenced against ActorStore. Deletes bypass the gate so
+            // a caller who could see the combat learns it's gone.
             const handleCombatChanged = (...args: unknown[]) => {
                 const data = (args[0] || {}) as { combatId: string; action: 'create' | 'update' | 'delete' };
                 if (data.action !== 'delete' && data.combatId) {
@@ -118,7 +119,7 @@ export function registerAppSocketGateway({
             };
             const handleCombatListInvalidated = (...args: unknown[]) => {
                 const data = (args[0] || {}) as { reason: string; combatId?: string; targetUserIds?: string[] };
-                const userId = socket.userSession?.client.userId;
+                const userId = getSessionUserId();
                 if (data.targetUserIds && (!userId || !data.targetUserIds.includes(userId))) return;
                 emitWorldBackedEvent('combatListInvalidated', data);
             };
@@ -148,7 +149,7 @@ export function registerAppSocketGateway({
             };
             const handleChatMessageListInvalidated = (...args: unknown[]) => {
                 const data = (args[0] || {}) as { reason: string; messageId?: string; targetUserIds?: string[] };
-                const userId = socket.userSession?.client.userId;
+                const userId = getSessionUserId();
                 if (data.targetUserIds && (!userId || !data.targetUserIds.includes(userId))) return;
                 emitWorldBackedEvent('chatMessageListInvalidated', data);
             };
@@ -161,20 +162,19 @@ export function registerAppSocketGateway({
             };
             const handleUserListInvalidated = (...args: unknown[]) => {
                 const data = (args[0] || {}) as { reason: string; userId?: string; targetUserIds?: string[] };
-                const userId = socket.userSession?.client.userId;
+                const userId = getSessionUserId();
                 if (data.targetUserIds && (!userId || !data.targetUserIds.includes(userId))) return;
                 emitWorldBackedEvent('userListInvalidated', data);
             };
             // Folder document fan-out. FolderStore emits broadcast-wide today;
-            // per-user folder visibility is a Phase 4 concern. Honor targetUserIds
-            // if the Store ever populates it.
+            // honor targetUserIds if the Store ever emits a narrower target.
             const handleFolderChanged = (...args: unknown[]) => {
                 const data = (args[0] || {}) as { folderId: string; action: 'create' | 'update' | 'delete' };
                 emitWorldBackedEvent('folderChanged', data);
             };
             const handleFolderListInvalidated = (...args: unknown[]) => {
                 const data = (args[0] || {}) as { reason: string; folderId?: string; targetUserIds?: string[] };
-                const userId = socket.userSession?.client.userId;
+                const userId = getSessionUserId();
                 if (data.targetUserIds && (!userId || !data.targetUserIds.includes(userId))) return;
                 emitWorldBackedEvent('folderListInvalidated', data);
             };
@@ -194,14 +194,14 @@ export function registerAppSocketGateway({
             };
             const handleJournalListInvalidated = (...args: unknown[]) => {
                 const data = (args[0] || {}) as { reason: string; journalId?: string; targetUserIds?: string[] };
-                const userId = socket.userSession?.client.userId;
+                const userId = getSessionUserId();
                 if (data.targetUserIds && (!userId || !data.targetUserIds.includes(userId))) return;
                 emitWorldBackedEvent('journalListInvalidated', data);
             };
-            // World Item document fan-out (Phase 6). ItemStore uses the standard
-            // ownership map; `canReadDocument` enforces it per-socket. Deletes
-            // bypass so a caller who could see the item learns it's gone.
-            // Invalidations honor `targetUserIds`.
+            // World Item documents use the standard ownership map.
+            // `canReadDocument` enforces it per-socket; deletes bypass so a
+            // caller who could see the item learns it's gone. Invalidations
+            // honor `targetUserIds`.
             const handleItemChanged = (...args: unknown[]) => {
                 const data = (args[0] || {}) as { itemId: string; action: 'create' | 'update' | 'delete' };
                 if (data.action !== 'delete' && data.itemId) {
@@ -214,11 +214,11 @@ export function registerAppSocketGateway({
             };
             const handleItemListInvalidated = (...args: unknown[]) => {
                 const data = (args[0] || {}) as { reason: string; itemId?: string; targetUserIds?: string[] };
-                const userId = socket.userSession?.client.userId;
+                const userId = getSessionUserId();
                 if (data.targetUserIds && (!userId || !data.targetUserIds.includes(userId))) return;
                 emitWorldBackedEvent('itemListInvalidated', data);
             };
-            // RollTable document fan-out (Phase 7). Standard ownership map;
+            // RollTable documents use the standard ownership map;
             // `canReadDocument` enforces per-socket. Deletes bypass so a
             // caller who could see the table learns it's gone.
             const handleRollTableChanged = (...args: unknown[]) => {
@@ -233,11 +233,11 @@ export function registerAppSocketGateway({
             };
             const handleRollTableListInvalidated = (...args: unknown[]) => {
                 const data = (args[0] || {}) as { reason: string; rollTableId?: string; targetUserIds?: string[] };
-                const userId = socket.userSession?.client.userId;
+                const userId = getSessionUserId();
                 if (data.targetUserIds && (!userId || !data.targetUserIds.includes(userId))) return;
                 emitWorldBackedEvent('rollTableListInvalidated', data);
             };
-            // Macro document fan-out (Phase 7). Standard ownership map.
+            // Macro documents use the standard ownership map.
             const handleMacroChanged = (...args: unknown[]) => {
                 const data = (args[0] || {}) as { macroId: string; action: 'create' | 'update' | 'delete' };
                 if (data.action !== 'delete' && data.macroId) {
@@ -250,11 +250,11 @@ export function registerAppSocketGateway({
             };
             const handleMacroListInvalidated = (...args: unknown[]) => {
                 const data = (args[0] || {}) as { reason: string; macroId?: string; targetUserIds?: string[] };
-                const userId = socket.userSession?.client.userId;
+                const userId = getSessionUserId();
                 if (data.targetUserIds && (!userId || !data.targetUserIds.includes(userId))) return;
                 emitWorldBackedEvent('macroListInvalidated', data);
             };
-            // Playlist document fan-out (Phase 7). Standard ownership map.
+            // Playlist documents use the standard ownership map.
             const handlePlaylistChanged = (...args: unknown[]) => {
                 const data = (args[0] || {}) as { playlistId: string; action: 'create' | 'update' | 'delete' };
                 if (data.action !== 'delete' && data.playlistId) {
@@ -267,11 +267,11 @@ export function registerAppSocketGateway({
             };
             const handlePlaylistListInvalidated = (...args: unknown[]) => {
                 const data = (args[0] || {}) as { reason: string; playlistId?: string; targetUserIds?: string[] };
-                const userId = socket.userSession?.client.userId;
+                const userId = getSessionUserId();
                 if (data.targetUserIds && (!userId || !data.targetUserIds.includes(userId))) return;
                 emitWorldBackedEvent('playlistListInvalidated', data);
             };
-            // Cards document fan-out (Phase 7). Standard ownership map.
+            // Cards documents use the standard ownership map.
             // Cross-Cards-doc transfers (`Cards#pass`) arrive as paired events
             // on both parents — each leg flows through this same gate.
             const handleCardsChanged = (...args: unknown[]) => {
@@ -286,46 +286,42 @@ export function registerAppSocketGateway({
             };
             const handleCardsListInvalidated = (...args: unknown[]) => {
                 const data = (args[0] || {}) as { reason: string; cardsId?: string; targetUserIds?: string[] };
-                const userId = socket.userSession?.client.userId;
+                const userId = getSessionUserId();
                 if (data.targetUserIds && (!userId || !data.targetUserIds.includes(userId))) return;
                 emitWorldBackedEvent('cardsListInvalidated', data);
             };
-            // ADR-0014 Phase 3: shared-content fan-out now subscribes to
-            // SharedContentStore directly. The socket listeners in SocketBase
-            // write through to the Store; the Store emits one canonical
-            // `sharedContentChanged` event per update, and the gateway fans it
-            // out to every browser socket as the existing `sharedContentUpdate`
-            // wire event (callers unchanged).
+            // Shared-content fan-out subscribes to SharedContentStore directly.
+            // SocketBase writes Foundry wire events into the Store, and the
+            // gateway preserves the browser-facing `sharedContentUpdate` event.
             const handleSharedUpdate = (event: SharedContentChangedEvent) => {
                 emitWorldBackedEvent('sharedContentUpdate', event.payload ?? { type: null });
             };
 
             // Store events are bridged through the system client, not per-user
-            // sockets — per ADR-0012 each Store's events fan out from a single
-            // canonical source with ownership filtering applied per socket.
-            // Phase 5 moved combatUpdate from foundryClient onto the system
-            // client as combatChanged / combatListInvalidated.
-            systemService.getSystemClient().on('actorChanged', handleActorChanged);
-            systemService.getSystemClient().on('chatMessageChanged', handleChatMessageChanged);
-            systemService.getSystemClient().on('chatMessageListInvalidated', handleChatMessageListInvalidated);
-            systemService.getSystemClient().on('userChanged', handleUserChanged);
-            systemService.getSystemClient().on('userListInvalidated', handleUserListInvalidated);
-            systemService.getSystemClient().on('folderChanged', handleFolderChanged);
-            systemService.getSystemClient().on('folderListInvalidated', handleFolderListInvalidated);
-            systemService.getSystemClient().on('journalChanged', handleJournalChanged);
-            systemService.getSystemClient().on('journalListInvalidated', handleJournalListInvalidated);
-            systemService.getSystemClient().on('combatChanged', handleCombatChanged);
-            systemService.getSystemClient().on('combatListInvalidated', handleCombatListInvalidated);
-            systemService.getSystemClient().on('itemChanged', handleItemChanged);
-            systemService.getSystemClient().on('itemListInvalidated', handleItemListInvalidated);
-            systemService.getSystemClient().on('rollTableChanged', handleRollTableChanged);
-            systemService.getSystemClient().on('rollTableListInvalidated', handleRollTableListInvalidated);
-            systemService.getSystemClient().on('macroChanged', handleMacroChanged);
-            systemService.getSystemClient().on('macroListInvalidated', handleMacroListInvalidated);
-            systemService.getSystemClient().on('playlistChanged', handlePlaylistChanged);
-            systemService.getSystemClient().on('playlistListInvalidated', handlePlaylistListInvalidated);
-            systemService.getSystemClient().on('cardsChanged', handleCardsChanged);
-            systemService.getSystemClient().on('cardsListInvalidated', handleCardsListInvalidated);
+            // sockets. Each Store emits from one canonical source; the gateway
+            // applies ownership filtering separately for each browser socket.
+            const systemClient = systemService.getSystemClient();
+            systemClient.on('actorChanged', handleActorChanged);
+            systemClient.on('chatMessageChanged', handleChatMessageChanged);
+            systemClient.on('chatMessageListInvalidated', handleChatMessageListInvalidated);
+            systemClient.on('userChanged', handleUserChanged);
+            systemClient.on('userListInvalidated', handleUserListInvalidated);
+            systemClient.on('folderChanged', handleFolderChanged);
+            systemClient.on('folderListInvalidated', handleFolderListInvalidated);
+            systemClient.on('journalChanged', handleJournalChanged);
+            systemClient.on('journalListInvalidated', handleJournalListInvalidated);
+            systemClient.on('combatChanged', handleCombatChanged);
+            systemClient.on('combatListInvalidated', handleCombatListInvalidated);
+            systemClient.on('itemChanged', handleItemChanged);
+            systemClient.on('itemListInvalidated', handleItemListInvalidated);
+            systemClient.on('rollTableChanged', handleRollTableChanged);
+            systemClient.on('rollTableListInvalidated', handleRollTableListInvalidated);
+            systemClient.on('macroChanged', handleMacroChanged);
+            systemClient.on('macroListInvalidated', handleMacroListInvalidated);
+            systemClient.on('playlistChanged', handlePlaylistChanged);
+            systemClient.on('playlistListInvalidated', handlePlaylistListInvalidated);
+            systemClient.on('cardsChanged', handleCardsChanged);
+            systemClient.on('cardsListInvalidated', handleCardsListInvalidated);
             const unsubscribeSharedContent = sharedContentStore.onSharedContentChanged(handleSharedUpdate);
 
             // Per-user relays retained only for route-client lifecycle/shared-content events.
@@ -338,27 +334,27 @@ export function registerAppSocketGateway({
                 logger.debug(`App Socket | Client disconnected: ${socket.id}. Remaining: ${remaining}`);
                 engagementService.setActiveBrowserCount(remaining);
 
-                systemService.getSystemClient().off('actorChanged', handleActorChanged);
-                systemService.getSystemClient().off('chatMessageChanged', handleChatMessageChanged);
-                systemService.getSystemClient().off('chatMessageListInvalidated', handleChatMessageListInvalidated);
-                systemService.getSystemClient().off('userChanged', handleUserChanged);
-                systemService.getSystemClient().off('userListInvalidated', handleUserListInvalidated);
-                systemService.getSystemClient().off('folderChanged', handleFolderChanged);
-                systemService.getSystemClient().off('folderListInvalidated', handleFolderListInvalidated);
-                systemService.getSystemClient().off('journalChanged', handleJournalChanged);
-                systemService.getSystemClient().off('journalListInvalidated', handleJournalListInvalidated);
-                systemService.getSystemClient().off('combatChanged', handleCombatChanged);
-                systemService.getSystemClient().off('combatListInvalidated', handleCombatListInvalidated);
-                systemService.getSystemClient().off('itemChanged', handleItemChanged);
-                systemService.getSystemClient().off('itemListInvalidated', handleItemListInvalidated);
-                systemService.getSystemClient().off('rollTableChanged', handleRollTableChanged);
-                systemService.getSystemClient().off('rollTableListInvalidated', handleRollTableListInvalidated);
-                systemService.getSystemClient().off('macroChanged', handleMacroChanged);
-                systemService.getSystemClient().off('macroListInvalidated', handleMacroListInvalidated);
-                systemService.getSystemClient().off('playlistChanged', handlePlaylistChanged);
-                systemService.getSystemClient().off('playlistListInvalidated', handlePlaylistListInvalidated);
-                systemService.getSystemClient().off('cardsChanged', handleCardsChanged);
-                systemService.getSystemClient().off('cardsListInvalidated', handleCardsListInvalidated);
+                systemClient.off('actorChanged', handleActorChanged);
+                systemClient.off('chatMessageChanged', handleChatMessageChanged);
+                systemClient.off('chatMessageListInvalidated', handleChatMessageListInvalidated);
+                systemClient.off('userChanged', handleUserChanged);
+                systemClient.off('userListInvalidated', handleUserListInvalidated);
+                systemClient.off('folderChanged', handleFolderChanged);
+                systemClient.off('folderListInvalidated', handleFolderListInvalidated);
+                systemClient.off('journalChanged', handleJournalChanged);
+                systemClient.off('journalListInvalidated', handleJournalListInvalidated);
+                systemClient.off('combatChanged', handleCombatChanged);
+                systemClient.off('combatListInvalidated', handleCombatListInvalidated);
+                systemClient.off('itemChanged', handleItemChanged);
+                systemClient.off('itemListInvalidated', handleItemListInvalidated);
+                systemClient.off('rollTableChanged', handleRollTableChanged);
+                systemClient.off('rollTableListInvalidated', handleRollTableListInvalidated);
+                systemClient.off('macroChanged', handleMacroChanged);
+                systemClient.off('macroListInvalidated', handleMacroListInvalidated);
+                systemClient.off('playlistChanged', handlePlaylistChanged);
+                systemClient.off('playlistListInvalidated', handlePlaylistListInvalidated);
+                systemClient.off('cardsChanged', handleCardsChanged);
+                systemClient.off('cardsListInvalidated', handleCardsListInvalidated);
                 unsubscribeSharedContent();
                 foundryClient.off('worldShutdown', broadcastSystemStatus);
                 foundryClient.off('worldReload', broadcastSystemStatus);

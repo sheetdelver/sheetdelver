@@ -45,20 +45,6 @@ export async function testSystemInfo() {
             results.tests.push({ name: 'WorldStateStore.getGameDataSnapshot', success: false, error: error.message });
         }
 
-        // Test 2c: evaluate() for world info
-        logger.info('\n2c. Testing evaluate() for world info...');
-        try {
-            // @ts-ignore
-            const worldId = await client.evaluate(() => (world as any).id);
-            // @ts-ignore
-            const worldTitle = await client.evaluate(() => (world as any).title);
-            logger.info(`   ✅ World: ${worldTitle} (${worldId})`);
-            results.tests.push({ name: 'evaluate-world', success: true, data: { worldId, worldTitle } });
-        } catch (error: any) {
-            logger.info(`   ❌ Failed: ${error.message}`);
-            results.tests.push({ name: 'evaluate-world', success: false, error: error.message });
-        }
-
         const successCount = results.tests.filter((t: any) => t.success).length;
         results.success = successCount === results.tests.length;
 

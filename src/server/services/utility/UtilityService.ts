@@ -39,11 +39,10 @@ export function createUtilityService(deps: UtilityServiceDeps) {
         return { users: sanitizedUsers };
     };
 
-    // Shared content projection reads the canonical snapshot from
-    // SharedContentStore (ADR-0014 Phase 3) and resolves image URLs against
-    // the requesting client's Foundry base URL. The Store returns a defensive
-    // copy, so mutating `data.url` here is safe and does not leak back into
-    // the canonical state.
+    // Shared content projection reads the canonical snapshot from the Store
+    // and resolves image URLs against the requesting client's Foundry base
+    // URL. The Store returns a defensive copy, so mutating `data.url` here is
+    // safe and does not leak back into the canonical state.
     const getSharedContent = async (client?: UtilityClientLike) => {
         const resolvedClient = client || deps.getFallbackSharedContentClient();
         const content = sharedContentStore.getCurrent();

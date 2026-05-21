@@ -1,6 +1,6 @@
 # ADR-0018: Socket Boundary Enforcement Completion
 
-**Status:** Proposed - Phases 1-3 completed May 21, 2026.
+**Status:** Accepted - Completed May 21, 2026.
 **Date:** May 20, 2026
 **Phase:** Socket Boundary Completion (Phase 5 of the ADR-0014 arc)
 **Supersedes:** None. Consumes ADR-0014 world/lifecycle Stores, ADR-0015 compendium services, ADR-0016 document resolution, and ADR-0017 bootstrap orchestration.
@@ -239,29 +239,31 @@ Phase 3 moves session restore policy out of `ClientSocket` and removes socket-si
 
 ### Phase 4: Socket-facing interface and residual boundary audit
 
-**Status:** Not started.
+**Status:** Completed May 21, 2026.
 
 Phase 4 aligns types, debug services, and comments with the final socket shape.
 
 **Action items:**
 
-- [ ] Tighten or remove stale broad socket interfaces that still advertise historical helpers.
+- [x] Tighten or remove stale broad socket interfaces that still advertise historical helpers.
   Files: `src/server/core/foundry/interfaces.ts`, `src/server/shared/types/foundry.ts`.
 
-- [ ] Verify `ClientSocket` has no residual zero-value delegations to `CoreSocket` / `systemService.getSystemClient()`.
+- [x] Verify `ClientSocket` has no residual zero-value delegations to `CoreSocket` / `systemService.getSystemClient()`.
   Files: `src/server/core/foundry/sockets/ClientSocket.ts`, tests.
 
-- [ ] Replace concrete `ClientSocket` type dependencies in debug/session-facing services with the narrow route-client or transport shape where practical.
+- [x] Replace concrete `ClientSocket` type dependencies in debug/session-facing services with the narrow route-client or transport shape where practical.
   Files: `src/server/services/debug/DebugService.ts`, `src/server/routes/debug/registerDebugRoutes.ts`, `src/server/shared/types/foundry.ts`.
 
-- [ ] Update realtime/session logs and narrow types so restored-session usernames come from `UserSessionLike.username` or a session context, not from the transport client.
+- [x] Update realtime/session logs and narrow types so restored-session usernames come from `UserSessionLike.username` or a session context, not from the transport client.
   Files: `src/server/realtime/AppSocketGateway.ts`, `src/server/shared/types/foundry.ts`, related tests.
 
-- [ ] Remove stale ADR-phase comments from live code after the final ownership model is obvious from names/types.
+- [x] Remove stale ADR-phase comments from live code after the final ownership model is obvious from names/types.
   Files: touched socket, session, utility, and route-client files.
 
-- [ ] Verify Phase 4 with type checks and socket-surface audits.
-  Commands: `npx tsc --noEmit`; `git diff --check`; `rg -n "getSystemAdapter|loadSystemAdapter|fetchByUuid\\(|getAllCompendiumIndices|getGameData|getSceneData|getSystemConfig|updateActiveBrowserCount|lastActorChange|resolveHtml|public resolveUrl|validateSession|restoreSession" src/server/core/foundry/sockets src/server/core/foundry/interfaces.ts src/server/shared/types`.
+- [x] Verify Phase 4 with type checks and socket-surface audits.
+  Commands: `npx tsc --noEmit`; `git diff --check`; `rg -n "getSystemAdapter|loadSystemAdapter|fetchByUuid\\(|getAllCompendiumIndices|getGameData|getSceneData|getSystemConfig|updateActiveBrowserCount|lastActorChange|resolveHtml|public resolveUrl|validateSession|restoreSession|evaluate\\(" src/server/core/foundry/sockets src/server/core/foundry/interfaces.ts src/server/shared/types/foundry.ts`.
+
+**Phase 4 implementation note:** The historical `FoundryClient` interface now describes the live transport shapes (`FoundryUserTransportClient` / `FoundrySystemTransportClient`) instead of removed helpers like `evaluate`, world readers, and admin-world methods. `FoundryClientLike` no longer carries `username`; durable identity lives on `UserSessionLike`, while session clients use the narrower `FoundryDocumentClientLike` shape. `createSessionRouteFoundryClient(...)`, `DebugService`, and debug routes no longer require a concrete `ClientSocket` type. `AppSocketGateway` logs and filters from the session record first, then falls back to transport `userId` only as a compatibility fallback. `ClientSocket` has no `systemService.getSystemClient()` / `CoreSocket` delegation path, the legacy `CoreSocket.evaluate(...)` snapshot helper is removed, and stale phase-number comments were rewritten as ownership comments.
 
 **Non-goals for Phase 4:**
 
@@ -273,23 +275,31 @@ Phase 4 aligns types, debug services, and comments with the final socket shape.
 
 ### Phase 5: Documentation closure and final arc handoff
 
-**Status:** Not started.
+**Status:** Completed May 21, 2026.
 
 Phase 5 closes ADR-0018 and hands the arc to ADR-0019.
 
 **Action items:**
 
-- [ ] Update ADR-0014 / ADR-0017 / socket-boundary audit references that describe ADR-0018 leftovers as pending.
+- [x] Update ADR-0014 / ADR-0017 / socket-boundary audit references that describe ADR-0018 leftovers as pending.
   Files: `docs/adr/0014-non-document-world-state-and-socket-boundary.md`, `docs/adr/0017-world-bootstrap-and-lifecycle-orchestration.md`, `temp/audit-reports/socket-boundary-audit.md`.
 
-- [ ] Document the final allowed socket surface and the expected service/Store homes for all removed concerns.
+- [x] Document the final allowed socket surface and the expected service/Store homes for all removed concerns.
   Files: `docs/adr/0018-socket-boundary-enforcement-completion.md`, `temp/audit-reports/socket-boundary-audit.md`.
 
-- [ ] Run final closure checks.
+- [x] Run final closure checks.
   Commands: `npm run test:unit`; `npx tsc --noEmit`; `git diff --check`; Phase 4 socket-surface audit; URL audit; session restore audit.
 
-- [ ] Flip this ADR status to **Accepted** after all phases ship green.
+- [x] Flip this ADR status to **Accepted** after all phases ship green.
   Files: `docs/adr/0018-socket-boundary-enforcement-completion.md`.
+
+**Phase 5 implementation note:** ADR-0018 is accepted. The final socket boundary is:
+
+- `SocketBase`: base URL, handshake/login, cookie/session-id mechanics, logout/disconnect, probe helpers, and shared-content wire-event listener registration.
+- `CoreSocket`: service-account transport connect/disconnect, raw socket event emission, generic document dispatch, inbound `modifyDocument` routing to Stores, bootstrap snapshot fetch, raw heartbeat/reconnect transport operations requested by `EngagementService`, and runtime clears on teardown.
+- `ClientSocket`: user-scoped transport connect/login/restored-credential reconnect, fail-closed generic document dispatch, and shutdown/reload/shared-content wire relays.
+
+Removed concerns now have explicit homes: URL projection in `foundryUrl.ts`; session restore policy in `SessionManager`; world state in `WorldStateStore`; lifecycle in `WorldLifecycleStore`; compendium reads in `CompendiumService` / `CompendiumStore` / `DiscoveryShardStore`; UUID routing in `DocumentResolver`; bootstrap and adapter lifecycle in `WorldBootstrapper`; engagement policy in `EngagementService`; status refetch tokens in `SyncTokenService`; shared-content state in `SharedContentStore`; route/module public facades in the route/module client utilities.
 
 **Non-goals for Phase 5:**
 
@@ -371,9 +381,9 @@ This ADR is fulfilled when residual utility/session concerns are removed from so
 - [x] Phase 1: Foundry URL utilities exist with tests; `SocketBase` wrappers delegate to them.
 - [x] Phase 2: URL projection callers migrate; `SocketBase.resolveUrl` / `resolveHtml` are gone.
 - [x] Phase 3: `SessionManager` owns session restore eligibility, validation, retry/backoff, and restore concurrency; `ClientSocket` owns only restored-session reconnect mechanics; `validateSession` is gone.
-- [ ] Phase 4: socket-facing interfaces and debug/session touchpoints match the final socket shape.
-- [ ] Phase 5: closure docs and audits pass; ADR-0018 status flips to **Accepted**.
-- [ ] No tracked tests use real world or compendium dumps as fixtures.
-- [ ] `git diff --check`, `npx tsc --noEmit`, and `npm run test:unit` pass.
+- [x] Phase 4: socket-facing interfaces and debug/session touchpoints match the final socket shape.
+- [x] Phase 5: closure docs and audits pass; ADR-0018 status flips to **Accepted**.
+- [x] No tracked tests use real world or compendium dumps as fixtures.
+- [x] `git diff --check`, `npx tsc --noEmit`, and `npm run test:unit` pass.
 
 ADR-0019 owns the next step: Foundry version compatibility.

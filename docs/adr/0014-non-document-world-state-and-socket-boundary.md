@@ -20,8 +20,8 @@ The full scope is too large for a single ADR. It splits along dependency-driven 
 | ADR-0015 — Compendium Architecture and the Pathway B Read Gap | `CompendiumStore`, `CompendiumService`, `DiscoveryShardStore` / shard reader. Fixes the latent bug where pathway B writes hydrated shards no SDK caller reads. De-duplicates pathway A/B at the freshness-hash layer. Moves `getAllCompendiumIndices` / `getPackEntries` / `getPackIndex` / `getPackDocuments` off `CoreSocket`. | ADR-0014 (`core/compendium/` layout, naming convention) |
 | ADR-0016 — Document Resolution and UUID Routing | `DocumentResolver`. Removes `fetchByUuid` from `CoreSocket` and `ClientSocket` cleanly (no transitional stub). Embedded-UUID parent-aware parse path. Stub-type resolver policy. | ADR-0015 (`DiscoveryShardStore.findDocument(...)` plus `CompendiumService.getPackDocument(...)` for the compendium branch) |
 | ADR-0017 — World Bootstrap and Lifecycle Orchestration | `WorldBootstrapper` (the central application glue). `EngagementService` as presence signal source. The "`active` means application-ready, not Foundry-active" semantic tightening. Lifecycle-gated gateway acceptance. `SyncTokenService` (or folded into StatusService). | ADR-0014, ADR-0015, ADR-0016 |
-| ADR-0018 — Socket Boundary Enforcement Completion | Residual `ClientSocket` boundary verification and cleanup after ADR-0014 / ADR-0016 / ADR-0017 remove the named delegations. Session-state split with `SessionManager`. URL utility extraction. Stale-comment cleanup. Confirms what's left on `CoreSocket` / `ClientSocket` / `SocketBase` is purely transport going forward. | ADR-0014 through ADR-0017 |
-| ADR-0019 (deferred — post-arc) — Foundry Version Compatibility | Compat flag work. Reads `release.generation`; refuses below min, warns above max. Lands after the main arc completes. | ADR-0017 (needs `WorldBootstrapper` as insertion point) and ADR-0014 (typed `release` shape) |
+| ADR-0018 — Socket Boundary Enforcement Completion | Completed the residual `ClientSocket` boundary verification and cleanup after ADR-0014 / ADR-0016 / ADR-0017 removed the named delegations. Split session restore policy into `SessionManager`, extracted URL utilities, and confirmed the socket surface is transport-only. | ADR-0014 through ADR-0017 |
+| ADR-0019 — Foundry Version Compatibility | Compat flag work. Reads `release.generation`; refuses below min, warns above max. Lands after the socket-boundary arc completes. | ADR-0017 (needs `WorldBootstrapper` as insertion point) and ADR-0014 (typed `release` shape) |
 
 **Why this split:** each ADR is single-concern and reviewable independently. Dependencies are linear and explicit. Each ADR can fail or be revisited without invalidating the others. File-layout reorganization is cross-cutting — ADR-0014 establishes the convention; subsequent ADRs apply it as they touch files.
 
@@ -186,7 +186,7 @@ Every shape `WorldStateStore` holds is a **Foundry v13 contract**. v12 has mater
 
 When Foundry v14 arrives, drift surfaces as typed-cast failures or undefined-field reads at the consumer sites — which is the point. The current `any`-typed cache hides drift; the typed Stores make it visible. **Phase 1 typed shapes are an explicit v13 anchor**; v14 support is a separate effort with its own typed updates.
 
-Per-version handling (refuse below min, warn above max) is deferred to ADR-0019, which gets `WorldBootstrapper` as an insertion point from ADR-0017 and typed `release.generation` from this ADR.
+Per-version handling (refuse below min, warn above max) belongs to ADR-0019, which gets `WorldBootstrapper` as an insertion point from ADR-0017 and typed `release.generation` from this ADR.
 
 ### World-state test data policy
 
@@ -243,7 +243,7 @@ Just transport, plus orchestration that subsequent ADRs will extract:
 - **Stays for now, removed by ADR-0015**: `getAllCompendiumIndices`, `getPackEntries`, `getPackIndex`, `getPackDocuments`.
 - **Stays for now, removed by ADR-0016**: `fetchByUuid` (on `CoreSocket` and the matching `ClientSocket` delegation).
 - **Resolved by ADR-0017**: application bootstrap orchestration, delayed `active`, sync-token state, engagement policy, heartbeat cadence, active-adapter cache, adapter reader/loader methods, and `ClientSocket` adapter delegation.
-- **Stays for now, verified or removed by ADR-0018**: any residual `ClientSocket` delegation left after ADR-0014 / ADR-0016 / ADR-0017, URL utilities on `SocketBase`, session-state half of `restoreSession`.
+- **Resolved by ADR-0018**: residual `ClientSocket` boundary verification, URL utility extraction from `SocketBase`, the session-state half of restore, and final socket-facing interface/comment cleanup.
 
 This ADR removes only the state-reading methods named in *Sockets shrink* above. The rest is each follow-up ADR's scope.
 
@@ -390,7 +390,7 @@ Phase 3 introduces `SharedContentStore` as the authoritative owner for the lates
 
 **Non-goals for Phase 3:**
 
-- No URL utility extraction from `SocketBase`; ADR-0018 owns residual URL utility cleanup.
+- No URL utility extraction from `SocketBase` in this ADR; ADR-0018 later removed the socket-owned URL helpers.
 - No realtime contract rename. The client-facing event remains `sharedContentUpdate`.
 - No client UI state refactor. React state may still be named `sharedContent`; the socket-boundary concern is server-side ownership.
 - No lifecycle or bootstrap timing changes.
@@ -554,8 +554,8 @@ This ADR is the first of five coordinated ADRs (see *Part of the ADR-0014 arc* a
 - **ADR-0015**: Compendium architecture and the pathway B read gap.
 - **ADR-0016**: Document resolution and UUID routing.
 - **ADR-0017**: World bootstrap and lifecycle orchestration.
-- **ADR-0018**: Socket-boundary enforcement completion.
-- **ADR-0019 (deferred)**: Foundry version compatibility flag.
+- **ADR-0018**: Socket-boundary enforcement completion (completed).
+- **ADR-0019**: Foundry version compatibility flag.
 
 Adjacent ADRs from other arcs:
 

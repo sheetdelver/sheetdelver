@@ -4,4 +4,5 @@ import type { UtilityClientLike } from '@server/shared/types/utility';
 
 export type RouteFoundryClient = ActorServiceClientLike & ChatClientLike & CombatClientLike & JournalClientLike & UtilityClientLike & {
 	isConnected: boolean;
+	username?: string;
 };

@@ -4,7 +4,7 @@
 **Date:** May 20, 2026
 **Phase:** World Bootstrap (Phase 4 of the ADR-0014 arc)
 **Supersedes:** None. Consumes ADR-0014 world/lifecycle Stores, ADR-0015 compendium services, and ADR-0016 document resolution.
-**Related:** ADR-0011 (primary document model), ADR-0014 (non-document world state and socket boundary), ADR-0015 (compendium architecture), ADR-0016 (document resolution), ADR-0018 (socket-boundary completion), ADR-0019 (deferred Foundry version compatibility).
+**Related:** ADR-0011 (primary document model), ADR-0014 (non-document world state and socket boundary), ADR-0015 (compendium architecture), ADR-0016 (document resolution), ADR-0018 (socket-boundary completion), ADR-0019 (Foundry version compatibility).
 
 ---
 
@@ -18,8 +18,8 @@ This ADR is the fourth decision in the ADR-0014 arc. ADR-0014 moved non-document
 | ADR-0015 - Compendium Architecture and the Pathway B Read Gap | `CompendiumStore`, `CompendiumService`, `DiscoveryShardStore` / shard reader. Fixes SDK discovery shard reads, de-duplicates Pathway A/B index work, and removes compendium readers from sockets. | ADR-0014 |
 | ADR-0016 - Document Resolution and UUID Routing | `DocumentResolver`; removes `fetchByUuid` from `CoreSocket` and `ClientSocket`; parses world, embedded, and compendium UUIDs; delegates compendium lookup to ADR-0015 shard/fallback primitives. | ADR-0015 |
 | **ADR-0017 (this ADR)** - World Bootstrap and Lifecycle Orchestration | `WorldBootstrapper`, delayed `active`, adapter ownership, `EngagementService`, and `SyncTokenService`. Removes adapter, heartbeat-policy, bootstrap-orchestration, and sync-token leftovers from sockets. | ADR-0014 through ADR-0016 |
-| ADR-0018 - Socket Boundary Enforcement Completion | Residual socket-boundary cleanup after the named extractions: URL utility extraction, session-state split, stale-comment cleanup, and final socket-surface verification. | ADR-0014 through ADR-0017 |
-| ADR-0019 - Foundry Version Compatibility | Deferred compatibility policy using the typed `release` shape and the `WorldBootstrapper` insertion point. | ADR-0017 |
+| ADR-0018 - Socket Boundary Enforcement Completion | Completed residual socket-boundary cleanup after the named extractions: URL utility extraction, session-state split, stale-comment cleanup, and final socket-surface verification. | ADR-0014 through ADR-0017 |
+| ADR-0019 - Foundry Version Compatibility | Compatibility policy using the typed `release` shape and the `WorldBootstrapper` insertion point. | ADR-0017 |
 
 **Reading order if you land here cold:** read ADR-0014 first, then ADR-0015 and ADR-0016. ADR-0017 assumes Stores/services already own world state, compendium reads, and UUID routing.
 
@@ -53,12 +53,12 @@ The codebase now has the right state/service owners, and `WorldBootstrapper.boot
 
 ADR-0014 defined `active` as "Sheet Delver is ready to serve world-backed requests." Phase 5 now matches that contract: Foundry-active maps to `startup`, and `active` is written only after Sheet Delver bootstrap completes.
 
-After Phase 6, the remaining socket-boundary leftovers are narrow and explicitly ADR-0018 scope:
+After Phase 6, the remaining socket-boundary leftovers were narrow and explicitly ADR-0018 scope. ADR-0018 has since closed them:
 
 - `CoreSocket.connect()` still owns the handshake/probe/login/raw socket state machine.
 - `CoreSocket` still owns service-account identity resolution, retry/backoff, and the raw heartbeat transport probe; `EngagementService` owns the policy inputs.
 - `CoreSocket.getBootstrapSnapshot()` is a raw transport fetch; `WorldBootstrapper` decides when the snapshot is accepted.
-- URL utility extraction and the session-state half of `ClientSocket.restoreSession(...)` belong to ADR-0018.
+- URL utility extraction and the session-state half of restore moved to ADR-0018 and are now complete.
 
 Phase 1 removed the previous `CoreSocket.lastActorChange` status leak; `actorSyncToken` now comes from `SyncTokenService`.
 Phase 2 removed browser-count, last-activity, heartbeat-pause, and adaptive-heartbeat policy from `CoreSocket`; those now live in `EngagementService`.
@@ -148,9 +148,9 @@ App socket clients may still connect during `startup` and receive status payload
 
 ## What Stays Out
 
-ADR-0017 does not move URL helpers off `SocketBase`; ADR-0018 owns URL utility extraction.
+ADR-0017 did not move URL helpers off `SocketBase`; ADR-0018 later extracted URL utilities and removed the socket wrappers.
 
-ADR-0017 does not split `ClientSocket.restoreSession(...)` cookie-state handling; ADR-0018 owns the session-state cleanup.
+ADR-0017 did not split `ClientSocket.restoreSession(...)` cookie-state handling; ADR-0018 later moved restore policy to `SessionManager` and left only wire reconnect on `ClientSocket`.
 
 ADR-0017 does not implement Foundry version min/max compatibility checks; ADR-0019 owns that once `WorldBootstrapper` is available as the insertion point.
 
@@ -349,7 +349,7 @@ Phase 5 is the semantic change: `active` becomes application-ready, and `CoreSoc
 
 **Status:** Completed May 20, 2026.
 
-Phase 6 closes ADR-0017 and prepares ADR-0018.
+Phase 6 closed ADR-0017 and prepared the now-complete ADR-0018 residual pass.
 
 **Action items:**
 
@@ -359,7 +359,7 @@ Phase 6 closes ADR-0017 and prepares ADR-0018.
 - [x] Update ADR-0014 / ADR-0016 references that named ADR-0017 leftovers as pending.
   Files: `docs/adr/0014-non-document-world-state-and-socket-boundary.md`, `docs/adr/0016-document-resolution-and-uuid-routing.md`, `temp/audit-reports/socket-boundary-audit.md`.
 
-- [x] Confirm the remaining `CoreSocket` surface is transport plus retry/backoff, and list ADR-0018 leftovers explicitly.
+- [x] Confirm the remaining `CoreSocket` surface is transport plus retry/backoff, and record the then-pending ADR-0018 leftovers. ADR-0018 has since closed them.
   Files: `docs/adr/0017-world-bootstrap-and-lifecycle-orchestration.md`, `temp/audit-reports/socket-boundary-audit.md`.
 
 - [x] Verify closure with targeted audits.
@@ -368,7 +368,7 @@ Phase 6 closes ADR-0017 and prepares ADR-0018.
 - [x] Flip this ADR status to **Accepted** after all phases ship green.
   Files: `docs/adr/0017-world-bootstrap-and-lifecycle-orchestration.md`.
 
-**Phase 6 implementation note:** `CoreSocket` no longer keeps public `gameDataCache`, `sceneDataCache`, `cachedWorldData`, `cachedWorlds`, `probeWorldData`, or `probeUserCount` mirrors. Setup cache, probe data, scene data, and connected-world snapshots live in `WorldStateStore`; `CoreSocket` only triggers raw reads/probes and clears runtime Store state on transport teardown. Stale ADR-0014 / ADR-0016 references now point at the completed ADR-0017 ownership split, and the audit explicitly lists ADR-0018's remaining URL/session boundary work.
+**Phase 6 implementation note:** `CoreSocket` no longer keeps public `gameDataCache`, `sceneDataCache`, `cachedWorldData`, `cachedWorlds`, `probeWorldData`, or `probeUserCount` mirrors. Setup cache, probe data, scene data, and connected-world snapshots live in `WorldStateStore`; `CoreSocket` only triggers raw reads/probes and clears runtime Store state on transport teardown. Stale ADR-0014 / ADR-0016 references now point at the completed ADR-0017 ownership split. ADR-0018 later closed the remaining URL/session boundary work.
 
 **Non-goals for Phase 6:**
 
@@ -413,7 +413,7 @@ Rejected for scope. The bootstrap boundary must be clear first. After ADR-0017, 
 - Route validation no longer depends on socket-held adapter state.
 - Browser engagement and heartbeat policy move out of transport.
 - Status sync-token generation no longer leaks through `CoreSocket`.
-- ADR-0018 can become a true residual cleanup pass rather than another architecture extraction.
+- ADR-0018 later became a true residual cleanup pass rather than another architecture extraction.
 
 ### Tradeoffs
 
@@ -429,7 +429,7 @@ Rejected for scope. The bootstrap boundary must be clear first. After ADR-0017, 
 - **ADR-0014** - established Store ownership for world state and defined target lifecycle semantics.
 - **ADR-0015** - extracted compendium service/shard work consumed during bootstrap.
 - **ADR-0016** - extracted UUID routing, clearing the last dependency before bootstrap cleanup.
-- **ADR-0018** - completes residual socket-boundary cleanup after this ADR.
+- **ADR-0018** - completed residual socket-boundary cleanup after this ADR.
 - **ADR-0019** - uses `WorldBootstrapper` as the future Foundry version compatibility insertion point.
 
 ---
@@ -443,7 +443,7 @@ Each phase validates both behavior and boundary shrinkage.
 - Adapter audits prove socket classes no longer expose `getSystemAdapter` / `loadSystemAdapter`.
 - Bootstrapper tests prove ordering, idempotence, and failure reset.
 - Lifecycle tests prove `startup` remains visible until bootstrap completes and `active` follows `world:ready`.
-- Closure audits confirm ADR-0017 leftovers are gone and ADR-0018 leftovers are explicitly documented.
+- Closure audits confirm ADR-0017 leftovers are gone; ADR-0018 later closed the explicitly documented residuals.
 - `git diff --check`, `npx tsc --noEmit`, and `npm run test:unit` pass for every phase before moving to the next.
 
 ---
@@ -461,4 +461,4 @@ This ADR is fulfilled when world bootstrap and readiness are service-owned and s
 - [x] No tracked tests use real world or compendium dumps as fixtures.
 - [x] `git diff --check`, `npx tsc --noEmit`, and `npm run test:unit` pass.
 
-ADR-0018 owns the next step: residual socket-boundary enforcement completion.
+ADR-0018 closed the residual socket-boundary enforcement pass. ADR-0019 owns the next step: Foundry version compatibility.

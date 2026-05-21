@@ -14,7 +14,7 @@ function cloneOrNull<T>(value: T | null | undefined): T | null {
 }
 
 /**
- * ADR-0014 Phase 3 home for GM-shared content (`shareImage`, `showEntry`).
+ * Store-owned home for GM-shared content (`shareImage`, `showEntry`).
  *
  * Held separately from `WorldStateStore` because the event source is asymmetric
  * (live wire events, not the world bootstrap payload) and the lifecycle is

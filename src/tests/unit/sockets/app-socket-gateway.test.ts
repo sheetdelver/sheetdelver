@@ -21,9 +21,12 @@ interface MockSocket {
 
 interface MockFoundryClient {
     userId?: string | null;
-    username?: string;
+    isConnected: boolean;
+    url: string;
     on: (event: string, handler: EventHandler) => void;
     off: (event: string, handler: EventHandler) => void;
+    dispatchDocument: () => Promise<unknown>;
+    dispatchDocumentSocket: () => Promise<unknown>;
 }
 
 async function runGatewayTests() {
@@ -47,16 +50,19 @@ async function runGatewayTests() {
 
     const foundryClient: MockFoundryClient = {
         userId: 'user-1',
-        username: 'tester',
+        isConnected: true,
+        url: 'http://foundry.test',
         on: (event, handler) => attachedHandlers.push({ event, handler }),
         off: (event, handler) => detachedHandlers.push({ event, handler }),
+        dispatchDocument: async () => ({}),
+        dispatchDocumentSocket: async () => ({}),
     };
 
     const sessionManager = {
         isCacheReady: () => true,
         getOrRestoreSession: async (token: string) => {
             if (token === 'valid-token') {
-                return { client: foundryClient, userId: 'user-1' };
+                return { client: foundryClient, userId: 'user-1', username: 'tester' };
             }
             return undefined;
         },
@@ -135,13 +141,11 @@ async function runGatewayTests() {
 
         assert.ok(emitted.some((entry) => entry.event === 'systemStatus'));
         // Per-user foundry client now receives worldShutdown/worldReload only (2).
-        // ADR-0014 Phase 3 moved shared-content fan-out off the per-user
-        // foundryClient onto SharedContentStore.onSharedContentChanged; the
-        // gateway subscribes to the Store directly so per-session foundryClient
-        // emits are not part of this count.
+        // Shared-content fan-out subscribes to SharedContentStore directly, so
+        // per-session foundryClient emits are not part of this count.
         // User presence/status now broadcasts once from the system client path.
-        // combatUpdate moved off the per-user client onto the system bridge in Phase 5.
-        // The system client carries Store-bridged events (Phase 7 closure):
+        // combatUpdate also flows through the system bridge.
+        // The system client carries Store-bridged events:
         //   actorChanged + chatMessageChanged + chatMessageListInvalidated
         //   + userChanged + userListInvalidated + folderChanged + folderListInvalidated
         //   + journalChanged + journalListInvalidated

@@ -4,7 +4,6 @@ import { logger } from '@shared/utils/logger';
 import { FoundryConfig } from '../types';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
-import { worldStateStore } from '@server/core/world/WorldStateStore';
 import type { RestoredFoundrySessionCredential } from '@server/shared/types/foundry';
 
 export class ClientSocket extends SocketBase {
@@ -39,14 +38,11 @@ export class ClientSocket extends SocketBase {
             // 2. Identification (via Discovery Probe or CoreSocket)
             if (!this.userId) {
                 logger.info('ClientSocket | Identifying user ID...');
-                // User lookup priority during ADR-0014:
+                // User lookup priority while establishing transport identity:
                 // 1. UserStore after the active-world bootstrap.
-                // 2. WorldStateStore's raw `game.data.users` snapshot while
-                //    user discovery still depends on the bootstrap payload.
-                // 3. Probe fallback before a full bootstrap is possible.
+                // 2. Probe fallback before a full bootstrap is possible.
                 const storeUser = userStore.isReady() ? userStore.findByName(this.config.username || '') : null;
-                const coreData = worldStateStore.getGameDataSnapshot();
-                const users = storeUser ? [storeUser] : (coreData?.users || (await this.probeWorldState(baseUrl))?.users);
+                const users = storeUser ? [storeUser] : (await this.probeWorldState(baseUrl))?.users;
 
                 const user = users?.find((u: any) => u.name === this.config.username);
                 if (user) {
@@ -145,8 +141,7 @@ export class ClientSocket extends SocketBase {
     }
 
     // --- Public API / transport helpers ---
-    // UUID routing moved to DocumentResolver in ADR-0016 and adapter ownership
-    // moved to WorldBootstrapper in ADR-0017 Phase 3, so this user socket
+    // UUID routing and adapter ownership live in services; this user socket
     // exposes only transport-level document helpers.
 
     public async emitSocketEvent<T>(event: string, payload: any, timeoutMs: number = 5000): Promise<T> {

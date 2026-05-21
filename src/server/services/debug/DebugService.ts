@@ -1,12 +1,7 @@
-import type { ClientSocket } from '@server/core/foundry/sockets/ClientSocket';
 import type { UserSessionLike } from '@server/shared/types/foundry';
 import { createSessionRouteFoundryClient } from '@server/shared/utils/createRouteFoundryClient';
 
-type DebugSession = UserSessionLike & {
-    client: ClientSocket;
-};
-
-type GetOrRestoreSession = (token: string) => Promise<DebugSession | undefined>;
+type GetOrRestoreSession = (token: string) => Promise<UserSessionLike | undefined>;
 
 interface DebugServiceDeps {
     getOrRestoreSession: GetOrRestoreSession;

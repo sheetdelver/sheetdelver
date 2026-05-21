@@ -33,12 +33,36 @@ export interface FoundryGameDataLike {
     users?: FoundryUserLike[];
 }
 
+export type FoundryEventHandler = (...args: unknown[]) => void;
+
 export interface FoundryClientLike {
     userId?: string | null;
-    username?: string;
 
-    on(event: string, handler: (...args: unknown[]) => void): void;
-    off(event: string, handler: (...args: unknown[]) => void): void;
+    on(event: string, handler: FoundryEventHandler): void;
+    off(event: string, handler: FoundryEventHandler): void;
+}
+
+export interface FoundryDocumentClientLike extends FoundryClientLike {
+    isConnected: boolean;
+    url: string;
+    dispatchDocument(
+        type: string,
+        action: string,
+        operation?: unknown,
+        parent?: { type: string; id: string }
+    ): Promise<unknown>;
+    dispatchDocumentSocket(
+        type: string,
+        action: string,
+        operation?: unknown,
+        parent?: unknown,
+        failHard?: boolean
+    ): Promise<unknown>;
+}
+
+export interface FoundryCompendiumClientLike extends FoundryDocumentClientLike {
+    emitSocketEvent<T>(event: string, ...payloads: unknown[]): Promise<T>;
+    withHeartbeatPaused?<T>(operation: () => Promise<T>): Promise<T>;
 }
 
 export interface RestoredFoundrySessionCredential {
@@ -58,7 +82,7 @@ export interface UserSessionLike {
     username?: string;
     lastActive?: number;
     worldId?: string;
-    client: FoundryClientLike;
+    client: FoundryDocumentClientLike;
 }
 
 export interface SessionManagerLike {

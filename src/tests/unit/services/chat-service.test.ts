@@ -14,7 +14,6 @@ const config = {
 function createMockClient(overrides: Partial<ChatClientLike> = {}): ChatClientLike {
     return {
         userId: 'p-author',
-        username: 'Player',
         on: () => undefined,
         off: () => undefined,
         createChatMessage: async () => ({ result: [] }),

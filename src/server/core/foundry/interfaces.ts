@@ -1,33 +1,25 @@
-import { ServerConnectionStatus } from '@shared/types/connection';
+import type {
+    FoundryCompendiumClientLike,
+    FoundryDocumentClientLike,
+    RestoredFoundrySessionCredential,
+} from '@server/shared/types/foundry';
 
-export interface FoundryClient {
-    // Legacy support (to be deprecated or aliased)
-    isConnected: boolean;
-    isLoggedIn: boolean;
-    userId: string | null;
-
-    // Strict Separation
-    isSocketConnected: boolean; // Physical socket connection
-    isUserAuthenticated: boolean; // User Session
-
-    url: string;
-    status: ServerConnectionStatus;
-
-    connect(): Promise<void>;
-    disconnect(): void;
+export interface FoundryUserTransportClient extends FoundryDocumentClientLike {
+    isSocketConnected: boolean;
     login(username?: string, password?: string): Promise<void>;
     logout(): Promise<void>;
-
-    evaluate<T>(pageFunction: any, arg?: any): Promise<T>;
-
-    getCurrentUserId(): string | null;
-    getSystemData(): Promise<any>;
-
-    dispatchDocument(type: string, action: string, operation?: any, parent?: { type: string, id: string }): Promise<any>;
-    dispatchDocumentSocket(type: string, action: string, data?: any, parent?: any): Promise<any>;
-
-    // World Management (Admin CLI)
-    getWorlds(): Promise<any[]>;
-    launchWorld(worldId: string): Promise<void>;
-    shutdownWorld(): Promise<void>;
+    connect(): Promise<void>;
+    disconnect(): void;
+    connectWithRestoredCredential(credential: RestoredFoundrySessionCredential): Promise<void>;
+    getSessionCookie(): string | null;
 }
+
+export interface FoundrySystemTransportClient extends FoundryCompendiumClientLike {
+    isSocketConnected: boolean;
+    connect(): Promise<void>;
+    disconnect(): void;
+    logout(): Promise<void>;
+    startRuntimeHeartbeat(): void;
+}
+
+export type FoundryClient = FoundryUserTransportClient;

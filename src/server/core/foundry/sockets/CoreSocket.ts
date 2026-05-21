@@ -33,16 +33,9 @@ export class CoreSocket extends SocketBase {
 
     private _routeModifyDocument(type: string, action: string, result: any, operation?: any) {
         // Single inbound dispatch point — routes to whichever Store handles
-        // this type. After ADR-0011 Phase 7 every modeled primary document is
-        // routed (Actor / Item / ActiveEffect → ActorStore + ItemStore;
-        // ChatMessage → ChatMessageStore; Folder → FolderStore; User → UserStore;
-        // JournalEntry / JournalEntryPage → JournalStore; Combat / Combatant →
-        // CombatStore; RollTable / RollTableResult → RollTableStore;
-        // Macro → MacroStore; Playlist / PlaylistSound → PlaylistStore;
-        // Cards / Card → CardsStore). The Sheet-Delver-unused types (Scene /
-        // FogExploration / Adventure / Setting) have stub Stores but no
-        // router registration — events for them drop silently. Synthetic
-        // tokens like `ActorDelta` similarly drop silently.
+        // this type. Modeled primary documents route to their Stores; unused
+        // Foundry types with only stub Stores have no router registration and
+        // drop silently. Synthetic tokens like `ActorDelta` drop silently too.
         modifyDocumentRouter.route({
             type,
             action: action as 'get' | 'create' | 'update' | 'delete',
@@ -73,8 +66,8 @@ export class CoreSocket extends SocketBase {
     }
 
     private clearActiveWorldCompendiumState(reason: string): void {
-        // ADR-0015 Phase 2: Pathway A indices and the UUID-name cache describe
-        // the active world only. Persistent Pathway B shards are left alone.
+        // Pathway A indices and the UUID-name cache describe the active world
+        // only. Persistent Pathway B shards survive active-world teardown.
         compendiumStore.clear(reason);
         CompendiumCache.getInstance().reset();
     }
@@ -629,7 +622,4 @@ export class CoreSocket extends SocketBase {
     public async launchWorld(worldId: string) { /* ... */ }
     public async shutdownWorld() { /* ... */ }
 
-    async evaluate<T>(): Promise<T> {
-        return worldStateStore.getGameDataSnapshot() as T;
-    }
 }

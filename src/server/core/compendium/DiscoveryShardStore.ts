@@ -68,7 +68,7 @@ function matchesQuery(document: DiscoveryShardDocument, query: Record<string, un
 }
 
 /**
- * ADR-0015 Phase 3 read/write boundary for module-declared discovery shards.
+ * Read/write boundary for module-declared discovery shards.
  *
  * DiscoveryService writes these persistent shards during bootstrap. This Store
  * gives `context.platform.discovery` a supported read model without exposing

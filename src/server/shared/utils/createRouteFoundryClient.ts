@@ -1,8 +1,10 @@
 import type { RollMode } from '@shared/sdk';
-import type { CoreSocket } from '@core/foundry/sockets/CoreSocket';
-import { ClientSocket } from '@core/foundry/sockets/ClientSocket';
 import type { ChatSendBody } from '@server/shared/types/documents';
 import type { RouteFoundryClient } from '@server/shared/types/requestContext';
+import type {
+    FoundryCompendiumClientLike,
+    FoundryDocumentClientLike,
+} from '@server/shared/types/foundry';
 import { logger } from '@shared/utils/logger';
 import { systemService } from '@server/core/system/SystemService';
 import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
@@ -32,40 +34,29 @@ import { DocumentResolver } from '@server/services/documents';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
 import { resolveFoundryUrl } from '@server/shared/utils/foundryUrl';
 
-type RouteSocketClient = CoreSocket | ClientSocket;
-
-function createCompendiumTransport(client: RouteSocketClient): CompendiumTransport {
-    const transport = client as unknown as {
-        emitSocketEvent<T>(event: string, ...payloads: unknown[]): Promise<T>;
-        dispatchDocumentSocket(
-            type: string,
-            action: string,
-            operation?: unknown,
-            parent?: unknown,
-            failHard?: boolean,
-        ): Promise<unknown>;
-    };
-
+function createCompendiumTransport(client: FoundryCompendiumClientLike): CompendiumTransport {
+    const withHeartbeatPaused = client.withHeartbeatPaused?.bind(client);
     return {
         get isConnected() {
             return client.isConnected;
         },
-        emitSocketEvent: (event, ...payloads) => transport.emitSocketEvent(event, ...payloads),
+        emitSocketEvent: (event, ...payloads) => client.emitSocketEvent(event, ...payloads),
         dispatchDocumentSocket: (type, action, operation, parent, failHard) =>
-            transport.dispatchDocumentSocket(type, action, operation, parent, failHard),
-        ...('withHeartbeatPaused' in client
-            ? { withHeartbeatPaused: client.withHeartbeatPaused.bind(client) }
-            : {}),
+            client.dispatchDocumentSocket(type, action, operation, parent, failHard),
+        ...(withHeartbeatPaused ? { withHeartbeatPaused } : {}),
     };
 }
 
-function createDocumentResolverForRoute(client: RouteSocketClient): DocumentResolver {
-    // Session clients used to delegate `fetchByUuid` to the service-account
-    // CoreSocket. Keep that privilege model while moving UUID parsing/routing
-    // into DocumentResolver; the socket remains only CompendiumService transport.
-    const transportClient = client instanceof ClientSocket
-        ? systemService.getSystemClient()
-        : client;
+function createDocumentResolverForRoute(
+    client: FoundryDocumentClientLike,
+    options: { useSystemCompendiumTransport: boolean },
+): DocumentResolver {
+    // Route/session facades expose one `fetchByUuid` method, but compendium
+    // fallback transport still uses the service account so user sessions do not
+    // need direct pack-read wire methods.
+    const transportClient = options.useSystemCompendiumTransport
+        ? systemService.getSystemClient() as unknown as FoundryCompendiumClientLike
+        : client as FoundryCompendiumClientLike;
     const compendiumService = new CompendiumService({
         transport: createCompendiumTransport(transportClient),
         getGameDataSnapshot: () => worldStateStore.getGameDataSnapshot(),
@@ -84,9 +75,8 @@ function filterActorUpdatePayload(
     actorId: string,
     payload: Record<string, unknown>,
 ): Record<string, unknown> | null {
-    // ADR-0017 Phase 3: route validation reads the service-owned active
-    // adapter. Request sockets are transport only and no longer carry adapter
-    // lifecycle state.
+    // Route validation reads the service-owned active adapter; request sockets
+    // are transport only and do not carry adapter lifecycle state.
     const adapter = systemService.getActiveAdapter();
     if (!adapter?.validateUpdate) return payload;
 
@@ -110,11 +100,14 @@ function filterActorUpdatePayload(
     return filteredData;
 }
 
-function createBaseRouteFoundryClient(client: RouteSocketClient): RouteFoundryClient {
+function createBaseRouteFoundryClient(
+    client: FoundryDocumentClientLike,
+    options: { useSystemCompendiumTransport: boolean },
+): RouteFoundryClient {
     const getSubject = () => userStore.createAccessSubject(client.userId);
     let documentResolver: DocumentResolver | null = null;
     const getDocumentResolver = () => {
-        documentResolver ??= createDocumentResolverForRoute(client);
+        documentResolver ??= createDocumentResolverForRoute(client, options);
         return documentResolver;
     };
 
@@ -238,7 +231,6 @@ function createBaseRouteFoundryClient(client: RouteSocketClient): RouteFoundryCl
             return client.url;
         },
         userId: client.userId,
-        username: undefined,
         on: client.on.bind(client),
         off: client.off.bind(client),
         getSystem: async () => {
@@ -270,7 +262,7 @@ function createBaseRouteFoundryClient(client: RouteSocketClient): RouteFoundryCl
                 ? parent.type.split('.')[0]
                 : undefined;
 
-            // Repository routing priority (ADR-0011 Phase 6):
+            // Repository routing priority:
             //   1. `parent` arg supplied → route to the parent-owning Repository.
             //      Embedded `Item` / `ActiveEffect` under an Actor go to
             //      ActorRepository regardless of `type`, including nested parent
@@ -349,13 +341,13 @@ function createBaseRouteFoundryClient(client: RouteSocketClient): RouteFoundryCl
     };
 }
 
-export function createSystemRouteFoundryClient(client: CoreSocket): RouteFoundryClient {
-    return createBaseRouteFoundryClient(client);
+export function createSystemRouteFoundryClient(client: FoundryCompendiumClientLike): RouteFoundryClient {
+    return createBaseRouteFoundryClient(client, { useSystemCompendiumTransport: false });
 }
 
-export function createSessionRouteFoundryClient(client: ClientSocket, username?: string): RouteFoundryClient {
+export function createSessionRouteFoundryClient(client: FoundryDocumentClientLike, username?: string): RouteFoundryClient {
     return {
-        ...createBaseRouteFoundryClient(client),
+        ...createBaseRouteFoundryClient(client, { useSystemCompendiumTransport: true }),
         username,
     };
 }
