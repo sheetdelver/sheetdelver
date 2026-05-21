@@ -71,7 +71,7 @@ Route/module public facades may continue exposing `resolveUrl(...)` as a stable 
 
 ### Session Restore
 
-`SessionManager` owns cached session records, world-id validation, restore retry/backoff, and deciding whether a cached Foundry session is eligible to restore.
+`SessionManager` owns cached session records, cached-session freshness/eligibility, world-id validation, restore retry/backoff, and deciding whether a cached Foundry session is eligible to restore.
 
 `ClientSocket` owns only the wire operation: connect a user-scoped socket using a supplied Foundry credential and fail closed when unavailable.
 
@@ -205,7 +205,7 @@ Phase 3 moves session restore policy out of `ClientSocket` and removes socket-si
 - [x] Define a narrow restored-session credential shape for reconnecting a user socket.
   Files: `src/server/core/session/SessionManager.ts`, `src/server/shared/types/foundry.ts` or a focused session type file if useful.
 
-- [x] Move cached-session record interpretation, world-id validation, and restore retry policy fully into `SessionManager`.
+- [x] Move cached-session record interpretation, freshness checks, world-id validation, and restore retry policy fully into `SessionManager`.
   Files: `src/server/core/session/SessionManager.ts`.
 
 - [x] Add per-session in-flight restore de-duplication to `SessionManager.getOrRestoreSession(...)`. Concurrent calls for the same token must share one restore promise and return the same in-memory session instead of creating multiple `ClientSocket` / presence-anchor connections.
@@ -220,13 +220,13 @@ Phase 3 moves session restore policy out of `ClientSocket` and removes socket-si
 - [x] Remove `ClientSocket.validateSession(...)`; world/session validation belongs to `SessionManager`.
   Files: `src/server/core/foundry/sockets/ClientSocket.ts`, `src/server/core/session/SessionManager.ts`.
 
-- [x] Add or update unit coverage for restored-session reconnect, concurrent restore de-duplication, world-id mismatch purge, startup restore deferral, and fail-closed user dispatch.
+- [x] Add or update unit coverage for restored-session reconnect, concurrent restore de-duplication, expired/incomplete cached-session purge, world-id mismatch purge, startup restore deferral, and fail-closed user dispatch.
   Files: `src/tests/unit/session/session-manager-restore.test.ts` or existing session tests, `src/tests/unit/sockets/client-socket-transport.test.ts`, `src/tests/unit/run.ts`.
 
 - [x] Verify Phase 3 with unit/type checks and session-surface audits.
   Commands: `npm run test:unit`; `npx tsc --noEmit`; `git diff --check`; `rg -n "restoreSession\\(|validateSession\\(" src/server src/tests`.
 
-**Phase 3 implementation note:** `SessionManager` now converts cached records into a narrow `RestoredFoundrySessionCredential`, validates the cached world id before creating a user transport, owns restore retries, and stores one in-flight restore promise per session token so parallel HTTP/API/socket auth paths share the same restored session. `ClientSocket.connectWithRestoredCredential(...)` only hydrates cookie transport state and connects; `SocketBase.hydrateCookieHeader(...)` owns restored Cookie-header parsing because that state is transport mechanics. Failed restore attempts disconnect any partially created client and clear the in-flight guard before returning `undefined`.
+**Phase 3 implementation note:** `SessionManager` now treats cached restore as an eligibility decision before any user transport is created: the record must have a cookie, user id, fresh `lastSaved` timestamp, and active-world id match. Expired, incomplete, missing-world-id, and mismatched-world records are terminal restore outcomes: they are purged without connecting a `ClientSocket` or burning retry/backoff cycles. Startup restores still defer when the active world id is not known yet. Eligible records are converted into a narrow `RestoredFoundrySessionCredential`; transient transport failures are the retryable path, and the one in-flight restore promise per session token lives in `SessionManager` so parallel HTTP/API/socket auth paths share the same restored session. `ClientSocket.connectWithRestoredCredential(...)` only hydrates cookie transport state and connects; `SocketBase.hydrateCookieHeader(...)` owns restored Cookie-header parsing because that state is transport mechanics. Failed transport restore attempts disconnect any partially created client and clear the in-flight guard before returning `undefined`.
 
 **Non-goals for Phase 3:**
 
@@ -235,7 +235,7 @@ Phase 3 moves session restore policy out of `ClientSocket` and removes socket-si
 - No change to user-scoped dispatch fail-closed behavior.
 - No `CoreSocket`/`ClientSocket` unification.
 
-**Exit for Phase 3:** `SessionManager` owns restore policy, validation, and restore concurrency; `ClientSocket` owns only user-socket reconnect mechanics; duplicate auth paths share one restore attempt; `validateSession` is gone from the socket; tests and audits pass.
+**Exit for Phase 3:** `SessionManager` owns restore eligibility, validation, retry/backoff, and restore concurrency; `ClientSocket` owns only user-socket reconnect mechanics; duplicate auth paths share one restore attempt; `validateSession` is gone from the socket; tests and audits pass.
 
 ### Phase 4: Socket-facing interface and residual boundary audit
 
@@ -370,7 +370,7 @@ This ADR is fulfilled when residual utility/session concerns are removed from so
 
 - [x] Phase 1: Foundry URL utilities exist with tests; `SocketBase` wrappers delegate to them.
 - [x] Phase 2: URL projection callers migrate; `SocketBase.resolveUrl` / `resolveHtml` are gone.
-- [x] Phase 3: `SessionManager` owns session restore policy, validation, and restore concurrency; `ClientSocket` owns only restored-session reconnect mechanics; `validateSession` is gone.
+- [x] Phase 3: `SessionManager` owns session restore eligibility, validation, retry/backoff, and restore concurrency; `ClientSocket` owns only restored-session reconnect mechanics; `validateSession` is gone.
 - [ ] Phase 4: socket-facing interfaces and debug/session touchpoints match the final socket shape.
 - [ ] Phase 5: closure docs and audits pass; ADR-0018 status flips to **Accepted**.
 - [ ] No tracked tests use real world or compendium dumps as fixtures.

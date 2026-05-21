@@ -32,6 +32,11 @@ interface CachedSessionRecord {
     lastSaved?: number;
 }
 
+type RestoreAttemptResult =
+    | { status: 'restored'; client: ClientSocket; userId: string; sessionId: string }
+    | { status: 'retryable' }
+    | { status: 'terminal' };
+
 export class SessionManager {
     private config: FoundryConfig;
     private sessions: Map<string, Session> = new Map();
@@ -65,10 +70,8 @@ export class SessionManager {
 
     public async createSession(username: string, password?: string): Promise<{ sessionId: string, userId: string }> {
         logger.info(`SessionManager | Creating session for user: ${username}`);
-        // Note: We don't implement login inside ClientSocket yet, waiting on user to verify separation.
-        // For now, ClientSocket expects a resumed session or guest interaction.
-        // IF we need explicit login, we should add a login() method to ClientSocket similar to CoreSocket.
-        // Assuming we need to replicate the SocketClient "login" behavior here for now.
+        // SessionManager owns the app session lifecycle; ClientSocket only
+        // performs the user-scoped Foundry transport login/reconnect.
 
         // Enforce Single Session per User: Cleanup any existing sessions for this user
         for (const [id, session] of this.sessions.entries()) {
@@ -124,7 +127,8 @@ export class SessionManager {
                 session.lastActive = Date.now();
                 return session;
             }
-            // If not in memory, try to restore from disk without strict world verification
+            // If not in memory, let the cache path decide whether the active
+            // world is known enough to safely restore this token.
             return this.restoreSessionFromCache(sessionId, 1);
         }
 
@@ -198,9 +202,11 @@ export class SessionManager {
     private async restoreSessionFromCacheWithRetries(sessionId: string, maxAttempts: number): Promise<Session | undefined> {
         for (let i = 0; i < maxAttempts; i++) {
             const restored = await this.tryRestoreSession(sessionId);
-            if (restored && restored.sessionId === sessionId) {
+            if (restored.status === 'restored' && restored.sessionId === sessionId) {
                 return this.sessions.get(sessionId);
             }
+            if (restored.status === 'terminal') return undefined;
+
             if (i < maxAttempts - 1) {
                 await this.waitForRestoreBackoff(i);
             }
@@ -209,17 +215,20 @@ export class SessionManager {
         return undefined;
     }
 
-    private async tryRestoreSession(sessionId: string): Promise<{ client: ClientSocket, userId: string, sessionId: string } | null> {
+    private async tryRestoreSession(sessionId: string): Promise<RestoreAttemptResult> {
         let client: ClientSocket | null = null;
         try {
             const cached = await this.loadSessions();
-            if (!cached) return null;
+            if (!cached) return { status: 'retryable' };
 
             const sessionData = cached[sessionId];
-            if (!sessionData) return null;
+            if (!sessionData) return { status: 'terminal' };
 
-            const credential = this.toRestoredCredential(sessionData);
-            if (!credential) return null;
+            if (!this.isCachedSessionFresh(sessionData)) {
+                logger.info(`SessionManager | Cached session ${sessionId} is expired or incomplete. Purging key.`);
+                await this.clearSession(sessionId);
+                return { status: 'terminal' };
+            }
 
             const foundryUsername = sessionData.username || sessionId;
 
@@ -238,17 +247,25 @@ export class SessionManager {
                 }
             }
 
-            // Strict Validation: ONLY purge if we are 100% sure we have an ACTUAL mismatch
-            if (currentWorldId && sessionData.worldId && currentWorldId !== sessionData.worldId) {
-                logger.warn(`SessionManager | World mismatch (Current: ${currentWorldId}, Session: ${sessionData.worldId}). Purging key ${sessionId}.`);
-                await this.clearSession(sessionId);
-                return null;
-            }
-
             if (!currentWorldId) {
                 logger.debug(`SessionManager | Deferring restoration for ${sessionId} - World ID still unknown. (State: ${lifecycleState})`);
-                return null; 
+                return { status: 'terminal' };
             }
+
+            if (!sessionData.worldId) {
+                logger.warn(`SessionManager | Cached session ${sessionId} has no world id. Purging key before restore.`);
+                await this.clearSession(sessionId);
+                return { status: 'terminal' };
+            }
+
+            if (currentWorldId !== sessionData.worldId) {
+                logger.warn(`SessionManager | World mismatch (Current: ${currentWorldId}, Session: ${sessionData.worldId}). Purging key ${sessionId}.`);
+                await this.clearSession(sessionId);
+                return { status: 'terminal' };
+            }
+
+            const credential = this.toRestoredCredential(sessionData);
+            if (!credential) return { status: 'terminal' };
 
             client = new ClientSocket({
                 ...this.config,
@@ -263,13 +280,20 @@ export class SessionManager {
                 worldId: sessionData.worldId, cookie: credential.cookie
             });
 
-            return { client, userId: credential.userId, sessionId };
+            return { status: 'restored', client, userId: credential.userId, sessionId };
 
-        } catch (e) {
-            logger.error(`SessionManager | Error during session restoration: ${e}`);
+        } catch (error: unknown) {
+            logger.error(`SessionManager | Error during session restoration: ${getErrorMessage(error)}`);
             client?.disconnect();
-            return null;
+            return { status: 'retryable' };
         }
+    }
+
+    private isCachedSessionFresh(sessionData: CachedSessionRecord): boolean {
+        if (!sessionData.cookie || !sessionData.userId || typeof sessionData.lastSaved !== 'number') {
+            return false;
+        }
+        return Date.now() - sessionData.lastSaved <= this.SESSION_TIMEOUT_MS;
     }
 
     private toRestoredCredential(sessionData: CachedSessionRecord): RestoredFoundrySessionCredential | null {

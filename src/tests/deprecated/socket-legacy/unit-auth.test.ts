@@ -25,8 +25,8 @@ class TestClient extends ClientSocket {
         // We need to manipulate the CoreSocket instance if we want to mock socket behavior.
         // But this test checks `ClientSocket` logic (userId).
         // Does ClientSocket logic depend on socket?
-        // restoreSession sets userId.
-        // It calls connect().
+        // connectWithRestoredCredential sets userId before it calls connect().
+        // This deprecated harness only checks the userId state transition.
     }
 
     public setUserId(id: string | null) {

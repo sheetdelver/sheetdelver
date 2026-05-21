@@ -13,22 +13,29 @@ classDiagram
         +connect()
         +login()
         +handshake()
+        #hydrateCookieHeader(cookie)
         #socket
     }
     class CoreSocket {
-        +getGameData()
-        +getUsers()
-        +fetchByUuid(uuid)
+        +emitSocketEvent(event)
+        +dispatchDocumentSocket(type, action, data)
         #setupRealTimeListeners()
     }
     class ClientSocket {
         +userId
-        +restoreSession()
+        +login(username, password)
+        +connectWithRestoredCredential(credential)
         +dispatchDocumentSocket()
-        #setupPresenceListeners()
+        #setupSocketRelays()
+    }
+    class SessionManager {
+        +getOrRestoreSession(token)
+        -restoreSessionFromCache(token)
+        -toRestoredCredential(record)
     }
     SocketBase <|-- CoreSocket
     SocketBase <|-- ClientSocket
+    SessionManager --> ClientSocket : supplies validated credential
 ```
 
 ### 1. SocketBase (Abstract)
@@ -37,23 +44,36 @@ classDiagram
     *   Manages `socket.io` connection lifecycle.
     *   Handles cookie persistence and headers.
     *   Implements high-level `handshake` and `login` workflows.
+    *   Hydrates restored browser Cookie headers for transport reconnects; it does not decide whether a cached session is eligible.
 *   **Key Files**: `@server/core/foundry/sockets/SocketBase.ts`
 
 ### 2. CoreSocket (Backend Singleton)
-*   **Role**: System-level Data Hub.
+*   **Role**: System-account transport.
 *   **Responsibilities**:
-    *   **fetchByUuid(uuid)**: A high-level helper that resolves any Foundry UUID (World or Compendium) and returns the document data.
-    *   **getGameData()**: Fetches World, System, and active User metadata.
-    *   Maintains the `userMap` and `gameDataCache` used by the system Status Handler.
-    *   Seeds primary document caches during bootstrap, then delegates long-lived primary document state to the stores under `src/server/core/documents/primary/`.
+    *   Maintains the service-account socket connection to Foundry.
+    *   Emits raw Foundry socket events when a service needs direct wire access.
+    *   Dispatches generic document mutations as the service account.
+    *   Captures inbound `modifyDocument` events and hands them to the document router/Stores.
+    *   Performs raw bootstrap and heartbeat probes requested by world services.
 *   **Key Files**: `@server/core/foundry/sockets/CoreSocket.ts`
 
 ### 3. ClientSocket (User Presence)
-*   **Role**: Authenticated User Anchor.
+*   **Role**: Authenticated user transport.
 *   **Responsibilities**:
-    *   **dispatchDocumentSocket(type, action, data)**: The unified method for all CRUD operations. Emits `modifyDocument` (Standard) or `getDocuments` (Compendium) events.
-    *   Receives user-specific events (e.g., `shareImage`, `showEntry`).
+    *   Logs a user into Foundry for first-party sessions.
+    *   Reconnects with a `RestoredFoundrySessionCredential` that `SessionManager` already validated.
+    *   **dispatchDocumentSocket(type, action, data)**: Emits user-scoped `modifyDocument` writes and fails closed if the user socket is unavailable.
+    *   Relays user-specific lifecycle and shared-content wire events.
 *   **Key Files**: `@server/core/foundry/sockets/ClientSocket.ts`
+
+### 4. SessionManager (Application Session Owner)
+*   **Role**: Cached session policy and restore coordinator.
+*   **Responsibilities**:
+    *   Interprets persistent cached session records.
+    *   Validates cached session freshness and active-world identity before a user transport is created.
+    *   De-duplicates concurrent restore attempts for the same browser token.
+    *   Supplies the narrow `{ userId, cookie }` credential that `ClientSocket` needs to reconnect.
+*   **Key Files**: `@server/core/session/SessionManager.ts`
 
 ## Socket Operations & Dispatch Model
 

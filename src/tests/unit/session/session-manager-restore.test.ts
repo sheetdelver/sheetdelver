@@ -27,7 +27,7 @@ function seedActiveWorld(worldId = WORLD_ID): void {
     worldLifecycleStore.setState('active', 'session-manager-test');
 }
 
-async function writeCachedSession(worldId = WORLD_ID): Promise<void> {
+async function writeCachedSession(worldId = WORLD_ID, overrides: Record<string, unknown> = {}): Promise<void> {
     await persistentCache.set(CACHE_NS, CACHE_KEY, {
         [SESSION_TOKEN]: {
             username: 'ptest',
@@ -35,6 +35,7 @@ async function writeCachedSession(worldId = WORLD_ID): Promise<void> {
             cookie: 'session=abc123; foundry=xyz',
             worldId,
             lastSaved: Date.now(),
+            ...overrides,
         },
     });
 }
@@ -143,6 +144,60 @@ async function runWorldMismatchPurgesWithoutTransportConnect() {
     await resetState();
 }
 
+async function runExpiredCachedSessionPurgesWithoutTransportConnect() {
+    await resetState();
+    seedActiveWorld();
+    await writeCachedSession(WORLD_ID, {
+        lastSaved: Date.now() - (25 * 60 * 60 * 1000),
+    });
+
+    let connectCalls = 0;
+
+    await withPatchedClientSocket({
+        connectWithRestoredCredential: async function (this: ClientSocket) {
+            connectCalls += 1;
+            throw new Error('should not connect an expired cached session');
+        },
+    }, async () => {
+        const manager = createManager();
+        const session = await manager.getOrRestoreSession(SESSION_TOKEN);
+
+        assert.equal(session, undefined);
+        assert.equal(connectCalls, 0);
+
+        const cached = await persistentCache.get<Record<string, unknown>>(CACHE_NS, CACHE_KEY);
+        assert.equal(cached?.[SESSION_TOKEN], undefined, 'expired cached session should be purged');
+    });
+
+    await resetState();
+}
+
+async function runCachedSessionWithoutWorldIdPurgesWhenWorldIsKnown() {
+    await resetState();
+    seedActiveWorld();
+    await writeCachedSession(WORLD_ID, { worldId: undefined });
+
+    let connectCalls = 0;
+
+    await withPatchedClientSocket({
+        connectWithRestoredCredential: async function (this: ClientSocket) {
+            connectCalls += 1;
+            throw new Error('should not connect when cached session world id is missing');
+        },
+    }, async () => {
+        const manager = createManager();
+        const session = await manager.getOrRestoreSession(SESSION_TOKEN);
+
+        assert.equal(session, undefined);
+        assert.equal(connectCalls, 0);
+
+        const cached = await persistentCache.get<Record<string, unknown>>(CACHE_NS, CACHE_KEY);
+        assert.equal(cached?.[SESSION_TOKEN], undefined, 'cached session without a world id should be purged once the active world is known');
+    });
+
+    await resetState();
+}
+
 async function runStartupRestoreDefersUntilWorldIdExists() {
     await resetState();
     worldLifecycleStore.setState('startup', 'session-manager-test');
@@ -207,6 +262,8 @@ async function runFailedRestoreDisconnectsAndClearsInFlight() {
 export async function run() {
     await runConcurrentRestoreDedupesTransport();
     await runWorldMismatchPurgesWithoutTransportConnect();
+    await runExpiredCachedSessionPurgesWithoutTransportConnect();
+    await runCachedSessionWithoutWorldIdPurgesWhenWorldIsKnown();
     await runStartupRestoreDefersUntilWorldIdExists();
     await runFailedRestoreDisconnectsAndClearsInFlight();
     console.log('  - SessionManager restore: all checks passed');
