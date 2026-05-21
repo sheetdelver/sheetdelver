@@ -7,7 +7,7 @@ import {
     FoundryUserRole,
     type DocumentAccessSubject,
 } from '@server/core/documents/primary/base/ownership';
-import type { RawMacro } from '@server/shared/types/documents';
+import type { MacroDocument } from '@server/shared/types/documents';
 
 const player: DocumentAccessSubject = { userId: 'p-1', role: FoundryUserRole.PLAYER };
 const otherPlayer: DocumentAccessSubject = { userId: 'p-2', role: FoundryUserRole.PLAYER };
@@ -46,7 +46,7 @@ async function runSeedAndCloneOnRead() {
 
 async function runOwnershipPolicyAndAuthorIsNotPolicy() {
     const store = new MacroStore();
-    const macros: RawMacro[] = [
+    const macros: MacroDocument[] = [
         {
             _id: 'm-public',
             name: 'Public',
@@ -83,7 +83,7 @@ async function runOwnershipPolicyAndAuthorIsNotPolicy() {
 
 async function runListByAuthorAndFolder() {
     const store = new MacroStore();
-    const macros: RawMacro[] = [
+    const macros: MacroDocument[] = [
         { _id: 'm-1', author: 'p-1', folder: 'f-1', ownership: { default: DocumentOwnershipLevel.OBSERVER } },
         { _id: 'm-2', author: 'p-1', folder: 'f-2', ownership: { default: DocumentOwnershipLevel.OBSERVER } },
         { _id: 'm-3', author: 'p-2', folder: 'f-1', ownership: { default: DocumentOwnershipLevel.OBSERVER } },

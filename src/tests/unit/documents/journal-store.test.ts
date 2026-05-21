@@ -11,7 +11,7 @@ import type {
     DocumentChangedEvent,
     DocumentListInvalidatedEvent,
 } from '@server/core/documents/primary/base/PrimaryDocumentStore';
-import type { RawJournal } from '@server/shared/types/documents';
+import type { JournalEntryDocument } from '@server/shared/types/documents';
 
 const player: DocumentAccessSubject = { userId: 'p-1', role: FoundryUserRole.PLAYER };
 const otherPlayer: DocumentAccessSubject = { userId: 'p-2', role: FoundryUserRole.PLAYER };
@@ -59,7 +59,7 @@ async function runSeedAndCloneOnRead() {
 
 async function runEntryOwnershipPolicy() {
     const store = new JournalStore();
-    const entries: RawJournal[] = [
+    const entries: JournalEntryDocument[] = [
         {
             _id: 'j-public',
             name: 'Public',
@@ -91,7 +91,7 @@ async function runEntryOwnershipPolicy() {
 
 async function runPageOwnershipPolicy() {
     const store = new JournalStore();
-    const entries: RawJournal[] = [
+    const entries: JournalEntryDocument[] = [
         {
             _id: 'j-entry',
             ownership: { default: DocumentOwnershipLevel.OBSERVER },
@@ -168,10 +168,10 @@ async function runPageInheritResolution() {
 async function runListByFolderIds() {
     const store = new JournalStore();
     await store.seed(async () => [
-        { _id: 'j-1', folder: 'f-1', ownership: { default: DocumentOwnershipLevel.OBSERVER } } as RawJournal,
-        { _id: 'j-2', folder: 'f-2', ownership: { default: DocumentOwnershipLevel.OBSERVER } } as RawJournal,
-        { _id: 'j-3', folder: null, ownership: { default: DocumentOwnershipLevel.OBSERVER } } as RawJournal,
-        { _id: 'j-4', folder: 'f-1', ownership: { default: DocumentOwnershipLevel.NONE } } as RawJournal,
+        { _id: 'j-1', folder: 'f-1', ownership: { default: DocumentOwnershipLevel.OBSERVER } } as JournalEntryDocument,
+        { _id: 'j-2', folder: 'f-2', ownership: { default: DocumentOwnershipLevel.OBSERVER } } as JournalEntryDocument,
+        { _id: 'j-3', folder: null, ownership: { default: DocumentOwnershipLevel.OBSERVER } } as JournalEntryDocument,
+        { _id: 'j-4', folder: 'f-1', ownership: { default: DocumentOwnershipLevel.NONE } } as JournalEntryDocument,
     ]);
 
     const allF1 = store.listByFolderIds(['f-1']);

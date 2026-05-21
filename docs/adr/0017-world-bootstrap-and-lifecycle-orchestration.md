@@ -357,10 +357,10 @@ Phase 6 closed ADR-0017 and prepared the now-complete ADR-0018 residual pass.
   Files: touched socket, world service, status, and ADR docs.
 
 - [x] Update ADR-0014 / ADR-0016 references that named ADR-0017 leftovers as pending.
-  Files: `docs/adr/0014-non-document-world-state-and-socket-boundary.md`, `docs/adr/0016-document-resolution-and-uuid-routing.md`, `temp/audit-reports/socket-boundary-audit.md`.
+  Files: `docs/adr/0014-non-document-world-state-and-socket-boundary.md`, `docs/adr/0016-document-resolution-and-uuid-routing.md`.
 
 - [x] Confirm the remaining `CoreSocket` surface is transport plus retry/backoff, and record the then-pending ADR-0018 leftovers. ADR-0018 has since closed them.
-  Files: `docs/adr/0017-world-bootstrap-and-lifecycle-orchestration.md`, `temp/audit-reports/socket-boundary-audit.md`.
+  Files: `docs/adr/0017-world-bootstrap-and-lifecycle-orchestration.md`.
 
 - [x] Verify closure with targeted audits.
   Commands: `npm run test:unit`; `npx tsc --noEmit`; `git diff --check`; `rg -n "lastActorChange|updateActiveBrowserCount|activeBrowserCount|lastUserActivityTimestamp|heartbeatPaused|getSystemAdapter|loadSystemAdapter|private adapter" src/server`; `rg -n "actorSyncToken" src/server` (expected: status projection only); `rg -n "setWorldState\\('active'|setState\\('active'|foundry-world-active" src/server/core/foundry`.

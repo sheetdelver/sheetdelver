@@ -1,6 +1,6 @@
 # ADR-0020: Post Socket-Boundary Follow-Up Cleanup
 
-**Status:** Proposed.
+**Status:** Accepted - Completed May 21, 2026.
 **Date:** May 21, 2026
 **Phase:** Post Socket-Boundary Follow-Up
 **Supersedes:** None. Follows ADR-0014 through ADR-0019.
@@ -21,7 +21,7 @@ ADR-0014 through ADR-0019 closed the socket-boundary arc:
 
 The final audit sweep did not find another material socket-boundary extraction, but it did leave follow-up cleanup that is worth handling while the architecture is still fresh:
 
-- legacy primary-document types still use the `Raw*` prefix even though there is no non-raw counterpart
+- legacy primary-document types used the `Raw*` prefix even though there was no non-raw counterpart
 - `game.data` ownership is correct in code but still needs a clearer written map for future contributors
 - primary-document stub Stores exist for shape uniformity and should remain unseeded until a real vertical needs them
 - embedded UUID resolution already exists for supported world documents, but the traversal model needs clearer documentation
@@ -36,7 +36,7 @@ ADR-0020 is therefore a cleanup and policy-tightening ADR, not another socket-bo
 
 ADR-0020 makes six decisions.
 
-1. Remove the legacy `Raw*` naming from primary-document types in two phases. Use canonical `*Document` names such as `ActorDocument`, `ItemDocument`, `JournalEntryDocument`, and `RollTableDocument`. Keep runtime behavior unchanged.
+1. Remove the legacy `Raw*` naming from primary-document types in two phases. Use canonical `*Document` names such as `ActorDocument`, `ItemDocument`, `JournalEntryDocument`, and `RollTableDocument`. Keep runtime behavior unchanged. Completed in Phases 1 and 2.
 
 2. Document `game.data` as a Foundry bootstrap envelope, not a single application domain object. The ADR will distinguish fields retained by `WorldStateStore`, fields used as bootstrap inputs for other Stores/services, and fields that should never become canonical world-state.
 
@@ -68,6 +68,7 @@ The new convention is:
 | `RawCombat` | `CombatDocument` |
 | `RawCombatant` | `CombatantDocument` |
 | `RawFolder` | `FolderDocument` |
+| `RawUser` | `UserDocument` |
 | `RawRollTable` | `RollTableDocument` |
 | `RawRollTableResult` | `RollTableResultDocument` |
 | `RawMacro` | `MacroDocument` |
@@ -80,7 +81,7 @@ The new convention is:
 | `RawAdventure` | `AdventureDocument` |
 | `RawSetting` | `SettingDocument` |
 
-Phase 1 may keep temporary type aliases so the migration can be reviewed without one giant mechanical rename. Phase 2 removes the aliases and verifies no `Raw*` primary-document types remain.
+Phase 1 kept temporary type aliases so the migration could be reviewed without one giant mechanical rename. Phase 2 removed the aliases and verified no `Raw*` primary-document types remain in active source.
 
 ### `game.data` Ownership Map
 
@@ -262,23 +263,23 @@ This section follows ADR-0011 through ADR-0019: each phase has a named scope, st
 
 ### Phase 1: Canonical primary-document type names
 
-**Status:** Planned.
+**Status:** Completed May 21, 2026.
 
 Phase 1 introduces canonical non-`Raw` primary-document type names and migrates the core implementation while keeping temporary aliases for review safety.
 
 **Action items:**
 
-- [ ] Rename primary-document interfaces to `*Document` names or add canonical `*Document` aliases where a direct interface rename would be too noisy for the first pass.
-  Files: `src/server/shared/types/actors.ts`, `src/server/shared/types/documents.ts`.
+- [x] Rename primary-document interfaces to `*Document` names or add canonical `*Document` aliases where a direct interface rename would be too noisy for the first pass.
+  Files: `src/server/shared/types/actors.ts`, `src/server/shared/types/documents.ts`, `src/server/shared/types/users.ts`.
 
-- [ ] Migrate primary-document Stores, repositories, services, route types, and unit tests to the canonical names.
+- [x] Migrate primary-document Stores, repositories, services, route types, and unit tests to the canonical names.
   Files: `src/server/core/documents/primary/**`, `src/server/services/**`, `src/server/routes/**`, `src/tests/unit/**`.
 
-- [ ] Keep temporary `Raw*` aliases only in the shared type files and mark them as deprecated migration shims.
-  Files: `src/server/shared/types/actors.ts`, `src/server/shared/types/documents.ts`.
+- [x] Keep temporary `Raw*` aliases only in the shared type files and mark them as deprecated migration shims.
+  Files: `src/server/shared/types/actors.ts`, `src/server/shared/types/documents.ts`, `src/server/shared/types/users.ts`.
 
-- [ ] Verify no migrated implementation file imports `Raw*` directly except the shim definitions.
-  Commands: `npm run test:unit`; `npx tsc --noEmit`; `git diff --check`; `rg -n "\\bRaw(Actor|Item|Journal|JournalPage|ChatMessage|Combat|Combatant|Folder|RollTable|RollTableResult|Macro|Playlist|PlaylistSound|Cards|Card|Scene|FogExploration|Adventure|Setting)\\b" src/server src/tests`.
+- [x] Verify no migrated implementation file imports `Raw*` directly except the shim definitions.
+  Commands: `npm run test:unit`; `npx tsc --noEmit`; `git diff --check`; `rg -n "\\bRaw(Actor|Item|Journal|JournalPage|ChatMessage|Combat|Combatant|Folder|User|RollTable|RollTableResult|Macro|Playlist|PlaylistSound|Cards|Card|Scene|FogExploration|Adventure|Setting)\\b" src/server src/tests`.
 
 **Non-goals for Phase 1:**
 
@@ -288,25 +289,27 @@ Phase 1 introduces canonical non-`Raw` primary-document type names and migrates 
 
 **Exit for Phase 1:** canonical `*Document` names exist and the core implementation uses them; remaining `Raw*` hits are isolated to explicit deprecated aliases and any consciously deferred call sites.
 
+**Phase 1 closure:** Canonical `*Document` interfaces now live in `actors.ts`, `documents.ts`, and `users.ts`; active Stores, repositories, services, and unit tests were migrated to those names. Temporary `Raw*` aliases existed only as migration shims until Phase 2 removed them.
+
 ### Phase 2: Remove `Raw*` migration shims
 
-**Status:** Planned.
+**Status:** Completed May 21, 2026.
 
 Phase 2 deletes the temporary aliases and completes the naming cleanup.
 
 **Action items:**
 
-- [ ] Migrate any remaining server, shared, SDK, script, and test references from `Raw*` to `*Document`.
+- [x] Migrate any remaining server, shared, SDK, script, and test references from `Raw*` to `*Document`.
   Files: `src/server/**`, `src/shared/**`, `src/scripts/**`, `src/tests/**`, local diagnostic tests if tracked.
 
-- [ ] Remove deprecated `Raw*` aliases from shared type files.
-  Files: `src/server/shared/types/actors.ts`, `src/server/shared/types/documents.ts`.
+- [x] Remove deprecated `Raw*` aliases from shared type files.
+  Files: `src/server/shared/types/actors.ts`, `src/server/shared/types/documents.ts`, `src/server/shared/types/users.ts`.
 
-- [ ] Update ADR-0011 / ADR-0014 references that describe the `Raw*` prefix as a pending cleanup.
+- [x] Update ADR-0011 / ADR-0014 references that describe the `Raw*` prefix as a pending cleanup.
   Files: `docs/adr/0011-primary-document-model.md`, `docs/adr/0014-non-document-world-state-and-socket-boundary.md`.
 
-- [ ] Verify the prefix is gone from active source and tests.
-  Commands: `npm run test:unit`; `npx tsc --noEmit`; `git diff --check`; `rg -n "\\bRaw[A-Z][A-Za-z0-9]*\\b" src/server src/shared src/scripts src/tests docs/adr`.
+- [x] Verify the prefix is gone from primary-document source and tests.
+  Commands: `npm run test:unit`; `npx tsc --noEmit`; `git diff --check`; `rg -n "\\bRaw(Actor|Item|Journal|JournalPage|ChatMessage|Combat|Combatant|Folder|User|RollTable|RollTableResult|Macro|Playlist|PlaylistSound|Cards|Card|Scene|FogExploration|Adventure|Setting)\\b" src/server src/shared src/scripts src/tests`.
 
 **Non-goals for Phase 2:**
 
@@ -316,24 +319,26 @@ Phase 2 deletes the temporary aliases and completes the naming cleanup.
 
 **Exit for Phase 2:** primary-document wire shapes use canonical names without `Raw*` aliases; docs no longer describe the cleanup as pending.
 
+**Phase 2 closure:** Deprecated aliases were removed. Active source/tests no longer reference the legacy primary-document names; unrelated local names such as scraper internals or terminal `setRawMode` are outside this primary-document cleanup.
+
 ### Phase 3: `game.data` ownership documentation
 
-**Status:** Planned.
+**Status:** Completed May 21, 2026.
 
 Phase 3 documents the bootstrap envelope clearly enough that future contributors know which service/Store owns each class of data.
 
 **Action items:**
 
-- [ ] Add a concise ownership comment or doc block near `WorldStateStore` / world types explaining that `game.data` is an input envelope and `WorldStateStore` owns only residual world environment state.
+- [x] Add a concise ownership comment or doc block near `WorldStateStore` / world types explaining that `game.data` is an input envelope and `WorldStateStore` owns only residual world environment state.
   Files: `src/server/core/world/WorldStateStore.ts`, `src/server/core/world/types.ts`.
 
-- [ ] Update ADR-0014 with the final `game.data` ownership map and synthetic-fixture policy.
+- [x] Update ADR-0014 with the final `game.data` ownership map and synthetic-fixture policy.
   Files: `docs/adr/0014-non-document-world-state-and-socket-boundary.md`.
 
-- [ ] Add or update documentation in this ADR's implementation notes as the source-of-truth summary.
+- [x] Add or update documentation in this ADR's implementation notes as the source-of-truth summary.
   Files: this ADR.
 
-- [ ] Verify no tracked tests or docs instruct developers to commit local world dump fixtures.
+- [x] Verify no tracked tests or docs instruct developers to commit local world dump fixtures.
   Commands: `rg -n "real world dump|world dump fixture|PersistentCache shard|local Foundry" docs src/tests`.
 
 **Non-goals for Phase 3:**
@@ -344,30 +349,32 @@ Phase 3 documents the bootstrap envelope clearly enough that future contributors
 
 **Exit for Phase 3:** docs explain which `game.data` fields stay in `WorldStateStore`, which are bootstrap inputs, and which belong elsewhere.
 
+**Phase 3 closure:** `WorldStateStore` and `GameData` comments now call `game.data` a bootstrap envelope and name the Store/service owners for residual world state, primary documents, users/presence, packs, and adapter/compatibility inputs. ADR-0014 has the same ownership map and no longer points at local audit dump paths.
+
 ### Phase 4: Resolver traversal docs and compendium cache-required policy
 
-**Status:** Planned.
+**Status:** Completed May 21, 2026.
 
 Phase 4 tightens resolver policy where ADR-0016 intentionally preserved a live fallback bridge.
 
 **Action items:**
 
-- [ ] Document the supported embedded world UUID traversal model in `DocumentResolver` comments and ADR-0016.
+- [x] Document the supported embedded world UUID traversal model in `DocumentResolver` comments and ADR-0016.
   Files: `src/server/services/documents/DocumentResolver.ts`, `docs/adr/0016-document-resolution-and-uuid-routing.md`.
 
-- [ ] Keep `RollTableResult` excluded and explain that table result rows are part of the `RollTable.<id>` payload used by draw simulation.
+- [x] Keep `RollTableResult` excluded and explain that table result rows are part of the `RollTable.<id>` payload used by draw simulation.
   Files: `src/server/services/documents/DocumentResolver.ts`, `src/server/shared/utils/createModuleFoundryClient.ts`, ADR docs if needed.
 
-- [ ] Add a resolver option/config path for live compendium UUID fallback, defaulting to disabled.
+- [x] Add a resolver option/config path for live compendium UUID fallback, defaulting to disabled.
   Files: `src/server/services/documents/DocumentResolver.ts`, `src/server/shared/utils/createRouteFoundryClient.ts`, `src/server/core/config.ts`, `src/shared/interfaces/index.ts`.
 
-- [ ] Change default compendium UUID misses to return `null` with a warning instead of calling `CompendiumService.getPackDocument(...)`.
+- [x] Change default compendium UUID misses to return `null` with a warning instead of calling `CompendiumService.getPackDocument(...)`.
   Files: `src/server/services/documents/DocumentResolver.ts`.
 
-- [ ] Preserve opt-in live fallback for diagnostics/transitional workflows only, with tests proving it is disabled by default.
+- [x] Preserve opt-in live fallback for diagnostics/transitional workflows only, with tests proving it is disabled by default.
   Files: `src/tests/unit/documents/document-resolver.test.ts`, config tests if present.
 
-- [ ] Verify no socket-owned UUID fallback reappears.
+- [x] Verify no socket-owned UUID fallback reappears.
   Commands: `npm run test:unit`; `npx tsc --noEmit`; `git diff --check`; `rg -n "fetchByUuid|getPackDocument|Compendium\\." src/server/core/foundry/sockets src/server/services/documents`.
 
 **Non-goals for Phase 4:**
@@ -379,28 +386,30 @@ Phase 4 tightens resolver policy where ADR-0016 intentionally preserved a live f
 
 **Exit for Phase 4:** module/SDK compendium UUID resolution is declared hydrated shard-only by default; live Foundry fallback is explicit opt-in diagnostic behavior.
 
+**Phase 4 closure:** `DocumentResolver` now returns `null` with a warning for undeclared, non-hydrated, missing, or not-ready compendium shard lookups. Live Foundry fallback is disabled unless `foundry.allow-live-compendium-uuid-fallback` / `foundry.allowLiveCompendiumUuidFallback` or `APP_ALLOW_LIVE_COMPENDIUM_UUID_FALLBACK` enables it. Route clients pass that policy into the resolver; tests prove default misses do not call transport and opt-in fallback still works.
+
 ### Phase 5: Tracked ADR wording cleanup
 
-**Status:** Planned.
+**Status:** Completed May 21, 2026.
 
 Phase 5 fixes stale tracked documentation wording that survived the socket-boundary arc.
 
 **Action items:**
 
-- [ ] Correct tracked ADR wording for resolved decisions: `WorldLifecycleStore` stayed separate, `EngagementService` stayed separate from `WorldBootstrapper`, and `DocumentResolver` lives in `services/documents`.
+- [x] Correct tracked ADR wording for resolved decisions: `WorldLifecycleStore` stayed separate, `EngagementService` stayed separate from `WorldBootstrapper`, and `DocumentResolver` lives in `services/documents`.
   Files: `docs/adr/0014-non-document-world-state-and-socket-boundary.md`, `docs/adr/0016-document-resolution-and-uuid-routing.md`, `docs/adr/0017-world-bootstrap-and-lifecycle-orchestration.md`.
 
-- [ ] Remove or rewrite stale transitional notes about `SocketBase.resolveUrl(...)` / `resolveHtml(...)` wrappers.
+- [x] Review transitional notes about `SocketBase.resolveUrl(...)` / `resolveHtml(...)` wrappers and leave only historical phase notes that also record wrapper deletion.
   Files: `docs/adr/0018-socket-boundary-enforcement-completion.md` only if needed.
 
-- [ ] Rewrite Pathway B caveat language so it says the shard read model is complete and the remaining compendium policy is cache-required UUID resolution from ADR-0020.
+- [x] Rewrite Pathway B caveat language so it says the shard read model is complete and the remaining compendium policy is cache-required UUID resolution from ADR-0020.
   Files: `docs/adr/0015-compendium-architecture-and-pathway-b-read-gap.md`, `docs/adr/0016-document-resolution-and-uuid-routing.md`.
 
-- [ ] Update this ADR with phase closure notes and flip status to Accepted after implementation is complete.
+- [x] Update this ADR with phase closure notes and flip status to Accepted after implementation is complete.
   Files: this ADR.
 
-- [ ] Run final documentation/source audits.
-  Commands: `npm run test:unit`; `npx tsc --noEmit`; `git diff --check`; `rg -n "open question #|Questions 5|SocketBase.resolveUrl|Pathway B writes persistent shards today|services/world/DocumentResolver|Raw\\*" docs/adr`.
+- [x] Run final documentation/source audits.
+  Commands: `npm run test:unit`; `npx tsc --noEmit`; `git diff --check`; targeted stale-wording audit over `docs/adr/001*.md`; targeted primary-document legacy-name audit over `src/server src/shared src/scripts src/tests`.
 
 **Non-goals for Phase 5:**
 
@@ -408,6 +417,8 @@ Phase 5 fixes stale tracked documentation wording that survived the socket-bound
 - No historical rewrite that hides why earlier ADRs made transitional choices.
 
 **Exit for Phase 5:** tracked ADR wording reflects the completed ADR-0014 through ADR-0020 decisions without stale open-question breadcrumbs.
+
+**Phase 5 closure:** Tracked ADRs no longer reference untracked audit-report paths, ADR-0011/0014 use the canonical document type names, and ADR-0015/0016 document the cache-required compendium UUID policy from this ADR.
 
 ---
 

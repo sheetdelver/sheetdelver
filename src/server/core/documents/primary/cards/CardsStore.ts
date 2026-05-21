@@ -1,4 +1,4 @@
-import type { RawCards, RawCard } from '@server/shared/types/documents';
+import type { CardsDocument, CardDocument } from '@server/shared/types/documents';
 import {
     cloneDocument,
     deepMerge,
@@ -38,11 +38,11 @@ function cardId(card: unknown): string | null {
  * two parents; each leg is handled independently by its parent's handler so
  * both deck and hand caches stay coherent on change.
  */
-export class CardsStore extends PrimaryDocumentStore<RawCards> {
+export class CardsStore extends PrimaryDocumentStore<CardsDocument> {
     public readonly documentType: PrimaryDocumentType = 'Cards';
 
     protected resolveOwnership(
-        cards: RawCards,
+        cards: CardsDocument,
         subject: DocumentAccessSubject,
     ): ResolvedDocumentOwnershipLevel {
         const ownership = cards.ownership as DocumentOwnershipMap | undefined;
@@ -52,11 +52,11 @@ export class CardsStore extends PrimaryDocumentStore<RawCards> {
     public listByFolderIds(folderIds: Iterable<string | null>, options?: {
         subject?: DocumentAccessSubject;
         minOwnership?: ResolvedDocumentOwnershipLevel;
-    }): RawCards[] {
+    }): CardsDocument[] {
         const ids = new Set<string | null>();
         for (const id of folderIds) ids.add(id);
 
-        const filterByFolder = (allCards: RawCards[]) =>
+        const filterByFolder = (allCards: CardsDocument[]) =>
             allCards.filter(c => ids.has((c.folder as string | null) ?? null));
 
         if (options?.subject) {
@@ -93,7 +93,7 @@ export class CardsStore extends PrimaryDocumentStore<RawCards> {
             parent.cards = cards.filter(c => {
                 const id = cardId(c);
                 return !id || !ids.includes(id);
-            }) as RawCard[];
+            }) as CardDocument[];
         } else if (action === 'update') {
             for (const incoming of docs) {
                 const id = getDocumentId(incoming);
@@ -103,9 +103,9 @@ export class CardsStore extends PrimaryDocumentStore<RawCards> {
                     deepMerge(cards[index] as Record<string, unknown>, incoming);
                 }
             }
-            parent.cards = cards as RawCard[];
+            parent.cards = cards as CardDocument[];
         } else if (action === 'create') {
-            parent.cards = [...cards, ...docs.map(c => cloneDocument(c))] as RawCard[];
+            parent.cards = [...cards, ...docs.map(c => cloneDocument(c))] as CardDocument[];
         }
 
         this.documents.set(parentId, parent);

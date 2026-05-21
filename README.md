@@ -102,6 +102,9 @@ foundry:
     connector: socket         # 'socket' (Headless Sockets)
     username: "gamemaster"    # Required for Headless connection
     password: "password"      # Required for Headless connection
+    # Optional diagnostic escape hatch. Keep false for normal module/SDK reads:
+    # compendium UUIDs should resolve from declared hydrated discovery shards.
+    allow-live-compendium-uuid-fallback: false
     # Optional: Path to Foundry Data directory for direct world import
     # foundryDataDirectory: "/path/to/foundryuserdata"
 
@@ -147,6 +150,8 @@ node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
 Environment override is supported via `APP_SERVICE_TOKEN`.
 
 Environment override is also supported via `APP_ADMIN_SETUP_TOKEN`.
+
+Live compendium UUID fallback is disabled by default. Module and SDK `fetchByUuid` calls resolve compendium documents from declared hydrated discovery shards; a miss logs a warning and returns `null` so module authors can fix their `info.json` pack declarations. For diagnostics only, set `foundry.allow-live-compendium-uuid-fallback: true`, `foundry.allowLiveCompendiumUuidFallback: true`, or `APP_ALLOW_LIVE_COMPENDIUM_UUID_FALLBACK=true` to allow a live Foundry pack-document fetch.
 
 CORS policy is allow-list based by default and shared by Express + Socket.io:
 - `security.cors.allowed-origins` controls allowed origins.

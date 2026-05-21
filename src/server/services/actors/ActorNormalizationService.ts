@@ -1,5 +1,5 @@
 import { getAdapter } from '@modules/registry/server';
-import type { ActorServiceClientLike, RawActor } from '@server/shared/types/actors';
+import type { ActorServiceClientLike, ActorDocument } from '@server/shared/types/actors';
 
 interface NormalizedActor {
     derived?: Record<string, unknown>;
@@ -19,7 +19,7 @@ export function createActorNormalizationService(deps: ActorNormalizationDeps = {
     });
 
     // Shared actor projection used by actor and combat services for UI-ready payloads.
-    const normalizeActors = async (actorList: RawActor[], client: ActorServiceClientLike) => {
+    const normalizeActors = async (actorList: ActorDocument[], client: ActorServiceClientLike) => {
         const systemInfo = await client.getSystem();
         const adapter = await getAdapterBySystemId(systemInfo.id.toLowerCase());
         if (!adapter) throw new Error(`Adapter for ${systemInfo.id} not found`);

@@ -121,6 +121,7 @@ export async function loadConfig(): Promise<AppConfig | null> {
             const envServiceToken = process.env.APP_SERVICE_TOKEN;
             const envAdminSetupToken = process.env.APP_ADMIN_SETUP_TOKEN;
             const envAdminPepper = process.env.APP_ADMIN_PEPPER;
+            const envAllowLiveCompendiumUuidFallback = parseBoolean(process.env.APP_ALLOW_LIVE_COMPENDIUM_UUID_FALLBACK);
             const envCorsAllowAllOrigins = parseBoolean(process.env.APP_CORS_ALLOW_ALL_ORIGINS);
             const envCorsAllowedOrigins = parseCsv(process.env.APP_CORS_ALLOWED_ORIGINS);
 
@@ -181,6 +182,11 @@ export async function loadConfig(): Promise<AppConfig | null> {
                     userId: foundry.userId,
                     connector: foundry.connector,
                     foundryDataDirectory: foundry.foundryDataDirectory,
+                    allowLiveCompendiumUuidFallback:
+                        envAllowLiveCompendiumUuidFallback
+                        ?? foundry.allowLiveCompendiumUuidFallback
+                        ?? foundry['allow-live-compendium-uuid-fallback']
+                        ?? false,
                 },
                 debug: {
                     enabled: debug.enabled ?? false,

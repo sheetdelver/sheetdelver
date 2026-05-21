@@ -134,7 +134,9 @@ export default Adapter;
 
 The platform provides `context.logger`, `context.platform.cache`, and `context.platform.discovery` through `initialize(context)`. Use those context fields instead of importing platform services directly.
 
-Adapter methods receive hydrated actor documents from the platform actor cache. Keep actor projection methods (`getActorCardData`, `normalizeActorData`, `computeActorData`, `categorizeItems`) deterministic from the actor they receive and the already-injected SDK services. The `getActor()` and `getActors()` SDK/request methods remain the public read surface, but they resolve from the platform actor cache and fail as not-ready before bootstrap completes; they must not repeatedly fetch from Foundry. Use `fetchByUuid` or compendium lookups only for exceptional linked references that are not already embedded in the actor.
+Adapter methods receive hydrated actor documents from the platform actor cache. Keep actor projection methods (`getActorCardData`, `normalizeActorData`, `computeActorData`, `categorizeItems`) deterministic from the actor they receive and the already-injected SDK services. The `getActor()` and `getActors()` SDK/request methods remain the public read surface, but they resolve from the platform actor cache and fail as not-ready before bootstrap completes; they must not repeatedly fetch from Foundry.
+
+Use `fetchByUuid` or compendium lookups only for exceptional linked references that are not already embedded in the actor. Compendium UUID reads are cache-required by default: add the pack to `info.json` under `discovery.packs` with `hydrate: true` when module code needs full documents. A missing or non-hydrated shard returns `null` and logs a warning. The `foundry.allow-live-compendium-uuid-fallback` / `APP_ALLOW_LIVE_COMPENDIUM_UUID_FALLBACK` setting is a diagnostic operator escape hatch, not a module contract.
 
 ## UI
 

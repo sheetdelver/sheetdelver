@@ -1,4 +1,4 @@
-import type { RawAdventure } from '@server/shared/types/documents';
+import type { AdventureDocument } from '@server/shared/types/documents';
 import {
     PrimaryDocumentStore,
     type PrimaryDocumentType,
@@ -17,11 +17,11 @@ import {
  * Adventure is an import/export container in Foundry. GM-only placeholder
  * until a future round actually wires the subsystem and validates the shape.
  */
-export class AdventureStore extends PrimaryDocumentStore<RawAdventure> {
+export class AdventureStore extends PrimaryDocumentStore<AdventureDocument> {
     public readonly documentType: PrimaryDocumentType = 'Adventure';
 
     protected resolveOwnership(
-        _adventure: RawAdventure,
+        _adventure: AdventureDocument,
         subject: DocumentAccessSubject,
     ): ResolvedDocumentOwnershipLevel {
         return isGM(subject) ? DocumentOwnershipLevel.OWNER : DocumentOwnershipLevel.NONE;

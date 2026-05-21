@@ -25,9 +25,9 @@ export async function run() {
     await runEmbeddedWorldResolution();
     await runEmbeddedMissingAndMalformedResolution();
     await runCompendiumHydratedShardResolution();
-    await runCompendiumNonHydratedShardFallback();
-    await runCompendiumMissingShardFallback();
-    await runCompendiumDisconnectedFallback();
+    await runCompendiumNonHydratedShardMiss();
+    await runCompendiumMissingHydratedShardMiss();
+    await runCompendiumOptInLiveFallback();
     console.log('  - DocumentResolver: all checks passed');
 }
 
@@ -423,7 +423,7 @@ async function runCompendiumHydratedShardResolution() {
     }]);
 }
 
-async function runCompendiumNonHydratedShardFallback() {
+async function runCompendiumNonHydratedShardMiss() {
     const fallbackDocument = { _id: 'talents', name: 'Full Talents', results: [] };
     const shardStore = new SyntheticDiscoveryShardStore({
         packs: {
@@ -442,19 +442,12 @@ async function runCompendiumNonHydratedShardFallback() {
         getCompendiumService: () => fallback,
     });
 
-    assert.deepEqual(
-        await resolver.fetchByUuid('Compendium.synthetic.tables.RollTable.talents'),
-        fallbackDocument,
-    );
+    assert.equal(await resolver.fetchByUuid('Compendium.synthetic.tables.RollTable.talents'), null);
     assert.deepEqual(shardStore.findCalls, []);
-    assert.deepEqual(fallback.calls, [{
-        packId: 'synthetic.tables',
-        documentId: 'talents',
-        type: 'RollTable',
-    }]);
+    assert.deepEqual(fallback.calls, []);
 }
 
-async function runCompendiumMissingShardFallback() {
+async function runCompendiumMissingHydratedShardMiss() {
     const fallbackDocument = { _id: 'spell', name: 'Fallback Spell' };
     const shardStore = new SyntheticDiscoveryShardStore({
         packs: {
@@ -470,24 +463,32 @@ async function runCompendiumMissingShardFallback() {
         getCompendiumService: () => fallback,
     });
 
-    assert.deepEqual(await resolver.fetchByUuid('Compendium.synthetic.items.Item.spell'), fallbackDocument);
+    assert.equal(await resolver.fetchByUuid('Compendium.synthetic.items.Item.spell'), null);
     assert.equal(shardStore.findCalls.length, 1);
-    assert.equal(fallback.calls.length, 1);
+    assert.equal(fallback.calls.length, 0);
 }
 
-async function runCompendiumDisconnectedFallback() {
+async function runCompendiumOptInLiveFallback() {
     const shardStore = new SyntheticDiscoveryShardStore({
         packs: {
             'synthetic.items': { hydrate: false },
         },
     });
-    const disconnectedFallback = new SyntheticCompendiumService();
+    const fallbackDocument = { _id: 'missing', name: 'Live fallback document' };
+    const fallback = new SyntheticCompendiumService({
+        'synthetic.items/missing': fallbackDocument,
+    });
     const resolver = new DocumentResolver({
         worldStateStore: new SyntheticWorldState(),
         discoveryShardStore: shardStore,
-        getCompendiumService: () => disconnectedFallback,
+        getCompendiumService: () => fallback,
+        allowLiveCompendiumUuidFallback: true,
     });
 
-    assert.equal(await resolver.fetchByUuid('Compendium.synthetic.items.Item.missing'), null);
-    assert.equal(disconnectedFallback.calls.length, 1);
+    assert.deepEqual(await resolver.fetchByUuid('Compendium.synthetic.items.Item.missing'), fallbackDocument);
+    assert.deepEqual(fallback.calls, [{
+        packId: 'synthetic.items',
+        documentId: 'missing',
+        type: 'Item',
+    }]);
 }

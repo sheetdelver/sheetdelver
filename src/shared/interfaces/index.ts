@@ -119,6 +119,7 @@ export interface AppConfig {
         userId?: string;
         connector?: string;
         foundryDataDirectory?: string;
+        allowLiveCompendiumUuidFallback?: boolean;
     };
     debug: {
         enabled: boolean;

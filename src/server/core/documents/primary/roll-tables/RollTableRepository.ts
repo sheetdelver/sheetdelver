@@ -1,4 +1,4 @@
-import type { RawRollTable } from '@server/shared/types/documents';
+import type { RollTableDocument } from '@server/shared/types/documents';
 import { PrimaryDocumentRepository, type DocumentTransport } from '../base/PrimaryDocumentRepository';
 import type { ModifyDocumentAction } from '../base/PrimaryDocumentStore';
 import { rollTableStore } from './RollTableStore';
@@ -10,7 +10,7 @@ import { rollTableStore } from './RollTableStore';
  * (direct-type) or `RollTableStore.applyEmbeddedChange` (`RollTableResult`
  * with `parentUuid: RollTable.<id>`).
  */
-export class RollTableRepository extends PrimaryDocumentRepository<RawRollTable> {
+export class RollTableRepository extends PrimaryDocumentRepository<RollTableDocument> {
     constructor(transport: DocumentTransport) {
         super(transport, rollTableStore);
     }

@@ -1,4 +1,4 @@
-import type { RawCombat } from '@server/shared/types/documents';
+import type { CombatDocument } from '@server/shared/types/documents';
 import { PrimaryDocumentRepository, type DocumentTransport } from '../base/PrimaryDocumentRepository';
 import type { ModifyDocumentAction } from '../base/PrimaryDocumentStore';
 import { combatStore } from './CombatStore';
@@ -12,7 +12,7 @@ import { combatStore } from './CombatStore';
  * mirror in {@link dispatchDocument} makes the second apply idempotent via
  * emit-only-on-change.
  */
-export class CombatRepository extends PrimaryDocumentRepository<RawCombat> {
+export class CombatRepository extends PrimaryDocumentRepository<CombatDocument> {
     constructor(transport: DocumentTransport) {
         super(transport, combatStore);
     }

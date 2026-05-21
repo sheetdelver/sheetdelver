@@ -6,6 +6,7 @@ import type {
     FoundryDocumentClientLike,
 } from '@server/shared/types/foundry';
 import { logger } from '@shared/utils/logger';
+import { getConfig } from '@server/core/config';
 import { systemService } from '@server/core/system/SystemService';
 import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
 import { ActorRepository } from '@server/core/documents/primary/actors/ActorRepository';
@@ -52,8 +53,9 @@ function createDocumentResolverForRoute(
     options: { useSystemCompendiumTransport: boolean },
 ): DocumentResolver {
     // Route/session facades expose one `fetchByUuid` method, but compendium
-    // fallback transport still uses the service account so user sessions do not
-    // need direct pack-read wire methods.
+    // live fallback is diagnostic-only and disabled by default. When enabled,
+    // it still uses the service account so user sessions do not need direct
+    // pack-read wire methods.
     const transportClient = options.useSystemCompendiumTransport
         ? systemService.getSystemClient() as unknown as FoundryCompendiumClientLike
         : client as FoundryCompendiumClientLike;
@@ -64,7 +66,16 @@ function createDocumentResolverForRoute(
 
     return new DocumentResolver({
         getCompendiumService: () => compendiumService,
+        allowLiveCompendiumUuidFallback: getLiveCompendiumUuidFallbackConfig(),
     });
+}
+
+function getLiveCompendiumUuidFallbackConfig(): boolean {
+    try {
+        return getConfig().foundry.allowLiveCompendiumUuidFallback === true;
+    } catch {
+        return false;
+    }
 }
 
 function ensureActorStoreReady(): void {

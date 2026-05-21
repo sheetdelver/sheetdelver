@@ -1,4 +1,4 @@
-import type { RawMacro } from '@server/shared/types/documents';
+import type { MacroDocument } from '@server/shared/types/documents';
 import { PrimaryDocumentRepository, type DocumentTransport } from '../base/PrimaryDocumentRepository';
 import type { ModifyDocumentAction } from '../base/PrimaryDocumentStore';
 import { macroStore } from './MacroStore';
@@ -10,7 +10,7 @@ import { macroStore } from './MacroStore';
  *
  * No embedded surfaces — Macros are flat docs.
  */
-export class MacroRepository extends PrimaryDocumentRepository<RawMacro> {
+export class MacroRepository extends PrimaryDocumentRepository<MacroDocument> {
     constructor(transport: DocumentTransport) {
         super(transport, macroStore);
     }

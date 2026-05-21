@@ -1,4 +1,4 @@
-import type { RawItem } from '@server/shared/types/actors';
+import type { ItemDocument } from '@server/shared/types/actors';
 import { PrimaryDocumentRepository, type DocumentTransport } from '../base/PrimaryDocumentRepository';
 import type { ModifyDocumentAction } from '../base/PrimaryDocumentStore';
 import { itemStore } from './ItemStore';
@@ -16,7 +16,7 @@ import { itemStore } from './ItemStore';
  * (`createActorItem` / `updateActorItem` / `deleteActorItem`); the two
  * Repositories coexist as clearly separate surfaces.
  */
-export class ItemRepository extends PrimaryDocumentRepository<RawItem> {
+export class ItemRepository extends PrimaryDocumentRepository<ItemDocument> {
     constructor(transport: DocumentTransport) {
         super(transport, itemStore);
     }

@@ -7,7 +7,7 @@ import type { RollMode } from '@shared/sdk';
  * World-level fields (`folder`, `img`, `sort`, `ownership`, `flags`, `_stats`)
  * are no-op on embedded items and load-bearing on world items.
  */
-export interface RawItem {
+export interface ItemDocument {
     id?: string;
     _id?: string;
     name?: string;
@@ -23,7 +23,7 @@ export interface RawItem {
     [key: string]: unknown;
 }
 
-export interface RawActor {
+export interface ActorDocument {
     id?: string;
     _id?: string;
     name?: string;
@@ -36,8 +36,8 @@ export interface RawActor {
             src?: string;
         };
     };
-    items?: RawItem[];
-    categorizedItems?: Record<string, RawItem[]>;
+    items?: ItemDocument[];
+    categorizedItems?: Record<string, ItemDocument[]>;
     computed?: {
         resolvedNames?: Record<string, string>;
         [key: string]: unknown;
@@ -77,13 +77,13 @@ export interface ActorServiceClientLike extends FoundryClientLike {
     url?: string;
 
     getSystem(): Promise<{ id: string }>;
-    getActors(): Promise<RawActor[]>;
-    getActor(actorId: string): Promise<(RawActor & { error?: string }) | null | undefined>;
-    getActorRaw(actorId: string): Promise<(RawActor & { error?: string }) | null | undefined>;
+    getActors(): Promise<ActorDocument[]>;
+    getActor(actorId: string): Promise<(ActorDocument & { error?: string }) | null | undefined>;
+    getActorRaw(actorId: string): Promise<(ActorDocument & { error?: string }) | null | undefined>;
 
     createActor(
         actorData: Record<string, unknown> | Array<Record<string, unknown>>
-    ): Promise<RawActor | RawActor[] | null | undefined>;
+    ): Promise<ActorDocument | ActorDocument[] | null | undefined>;
     deleteActor(actorId: string): Promise<void>;
     updateActor(actorId: string, payload: Record<string, unknown>): Promise<unknown>;
     dispatchDocument(

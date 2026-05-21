@@ -1,4 +1,4 @@
-import type { RawUser, UserWithPresence } from '@server/shared/types/users';
+import type { UserDocument, UserWithPresence } from '@server/shared/types/users';
 import {
     PrimaryDocumentStore,
     type PrimaryDocumentType,
@@ -14,11 +14,11 @@ import {
 } from '../base/ownership';
 import { userPresence } from './UserPresence';
 
-function getRawUserId(user: RawUser | null | undefined): string | null {
+function getUserDocumentId(user: UserDocument | null | undefined): string | null {
     return user?._id || user?.id || null;
 }
 
-function getRawUserRole(user: RawUser | null | undefined): FoundryUserRole {
+function getUserDocumentRole(user: UserDocument | null | undefined): FoundryUserRole {
     const directRole = user?.role;
     if (typeof directRole === 'number') return directRole as FoundryUserRole;
 
@@ -50,11 +50,11 @@ function getRawUserRole(user: RawUser | null | undefined): FoundryUserRole {
  * state delivered through `userConnected` / `userDisconnected` / `userActivity`
  * socket events and lives in `UserPresence`.
  */
-export class UserStore extends PrimaryDocumentStore<RawUser> {
+export class UserStore extends PrimaryDocumentStore<UserDocument> {
     public readonly documentType: PrimaryDocumentType = 'User';
 
     protected resolveOwnership(
-        _user: RawUser,
+        _user: UserDocument,
         subject: DocumentAccessSubject,
     ): ResolvedDocumentOwnershipLevel {
         if (isGM(subject)) return DocumentOwnershipLevel.OWNER;
@@ -68,7 +68,7 @@ export class UserStore extends PrimaryDocumentStore<RawUser> {
      */
     public getRole(userId: string): FoundryUserRole {
         const user = this.documents.get(userId);
-        return getRawUserRole(user);
+        return getUserDocumentRole(user);
     }
 
     public createAccessSubject(userId: string | null | undefined): DocumentAccessSubject | null {
@@ -86,8 +86,8 @@ export class UserStore extends PrimaryDocumentStore<RawUser> {
 
     public getGmUserIds(minRole: FoundryUserRole = FoundryUserRole.ASSISTANT): string[] {
         return Array.from(this.documents.values())
-            .filter(user => getRawUserRole(user) >= minRole)
-            .map(getRawUserId)
+            .filter(user => getUserDocumentRole(user) >= minRole)
+            .map(getUserDocumentId)
             .filter((userId): userId is string => typeof userId === 'string');
     }
 
@@ -95,7 +95,7 @@ export class UserStore extends PrimaryDocumentStore<RawUser> {
      * Lookup a user by name. Used during connection to resolve the service
      * account's id from its configured username.
      */
-    public findByName(name: string): RawUser | null {
+    public findByName(name: string): UserDocument | null {
         for (const user of this.documents.values()) {
             if (user.name === name) return cloneDocument(user);
         }

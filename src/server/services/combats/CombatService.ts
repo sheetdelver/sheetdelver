@@ -1,7 +1,7 @@
 import { logger } from '@shared/utils/logger';
 import { getAdapter } from '@modules/registry/server';
-import type { RawActor } from '@server/shared/types/actors';
-import type { CombatClientLike, RawCombat, RawCombatant } from '@server/shared/types/documents';
+import type { ActorDocument } from '@server/shared/types/actors';
+import type { CombatClientLike, CombatDocument, CombatantDocument } from '@server/shared/types/documents';
 import {
     DOCUMENT_VISIBILITY,
     isAssistantGM,
@@ -26,18 +26,18 @@ interface InitiativeBody {
 }
 
 interface CombatProjection extends CombatDto {
-    combatants?: Array<RawCombatant & { actor: RawActor | null }>;
+    combatants?: Array<CombatantDocument & { actor: ActorDocument | null }>;
 }
 
 interface AdapterWithInitiativeFormula {
-    getInitiativeFormula?: (actor: RawActor) => string;
+    getInitiativeFormula?: (actor: ActorDocument) => string;
 }
 
 interface CombatServiceDeps {
-    normalizeActors: (actorList: RawActor[], client: CombatClientLike) => Promise<RawActor[]>;
+    normalizeActors: (actorList: ActorDocument[], client: CombatClientLike) => Promise<ActorDocument[]>;
 }
 
-export function sortCombatants(combatants: RawCombatant[] = []): RawCombatant[] {
+export function sortCombatants(combatants: CombatantDocument[] = []): CombatantDocument[] {
     return [...combatants].sort((a, b) => {
         const ia = typeof a.initiative === 'number' && !isNaN(a.initiative) ? a.initiative : -Infinity;
         const ib = typeof b.initiative === 'number' && !isNaN(b.initiative) ? b.initiative : -Infinity;
@@ -92,8 +92,8 @@ export function createCombatService(deps: CombatServiceDeps) {
             // Two-track collection: readable actors flow through normalize as
             // before; non-readable actors yield a stripped name/img fallback so
             // the tracker has something to render.
-            const readableActors: Record<string, RawActor> = {};
-            const strippedActors: Record<string, RawActor> = {};
+            const readableActors: Record<string, ActorDocument> = {};
+            const strippedActors: Record<string, ActorDocument> = {};
 
             await Promise.all(actorIds.map(async (id) => {
                 try {
@@ -117,7 +117,7 @@ export function createCombatService(deps: CombatServiceDeps) {
                             id: raw.id,
                             name: raw.name,
                             img: resolvedImg,
-                        } as RawActor;
+                        } as ActorDocument;
                     }
                 } catch {
                     logger.error(`Failed to fetch actor ${id} for combat ${combat._id}`);
@@ -126,7 +126,7 @@ export function createCombatService(deps: CombatServiceDeps) {
 
             const actorsToNormalize = Object.values(readableActors).filter(Boolean);
             const normalizedActors = await deps.normalizeActors(actorsToNormalize, client);
-            const displayMap: Record<string, RawActor> = { ...strippedActors };
+            const displayMap: Record<string, ActorDocument> = { ...strippedActors };
             normalizedActors.forEach((a) => {
                 const id = a._id || a.id;
                 if (id) displayMap[id] = a;
@@ -152,7 +152,7 @@ export function createCombatService(deps: CombatServiceDeps) {
     // apply to turn-advancement authorization (ADR-0013 Phase 1).
     const isAuthorizedForCombatTurn = async (
         _client: CombatClientLike,
-        combat: RawCombat,
+        combat: CombatDocument,
         subject: DocumentAccessSubject,
     ): Promise<boolean> => {
         if (isAssistantGM(subject)) return true;

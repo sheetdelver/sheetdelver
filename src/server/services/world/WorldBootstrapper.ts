@@ -24,7 +24,7 @@ import {
 import { logger } from '@shared/utils/logger';
 import type { DiscoveryConfig, ModuleContext } from '@shared/sdk';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
-import type { RawUser } from '@server/shared/types/users';
+import type { UserDocument } from '@server/shared/types/users';
 import {
     assertFoundryVersionSupported,
     evaluateFoundryVersionCompatibility,
@@ -131,8 +131,8 @@ export class WorldBootstrapper {
         });
         this.seedUserSnapshot = deps.seedUserSnapshot ?? (async (snapshot) => {
             if (Array.isArray(snapshot.gameData.users)) {
-                const users: RawUser[] = snapshot.gameData.users.map((user) => {
-                    const { active: _presenceOnly, ...document } = user as RawUser & { active?: unknown };
+                const users: UserDocument[] = snapshot.gameData.users.map((user) => {
+                    const { active: _presenceOnly, ...document } = user as UserDocument & { active?: unknown };
                     void _presenceOnly;
                     return document;
                 });

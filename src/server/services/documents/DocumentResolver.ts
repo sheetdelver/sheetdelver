@@ -23,6 +23,7 @@ import {
 import { PrimaryDocumentCacheNotReadyError } from '@server/core/documents/primary/errors';
 import type { CompendiumService } from '@server/services/compendium/CompendiumService';
 import type { DiscoveryShardManifest } from '@server/core/compendium/types';
+import { logger } from '@shared/utils/logger';
 
 // DocumentResolver is the service-layer owner for UUID routing. Callers ask for
 // a UUID; this service decides which Store/service owns the bytes. Socket
@@ -172,7 +173,16 @@ export interface DocumentResolverDeps {
     worldStateStore?: DocumentResolverWorldStateReader;
     discoveryShardStore?: DocumentResolverDiscoveryShardReader;
     getCompendiumService?: () => DocumentResolverCompendiumService | Pick<CompendiumService, 'getPackDocument'> | null;
+    allowLiveCompendiumUuidFallback?: boolean;
 }
+
+type HydratedShardLookupResult =
+    | { status: 'hit'; document: Record<string, unknown>; systemId: string }
+    | { status: 'no-system' }
+    | { status: 'no-manifest'; systemId: string }
+    | { status: 'undeclared-pack'; systemId: string }
+    | { status: 'not-hydrated'; systemId: string }
+    | { status: 'missing-document'; systemId: string };
 
 function normalizeUuid(uuid: string): string[] | null {
     const normalized = String(uuid || '').trim();
@@ -217,6 +227,9 @@ function findEmbeddedChild(parent: unknown, parentType: string, child: UuidPathS
     const collection = parent[collectionKey];
     if (!Array.isArray(collection)) return null;
 
+    // Parent-local scan only: the resolver has already loaded the root Store
+    // document by id. If a real payload makes this child-array scan expensive,
+    // promote an embedded id index into that parent Store.
     const match = collection.find(entry => isRecord(entry) && getDocumentId(entry) === child.id);
     return match ? cloneDocument(match) : null;
 }
@@ -300,6 +313,7 @@ export class DocumentResolver {
     private readonly worldState: DocumentResolverWorldStateReader;
     private readonly discoveryShards: DocumentResolverDiscoveryShardReader;
     private readonly getCompendiumService?: DocumentResolverDeps['getCompendiumService'];
+    private readonly allowLiveCompendiumUuidFallback: boolean;
 
     public constructor(deps: DocumentResolverDeps = {}) {
         this.documentStores = {
@@ -309,6 +323,7 @@ export class DocumentResolver {
         this.worldState = deps.worldStateStore || worldStateStore;
         this.discoveryShards = deps.discoveryShardStore || discoveryShardStore;
         this.getCompendiumService = deps.getCompendiumService;
+        this.allowLiveCompendiumUuidFallback = deps.allowLiveCompendiumUuidFallback === true;
     }
 
     public parse(uuid: string): ParsedDocumentUuid | null {
@@ -368,13 +383,22 @@ export class DocumentResolver {
     }
 
     private async resolveCompendiumDocument(parsed: ParsedCompendiumUuid): Promise<Record<string, unknown> | null> {
-        const shardHit = await this.resolveHydratedShardDocument(parsed);
-        if (shardHit) return shardHit;
+        const shardLookup = await this.resolveHydratedShardDocument(parsed);
+        if (shardLookup.status === 'hit') return shardLookup.document;
+
+        this.warnCompendiumShardMiss(parsed, shardLookup);
+
+        if (!this.allowLiveCompendiumUuidFallback) return null;
 
         const service = this.getCompendiumService?.();
         if (!service) return null;
 
         try {
+            logger.warn(
+                `DocumentResolver | Live compendium UUID fallback enabled for ${parsed.raw} `
+                + `(pack: ${parsed.packId}, document: ${parsed.documentId}, type: ${parsed.type || 'unknown'}). `
+                + 'Update module discovery config so normal SDK reads come from a hydrated shard.',
+            );
             return await service.getPackDocument(parsed.packId, parsed.documentId, parsed.type);
         } catch {
             return null;
@@ -383,15 +407,18 @@ export class DocumentResolver {
 
     private async resolveHydratedShardDocument(
         parsed: ParsedCompendiumUuid,
-    ): Promise<Record<string, unknown> | null> {
+    ): Promise<HydratedShardLookupResult> {
         const systemId = getActiveSystemId(this.worldState);
-        if (!systemId) return null;
+        if (!systemId) return { status: 'no-system' };
 
         const manifest = await this.discoveryShards.getManifest(systemId);
+        if (!manifest) return { status: 'no-manifest', systemId };
+
         const packEntry = manifest?.packs?.[parsed.packId];
         // Only module-declared hydrated shards contain full document payloads.
         // Indexed shards may have enough shape for search, but not for fetchByUuid.
-        if (!packEntry?.hydrate) return null;
+        if (!packEntry) return { status: 'undeclared-pack', systemId };
+        if (!packEntry.hydrate) return { status: 'not-hydrated', systemId };
 
         const document = await this.discoveryShards.findDocument(
             systemId,
@@ -399,6 +426,39 @@ export class DocumentResolver {
             parsed.documentId,
             parsed.type,
         );
-        return document ? cloneDocument(document) : null;
+        return document
+            ? { status: 'hit', document: cloneDocument(document), systemId }
+            : { status: 'missing-document', systemId };
+    }
+
+    private warnCompendiumShardMiss(
+        parsed: ParsedCompendiumUuid,
+        lookup: Exclude<HydratedShardLookupResult, { status: 'hit' }>,
+    ): void {
+        const base =
+            `DocumentResolver | Compendium UUID ${parsed.raw} was not served from a hydrated discovery shard `
+            + `(pack: ${parsed.packId}, document: ${parsed.documentId}, type: ${parsed.type || 'unknown'})`;
+
+        if (lookup.status === 'no-system') {
+            logger.warn(`${base}: no active system id is available.`);
+            return;
+        }
+
+        if (lookup.status === 'no-manifest') {
+            logger.warn(`${base}: no discovery manifest for system ${lookup.systemId}.`);
+            return;
+        }
+
+        if (lookup.status === 'undeclared-pack') {
+            logger.warn(`${base}: pack is not declared for system ${lookup.systemId}.`);
+            return;
+        }
+
+        if (lookup.status === 'not-hydrated') {
+            logger.warn(`${base}: pack is declared for system ${lookup.systemId} but not hydrated.`);
+            return;
+        }
+
+        logger.warn(`${base}: hydrated shard for system ${lookup.systemId} does not contain the document.`);
     }
 }

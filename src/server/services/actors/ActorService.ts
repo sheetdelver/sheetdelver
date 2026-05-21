@@ -2,8 +2,8 @@ import type { AppConfig } from '@shared/interfaces';
 import { logger } from '@shared/utils/logger';
 import { getAdapter, getMatchingAdapter } from '@modules/registry/server';
 import type {
-    RawActor,
-    RawItem,
+    ActorDocument,
+    ItemDocument,
     ActorCard,
     ActorRollPayload,
     ActorServiceClientLike,
@@ -42,7 +42,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
     typeof value === 'object' && value !== null;
 
 interface ActorServiceDeps {
-    normalizeActors: (actorList: RawActor[], client: ActorServiceClientLike) => Promise<ActorProjection[]>;
+    normalizeActors: (actorList: ActorDocument[], client: ActorServiceClientLike) => Promise<ActorProjection[]>;
     config: AppConfig;
 }
 
@@ -50,7 +50,7 @@ export function createActorService(deps: ActorServiceDeps) {
     // Dashboard list and card data are derived from the same actor list. Keep the
     // card projection here so `/api/actors` does not force a second actor read.
     const buildActorCards = (
-        actors: RawActor[],
+        actors: ActorDocument[],
         adapter: { getActorCardData?: (actor: any) => unknown } | null | undefined,
     ): ActorCardsPayload => {
         if (!adapter?.getActorCardData) return {};
@@ -70,7 +70,7 @@ export function createActorService(deps: ActorServiceDeps) {
         if (!adapter) throw new Error(`Adapter for ${systemInfo.id} not found`);
 
         const rawActors = await client.getActors();
-        const normalize = async (actorList: RawActor[]) => deps.normalizeActors(actorList, client);
+        const normalize = async (actorList: ActorDocument[]) => deps.normalizeActors(actorList, client);
         const currentUserId = client.userId;
 
         const actorTypes = new Set(rawActors.map((a) => a.type));
@@ -178,7 +178,7 @@ export function createActorService(deps: ActorServiceDeps) {
             return obj;
         };
 
-        const resolvedActor = resolveUUIDs(actor) as RawActor;
+        const resolvedActor = resolveUUIDs(actor) as ActorDocument;
 
         const systemInfo = await client.getSystem();
         const adapter = await getAdapter(systemInfo.id.toLowerCase())
@@ -222,7 +222,7 @@ export function createActorService(deps: ActorServiceDeps) {
     // Actor write operations and item mutation helpers.
     const createActor = async (client: ActorServiceClientLike, actorData: Record<string, unknown>) => {
         if (actorData.items && Array.isArray(actorData.items)) {
-            actorData.items.forEach((item: RawItem) => {
+            actorData.items.forEach((item: ItemDocument) => {
                 if (item.effects && Array.isArray(item.effects)) {
                     if (item.effects.length > 0 && typeof item.effects[0] === 'string') {
                         logger.warn(`Core Service | Clearing invalid string effects for ${item.name} during creation`);
@@ -241,7 +241,7 @@ export function createActorService(deps: ActorServiceDeps) {
         }
 
         logger.debug('Core Service | Create Actor:', actorData);
-        const newActor = await client.createActor(actorData) as RawActor | null | undefined;
+        const newActor = await client.createActor(actorData) as ActorDocument | null | undefined;
         if (!newActor) throw new Error('Failed to create actor');
 
         return { success: true, id: newActor._id || newActor.id, actor: newActor };

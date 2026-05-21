@@ -103,7 +103,7 @@ Today `coreSocket.gameDataCache` is typed as `any`. This ADR introduces typed in
 
 Store accessors return typed shapes — `getWorld(): WorldManifest`, `getModules(): ModuleManifest[]`, `getModel(): SchemaModel`, `getModelForType(name): DocumentTypeModel`, etc. No more `any`-typed cache surface; the typechecker catches drift when Foundry v14 introduces shape changes (see *Foundry version coupling* in *Details* below).
 
-**Naming note — no `Raw` prefix.** The existing primary-document types in `src/server/shared/types/documents.ts` (`RawActor`, `RawItem`, `RawJournal`, etc.) use a `Raw` prefix. That convention came from "wire shape vs. application shape" intent, but in practice no non-`Raw` counterpart exists for any of those types — `RawActor` is THE actor type used throughout the codebase. The prefix is dead semantics: it adds a word to every import without disambiguating anything (the file location already communicates wire-coupled-to-Foundry). This ADR introduces new types without the prefix; a separate follow-up will rename the legacy `Raw*` primary-doc types for consistency. The temporary inconsistency between new (un-prefixed) and legacy (`Raw*`) types is accepted; the alternative — propagating dead semantics to new code — is worse.
+**Naming note — no `Raw` prefix.** This ADR introduced new world-state types without a `Raw` prefix because the file location already communicates that these are Foundry-shaped contracts. ADR-0020 later applied the same convention to primary-document types: the legacy prefixed names were replaced with canonical names such as `ActorDocument`, `ItemDocument`, `JournalEntryDocument`, and `UserDocument`.
 
 ### File-layout convention
 
@@ -188,9 +188,21 @@ When Foundry v14 arrives, drift surfaces as typed-cast failures or undefined-fie
 
 Per-version handling (refuse below min, warn above max) is implemented by ADR-0019, using the `WorldBootstrapper` insertion point from ADR-0017 and the typed `release.generation` contract from this ADR.
 
+### `game.data` ownership map
+
+Foundry's `game.data` payload is a bootstrap envelope, not one Sheet Delver domain object. The active-world snapshot contains several classes of data, and each class now has a specific owner:
+
+- `WorldStateStore` retains residual world-environment data: world/system/module manifests, release/update metadata, server options, file storage, runtime flags, schema model, package warnings, connection identity, active-user ids, setup/probe cache, and temporary scene projection data.
+- Primary document arrays in the envelope belong to the ADR-0011 primary-document Stores, not to `WorldStateStore`.
+- `users` is bootstrap input for `UserStore` and `UserPresence`; presence changes then flow through presence events rather than mutating the user document shape.
+- Pack metadata feeds `CompendiumStore`, `CompendiumService`, and module discovery.
+- System id/version information feeds adapter selection and compatibility diagnostics through `WorldBootstrapper` / `SystemService`.
+
+The practical rule is: keep a field in `WorldStateStore` only when it is residual world environment state and does not already have a more specific Store/service owner.
+
 ### World-state test data policy
 
-The audit dumps in `temp/game-data-dump-example*.json` were used only as local audit evidence for the v13 shape. They must not be copied into tracked test fixtures, committed under `src/tests/fixtures/`, or used as runtime test dependencies. World-state contract tests should use tiny synthetic in-code fixtures that preserve the shape being exercised without carrying real world data.
+Local audit dumps were used only as working evidence for the v13 shape. They must not be copied into tracked test fixtures, committed under `src/tests/fixtures/`, or used as runtime test dependencies. World-state contract tests should use tiny synthetic in-code fixtures that preserve the shape being exercised without carrying real world data.
 
 The canonical Phase 1 example lives in `src/tests/unit/world/world-state-store.test.ts` as `createGameDataFixture()` plus `sceneMapFromFixture()`. It intentionally covers the Store surface with minimal synthetic values:
 

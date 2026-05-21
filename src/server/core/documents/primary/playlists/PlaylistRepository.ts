@@ -1,4 +1,4 @@
-import type { RawPlaylist } from '@server/shared/types/documents';
+import type { PlaylistDocument } from '@server/shared/types/documents';
 import { PrimaryDocumentRepository, type DocumentTransport } from '../base/PrimaryDocumentRepository';
 import type { ModifyDocumentAction } from '../base/PrimaryDocumentStore';
 import { playlistStore } from './PlaylistStore';
@@ -10,7 +10,7 @@ import { playlistStore } from './PlaylistStore';
  * (direct-type) or `PlaylistStore.applyEmbeddedChange` (`PlaylistSound`
  * with `parentUuid: Playlist.<id>`).
  */
-export class PlaylistRepository extends PrimaryDocumentRepository<RawPlaylist> {
+export class PlaylistRepository extends PrimaryDocumentRepository<PlaylistDocument> {
     constructor(transport: DocumentTransport) {
         super(transport, playlistStore);
     }

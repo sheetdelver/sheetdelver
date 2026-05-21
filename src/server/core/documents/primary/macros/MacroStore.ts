@@ -1,4 +1,4 @@
-import type { RawMacro } from '@server/shared/types/documents';
+import type { MacroDocument } from '@server/shared/types/documents';
 import {
     PrimaryDocumentStore,
     type PrimaryDocumentType,
@@ -21,11 +21,11 @@ import {
  *
  * No embedded children: macros are flat docs.
  */
-export class MacroStore extends PrimaryDocumentStore<RawMacro> {
+export class MacroStore extends PrimaryDocumentStore<MacroDocument> {
     public readonly documentType: PrimaryDocumentType = 'Macro';
 
     protected resolveOwnership(
-        macro: RawMacro,
+        macro: MacroDocument,
         subject: DocumentAccessSubject,
     ): ResolvedDocumentOwnershipLevel {
         const ownership = macro.ownership as DocumentOwnershipMap | undefined;
@@ -35,11 +35,11 @@ export class MacroStore extends PrimaryDocumentStore<RawMacro> {
     public listByFolderIds(folderIds: Iterable<string | null>, options?: {
         subject?: DocumentAccessSubject;
         minOwnership?: ResolvedDocumentOwnershipLevel;
-    }): RawMacro[] {
+    }): MacroDocument[] {
         const ids = new Set<string | null>();
         for (const id of folderIds) ids.add(id);
 
-        const filterByFolder = (macros: RawMacro[]) =>
+        const filterByFolder = (macros: MacroDocument[]) =>
             macros.filter(macro => ids.has((macro.folder as string | null) ?? null));
 
         if (options?.subject) {
@@ -59,7 +59,7 @@ export class MacroStore extends PrimaryDocumentStore<RawMacro> {
     public listByAuthor(authorId: string, options?: {
         subject?: DocumentAccessSubject;
         minOwnership?: ResolvedDocumentOwnershipLevel;
-    }): RawMacro[] {
+    }): MacroDocument[] {
         const all = options?.subject
             ? this.list({
                 subject: options.subject,

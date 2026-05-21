@@ -1,4 +1,4 @@
-import type { RawJournal, RawJournalPage } from '@server/shared/types/documents';
+import type { JournalEntryDocument, JournalEntryPageDocument } from '@server/shared/types/documents';
 import {
     cloneDocument,
     deepMerge,
@@ -19,7 +19,7 @@ import {
     type ResolvedDocumentOwnershipLevel,
 } from '../base/ownership';
 
-function pageId(page: RawJournalPage | null | undefined): string | null {
+function pageId(page: JournalEntryPageDocument | null | undefined): string | null {
     return getDocumentId(page);
 }
 
@@ -49,11 +49,11 @@ function clampResolvedLevel(level: DocumentOwnershipLevel): ResolvedDocumentOwne
  *
  * Embedded children: `JournalEntryPage` arrives with `parentUuid: JournalEntry.<id>`.
  */
-export class JournalStore extends PrimaryDocumentStore<RawJournal> {
+export class JournalStore extends PrimaryDocumentStore<JournalEntryDocument> {
     public readonly documentType: PrimaryDocumentType = 'JournalEntry';
 
     protected resolveOwnership(
-        journal: RawJournal,
+        journal: JournalEntryDocument,
         subject: DocumentAccessSubject,
     ): ResolvedDocumentOwnershipLevel {
         const ownership = journal.ownership as DocumentOwnershipMap | undefined;
@@ -83,7 +83,7 @@ export class JournalStore extends PrimaryDocumentStore<RawJournal> {
     }
 
     private resolvePageOwnership(
-        page: RawJournalPage,
+        page: JournalEntryPageDocument,
         entryEffectiveLevel: ResolvedDocumentOwnershipLevel,
         subject: DocumentAccessSubject,
     ): ResolvedDocumentOwnershipLevel {
@@ -107,7 +107,7 @@ export class JournalStore extends PrimaryDocumentStore<RawJournal> {
         entryId: string,
         subject: DocumentAccessSubject,
         minOwnership: ResolvedDocumentOwnershipLevel = DocumentOwnershipLevel.OBSERVER,
-    ): RawJournalPage[] {
+    ): JournalEntryPageDocument[] {
         const entry = this.documents.get(entryId);
         if (!entry) return [];
         const entryLevel = this.resolveOwnership(entry, subject);
@@ -127,11 +127,11 @@ export class JournalStore extends PrimaryDocumentStore<RawJournal> {
     public listByFolderIds(folderIds: Iterable<string | null>, options?: {
         subject?: DocumentAccessSubject;
         minOwnership?: ResolvedDocumentOwnershipLevel;
-    }): RawJournal[] {
+    }): JournalEntryDocument[] {
         const ids = new Set<string | null>();
         for (const id of folderIds) ids.add(id);
 
-        const filterByFolder = (journals: RawJournal[]) =>
+        const filterByFolder = (journals: JournalEntryDocument[]) =>
             journals.filter(journal => ids.has((journal.folder as string | null) ?? null));
 
         if (options?.subject) {
@@ -159,7 +159,7 @@ export class JournalStore extends PrimaryDocumentStore<RawJournal> {
         if (!entry) return;
 
         const before = stableJson(entry);
-        const docs = toDocumentArray<RawJournalPage>(result);
+        const docs = toDocumentArray<JournalEntryPageDocument>(result);
         entry.pages = entry.pages || [];
 
         if (action === 'delete') {

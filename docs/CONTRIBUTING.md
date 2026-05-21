@@ -94,16 +94,17 @@ For details on implementing module APIs, see [docs/API.md](docs/API.md).
 SheetDelver uses a persistent cache to store metadata and improve resolution reliability.
 
 *   **Setup Scraper Cache**: Discovery data for worlds and users is stored in `.sheet-delver/cache.json`.
-*   **Compendium Indices**: The platform caches compendium indices locally to speed up `fetchByUuid` operations.
+*   **Compendium Discovery Shards**: Module-declared packs are indexed or hydrated locally before module initialization. Hydrated shards are the normal source for compendium `fetchByUuid` reads.
 *   **Primary Documents**: Long-lived Foundry primary document caches live under `src/server/core/documents/primary/`. Actor caching is implemented by `ActorStore` and seeded by `seedDocumentCache()` during bootstrap. New primary document types should follow that structure instead of adding one-off socket-local caches.
 
 ### High-Reliability Resolution: `fetchByUuid`
 
-To ensure system-critical data (like spell descriptions) always loads efficiently even if network requests are slow or restricted:
+To ensure system-critical data (like spell descriptions) loads from predictable platform-owned sources:
 
-1.  **Compendium Cache**: Declared compendium packs are indexed/hydrated during module discovery and should satisfy most module lookups locally.
-2.  **Core Fetch**: If a document is not available through the cache, `fetchByUuid` attempts a Foundry socket fetch using the platform-managed client.
-3.  **Actor Cache**: Actor API routes should read hydrated actors from `ActorStore`; use UUID fetches only for linked references that are not already embedded in the actor.
+1.  **Compendium Shards**: Declared compendium packs are indexed or hydrated during module discovery. A compendium UUID read requires a declared shard with `hydrate: true`.
+2.  **Cache-Required Misses**: If a compendium document is not present in a declared hydrated shard, `fetchByUuid` returns `null` and logs a warning. Fix the module's discovery declaration instead of depending on a live Foundry lookup.
+3.  **Diagnostic Fallback**: Operators may temporarily enable `foundry.allow-live-compendium-uuid-fallback` or `APP_ALLOW_LIVE_COMPENDIUM_UUID_FALLBACK=true` to permit a live pack-document fetch. Do not rely on this in module code or tests.
+4.  **Actor Cache**: Actor API routes should read hydrated actors from `ActorStore`; use UUID fetches only for linked references that are not already embedded in the actor.
 
 ## Logging & Debugging
 

@@ -8,7 +8,7 @@ import {
     type DocumentAccessSubject,
 } from '@server/core/documents/primary/base/ownership';
 import type { DocumentChangedEvent } from '@server/core/documents/primary/base/PrimaryDocumentStore';
-import type { RawRollTable } from '@server/shared/types/documents';
+import type { RollTableDocument } from '@server/shared/types/documents';
 
 const player: DocumentAccessSubject = { userId: 'p-1', role: FoundryUserRole.PLAYER };
 const otherPlayer: DocumentAccessSubject = { userId: 'p-2', role: FoundryUserRole.PLAYER };
@@ -48,7 +48,7 @@ async function runSeedAndCloneOnRead() {
 
 async function runOwnershipPolicy() {
     const store = new RollTableStore();
-    const tables: RawRollTable[] = [
+    const tables: RollTableDocument[] = [
         {
             _id: 't-public',
             name: 'Public',
@@ -79,7 +79,7 @@ async function runOwnershipPolicy() {
 
 async function runListByFolderIds() {
     const store = new RollTableStore();
-    const tables: RawRollTable[] = [
+    const tables: RollTableDocument[] = [
         { _id: 't-1', folder: 'f-1', ownership: { default: DocumentOwnershipLevel.OBSERVER } },
         { _id: 't-2', folder: 'f-2', ownership: { default: DocumentOwnershipLevel.OBSERVER } },
         { _id: 't-3', folder: null, ownership: { default: DocumentOwnershipLevel.OBSERVER } },
@@ -107,7 +107,7 @@ async function runEmbeddedResultRouting() {
                 { _id: 'r-1', text: 'Goblin', drawn: false },
             ],
         },
-    ] as RawRollTable[]);
+    ] as RollTableDocument[]);
 
     const events: DocumentChangedEvent[] = [];
     store.on('documentChanged', (e) => events.push(e as DocumentChangedEvent));

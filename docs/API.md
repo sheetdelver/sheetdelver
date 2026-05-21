@@ -74,7 +74,7 @@ Actor reads are served through the existing `getActors()` route-client method, b
 
 ### `GET /api/actors/:id`
 **Auth**: Protected
-Returns fully normalized actor data for an actor visible to the current user. This still flows through the route-client `getActor(id)` method, but after bootstrap the raw actor comes from the platform actor store, then passes through the active system adapter for UUID/name resolution, derived data, and system-specific computation (e.g. slots, AC). Before bootstrap completes, actor detail reads return **503**.
+Returns fully normalized actor data for an actor visible to the current user. This still flows through the route-client `getActor(id)` method, but after bootstrap the actor document comes from the platform actor store, then passes through the active system adapter for UUID/name resolution, derived data, and system-specific computation (e.g. slots, AC). Before bootstrap completes, actor detail reads return **503**.
 
 ### `PATCH /api/actors/:id`
 **Auth**: Protected
@@ -125,7 +125,7 @@ Returns the latest media or journal shared by the GM with the current user.
 
 ### `GET /api/foundry/document?uuid=...`
 **Auth**: Protected
-Fetches any document (Actor, Item, Journal, Scene) by its universal UUID.
+Fetches a document by universal UUID through the platform `DocumentResolver`. World primary documents resolve from the platform document stores after bootstrap. Compendium UUIDs resolve from declared hydrated discovery shards by default; undeclared, non-hydrated, or missing shard documents return `null` with a warning. Live Foundry pack-document fallback is available only when `foundry.allow-live-compendium-uuid-fallback` or `APP_ALLOW_LIVE_COMPENDIUM_UUID_FALLBACK=true` is enabled for diagnostics.
 
 ---
 

@@ -156,7 +156,7 @@ Phase 4 closes ADR-0019 once the policy, bootstrap gate, and diagnostics are imp
 **Action items:**
 
 - [x] Update ADR-0014 / ADR-0017 / ADR-0018 references that describe Foundry compatibility as deferred.
-  Files: `docs/adr/0014-non-document-world-state-and-socket-boundary.md`, `docs/adr/0017-world-bootstrap-and-lifecycle-orchestration.md`, `docs/adr/0018-socket-boundary-enforcement-completion.md`, `temp/audit-reports/socket-boundary-audit.md`.
+  Files: `docs/adr/0014-non-document-world-state-and-socket-boundary.md`, `docs/adr/0017-world-bootstrap-and-lifecycle-orchestration.md`, `docs/adr/0018-socket-boundary-enforcement-completion.md`.
 
 - [x] Document the compatibility policy and supported generation constants.
   Files: this ADR, operator/admin docs if applicable.

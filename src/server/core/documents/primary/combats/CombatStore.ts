@@ -1,4 +1,4 @@
-import type { RawCombat, RawCombatant } from '@server/shared/types/documents';
+import type { CombatDocument, CombatantDocument } from '@server/shared/types/documents';
 import {
     cloneDocument,
     deepMerge,
@@ -20,11 +20,11 @@ import {
 } from '../base/ownership';
 import type { ActorStore } from '../actors/ActorStore';
 
-function combatantId(combatant: RawCombatant | null | undefined): string | null {
+function combatantId(combatant: CombatantDocument | null | undefined): string | null {
     return getDocumentId(combatant);
 }
 
-function combatVisibilitySourceState(combat: RawCombat): string {
+function combatVisibilitySourceState(combat: CombatDocument): string {
     const actorIds = new Set<string>();
     for (const combatant of combat.combatants || []) {
         if (combatant.hidden) continue;
@@ -57,7 +57,7 @@ function combatVisibilitySourceState(combat: RawCombat): string {
      * `actorStore.documentListInvalidated` to re-emit its own list invalidation
      * for combats containing the affected actor.
  */
-export class CombatStore extends PrimaryDocumentStore<RawCombat> {
+export class CombatStore extends PrimaryDocumentStore<CombatDocument> {
     public readonly documentType: PrimaryDocumentType = 'Combat';
 
     private actorStore: ActorStore | null = null;
@@ -100,7 +100,7 @@ export class CombatStore extends PrimaryDocumentStore<RawCombat> {
     }
 
     protected resolveOwnership(
-        combat: RawCombat,
+        combat: CombatDocument,
         subject: DocumentAccessSubject,
     ): ResolvedDocumentOwnershipLevel {
         if (isGM(subject)) return DocumentOwnershipLevel.OWNER;
@@ -139,7 +139,7 @@ export class CombatStore extends PrimaryDocumentStore<RawCombat> {
 
         const before = stableJson(combat);
         const beforeVisibilitySource = combatVisibilitySourceState(combat);
-        const docs = toDocumentArray<RawCombatant>(result);
+        const docs = toDocumentArray<CombatantDocument>(result);
         combat.combatants = combat.combatants || [];
 
         if (action === 'delete') {

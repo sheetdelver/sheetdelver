@@ -12,14 +12,14 @@ import type {
     DocumentChangedEvent,
     DocumentListInvalidatedEvent,
 } from '@server/core/documents/primary/base/PrimaryDocumentStore';
-import type { RawCombat } from '@server/shared/types/documents';
-import type { RawActor } from '@server/shared/types/actors';
+import type { CombatDocument } from '@server/shared/types/documents';
+import type { ActorDocument } from '@server/shared/types/actors';
 
 const player: DocumentAccessSubject = { userId: 'p-1', role: FoundryUserRole.PLAYER };
 const otherPlayer: DocumentAccessSubject = { userId: 'p-2', role: FoundryUserRole.PLAYER };
 const gm: DocumentAccessSubject = { userId: 'gm-1', role: FoundryUserRole.GAMEMASTER };
 
-async function seedActorsFor(actors: RawActor[]): Promise<ActorStore> {
+async function seedActorsFor(actors: ActorDocument[]): Promise<ActorStore> {
     const store = new ActorStore();
     await store.seed(async () => actors);
     return store;
@@ -43,7 +43,7 @@ async function runOwnershipFromActorStore() {
 
     const store = new CombatStore();
     store.bindActorVisibilityBridge(actor);
-    const combats: RawCombat[] = [
+    const combats: CombatDocument[] = [
         {
             _id: 'combat-visible',
             combatants: [
@@ -97,7 +97,7 @@ async function runHiddenCombatantsExcluded() {
                 { _id: 'c1', actorId: 'actor-readable', hidden: true },
             ],
         },
-    ] as RawCombat[]);
+    ] as CombatDocument[]);
 
     // The only readable-actor combatant is hidden — non-GM cannot see the combat.
     assert.equal(store.canReadDocument('combat-with-hidden', player, DOCUMENT_VISIBILITY.LIST_VISIBLE), false,
@@ -114,7 +114,7 @@ async function runFailClosedWithoutActorBinding() {
             _id: 'orphan',
             combatants: [{ _id: 'c1', actorId: 'whatever' }],
         },
-    ] as RawCombat[]);
+    ] as CombatDocument[]);
 
     assert.equal(store.canReadDocument('orphan', player, DOCUMENT_VISIBILITY.LIST_VISIBLE), false);
     // GM short-circuit still works without binding.
@@ -135,7 +135,7 @@ async function runEmbeddedCombatantRouting() {
                 { _id: 'c-existing', actorId: 'actor-a', initiative: 10 },
             ],
         },
-    ] as RawCombat[]);
+    ] as CombatDocument[]);
 
     const events: DocumentChangedEvent[] = [];
     const invalidations: DocumentListInvalidatedEvent[] = [];
@@ -206,7 +206,7 @@ async function runActorVisibilityBridgePropagates() {
             _id: 'combat-without-shared',
             combatants: [{ _id: 'c2', actorId: 'actor-unrelated' }],
         },
-    ] as RawCombat[]);
+    ] as CombatDocument[]);
 
     const invalidations: DocumentListInvalidatedEvent[] = [];
     store.on('documentListInvalidated', (e) => invalidations.push(e as DocumentListInvalidatedEvent));

@@ -3,8 +3,8 @@ import { createActorService } from '@server/services/actors/ActorService';
 import { createCombatService } from '@server/services/combats/CombatService';
 import { combatStore } from '@server/core/documents/primary/combats/CombatStore';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
-import type { RawCombat } from '@server/shared/types/documents';
-import type { RawActor } from '@server/shared/types/actors';
+import type { CombatDocument } from '@server/shared/types/documents';
+import type { ActorDocument } from '@server/shared/types/actors';
 
 async function runActorReadWriteSmoke() {
     const normalizeCalls: Array<{ ids: string[] }> = [];
@@ -124,7 +124,7 @@ async function runCombatReadActionSmoke() {
     const buildCase = async (params: {
         userId: string;
         ownershipByActorId?: Record<string, number>;
-        combat: RawCombat;
+        combat: CombatDocument;
     }) => {
         const dispatchCalls: Array<{ type: string; action: string; operation: unknown; parent?: any }> = [];
         // `combatStore.seed` clears prior docs and re-populates.
@@ -143,7 +143,7 @@ async function runCombatReadActionSmoke() {
             id,
             name: `Actor ${id}`,
             ownership: { default: 0, [params.userId]: ownershipMap[id] || 0 },
-        }) as RawActor));
+        }) as ActorDocument));
         const client = {
             userId: params.userId,
             getActor: async (id: string) => ({
@@ -485,7 +485,7 @@ async function runCombatReadActionSmoke() {
     // Seed ActorStore so combat visibility resolves (CombatStore.bindActorVisibilityBridge
     // is already wired by the coordinator; we just need the actor docs present).
     // `actorStore` binding was dynamic-imported at the top of this function.
-    const strippedActors: RawActor[] = [
+    const strippedActors: ActorDocument[] = [
         { _id: 'pc-actor', ownership: { 'player-strip': 3 } },
         { _id: 'npc-actor', ownership: { default: 0 } },
     ];

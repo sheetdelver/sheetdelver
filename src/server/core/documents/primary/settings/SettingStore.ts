@@ -1,4 +1,4 @@
-import type { RawSetting } from '@server/shared/types/documents';
+import type { SettingDocument } from '@server/shared/types/documents';
 import {
     PrimaryDocumentStore,
     type PrimaryDocumentType,
@@ -17,11 +17,11 @@ import {
  * Setting is a key/value world-config doc in Foundry. Admin/GM placeholder
  * until a future round wires the subsystem against real payloads.
  */
-export class SettingStore extends PrimaryDocumentStore<RawSetting> {
+export class SettingStore extends PrimaryDocumentStore<SettingDocument> {
     public readonly documentType: PrimaryDocumentType = 'Setting';
 
     protected resolveOwnership(
-        _setting: RawSetting,
+        _setting: SettingDocument,
         subject: DocumentAccessSubject,
     ): ResolvedDocumentOwnershipLevel {
         return isGM(subject) ? DocumentOwnershipLevel.OWNER : DocumentOwnershipLevel.NONE;

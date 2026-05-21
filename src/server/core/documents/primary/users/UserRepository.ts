@@ -1,4 +1,4 @@
-import type { RawUser } from '@server/shared/types/users';
+import type { UserDocument } from '@server/shared/types/users';
 import { PrimaryDocumentRepository, type DocumentTransport } from '../base/PrimaryDocumentRepository';
 import { userStore } from './UserStore';
 
@@ -12,7 +12,7 @@ import { userStore } from './UserStore';
  * permissions against the requesting user (typically a GM). Results mirror
  * into {@link UserStore} via the base.
  */
-export class UserRepository extends PrimaryDocumentRepository<RawUser> {
+export class UserRepository extends PrimaryDocumentRepository<UserDocument> {
     constructor(transport: DocumentTransport) {
         super(transport, userStore);
     }

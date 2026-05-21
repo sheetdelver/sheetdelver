@@ -1,4 +1,4 @@
-import type { RawFolder } from '@server/shared/types/documents';
+import type { FolderDocument } from '@server/shared/types/documents';
 import { PrimaryDocumentRepository, type DocumentTransport } from '../base/PrimaryDocumentRepository';
 import type { ModifyDocumentAction } from '../base/PrimaryDocumentStore';
 import { folderStore } from './FolderStore';
@@ -8,7 +8,7 @@ import { folderStore } from './FolderStore';
  * request-scoped Repository path as other primary documents so Foundry enforces
  * the acting user's permissions and the FolderStore mirrors mutation results.
  */
-export class FolderRepository extends PrimaryDocumentRepository<RawFolder> {
+export class FolderRepository extends PrimaryDocumentRepository<FolderDocument> {
     constructor(transport: DocumentTransport) {
         super(transport, folderStore);
     }

@@ -11,7 +11,7 @@ import type {
     DocumentChangedEvent,
     DocumentListInvalidatedEvent,
 } from '@server/core/documents/primary/base/PrimaryDocumentStore';
-import type { RawFolder } from '@server/shared/types/documents';
+import type { FolderDocument } from '@server/shared/types/documents';
 
 const player: DocumentAccessSubject = { userId: 'p-1', role: FoundryUserRole.PLAYER };
 const gm: DocumentAccessSubject = { userId: 'gm-1', role: FoundryUserRole.GAMEMASTER };
@@ -81,7 +81,7 @@ async function runSeedAndTreeHelpers() {
 
 async function runPermissionPolicy() {
     const store = new FolderStore();
-    const folders: RawFolder[] = [
+    const folders: FolderDocument[] = [
         { _id: 'omitted-permission', name: 'Omitted', type: 'JournalEntry', parent: null },
         {
             _id: 'default-visible',

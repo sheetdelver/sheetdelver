@@ -1,4 +1,4 @@
-import type { RawFolder } from '@server/shared/types/documents';
+import type { FolderDocument } from '@server/shared/types/documents';
 import {
     cloneDocument,
     getDocumentId,
@@ -28,8 +28,8 @@ function normalizePermissionMap(value: unknown): FolderPermissionMap | undefined
     return map;
 }
 
-function normalizeFolderDocument(folder: RawFolder): RawFolder {
-    const normalized = cloneDocument(folder) as RawFolder;
+function normalizeFolderDocument(folder: FolderDocument): FolderDocument {
+    const normalized = cloneDocument(folder) as FolderDocument;
     normalized.parent = normalized.parent ?? null;
 
     const permission = normalizePermissionMap(normalized.permission);
@@ -39,8 +39,8 @@ function normalizeFolderDocument(folder: RawFolder): RawFolder {
     return normalized;
 }
 
-function normalizeFolderPatch(folder: RawFolder): RawFolder {
-    const normalized = cloneDocument(folder) as RawFolder;
+function normalizeFolderPatch(folder: FolderDocument): FolderDocument {
+    const normalized = cloneDocument(folder) as FolderDocument;
 
     if (normalized.permission !== undefined) {
         const permission = normalizePermissionMap(normalized.permission);
@@ -57,25 +57,25 @@ function normalizeFolderResult(action: ModifyDocumentAction, result: unknown): u
     if (Array.isArray(result)) {
         return result
             .filter(isRecord)
-            .map(folder => normalize(folder as RawFolder));
+            .map(folder => normalize(folder as FolderDocument));
     }
-    if (isRecord(result)) return normalize(result as RawFolder);
+    if (isRecord(result)) return normalize(result as FolderDocument);
     return result;
 }
 
-function getFolderType(folder: RawFolder): string | null {
+function getFolderType(folder: FolderDocument): string | null {
     return typeof folder.type === 'string' ? folder.type : null;
 }
 
-function folderMatchesType(folder: RawFolder, type?: string | null): boolean {
+function folderMatchesType(folder: FolderDocument, type?: string | null): boolean {
     return !type || getFolderType(folder) === type;
 }
 
-function folderId(folder: RawFolder | null | undefined): string | null {
+function folderId(folder: FolderDocument | null | undefined): string | null {
     return getDocumentId(folder);
 }
 
-function comparableFolderState(folder: RawFolder | null | undefined): string {
+function comparableFolderState(folder: FolderDocument | null | undefined): string {
     if (!folder) return '';
     return stableJson({
         parent: folder.parent ?? null,
@@ -90,25 +90,25 @@ function comparableFolderState(folder: RawFolder | null | undefined): string {
  * `type` field describes the contained document collection but this Store does
  * not inspect or validate those contained document payloads.
  */
-export class FolderStore extends PrimaryDocumentStore<RawFolder> {
+export class FolderStore extends PrimaryDocumentStore<FolderDocument> {
     public readonly documentType: PrimaryDocumentType = 'Folder';
 
     protected resolveOwnership(
-        folder: RawFolder,
+        folder: FolderDocument,
         subject: DocumentAccessSubject,
     ): ResolvedDocumentOwnershipLevel {
         if (isGM(subject)) return DocumentOwnershipLevel.OWNER;
         return this.resolveFolderPermission(folder, subject, new Set<string>());
     }
 
-    public async seed(loader: () => Promise<RawFolder[]>): Promise<void> {
+    public async seed(loader: () => Promise<FolderDocument[]>): Promise<void> {
         await super.seed(async () => {
             const folders = await loader();
             return folders.map(normalizeFolderDocument);
         });
     }
 
-    public upsert(folder: RawFolder): void {
+    public upsert(folder: FolderDocument): void {
         const normalized = normalizeFolderDocument(folder);
         const id = folderId(normalized);
         const existed = id ? this.documents.has(id) : false;
@@ -119,16 +119,16 @@ export class FolderStore extends PrimaryDocumentStore<RawFolder> {
 
     public patch(folderIdValue: string, diff: Record<string, unknown>): void {
         const before = comparableFolderState(this.documents.get(folderIdValue));
-        const normalized = normalizeFolderPatch(diff as RawFolder) as Record<string, unknown>;
+        const normalized = normalizeFolderPatch(diff as FolderDocument) as Record<string, unknown>;
         super.patch(folderIdValue, normalized);
         this.emitFolderListInvalidationIfNeeded(folderIdValue, before);
     }
 
-    public listByType(type?: string | null): RawFolder[] {
+    public listByType(type?: string | null): FolderDocument[] {
         return this.list().filter(folder => folderMatchesType(folder, type));
     }
 
-    public listByIds(ids: Iterable<string>, type?: string | null): RawFolder[] {
+    public listByIds(ids: Iterable<string>, type?: string | null): FolderDocument[] {
         const idSet = new Set(ids);
         return this.listByType(type).filter(folder => {
             const id = folderId(folder);
@@ -136,12 +136,12 @@ export class FolderStore extends PrimaryDocumentStore<RawFolder> {
         });
     }
 
-    public getChildren(parentId: string | null, type?: string | null): RawFolder[] {
+    public getChildren(parentId: string | null, type?: string | null): FolderDocument[] {
         return this.listByType(type).filter(folder => (folder.parent ?? null) === parentId);
     }
 
-    public getDescendants(parentId: string, type?: string | null): RawFolder[] {
-        const descendants: RawFolder[] = [];
+    public getDescendants(parentId: string, type?: string | null): FolderDocument[] {
+        const descendants: FolderDocument[] = [];
         const visited = new Set<string>();
         const queue = [parentId];
 
@@ -159,8 +159,8 @@ export class FolderStore extends PrimaryDocumentStore<RawFolder> {
         return descendants;
     }
 
-    public getAncestors(folderIdValue: string): RawFolder[] {
-        const ancestors: RawFolder[] = [];
+    public getAncestors(folderIdValue: string): FolderDocument[] {
+        const ancestors: FolderDocument[] = [];
         const visited = new Set<string>([folderIdValue]);
         let current = this.documents.get(folderIdValue);
 
@@ -195,7 +195,7 @@ export class FolderStore extends PrimaryDocumentStore<RawFolder> {
         operation?: Record<string, unknown>,
     ): void {
         const normalizedResult = normalizeFolderResult(action, result);
-        const docs = toDocumentArray<RawFolder>(normalizedResult);
+        const docs = toDocumentArray<FolderDocument>(normalizedResult);
         const ids = action === 'delete'
             ? getOperationIds(operation, docs)
             : docs.map(folderId).filter((id): id is string => Boolean(id));
@@ -210,7 +210,7 @@ export class FolderStore extends PrimaryDocumentStore<RawFolder> {
     }
 
     private resolveFolderPermission(
-        folder: RawFolder,
+        folder: FolderDocument,
         subject: DocumentAccessSubject,
         visited: Set<string>,
     ): ResolvedDocumentOwnershipLevel {

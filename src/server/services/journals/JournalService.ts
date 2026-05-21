@@ -2,8 +2,8 @@ import type {
     JournalClientLike,
     JournalMutationBody,
     JournalDeleteQuery,
-    RawJournal,
-    RawFolder,
+    JournalEntryDocument,
+    FolderDocument,
 } from '@server/shared/types/documents';
 import type {
     JournalListPayload,
@@ -42,14 +42,14 @@ export function createJournalService() {
         ) => client.dispatchDocument(type, action, operation, parent),
     });
 
-    const toJournalDto = (journal: RawJournal): JournalEntryDto => ({
+    const toJournalDto = (journal: JournalEntryDocument): JournalEntryDto => ({
         ...journal,
         _id: String(journal._id || journal.id || ''),
         name: getStringField(journal.name),
         folder: (journal.folder ?? null) as string | null,
     });
 
-    const toFolderDto = (folder: RawFolder) => ({
+    const toFolderDto = (folder: FolderDocument) => ({
         ...folder,
         _id: String(folder._id || folder.id || ''),
         name: String(folder.name || ''),

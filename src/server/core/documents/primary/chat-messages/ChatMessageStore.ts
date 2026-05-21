@@ -1,4 +1,4 @@
-import type { RawChatMessage } from '@server/shared/types/documents';
+import type { ChatMessageDocument } from '@server/shared/types/documents';
 import {
     PrimaryDocumentStore,
     type PrimaryDocumentType,
@@ -26,11 +26,11 @@ import {
  * ChatMessage has no `ownership` map field — visibility is computed from
  * `whisper`, `blind`, and `author` fields on the message itself.
  */
-export class ChatMessageStore extends PrimaryDocumentStore<RawChatMessage> {
+export class ChatMessageStore extends PrimaryDocumentStore<ChatMessageDocument> {
     public readonly documentType: PrimaryDocumentType = 'ChatMessage';
 
     protected resolveOwnership(
-        message: RawChatMessage,
+        message: ChatMessageDocument,
         subject: DocumentAccessSubject,
     ): ResolvedDocumentOwnershipLevel {
         // GMs see everything.

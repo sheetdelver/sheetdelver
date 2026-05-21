@@ -1,5 +1,5 @@
 import type { AppConfig } from '@shared/interfaces';
-import type { ChatClientLike, ChatSendBody, RawChatMessage } from '@server/shared/types/documents';
+import type { ChatClientLike, ChatSendBody, ChatMessageDocument } from '@server/shared/types/documents';
 import type { ChatLogPayload, ChatSendSuccessPayload, ChatErrorPayload, ChatMessageDto } from '@shared/contracts/chat';
 import { chatMessageStore } from '@server/core/documents/primary/chat-messages/ChatMessageStore';
 import {
@@ -21,7 +21,7 @@ interface ChatServiceDeps {
     config: AppConfig;
 }
 
-function projectChatMessage(message: RawChatMessage, subject: DocumentAccessSubject | null): ChatMessageDto {
+function projectChatMessage(message: ChatMessageDocument, subject: DocumentAccessSubject | null): ChatMessageDto {
     const rolls = (Array.isArray(message.rolls) ? message.rolls : []).map((roll: unknown) => {
         if (typeof roll !== 'string') return roll;
         try {

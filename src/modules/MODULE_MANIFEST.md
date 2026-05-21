@@ -109,7 +109,7 @@ my-system/
 | `manifest.server` | No | Path to the server API entry point. |
 | `compatibility.coreVersion` | No | SemVer range requirement against the Sheet Delver core version. |
 | `compatibility.apiContracts` | No | SemVer range requirements against the platform SDK contracts. |
-| `discovery.packs` | No | Compendium packs to index at world-ready time. Declared packs are fully hydrated by the platform before `initialize()` is called. |
+| `discovery.packs` | No | Compendium packs to index at world-ready time. Packs with `hydrate: true` are fully hydrated by the platform before `initialize()` is called and are the default source for compendium UUID document reads. |
 | `trust.tier` | No | `first-party` \| `verified-third-party` \| `unverified` |
 | `permissions` | No | Optional declarations for network, filesystem, admin route, or sensitive-data needs. |
 | `aliases` | No | Alternate module/system ids used for lookup compatibility. |
@@ -176,9 +176,11 @@ export default Adapter;
 | `getInitiativeFormula(actor)` | Combat initiative | Returns `'1d20'` |
 | `validateUpdate(path, value)` | Real-time updates | Returns `true` |
 
-**Note on `initialize(context)`:** The platform runs discovery sync (`getDiscoveryConfig()`) before calling `initialize()`. By the time `initialize()` is called, all declared compendium packs, in info.json, are already hydrated in the platform cache and accessible via `context.platform.discovery`. Adapters should read from the context rather than fetching via a client during initialization.
+**Note on `initialize(context)`:** The platform runs discovery sync (`getDiscoveryConfig()`) before calling `initialize()`. By the time `initialize()` is called, declared compendium packs in `info.json` are indexed, and packs with `hydrate: true` are fully hydrated in the platform cache and accessible via `context.platform.discovery`. Adapters should read from the context rather than fetching via a client during initialization.
 
-**Actor projection contract:** Actor adapter methods receive hydrated raw actor documents from the platform actor cache. Keep `getActorCardData`, `normalizeActorData`, `computeActorData`, and `categorizeItems` deterministic from the actor and injected SDK services. The `getActor()` and `getActors()` SDK/request methods remain the public read surface, but they resolve from the platform actor cache and fail as not-ready before bootstrap completes; they must not repeatedly fetch from Foundry. Use `fetchByUuid` or compendium discovery only for exceptional linked references that are not embedded in the actor.
+**Actor projection contract:** Actor adapter methods receive hydrated actor documents from the platform actor cache. Keep `getActorCardData`, `normalizeActorData`, `computeActorData`, and `categorizeItems` deterministic from the actor and injected SDK services. The `getActor()` and `getActors()` SDK/request methods remain the public read surface, but they resolve from the platform actor cache and fail as not-ready before bootstrap completes; they must not repeatedly fetch from Foundry. Use `fetchByUuid` or compendium discovery only for exceptional linked references that are not embedded in the actor.
+
+**Compendium UUID contract:** `fetchByUuid` serves compendium documents from declared hydrated discovery shards by default. If module code needs `Compendium.<pack>.<type>.<id>` or `Compendium.<pack>.<id>` reads, list that pack in `info.json` with `hydrate: true`. Missing, undeclared, or non-hydrated shards return `null` and log a warning. The host can enable `foundry.allow-live-compendium-uuid-fallback` / `APP_ALLOW_LIVE_COMPENDIUM_UUID_FALLBACK=true` for diagnostics, but modules must not depend on live fallback.
 
 ---
 
@@ -347,7 +349,7 @@ The module does not talk to Foundry directly. The platform executes all operatio
 | `updateItemEffect(actorId, itemId, effectId, updates)` | Update an effect on an actor's item |
 | `deleteItemEffect(actorId, itemId, effectId)` | Remove an effect from an actor's item |
 | **Document access** | |
-| `fetchByUuid(uuid)` | Fetch any Foundry document by UUID |
+| `fetchByUuid(uuid)` | Resolve a Foundry UUID through platform Stores and declared hydrated discovery shards; live compendium fallback is diagnostic opt-in only. |
 | `getWorldItems(options?)` | Fetch world-owned items (not compendium). Prefer `context.platform.discovery` for compendium pack data. |
 | `drawTable(tableId, options?)` | Fetch a RollTable and simulate a draw. Returns `DrawResult`. |
 | **Utilities** | |
@@ -371,7 +373,7 @@ async initialize(context: ModuleContext): Promise<void> {
     await context.platform.cache.set('configKey', { value: 42 });
     const cached = await context.platform.cache.get<{ value: number }>('configKey');
 
-    // Compendium discovery — lookups into hydrated packs declared in getDiscoveryConfig()
+    // Compendium discovery — lookups into hydrated packs declared in info.json/getDiscoveryConfig()
     const item = await context.platform.discovery.getById('Item', 'someUuid');
     const found = await context.platform.discovery.findOne('Item', { name: 'Longsword' });
 }
@@ -381,7 +383,7 @@ async initialize(context: ModuleContext): Promise<void> {
 
 **`context.platform.cache`** — persistent key-value store scoped to this module. Data survives server restarts. Other modules cannot read this module's data.
 
-**`context.platform.discovery`** — lookups into compendium packs declared in `getDiscoveryConfig()`. Packs are hydrated by the platform before `initialize()` is called.
+**`context.platform.discovery`** — lookups into compendium packs declared in `info.json` / `getDiscoveryConfig()`. Packs with `hydrate: true` are hydrated by the platform before `initialize()` is called and are also the default source for compendium UUID document reads.
 
 ### `ModuleFoundryClient` — injected per API request
 
@@ -608,6 +610,6 @@ When an admin switches a module's active source via the lifecycle panel (`Manage
 2. Replace all internal platform imports (`@shared/`, `@client/`, `@core/`, etc.) with `@sheet-delver/sdk`.
 3. Extend `BaseSystemAdapter` for your logic entry point. The `override` keyword is optional TypeScript syntax; the platform dispatches adapter methods by name and does not require it. The examples omit it for compatibility and readability.
 4. Use `useSDK()` for runtime platform data and `useSDKComponents()` for platform UI components in your React components.
-5. Identify your actors using `actor._stats?.systemId` — this is Foundry's authoritative system identifier and is available in the raw actor document without any derived-value computation.
+5. Identify your actors using `actor._stats?.systemId` — this is Foundry's authoritative system identifier and is available in the actor document without any derived-value computation.
 6. Image paths — always pass actor images through `resolveImage(actor.img ?? '', foundryUrl)` (available from `useSDK().foundryUrl` in UI, or via the base class `this.foundryUrl` getter in the adapter). Foundry returns relative paths that must be prefixed with the Foundry server origin before the browser can load them.
 7. Verify with `npx tsc --noEmit` from the project root — modules share the project tsconfig and can type-check independently via their own `tsconfig.json` that extends `.managed/tsconfig.paths.json`.

@@ -1,6 +1,6 @@
-import type { RawUser, UserWithPresence } from '@server/shared/types/users';
+import type { UserDocument, UserWithPresence } from '@server/shared/types/users';
 
-function getUserId(user: RawUser): string | null {
+function getUserId(user: UserDocument): string | null {
     return user._id || user.id || null;
 }
 
@@ -39,7 +39,7 @@ export class UserPresence {
         return userId ? this.activeByUserId.get(userId) ?? false : false;
     }
 
-    public compose<TUser extends RawUser>(user: TUser): TUser & UserWithPresence {
+    public compose<TUser extends UserDocument>(user: TUser): TUser & UserWithPresence {
         return {
             ...user,
             active: this.isActive(getUserId(user)),

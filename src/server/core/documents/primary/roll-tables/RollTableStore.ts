@@ -1,4 +1,4 @@
-import type { RawRollTable, RawRollTableResult } from '@server/shared/types/documents';
+import type { RollTableDocument, RollTableResultDocument } from '@server/shared/types/documents';
 import {
     cloneDocument,
     deepMerge,
@@ -36,11 +36,11 @@ function resultId(result: unknown): string | null {
  * as a normal embedded `update` — no special handling beyond the standard
  * in-place array maintenance.
  */
-export class RollTableStore extends PrimaryDocumentStore<RawRollTable> {
+export class RollTableStore extends PrimaryDocumentStore<RollTableDocument> {
     public readonly documentType: PrimaryDocumentType = 'RollTable';
 
     protected resolveOwnership(
-        table: RawRollTable,
+        table: RollTableDocument,
         subject: DocumentAccessSubject,
     ): ResolvedDocumentOwnershipLevel {
         const ownership = table.ownership as DocumentOwnershipMap | undefined;
@@ -50,11 +50,11 @@ export class RollTableStore extends PrimaryDocumentStore<RawRollTable> {
     public listByFolderIds(folderIds: Iterable<string | null>, options?: {
         subject?: DocumentAccessSubject;
         minOwnership?: ResolvedDocumentOwnershipLevel;
-    }): RawRollTable[] {
+    }): RollTableDocument[] {
         const ids = new Set<string | null>();
         for (const id of folderIds) ids.add(id);
 
-        const filterByFolder = (tables: RawRollTable[]) =>
+        const filterByFolder = (tables: RollTableDocument[]) =>
             tables.filter(table => ids.has((table.folder as string | null) ?? null));
 
         if (options?.subject) {
@@ -92,7 +92,7 @@ export class RollTableStore extends PrimaryDocumentStore<RawRollTable> {
             table.results = results.filter(r => {
                 const id = resultId(r);
                 return !id || !ids.includes(id);
-            }) as RawRollTableResult[];
+            }) as RollTableResultDocument[];
         } else if (action === 'update') {
             for (const incoming of docs) {
                 const id = getDocumentId(incoming);
@@ -102,9 +102,9 @@ export class RollTableStore extends PrimaryDocumentStore<RawRollTable> {
                     deepMerge(results[index] as Record<string, unknown>, incoming);
                 }
             }
-            table.results = results as RawRollTableResult[];
+            table.results = results as RollTableResultDocument[];
         } else if (action === 'create') {
-            table.results = [...results, ...docs.map(r => cloneDocument(r))] as RawRollTableResult[];
+            table.results = [...results, ...docs.map(r => cloneDocument(r))] as RollTableResultDocument[];
         }
 
         this.documents.set(tableId, table);

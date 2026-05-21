@@ -1,4 +1,4 @@
-import type { RawChatMessage } from '@server/shared/types/documents';
+import type { ChatMessageDocument } from '@server/shared/types/documents';
 import { PrimaryDocumentRepository, type DocumentTransport } from '../base/PrimaryDocumentRepository';
 import type { ModifyDocumentAction } from '../base/PrimaryDocumentStore';
 import { chatMessageStore } from './ChatMessageStore';
@@ -15,7 +15,7 @@ import { chatMessageStore } from './ChatMessageStore';
  * helper. Public SDK compatibility facades may keep their old method names,
  * but they should delegate here for primary-document writes.
  */
-export class ChatMessageRepository extends PrimaryDocumentRepository<RawChatMessage> {
+export class ChatMessageRepository extends PrimaryDocumentRepository<ChatMessageDocument> {
     constructor(transport: DocumentTransport) {
         super(transport, chatMessageStore);
     }

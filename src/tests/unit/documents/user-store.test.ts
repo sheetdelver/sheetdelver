@@ -8,12 +8,12 @@ import {
     type DocumentAccessSubject,
 } from '@server/core/documents/primary/base/ownership';
 import type { DocumentChangedEvent } from '@server/core/documents/primary/base/PrimaryDocumentStore';
-import type { RawUser } from '@server/shared/types/users';
+import type { UserDocument } from '@server/shared/types/users';
 
 const gm: DocumentAccessSubject = { userId: 'gm-1', role: FoundryUserRole.GAMEMASTER };
 const player: DocumentAccessSubject = { userId: 'p-1', role: FoundryUserRole.PLAYER };
 
-const users: RawUser[] = [
+const users: UserDocument[] = [
     { _id: 'gm-1', name: 'Gamemaster', role: FoundryUserRole.GAMEMASTER, color: '#ff0000' },
     { _id: 'p-1', name: 'Alice', role: FoundryUserRole.PLAYER, color: '#0000ff' },
     { _id: 'p-2', name: 'Bob', role: FoundryUserRole.TRUSTED },

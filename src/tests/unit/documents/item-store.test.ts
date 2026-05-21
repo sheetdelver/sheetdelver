@@ -10,7 +10,7 @@ import {
 import type {
     DocumentChangedEvent,
 } from '@server/core/documents/primary/base/PrimaryDocumentStore';
-import type { RawItem } from '@server/shared/types/actors';
+import type { ItemDocument } from '@server/shared/types/actors';
 
 const player: DocumentAccessSubject = { userId: 'p-1', role: FoundryUserRole.PLAYER };
 const otherPlayer: DocumentAccessSubject = { userId: 'p-2', role: FoundryUserRole.PLAYER };
@@ -49,7 +49,7 @@ async function runSeedAndCloneOnRead() {
 
 async function runOwnershipPolicy() {
     const store = new ItemStore();
-    const items: RawItem[] = [
+    const items: ItemDocument[] = [
         {
             _id: 'i-public',
             name: 'Public',
@@ -81,7 +81,7 @@ async function runOwnershipPolicy() {
 
 async function runListByFolderIds() {
     const store = new ItemStore();
-    const items: RawItem[] = [
+    const items: ItemDocument[] = [
         { _id: 'i-1', folder: 'f-1', ownership: { default: DocumentOwnershipLevel.OBSERVER } },
         { _id: 'i-2', folder: 'f-2', ownership: { default: DocumentOwnershipLevel.OBSERVER } },
         { _id: 'i-3', folder: null, ownership: { default: DocumentOwnershipLevel.OBSERVER } },
@@ -109,7 +109,7 @@ async function runEmbeddedActiveEffectRouting() {
                 { _id: 'fx-existing', name: 'Existing Effect' },
             ],
         },
-    ] as RawItem[]);
+    ] as ItemDocument[]);
 
     const events: DocumentChangedEvent[] = [];
     store.on('documentChanged', (e) => events.push(e as DocumentChangedEvent));

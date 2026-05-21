@@ -16,7 +16,7 @@ This ADR is the third decision in the ADR-0014 arc. ADR-0014 moved non-document 
 |---|---|---|
 | ADR-0014 - Non-Document World State and the Socket Boundary Principle | `WorldStateStore`, `WorldLifecycleStore`, `SharedContentStore`, file-layout convention, and removal of world-state readers from sockets. | none |
 | ADR-0015 - Compendium Architecture and the Pathway B Read Gap | `CompendiumStore`, `CompendiumService`, `DiscoveryShardStore` / shard reader. Fixes SDK discovery shard reads, de-duplicates Pathway A/B index work, and removes compendium readers from sockets. | ADR-0014 |
-| **ADR-0016 (this ADR)** - Document Resolution and UUID Routing | `DocumentResolver`; removes `fetchByUuid` from `CoreSocket` and `ClientSocket`; parses world, embedded, and compendium UUIDs; delegates compendium lookup to ADR-0015 shard/fallback primitives. | ADR-0015 |
+| **ADR-0016 (this ADR)** - Document Resolution and UUID Routing | `DocumentResolver`; removes `fetchByUuid` from `CoreSocket` and `ClientSocket`; parses world, embedded, and compendium UUIDs; delegates compendium lookup to ADR-0015 shards and opt-in diagnostic pack-document transport. | ADR-0015 |
 | ADR-0017 - World Bootstrap and Lifecycle Orchestration | `WorldBootstrapper`, delayed `active`, adapter ownership, engagement policy, sync-token cleanup. | ADR-0014 through ADR-0016 |
 | ADR-0018 - Socket Boundary Enforcement Completion | Residual socket-boundary cleanup after the named extractions. | ADR-0014 through ADR-0017 |
 
@@ -31,7 +31,7 @@ At the start of ADR-0016, `CoreSocket.fetchByUuid(uuid)` was still a routing fun
 It had two branches:
 
 - **World UUIDs** such as `Actor.<id>` or `RollTable.<id>` parse the first two segments and sometimes read Stores directly. Actor, Item, RollTable, Macro, Playlist, and Cards short-circuit to Stores. Store-backed types such as JournalEntry, Folder, User, Combat, and ChatMessage still fall through to a generic socket `dispatchDocumentSocket(..., 'get', ...)` path.
-- **Compendium UUIDs** such as `Compendium.<packId>.<type?>.<id>` are parsed inline, then fetched through a compatibility ladder (`modifyDocument` then `getDocuments`) over several inferred core document types.
+- **Compendium UUIDs** such as `Compendium.<packId>.<type?>.<id>` are parsed inline, then historically fetched through a compatibility ladder (`modifyDocument` then `getDocuments`) over several inferred core document types. ADR-0020 later made that live ladder diagnostic opt-in only for resolver misses.
 
 At the start of ADR-0016, `ClientSocket.fetchByUuid(uuid)` was only a delegation to `systemService.getSystemClient().fetchByUuid(uuid)`.
 
@@ -62,7 +62,7 @@ Public surface:
 - embedded world-document UUID parsing and parent Store traversal
 - compendium UUID parsing
 - shard-first compendium lookup for declared hydrated Pathway B packs
-- fallback to `CompendiumService.getPackDocument(packId, documentId, type?)`
+- optional diagnostic fallback to `CompendiumService.getPackDocument(packId, documentId, type?)` only when live compendium UUID fallback is explicitly enabled
 
 Remove from sockets by the end of this ADR:
 
@@ -136,7 +136,7 @@ Initial embedded paths:
 
 `RollTableResult` is intentionally not listed as an embedded resolver path. Roll table result data is read as part of the direct `RollTable.<tableId>` document payload; ADR-0016 should not expose a separate result UUID reader.
 
-The first implementation can traverse the parent Store snapshot directly with small resolver-local helpers. If those helpers become useful elsewhere, promote them to Store methods in a later small cleanup. Avoid adding broad abstractions before the embedded read needs are clear.
+The first implementation traverses the parent Store snapshot directly with small resolver-local helpers. This is **not** a global UUID scan: the resolver first performs the direct Store id lookup for the root document, then walks only the configured embedded collection on that parent snapshot. The embedded step is currently an array `find(...)`, so it is O(n) for that one child collection. If a future parent document has enough embedded children for this to matter, promote an id-indexed embedded helper into the Store; do not add a global UUID registry preemptively.
 
 ### Compendium UUIDs
 
@@ -153,7 +153,7 @@ Resolution order:
 2. Resolve the active system id from `WorldStateStore`.
 3. Check `DiscoveryShardStore` manifest entry for that pack. Only a hydrated shard (`hydrate: true`) may satisfy `fetchByUuid`, because non-hydrated shards can contain projected index rows rather than full documents.
 4. If hydrated and `DiscoveryShardStore.findDocument(systemId, packId, documentId, type?)` returns a row, return it without a transport call.
-5. Otherwise call `CompendiumService.getPackDocument(packId, documentId, type?)`.
+5. Otherwise return `null` and warn by default. Live Foundry fallback through `CompendiumService.getPackDocument(packId, documentId, type?)` is available only when ADR-0020's explicit diagnostic flag is enabled.
 
 The resolver must not trigger hydration as a side effect. Full hydration remains a per-module declared decision through `DiscoveryConfig`, as established in ADR-0015.
 
@@ -293,7 +293,7 @@ Phase 3 adds parent-aware embedded UUID traversal over Store snapshots.
 
 **Status:** Completed May 20, 2026.
 
-Phase 4 composes ADR-0015's shard lookup and parsed pack-document fallback.
+Phase 4 originally composed ADR-0015's shard lookup and parsed pack-document fallback. ADR-0020 later tightened the default policy: declared hydrated shards are required for normal module/SDK compendium UUID resolution, and live pack-document fallback is diagnostic opt-in only.
 
 **Action items:**
 
@@ -303,10 +303,10 @@ Phase 4 composes ADR-0015's shard lookup and parsed pack-document fallback.
 - [x] Add shard-first lookup for declared hydrated Pathway B packs. Check the manifest entry and only let `hydrate: true` shards satisfy full document resolution.
   Files: `src/server/services/documents/DocumentResolver.ts`, `src/server/core/compendium/DiscoveryShardStore.ts` if a manifest helper is needed.
 
-- [x] Add fallback to `CompendiumService.getPackDocument(packId, documentId, type?)` when no hydrated shard serves the document.
+- [x] Add fallback to `CompendiumService.getPackDocument(packId, documentId, type?)` when no hydrated shard serves the document. ADR-0020 later put this fallback behind an explicit diagnostic flag and disabled it by default.
   Files: `src/server/services/documents/DocumentResolver.ts`.
 
-- [x] Add unit coverage proving hydrated shard hits avoid transport, non-hydrated shard rows do not satisfy full resolution, missing shards fall back to `CompendiumService`, and disconnected fallback returns `null`.
+- [x] Add unit coverage proving hydrated shard hits avoid transport, non-hydrated shard rows do not satisfy full resolution, default misses do not call live transport, and opt-in diagnostic fallback calls `CompendiumService`.
   Files: `src/tests/unit/documents/document-resolver.test.ts`.
 
 - [x] Verify Phase 4 with unit/type checks and a targeted audit for UUID parsing remaining inside sockets.
@@ -320,9 +320,9 @@ Phase 4 composes ADR-0015's shard lookup and parsed pack-document fallback.
 - No embedded compendium traversal unless an existing caller requires it.
 - No socket method deletion yet.
 
-**Exit for Phase 4:** Compendium UUIDs resolve through hydrated discovery shards first, then `CompendiumService.getPackDocument(...)`; non-hydrated shards are not treated as full documents; unit/type checks pass.
+**Exit for Phase 4:** Compendium UUIDs resolve through hydrated discovery shards first; non-hydrated shards are not treated as full documents; default misses return `null`; opt-in diagnostic fallback may call `CompendiumService.getPackDocument(...)`; unit/type checks pass.
 
-**Phase 4 closure:** `DocumentResolver.fetchByUuid` now resolves compendium UUIDs by checking the active system's `DiscoveryShardStore` manifest first. Only manifest entries with `hydrate: true` may satisfy full document resolution from `findDocument(...)`; indexed/non-hydrated shards are skipped even when a matching row exists. If no hydrated shard serves the document, the resolver calls `CompendiumService.getPackDocument(packId, documentId, type?)`. The resolver does not trigger hydration or full-pack reads as a side effect. The legacy compendium parser branch remained in sockets until Phase 5 removed socket-owned `fetchByUuid`.
+**Phase 4 closure:** `DocumentResolver.fetchByUuid` now resolves compendium UUIDs by checking the active system's `DiscoveryShardStore` manifest first. Only manifest entries with `hydrate: true` may satisfy full document resolution from `findDocument(...)`; indexed/non-hydrated shards are skipped even when a matching row exists. ADR-0020 later tightened misses: if no hydrated shard serves the document, normal resolution returns `null` with a warning, while live Foundry fallback through `CompendiumService.getPackDocument(packId, documentId, type?)` is diagnostic opt-in only. The resolver does not trigger hydration or full-pack reads as a side effect. The legacy compendium parser branch remained in sockets until Phase 5 removed socket-owned `fetchByUuid`.
 
 ### Phase 5: Caller migration and socket deletion
 
@@ -362,7 +362,7 @@ Phase 5 closes ADR-0016's socket-boundary promise.
 
 **Exit for Phase 5:** `CoreSocket` and `ClientSocket` no longer expose `fetchByUuid`; route/module facades still expose stable `fetchByUuid` backed by `DocumentResolver`; direct socket callers are migrated; unit/type checks and audits pass.
 
-**Phase 5 closure:** `RouteFoundryClient.fetchByUuid` now builds a `DocumentResolver` and delegates UUID routing to it. The resolver composes Store reads, `DiscoveryShardStore`, and `CompendiumService.getPackDocument(...)`; route/module call sites keep their public `fetchByUuid(uuid)` shape. Session route clients preserve the previous privilege model by using the service-account CoreSocket as the compendium fallback transport, matching the old `ClientSocket.fetchByUuid` delegation while keeping parsing/routing out of sockets. `CoreSocket.fetchByUuid`, `ClientSocket.fetchByUuid`, and the socket-facing `FoundryClient.fetchByUuid` type member are removed. Direct socket diagnostics/tests now use a route client or `DocumentResolver` directly.
+**Phase 5 closure:** `RouteFoundryClient.fetchByUuid` now builds a `DocumentResolver` and delegates UUID routing to it. The resolver composes Store reads and `DiscoveryShardStore`; ADR-0020 later made `CompendiumService.getPackDocument(...)` diagnostic opt-in only for compendium misses. Route/module call sites keep their public `fetchByUuid(uuid)` shape. If diagnostic live fallback is enabled, session route clients preserve the previous privilege model by using the service-account CoreSocket as the compendium fallback transport, matching the old `ClientSocket.fetchByUuid` delegation while keeping parsing/routing out of sockets. `CoreSocket.fetchByUuid`, `ClientSocket.fetchByUuid`, and the socket-facing `FoundryClient.fetchByUuid` type member are removed. Direct socket diagnostics/tests now use a route client or `DocumentResolver` directly.
 
 ---
 
@@ -370,7 +370,7 @@ Phase 5 closes ADR-0016's socket-boundary promise.
 
 ### Keep `fetchByUuid` on `CoreSocket`
 
-Rejected because `fetchByUuid` is not transport. It parses UUIDs, routes by document type, reads Stores, applies stub policy, and runs compendium compatibility fallback logic. The socket should provide the raw events used by services, not own the routing cascade.
+Rejected because `fetchByUuid` is not transport. It parses UUIDs, routes by document type, reads Stores, applies stub policy, and runs compendium shard/diagnostic fallback policy. The socket should provide the raw events used by services, not own the routing cascade.
 
 ### Leave a deprecated socket shim
 
@@ -394,13 +394,13 @@ Rejected. ADR-0015 made hydration a module-declared decision. ADR-0016 may read 
 - The socket surface shrinks again and loses another non-transport concern.
 - Store-backed world document reads become consistent across all bootstrapped primary document types.
 - Embedded UUID behavior becomes explicit and testable.
-- Compendium UUIDs can finally prefer declared hydrated shards before using transport fallback.
+- Compendium UUIDs require declared hydrated shards by default; transport fallback is explicit diagnostic behavior only.
 
 ### Tradeoffs
 
 - The resolver needs careful parser tests because Foundry UUIDs allow dotted pack ids and embedded paths.
 - Route/module `fetchByUuid` remains a privileged resolver surface for now; authorization hardening is a later concern.
-- Stub/unwired types intentionally return `null`, which is safer but may expose callers that were relying on generic socket fallback.
+- Stub/unwired types and undeclared compendium UUIDs intentionally return `null`, which is safer but may expose callers that were relying on generic socket/live fallback.
 
 ---
 
@@ -421,7 +421,7 @@ Each phase validates both resolver behavior and socket-boundary shrinkage.
 - Parser tests cover direct world, embedded world, compendium, invalid, and dotted-pack UUIDs.
 - World resolver tests cover Store-backed hits, Store-not-ready failures, unknown type nulls, and stub policy.
 - Embedded resolver tests cover each supported embedded path plus missing parent/child cases.
-- Compendium resolver tests cover hydrated shard hit with no transport, non-hydrated shard skip, fallback transport, and disconnected fallback.
+- Compendium resolver tests cover hydrated shard hit with no transport, non-hydrated shard skip with no live call by default, missing hydrated-shard document with no live call by default, and opt-in diagnostic fallback.
 - Phase 5 migration audits confirm no `fetchByUuid` declarations remain on socket classes and no direct socket `fetchByUuid` calls remain.
 - `git diff --check`, `npx tsc --noEmit`, and `npm run test:unit` pass for every phase before moving to the next.
 
@@ -434,7 +434,7 @@ This ADR is fulfilled when UUID routing has service ownership and sockets no lon
 - [x] Phase 1: `DocumentResolver` shell + UUID parser contract.
 - [x] Phase 2: direct world UUIDs resolve from Stores; stub/unwired types fail closed.
 - [x] Phase 3: embedded world UUIDs resolve through parent Stores.
-- [x] Phase 4: compendium UUIDs resolve through hydrated shards first and `CompendiumService.getPackDocument(...)` fallback second.
+- [x] Phase 4: compendium UUIDs resolve through hydrated shards first; ADR-0020 later made `CompendiumService.getPackDocument(...)` fallback diagnostic opt-in only.
 - [x] Phase 5: `CoreSocket` / `ClientSocket` `fetchByUuid` methods are removed and socket-facing interfaces are tightened.
 - [x] No real world or compendium fixture data is added to tracked tests.
 - [x] `rg` migration audits confirm no remaining socket `fetchByUuid` declarations or direct socket calls.

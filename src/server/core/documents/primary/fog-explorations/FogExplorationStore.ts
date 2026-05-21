@@ -1,4 +1,4 @@
-import type { RawFogExploration } from '@server/shared/types/documents';
+import type { FogExplorationDocument } from '@server/shared/types/documents';
 import {
     PrimaryDocumentStore,
     type PrimaryDocumentType,
@@ -19,11 +19,11 @@ import {
  * only their own fog docs. A real wiring pass should validate against actual
  * Foundry payloads.
  */
-export class FogExplorationStore extends PrimaryDocumentStore<RawFogExploration> {
+export class FogExplorationStore extends PrimaryDocumentStore<FogExplorationDocument> {
     public readonly documentType: PrimaryDocumentType = 'FogExploration';
 
     protected resolveOwnership(
-        fog: RawFogExploration,
+        fog: FogExplorationDocument,
         subject: DocumentAccessSubject,
     ): ResolvedDocumentOwnershipLevel {
         if (isGM(subject)) return DocumentOwnershipLevel.OWNER;

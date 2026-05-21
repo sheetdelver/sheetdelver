@@ -8,7 +8,7 @@ import {
     type DocumentAccessSubject,
 } from '@server/core/documents/primary/base/ownership';
 import type { DocumentChangedEvent } from '@server/core/documents/primary/base/PrimaryDocumentStore';
-import type { RawCards } from '@server/shared/types/documents';
+import type { CardsDocument } from '@server/shared/types/documents';
 
 const player: DocumentAccessSubject = { userId: 'p-1', role: FoundryUserRole.PLAYER };
 const otherPlayer: DocumentAccessSubject = { userId: 'p-2', role: FoundryUserRole.PLAYER };
@@ -47,7 +47,7 @@ async function runSeedAndCloneOnRead() {
 
 async function runOwnershipPolicy() {
     const store = new CardsStore();
-    const cards: RawCards[] = [
+    const cards: CardsDocument[] = [
         { _id: 'cards-public', ownership: { default: DocumentOwnershipLevel.OBSERVER } },
         { _id: 'cards-private', ownership: { default: DocumentOwnershipLevel.NONE, 'p-1': DocumentOwnershipLevel.OBSERVER } },
         { _id: 'cards-hidden', ownership: { default: DocumentOwnershipLevel.NONE } },
@@ -72,7 +72,7 @@ async function runEmbeddedCardRouting() {
                 { _id: 'c-existing', name: 'Ace', drawn: false },
             ],
         },
-    ] as RawCards[]);
+    ] as CardsDocument[]);
 
     const events: DocumentChangedEvent[] = [];
     store.on('documentChanged', (e) => events.push(e as DocumentChangedEvent));
@@ -128,7 +128,7 @@ async function runCrossDocTransferPairedEvents() {
             ownership: { default: DocumentOwnershipLevel.OBSERVER },
             cards: [],
         },
-    ] as RawCards[]);
+    ] as CardsDocument[]);
 
     // Leg 1: remove from deck.
     store.applyModifyDocument('Card', 'delete', null, {

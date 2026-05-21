@@ -1,8 +1,8 @@
 import type { RollMode } from '@shared/sdk';
 import type { FoundryClientLike } from '@server/shared/types/foundry';
-import type { RawActor, ActorServiceClientLike } from '@server/shared/types/actors';
+import type { ActorDocument, ActorServiceClientLike } from '@server/shared/types/actors';
 
-export interface RawFolder {
+export interface FolderDocument {
     id?: string;
     _id?: string;
     name?: string;
@@ -24,7 +24,7 @@ export interface RawFolder {
  * Omitted page ownership fails closed unless real Foundry payloads prove a
  * different default during Phase 4 integration.
  */
-export interface RawJournalPage {
+export interface JournalEntryPageDocument {
     id?: string;
     _id?: string;
     name?: string;
@@ -41,20 +41,20 @@ export interface RawJournalPage {
     [key: string]: unknown;
 }
 
-export interface RawJournal {
+export interface JournalEntryDocument {
     id?: string;
     _id?: string;
     name?: string;
     folder?: string | null;
     ownership?: Record<string, number>;
-    pages?: RawJournalPage[];
+    pages?: JournalEntryPageDocument[];
     flags?: Record<string, unknown>;
     _stats?: Record<string, unknown>;
     sort?: number;
     [key: string]: unknown;
 }
 
-export interface RawChatMessage {
+export interface ChatMessageDocument {
     id?: string;
     _id?: string;
     content?: string;
@@ -62,7 +62,7 @@ export interface RawChatMessage {
     [key: string]: unknown;
 }
 
-export interface RawCombatant {
+export interface CombatantDocument {
     id?: string;
     _id?: string;
     name?: string;
@@ -81,7 +81,7 @@ export interface RawCombatant {
     [key: string]: unknown;
 }
 
-export interface RawCombat {
+export interface CombatDocument {
     id?: string;
     _id?: string;
     active?: boolean;
@@ -91,7 +91,7 @@ export interface RawCombat {
     round?: number;
     turn?: number;
     sort?: number;
-    combatants?: RawCombatant[];
+    combatants?: CombatantDocument[];
     system?: Record<string, unknown>;
     flags?: Record<string, unknown>;
     _stats?: Record<string, unknown>;
@@ -103,7 +103,7 @@ export interface RawCombat {
  * the most common update target; embedded handler maintains the `results[]`
  * array in place when these change.
  */
-export interface RawRollTableResult {
+export interface RollTableResultDocument {
     id?: string;
     _id?: string;
     type?: string | number;
@@ -118,7 +118,7 @@ export interface RawRollTableResult {
     [key: string]: unknown;
 }
 
-export interface RawRollTable {
+export interface RollTableDocument {
     id?: string;
     _id?: string;
     name?: string;
@@ -129,7 +129,7 @@ export interface RawRollTable {
     formula?: string;
     replacement?: boolean;
     displayRoll?: boolean;
-    results?: RawRollTableResult[];
+    results?: RollTableResultDocument[];
     ownership?: Record<string, number>;
     flags?: Record<string, unknown>;
     _stats?: Record<string, unknown>;
@@ -141,7 +141,7 @@ export interface RawRollTable {
  * is mutable runtime state; embedded handler maintains the `sounds[]` array
  * in place when these change.
  */
-export interface RawPlaylistSound {
+export interface PlaylistSoundDocument {
     id?: string;
     _id?: string;
     name?: string;
@@ -158,7 +158,7 @@ export interface RawPlaylistSound {
     [key: string]: unknown;
 }
 
-export interface RawPlaylist {
+export interface PlaylistDocument {
     id?: string;
     _id?: string;
     name?: string;
@@ -170,7 +170,7 @@ export interface RawPlaylist {
     sort?: number;
     seed?: number;
     channel?: string;
-    sounds?: RawPlaylistSound[];
+    sounds?: PlaylistSoundDocument[];
     ownership?: Record<string, number>;
     flags?: Record<string, unknown>;
     _stats?: Record<string, unknown>;
@@ -181,7 +181,7 @@ export interface RawPlaylist {
  * Embedded Card record. Carries Foundry card fields without modeling
  * game-specific semantics (Sheet Delver doesn't currently use cards).
  */
-export interface RawCard {
+export interface CardDocument {
     id?: string;
     _id?: string;
     name?: string;
@@ -204,14 +204,14 @@ export interface RawCard {
     [key: string]: unknown;
 }
 
-export interface RawCards {
+export interface CardsDocument {
     id?: string;
     _id?: string;
     name?: string;
     type?: 'deck' | 'hand' | 'pile' | string;
     description?: string;
     img?: string | null;
-    cards?: RawCard[];
+    cards?: CardDocument[];
     displayCount?: boolean;
     folder?: string | null;
     sort?: number;
@@ -230,7 +230,7 @@ export interface RawCards {
  * NOT part of ownership resolution; access is gated through the `ownership`
  * map exactly like every other standard-map type (see ADR-0011 Phase 7).
  */
-export interface RawMacro {
+export interface MacroDocument {
     id?: string;
     _id?: string;
     name?: string;
@@ -248,31 +248,31 @@ export interface RawMacro {
 }
 
 /**
- * Stub Raw types for Phase 7 unwired primary docs. Shape uniformity only —
+ * Stub document types for Phase 7 unwired primary docs. Shape uniformity only —
  * these subsystems aren't actively modeled. A future phase that wires any of
  * them up should expand the shape against real Foundry payloads.
  */
-export interface RawScene {
+export interface SceneDocument {
     id?: string;
     _id?: string;
     name?: string;
     ownership?: Record<string, number>;
     [key: string]: unknown;
 }
-export interface RawFogExploration {
+export interface FogExplorationDocument {
     id?: string;
     _id?: string;
     user?: string;
     scene?: string;
     [key: string]: unknown;
 }
-export interface RawAdventure {
+export interface AdventureDocument {
     id?: string;
     _id?: string;
     name?: string;
     [key: string]: unknown;
 }
-export interface RawSetting {
+export interface SettingDocument {
     id?: string;
     _id?: string;
     key?: string;
@@ -341,7 +341,7 @@ export interface ChatClientLike extends FoundryClientLike {
 }
 
 export interface CombatClientLike extends ActorServiceClientLike {
-    getActor(actorId: string): Promise<(RawActor & { error?: string }) | null | undefined>;
+    getActor(actorId: string): Promise<(ActorDocument & { error?: string }) | null | undefined>;
     dispatchDocument(
         type: string,
         action: string,

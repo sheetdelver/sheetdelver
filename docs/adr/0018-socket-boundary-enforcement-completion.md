@@ -281,11 +281,11 @@ Phase 5 closes ADR-0018 and handed the compatibility follow-up to ADR-0019.
 
 **Action items:**
 
-- [x] Update ADR-0014 / ADR-0017 / socket-boundary audit references that describe ADR-0018 leftovers as pending.
-  Files: `docs/adr/0014-non-document-world-state-and-socket-boundary.md`, `docs/adr/0017-world-bootstrap-and-lifecycle-orchestration.md`, `temp/audit-reports/socket-boundary-audit.md`.
+- [x] Update ADR-0014 / ADR-0017 references that describe ADR-0018 leftovers as pending.
+  Files: `docs/adr/0014-non-document-world-state-and-socket-boundary.md`, `docs/adr/0017-world-bootstrap-and-lifecycle-orchestration.md`.
 
 - [x] Document the final allowed socket surface and the expected service/Store homes for all removed concerns.
-  Files: `docs/adr/0018-socket-boundary-enforcement-completion.md`, `temp/audit-reports/socket-boundary-audit.md`.
+  Files: `docs/adr/0018-socket-boundary-enforcement-completion.md`.
 
 - [x] Run final closure checks.
   Commands: `npm run test:unit`; `npx tsc --noEmit`; `git diff --check`; Phase 4 socket-surface audit; URL audit; session restore audit.

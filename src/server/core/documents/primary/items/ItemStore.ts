@@ -1,4 +1,4 @@
-import type { RawItem } from '@server/shared/types/actors';
+import type { ItemDocument } from '@server/shared/types/actors';
 import {
     cloneDocument,
     deepMerge,
@@ -43,11 +43,11 @@ function effectId(effect: unknown): string | null {
  * Sheet Delver UI for world items today) but the helper lands for parity with
  * `JournalStore.listByFolderIds`.
  */
-export class ItemStore extends PrimaryDocumentStore<RawItem> {
+export class ItemStore extends PrimaryDocumentStore<ItemDocument> {
     public readonly documentType: PrimaryDocumentType = 'Item';
 
     protected resolveOwnership(
-        item: RawItem,
+        item: ItemDocument,
         subject: DocumentAccessSubject,
     ): ResolvedDocumentOwnershipLevel {
         const ownership = item.ownership as DocumentOwnershipMap | undefined;
@@ -63,11 +63,11 @@ export class ItemStore extends PrimaryDocumentStore<RawItem> {
     public listByFolderIds(folderIds: Iterable<string | null>, options?: {
         subject?: DocumentAccessSubject;
         minOwnership?: ResolvedDocumentOwnershipLevel;
-    }): RawItem[] {
+    }): ItemDocument[] {
         const ids = new Set<string | null>();
         for (const id of folderIds) ids.add(id);
 
-        const filterByFolder = (items: RawItem[]) =>
+        const filterByFolder = (items: ItemDocument[]) =>
             items.filter(item => ids.has((item.folder as string | null) ?? null));
 
         if (options?.subject) {

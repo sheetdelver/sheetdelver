@@ -1,4 +1,4 @@
-import type { RawActor } from '@server/shared/types/actors';
+import type { ActorDocument } from '@server/shared/types/actors';
 import { PrimaryDocumentRepository, type DocumentTransport } from '../base/PrimaryDocumentRepository';
 import type { ModifyDocumentAction } from '../base/PrimaryDocumentStore';
 import { actorStore } from './ActorStore';
@@ -15,7 +15,7 @@ export type ActorDocumentTransport = DocumentTransport;
  * so Foundry enforces per-user permissions. Mirrors mutation results into
  * {@link ActorStore} via the base; the broadcast that follows is idempotent.
  */
-export class ActorRepository extends PrimaryDocumentRepository<RawActor> {
+export class ActorRepository extends PrimaryDocumentRepository<ActorDocument> {
     constructor(transport: DocumentTransport) {
         super(transport, actorStore);
     }

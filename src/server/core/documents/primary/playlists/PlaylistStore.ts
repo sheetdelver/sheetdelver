@@ -1,4 +1,4 @@
-import type { RawPlaylist, RawPlaylistSound } from '@server/shared/types/documents';
+import type { PlaylistDocument, PlaylistSoundDocument } from '@server/shared/types/documents';
 import {
     cloneDocument,
     deepMerge,
@@ -37,11 +37,11 @@ function soundId(sound: unknown): string | null {
  * (`playing`, `pausedTime`, `repeat`) flips through as normal embedded
  * `update` events.
  */
-export class PlaylistStore extends PrimaryDocumentStore<RawPlaylist> {
+export class PlaylistStore extends PrimaryDocumentStore<PlaylistDocument> {
     public readonly documentType: PrimaryDocumentType = 'Playlist';
 
     protected resolveOwnership(
-        playlist: RawPlaylist,
+        playlist: PlaylistDocument,
         subject: DocumentAccessSubject,
     ): ResolvedDocumentOwnershipLevel {
         const ownership = playlist.ownership as DocumentOwnershipMap | undefined;
@@ -51,11 +51,11 @@ export class PlaylistStore extends PrimaryDocumentStore<RawPlaylist> {
     public listByFolderIds(folderIds: Iterable<string | null>, options?: {
         subject?: DocumentAccessSubject;
         minOwnership?: ResolvedDocumentOwnershipLevel;
-    }): RawPlaylist[] {
+    }): PlaylistDocument[] {
         const ids = new Set<string | null>();
         for (const id of folderIds) ids.add(id);
 
-        const filterByFolder = (playlists: RawPlaylist[]) =>
+        const filterByFolder = (playlists: PlaylistDocument[]) =>
             playlists.filter(p => ids.has((p.folder as string | null) ?? null));
 
         if (options?.subject) {
@@ -93,7 +93,7 @@ export class PlaylistStore extends PrimaryDocumentStore<RawPlaylist> {
             playlist.sounds = sounds.filter(s => {
                 const id = soundId(s);
                 return !id || !ids.includes(id);
-            }) as RawPlaylistSound[];
+            }) as PlaylistSoundDocument[];
         } else if (action === 'update') {
             for (const incoming of docs) {
                 const id = getDocumentId(incoming);
@@ -103,9 +103,9 @@ export class PlaylistStore extends PrimaryDocumentStore<RawPlaylist> {
                     deepMerge(sounds[index] as Record<string, unknown>, incoming);
                 }
             }
-            playlist.sounds = sounds as RawPlaylistSound[];
+            playlist.sounds = sounds as PlaylistSoundDocument[];
         } else if (action === 'create') {
-            playlist.sounds = [...sounds, ...docs.map(s => cloneDocument(s))] as RawPlaylistSound[];
+            playlist.sounds = [...sounds, ...docs.map(s => cloneDocument(s))] as PlaylistSoundDocument[];
         }
 
         this.documents.set(playlistId, playlist);

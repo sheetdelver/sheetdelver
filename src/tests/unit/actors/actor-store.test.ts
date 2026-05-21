@@ -12,7 +12,7 @@ import {
 import { createSystemRouteFoundryClient } from '@server/shared/utils/createRouteFoundryClient';
 import { DocumentResolver } from '@server/services/documents';
 import { systemService } from '@server/core/system/SystemService';
-import type { RawActor } from '@server/shared/types/actors';
+import type { ActorDocument } from '@server/shared/types/actors';
 
 export async function run() {
     initDataDir(resolveDataDir(['--data-dir', path.join(process.cwd(), 'temp', 'test-data')]));
@@ -32,7 +32,7 @@ async function runActorStoreOwnershipAndClone() {
     const player: DocumentAccessSubject = { userId: 'user-1', role: FoundryUserRole.PLAYER };
     const gm: DocumentAccessSubject = { userId: 'gm-1', role: FoundryUserRole.GAMEMASTER };
 
-    const actors: RawActor[] = [
+    const actors: ActorDocument[] = [
         {
             _id: 'limited',
             name: 'Limited Actor',
@@ -345,6 +345,6 @@ async function runDocumentResolverActorUuidReadsFromActorStore() {
         },
     ]));
 
-    assert.equal(((await resolver.fetchByUuid('Actor.actor-cached')) as RawActor | null)?.name, 'Cached Actor');
+    assert.equal(((await resolver.fetchByUuid('Actor.actor-cached')) as ActorDocument | null)?.name, 'Cached Actor');
     actorStore.clear('uuid-test');
 }

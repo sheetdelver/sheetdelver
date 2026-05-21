@@ -207,9 +207,11 @@ export interface ProbeWorldData {
     [key: string]: unknown;
 }
 
-// Full Foundry `game.data` envelope. Primary documents are listed here because
-// they exist on the wire, but ADR-0011 Stores own their canonical state; this
-// Store's typed accessors focus on the residual non-document fields above.
+// Full Foundry `game.data` bootstrap envelope. This type models what arrives
+// over the wire so bootstrap code can route each slice to its real owner:
+// WorldStateStore keeps residual world-environment fields, ADR-0011 Stores own
+// primary documents, compendium services own pack/index data, and UserStore /
+// UserPresence own user document + presence state.
 export interface GameData {
     world?: WorldManifest;
     system?: SystemManifest;

@@ -64,7 +64,7 @@ graph TD
 - **Foundry Sockets (`@core/foundry/sockets`)**:
     - **CoreSocket**: A singleton connection acting as a service account. Tracks player lists, world status, and system metadata.
     - **ClientSocket**: A per-user connection. Receives personal notifications (Item sharing, whispered chat) and performs user-authorized writes.
-- **Compendium Cache**: A centralized service that pre-processes and caches compendium indices for rapid name resolution and data retrieval.
+- **Compendium Store / Discovery Shards**: Centralized services cache broad pack indices for name lookup and module-declared hydrated shards for compendium UUID document reads. Live Foundry pack-document fallback is diagnostic opt-in only.
 - **Primary Document Cache**: Server-owned stores under `src/server/core/documents/primary/` that keep hydrated Foundry primary documents available after bootstrap. Actors are currently seeded through `ActorStore`; additional primary document types should join this area behind the same coordinator pattern.
 
 ### 3.2 The Delivery Layers
@@ -148,7 +148,7 @@ See `src/modules/MODULE_MANIFEST.md` for the full module authoring reference.
 
 ### 6.3 Data Normalization & Computation
 All data returned by the API passes through a **System Adapter**.
-1.  **Cached Raw Actor**: Actor routes start from the hydrated raw actor held by the platform actor store.
+1.  **Cached Actor Document**: Actor routes start from the hydrated actor document held by the platform actor store.
 2.  **Normalization**: Converts raw Foundry data to a UI-friendly shape.
 3.  **Computation**: The adapter's `computeActorData` method calculates derived stats (e.g., Shadowdark inventory slots, HP totals) before the UI receives the data.
 4.  **Categorization**: Items are grouped (e.g., "Spells", "Weapons") via `categorizeItems`.

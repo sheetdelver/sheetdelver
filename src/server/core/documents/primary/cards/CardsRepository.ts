@@ -1,4 +1,4 @@
-import type { RawCards } from '@server/shared/types/documents';
+import type { CardsDocument } from '@server/shared/types/documents';
 import { PrimaryDocumentRepository, type DocumentTransport } from '../base/PrimaryDocumentRepository';
 import type { ModifyDocumentAction } from '../base/PrimaryDocumentStore';
 import { cardsStore } from './CardsStore';
@@ -13,7 +13,7 @@ import { cardsStore } from './CardsStore';
  * Cross-Cards-doc transfers (`Cards#pass`) arrive as paired update/delete
  * events across two parents; both legs flow through this Repository.
  */
-export class CardsRepository extends PrimaryDocumentRepository<RawCards> {
+export class CardsRepository extends PrimaryDocumentRepository<CardsDocument> {
     constructor(transport: DocumentTransport) {
         super(transport, cardsStore);
     }

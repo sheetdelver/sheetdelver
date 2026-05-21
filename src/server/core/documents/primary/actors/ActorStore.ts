@@ -1,4 +1,4 @@
-import type { RawActor, RawItem } from '@server/shared/types/actors';
+import type { ActorDocument, ItemDocument } from '@server/shared/types/actors';
 import {
     cloneDocument,
     deepMerge,
@@ -46,11 +46,11 @@ type ActorStoreListener = (event: ActorStoreEvent) => void;
  * Round 01 API surface (`listActors`, `getActor`, `canReadActor`, `onActorStoreEvent`)
  * is preserved as thin wrappers over the base — callers don't migrate.
  */
-export class ActorStore extends PrimaryDocumentStore<RawActor> {
+export class ActorStore extends PrimaryDocumentStore<ActorDocument> {
     public readonly documentType: PrimaryDocumentType = 'Actor';
 
     protected resolveOwnership(
-        actor: RawActor,
+        actor: ActorDocument,
         subject: DocumentAccessSubject,
     ): ResolvedDocumentOwnershipLevel {
         const ownership = actor.ownership as DocumentOwnershipMap | undefined;
@@ -64,7 +64,7 @@ export class ActorStore extends PrimaryDocumentStore<RawActor> {
     public listActors(options: {
         subject: DocumentAccessSubject;
         minOwnership?: ResolvedDocumentOwnershipLevel;
-    }): RawActor[] {
+    }): ActorDocument[] {
         return this.list(options);
     }
 
@@ -74,7 +74,7 @@ export class ActorStore extends PrimaryDocumentStore<RawActor> {
             subject: DocumentAccessSubject;
             minOwnership?: ResolvedDocumentOwnershipLevel;
         },
-    ): RawActor | null {
+    ): ActorDocument | null {
         return this.get(actorId, options);
     }
 
@@ -147,7 +147,7 @@ export class ActorStore extends PrimaryDocumentStore<RawActor> {
         if (!actor) return;
         const before = stableJson(actor);
 
-        const docs = toDocumentArray<RawItem>(result);
+        const docs = toDocumentArray<ItemDocument>(result);
         actor.items = actor.items || [];
 
         if (action === 'delete') {
@@ -193,7 +193,7 @@ export class ActorStore extends PrimaryDocumentStore<RawActor> {
             if (!item) return;
             item.effects = this.applyEffectArray(item.effects, action, result, operation);
         } else {
-            const actorRecord = actor as RawActor & { effects?: unknown[] };
+            const actorRecord = actor as ActorDocument & { effects?: unknown[] };
             actorRecord.effects = this.applyEffectArray(actorRecord.effects, action, result, operation);
         }
 

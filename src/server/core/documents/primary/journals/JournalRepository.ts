@@ -1,4 +1,4 @@
-import type { RawJournal } from '@server/shared/types/documents';
+import type { JournalEntryDocument } from '@server/shared/types/documents';
 import { PrimaryDocumentRepository, type DocumentTransport } from '../base/PrimaryDocumentRepository';
 import type { ModifyDocumentAction } from '../base/PrimaryDocumentStore';
 import { journalStore } from './JournalStore';
@@ -15,7 +15,7 @@ import { journalStore } from './JournalStore';
  * Folder mutations stay on `FolderRepository` even when callers post them
  * through the same journal route surface.
  */
-export class JournalRepository extends PrimaryDocumentRepository<RawJournal> {
+export class JournalRepository extends PrimaryDocumentRepository<JournalEntryDocument> {
     constructor(transport: DocumentTransport) {
         super(transport, journalStore);
     }

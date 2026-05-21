@@ -30,10 +30,15 @@ function cloneRecord<T>(value: Record<string, T>): Record<string, T> {
 /**
  * ADR-0014 home for non-document world state.
  *
- * This Store owns the residual Foundry `game.data` snapshot after primary
- * documents and compendium concerns are handled elsewhere. WorldBootstrapper
- * decides when a connected-world snapshot is accepted; CoreSocket is only the
- * raw transport that can fetch the bytes.
+ * Foundry's `game.data` is a bootstrap envelope, not one application model.
+ * This Store keeps only the residual world-environment pieces that do not have
+ * a more specific owner: world/system/module manifests, release/config data,
+ * schema metadata, setup/probe state, and temporary scene projection data.
+ *
+ * Primary document arrays in the same envelope belong to ADR-0011 Stores.
+ * Pack metadata feeds compendium services. Users seed UserStore/UserPresence.
+ * WorldBootstrapper decides when an envelope is accepted; CoreSocket only
+ * fetches the raw bytes.
  */
 export class WorldStateStore {
     // Active-world snapshot from Foundry's `game.data` wire payload.

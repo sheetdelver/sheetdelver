@@ -1,4 +1,4 @@
-import type { RawScene } from '@server/shared/types/documents';
+import type { SceneDocument } from '@server/shared/types/documents';
 import {
     PrimaryDocumentStore,
     type PrimaryDocumentType,
@@ -16,11 +16,11 @@ import {
  * the standard ownership-map policy if/when wired, but canvas/scene visibility
  * needs its own design pass before active wiring.
  */
-export class SceneStore extends PrimaryDocumentStore<RawScene> {
+export class SceneStore extends PrimaryDocumentStore<SceneDocument> {
     public readonly documentType: PrimaryDocumentType = 'Scene';
 
     protected resolveOwnership(
-        scene: RawScene,
+        scene: SceneDocument,
         subject: DocumentAccessSubject,
     ): ResolvedDocumentOwnershipLevel {
         const ownership = scene.ownership as DocumentOwnershipMap | undefined;

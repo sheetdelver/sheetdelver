@@ -38,9 +38,9 @@ import { createJournalService } from '@server/services/journals/JournalService';
 import type {
     ChatClientLike,
     JournalClientLike,
-    RawJournal,
+    JournalEntryDocument,
 } from '@server/shared/types/documents';
-import type { RawActor } from '@server/shared/types/actors';
+import type { ActorDocument } from '@server/shared/types/actors';
 
 const config = { app: { chatHistory: 100 } } as any;
 
@@ -130,7 +130,7 @@ async function runJournalListVsDetailThresholdsDiverge() {
         { _id: 'p-1', name: 'Player', role: FoundryUserRole.PLAYER },
     ]);
     await folderStore.seed(async () => []);
-    const journals: RawJournal[] = [
+    const journals: JournalEntryDocument[] = [
         // LIMITED: shows in list but NOT in detail.
         { _id: 'j-limited', name: 'Limited', folder: null, ownership: { default: 0, 'p-1': DocumentOwnershipLevel.LIMITED } },
         // OBSERVER: shows in list AND in detail.
@@ -193,7 +193,7 @@ async function runCombatListVisibilityCrossesActorStore() {
     await userStore.seed(async () => [
         { _id: 'p-1', name: 'Player', role: FoundryUserRole.PLAYER },
     ]);
-    const combatActors: RawActor[] = [
+    const combatActors: ActorDocument[] = [
         { _id: 'actor-hidden', name: 'Hidden', ownership: { default: 0 } },
         { _id: 'actor-visible', name: 'Visible', ownership: { default: 0, 'p-1': DocumentOwnershipLevel.LIMITED } },
     ];
@@ -254,7 +254,7 @@ async function runActorDetailUsesListVisibleAsShipped() {
     await userStore.seed(async () => [
         { _id: 'p-1', name: 'Player', role: FoundryUserRole.PLAYER },
     ]);
-    const detailActors: RawActor[] = [
+    const detailActors: ActorDocument[] = [
         { _id: 'actor-limited', name: 'Limited', ownership: { default: 0, 'p-1': DocumentOwnershipLevel.LIMITED } },
         { _id: 'actor-observer', name: 'Observer', ownership: { default: 0, 'p-1': DocumentOwnershipLevel.OBSERVER } },
         { _id: 'actor-hidden', name: 'Hidden', ownership: { default: 0 } },
