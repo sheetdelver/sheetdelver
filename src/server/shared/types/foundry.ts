@@ -43,8 +43,7 @@ export interface FoundryClientLike {
 
 export interface FoundrySystemClientLike {
     isConnected: boolean;
-
-    resolveUrl(url?: string): string;
+    url: string;
 }
 
 export interface UserSessionLike {

@@ -30,6 +30,7 @@ import { worldStateStore } from '@server/core/world/WorldStateStore';
 import { CompendiumService, type CompendiumTransport } from '@server/services/compendium';
 import { DocumentResolver } from '@server/services/documents';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
+import { resolveFoundryUrl } from '@server/shared/utils/foundryUrl';
 
 type RouteSocketClient = CoreSocket | ClientSocket;
 
@@ -233,6 +234,9 @@ function createBaseRouteFoundryClient(client: RouteSocketClient): RouteFoundryCl
         get isConnected() {
             return client.isConnected;
         },
+        get url() {
+            return client.url;
+        },
         userId: client.userId,
         username: undefined,
         on: client.on.bind(client),
@@ -339,7 +343,7 @@ function createBaseRouteFoundryClient(client: RouteSocketClient): RouteFoundryCl
         ) => actorRepository.createActorItem(actorId, payload),
         updateActorItem: (actorId: string, payload: Record<string, unknown>) => actorRepository.updateActorItem(actorId, payload),
         deleteActorItem: (actorId: string, itemId: string) => actorRepository.deleteActorItem(actorId, itemId),
-        resolveUrl: (url?: string) => client.resolveUrl(url || ''),
+        resolveUrl: (url?: string) => resolveFoundryUrl(url || '', client.url),
         createChatMessage: (data: Record<string, unknown>) => chatMessageRepository.send(data),
         fetchByUuid: (uuid: string) => getDocumentResolver().fetchByUuid(uuid),
     };

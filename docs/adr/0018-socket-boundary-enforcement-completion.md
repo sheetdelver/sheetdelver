@@ -1,6 +1,6 @@
 # ADR-0018: Socket Boundary Enforcement Completion
 
-**Status:** Proposed - Phase 1 completed May 21, 2026.
+**Status:** Proposed - Phases 1-2 completed May 21, 2026.
 **Date:** May 20, 2026
 **Phase:** Socket Boundary Completion (Phase 5 of the ADR-0014 arc)
 **Supersedes:** None. Consumes ADR-0014 world/lifecycle Stores, ADR-0015 compendium services, ADR-0016 document resolution, and ADR-0017 bootstrap orchestration.
@@ -163,26 +163,28 @@ Phase 1 introduces the standalone URL helper and keeps behavior unchanged by hav
 
 ### Phase 2: URL caller migration and SocketBase wrapper deletion
 
-**Status:** Not started.
+**Status:** Completed May 21, 2026.
 
 Phase 2 removes URL projection from socket classes.
 
 **Action items:**
 
-- [ ] Migrate server status, utility, actor, combat, route-client, and module-client URL projections to call `foundryUrl` helpers directly or through a service/route facade backed by those helpers.
+- [x] Migrate server status, utility, actor, combat, route-client, and module-client URL projections to call `foundryUrl` helpers directly or through a service/route facade backed by those helpers.
   Files: `src/server/services/status/StatusService.ts`, `src/server/services/utility/UtilityService.ts`, `src/server/services/actors/ActorNormalizationService.ts`, `src/server/services/actors/ActorService.ts`, `src/server/services/combats/CombatService.ts`, `src/server/shared/utils/createRouteFoundryClient.ts`, `src/server/shared/utils/createModuleFoundryClient.ts`.
 
-- [ ] Preserve route/module public `resolveUrl(...)` API shapes where they are service contracts, but remove their dependency on `SocketBase.resolveUrl(...)`.
+- [x] Preserve route/module public `resolveUrl(...)` API shapes where they are service contracts, but remove their dependency on `SocketBase.resolveUrl(...)`.
   Files: `src/server/shared/types/requestContext.ts`, `src/server/shared/types/actors.ts`, `src/server/shared/types/utility.ts`, SDK-facing types if needed.
 
-- [ ] Remove `SocketBase.resolveUrl(...)` and `SocketBase.resolveHtml(...)` once no direct callers remain.
+- [x] Remove `SocketBase.resolveUrl(...)` and `SocketBase.resolveHtml(...)` once no direct callers remain.
   Files: `src/server/core/foundry/sockets/SocketBase.ts`.
 
-- [ ] Tighten status/client-like types that required `resolveUrl(...)` only because the socket owned the utility.
+- [x] Tighten status/client-like types that required `resolveUrl(...)` only because the socket owned the utility.
   Files: `src/server/shared/types/foundry.ts`, affected service test mocks.
 
-- [ ] Verify Phase 2 with unit/type checks and URL audits.
+- [x] Verify Phase 2 with unit/type checks and URL audits.
   Commands: `npm run test:unit`; `npx tsc --noEmit`; `git diff --check`; `rg -n "resolveHtml|\\.resolveUrl\\(" src/server src/tests/unit`; `rg -n "public resolveUrl|public resolveHtml" src/server/core/foundry/sockets`.
+
+**Phase 2 implementation note:** `SocketBase` no longer exposes `resolveUrl(...)` or `resolveHtml(...)`. `createRouteFoundryClient` preserves the route-facing `resolveUrl(...)` contract by calling `resolveFoundryUrl(path, client.url)`, and `createModuleFoundryClient` continues to expose the SDK `resolveUrl(...)` contract through that route facade. `StatusService` now projects status/user image URLs directly through `foundryUrl.ts` using the system client's base `url`; `FoundrySystemClientLike` no longer carries a `resolveUrl(...)` method. Remaining `.resolveUrl(...)` hits are service/module facade calls, not socket-class methods.
 
 **Non-goals for Phase 2:**
 
@@ -365,7 +367,7 @@ Each phase validates both behavior and boundary shrinkage.
 This ADR is fulfilled when residual utility/session concerns are removed from sockets and the final socket boundary is documented.
 
 - [x] Phase 1: Foundry URL utilities exist with tests; `SocketBase` wrappers delegate to them.
-- [ ] Phase 2: URL projection callers migrate; `SocketBase.resolveUrl` / `resolveHtml` are gone.
+- [x] Phase 2: URL projection callers migrate; `SocketBase.resolveUrl` / `resolveHtml` are gone.
 - [ ] Phase 3: `SessionManager` owns session restore policy, validation, and restore concurrency; `ClientSocket` owns only restored-session reconnect mechanics; `validateSession` is gone.
 - [ ] Phase 4: socket-facing interfaces and debug/session touchpoints match the final socket shape.
 - [ ] Phase 5: closure docs and audits pass; ADR-0018 status flips to **Accepted**.

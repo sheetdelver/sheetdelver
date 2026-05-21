@@ -13,13 +13,14 @@ import type {
     StatusServiceConfigLike,
 } from '@server/shared/types/foundry';
 import type { UserWithPresence } from '@server/shared/types/users';
+import { resolveFoundryUrl } from '@server/shared/utils/foundryUrl';
 
 interface StatusServiceDeps {
     config: StatusServiceConfigLike;
     sessionManager: Pick<SessionManagerLike, 'isCacheReady'>;
 }
 
-export const sanitizeStatusUser = (user: Partial<UserWithPresence>, client: Pick<FoundrySystemClientLike, 'resolveUrl'>) => ({
+export const sanitizeStatusUser = (user: Partial<UserWithPresence>, foundryBaseUrl: string) => ({
     _id: user._id || user.id,
     name: user.name,
     role: user.role,
@@ -27,7 +28,7 @@ export const sanitizeStatusUser = (user: Partial<UserWithPresence>, client: Pick
     active: user.active,
     color: user.color,
     characterId: user.character,
-    img: client.resolveUrl(user.avatar || user.img)
+    img: resolveFoundryUrl(user.avatar || user.img || '', foundryBaseUrl)
 });
 
 export function createStatusService(deps: StatusServiceDeps) {
@@ -64,8 +65,8 @@ export function createStatusService(deps: StatusServiceDeps) {
                     appVersion: deps.config.app.version,
                     worldTitle: gameData.world?.title || 'Foundry VTT',
                     worldDescription: gameData.world?.description,
-                    worldBackground: systemClient.resolveUrl(gameData.world?.background || undefined),
-                    background: systemClient.resolveUrl(
+                    worldBackground: resolveFoundryUrl(gameData.world?.background || '', systemClient.url),
+                    background: resolveFoundryUrl(
                         gameData.system?.background ||
                         gameData.system?.worldBackground ||
                         (() => {
@@ -73,7 +74,9 @@ export function createStatusService(deps: StatusServiceDeps) {
                             // now; a later phase may derive this from Scene docs.
                             const sceneData = worldStateStore.getSceneData();
                             return sceneData?.NUEDEFAULTSCENE0?.background?.src;
-                        })()
+                        })() ||
+                        '',
+                        systemClient.url
                     ),
                     nextSession: gameData.world?.nextSession,
                     status: lifecycleState === 'closed' ? 'closed' : (lifecycleState === 'active' ? 'active' : lifecycleState),
@@ -111,7 +114,7 @@ export function createStatusService(deps: StatusServiceDeps) {
         }
 
         // Keep payload shape stable by always returning a sanitized user array.
-        const sanitizedUsers = users?.length > 0 ? users.map((u) => sanitizeUser(u, systemClient)) : [];
+        const sanitizedUsers = users?.length > 0 ? users.map((u) => sanitizeUser(u, systemClient.url)) : [];
 
         return {
             connected: systemClient.isConnected,

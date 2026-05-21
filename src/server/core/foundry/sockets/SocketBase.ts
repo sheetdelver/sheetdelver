@@ -5,7 +5,6 @@ import { EventEmitter } from 'events';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
 import { sharedContentStore } from '@server/core/world/SharedContentStore';
 import type { RealtimeSharedContentPayload } from '@shared/contracts/realtime';
-import { resolveFoundryHtml, resolveFoundryUrl } from '@server/shared/utils/foundryUrl';
 
 type HeadersWithSetCookie = Headers & {
     getSetCookie?: () => string[];
@@ -325,20 +324,6 @@ export abstract class SocketBase extends EventEmitter {
 
     public get url(): string {
         return this.getBaseUrl();
-    }
-
-    /**
-     * Resolves a relative path into an absolute Foundry URL.
-     */
-    public resolveUrl(path: string): string {
-        return resolveFoundryUrl(path, this.url);
-    }
-
-    /**
-     * Processes HTML content to resolve relative image and link paths.
-     */
-    public resolveHtml(html: string): string {
-        return resolveFoundryHtml(html, this.url);
     }
 
     abstract connect(): Promise<void>;

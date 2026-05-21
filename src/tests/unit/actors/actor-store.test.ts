@@ -143,17 +143,18 @@ async function runRouteClientReadsFromActorStore() {
     let socketFetches = 0;
     const client = createSystemRouteFoundryClient({
         isConnected: true,
+        url: 'http://foundry.test',
         userId: null,
         on: () => undefined,
         off: () => undefined,
         getSystem: async () => ({ id: 'generic' }),
         dispatchDocument: async () => ({}),
-        resolveUrl: (url?: string) => url || '',
         dispatchDocumentSocket: async () => ({}),
     } as any);
 
     assert.equal((await client.getActors()).length, 1);
     assert.equal((await client.getActor('actor-cached'))?.name, 'Cached Actor');
+    assert.equal(client.resolveUrl('/icons/foo.png'), 'http://foundry.test/icons/foo.png');
     assert.equal(socketFetches, 0);
 
     actorStore.clear('unit-test');
@@ -172,6 +173,7 @@ async function runRouteClientRoutesNestedActorItemEffectsThroughActorRepository(
     const dispatchCalls: Array<{ type: string; action: string; operation: unknown; parent?: { type: string; id: string } }> = [];
     const client = createSystemRouteFoundryClient({
         isConnected: true,
+        url: 'http://foundry.test',
         userId: null,
         on: () => undefined,
         off: () => undefined,
@@ -183,7 +185,6 @@ async function runRouteClientRoutesNestedActorItemEffectsThroughActorRepository(
                 operation,
             };
         },
-        resolveUrl: (url?: string) => url || '',
         dispatchDocumentSocket: async () => ({}),
     } as any);
 
@@ -214,6 +215,7 @@ async function runRouteClientActorWritesUseGenericTransportOnly() {
     const dispatchCalls: Array<{ type: string; action: string; operation: unknown; parent?: { type: string; id: string } }> = [];
     const client = createSystemRouteFoundryClient({
         isConnected: true,
+        url: 'http://foundry.test',
         userId: null,
         on: () => undefined,
         off: () => undefined,
@@ -228,7 +230,6 @@ async function runRouteClientActorWritesUseGenericTransportOnly() {
             if (type === 'Item' && action === 'delete') return { result: [{ _id: 'item-write' }], operation };
             return { result: [], operation };
         },
-        resolveUrl: (url?: string) => url || '',
         dispatchDocumentSocket: async () => ({}),
     } as any);
 
@@ -272,6 +273,7 @@ async function runRouteClientUsesServiceOwnedAdapterForActorValidation() {
 
         const client = createSystemRouteFoundryClient({
             isConnected: true,
+            url: 'http://foundry.test',
             userId: null,
             on: () => undefined,
             off: () => undefined,
@@ -283,7 +285,6 @@ async function runRouteClientUsesServiceOwnedAdapterForActorValidation() {
                     operation,
                 };
             },
-            resolveUrl: (url?: string) => url || '',
             dispatchDocumentSocket: async () => ({}),
         } as any);
 
@@ -315,12 +316,12 @@ async function runRouteClientBlocksActorReadsBeforeStoreReady() {
     let socketFetches = 0;
     const client = createSystemRouteFoundryClient({
         isConnected: true,
+        url: 'http://foundry.test',
         userId: null,
         on: () => undefined,
         off: () => undefined,
         getSystem: async () => ({ id: 'generic' }),
         dispatchDocument: async () => ({}),
-        resolveUrl: (url?: string) => url || '',
         dispatchDocumentSocket: async () => ({}),
     } as any);
 

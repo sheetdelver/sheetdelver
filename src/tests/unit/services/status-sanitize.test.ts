@@ -2,9 +2,7 @@ import { strict as assert } from 'node:assert';
 import { sanitizeStatusUser } from '@server/services/status/StatusService';
 
 function runStatusSanitizeTests() {
-    const client = {
-        resolveUrl: (value?: string) => `resolved:${value || ''}`,
-    };
+    const foundryBaseUrl = 'http://foundry.test/';
 
     const userWithAvatar = {
         _id: 'u1',
@@ -16,10 +14,10 @@ function runStatusSanitizeTests() {
         avatar: '/avatar.png',
     };
 
-    const sanitizedAvatar = sanitizeStatusUser(userWithAvatar, client as any);
+    const sanitizedAvatar = sanitizeStatusUser(userWithAvatar, foundryBaseUrl);
     assert.equal(sanitizedAvatar._id, 'u1');
     assert.equal(sanitizedAvatar.isGM, true);
-    assert.equal(sanitizedAvatar.img, 'resolved:/avatar.png');
+    assert.equal(sanitizedAvatar.img, 'http://foundry.test/avatar.png');
 
     const userWithImgFallback = {
         id: 'u2',
@@ -31,17 +29,17 @@ function runStatusSanitizeTests() {
         img: '/img.png',
     };
 
-    const sanitizedImg = sanitizeStatusUser(userWithImgFallback, client as any);
+    const sanitizedImg = sanitizeStatusUser(userWithImgFallback, foundryBaseUrl);
     assert.equal(sanitizedImg._id, 'u2');
     assert.equal(sanitizedImg.isGM, false);
-    assert.equal(sanitizedImg.img, 'resolved:/img.png');
+    assert.equal(sanitizedImg.img, 'http://foundry.test/img.png');
 
     const userMissingRole = {
         id: 'u3',
         name: 'No Role User',
     };
 
-    const sanitizedNoRole = sanitizeStatusUser(userMissingRole, client as any);
+    const sanitizedNoRole = sanitizeStatusUser(userMissingRole, foundryBaseUrl);
     assert.equal(sanitizedNoRole.isGM, false);
 }
 
