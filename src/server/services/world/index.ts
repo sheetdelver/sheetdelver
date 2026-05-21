@@ -18,3 +18,13 @@ export {
     type WorldBootstrapTransport,
     type WorldBootstrapperDeps,
 } from './WorldBootstrapper';
+
+export {
+    KNOWN_FOUNDRY_GENERATION_MAX,
+    SUPPORTED_FOUNDRY_GENERATION_MIN,
+    UnsupportedFoundryVersionError,
+    assertFoundryVersionSupported,
+    evaluateFoundryVersionCompatibility,
+    type FoundryVersionCompatibilityResult,
+    type FoundryVersionCompatibilityStatus,
+} from './foundryVersionCompatibility';

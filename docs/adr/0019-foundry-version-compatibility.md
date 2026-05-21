@@ -53,22 +53,22 @@ This section follows ADR-0011 through ADR-0018: each phase has a named scope, st
 
 ### Phase 1: Compatibility policy shell
 
-**Status:** Not started.
+**Status:** Completed May 21, 2026.
 
 Phase 1 defines the policy primitives without wiring them into bootstrap.
 
 **Action items:**
 
-- [ ] Add compatibility constants, result types, and a typed unsupported-version error.
+- [x] Add compatibility constants, result types, and a typed unsupported-version error.
   Files: `src/server/services/world/foundryVersionCompatibility.ts` or equivalent.
 
-- [ ] Implement a pure evaluator over `FoundryRelease | null | undefined`.
+- [x] Implement a pure evaluator over `FoundryRelease | null | undefined`.
   Expected outcomes: `supported`, `newer-untested`, `unknown`, `unsupported`.
 
-- [ ] Add unit coverage for generation 12, 13, 14, missing generation, and non-numeric generation.
+- [x] Add unit coverage for generation 12, 13, 14, missing generation, and non-numeric generation.
   Files: `src/tests/unit/world/foundry-version-compatibility.test.ts`, `src/tests/unit/run.ts`.
 
-- [ ] Verify Phase 1 with unit/type checks.
+- [x] Verify Phase 1 with unit/type checks.
   Commands: `npm run test:unit`; `npx tsc --noEmit`; `git diff --check`.
 
 **Non-goals for Phase 1:**
@@ -76,6 +76,8 @@ Phase 1 defines the policy primitives without wiring them into bootstrap.
 - No bootstrap gate yet.
 - No status payload changes yet.
 - No Foundry v14 compatibility claims.
+
+**Phase 1 implementation note:** `foundryVersionCompatibility.ts` now exports the supported minimum and known maximum generation constants, a pure evaluator, a discriminated compatibility status, and `UnsupportedFoundryVersionError` for the later bootstrap gate. Runtime JSON is treated defensively: missing, non-finite, non-integer, or non-numeric `release.generation` values resolve to `unknown` and do not get coerced into a support decision.
 
 **Exit for Phase 1:** compatibility policy can be evaluated without sockets, bootstrap, Stores, or network calls.
 
@@ -228,7 +230,7 @@ Rejected for core Foundry generation compatibility. Adapters can add system/modu
 
 ADR-0019 is fulfilled when Foundry generation compatibility is explicit and enforced at bootstrap.
 
-- [ ] Phase 1: compatibility policy primitives exist with tests.
+- [x] Phase 1: compatibility policy primitives exist with tests.
 - [ ] Phase 2: `WorldBootstrapper` gates unsupported older generations before Store seeding.
 - [ ] Phase 3: status/admin diagnostics expose compatibility state.
 - [ ] Phase 4: closure docs and audits pass; ADR-0019 status flips to **Accepted**.

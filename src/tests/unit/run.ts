@@ -60,6 +60,7 @@ import { run as runModuleContextDiscovery } from './compendium/module-context-di
 // ── world ─────────────────────────────────────────────────────────────────────
 import { run as runWorldStateStore } from './world/world-state-store.test';
 import { run as runWorldLifecycleStore } from './world/world-lifecycle-store.test';
+import { run as runFoundryVersionCompatibility } from './world/foundry-version-compatibility.test';
 import { run as runWorldBootstrapper } from './world/world-bootstrapper.test';
 
 // ── admin ─────────────────────────────────────────────────────────────────────
@@ -137,6 +138,7 @@ async function runAllUnitTests() {
     await runStubStores();
     await runWorldStateStore();
     await runWorldLifecycleStore();
+    runFoundryVersionCompatibility();
     await runWorldBootstrapper();
     await runSharedContentStore();
     await runDocumentResolver();
