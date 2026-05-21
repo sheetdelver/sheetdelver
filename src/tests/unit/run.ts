@@ -1,6 +1,9 @@
 import path from 'node:path';
 import { resolveDataDir, initDataDir } from '../../server/core/paths';
 
+// ── utils ────────────────────────────────────────────────────────────────────
+import { run as runFoundryUrl } from './utils/foundry-url.test';
+
 // ── services ──────────────────────────────────────────────────────────────────
 import { run as runStatusSanitize } from './services/status-sanitize.test';
 import { run as runLocalhostPolicy } from './services/localhost-policy.test';
@@ -97,6 +100,7 @@ async function runAllUnitTests() {
     }
     initDataDir(resolveDataDir(['--data-dir', testDataDir]));
 
+    runFoundryUrl();
     runStatusSanitize();
     runLocalhostPolicy();
     runSyncTokenService();

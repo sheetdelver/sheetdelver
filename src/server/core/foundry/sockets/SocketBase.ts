@@ -5,6 +5,7 @@ import { EventEmitter } from 'events';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
 import { sharedContentStore } from '@server/core/world/SharedContentStore';
 import type { RealtimeSharedContentPayload } from '@shared/contracts/realtime';
+import { resolveFoundryHtml, resolveFoundryUrl } from '@server/shared/utils/foundryUrl';
 
 type HeadersWithSetCookie = Headers & {
     getSetCookie?: () => string[];
@@ -330,42 +331,14 @@ export abstract class SocketBase extends EventEmitter {
      * Resolves a relative path into an absolute Foundry URL.
      */
     public resolveUrl(path: string): string {
-        if (!path) return path;
-        // If already absolute or data URI, return as-is
-        if (path.startsWith('http') || path.startsWith('data:')) return path;
-
-        const baseUrl = this.url;
-        const cleanPath = path.startsWith('/') ? path.slice(1) : path;
-        const cleanBase = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
-
-        return `${cleanBase}/${cleanPath}`;
+        return resolveFoundryUrl(path, this.url);
     }
 
     /**
      * Processes HTML content to resolve relative image and link paths.
      */
     public resolveHtml(html: string): string {
-        if (!html) return '';
-        let processed = html;
-
-        const baseUrl = this.url;
-        const cleanBase = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
-
-        // Fix image src
-        processed = processed.replace(/src="([^"]+)"/g, (match, src) => {
-            if (src.startsWith('http') || src.startsWith('data:')) return match;
-            const cleanPath = src.startsWith('/') ? src.slice(1) : src;
-            return `src="${cleanBase}${cleanPath}"`;
-        });
-
-        // Fix anchor href
-        processed = processed.replace(/href="([^"]+)"/g, (match, href) => {
-            if (href.startsWith('http') || href.startsWith('data:') || href.startsWith('#')) return match;
-            const cleanPath = href.startsWith('/') ? href.slice(1) : href;
-            return `href="${cleanBase}${cleanPath}"`;
-        });
-
-        return processed;
+        return resolveFoundryHtml(html, this.url);
     }
 
     abstract connect(): Promise<void>;

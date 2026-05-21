@@ -154,7 +154,7 @@ ADR-0017 does not split `ClientSocket.restoreSession(...)` cookie-state handling
 
 ADR-0017 does not implement Foundry version min/max compatibility checks; ADR-0019 owns that once `WorldBootstrapper` is available as the insertion point.
 
-ADR-0017 does not optimize primary-document seeding from `game.data`. Keep `seedDocumentCache(client)` semantics intact. Seed-from-snapshot optimization is a separate follow-up after the bootstrap boundary is stable.
+ADR-0017 does not broadly optimize primary-document seeding from `game.data`. Phase 5 intentionally seeds `UserStore` and `UserPresence` from the accepted bootstrap snapshot because user presence is part of readiness/status semantics. Other primary-document Stores keep `seedDocumentCache(client)` semantics intact; broader seed-from-snapshot optimization is a separate follow-up after the bootstrap boundary is stable.
 
 ADR-0017 does not broaden Scene, FogExploration, Adventure, or Setting routing. Stub Store policy remains unchanged.
 
