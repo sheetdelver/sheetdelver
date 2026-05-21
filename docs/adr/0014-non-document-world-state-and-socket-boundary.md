@@ -145,10 +145,10 @@ Remove from `CoreSocket`:
 - `getGameData()` — readers move to `worldStateStore.getWorld()` / `getSystem()` / `getModules()` / etc.
 - `getSceneData()` — readers move to `worldStateStore.getSceneData()` (legacy compatibility) or compose from primary doc Stores after Phase 7 of ADR-0011.
 - `getSystem()` — socket readers move to `worldStateStore.getSystem()`. Request-facing facades such as `RouteFoundryClient.getSystem()` may remain as stable service/module APIs, but their implementation reads the Store instead of forwarding through `CoreSocket` / `ClientSocket`.
-- `getSystemConfig()` — clean removal. Despite the name, this method returns `gameDataCache?.system` (the system manifest) with a socket-emit fallback for probe-time. The cache path is exactly `worldStateStore.getSystem()` once seeded; the socket-fallback path is a probe-time concern that belongs in `WorldBootstrapper`'s probe pipeline (ADR-0017). There are zero external callers of `getSystemConfig()` today other than `ClientSocket`'s delegation — so the public method is removed in ADR-0014 and the fallback emit folds into the bootstrap pipeline when ADR-0017 lands. Until then, the bootstrapper's probe still happens inside `CoreSocket.connect()`; the probe code reads `gameDataCache?.system` internally if it needs the early system info.
+- `getSystemConfig()` — clean removal. Despite the name, this method returned `gameDataCache?.system` (the system manifest) with a socket-emit fallback for probe-time. The cache path is exactly `worldStateStore.getSystem()` once seeded. ADR-0017 later moved connected-world snapshot acceptance into `WorldBootstrapper`; `CoreSocket` no longer keeps a `gameDataCache` mirror.
 - `worldState` public field — readers move to `worldLifecycleStore.getState()`.
 
-**Stays on `CoreSocket` until ADR-0017** (called out so this ADR's exit criteria are honest):
+**Resolved by ADR-0017 Phase 3** (called out so this ADR's historical exit criteria stay honest):
 
 - `getSystemAdapter()`, `loadSystemAdapter(systemId)`, the cached `this.adapter` reference. These are **adapter-lifecycle concerns, not world state.** The adapter is a function of (active world's system id) × (registered modules), resolved from the module registry. The active adapter's home is `WorldBootstrapper.getActiveAdapter()` (ADR-0017). Putting the adapter on `WorldStateStore` would conflate world state with module-registry resolution. ADR-0014 left the adapter cache on `CoreSocket` so callers were not stranded; ADR-0017 Phase 3 migrated route validation and removed the socket methods.
 
@@ -223,7 +223,7 @@ The five states are:
 - `active` — full bootstrap complete; Sheet Delver is ready to serve world-backed requests.
 - `closed` — world closed or shutdown received; Stores cleared.
 
-The current code transitions to `active` immediately when Foundry reports world-active, before primary-doc seeds and adapter init complete. **This ADR defines the target Store semantics and moves lifecycle state out of the socket; it does not yet change transition timing.** Until ADR-0017 ships, the lifecycle state machine inside `CoreSocket` continues to populate `WorldLifecycleStore` with the existing premature-`active` behavior. ADR-0017 lands the actual delayed transition via `WorldBootstrapper` and supersedes that path entirely.
+This ADR defined the target Store semantics and moved lifecycle state out of the socket. ADR-0017 Phase 5 later made runtime behavior match the target: Foundry-active maps to `startup`, and `WorldBootstrapper` writes `active` only after snapshot acceptance, Store seeding, compendium discovery, primary-document seeding, and adapter initialization complete.
 
 ### Seeding and clearing
 
@@ -233,7 +233,7 @@ The current code transitions to `active` immediately when Foundry reports world-
 
 `SharedContentStore.set(payload)` updates the current shared-content snapshot; `clear(reason)` resets. Reads return a defensive copy or immutable snapshot. The stored payload must stay relative/raw; presentation-time URL resolution and other request-specific projections happen outside the Store. `UtilityService.getSharedContent(client?)` is the Phase 3 home for that projection: it reads the Store snapshot, resolves `image` payload URLs on a copy via `client.resolveUrl(...)`, and never mutates Store-owned data.
 
-`CoreSocket.connect()` is the seed/clear caller today (called inline). After this ADR, it still calls into the Stores (because the bootstrap orchestration extraction is ADR-0017's job, not this ADR's). The point of this slice is that **the state lives in the Stores**, not on the socket; *who calls the seed* is orthogonal and stays where it is for now.
+At ADR-0014 close, `CoreSocket.connect()` still called into the Stores because bootstrap orchestration extraction belonged to ADR-0017. That follow-up is now complete: `WorldBootstrapper` owns active-world snapshot acceptance and Store seeding; `CoreSocket` only clears runtime Store state on transport teardown/setup transitions.
 
 ### What stays on `CoreSocket` / `ClientSocket` / `SocketBase` after this ADR
 
@@ -242,7 +242,7 @@ Just transport, plus orchestration that subsequent ADRs will extract:
 - **Stays** (transport, not in scope for this ADR or any other in the arc): `emitSocketEvent`, `dispatchDocument`, `dispatchDocumentSocket`, `connect` (the wire-level handshake/login parts), `disconnect`, `setupSharedContentListeners` (the event source — the cache moves to the Store), socket.io session management, retry/backoff, the inbound `modifyDocument` listener that calls `modifyDocumentRouter.route(...)`.
 - **Stays for now, removed by ADR-0015**: `getAllCompendiumIndices`, `getPackEntries`, `getPackIndex`, `getPackDocuments`.
 - **Stays for now, removed by ADR-0016**: `fetchByUuid` (on `CoreSocket` and the matching `ClientSocket` delegation).
-- **Left for ADR-0017**: `connect()`'s bootstrap orchestration body, delayed `active`, and later residual cleanup. ADR-0017 Phases 1-3 have already removed the socket-owned `lastActorChange`, browser engagement fields, heartbeat policy, active-adapter cache, adapter reader/loader methods, and `ClientSocket` adapter delegation.
+- **Resolved by ADR-0017**: application bootstrap orchestration, delayed `active`, sync-token state, engagement policy, heartbeat cadence, active-adapter cache, adapter reader/loader methods, and `ClientSocket` adapter delegation.
 - **Stays for now, verified or removed by ADR-0018**: any residual `ClientSocket` delegation left after ADR-0014 / ADR-0016 / ADR-0017, URL utilities on `SocketBase`, session-state half of `restoreSession`.
 
 This ADR removes only the state-reading methods named in *Sockets shrink* above. The rest is each follow-up ADR's scope.
@@ -445,7 +445,7 @@ Phase 4 lands the behavior-preserving layout cleanup named by this ADR. It remov
 
 **Status:** Closed May 19, 2026.
 
-Phase 5 removes the remaining world-state compatibility shims from the socket classes now that `WorldStateStore` is the canonical read model. This is the closure pass for ADR-0014's socket-boundary promise: `CoreSocket` may still fetch and seed world data during bootstrap until ADR-0017, but routes, services, scripts, and tests must no longer read world state through socket methods. Route-facing facades like `RouteFoundryClient.getSystem()` may remain where they are Store-backed and part of service contracts; socket-owned `getSystem()` / `getSystemConfig()` methods do not.
+Phase 5 removes the remaining world-state compatibility shims from the socket classes now that `WorldStateStore` is the canonical read model. This is the closure pass for ADR-0014's socket-boundary promise: routes, services, scripts, and tests must no longer read world state through socket methods. Route-facing facades like `RouteFoundryClient.getSystem()` may remain where they are Store-backed and part of service contracts; socket-owned `getSystem()` / `getSystemConfig()` methods do not. ADR-0017 later moved the connected-world seed caller itself into `WorldBootstrapper`.
 
 **Action items:**
 
@@ -480,11 +480,11 @@ Phase 5 removes the remaining world-state compatibility shims from the socket cl
 - No UUID resolver removal (`fetchByUuid`); ADR-0016 owns document resolution.
 - No bootstrap orchestration, heartbeat, engagement-service, lifecycle timing, URL utility, or session-state split work.
 - No service-contract cleanup for route-facing `getSystem()` unless the call is socket-backed. Store-backed route facades are allowed.
-- No actor sync-token cleanup. The temporary `lastActorChange` / `actorSyncToken` bridge remains until ADR-0017 moves it into `SyncTokenService` or the status/bootstrap layer.
+- No actor sync-token cleanup in this ADR. ADR-0017 Phase 1 later moved `lastActorChange` semantics into `SyncTokenService`; `actorSyncToken` remains only as the status payload projection.
 
 **Exit for Phase 5:** `CoreSocket` no longer exposes `getGameData()`, `getSceneData()`, `getSystem()`, or `getSystemConfig()`; `ClientSocket` no longer exposes `getSystem()` or `getSystemConfig()`; socket-facing interfaces no longer require those world-state readers; scripts/tests are updated away from socket state reads; route-facing `getSystem()` remains Store-backed; `npm run test:unit`, `npx tsc --noEmit`, and the Phase 5 socket-reader audits pass.
 
-**Phase 5 closed (May 19, 2026).** All action items above ticked. Verification passed: `git diff --check`, `npx tsc --noEmit`, `npm run test:unit`, and the targeted Phase 5 socket-reader audits. Remaining `getSystem()` calls are Store-backed route/service facades or direct `worldStateStore.getSystem()` reads; the socket classes no longer expose the world-state reader methods or the old public `worldState` lifecycle reader. The separate `lastActorChange` / `actorSyncToken` socket read remains an ADR-0017 sync-token concern, not a Phase 5 world-state reader.
+**Phase 5 closed (May 19, 2026).** All action items above ticked. Verification passed: `git diff --check`, `npx tsc --noEmit`, `npm run test:unit`, and the targeted Phase 5 socket-reader audits. Remaining `getSystem()` calls are Store-backed route/service facades or direct `worldStateStore.getSystem()` reads; the socket classes no longer expose the world-state reader methods or the old public `worldState` lifecycle reader. ADR-0017 Phase 1 later removed the separate `lastActorChange` socket read.
 
 ---
 
@@ -543,7 +543,7 @@ Rejected because new Stores and services need destinations. If ADR-0014 introduc
 - **Wide migration surface.** Every site that currently reads `coreSocket.getGameData()` / `getSystem()` / `getSystemConfig()` / `getSharedContent()` etc. gets touched. Routes, services, the realtime gateway, the session manager — every reader migrates. Mechanical but not small. (`getSystemAdapter` callers were not migrated in ADR-0014; ADR-0017 Phase 3 moved them.)
 - **Three new Stores increases the cognitive surface.** Readers used to looking at `coreSocket.gameDataCache` for "world stuff" now need to know about `WorldStateStore`, `WorldLifecycleStore`, and `SharedContentStore`. Mitigated by the typed accessors and by the colocation in `core/world/`.
 - **Typed shapes require maintenance when Foundry drifts.** When v14 ships, the manifest types (`WorldManifest`, `SystemManifest`, `ModuleManifest`, etc.) need updates. This is the *intended* tradeoff — drift becoming visible at the type layer instead of hiding in runtime — but it does mean a typed-update PR is required at each Foundry generation bump.
-- **`CoreSocket.connect()` still owns the bootstrap orchestration body until ADR-0017.** This ADR moves *state* off the socket but doesn't move *who seeds the state*. The seed call stays inline in `connect()` for now. That's fine; subsequent ADRs in the arc unwind it. But during the gap (ADR-0014 shipped, ADR-0017 not yet shipped), `CoreSocket.connect()` continues to be the orchestrator. Implementers should not invest in cleaning up `connect()` further during this ADR's window — ADR-0017 will rewrite it.
+- **Bootstrap ownership moved later in the arc.** ADR-0014 moved *state* off the socket first. ADR-0017 then moved *who accepts and seeds the connected-world snapshot* into `WorldBootstrapper`, leaving `CoreSocket.connect()` focused on handshake/login/transport state.
 
 ---
 
@@ -573,10 +573,10 @@ Each phase validates at the Store-contract layer and at the migration boundary:
 - `WorldLifecycleStore` unit tests assert the state-machine transition rules and that `transition` events fire with `{ from, to, reason }`.
 - `SharedContentStore` unit tests assert `set` / `clear` semantics and the `sharedContentChanged` event surface.
 - Migration audit uses targeted `rg` checks instead of one broad grep:
-  - `rg -n "getSystemClient\(\)\.(getGameData|getSceneData|getSystem|getSystemConfig|worldState|gameDataCache|sceneDataCache|probeWorldData|probeUserCount|cachedWorldData|cachedWorlds)" src/server` returns no hits outside the seeding caller and phase-documented exceptions.
+  - `rg -n "getSystemClient\(\)\.(getGameData|getSceneData|getSystem|getSystemConfig|worldState|gameDataCache|sceneDataCache|probeWorldData|probeUserCount|cachedWorldData|cachedWorlds)" src/server` returns no socket-reader hits.
   - `rg -n "\.(getGameData|getSceneData|getSystemConfig|getSharedContent)\(" src/server` returns no socket-reader hits. `RouteFoundryClient.getSystem()` may remain as a facade method, but its implementation must be Store-backed rather than socket-backed.
-  - `rg -n "\.worldState\b|gameDataCache|sceneDataCache|probeWorldData|probeUserCount|cachedWorldData|cachedWorlds" src/server` returns no direct world-state reads outside `CoreSocket`, the new Stores, and the seeding caller.
-  - `rg -n "lastActorChange|actorSyncToken" src/server` remains a documented ADR-0017 exception: until `SyncTokenService` lands, the only runtime path is the `CoreSocket` timestamp update, the `StatusService` payload projection, and the narrow `FoundrySystemClientLike` type.
+  - `rg -n "\.worldState\b|gameDataCache|sceneDataCache|probeWorldData|probeUserCount|cachedWorldData|cachedWorlds" src/server` returns no direct world-state reads outside the new Stores and documented historical text.
+  - `rg -n "lastActorChange|actorSyncToken" src/server` returns no `lastActorChange` hits; `actorSyncToken` is the expected `StatusService` payload projection backed by `SyncTokenService`.
   - `getSystemAdapter` / `loadSystemAdapter` intentionally remained after ADR-0014; ADR-0017 Phase 3 removed them and owns that audit.
 - Phase 4 file-layout audit verifies that `compendium-cache.ts` is gone, `core/foundry/classes/` is gone, `core/world/SetupManager.ts` exists, and `core/compendium/CompendiumCache.ts` exists.
 - Phase 5 socket-reader audit verifies that the deleted world-state methods no longer exist on `CoreSocket` / `ClientSocket`, and that any remaining `getSystem()` readers are direct `worldStateStore.getSystem()` calls or Store-backed route facades.

@@ -70,7 +70,7 @@ export async function testSceneData() {
             results.tests.push({
                 name: 'scene-data-cache',
                 success: false,
-                error: 'sceneDataCache is null'
+                error: 'WorldStateStore scene data is null'
             });
         }
 

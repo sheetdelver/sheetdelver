@@ -3,7 +3,7 @@ import { io, Socket } from 'socket.io-client';
 import { SocketBase } from './SocketBase';
 import { logger } from '@shared/utils/logger';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
-import { WorldData, CacheData, SetupManager } from '../../world/SetupManager';
+import { SetupManager } from '../../world/SetupManager';
 import { FoundryConfig } from '../types';
 import { CompendiumCache, compendiumStore } from '@server/core/compendium';
 import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
@@ -16,8 +16,6 @@ import { sharedContentStore } from '@server/core/world/SharedContentStore';
 import { engagementService, type WorldBootstrapSnapshot } from '@server/services/world';
 // Side-effect import: registers Stores with the coordinator and router.
 import '@server/core/documents/primary/PrimaryDocumentCacheCoordinator';
-import fs from 'node:fs/promises';
-import path from 'node:path';
 
 
 export class CoreSocket extends SocketBase {
@@ -25,29 +23,9 @@ export class CoreSocket extends SocketBase {
         worldLifecycleStore.setState(next, reason);
     }
 
-    // ADR-0014 Phase 1: these legacy mirrors remain for CoreSocket internals
-    // and compendium/bootstrap code during the transition. WorldStateStore is
-    // the authoritative read model for routes/services/new code.
-    public cachedWorldData: WorldData | null = null;
-    public cachedWorlds: Record<string, WorldData> = {};
-    public gameDataCache: any = null;
-    public sceneDataCache: any = null;
+    // Service-account identity is still a transport concern: the socket needs
+    // it for login/session restoration. World snapshots live in WorldStateStore.
     public userId: string | null = null;
-
-    /**
-     * World data discovered via the guest probe step.
-     * Populated when the probe succeeds but the service account login fails.
-     * Used to surface world title/description to the UI in 'world-closed' state.
-     * Cleared once a full socket connection is established.
-     */
-    public probeWorldData: any = null;
-
-    /**
-     * Count of users discovered during the guest probe. Used by the status
-     * payload when the world is discovered but Sheet Delver can't fully connect
-     * (UserStore is not yet seeded in that state).
-     */
-    public probeUserCount: number = 0;
 
     // Core Socket maintains the singular connection
     private consecutiveFailures = 0;
@@ -76,8 +54,8 @@ export class CoreSocket extends SocketBase {
 
     constructor(config: any) {
         super(config);
-        // ADR-0017 Phase 2: engagement policy lives in EngagementService.
-        // CoreSocket only supplies the raw transport operations it may request.
+        // EngagementService owns browser-count and heartbeat policy. CoreSocket
+        // only supplies the raw transport operations that policy may request.
         engagementService.setTransportCallbacks({
             resetRetryBackoff: () => {
                 this.retryCount = 0;
@@ -104,12 +82,8 @@ export class CoreSocket extends SocketBase {
     private async loadInitialCache() {
         try {
             const cache = await SetupManager.loadCache();
-            this.cachedWorlds = cache.worlds || {};
-            if (cache.currentWorldId && this.cachedWorlds[cache.currentWorldId]) {
-                this.cachedWorldData = this.cachedWorlds[cache.currentWorldId];
-            }
-            // Seed setup-mode cache into the Store so status/setup routes do
-            // not need to read these transitional socket fields.
+            // Setup-mode cache is Store-owned; the socket only triggers the
+            // disk read at startup because it already owns transport startup.
             worldStateStore.setCachedWorlds(cache);
         } catch (e) {
             logger.warn('CoreSocket | Failed to load initial cache: ' + e);
@@ -174,8 +148,6 @@ export class CoreSocket extends SocketBase {
         if (!gameData) return null;
 
         const sceneData = await this.fetchSceneData(gameData);
-        this.gameDataCache = gameData;
-        this.sceneDataCache = sceneData;
         if (gameData.userId) {
             this.userId = gameData.userId;
         }
@@ -247,11 +219,10 @@ export class CoreSocket extends SocketBase {
                 // login or Sheet Delver bootstrap yet. `active` is written by
                 // WorldBootstrapper only after Stores and the adapter are ready.
                 this.setWorldState('startup', 'probe-world-discovered');
-                this.probeWorldData = joinData.world;  // Cache for UI surface during recovery
-                this.probeUserCount = Array.isArray(joinData.users) ? joinData.users.length : 0;
+                const probeUserCount = Array.isArray(joinData.users) ? joinData.users.length : 0;
                 // Probe data is pre-bootstrap state: enough for status UI when
                 // the world exists but service-account login cannot complete.
-                worldStateStore.setProbeData(joinData.world, this.probeUserCount);
+                worldStateStore.setProbeData(joinData.world, probeUserCount);
                 // Probe-time user data stays on the local joinData object — it's used
                 // only for service-account name resolution (below). UserStore is seeded
                 // by WorldBootstrapper after the main socket connects.
@@ -287,9 +258,8 @@ export class CoreSocket extends SocketBase {
                     // The world is running but the service account doesn't exist in it.
                     // Surface world info and halt retries until admin intervention.
                     const availableUsers = probeUsers.map((u: any) => `${u.name} (role: ${u.role})`).join(', ');
-                    logger.error(`CoreSocket | Service account "${this.config.username}" not found in world "${this.probeWorldData?.title || 'unknown'}".\nAvailable users: [${availableUsers || 'none'}].\nWorld state set to 'closed'. No further retries until admin action.\nAdmin action required: Create or configure the service account in Foundry, then trigger a manual retry from the admin backend.`);
+                    logger.error(`CoreSocket | Service account "${this.config.username}" not found in world "${joinData.world?.title || 'unknown'}".\nAvailable users: [${availableUsers || 'none'}].\nWorld state set to 'closed'. No further retries until admin action.\nAdmin action required: Create or configure the service account in Foundry, then trigger a manual retry from the admin backend.`);
                     this.setWorldState('closed', 'service-account-missing');
-                    // Optionally, emit an event or notify admin backend here
                     return;
                 }
             }
@@ -340,8 +310,6 @@ export class CoreSocket extends SocketBase {
                     if (!isActive) {
                         logger.warn('CoreSocket | Socket connected but world is NOT active.');
                         this.setWorldState('setup', 'socket-connected-world-not-active');
-                        this.gameDataCache = null; // Clear potential stale cache
-                        this.sceneDataCache = null; // Clear scene cache
                         worldStateStore.clearRuntimeState('world-setup');
                         // Shared content is active-world presentation state; clear it
                         // with the runtime snapshot so browser clients don't replay
@@ -359,8 +327,6 @@ export class CoreSocket extends SocketBase {
 
                     logger.info('CoreSocket | Foundry world is ACTIVE. Handing application bootstrap to WorldBootstrapper...');
                     this.setWorldState('startup', 'foundry-world-active');
-                    this.probeWorldData = null;  // Full connection established; probe cache no longer needed
-                    this.probeUserCount = 0;
                     worldStateStore.clearProbeData();
 
                     clearTimeout(timeout);
@@ -378,8 +344,6 @@ export class CoreSocket extends SocketBase {
                     if (!worldLifecycleStore.isState('setup')) {
                         this.setWorldState('offline', 'socket-disconnect');
                     }
-                    this.gameDataCache = null; // Clear cache to prevent stale data
-                    this.sceneDataCache = null; // Clear scene cache
                     // Preserve setup cache, but remove active-world/probe state.
                     worldStateStore.clearRuntimeState('core-disconnect');
                     sharedContentStore.clear('core-disconnect');
@@ -577,8 +541,6 @@ export class CoreSocket extends SocketBase {
                 this.setWorldState('offline', 'explicit-disconnect');
             }
 
-            this.gameDataCache = null;
-            this.sceneDataCache = null;
             worldStateStore.clearRuntimeState('core-disconnect');
             sharedContentStore.clear('core-disconnect');
             this.clearActiveWorldCompendiumState('core-disconnect');

@@ -38,7 +38,8 @@ const CACHE_MAX_AGE_DAYS = 7;
  *
  * ADR-0014 Phase 4 moved this under `core/world` because it owns world
  * metadata snapshots for setup/admin/status flows, not Foundry transport.
- * Bootstrap orchestration still stays in CoreSocket until ADR-0017.
+ * Runtime bootstrap orchestration lives in WorldBootstrapper; this helper
+ * remains focused on setup-mode cache and probe mechanics.
  */
 export class SetupManager {
 

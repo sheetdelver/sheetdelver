@@ -289,11 +289,9 @@ export abstract class SocketBase extends EventEmitter {
     }
 
     protected setupSharedContentListeners(socket: Socket) {
-        // ADR-0014 Phase 3: the socket is the wire-event source, but the
-        // canonical snapshot lives in `SharedContentStore`. The Store enforces
-        // an immutable-snapshot contract (defensive copy on read/write) so
-        // request-time projections (URL resolution, journal hydration) cannot
-        // mutate the shared payload other consumers will read next.
+        // The socket is the wire-event source, but the canonical snapshot lives
+        // in SharedContentStore. Defensive copies on Store read/write keep
+        // request-time projections from mutating what other consumers read next.
         socket.on('shareImage', (data: any) => {
             logger.info(`[${this.constructor.name}] Received shared image: ${data.image}`);
             const payload: RealtimeSharedContentPayload = {

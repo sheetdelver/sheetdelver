@@ -31,10 +31,9 @@ function cloneRecord<T>(value: Record<string, T>): Record<string, T> {
  * ADR-0014 home for non-document world state.
  *
  * This Store owns the residual Foundry `game.data` snapshot after primary
- * documents and compendium concerns are handled elsewhere. ADR-0017 Phase 5
- * moved snapshot acceptance into WorldBootstrapper; CoreSocket is only the raw
- * transport that can fetch the bytes. New readers should use this Store instead
- * of socket fields or socket compatibility getters.
+ * documents and compendium concerns are handled elsewhere. WorldBootstrapper
+ * decides when a connected-world snapshot is accepted; CoreSocket is only the
+ * raw transport that can fetch the bytes.
  */
 export class WorldStateStore {
     // Active-world snapshot from Foundry's `game.data` wire payload.

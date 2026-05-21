@@ -1,6 +1,6 @@
 # ADR-0017: World Bootstrap and Lifecycle Orchestration
 
-**Status:** Proposed - Phases 1-5 completed May 20, 2026; Phase 6 not started.
+**Status:** Accepted - Phases 1-6 completed May 20, 2026.
 **Date:** May 20, 2026
 **Phase:** World Bootstrap (Phase 4 of the ADR-0014 arc)
 **Supersedes:** None. Consumes ADR-0014 world/lifecycle Stores, ADR-0015 compendium services, and ADR-0016 document resolution.
@@ -53,17 +53,19 @@ The codebase now has the right state/service owners, and `WorldBootstrapper.boot
 
 ADR-0014 defined `active` as "Sheet Delver is ready to serve world-backed requests." Phase 5 now matches that contract: Foundry-active maps to `startup`, and `active` is written only after Sheet Delver bootstrap completes.
 
-The remaining socket-boundary leftovers after Phase 5 are narrow and explicit:
+After Phase 6, the remaining socket-boundary leftovers are narrow and explicitly ADR-0018 scope:
 
 - `CoreSocket.connect()` still owns the handshake/probe/login/raw socket state machine.
-- `CoreSocket` still owns retry/backoff and the raw heartbeat transport loop; `EngagementService` owns the policy inputs.
-- Residual URL/session cleanup belongs to ADR-0018.
+- `CoreSocket` still owns service-account identity resolution, retry/backoff, and the raw heartbeat transport probe; `EngagementService` owns the policy inputs.
+- `CoreSocket.getBootstrapSnapshot()` is a raw transport fetch; `WorldBootstrapper` decides when the snapshot is accepted.
+- URL utility extraction and the session-state half of `ClientSocket.restoreSession(...)` belong to ADR-0018.
 
 Phase 1 removed the previous `CoreSocket.lastActorChange` status leak; `actorSyncToken` now comes from `SyncTokenService`.
 Phase 2 removed browser-count, last-activity, heartbeat-pause, and adaptive-heartbeat policy from `CoreSocket`; those now live in `EngagementService`.
 Phase 3 removed socket-owned active-adapter state and adapter reader/loader methods; `WorldBootstrapper` now owns the active adapter.
 Phase 4 moved compendium discovery, discovery shard sync, primary-document Store seeding, adapter initialization, and readiness tracking out of `SystemService` and into `WorldBootstrapper`. `SystemService` remains the public event/readiness facade.
 Phase 5 moved connected-world snapshot acceptance and user/presence bootstrap into `WorldBootstrapper`, delayed `active` until bootstrap completion, and gates world-backed realtime fan-out on application readiness.
+Phase 6 removed remaining public world-snapshot mirrors from `CoreSocket`, updated stale ADR/audit references, and closed ADR-0017 with targeted boundary audits.
 
 ---
 
@@ -345,26 +347,28 @@ Phase 5 is the semantic change: `active` becomes application-ready, and `CoreSoc
 
 ### Phase 6: Closure and socket-boundary audit
 
-**Status:** Not started.
+**Status:** Completed May 20, 2026.
 
 Phase 6 closes ADR-0017 and prepares ADR-0018.
 
 **Action items:**
 
-- [ ] Remove transitional comments and dead fields left by Phases 1-5.
+- [x] Remove transitional comments and dead fields left by Phases 1-5.
   Files: touched socket, world service, status, and ADR docs.
 
-- [ ] Update ADR-0014 / ADR-0016 references that named ADR-0017 leftovers as pending.
+- [x] Update ADR-0014 / ADR-0016 references that named ADR-0017 leftovers as pending.
   Files: `docs/adr/0014-non-document-world-state-and-socket-boundary.md`, `docs/adr/0016-document-resolution-and-uuid-routing.md`, `temp/audit-reports/socket-boundary-audit.md`.
 
-- [ ] Confirm the remaining `CoreSocket` surface is transport plus retry/backoff, and list ADR-0018 leftovers explicitly.
+- [x] Confirm the remaining `CoreSocket` surface is transport plus retry/backoff, and list ADR-0018 leftovers explicitly.
   Files: `docs/adr/0017-world-bootstrap-and-lifecycle-orchestration.md`, `temp/audit-reports/socket-boundary-audit.md`.
 
-- [ ] Verify closure with targeted audits.
+- [x] Verify closure with targeted audits.
   Commands: `npm run test:unit`; `npx tsc --noEmit`; `git diff --check`; `rg -n "lastActorChange|updateActiveBrowserCount|activeBrowserCount|lastUserActivityTimestamp|heartbeatPaused|getSystemAdapter|loadSystemAdapter|private adapter" src/server`; `rg -n "actorSyncToken" src/server` (expected: status projection only); `rg -n "setWorldState\\('active'|setState\\('active'|foundry-world-active" src/server/core/foundry`.
 
-- [ ] Flip this ADR status to **Accepted** after all phases ship green.
+- [x] Flip this ADR status to **Accepted** after all phases ship green.
   Files: `docs/adr/0017-world-bootstrap-and-lifecycle-orchestration.md`.
+
+**Phase 6 implementation note:** `CoreSocket` no longer keeps public `gameDataCache`, `sceneDataCache`, `cachedWorldData`, `cachedWorlds`, `probeWorldData`, or `probeUserCount` mirrors. Setup cache, probe data, scene data, and connected-world snapshots live in `WorldStateStore`; `CoreSocket` only triggers raw reads/probes and clears runtime Store state on transport teardown. Stale ADR-0014 / ADR-0016 references now point at the completed ADR-0017 ownership split, and the audit explicitly lists ADR-0018's remaining URL/session boundary work.
 
 **Non-goals for Phase 6:**
 
@@ -453,8 +457,8 @@ This ADR is fulfilled when world bootstrap and readiness are service-owned and s
 - [x] Phase 3: active adapter ownership moves out of sockets.
 - [x] Phase 4: `WorldBootstrapper` owns bootstrap orchestration behind behavior-preserving timing.
 - [x] Phase 5: `active` is delayed until Sheet Delver bootstrap completes and `CoreSocket.connect()` no longer seeds application Stores.
-- [ ] Phase 6: closure audits pass and ADR-0017 status flips to **Accepted**.
-- [ ] No tracked tests use real world or compendium dumps as fixtures.
-- [ ] `git diff --check`, `npx tsc --noEmit`, and `npm run test:unit` pass.
+- [x] Phase 6: closure audits pass and ADR-0017 status flips to **Accepted**.
+- [x] No tracked tests use real world or compendium dumps as fixtures.
+- [x] `git diff --check`, `npx tsc --noEmit`, and `npm run test:unit` pass.
 
 ADR-0018 owns the next step: residual socket-boundary enforcement completion.

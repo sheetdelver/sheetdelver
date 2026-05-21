@@ -175,9 +175,9 @@ Manual socket tests and diagnostics that instantiate `CoreSocket` directly must 
 
 ## What Stays Out
 
-ADR-0016 does not move bootstrap orchestration; ADR-0017 owns `WorldBootstrapper`.
+ADR-0016 does not move bootstrap orchestration; ADR-0017 owns that through `WorldBootstrapper`.
 
-ADR-0016 does not remove `getSystemAdapter()` or adapter caching from sockets; ADR-0017 owns adapter lifecycle.
+ADR-0016 does not remove `getSystemAdapter()` or adapter caching from sockets; ADR-0017 owns adapter lifecycle and later removed the socket adapter surface.
 
 ADR-0016 does not extract URL helpers or session-state restore; ADR-0018 owns residual socket-boundary cleanup.
 
@@ -355,8 +355,8 @@ Phase 5 closes ADR-0016's socket-boundary promise.
 
 **Non-goals for Phase 5:**
 
-- No `getSystemAdapter()` socket deletion; ADR-0017 owns adapter lifecycle.
-- No bootstrap orchestration move; ADR-0017 owns `WorldBootstrapper`.
+- No `getSystemAdapter()` socket deletion in this ADR; ADR-0017 owns adapter lifecycle and later removed the socket methods.
+- No bootstrap orchestration move in this ADR; ADR-0017 owns `WorldBootstrapper`.
 - No URL utility/session restore cleanup; ADR-0018 owns the residual pass.
 - No broad external module import cleanup.
 

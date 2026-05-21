@@ -75,7 +75,6 @@ export interface WorldBootstrapOptions {
 /**
  * Owns world-level runtime services that are derived from the active system.
  *
- * ADR-0017 Phase 4 makes this the owner of application bootstrap ordering.
  * SystemService remains the public event/readiness facade, while this service
  * owns the idempotent bootstrap run and active-adapter lifecycle.
  */

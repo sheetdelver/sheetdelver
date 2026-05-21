@@ -22,10 +22,10 @@ function isWorldLifecycleState(value: string): value is WorldLifecycleState {
 /**
  * ADR-0014 lifecycle home for Foundry world availability.
  *
- * ADR-0017 Phase 5 tightened `active` to mean Sheet Delver is ready to serve
- * world-backed requests. CoreSocket may detect a Foundry-active world, but the
- * lifecycle stays in `startup` until WorldBootstrapper finishes Store seeding,
- * compendium discovery, primary-document seeds, and adapter initialization.
+ * `active` means Sheet Delver is ready to serve world-backed requests.
+ * CoreSocket may detect a Foundry-active world, but lifecycle stays in
+ * `startup` until WorldBootstrapper finishes Store seeding, compendium
+ * discovery, primary-document seeds, and adapter initialization.
  */
 export class WorldLifecycleStore extends EventEmitter {
     private state: WorldLifecycleState = 'offline';

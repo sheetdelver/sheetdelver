@@ -2,6 +2,7 @@
 import { CoreSocket } from '@core/foundry/sockets/CoreSocket';
 import { loadConfig } from '@core/config';
 import { worldLifecycleStore } from '@server/core/world/WorldLifecycleStore';
+import { worldStateStore } from '@server/core/world/WorldStateStore';
 import * as readline from 'readline';
 import { logger } from '@shared/utils/logger';
 
@@ -65,7 +66,7 @@ export async function testWorldTransition() {
     logger.info('');
 
     if (worldLifecycleStore.isState('active')) {
-        logger.info(`✅  Detected Active World: "${client.cachedWorldData?.worldTitle || 'Unknown'}"`);
+        logger.info(`✅  Detected Active World: "${worldStateStore.getWorld()?.title || 'Unknown'}"`);
     } else {
         logger.error(`❌  Failed to detect active world. State: ${worldLifecycleStore.getState()}`);
     }
