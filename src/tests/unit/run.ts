@@ -54,9 +54,9 @@ import { run as runRouteOwnershipThresholds } from './routing/route-ownership-th
 // ── compendium ────────────────────────────────────────────────────────────────
 import { run as runCompendiumStore } from './compendium/compendium-store.test';
 import { run as runCompendiumService } from './compendium/compendium-service.test';
-import { run as runDiscoveryShardStore } from './compendium/discovery-shard-store.test';
-import { run as runDiscoveryService } from './compendium/discovery-service.test';
-import { run as runModuleContextDiscovery } from './compendium/module-context-discovery.test';
+import { run as runCompendiumPackStore } from './compendium/compendium-pack-store.test';
+import { run as runCompendiumPackSyncService } from './compendium/compendium-pack-sync-service.test';
+import { run as runModuleContextCompendiumPacks } from './compendium/module-context-compendium-packs.test';
 
 // ── world ─────────────────────────────────────────────────────────────────────
 import { run as runWorldStateStore } from './world/world-state-store.test';
@@ -146,9 +146,9 @@ async function runAllUnitTests() {
     await runDocumentResolver();
     await runCompendiumStore();
     await runCompendiumService();
-    await runDiscoveryShardStore();
-    await runDiscoveryService();
-    await runModuleContextDiscovery();
+    await runCompendiumPackStore();
+    await runCompendiumPackSyncService();
+    await runModuleContextCompendiumPacks();
     await runClientSocketTransport();
     await runRealtimeBroadcaster();
     await runAppSocketGateway();

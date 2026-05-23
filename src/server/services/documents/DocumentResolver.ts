@@ -14,7 +14,7 @@ import { fogExplorationStore } from '@server/core/documents/primary/fog-explorat
 import { adventureStore } from '@server/core/documents/primary/adventures/AdventureStore';
 import { settingStore } from '@server/core/documents/primary/settings/SettingStore';
 import { worldStateStore } from '@server/core/world/WorldStateStore';
-import { discoveryShardStore, type DiscoveryShardDocument } from '@server/core/compendium/DiscoveryShardStore';
+import { compendiumPackStore, type CompendiumPackDocument } from '@server/core/compendium/CompendiumPackStore';
 import {
     cloneDocument,
     getDocumentId,
@@ -22,7 +22,7 @@ import {
 } from '@server/core/documents/primary/base/PrimaryDocumentStore';
 import { PrimaryDocumentCacheNotReadyError } from '@server/core/documents/primary/errors';
 import type { CompendiumService } from '@server/services/compendium/CompendiumService';
-import type { DiscoveryShardManifest } from '@server/core/compendium/types';
+import type { CompendiumPackManifest } from '@server/core/compendium/types';
 import { logger } from '@shared/utils/logger';
 
 // DocumentResolver is the service-layer owner for UUID routing. Callers ask for
@@ -158,25 +158,25 @@ export interface DocumentResolverWorldStateReader {
     getSystem(): { id?: string | null } | null;
 }
 
-export interface DocumentResolverDiscoveryShardReader {
-    getManifest(systemId: string): Promise<DiscoveryShardManifest | null>;
+export interface DocumentResolverCompendiumPackStoreReader {
+    getManifest(systemId: string): Promise<CompendiumPackManifest | null>;
     findDocument(
         systemId: string,
         packId: string,
         documentId: string,
         type?: string | null,
-    ): Promise<DiscoveryShardDocument | null>;
+    ): Promise<CompendiumPackDocument | null>;
 }
 
 export interface DocumentResolverDeps {
     documentStores?: DocumentResolverStoreMap;
     worldStateStore?: DocumentResolverWorldStateReader;
-    discoveryShardStore?: DocumentResolverDiscoveryShardReader;
+    compendiumPackStore?: DocumentResolverCompendiumPackStoreReader;
     getCompendiumService?: () => DocumentResolverCompendiumService | Pick<CompendiumService, 'getPackDocument'> | null;
     allowLiveCompendiumUuidFallback?: boolean;
 }
 
-type HydratedShardLookupResult =
+type HydratedPackLookupResult =
     | { status: 'hit'; document: Record<string, unknown>; systemId: string }
     | { status: 'no-system' }
     | { status: 'no-manifest'; systemId: string }
@@ -311,7 +311,7 @@ function defaultDocumentStores(): DocumentResolverStoreMap {
 export class DocumentResolver {
     private readonly documentStores: DocumentResolverStoreMap;
     private readonly worldState: DocumentResolverWorldStateReader;
-    private readonly discoveryShards: DocumentResolverDiscoveryShardReader;
+    private readonly compendiumPacks: DocumentResolverCompendiumPackStoreReader;
     private readonly getCompendiumService?: DocumentResolverDeps['getCompendiumService'];
     private readonly allowLiveCompendiumUuidFallback: boolean;
 
@@ -321,7 +321,7 @@ export class DocumentResolver {
             ...(deps.documentStores || {}),
         };
         this.worldState = deps.worldStateStore || worldStateStore;
-        this.discoveryShards = deps.discoveryShardStore || discoveryShardStore;
+        this.compendiumPacks = deps.compendiumPackStore || compendiumPackStore;
         this.getCompendiumService = deps.getCompendiumService;
         this.allowLiveCompendiumUuidFallback = deps.allowLiveCompendiumUuidFallback === true;
     }
@@ -383,10 +383,10 @@ export class DocumentResolver {
     }
 
     private async resolveCompendiumDocument(parsed: ParsedCompendiumUuid): Promise<Record<string, unknown> | null> {
-        const shardLookup = await this.resolveHydratedShardDocument(parsed);
-        if (shardLookup.status === 'hit') return shardLookup.document;
+        const packLookup = await this.resolveHydratedPackDocument(parsed);
+        if (packLookup.status === 'hit') return packLookup.document;
 
-        this.warnCompendiumShardMiss(parsed, shardLookup);
+        this.warnCompendiumPackMiss(parsed, packLookup);
 
         if (!this.allowLiveCompendiumUuidFallback) return null;
 
@@ -397,7 +397,7 @@ export class DocumentResolver {
             logger.warn(
                 `DocumentResolver | Live compendium UUID fallback enabled for ${parsed.raw} `
                 + `(pack: ${parsed.packId}, document: ${parsed.documentId}, type: ${parsed.type || 'unknown'}). `
-                + 'Update module discovery config so normal SDK reads come from a hydrated shard.',
+                + 'Update module compendium pack config so normal SDK reads come from hydrated pack rows.',
             );
             return await service.getPackDocument(parsed.packId, parsed.documentId, parsed.type);
         } catch {
@@ -405,22 +405,22 @@ export class DocumentResolver {
         }
     }
 
-    private async resolveHydratedShardDocument(
+    private async resolveHydratedPackDocument(
         parsed: ParsedCompendiumUuid,
-    ): Promise<HydratedShardLookupResult> {
+    ): Promise<HydratedPackLookupResult> {
         const systemId = getActiveSystemId(this.worldState);
         if (!systemId) return { status: 'no-system' };
 
-        const manifest = await this.discoveryShards.getManifest(systemId);
+        const manifest = await this.compendiumPacks.getManifest(systemId);
         if (!manifest) return { status: 'no-manifest', systemId };
 
         const packEntry = manifest?.packs?.[parsed.packId];
-        // Only module-declared hydrated shards contain full document payloads.
-        // Indexed shards may have enough shape for search, but not for fetchByUuid.
+        // Only module-declared hydrated pack rows contain full document payloads.
+        // Indexed packs may have enough shape for search, but not for fetchByUuid.
         if (!packEntry) return { status: 'undeclared-pack', systemId };
         if (!packEntry.hydrate) return { status: 'not-hydrated', systemId };
 
-        const document = await this.discoveryShards.findDocument(
+        const document = await this.compendiumPacks.findDocument(
             systemId,
             parsed.packId,
             parsed.documentId,
@@ -431,12 +431,12 @@ export class DocumentResolver {
             : { status: 'missing-document', systemId };
     }
 
-    private warnCompendiumShardMiss(
+    private warnCompendiumPackMiss(
         parsed: ParsedCompendiumUuid,
-        lookup: Exclude<HydratedShardLookupResult, { status: 'hit' }>,
+        lookup: Exclude<HydratedPackLookupResult, { status: 'hit' }>,
     ): void {
         const base =
-            `DocumentResolver | Compendium UUID ${parsed.raw} was not served from a hydrated discovery shard `
+            `DocumentResolver | Compendium UUID ${parsed.raw} was not served from hydrated compendium pack rows `
             + `(pack: ${parsed.packId}, document: ${parsed.documentId}, type: ${parsed.type || 'unknown'})`;
 
         if (lookup.status === 'no-system') {
@@ -445,7 +445,7 @@ export class DocumentResolver {
         }
 
         if (lookup.status === 'no-manifest') {
-            logger.warn(`${base}: no discovery manifest for system ${lookup.systemId}.`);
+            logger.warn(`${base}: no compendium pack manifest for system ${lookup.systemId}.`);
             return;
         }
 
@@ -459,6 +459,6 @@ export class DocumentResolver {
             return;
         }
 
-        logger.warn(`${base}: hydrated shard for system ${lookup.systemId} does not contain the document.`);
+        logger.warn(`${base}: hydrated pack rows for system ${lookup.systemId} do not contain the document.`);
     }
 }

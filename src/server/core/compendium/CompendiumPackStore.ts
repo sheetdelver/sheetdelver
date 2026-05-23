@@ -1,23 +1,23 @@
 import { persistentCache } from '@server/core/cache/PersistentCache';
-import type { DiscoveryShardManifest } from './types';
+import type { CompendiumPackManifest } from './types';
 
-export interface DiscoveryShardCache {
+export interface CompendiumPackCache {
     get<T>(namespace: string, key: string): Promise<T | null>;
     set<T>(namespace: string, key: string, value: T): Promise<void>;
 }
 
-export interface DiscoveryShardQueryOptions {
+export interface CompendiumPackQueryOptions {
     packIds?: readonly string[] | null;
 }
 
-export type DiscoveryShardDocument = Record<string, unknown>;
+export type CompendiumPackDocument = Record<string, unknown>;
 
 function manifestKeyFor(systemId: string): string {
     return `manifest-${systemId}`;
 }
 
 function shardKeyFor(packId: string): string {
-    // Preserve the key shape DiscoveryService has written historically.
+    // Preserve the key shape CompendiumPackSyncService has written historically.
     return `pack-${packId.replace('.', '-')}`;
 }
 
@@ -25,12 +25,12 @@ function stableShardKeyFor(packId: string): string {
     return `pack-${packId.replace(/\./g, '-')}`;
 }
 
-function getDocumentId(document: DiscoveryShardDocument): string | null {
+function getDocumentId(document: CompendiumPackDocument): string | null {
     const id = document._id || document.id;
     return typeof id === 'string' ? id : null;
 }
 
-function matchesDocumentId(document: DiscoveryShardDocument, documentId: string): boolean {
+function matchesDocumentId(document: CompendiumPackDocument, documentId: string): boolean {
     const id = getDocumentId(document);
     if (id === documentId) return true;
 
@@ -38,7 +38,7 @@ function matchesDocumentId(document: DiscoveryShardDocument, documentId: string)
     return typeof uuid === 'string' && (uuid === documentId || uuid.endsWith(`.${documentId}`));
 }
 
-function getPathValue(document: DiscoveryShardDocument, path: string): unknown {
+function getPathValue(document: CompendiumPackDocument, path: string): unknown {
     if (Object.prototype.hasOwnProperty.call(document, path)) return document[path];
 
     return path.split('.').reduce<unknown>((current, segment) => {
@@ -54,7 +54,7 @@ function valuesEqual(actual: unknown, expected: unknown): boolean {
     return JSON.stringify(actual) === JSON.stringify(expected);
 }
 
-function matchesQuery(document: DiscoveryShardDocument, query: Record<string, unknown> = {}): boolean {
+function matchesQuery(document: CompendiumPackDocument, query: Record<string, unknown> = {}): boolean {
     for (const [key, expected] of Object.entries(query)) {
         if (key === '_id' || key === 'id') {
             const id = getDocumentId(document);
@@ -68,34 +68,34 @@ function matchesQuery(document: DiscoveryShardDocument, query: Record<string, un
 }
 
 /**
- * Read/write boundary for module-declared discovery shards.
+ * Read/write boundary for module-declared compendium pack rows.
  *
- * DiscoveryService writes these persistent shards during bootstrap. This Store
- * gives `context.platform.discovery` a supported read model without exposing
+ * CompendiumPackSyncService writes these persistent rows during bootstrap. This Store
+ * gives `context.platform.compendiumPacks` a supported read model without exposing
  * the raw PersistentCache namespace to modules.
  */
-export class DiscoveryShardStore {
-    public constructor(private readonly cache: DiscoveryShardCache = persistentCache) { }
+export class CompendiumPackStore {
+    public constructor(private readonly cache: CompendiumPackCache = persistentCache) { }
 
-    public async getManifest(systemId: string): Promise<DiscoveryShardManifest | null> {
-        return this.cache.get<DiscoveryShardManifest>(systemId, manifestKeyFor(systemId));
+    public async getManifest(systemId: string): Promise<CompendiumPackManifest | null> {
+        return this.cache.get<CompendiumPackManifest>(systemId, manifestKeyFor(systemId));
     }
 
-    public async setManifest(manifest: DiscoveryShardManifest): Promise<void> {
+    public async setManifest(manifest: CompendiumPackManifest): Promise<void> {
         await this.cache.set(manifest.systemId, manifestKeyFor(manifest.systemId), manifest);
     }
 
-    public async getShard(systemId: string, packId: string): Promise<DiscoveryShardDocument[] | null> {
-        const legacy = await this.cache.get<DiscoveryShardDocument[]>(systemId, shardKeyFor(packId));
+    public async getPackRows(systemId: string, packId: string): Promise<CompendiumPackDocument[] | null> {
+        const legacy = await this.cache.get<CompendiumPackDocument[]>(systemId, shardKeyFor(packId));
         if (Array.isArray(legacy)) return legacy;
 
         const stable = stableShardKeyFor(packId);
         if (stable === shardKeyFor(packId)) return null;
-        const fallback = await this.cache.get<DiscoveryShardDocument[]>(systemId, stable);
+        const fallback = await this.cache.get<CompendiumPackDocument[]>(systemId, stable);
         return Array.isArray(fallback) ? fallback : null;
     }
 
-    public async setShard(systemId: string, packId: string, documents: DiscoveryShardDocument[]): Promise<void> {
+    public async setPackRows(systemId: string, packId: string, documents: CompendiumPackDocument[]): Promise<void> {
         await this.cache.set(systemId, shardKeyFor(packId), documents);
     }
 
@@ -103,16 +103,16 @@ export class DiscoveryShardStore {
         systemId: string,
         _type: string,
         query: Record<string, unknown> = {},
-        options: DiscoveryShardQueryOptions = {},
-    ): Promise<DiscoveryShardDocument[]> {
+        options: CompendiumPackQueryOptions = {},
+    ): Promise<CompendiumPackDocument[]> {
         const packIds = await this.resolvePackIds(systemId, options.packIds);
         if (packIds.length === 0) return [];
 
-        const results: DiscoveryShardDocument[] = [];
+        const results: CompendiumPackDocument[] = [];
         for (const packId of packIds) {
-            const shard = await this.getShard(systemId, packId);
-            if (!shard) continue;
-            results.push(...shard.filter(document => matchesQuery(document, query)));
+            const rows = await this.getPackRows(systemId, packId);
+            if (!rows) continue;
+            results.push(...rows.filter(document => matchesQuery(document, query)));
         }
 
         return results;
@@ -122,8 +122,8 @@ export class DiscoveryShardStore {
         systemId: string,
         type: string,
         query: Record<string, unknown>,
-        options: DiscoveryShardQueryOptions = {},
-    ): Promise<DiscoveryShardDocument | null> {
+        options: CompendiumPackQueryOptions = {},
+    ): Promise<CompendiumPackDocument | null> {
         const results = await this.findAll(systemId, type, query, options);
         return results[0] || null;
     }
@@ -132,8 +132,8 @@ export class DiscoveryShardStore {
         systemId: string,
         type: string,
         id: string,
-        options: DiscoveryShardQueryOptions = {},
-    ): Promise<DiscoveryShardDocument | null> {
+        options: CompendiumPackQueryOptions = {},
+    ): Promise<CompendiumPackDocument | null> {
         const byUnderscoreId = await this.findOne(systemId, type, { _id: id }, options);
         if (byUnderscoreId) return byUnderscoreId;
 
@@ -148,13 +148,13 @@ export class DiscoveryShardStore {
         packId: string,
         documentId: string,
         _type?: string | null,
-    ): Promise<DiscoveryShardDocument | null> {
-        const shard = await this.getShard(systemId, packId);
-        if (!shard) return null;
+    ): Promise<CompendiumPackDocument | null> {
+        const rows = await this.getPackRows(systemId, packId);
+        if (!rows) return null;
 
         // Pack scope tells us the root document type. Row `type` can be an item
         // subtype in hydrated Item packs, so do not filter on it here.
-        return shard.find(document => matchesDocumentId(document, documentId)) || null;
+        return rows.find(document => matchesDocumentId(document, documentId)) || null;
     }
 
     private async resolvePackIds(systemId: string, packIds?: readonly string[] | null): Promise<string[]> {
@@ -166,4 +166,4 @@ export class DiscoveryShardStore {
     }
 }
 
-export const discoveryShardStore = new DiscoveryShardStore();
+export const compendiumPackStore = new CompendiumPackStore();

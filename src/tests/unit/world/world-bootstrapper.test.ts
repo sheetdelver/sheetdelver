@@ -158,13 +158,13 @@ async function runBootstrapOrderingAndReadyCallback() {
         getSystem: () => ({ id: 'SyntheticSystem' }),
         getRegisteredModules: () => [{
             id: 'syntheticsystem',
-            discovery: { packs: [] },
+            compendiumPacks: { packs: [] },
         } as any],
         loadAdapter: async (systemId) => {
             order.push(`load-adapter:${systemId}`);
             return initializingAdapter;
         },
-        syncDiscovery: async (_transport, systemId) => {
+        syncCompendiumPacks: async (_transport, systemId) => {
             order.push(`sync:${systemId}`);
         },
         seedDocuments: async () => {

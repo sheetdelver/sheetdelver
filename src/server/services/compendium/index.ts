@@ -6,8 +6,8 @@ export {
     type GetPackEntriesOptions,
 } from './CompendiumService';
 export {
-    DiscoveryService,
-    discoveryService,
-    type DiscoveryPackReader,
-    type DiscoverySyncClient,
-} from './DiscoveryService';
+    CompendiumPackSyncService,
+    compendiumPackSyncService,
+    type CompendiumPackIndexReader,
+    type CompendiumPackSyncClient,
+} from './CompendiumPackSyncService';

@@ -29,9 +29,9 @@ export type {
     ModuleTrustDeclaration,
     ModuleTrustTier,
     ModuleManifest,
-    DiscoveryConfig,
-    PackDiscoveryConfig,
-    PackDiscoveryDocumentType,
+    CompendiumPackConfig,
+    CompendiumPackDeclaration,
+    CompendiumPackDocumentType,
     RollMode,
     RollData,
     RollDataOptions,
@@ -57,7 +57,7 @@ export type {
 export type {
     ModuleContext,
     PersistentCache,
-    CompendiumCache,
+    CompendiumPackReader,
 } from './context';
 
 export type { ModuleLogger } from './logging';

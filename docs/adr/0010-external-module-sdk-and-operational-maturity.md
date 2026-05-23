@@ -154,7 +154,7 @@ Modules importing `@core/config`, `@core/foundry/instance`, `@core/foundry/compe
 - Config values: passed via `ModuleContext` or a module-specific config surface
 - Foundry access: passed via `FoundryClient` (already in SDK) and injected via `ModuleContext`
 - PersistentCache: already in `ModuleContext.platform.cache`
-- CompendiumCache: already in `ModuleContext.platform.discovery`
+- CompendiumCache: already in `ModuleContext.platform.compendiumPacks`
 - `Roll` class: should not be used directly in modules — roll operations go through `FoundryClient.roll()`
 
 **Files:** `data/modules/morkborg/src/server/MorkBorgAdapter.ts`, `data/modules/shadowdark/src/server/`, `src/shared/sdk/base.ts`

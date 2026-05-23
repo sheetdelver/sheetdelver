@@ -1,5 +1,5 @@
 import { SystemAdapter, UIModuleManifest, type ModuleInfo } from '@shared/sdk';
-import type { DiscoveryConfig } from '@shared/sdk';
+import type { CompendiumPackConfig } from '@shared/sdk';
 export type { ModuleLifecycleRecord, ModuleLifecycleStatus, ModuleLifecycleStore } from '../lifecycle/lifecycle';
 export type { ModuleCompatibilityResult, ModuleValidationResult } from '../lifecycle/validation';
 import { ModuleSourceCategory, ModuleTrustTier } from '@shared/types/modules';
@@ -31,18 +31,18 @@ export interface SystemPlugin {
     getServer?: () => Promise<any>;
 }
 
-export interface DiscoveryConfigProviderAdapter {
-    getDiscoveryConfig(): DiscoveryConfig;
+export interface CompendiumPackConfigProviderAdapter {
+    getCompendiumPackConfig(): CompendiumPackConfig;
 }
 
 export interface InitializableAdapter {
     initialize(context: import('@shared/sdk').ModuleContext): Promise<void>;
 }
 
-export function hasDiscoveryConfig(
+export function hasCompendiumPackConfig(
     adapter: SystemAdapter | null
-): adapter is SystemAdapter & DiscoveryConfigProviderAdapter {
-    return typeof adapter?.getDiscoveryConfig === 'function';
+): adapter is SystemAdapter & CompendiumPackConfigProviderAdapter {
+    return typeof adapter?.getCompendiumPackConfig === 'function';
 }
 
 export function hasInitialize(

@@ -9,7 +9,7 @@ import {
     type ModuleServerExport,
     type ModuleContext,
     type PersistentCache,
-    type CompendiumCache,
+    type CompendiumPackReader,
     type ModuleLogger,
     type UIModuleManifest,
     type FoundryActor,
@@ -62,10 +62,10 @@ async function runAdapterTests() {
     // getRollData default
     assert.equal(adapter.getRollData!(rawActor, 'stat', 'str'), null);
 
-    // getDiscoveryConfig default
-    const disc = adapter.getDiscoveryConfig!();
-    assert.ok(Array.isArray(disc.packs));
-    assert.equal(disc.packs.length, 0);
+    // getCompendiumPackConfig default
+    const packs = adapter.getCompendiumPackConfig!();
+    assert.ok(Array.isArray(packs.packs));
+    assert.equal(packs.packs.length, 0);
 
     // getActorCardData default
     const card = adapter.getActorCardData!(rawActor);
@@ -91,7 +91,7 @@ async function runAdapterTests() {
                 set: async () => {},
                 delete: async () => {},
             },
-            discovery: {
+            compendiumPacks: {
                 findOne: async () => null,
                 findAll: async () => [],
                 getById: async () => null,
@@ -197,7 +197,7 @@ async function runContextTests() {
         delete: async (_key: string) => {},
     };
 
-    const discovery: CompendiumCache = {
+    const compendiumPacks: CompendiumPackReader = {
         findOne: async (_type, _query) => null,
         findAll: async (_type, _query) => [],
         getById: async (_type, _id) => null,
@@ -214,13 +214,13 @@ async function runContextTests() {
         moduleId: 'test-module',
         foundryUrl: 'http://localhost:30000',
         logger,
-        platform: { cache, discovery },
+        platform: { cache, compendiumPacks },
     };
 
     assert.equal(context.moduleId, 'test-module');
     assert.ok(typeof context.logger.info === 'function');
     assert.ok(context.platform.cache.get);
-    assert.ok(context.platform.discovery.findOne);
+    assert.ok(context.platform.compendiumPacks.findOne);
 
     console.log('  - ModuleContext: shape verified');
 }

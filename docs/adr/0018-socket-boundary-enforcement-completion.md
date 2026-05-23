@@ -17,7 +17,7 @@ ADR-0018 is the closure pass. It removes residual utility/session concerns from 
 | ADR | Scope | Depends on |
 |---|---|---|
 | ADR-0014 - Non-Document World State and the Socket Boundary Principle | `WorldStateStore`, `WorldLifecycleStore`, `SharedContentStore`, file-layout convention, and removal of world-state readers from sockets. | none |
-| ADR-0015 - Compendium Architecture and the Pathway B Read Gap | `CompendiumStore`, `CompendiumService`, `DiscoveryShardStore` / shard reader. Fixes SDK discovery shard reads, de-duplicates Pathway A/B index work, and removes compendium readers from sockets. | ADR-0014 |
+| ADR-0015 - Compendium Architecture and the Pathway B Read Gap | `CompendiumStore`, `CompendiumService`, `CompendiumPackStore` / shard reader. Fixes SDK discovery shard reads, de-duplicates Pathway A/B index work, and removes compendium readers from sockets. | ADR-0014 |
 | ADR-0016 - Document Resolution and UUID Routing | `DocumentResolver`; removes `fetchByUuid` from `CoreSocket` and `ClientSocket`; parses world, embedded, and compendium UUIDs; delegates compendium lookup to ADR-0015 shard/fallback primitives. | ADR-0015 |
 | ADR-0017 - World Bootstrap and Lifecycle Orchestration | `WorldBootstrapper`, delayed `active`, adapter ownership, `EngagementService`, and `SyncTokenService`. Removes adapter, heartbeat-policy, bootstrap-orchestration, and sync-token leftovers from sockets. | ADR-0014 through ADR-0016 |
 | **ADR-0018 (this ADR)** - Socket Boundary Enforcement Completion | URL utility extraction, `ClientSocket` session-restore ownership split, socket-facing interface cleanup, stale-comment cleanup, and final socket-surface verification. | ADR-0014 through ADR-0017 |
@@ -299,7 +299,7 @@ Phase 5 closes ADR-0018 and handed the compatibility follow-up to ADR-0019.
 - `CoreSocket`: service-account transport connect/disconnect, raw socket event emission, generic document dispatch, inbound `modifyDocument` routing to Stores, bootstrap snapshot fetch, raw heartbeat/reconnect transport operations requested by `EngagementService`, and runtime clears on teardown.
 - `ClientSocket`: user-scoped transport connect/login/restored-credential reconnect, fail-closed generic document dispatch, and shutdown/reload/shared-content wire relays.
 
-Removed concerns now have explicit homes: URL projection in `foundryUrl.ts`; session restore policy in `SessionManager`; world state in `WorldStateStore`; lifecycle in `WorldLifecycleStore`; compendium reads in `CompendiumService` / `CompendiumStore` / `DiscoveryShardStore`; UUID routing in `DocumentResolver`; bootstrap and adapter lifecycle in `WorldBootstrapper`; engagement policy in `EngagementService`; status refetch tokens in `SyncTokenService`; shared-content state in `SharedContentStore`; route/module public facades in the route/module client utilities.
+Removed concerns now have explicit homes: URL projection in `foundryUrl.ts`; session restore policy in `SessionManager`; world state in `WorldStateStore`; lifecycle in `WorldLifecycleStore`; compendium reads in `CompendiumService` / `CompendiumStore` / `CompendiumPackStore`; UUID routing in `DocumentResolver`; bootstrap and adapter lifecycle in `WorldBootstrapper`; engagement policy in `EngagementService`; status refetch tokens in `SyncTokenService`; shared-content state in `SharedContentStore`; route/module public facades in the route/module client utilities.
 
 **Non-goals for Phase 5:**
 

@@ -1,5 +1,5 @@
-import { hasDiscoveryConfig, hasInitialize, SystemAdapter, SystemModuleInfo, SystemPlugin } from './types';
-import type { DiscoveryConfig } from '@shared/sdk';
+import { hasCompendiumPackConfig, hasInitialize, SystemAdapter, SystemModuleInfo, SystemPlugin } from './types';
+import type { CompendiumPackConfig } from '@shared/sdk';
 export * from './utils';
 import { logger } from '@shared/utils/logger';
 import { BaseSystemAdapter } from '@shared/sdk/base';
@@ -1855,18 +1855,18 @@ export function getRegisteredModules(options?: { includeExperimental?: boolean }
         .map((entry) => entry.info);
 }
 
-export function getModuleDiscoveryConfig(moduleId: string): DiscoveryConfig | null {
+export function getModuleCompendiumPackConfig(moduleId: string): CompendiumPackConfig | null {
     const id = moduleId.toLowerCase();
     const plugin = pluginMap.get(id);
-    const manifestConfig = plugin?.info.discovery;
+    const manifestConfig = plugin?.info.compendiumPacks;
     if (manifestConfig?.packs?.length) return manifestConfig;
 
-    // If the adapter is already instantiated, expose its discovery hook without
+    // If the adapter is already instantiated, expose its pack config hook without
     // creating it here. That avoids recursive adapter initialization while still
-    // letting ModuleContext use hook-declared discovery after SystemService has
+    // letting ModuleContext use hook-declared packs after SystemService has
     // loaded the adapter.
     const adapter = adapterInstances.get(id);
-    if (hasDiscoveryConfig(adapter)) return adapter.getDiscoveryConfig();
+    if (hasCompendiumPackConfig(adapter)) return adapter.getCompendiumPackConfig();
     return null;
 }
 
@@ -1957,8 +1957,8 @@ export async function getAdapter(systemId: string): Promise<SystemAdapter | null
 
         const adapter = new AdapterClass();
 
-        // Optional initialization hook — inject ModuleContext so adapters
-        // have access to a namespaced logger, scoped cache, and discovery.
+        // Optional initialization hook: inject ModuleContext so adapters have
+        // a namespaced logger, scoped cache, and declared compendium pack reader.
         if (hasInitialize(adapter)) {
             const { createModuleContext } = await import('@server/shared/utils/createModuleContext');
             const context = await createModuleContext(pluginId);

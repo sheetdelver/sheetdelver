@@ -1,25 +1,23 @@
 import { logger } from '@shared/utils/logger';
 import { getConfig } from '@core/config';
-import { CompendiumCache as NameCompendiumCache } from '@core/compendium/CompendiumCache';
-import { discoveryShardStore, type DiscoveryShardStore } from '@server/core/compendium/DiscoveryShardStore';
+import { compendiumPackStore, type CompendiumPackStore } from '@server/core/compendium/CompendiumPackStore';
 import type {
     ModuleContext,
     ModuleLogger,
     PersistentCache,
-    CompendiumCache,
-    DiscoveryConfig,
-    PackDiscoveryConfig,
+    CompendiumPackReader,
+    CompendiumPackConfig,
+    CompendiumPackDeclaration,
 } from '@shared/sdk';
 
-export interface DiscoveryScope {
+export interface CompendiumPackScope {
     systemId: string;
-    packs: PackDiscoveryConfig[];
+    packs: CompendiumPackDeclaration[];
 }
 
-export interface ScopedDiscoveryDeps {
-    shardStore?: DiscoveryShardStore;
-    getDiscoveryScope?: (moduleId: string) => Promise<DiscoveryScope | null> | DiscoveryScope | null;
-    getNameCache?: () => Pick<NameCompendiumCache, 'getName'>;
+export interface ScopedCompendiumPackDeps {
+    packStore?: CompendiumPackStore;
+    getCompendiumPackScope?: (moduleId: string) => Promise<CompendiumPackScope | null> | CompendiumPackScope | null;
 }
 
 /**
@@ -51,16 +49,16 @@ async function createScopedCache(moduleId: string): Promise<PersistentCache> {
 }
 
 /**
- * Resolve the module-declared discovery scope that is allowed to back
- * `context.platform.discovery`. No scope means discovery fails closed.
+ * Resolve the module-declared pack scope that is allowed to back
+ * `context.platform.compendiumPacks`. No scope means pack reads fail closed.
  */
-async function resolveDiscoveryScope(moduleId: string): Promise<DiscoveryScope | null> {
-    const { getModuleDiscoveryConfig } = await import('@modules/registry/server');
-    const discovery = getModuleDiscoveryConfig(moduleId) as DiscoveryConfig | undefined;
-    if (!discovery?.packs?.length) return null;
+async function resolveCompendiumPackScope(moduleId: string): Promise<CompendiumPackScope | null> {
+    const { getModuleCompendiumPackConfig } = await import('@modules/registry/server');
+    const config = getModuleCompendiumPackConfig(moduleId) as CompendiumPackConfig | undefined;
+    if (!config?.packs?.length) return null;
     return {
         systemId: moduleId.toLowerCase(),
-        packs: discovery.packs,
+        packs: config.packs,
     };
 }
 
@@ -75,7 +73,7 @@ function parseCompendiumPackId(uuid: string): string | null {
     return (hasTypeSegment ? parts.slice(1, -1) : parts.slice(1)).join('.') || null;
 }
 
-function getScopedPackIds(scope: DiscoveryScope | null, type: string): string[] {
+function getScopedPackIds(scope: CompendiumPackScope | null, type: string): string[] {
     if (!scope) return [];
     return scope.packs
         .filter(pack => pack.type === type)
@@ -87,47 +85,36 @@ function isScopedUuid(id: string, packIds: readonly string[]): boolean {
     return Boolean(packId && packIds.includes(packId));
 }
 
-export async function createScopedDiscovery(
+export async function createScopedCompendiumPacks(
     moduleId: string,
-    deps: ScopedDiscoveryDeps = {},
-): Promise<CompendiumCache> {
-    const shardStore = deps.shardStore || discoveryShardStore;
-    const scope = deps.getDiscoveryScope
-        ? await deps.getDiscoveryScope(moduleId)
-        : await resolveDiscoveryScope(moduleId);
-    const cache = deps.getNameCache ? deps.getNameCache() : NameCompendiumCache.getInstance();
+    deps: ScopedCompendiumPackDeps = {},
+): Promise<CompendiumPackReader> {
+    const packStore = deps.packStore || compendiumPackStore;
+    const scope = deps.getCompendiumPackScope
+        ? await deps.getCompendiumPackScope(moduleId)
+        : await resolveCompendiumPackScope(moduleId);
 
     return {
         findOne: async (type: string, query: Record<string, unknown>) => {
             const packIds = getScopedPackIds(scope, type);
             if (!scope || packIds.length === 0) return null;
 
-            const found = await shardStore.findOne(scope.systemId, type, query, { packIds });
-            if (found) return found;
-
-            if (query._id && isScopedUuid(String(query._id), packIds)) {
-                const name = cache.getName(String(query._id));
-                if (name) return { _id: String(query._id), name };
-            }
-
-            return null;
+            return packStore.findOne(scope.systemId, type, query, { packIds });
         },
         findAll: async (type: string, query?: Record<string, unknown>) => {
             const packIds = getScopedPackIds(scope, type);
             if (!scope || packIds.length === 0) return [];
-            return shardStore.findAll(scope.systemId, type, query || {}, { packIds });
+            return packStore.findAll(scope.systemId, type, query || {}, { packIds });
         },
         getById: async (type: string, id: string) => {
             const packIds = getScopedPackIds(scope, type);
             if (!scope || packIds.length === 0) return null;
+            // Bare document ids are safe because the Store call is still scoped
+            // to declared pack ids. Fully-qualified UUIDs must name one of those
+            // packs before we ask the Store to search.
+            if (id.startsWith('Compendium.') && !isScopedUuid(id, packIds)) return null;
 
-            const found = await shardStore.getById(scope.systemId, type, id, { packIds });
-            if (found) return found;
-
-            if (!isScopedUuid(id, packIds)) return null;
-            const name = cache.getName(id);
-            if (name) return { _id: id, name };
-            return null;
+            return packStore.getById(scope.systemId, type, id, { packIds });
         },
     };
 }
@@ -137,9 +124,9 @@ export async function createScopedDiscovery(
  * Called by the registry when initializing an adapter.
  */
 export async function createModuleContext(moduleId: string): Promise<ModuleContext> {
-    const [scopedCache, scopedDiscovery] = await Promise.all([
+    const [scopedCache, scopedCompendiumPacks] = await Promise.all([
         createScopedCache(moduleId),
-        createScopedDiscovery(moduleId),
+        createScopedCompendiumPacks(moduleId),
     ]);
 
     let foundryUrl = '';
@@ -155,7 +142,7 @@ export async function createModuleContext(moduleId: string): Promise<ModuleConte
         foundryUrl,
         platform: {
             cache: scopedCache,
-            discovery: scopedDiscovery,
+            compendiumPacks: scopedCompendiumPacks,
         },
     };
 }

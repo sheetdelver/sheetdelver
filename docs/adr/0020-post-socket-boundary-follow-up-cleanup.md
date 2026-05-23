@@ -178,7 +178,7 @@ Compendium embedded UUID traversal remains out of scope unless a real caller nee
 ADR-0016 currently resolves compendium UUIDs in this order:
 
 1. parse pack id, optional type, and document id
-2. check the active system's `DiscoveryShardStore` manifest
+2. check the active system's `CompendiumPackStore` manifest
 3. if the pack has `hydrate: true`, ask the shard for the document
 4. if no hydrated shard serves the document, call `CompendiumService.getPackDocument(...)`
 

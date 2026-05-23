@@ -3,7 +3,7 @@ import { PrimaryDocumentCacheNotReadyError } from '@server/core/documents/primar
 import {
     DocumentResolver,
     type DocumentResolverCompendiumService,
-    type DocumentResolverDiscoveryShardReader,
+    type DocumentResolverCompendiumPackStoreReader,
     type DocumentResolverStoreMap,
     type DocumentResolverWorldStateReader,
     type DocumentStoreReader,
@@ -11,7 +11,7 @@ import {
     parseDocumentUuid,
     parseWorldUuid,
 } from '@server/services/documents';
-import type { DiscoveryShardManifest } from '@server/core/compendium/types';
+import type { CompendiumPackManifest } from '@server/core/compendium/types';
 
 export async function run() {
     runInvalidUuidParsing();
@@ -24,9 +24,9 @@ export async function run() {
     await runUnknownAndDeferredWorldTypes();
     await runEmbeddedWorldResolution();
     await runEmbeddedMissingAndMalformedResolution();
-    await runCompendiumHydratedShardResolution();
-    await runCompendiumNonHydratedShardMiss();
-    await runCompendiumMissingHydratedShardMiss();
+    await runCompendiumHydratedPackResolution();
+    await runCompendiumNonHydratedPackMiss();
+    await runCompendiumMissingHydratedPackMiss();
     await runCompendiumOptInLiveFallback();
     console.log('  - DocumentResolver: all checks passed');
 }
@@ -54,7 +54,7 @@ class SyntheticWorldState implements DocumentResolverWorldStateReader {
     }
 }
 
-class SyntheticDiscoveryShardStore implements DocumentResolverDiscoveryShardReader {
+class SyntheticCompendiumPackStore implements DocumentResolverCompendiumPackStoreReader {
     public readonly manifestCalls: string[] = [];
     public readonly findCalls: Array<{
         systemId: string;
@@ -62,7 +62,7 @@ class SyntheticDiscoveryShardStore implements DocumentResolverDiscoveryShardRead
         documentId: string;
         type?: string | null;
     }> = [];
-    private readonly manifest: DiscoveryShardManifest | null;
+    private readonly manifest: CompendiumPackManifest | null;
 
     public constructor(
         options: {
@@ -93,7 +93,7 @@ class SyntheticDiscoveryShardStore implements DocumentResolverDiscoveryShardRead
 
     private readonly documents: Record<string, Record<string, unknown>>;
 
-    public async getManifest(systemId: string): Promise<DiscoveryShardManifest | null> {
+    public async getManifest(systemId: string): Promise<CompendiumPackManifest | null> {
         this.manifestCalls.push(systemId);
         return this.manifest?.systemId === systemId ? this.manifest : null;
     }
@@ -385,19 +385,19 @@ async function runEmbeddedMissingAndMalformedResolution() {
     assert.equal(await resolver.fetchByUuid('RollTable.table-1.RollTableResult.result-1'), null);
 }
 
-async function runCompendiumHydratedShardResolution() {
-    const shardDocument = {
+async function runCompendiumHydratedPackResolution() {
+    const packDocument = {
         _id: 'torch',
         uuid: 'Compendium.synthetic.items.Item.torch',
-        name: 'Shard Torch',
+        name: 'Pack Torch',
         system: { quantity: 1 },
     };
-    const shardStore = new SyntheticDiscoveryShardStore({
+    const packStore = new SyntheticCompendiumPackStore({
         packs: {
             'synthetic.items': { hydrate: true },
         },
         documents: {
-            'synthetic.items/torch': shardDocument,
+            'synthetic.items/torch': packDocument,
         },
     });
     const fallback = new SyntheticCompendiumService({
@@ -405,17 +405,17 @@ async function runCompendiumHydratedShardResolution() {
     });
     const resolver = new DocumentResolver({
         worldStateStore: new SyntheticWorldState(),
-        discoveryShardStore: shardStore,
+        compendiumPackStore: packStore,
         getCompendiumService: () => fallback,
     });
 
     const resolved = await resolver.fetchByUuid('Compendium.synthetic.items.Item.torch');
-    assert.deepEqual(resolved, shardDocument);
-    assert.notEqual(resolved, shardDocument);
+    assert.deepEqual(resolved, packDocument);
+    assert.notEqual(resolved, packDocument);
     (resolved as Record<string, unknown>).name = 'Mutated';
-    assert.equal(shardDocument.name, 'Shard Torch');
+    assert.equal(packDocument.name, 'Pack Torch');
     assert.equal(fallback.calls.length, 0);
-    assert.deepEqual(shardStore.findCalls, [{
+    assert.deepEqual(packStore.findCalls, [{
         systemId: 'synthetic-system',
         packId: 'synthetic.items',
         documentId: 'torch',
@@ -423,9 +423,9 @@ async function runCompendiumHydratedShardResolution() {
     }]);
 }
 
-async function runCompendiumNonHydratedShardMiss() {
+async function runCompendiumNonHydratedPackMiss() {
     const fallbackDocument = { _id: 'talents', name: 'Full Talents', results: [] };
-    const shardStore = new SyntheticDiscoveryShardStore({
+    const packStore = new SyntheticCompendiumPackStore({
         packs: {
             'synthetic.tables': { hydrate: false },
         },
@@ -438,18 +438,18 @@ async function runCompendiumNonHydratedShardMiss() {
     });
     const resolver = new DocumentResolver({
         worldStateStore: new SyntheticWorldState(),
-        discoveryShardStore: shardStore,
+        compendiumPackStore: packStore,
         getCompendiumService: () => fallback,
     });
 
     assert.equal(await resolver.fetchByUuid('Compendium.synthetic.tables.RollTable.talents'), null);
-    assert.deepEqual(shardStore.findCalls, []);
+    assert.deepEqual(packStore.findCalls, []);
     assert.deepEqual(fallback.calls, []);
 }
 
-async function runCompendiumMissingHydratedShardMiss() {
+async function runCompendiumMissingHydratedPackMiss() {
     const fallbackDocument = { _id: 'spell', name: 'Fallback Spell' };
-    const shardStore = new SyntheticDiscoveryShardStore({
+    const packStore = new SyntheticCompendiumPackStore({
         packs: {
             'synthetic.items': { hydrate: true },
         },
@@ -459,17 +459,17 @@ async function runCompendiumMissingHydratedShardMiss() {
     });
     const resolver = new DocumentResolver({
         worldStateStore: new SyntheticWorldState(),
-        discoveryShardStore: shardStore,
+        compendiumPackStore: packStore,
         getCompendiumService: () => fallback,
     });
 
     assert.equal(await resolver.fetchByUuid('Compendium.synthetic.items.Item.spell'), null);
-    assert.equal(shardStore.findCalls.length, 1);
+    assert.equal(packStore.findCalls.length, 1);
     assert.equal(fallback.calls.length, 0);
 }
 
 async function runCompendiumOptInLiveFallback() {
-    const shardStore = new SyntheticDiscoveryShardStore({
+    const packStore = new SyntheticCompendiumPackStore({
         packs: {
             'synthetic.items': { hydrate: false },
         },
@@ -480,7 +480,7 @@ async function runCompendiumOptInLiveFallback() {
     });
     const resolver = new DocumentResolver({
         worldStateStore: new SyntheticWorldState(),
-        discoveryShardStore: shardStore,
+        compendiumPackStore: packStore,
         getCompendiumService: () => fallback,
         allowLiveCompendiumUuidFallback: true,
     });

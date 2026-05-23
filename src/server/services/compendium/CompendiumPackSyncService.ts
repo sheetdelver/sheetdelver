@@ -1,21 +1,21 @@
 import { logger } from '@shared/utils/logger';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
 import { CompendiumStore, compendiumStore } from '@server/core/compendium/CompendiumStore';
-import { discoveryShardStore, type DiscoveryShardStore } from '@server/core/compendium/DiscoveryShardStore';
-import type { DiscoveryConfig, PackDiscoveryConfig } from '@shared/sdk';
-import type { CompendiumIndexEntry, CompendiumPackMetadata, DiscoveryShardManifest } from '@server/core/compendium/types';
+import { compendiumPackStore, type CompendiumPackStore } from '@server/core/compendium/CompendiumPackStore';
+import type { CompendiumPackConfig, CompendiumPackDeclaration } from '@shared/sdk';
+import type { CompendiumIndexEntry, CompendiumPackMetadata, CompendiumPackManifest } from '@server/core/compendium/types';
 import crypto from 'node:crypto';
 
-export interface DiscoverySyncClient {
+export interface CompendiumPackSyncClient {
     emitSocketEvent<T>(event: string, ...payloads: unknown[]): Promise<T>;
 }
 
-export interface DiscoveryPackReader {
+export interface CompendiumPackIndexReader {
     getPackEntries(packId: string, options?: { index?: boolean; fields?: readonly string[] }): Promise<unknown[]>;
 }
 
-export interface DiscoveryServiceDeps {
-    shardStore?: DiscoveryShardStore;
+export interface CompendiumPackSyncServiceDeps {
+    packStore?: CompendiumPackStore;
     compendiumStore?: CompendiumStore;
 }
 
@@ -56,45 +56,45 @@ function hasFreshnessInputs(index: unknown[]): boolean {
     });
 }
 
-export class DiscoveryService {
-    private static instance: DiscoveryService;
-    private readonly shardStore: DiscoveryShardStore;
+export class CompendiumPackSyncService {
+    private static instance: CompendiumPackSyncService;
+    private readonly packStore: CompendiumPackStore;
     private readonly compendiumStore: CompendiumStore;
 
-    public constructor(deps: DiscoveryServiceDeps = {}) {
-        this.shardStore = deps.shardStore || discoveryShardStore;
+    public constructor(deps: CompendiumPackSyncServiceDeps = {}) {
+        this.packStore = deps.packStore || compendiumPackStore;
         this.compendiumStore = deps.compendiumStore || compendiumStore;
     }
 
-    public static getInstance(): DiscoveryService {
-        if (!DiscoveryService.instance) {
-            DiscoveryService.instance = new DiscoveryService();
+    public static getInstance(): CompendiumPackSyncService {
+        if (!CompendiumPackSyncService.instance) {
+            CompendiumPackSyncService.instance = new CompendiumPackSyncService();
         }
-        return DiscoveryService.instance;
+        return CompendiumPackSyncService.instance;
     }
 
     /**
-     * Synchronize module-declared compendiums with the local persistent shard cache.
+     * Synchronize module-declared compendium packs with the local pack-row cache.
      *
      * ADR-0015 Phase 4 keeps the existing freshness/hash behavior intact while
      * allowing Pathway B to reuse Pathway A's default index for freshness and
-     * fetch field-aware variants only when refreshed shard rows need them.
+     * fetch field-aware variants only when refreshed pack rows need them.
      */
     public async sync(
-        client: DiscoverySyncClient,
+        client: CompendiumPackSyncClient,
         systemId: string,
-        config: DiscoveryConfig,
-        packReader: DiscoveryPackReader,
-    ): Promise<DiscoveryShardManifest> {
-        logger.info(`DiscoveryService | Starting sync for system: ${systemId}...`);
+        config: CompendiumPackConfig,
+        packReader: CompendiumPackIndexReader,
+    ): Promise<CompendiumPackManifest> {
+        logger.info(`CompendiumPackSyncService | Starting sync for system: ${systemId}...`);
 
-        const existingManifest = await this.shardStore.getManifest(systemId) || {
+        const existingManifest = await this.packStore.getManifest(systemId) || {
             systemId,
             packs: {},
             _instanceId: crypto.randomUUID(),
         };
 
-        const newManifest: DiscoveryShardManifest = {
+        const newManifest: CompendiumPackManifest = {
             ...existingManifest,
             packs: { ...existingManifest.packs },
         };
@@ -106,30 +106,30 @@ export class DiscoveryService {
                 const refreshed = await this.syncPack(client, packReader, systemId, packConfig, newManifest);
                 if (refreshed) updatedCount++;
             } catch (err: unknown) {
-                logger.error(`DiscoveryService | Failed to sync pack ${packConfig.id}: ${getErrorMessage(err)}`);
+                logger.error(`CompendiumPackSyncService | Failed to sync pack ${packConfig.id}: ${getErrorMessage(err)}`);
             }
         }
 
         if (updatedCount > 0) {
-            await this.shardStore.setManifest(newManifest);
-            logger.info(`DiscoveryService | Sync complete for ${systemId}. ${updatedCount} packs updated.`);
+            await this.packStore.setManifest(newManifest);
+            logger.info(`CompendiumPackSyncService | Sync complete for ${systemId}. ${updatedCount} packs updated.`);
         } else {
-            logger.info(`DiscoveryService | Sync complete for ${systemId}. All packs up to date.`);
+            logger.info(`CompendiumPackSyncService | Sync complete for ${systemId}. All packs up to date.`);
         }
 
         return newManifest;
     }
 
     private async syncPack(
-        client: DiscoverySyncClient,
-        packReader: DiscoveryPackReader,
+        client: CompendiumPackSyncClient,
+        packReader: CompendiumPackIndexReader,
         systemId: string,
-        packConfig: PackDiscoveryConfig,
-        manifest: DiscoveryShardManifest,
+        packConfig: CompendiumPackDeclaration,
+        manifest: CompendiumPackManifest,
     ): Promise<boolean> {
         const packId = packConfig.id;
 
-        const discoveryFields = this.getDiscoveryFields(packConfig);
+        const packFields = this.getPackFields(packConfig);
         const entries = await this.getFreshnessIndex(packReader, packConfig);
         if (!entries || !Array.isArray(entries)) {
             throw new Error(`Could not find pack ${packId} in Foundry or result was not an array.`);
@@ -139,14 +139,14 @@ export class DiscoveryService {
         const existing = manifest.packs[packId];
 
         if (existing && existing.hash === currentHash) {
-            const shardExists = await this.shardStore.getShard(systemId, packId);
-            if (shardExists) {
-                logger.debug(`DiscoveryService | Pack ${packId} is up to date (Hash: ${currentHash.substring(0, 8)})`);
+            const rowsExist = await this.packStore.getPackRows(systemId, packId);
+            if (rowsExist) {
+                logger.debug(`CompendiumPackSyncService | Pack ${packId} is up to date (Hash: ${currentHash.substring(0, 8)})`);
                 return false;
             }
         }
 
-        logger.info(`DiscoveryService | Syncing stale pack: ${packId} (${packConfig.hydrate ? 'FULL HYDRATION' : 'INDEXED'})...`);
+        logger.info(`CompendiumPackSyncService | Syncing stale pack: ${packId} (${packConfig.hydrate ? 'FULL HYDRATION' : 'INDEXED'})...`);
 
         let documents: Record<string, unknown>[] = [];
 
@@ -177,10 +177,10 @@ export class DiscoveryService {
                 }
             }
         } else {
-            documents = await this.getIndexedShardRows(packReader, packConfig, entries, discoveryFields);
+            documents = await this.getIndexedPackRows(packReader, packConfig, entries, packFields);
         }
 
-        await this.shardStore.setShard(systemId, packId, documents);
+        await this.packStore.setPackRows(systemId, packId, documents);
 
         manifest.packs[packId] = {
             id: packId,
@@ -207,11 +207,11 @@ export class DiscoveryService {
         return crypto.createHash('md5').update(signatureString).digest('hex');
     }
 
-    private getDiscoveryFields(packConfig: PackDiscoveryConfig): string[] {
+    private getPackFields(packConfig: CompendiumPackDeclaration): string[] {
         return normalizeFields(packConfig.fields?.length ? packConfig.fields : DEFAULT_INDEX_FIELDS);
     }
 
-    private getPackMetadata(packConfig: PackDiscoveryConfig): CompendiumPackMetadata {
+    private getPackMetadata(packConfig: CompendiumPackDeclaration): CompendiumPackMetadata {
         return this.compendiumStore.getPackMetadata(packConfig.id) || {
             id: packConfig.id,
             type: packConfig.type,
@@ -219,8 +219,8 @@ export class DiscoveryService {
     }
 
     private async getFreshnessIndex(
-        packReader: DiscoveryPackReader,
-        packConfig: PackDiscoveryConfig,
+        packReader: CompendiumPackIndexReader,
+        packConfig: CompendiumPackDeclaration,
     ): Promise<unknown[]> {
         const cachedDefault = this.compendiumStore.getPackIndex(packConfig.id);
         if (cachedDefault && hasFreshnessInputs(cachedDefault)) {
@@ -238,37 +238,37 @@ export class DiscoveryService {
         return fetched;
     }
 
-    private async getIndexedShardRows(
-        packReader: DiscoveryPackReader,
-        packConfig: PackDiscoveryConfig,
+    private async getIndexedPackRows(
+        packReader: CompendiumPackIndexReader,
+        packConfig: CompendiumPackDeclaration,
         defaultIndex: unknown[],
-        discoveryFields: readonly string[],
+        packFields: readonly string[],
     ): Promise<Record<string, unknown>[]> {
-        // The freshness hash above only needs the default id/name index. Shard
+        // The freshness hash above only needs the default id/name index. Pack
         // rows may need extra module-declared fields, so fetch a field-aware
         // variant only when the default index does not already contain them.
-        if (indexCoversFields(defaultIndex, discoveryFields)) {
+        if (indexCoversFields(defaultIndex, packFields)) {
             return defaultIndex as Record<string, unknown>[];
         }
 
-        const cachedVariant = this.compendiumStore.getPackIndex(packConfig.id, { fields: discoveryFields });
-        if (cachedVariant && indexCoversFields(cachedVariant, discoveryFields)) {
+        const cachedVariant = this.compendiumStore.getPackIndex(packConfig.id, { fields: packFields });
+        if (cachedVariant && indexCoversFields(cachedVariant, packFields)) {
             return cachedVariant as Record<string, unknown>[];
         }
 
         const fetched = await packReader.getPackEntries(packConfig.id, {
             index: true,
-            fields: discoveryFields,
+            fields: packFields,
         }) as CompendiumIndexEntry[] || [];
 
         this.compendiumStore.setPackIndex(
             packConfig.id,
             this.getPackMetadata(packConfig),
             fetched,
-            { fields: discoveryFields },
+            { fields: packFields },
         );
         return fetched as Record<string, unknown>[];
     }
 }
 
-export const discoveryService = DiscoveryService.getInstance();
+export const compendiumPackSyncService = CompendiumPackSyncService.getInstance();

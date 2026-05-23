@@ -58,7 +58,7 @@ The registry (`src/modules/registry/core/server.ts`) scans these directories at 
 *   **Context injection**: The platform wraps every module component in `SDKProvider`, which injects contexts and shared components via `useSDK()` and `useSDKComponents()` from `@sheet-delver/sdk`.
 *   **Shared components**: Access platform UI components (`LoadingModal`, `RollDialog`, `ConfirmationModal`, `RichTextEditor`, `SharedContentModal`) via `useSDKComponents()` — do not import them from `@client/ui/components/` directly.
 
-See `src/modules/MODULE_MANIFEST.md` for the full authoring reference including SDK surface, `ModuleFoundryClient` methods, discovery pack configuration, and build setup.
+See `src/modules/MODULE_MANIFEST.md` for the full authoring reference including SDK surface, `ModuleFoundryClient` methods, compendium pack configuration, and build setup.
 For the shorter end-to-end workflow, see [Module Authoring Guide](MODULE_AUTHORING.md).
 
 ## Adding a New System
@@ -72,7 +72,7 @@ npm run module:check my-system
 
 Pass `--data-dir` when working outside the default `./data` directory. The generated module is discovered automatically from `<DATA_DIR>/local/modules/<module-id>/`; no registry edits are required.
 
-The [Module Authoring Guide](MODULE_AUTHORING.md) covers the end-to-end development path. The manifest reference in `src/modules/MODULE_MANIFEST.md` remains the authoritative contract for metadata, entry points, SDK hooks, discovery packs, and server routes.
+The [Module Authoring Guide](MODULE_AUTHORING.md) covers the end-to-end development path. The manifest reference in `src/modules/MODULE_MANIFEST.md` remains the authoritative contract for metadata, entry points, SDK hooks, compendium packs, and server routes.
 
 ## Packaging a Module for Distribution
 
@@ -94,15 +94,15 @@ For details on implementing module APIs, see [docs/API.md](docs/API.md).
 SheetDelver uses a persistent cache to store metadata and improve resolution reliability.
 
 *   **Setup Scraper Cache**: Discovery data for worlds and users is stored in `.sheet-delver/cache.json`.
-*   **Compendium Discovery Shards**: Module-declared packs are indexed or hydrated locally before module initialization. Hydrated shards are the normal source for compendium `fetchByUuid` reads.
+*   **Compendium Pack Rows**: Module-declared packs are indexed or hydrated locally before module initialization. Hydrated pack rows are the normal source for compendium `fetchByUuid` reads.
 *   **Primary Documents**: Long-lived Foundry primary document caches live under `src/server/core/documents/primary/`. Actor caching is implemented by `ActorStore` and seeded by `seedDocumentCache()` during bootstrap. New primary document types should follow that structure instead of adding one-off socket-local caches.
 
 ### High-Reliability Resolution: `fetchByUuid`
 
 To ensure system-critical data (like spell descriptions) loads from predictable platform-owned sources:
 
-1.  **Compendium Shards**: Declared compendium packs are indexed or hydrated during module discovery. A compendium UUID read requires a declared shard with `hydrate: true`.
-2.  **Cache-Required Misses**: If a compendium document is not present in a declared hydrated shard, `fetchByUuid` returns `null` and logs a warning. Fix the module's discovery declaration instead of depending on a live Foundry lookup.
+1.  **Compendium Pack Rows**: Declared compendium packs are indexed or hydrated during bootstrap. A compendium UUID read requires a declared pack with `hydrate: true`.
+2.  **Cache-Required Misses**: If a compendium document is not present in declared hydrated pack rows, `fetchByUuid` returns `null` and logs a warning. Fix the module's `compendiumPacks` declaration instead of depending on a live Foundry lookup.
 3.  **Diagnostic Fallback**: Operators may temporarily enable `foundry.allow-live-compendium-uuid-fallback` or `APP_ALLOW_LIVE_COMPENDIUM_UUID_FALLBACK=true` to permit a live pack-document fetch. Do not rely on this in module code or tests.
 4.  **Actor Cache**: Actor API routes should read hydrated actors from `ActorStore`; use UUID fetches only for linked references that are not already embedded in the actor.
 

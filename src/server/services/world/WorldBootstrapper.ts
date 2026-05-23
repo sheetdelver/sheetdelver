@@ -1,6 +1,6 @@
 import { getAdapter, getRegisteredModules } from '@modules/registry/server';
 import {
-    hasDiscoveryConfig,
+    hasCompendiumPackConfig,
     hasInitialize,
     type SystemAdapter,
     type SystemModuleInfo,
@@ -16,13 +16,13 @@ import { worldStateStore } from '@server/core/world/WorldStateStore';
 import type { GameData, SceneDataCache } from '@server/core/world/types';
 import {
     CompendiumService,
-    discoveryService,
+    compendiumPackSyncService,
     type CompendiumTransport,
-    type DiscoveryPackReader,
-    type DiscoverySyncClient,
+    type CompendiumPackIndexReader,
+    type CompendiumPackSyncClient,
 } from '@server/services/compendium';
 import { logger } from '@shared/utils/logger';
-import type { DiscoveryConfig, ModuleContext } from '@shared/sdk';
+import type { CompendiumPackConfig, ModuleContext } from '@shared/sdk';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
 import type { UserDocument } from '@server/shared/types/users';
 import {
@@ -41,10 +41,10 @@ export interface WorldBootstrapperDeps {
     rebuildCompendiumCache?: (indices: CompendiumDiscoveryResult[]) => void;
     getSystem?: () => { id?: string | null } | null;
     getRegisteredModules?: () => SystemModuleInfo[];
-    syncDiscovery?: (
+    syncCompendiumPacks?: (
         transport: WorldBootstrapTransport,
         systemId: string,
-        config: DiscoveryConfig,
+        config: CompendiumPackConfig,
         compendiumService: BootstrapCompendiumService,
     ) => Promise<void>;
     seedDocuments?: (transport: WorldBootstrapTransport) => Promise<void>;
@@ -60,11 +60,11 @@ export interface WorldBootstrapSnapshot {
     sceneData?: SceneDataCache | null;
 }
 
-export type WorldBootstrapTransport = CompendiumTransport & DiscoverySyncClient & {
+export type WorldBootstrapTransport = CompendiumTransport & CompendiumPackSyncClient & {
     getBootstrapSnapshot?(): Promise<WorldBootstrapSnapshot | null>;
 };
 
-export type BootstrapCompendiumService = DiscoveryPackReader & {
+export type BootstrapCompendiumService = CompendiumPackIndexReader & {
     discoverIndices(): Promise<CompendiumDiscoveryResult[]>;
 };
 
@@ -96,10 +96,10 @@ export class WorldBootstrapper {
     private readonly rebuildCompendiumCache: (indices: CompendiumDiscoveryResult[]) => void;
     private readonly getSystem: () => { id?: string | null } | null;
     private readonly getRegisteredModules: () => SystemModuleInfo[];
-    private readonly syncDiscovery: (
+    private readonly syncCompendiumPacks: (
         transport: WorldBootstrapTransport,
         systemId: string,
-        config: DiscoveryConfig,
+        config: CompendiumPackConfig,
         compendiumService: BootstrapCompendiumService,
     ) => Promise<void>;
     private readonly seedDocuments: (transport: WorldBootstrapTransport) => Promise<void>;
@@ -154,8 +154,8 @@ export class WorldBootstrapper {
         });
         this.getSystem = deps.getSystem ?? (() => worldStateStore.getSystem());
         this.getRegisteredModules = deps.getRegisteredModules ?? (() => getRegisteredModules({ includeExperimental: true }));
-        this.syncDiscovery = deps.syncDiscovery ?? (async (transport, systemId, config, compendiumService) => {
-            await discoveryService.sync(transport, systemId, config, compendiumService);
+        this.syncCompendiumPacks = deps.syncCompendiumPacks ?? (async (transport, systemId, config, compendiumService) => {
+            await compendiumPackSyncService.sync(transport, systemId, config, compendiumService);
         });
         this.seedDocuments = deps.seedDocuments ?? ((transport) => seedDocumentCache(transport as CoreSocket));
         this.createModuleContext = deps.createModuleContext ?? (async (systemId) => {
@@ -226,8 +226,9 @@ export class WorldBootstrapper {
                 await this.seedUserSnapshot(snapshot);
             }
 
-            // Pathway A compendium discovery warms Store-backed pack indices,
-            // then rebuilds the legacy UUID-name cache from those results.
+            // The broad game.data pack index is accepted into CompendiumStore
+            // once at bootstrap. Module-declared packs decide later which rows
+            // are hydrated for SDK and UUID-resolution reads.
             const compendiumService = this.createCompendiumService(transport);
             const compendiumIndices = await compendiumService.discoverIndices();
             this.rebuildCompendiumCache(compendiumIndices);
@@ -239,14 +240,14 @@ export class WorldBootstrapper {
                 const moduleInfo = registered.find(module => module.id.toLowerCase() === sysId);
                 const adapter = await this.loadActiveAdapter(sysId);
 
-                let discoveryConfig = moduleInfo?.discovery;
-                if (!discoveryConfig && hasDiscoveryConfig(adapter)) {
-                    discoveryConfig = adapter.getDiscoveryConfig();
+                let compendiumPackConfig = moduleInfo?.compendiumPacks;
+                if (!compendiumPackConfig && hasCompendiumPackConfig(adapter)) {
+                    compendiumPackConfig = adapter.getCompendiumPackConfig();
                 }
 
-                if (discoveryConfig) {
-                    logger.info(`WorldBootstrapper | Running discovery sync for ${sysId}...`);
-                    await this.syncDiscovery(transport, sysId, discoveryConfig, compendiumService);
+                if (compendiumPackConfig) {
+                    logger.info(`WorldBootstrapper | Syncing declared compendium packs for ${sysId}...`);
+                    await this.syncCompendiumPacks(transport, sysId, compendiumPackConfig, compendiumService);
                 }
 
                 // Routes are not ready until every registered primary-document

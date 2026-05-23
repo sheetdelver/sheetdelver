@@ -16,7 +16,7 @@ export async function run() {
     console.log('  - CompendiumStore: all checks passed');
 }
 
-// Keep these fixtures synthetic. Real compendium shards, pack dumps, and local
+// Keep these fixtures synthetic. Real compendium pack rows, pack dumps, and local
 // PersistentCache contents are runtime evidence only; ADR-0015 documents the
 // small example shapes these tests cover.
 function createMetadata(overrides: Partial<CompendiumPackMetadata> = {}): CompendiumPackMetadata {

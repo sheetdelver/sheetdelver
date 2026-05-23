@@ -56,7 +56,7 @@ export interface CompendiumIndexLookupResult {
     fieldKey: string;
 }
 
-export interface DiscoveryShardManifestEntry {
+export interface CompendiumPackManifestEntry {
     id: string;
     hash: string;
     lastUpdated: number;
@@ -65,8 +65,8 @@ export interface DiscoveryShardManifestEntry {
     fields?: string[];
 }
 
-export interface DiscoveryShardManifest {
+export interface CompendiumPackManifest {
     systemId: string;
-    packs: Record<string, DiscoveryShardManifestEntry>;
+    packs: Record<string, CompendiumPackManifestEntry>;
     _instanceId: string;
 }

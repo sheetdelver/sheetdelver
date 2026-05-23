@@ -125,7 +125,7 @@ Returns the latest media or journal shared by the GM with the current user.
 
 ### `GET /api/foundry/document?uuid=...`
 **Auth**: Protected
-Fetches a document by universal UUID through the platform `DocumentResolver`. World primary documents resolve from the platform document stores after bootstrap. Compendium UUIDs resolve from declared hydrated discovery shards by default; undeclared, non-hydrated, or missing shard documents return `null` with a warning. Live Foundry pack-document fallback is available only when `foundry.allow-live-compendium-uuid-fallback` or `APP_ALLOW_LIVE_COMPENDIUM_UUID_FALLBACK=true` is enabled for diagnostics.
+Fetches a document by universal UUID through the platform `DocumentResolver`. World primary documents resolve from the platform document stores after bootstrap. Compendium UUIDs resolve from declared hydrated compendium pack rows by default; undeclared, non-hydrated, or missing pack documents return `null` with a warning. Live Foundry pack-document fallback is available only when `foundry.allow-live-compendium-uuid-fallback` or `APP_ALLOW_LIVE_COMPENDIUM_UUID_FALLBACK=true` is enabled for diagnostics.
 
 ---
 

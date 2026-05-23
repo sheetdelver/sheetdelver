@@ -60,8 +60,8 @@ function parseCompendiumUuid(uuid: string): { packId: string; documentId: string
 /**
  * ADR-0015 Phase 1 Store for active-world compendium index state.
  *
- * This is intentionally index-only. Module-declared hydrated shards live in
- * the future shard reader/store; this Store owns the lightweight Pathway A
+ * This is intentionally index-only. Module-declared hydrated pack rows live in
+ * CompendiumPackStore; this Store owns the lightweight Pathway A
  * index snapshots plus field-aware index variants used to avoid duplicate
  * fetches when Pathway B needs the same rows.
  */

@@ -15,7 +15,7 @@ This ADR is the second decision in the ADR-0014 arc. ADR-0014 moved non-document
 | ADR | Scope | Depends on |
 |---|---|---|
 | ADR-0014 — Non-Document World State and the Socket Boundary Principle | `WorldStateStore`, `WorldLifecycleStore`, `SharedContentStore`, file-layout convention, and removal of world-state readers from sockets. | none |
-| **ADR-0015 (this ADR)** — Compendium Architecture and the Pathway B Read Gap | `CompendiumStore`, `CompendiumService`, `DiscoveryShardStore` / shard reader. Fixes the gap where module-declared discovery writes persistent shards that are not exposed through the SDK discovery surface (`context.platform.discovery`). De-duplicates Pathway A/B index fetches and moves `getAllCompendiumIndices` / `getPackEntries` / `getPackIndex` / `getPackDocuments` off sockets. | ADR-0014 |
+| **ADR-0015 (this ADR)** — Compendium Architecture and the Pathway B Read Gap | `CompendiumStore`, `CompendiumService`, `CompendiumPackStore` / shard reader. Fixes the gap where module-declared discovery writes persistent shards that are not exposed through the SDK discovery surface (`context.platform.compendiumPacks`). De-duplicates Pathway A/B index fetches and moves `getAllCompendiumIndices` / `getPackEntries` / `getPackIndex` / `getPackDocuments` off sockets. | ADR-0014 |
 | ADR-0016 — Document Resolution and UUID Routing | `DocumentResolver`; removes `fetchByUuid` from `CoreSocket` and `ClientSocket`; parses compendium UUIDs and delegates to ADR-0015's shard lookup plus pack-document fetch primitives. | ADR-0015 |
 | ADR-0017 — World Bootstrap and Lifecycle Orchestration | `WorldBootstrapper`, delayed `active`, adapter ownership, engagement policy, sync-token cleanup. | ADR-0014 through ADR-0016 |
 | ADR-0018 — Socket Boundary Enforcement Completion | Residual socket-boundary cleanup after the named extractions. | ADR-0014 through ADR-0017 |
@@ -30,7 +30,7 @@ Compendium behavior currently lives in three places that do not line up cleanly:
 
 - `CoreSocket` owns pack discovery and pack fetch methods: `getAllCompendiumIndices()`, `getPackEntries()`, `getPackIndex()`, and `getPackDocuments()`.
 - `CompendiumCache` in `core/compendium/CompendiumCache.ts` is a small in-memory UUID-to-name map. It warms by calling `client.getAllCompendiumIndices()`, which still means "ask the socket to do discovery".
-- `DiscoveryService` in `core/foundry/DiscoveryService.ts` syncs module-declared packs into persistent `pack-<packId>` shards, but `createScopedDiscovery()` does not read those shards. It only wraps the name-only `CompendiumCache`, `findAll()` returns `[]`, and `findOne()` / `getById()` are best-effort UUID-to-name lookups.
+- `CompendiumPackSyncService` in `core/foundry/CompendiumPackSyncService.ts` syncs module-declared packs into persistent `pack-<packId>` shards, but `createScopedCompendiumPacks()` does not read those shards. It only wraps the name-only `CompendiumCache`, `findAll()` returns `[]`, and `findOne()` / `getById()` are best-effort UUID-to-name lookups.
 - Some modules can and do read the shards by importing internal platform pieces such as `PersistentCache` directly. That proves the declared-shard intent, but it bypasses the SDK boundary ADR-0010 is trying to make real.
 
 The result is two separate compendium pathways:
@@ -45,11 +45,11 @@ The result is two separate compendium pathways:
 
 **Pathway B — module-declared discovery shards**
 
-- Entry point today: `DiscoveryService.sync(client, systemId, config)`.
-- Scope: only packs declared in a module's `info.json` or adapter `getDiscoveryConfig()`.
+- Entry point today: `CompendiumPackSyncService.sync(client, systemId, config)`.
+- Scope: only packs declared in a module's `info.json` or adapter `getCompendiumPackConfig()`.
 - Detail level: either full documents when `hydrate: true`, or projected index rows when `fields` are specified.
 - Storage: persisted under `PersistentCache` as `manifest-<systemId>` plus `pack-<packId>`.
-- Intended consumer: module adapters via `context.platform.discovery`.
+- Intended consumer: module adapters via `context.platform.compendiumPacks`.
 
 The current gap is Pathway B's SDK read side. The write path exists and can populate shards, and modules may reach them today through internal imports, but the official SDK discovery surface does not expose them. That means module-declared hydration has no supported platform read model. Separately, Pathway A and B duplicate the default index fetch for any pack that appears in both paths.
 
@@ -63,11 +63,11 @@ Introduce a compendium architecture with three focused pieces:
 
 - `CompendiumStore` in `src/server/core/compendium/CompendiumStore.ts` owns active-world pack metadata and index snapshots.
 - `CompendiumService` in `src/server/services/compendium/CompendiumService.ts` owns pack discovery, pack index/doc fetch strategies, and parsed pack-document fetch primitives.
-- `DiscoveryShardStore` or `DiscoveryShardReader` owns the persistent Pathway B shard read model and backs `context.platform.discovery`.
+- `CompendiumPackStore` owns the persistent Pathway B shard read model and backs `context.platform.compendiumPacks`.
 
 `CompendiumCache` remains, but only as the UUID-to-name map. It should rebuild from `CompendiumStore` data rather than calling a socket-facing metadata client.
 
-`DiscoveryService` moves from `core/foundry/DiscoveryService.ts` to `services/compendium/DiscoveryService.ts`. It remains the module-declared shard sync service, but it collaborates with `CompendiumStore` / `CompendiumService` instead of calling socket methods directly.
+`CompendiumPackSyncService` moves from `core/foundry/CompendiumPackSyncService.ts` to `services/compendium/CompendiumPackSyncService.ts`. It remains the module-declared shard sync service, but it collaborates with `CompendiumStore` / `CompendiumService` instead of calling socket methods directly.
 
 ### Socket Surface
 
@@ -105,9 +105,9 @@ Pathway B stays module-declared and potentially hydrated. Full documents are fet
 
 Where Pathway A and B overlap, de-duplicate the default index fetch:
 
-- If `CompendiumStore` already has a default index for the pack, `DiscoveryService` uses it to compute the same freshness hash Pathway B computes today.
-- If a non-hydrated shard needs field-specific rows not present in the default index, `DiscoveryService` fetches that field-aware variant through `CompendiumService` and stores it as a variant.
-- If a hydrated shard is stale, `DiscoveryService` still fetches full docs. The default index only avoids redundant freshness work; it does not replace declared hydration.
+- If `CompendiumStore` already has a default index for the pack, `CompendiumPackSyncService` uses it to compute the same freshness hash Pathway B computes today.
+- If a non-hydrated shard needs field-specific rows not present in the default index, `CompendiumPackSyncService` fetches that field-aware variant through `CompendiumService` and stores it as a variant.
+- If a hydrated shard is stale, `CompendiumPackSyncService` still fetches full docs. The default index only avoids redundant freshness work; it does not replace declared hydration.
 
 ### Test Data Policy
 
@@ -175,9 +175,9 @@ The service preserves the existing API-compatibility ladders:
 
 The service writes successful index results into `CompendiumStore`. It should not write full hydrated docs into `CompendiumStore` unless a later feature needs an active-world in-memory full-doc cache. Hydrated Pathway B docs belong to the discovery shard store.
 
-### `DiscoveryShardStore` / Shard Reader
+### `CompendiumPackStore` / Shard Reader
 
-Pathway B needs a real read model over the persistent shards already written by `DiscoveryService`.
+Pathway B needs a real read model over the persistent shards already written by `CompendiumPackSyncService`.
 
 Suggested public surface:
 
@@ -189,9 +189,9 @@ Suggested public surface:
 - `getById(systemId, type, id, options?)`
 - `findDocument(systemId, packId, documentId, type?)`
 
-The shard reader should know pack scope. A module's `context.platform.discovery` must only read shards for packs declared by that module's discovery config. If no discovery config exists, it should fail closed to an empty result set rather than scanning every persisted shard.
+The shard reader should know pack scope. A module's `context.platform.compendiumPacks` must only read shards for packs declared by that module's discovery config. If no discovery config exists, it should fail closed to an empty result set rather than scanning every persisted shard.
 
-`createScopedDiscovery(moduleId)` should use this read model. The existing SDK interface can stay:
+`createScopedCompendiumPacks(moduleId)` should use this read model. The existing SDK interface can stay:
 
 - `findOne(type, query)`
 - `findAll(type, query?)`
@@ -201,7 +201,7 @@ The implementation becomes shard-backed first, with the UUID-to-name cache used 
 
 ### Discovery Service Move
 
-`DiscoveryService` moves to `src/server/services/compendium/DiscoveryService.ts`. It is a service, not a Foundry transport primitive.
+`CompendiumPackSyncService` moves to `src/server/services/compendium/CompendiumPackSyncService.ts`. It is a service, not a Foundry transport primitive.
 
 The sync algorithm stays compatible:
 
@@ -314,27 +314,27 @@ Phase 2 moves platform-wide pack discovery (Pathway A) out of `CoreSocket` and i
 
 **Status:** Closed May 19, 2026.
 
-Phase 3 closes the Pathway B read gap. Persistent discovery shards that `DiscoveryService` writes become readable through `context.platform.discovery`.
+Phase 3 closes the Pathway B read gap. Persistent discovery shards that `CompendiumPackSyncService` writes become readable through `context.platform.compendiumPacks`.
 
 **Action items:**
 
-- [x] Move `DiscoveryService` from `src/server/core/foundry/DiscoveryService.ts` to `src/server/services/compendium/DiscoveryService.ts`.
-  Files: `src/server/core/foundry/DiscoveryService.ts`, `src/server/services/compendium/DiscoveryService.ts`, `src/server/core/system/SystemService.ts`.
+- [x] Move `CompendiumPackSyncService` from `src/server/core/foundry/CompendiumPackSyncService.ts` to `src/server/services/compendium/CompendiumPackSyncService.ts`.
+  Files: `src/server/core/foundry/CompendiumPackSyncService.ts`, `src/server/services/compendium/CompendiumPackSyncService.ts`, `src/server/core/system/SystemService.ts`.
 
-- [x] Add `DiscoveryShardStore` or `DiscoveryShardReader` over `PersistentCache` with manifest load, shard read/write, `findOne`, `findAll`, and `getById` helpers.
-  Files: `src/server/core/compendium/DiscoveryShardStore.ts` or `src/server/services/compendium/DiscoveryShardReader.ts`.
+- [x] Add `CompendiumPackStore` over `PersistentCache` with manifest load, shard read/write, `findOne`, `findAll`, and `getById` helpers.
+  Files: `src/server/core/compendium/CompendiumPackStore.ts`.
 
-- [x] Make shard reads module-scoped. `createScopedDiscovery(moduleId)` should only expose packs declared by that module's discovery config and should fail closed to empty results when no scope is available.
+- [x] Make shard reads module-scoped. `createScopedCompendiumPacks(moduleId)` should only expose packs declared by that module's discovery config and should fail closed to empty results when no scope is available.
   Files: `src/server/shared/utils/createModuleContext.ts`, `src/modules/registry/core/server.ts` if module discovery metadata needs to be exposed to the context factory.
 
 - [x] Implement SDK discovery methods against shards: `findOne(type, query)`, `findAll(type, query?)`, and `getById(type, id)`. Keep UUID-to-name fallback only where existing behavior already provides it.
   Files: `src/server/shared/utils/createModuleContext.ts`, `src/shared/sdk/context.ts`.
 
 - [x] Add unit coverage for shard manifest loading, module-scoped shard lookup, empty-scope fail-closed behavior, `findOne`, `findAll`, `getById`, and persisted-shard shape compatibility.
-  Files: `src/tests/unit/compendium/discovery-shard-store.test.ts`, `src/tests/unit/compendium/module-context-discovery.test.ts`, `src/tests/unit/run.ts`.
+  Files: `src/tests/unit/compendium/compendium-pack-store.test.ts`, `src/tests/unit/compendium/module-context-compendium-packs.test.ts`, `src/tests/unit/run.ts`.
 
 - [x] Verify Phase 3 with unit/type checks and old-path audits.
-  Commands: `npm run test:unit`; `npx tsc --noEmit`; `rg -n "core/foundry/DiscoveryService|from ['\\\"].*foundry/DiscoveryService|@core/foundry/DiscoveryService" src data/local/modules`; `rg -n "findAll: async \\([^)]*\\) => \\[\\]|createScopedDiscovery" src/server/shared/utils/createModuleContext.ts`.
+  Commands: `npm run test:unit`; `npx tsc --noEmit`; `rg -n "core/foundry/CompendiumPackSyncService|from ['\\\"].*foundry/CompendiumPackSyncService|@core/foundry/CompendiumPackSyncService" src data/local/modules`; `rg -n "findAll: async \\([^)]*\\) => \\[\\]|createScopedCompendiumPacks" src/server/shared/utils/createModuleContext.ts`.
 
 **Non-goals for Phase 3:**
 
@@ -344,9 +344,9 @@ Phase 3 closes the Pathway B read gap. Persistent discovery shards that `Discove
 - No `fetchByUuid` socket removal.
 - No broad SDK contract expansion; the existing `CompendiumCache` SDK shape is enough for this phase.
 
-**Exit for Phase 3:** `DiscoveryService` lives under `services/compendium`; Pathway B shards have a real read model; `context.platform.discovery` reads scoped persistent shards instead of returning empty arrays; no old `core/foundry/DiscoveryService` imports remain; unit/type checks pass.
+**Exit for Phase 3:** `CompendiumPackSyncService` lives under `services/compendium`; Pathway B shards have a real read model; `context.platform.compendiumPacks` reads scoped persistent shards instead of returning empty arrays; no old `core/foundry/CompendiumPackSyncService` imports remain; unit/type checks pass.
 
-**Phase 3 closed (May 19, 2026).** All action items above ticked. Implementation moved `DiscoveryService` to `services/compendium`, added `DiscoveryShardStore` over the existing `PersistentCache` manifest/shard shape, and rewired `createScopedDiscovery(moduleId)` so SDK discovery reads only packs declared by that module's discovery config. The registry exposes manifest-declared discovery plus already-loaded adapter hook discovery without recursively instantiating adapters. Empty or missing discovery scope now fails closed. The UUID-to-name fallback remains only for scoped compendium UUIDs. Tests use synthetic in-memory shard and module-scope shapes only; no real world, pack dump, shard, or fixture content was added.
+**Phase 3 closed (May 19, 2026).** All action items above ticked. Implementation moved `CompendiumPackSyncService` to `services/compendium`, added `CompendiumPackStore` over the existing `PersistentCache` manifest/shard shape, and rewired `createScopedCompendiumPacks(moduleId)` so SDK discovery reads only packs declared by that module's discovery config. The registry exposes manifest-declared discovery plus already-loaded adapter hook discovery without recursively instantiating adapters. Empty or missing discovery scope now fails closed. The UUID-to-name fallback remains only for scoped compendium UUIDs. Tests use synthetic in-memory shard and module-scope shapes only; no real world, pack dump, shard, or fixture content was added.
 
 ### Phase 4: Pathway A/B de-duplication and pack-document lookup primitives
 
@@ -356,17 +356,17 @@ Phase 4 makes the two pathways collaborate without merging their policy. It also
 
 **Action items:**
 
-- [x] Make `DiscoveryService.syncPack()` use `CompendiumStore.getPackIndex(packId)` for the default freshness index when the cached index has the required fields.
-  Files: `src/server/services/compendium/DiscoveryService.ts`, `src/server/core/compendium/CompendiumStore.ts`.
+- [x] Make `CompendiumPackSyncService.syncPack()` use `CompendiumStore.getPackIndex(packId)` for the default freshness index when the cached index has the required fields.
+  Files: `src/server/services/compendium/CompendiumPackSyncService.ts`, `src/server/core/compendium/CompendiumStore.ts`.
 
 - [x] Add field-aware index fetch/storage for non-hydrated discovery packs whose configured `fields` are not covered by the default index.
-  Files: `src/server/services/compendium/DiscoveryService.ts`, `src/server/services/compendium/CompendiumService.ts`, `src/server/core/compendium/CompendiumStore.ts`.
+  Files: `src/server/services/compendium/CompendiumPackSyncService.ts`, `src/server/services/compendium/CompendiumService.ts`, `src/server/core/compendium/CompendiumStore.ts`.
 
 - [x] Preserve manifest hash compatibility unless an explicit manifest version bump is introduced. Existing shards should not rebuild just because the service moved.
-  Files: `src/server/services/compendium/DiscoveryService.ts`, `src/tests/unit/compendium/discovery-service.test.ts`.
+  Files: `src/server/services/compendium/CompendiumPackSyncService.ts`, `src/tests/unit/compendium/compendium-pack-sync-service.test.ts`.
 
-- [x] Add a Pathway B shard document lookup such as `DiscoveryShardStore.findDocument(systemId, packId, documentId, type?)`. Declared hydrated shards should be the first place ADR-0016 looks after it parses a compendium UUID.
-  Files: `src/server/core/compendium/DiscoveryShardStore.ts` or `src/server/services/compendium/DiscoveryShardReader.ts`, `src/tests/unit/compendium/discovery-shard-store.test.ts`.
+- [x] Add a Pathway B shard document lookup such as `CompendiumPackStore.findDocument(systemId, packId, documentId, type?)`. Declared hydrated shards should be the first place ADR-0016 looks after it parses a compendium UUID.
+  Files: `src/server/core/compendium/CompendiumPackStore.ts`, `src/tests/unit/compendium/compendium-pack-store.test.ts`.
 
 - [x] Add a parsed pack-document transport primitive such as `CompendiumService.getPackDocument(packId, documentId, type?)`. It should not parse UUIDs; it receives already-parsed parts and preserves the existing socket API ladder for explicit service callers and diagnostic fallback.
   Files: `src/server/services/compendium/CompendiumService.ts`, `src/tests/unit/compendium/compendium-service.test.ts`.
@@ -375,7 +375,7 @@ Phase 4 makes the two pathways collaborate without merging their policy. It also
   Files: `src/server/core/foundry/sockets/CoreSocket.ts`.
 
 - [x] Verify Phase 4 with unit/type checks and socket-call accounting tests where practical. A declared hydrated shard lookup should serve without a transport call; ADR-0020 later tightened undeclared/missing pack documents to return `null` by default with live fallback opt-in only.
-  Commands: `npm run test:unit`; `npx tsc --noEmit`; `git diff --check`; targeted audits for stale bootstrap-hydration wording and legacy game-data index ownership; `rg -n "client\\.getPackEntries\\(" src/server/services/compendium/DiscoveryService.ts` (expected: the default and field-aware sync fetch touchpoints until Phase 5 removes the socket compatibility wrapper).
+  Commands: `npm run test:unit`; `npx tsc --noEmit`; `git diff --check`; targeted audits for stale bootstrap-hydration wording and legacy game-data index ownership; `rg -n "client\\.getPackEntries\\(" src/server/services/compendium/CompendiumPackSyncService.ts` (expected: the default and field-aware sync fetch touchpoints until Phase 5 removes the socket compatibility wrapper).
 
 **Non-goals for Phase 4:**
 
@@ -387,7 +387,7 @@ Phase 4 makes the two pathways collaborate without merging their policy. It also
 
 **Exit for Phase 4:** Pathway B reuses Pathway A's default index where semantically valid; field-specific variants are fetched only when needed; module-declared hydrated shards have a direct `findDocument`-style lookup that can serve without a socket round trip; parsed `CompendiumService.getPackDocument(...)` exists for explicit service callers and diagnostic fallback; unit/type checks pass.
 
-**Phase 4 closed (May 19, 2026).** `DiscoveryService` now reuses `CompendiumStore`'s default id/name index for freshness, writes fetched default indices back into the Store when needed, and fetches/stores field-aware variants only when refreshed non-hydrated shard rows require configured fields. `DiscoveryShardStore.findDocument(systemId, packId, documentId, type?)` gives ADR-0016 a parsed pack/id shard lookup without filtering on row `type`, because hydrated Item packs can carry item subtypes there. `CompendiumService.getPackDocument(packId, documentId, type?)` owns the parsed `modifyDocument` then `getDocuments` transport primitive that was embedded in `CoreSocket.fetchByUuid` before ADR-0016 moved UUID routing to `DocumentResolver`. ADR-0020 later disabled live use of that primitive by default for compendium UUID misses, keeping it as diagnostic opt-in behavior. The old socket comment pointed to ADR-0015/ADR-0016 instead of recommending broad bootstrap hydration. Tests cover the synthetic id/name hash shape, projected field variants, direct shard lookup, service fallback ordering, and disconnected transport behavior.
+**Phase 4 closed (May 19, 2026).** `CompendiumPackSyncService` now reuses `CompendiumStore`'s default id/name index for freshness, writes fetched default indices back into the Store when needed, and fetches/stores field-aware variants only when refreshed non-hydrated shard rows require configured fields. `CompendiumPackStore.findDocument(systemId, packId, documentId, type?)` gives ADR-0016 a parsed pack/id shard lookup without filtering on row `type`, because hydrated Item packs can carry item subtypes there. `CompendiumService.getPackDocument(packId, documentId, type?)` owns the parsed `modifyDocument` then `getDocuments` transport primitive that was embedded in `CoreSocket.fetchByUuid` before ADR-0016 moved UUID routing to `DocumentResolver`. ADR-0020 later disabled live use of that primitive by default for compendium UUID misses, keeping it as diagnostic opt-in behavior. The old socket comment pointed to ADR-0015/ADR-0016 instead of recommending broad bootstrap hydration. Tests cover the synthetic id/name hash shape, projected field variants, direct shard lookup, service fallback ordering, and disconnected transport behavior.
 
 ### Phase 5: Remove residual compendium socket readers
 
@@ -425,7 +425,7 @@ Phase 5 closes ADR-0015's socket-boundary promise. The compendium service/store/
 
 **Exit for Phase 5:** `CoreSocket` no longer exposes compendium reader methods; `ClientSocket` no longer delegates compendium reads; socket-facing interfaces no longer require compendium readers; Pathway A reads go through `CompendiumService` / `CompendiumStore`; Pathway B reads go through the shard reader; service-backed facades remain only where needed; `npm run test:unit`, `npx tsc --noEmit`, and the Phase 5 audits pass.
 
-**Phase 5 closed (May 19, 2026).** The residual compendium reader wrappers were removed from `CoreSocket`, the user `ClientSocket` no longer delegates compendium discovery through the system socket, and the socket-facing `FoundryMetadataClient` surface was deleted. `DiscoveryService.sync(...)` now receives a `DiscoveryPackReader`, so bootstrap passes the already-created `CompendiumService` for Pathway B index reads instead of relying on socket reader methods. Manual socket tests instantiate `CompendiumService` directly when they need compendium discovery or full pack documents. The local Shadowdark spell route reads warmed `CompendiumStore` snapshots for active-world compendium indices instead of calling a route/socket compendium reader. Targeted audits confirm no remaining socket compendium reader declarations, direct socket-reader calls, or `FoundryMetadataClient` references.
+**Phase 5 closed (May 19, 2026).** The residual compendium reader wrappers were removed from `CoreSocket`, the user `ClientSocket` no longer delegates compendium discovery through the system socket, and the socket-facing `FoundryMetadataClient` surface was deleted. `CompendiumPackSyncService.sync(...)` now receives a `CompendiumPackIndexReader`, so bootstrap passes the already-created `CompendiumService` for Pathway B index reads instead of relying on socket reader methods. Manual socket tests instantiate `CompendiumService` directly when they need compendium discovery or full pack documents. The local Shadowdark spell route reads warmed `CompendiumStore` snapshots for active-world compendium indices instead of calling a route/socket compendium reader. Targeted audits confirm no remaining socket compendium reader declarations, direct socket-reader calls, or `FoundryMetadataClient` references.
 
 ---
 
@@ -441,11 +441,11 @@ Rejected because their policies differ. Pathway A is broad and lightweight acros
 
 ### Hydrate every pack at bootstrap
 
-Rejected. Foundry worlds often expose packs from systems or modules the active adapter will never use. Full hydration is expensive and should remain a module-declared decision through `DiscoveryConfig`.
+Rejected. Foundry worlds often expose packs from systems or modules the active adapter will never use. Full hydration is expensive and should remain a module-declared decision through `CompendiumPackConfig`.
 
-### Leave `context.platform.discovery` name-only
+### Leave `context.platform.compendiumPacks` name-only
 
-Rejected because it makes Pathway B write-only from the SDK's point of view. If the platform writes persistent shards but `context.platform.discovery` cannot read them, adapters either bypass the SDK with internal imports or duplicate cache logic.
+Rejected because it makes Pathway B write-only from the SDK's point of view. If the platform writes persistent shards but `context.platform.compendiumPacks` cannot read them, adapters either bypass the SDK with internal imports or duplicate cache logic.
 
 ### Move `fetchByUuid` entirely in ADR-0015
 
@@ -458,14 +458,14 @@ Rejected for scope. The full resolver covers world UUID routing, embedded UUIDs,
 ### Positive
 
 - **Compendium reads get a real home.** Pack discovery and compatibility ladders move into `CompendiumService`; index state moves into `CompendiumStore`.
-- **Pathway B becomes useful.** Module-declared hydrated shards are readable through `context.platform.discovery`.
+- **Pathway B becomes useful.** Module-declared hydrated shards are readable through `context.platform.compendiumPacks`.
 - **Bootstrap does less duplicate work.** Declared discovery packs can reuse the default Pathway A index when the fields match.
 - **Sockets shrink again.** `CoreSocket` and `ClientSocket` lose compendium reader methods, continuing the ADR-0014 boundary cleanup.
 - **ADR-0016 gets clean dependencies.** The shard reader can serve declared hydrated pack documents, and `CompendiumService` can fetch a parsed pack document through the compatibility ladder. `DocumentResolver` can compose those pieces without inheriting socket logic.
 
 ### Tradeoffs
 
-- **More moving parts.** `CompendiumStore`, `CompendiumService`, `DiscoveryShardStore`, `DiscoveryService`, and `CompendiumCache` have distinct jobs. The phase docs must keep those boundaries clear.
+- **More moving parts.** `CompendiumStore`, `CompendiumService`, `CompendiumPackStore`, `CompendiumPackSyncService`, and `CompendiumCache` have distinct jobs. The phase docs must keep those boundaries clear.
 - **Manifest compatibility needs care.** Pathway B's freshness hash must remain stable unless we intentionally bump the manifest format.
 - **Transport compatibility ladders need tests.** Foundry compendium APIs drift across versions; moving the ladders increases the importance of unit coverage for fallback ordering.
 - **Temporary heartbeat coupling remains.** Long compendium fetches still need the existing heartbeat-pause behavior until ADR-0017 moves heartbeat policy out of `CoreSocket`.
@@ -488,14 +488,14 @@ Each phase validates both the Store/service contract and the socket boundary.
 
 - `CompendiumStore` unit tests assert clone-on-write, clone-on-read, default index lookup, field-aware variant lookup, metadata lookup, UUID entry lookup, and clear behavior.
 - `CompendiumService` unit tests assert pack discovery de-duplication, fallback ladder ordering, Store writes, and no transport call when a cached/indexed result should serve.
-- `DiscoveryShardStore` / shard reader tests assert manifest load, scoped shard access, `findOne`, `findAll`, `getById`, and empty-scope fail-closed behavior.
-- `context.platform.discovery` tests assert `findAll()` no longer returns an unconditional empty array when declared shards exist.
+- `CompendiumPackStore` / shard reader tests assert manifest load, scoped shard access, `findOne`, `findAll`, `getById`, and empty-scope fail-closed behavior.
+- `context.platform.compendiumPacks` tests assert `findAll()` no longer returns an unconditional empty array when declared shards exist.
 - Pathway A/B de-duplication tests assert a declared pack can reuse the default index for freshness while field-specific discovery still fetches required fields.
 - Pack-document lookup tests assert hydrated declared shards serve through the shard reader without transport, default compendium UUID misses do not call live Foundry, and opt-in diagnostic fallback uses `CompendiumService.getPackDocument(...)` with the existing socket strategy ladder.
 - Migration audits use targeted `rg` checks:
   - `rg -n "public async (getAllCompendiumIndices|getPackEntries|getPackIndex|getPackDocuments)\b|getAllCompendiumIndices\(\):" src/server/core/foundry` returns no socket method declarations after Phase 5.
   - `rg -n "\b(core|client|coreSocket|foundryClient|systemClient)\.(getAllCompendiumIndices|getPackEntries|getPackIndex|getPackDocuments)\(" src/server src/scripts src/tests data/local/modules` returns no socket-reader calls after Phase 5.
-  - `rg -n "core/foundry/DiscoveryService|from ['\"].*foundry/DiscoveryService|@core/foundry/DiscoveryService" src data/local/modules` returns no old-path imports after Phase 3.
+  - `rg -n "core/foundry/CompendiumPackSyncService|from ['\"].*foundry/CompendiumPackSyncService|@core/foundry/CompendiumPackSyncService" src data/local/modules` returns no old-path imports after Phase 3.
   - `rg -n "gameDataCache\.indices|CompendiumCache\.getInstance\(\)\.initialize\(client\)" src/server` returns no legacy Pathway A cache ownership after Phase 2.
 - `git diff --check`, `npx tsc --noEmit`, and `npm run test:unit` pass for every phase before moving to the next.
 
@@ -507,7 +507,7 @@ This ADR is fulfilled when compendium discovery and module shard reads have serv
 
 - [x] Phase 1: `CompendiumStore` + typed index contracts + synthetic fixture policy.
 - [x] Phase 2: `CompendiumService` owns Pathway A discovery and pack fetch semantics; `CompendiumCache` warms from Store/service results.
-- [x] Phase 3: `DiscoveryService` lives under `services/compendium`; Pathway B shards are readable through scoped `context.platform.discovery`.
+- [x] Phase 3: `CompendiumPackSyncService` lives under `services/compendium`; Pathway B shards are readable through scoped `context.platform.compendiumPacks`.
 - [x] Phase 4: Pathway A/B index de-duplication lands; declared hydrated shards expose direct document lookup; parsed pack-document transport through `CompendiumService` preserves the existing ladder for explicit service callers and opt-in diagnostics.
 - [x] Phase 5: `CoreSocket` / `ClientSocket` compendium reader methods are removed and socket-facing interfaces are tightened.
 - [x] No real compendium/world shard data is added to tracked fixtures.

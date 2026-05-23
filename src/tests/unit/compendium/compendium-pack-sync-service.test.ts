@@ -2,13 +2,13 @@ import { strict as assert } from 'node:assert';
 import crypto from 'node:crypto';
 import { CompendiumStore } from '@server/core/compendium/CompendiumStore';
 import {
-    DiscoveryShardStore,
-    type DiscoveryShardCache,
-    type DiscoveryShardDocument,
-} from '@server/core/compendium/DiscoveryShardStore';
+    CompendiumPackStore,
+    type CompendiumPackCache,
+    type CompendiumPackDocument,
+} from '@server/core/compendium/CompendiumPackStore';
 import type { CompendiumIndexEntry } from '@server/core/compendium/types';
-import { DiscoveryService, type DiscoveryPackReader, type DiscoverySyncClient } from '@server/services/compendium';
-import type { DiscoveryConfig } from '@shared/sdk';
+import { CompendiumPackSyncService, type CompendiumPackIndexReader, type CompendiumPackSyncClient } from '@server/services/compendium';
+import type { CompendiumPackConfig } from '@shared/sdk';
 
 interface EntryCall {
     kind: 'getPackEntries';
@@ -22,7 +22,7 @@ interface EmitCall {
     payloads: unknown[];
 }
 
-class MemoryShardCache implements DiscoveryShardCache {
+class MemoryPackCache implements CompendiumPackCache {
     private readonly values = new Map<string, unknown>();
 
     public async get<T>(namespace: string, key: string): Promise<T | null> {
@@ -35,7 +35,7 @@ class MemoryShardCache implements DiscoveryShardCache {
     }
 }
 
-class FakeDiscoveryClient implements DiscoverySyncClient, DiscoveryPackReader {
+class FakePackClient implements CompendiumPackSyncClient, CompendiumPackIndexReader {
     public readonly calls: Array<EntryCall | EmitCall> = [];
     public entryHandler: (packId: string, options?: { index?: boolean; fields?: readonly string[] }) => unknown[] =
         () => { throw new Error('unexpected getPackEntries call'); };
@@ -57,10 +57,10 @@ class FakeDiscoveryClient implements DiscoverySyncClient, DiscoveryPackReader {
 }
 
 export async function run() {
-    await runCachedDefaultIndexSkipsFreshShard();
-    await runFieldAwareVariantFetchesOnlyWhenShardRefreshes();
+    await runCachedDefaultIndexSkipsFreshPackRows();
+    await runFieldAwareVariantFetchesOnlyWhenPackRowsRefresh();
     await runManifestHashCompatibility();
-    console.log('  - DiscoveryService: all checks passed');
+    console.log('  - CompendiumPackSyncService: all checks passed');
 }
 
 // Synthetic rows only. These capture the id/name hash shape, default index
@@ -88,7 +88,7 @@ function fieldAwareIndex(): CompendiumIndexEntry[] {
     ];
 }
 
-function discoveryConfig(fields?: string[]): DiscoveryConfig {
+function compendiumPackConfig(fields?: string[]): CompendiumPackConfig {
     return {
         packs: [
             {
@@ -114,20 +114,20 @@ function computeHash(entries: unknown[], hydrate: boolean): string {
     return crypto.createHash('md5').update(signatureString).digest('hex');
 }
 
-function createStores(): { compendiumStore: CompendiumStore; shardStore: DiscoveryShardStore } {
+function createStores(): { compendiumStore: CompendiumStore; packStore: CompendiumPackStore } {
     return {
         compendiumStore: new CompendiumStore(),
-        shardStore: new DiscoveryShardStore(new MemoryShardCache()),
+        packStore: new CompendiumPackStore(new MemoryPackCache()),
     };
 }
 
-async function runCachedDefaultIndexSkipsFreshShard() {
-    const { compendiumStore, shardStore } = createStores();
-    const client = new FakeDiscoveryClient();
+async function runCachedDefaultIndexSkipsFreshPackRows() {
+    const { compendiumStore, packStore } = createStores();
+    const client = new FakePackClient();
     const rows = defaultIndex();
 
     compendiumStore.setPackIndex('synthetic.items', { id: 'synthetic.items', type: 'Item' }, rows);
-    await shardStore.setManifest({
+    await packStore.setManifest({
         systemId: 'synthetic-system',
         _instanceId: 'synthetic-instance',
         packs: {
@@ -140,18 +140,18 @@ async function runCachedDefaultIndexSkipsFreshShard() {
             },
         },
     });
-    await shardStore.setShard('synthetic-system', 'synthetic.items', rows as DiscoveryShardDocument[]);
+    await packStore.setPackRows('synthetic-system', 'synthetic.items', rows as CompendiumPackDocument[]);
 
-    const service = new DiscoveryService({ compendiumStore, shardStore });
-    const manifest = await service.sync(client, 'synthetic-system', discoveryConfig(), client);
+    const service = new CompendiumPackSyncService({ compendiumStore, packStore });
+    const manifest = await service.sync(client, 'synthetic-system', compendiumPackConfig(), client);
 
     assert.equal(manifest.packs['synthetic.items'].hash, computeHash(rows, false));
     assert.equal(client.calls.length, 0);
 }
 
-async function runFieldAwareVariantFetchesOnlyWhenShardRefreshes() {
-    const { compendiumStore, shardStore } = createStores();
-    const client = new FakeDiscoveryClient();
+async function runFieldAwareVariantFetchesOnlyWhenPackRowsRefresh() {
+    const { compendiumStore, packStore } = createStores();
+    const client = new FakePackClient();
     const rows = defaultIndex();
     const fieldRows = fieldAwareIndex();
 
@@ -161,8 +161,8 @@ async function runFieldAwareVariantFetchesOnlyWhenShardRefreshes() {
         return fieldRows;
     };
 
-    const service = new DiscoveryService({ compendiumStore, shardStore });
-    await service.sync(client, 'synthetic-system', discoveryConfig(['system.tier', 'name']), client);
+    const service = new CompendiumPackSyncService({ compendiumStore, packStore });
+    await service.sync(client, 'synthetic-system', compendiumPackConfig(['system.tier', 'name']), client);
 
     const calls = client.calls.filter((call): call is EntryCall => call.kind === 'getPackEntries');
     assert.equal(calls.length, 1);
@@ -171,20 +171,20 @@ async function runFieldAwareVariantFetchesOnlyWhenShardRefreshes() {
         compendiumStore.getPackIndex('synthetic.items', { fields: ['system.tier', 'name'] })?.[0]?.['system.tier'],
         1,
     );
-    assert.equal((await shardStore.findDocument('synthetic-system', 'synthetic.items', 'torch'))?.['system.tier'], 1);
+    assert.equal((await packStore.findDocument('synthetic-system', 'synthetic.items', 'torch'))?.['system.tier'], 1);
 }
 
 async function runManifestHashCompatibility() {
-    const { compendiumStore, shardStore } = createStores();
-    const client = new FakeDiscoveryClient();
+    const { compendiumStore, packStore } = createStores();
+    const client = new FakePackClient();
     const rows = defaultIndex();
 
     compendiumStore.setPackIndex('synthetic.items', { id: 'synthetic.items', type: 'Item' }, rows);
 
-    const service = new DiscoveryService({ compendiumStore, shardStore });
-    await service.sync(client, 'synthetic-system', discoveryConfig(), client);
+    const service = new CompendiumPackSyncService({ compendiumStore, packStore });
+    await service.sync(client, 'synthetic-system', compendiumPackConfig(), client);
 
-    const manifest = await shardStore.getManifest('synthetic-system');
+    const manifest = await packStore.getManifest('synthetic-system');
     assert.equal(manifest?.packs['synthetic.items'].hash, computeHash(rows, false));
     assert.equal(client.calls.length, 0);
 }

@@ -1,6 +1,6 @@
 import { ModuleContext } from './context';
 import { ModuleFoundryClient } from './contracts';
-import { CompendiumCache } from './context';
+import { CompendiumPackReader } from './context';
 
 // ---------------------------------------------------------------------------
 // Foundry document primitives
@@ -87,10 +87,10 @@ export interface RollData {
 }
 
 // ---------------------------------------------------------------------------
-// Discovery
+// Compendium packs
 // ---------------------------------------------------------------------------
 
-export const PackDiscoveryDocumentType = {
+export const CompendiumPackDocumentType = {
     Item: 'Item',
     Actor: 'Actor',
     JournalEntry: 'JournalEntry',
@@ -99,18 +99,18 @@ export const PackDiscoveryDocumentType = {
     RollTable: 'RollTable',
 } as const;
 
-export type PackDiscoveryDocumentType =
-    typeof PackDiscoveryDocumentType[keyof typeof PackDiscoveryDocumentType];
+export type CompendiumPackDocumentType =
+    typeof CompendiumPackDocumentType[keyof typeof CompendiumPackDocumentType];
 
-export interface PackDiscoveryConfig {
+export interface CompendiumPackDeclaration {
     id: string;
-    type: PackDiscoveryDocumentType;
+    type: CompendiumPackDocumentType;
     hydrate: boolean;
     fields?: string[];
 }
 
-export interface DiscoveryConfig {
-    packs: PackDiscoveryConfig[];
+export interface CompendiumPackConfig {
+    packs: CompendiumPackDeclaration[];
 }
 
 // ---------------------------------------------------------------------------
@@ -159,7 +159,7 @@ export interface ModuleInfo {
         apiContracts?: Record<string, string>;
     };
     manifest: ModuleManifestPaths;
-    discovery?: DiscoveryConfig;
+    compendiumPacks?: CompendiumPackConfig;
     package?: ModulePackageDeclaration;
     dependencies?: string[];
     conflicts?: string[];
@@ -275,13 +275,13 @@ export interface SystemAdapter {
     // --- Optional: core calls if present (all verified by runtime grep) ---
     initialize?(context: ModuleContext): Promise<void>;
     getSystemData?(client: ModuleFoundryClient, options?: { minimal?: boolean }): Promise<unknown>;
-    getDiscoveryConfig?(): DiscoveryConfig;
+    getCompendiumPackConfig?(): CompendiumPackConfig;
     getActorCardData?(actor: FoundryActor): ActorCardData;
     computeActorData?(actor: ActorSheetData): Record<string, unknown>;
     categorizeItems?(actor: ActorSheetData): Record<string, FoundryItem[]>;
     getRollData?(actor: FoundryActor, type: string, key: string, options?: RollDataOptions): RollData | null;
     performAutomatedSequence?(client: ModuleFoundryClient, actor: FoundryActor, rollData: RollData, options: unknown): Promise<unknown>;
-    resolveActorNames?(actor: FoundryActor, cache: CompendiumCache): void | Promise<void>;
+    resolveActorNames?(actor: FoundryActor, packs: CompendiumPackReader): void | Promise<void>;
     getInitiativeFormula?(actor: FoundryActor): string;
     validateUpdate?(path: string, value: unknown): boolean;
 

@@ -14,11 +14,11 @@ export interface PersistentCache {
 }
 
 /**
- * CompendiumCache is the module-scoped discovery surface for declared packs.
- * It reads the persistent shards produced from a module's discovery config and
- * fails closed when the module has no declared discovery scope.
+ * CompendiumPackReader is the module-scoped read surface for declared packs.
+ * It reads the persistent pack rows produced from a module's compendium pack
+ * config and fails closed when the module has no declared pack scope.
  */
-export interface CompendiumCache {
+export interface CompendiumPackReader {
     /** Find a single document matching the given query. */
     findOne(type: string, query: Record<string, unknown>): Promise<Record<string, unknown> | null>;
     /** Find all documents matching the given query. */
@@ -38,9 +38,9 @@ export interface ModuleContext {
     logger: ModuleLogger;
     /** Base URL of the connected Foundry server — use with resolveImage() to build full image URLs. */
     foundryUrl: string;
-    /** Scoped platform APIs for caching and document discovery. */
+    /** Scoped platform APIs for persistence and declared compendium pack reads. */
     platform: {
         cache: PersistentCache;
-        discovery: CompendiumCache;
+        compendiumPacks: CompendiumPackReader;
     };
 }

@@ -5,7 +5,7 @@ import {
     SystemAdapter,
     ActorSheetData,
     ActorCardData,
-    DiscoveryConfig,
+    CompendiumPackConfig,
     RollMode,
     RollData,
     RollDataOptions,
@@ -14,7 +14,7 @@ import {
     FoundryActor,
     FoundryItem,
 } from './interfaces';
-import { CompendiumCache } from './context';
+import { CompendiumPackReader } from './context';
 
 /**
  * BaseSystemAdapter provides default implementations of the SystemAdapter interface.
@@ -59,7 +59,7 @@ export class BaseSystemAdapter implements SystemAdapter {
         return {};
     }
 
-    getDiscoveryConfig(): DiscoveryConfig {
+    getCompendiumPackConfig(): CompendiumPackConfig {
         return { packs: [] };
     }
 
@@ -86,7 +86,7 @@ export class BaseSystemAdapter implements SystemAdapter {
         return null;
     }
 
-    resolveActorNames(_actor: FoundryActor, _cache: CompendiumCache): void {
+    resolveActorNames(_actor: FoundryActor, _packs: CompendiumPackReader): void {
         // noop
     }
 

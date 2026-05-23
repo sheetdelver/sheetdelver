@@ -82,7 +82,7 @@ my-system/
       "roll-engine-api": ">=1.0.0 <2.0.0"
     }
   },
-  "discovery": {
+  "compendiumPacks": {
     "packs": [
       { "id": "my-system.items", "type": "Item", "hydrate": true },
       { "id": "my-system.spells", "type": "Item", "hydrate": false }
@@ -109,7 +109,7 @@ my-system/
 | `manifest.server` | No | Path to the server API entry point. |
 | `compatibility.coreVersion` | No | SemVer range requirement against the Sheet Delver core version. |
 | `compatibility.apiContracts` | No | SemVer range requirements against the platform SDK contracts. |
-| `discovery.packs` | No | Compendium packs to index at world-ready time. Packs with `hydrate: true` are fully hydrated by the platform before `initialize()` is called and are the default source for compendium UUID document reads. |
+| `compendiumPacks.packs` | No | Compendium packs to index at world-ready time. Packs with `hydrate: true` are fully hydrated by the platform before `initialize()` is called and are the default source for compendium UUID document reads. |
 | `trust.tier` | No | `first-party` \| `verified-third-party` \| `unverified` |
 | `permissions` | No | Optional declarations for network, filesystem, admin route, or sensitive-data needs. |
 | `aliases` | No | Alternate module/system ids used for lookup compatibility. |
@@ -151,7 +151,7 @@ export class Adapter extends BaseSystemAdapter {
         // Use context.logger instead of importing a logger directly
         context.logger.info('My System adapter initialized');
         // Use context.platform.cache for persistent module-scoped storage
-        // Use context.platform.discovery for UUID lookups in hydrated packs
+        // Use context.platform.compendiumPacks for UUID lookups in hydrated packs
     }
 }
 
@@ -166,7 +166,7 @@ export default Adapter;
 | `match(actor)` | Actor dispatch | Returns `false` |
 | `initialize(context)` | On first load | Stores context |
 | `getSystemData(client, options?)` | System info route | Returns `{}` |
-| `getDiscoveryConfig()` | World-ready sync | Returns empty |
+| `getCompendiumPackConfig()` | World-ready sync | Returns empty |
 | `getActorCardData(actor)` | Dashboard card render | Returns name/img |
 | `computeActorData(actor)` | After normalization | Returns `{}` |
 | `categorizeItems(actor)` | After normalization | Returns `{ all: [] }` |
@@ -176,11 +176,11 @@ export default Adapter;
 | `getInitiativeFormula(actor)` | Combat initiative | Returns `'1d20'` |
 | `validateUpdate(path, value)` | Real-time updates | Returns `true` |
 
-**Note on `initialize(context)`:** The platform runs discovery sync (`getDiscoveryConfig()`) before calling `initialize()`. By the time `initialize()` is called, declared compendium packs in `info.json` are indexed, and packs with `hydrate: true` are fully hydrated in the platform cache and accessible via `context.platform.discovery`. Adapters should read from the context rather than fetching via a client during initialization.
+**Note on `initialize(context)`:** The platform syncs declared compendium packs (`compendiumPacks` / `getCompendiumPackConfig()`) before calling `initialize()`. By the time `initialize()` is called, declared compendium packs in `info.json` are indexed, and packs with `hydrate: true` are fully hydrated in the platform cache and accessible via `context.platform.compendiumPacks`. Adapters should read from the context rather than fetching via a client during initialization.
 
-**Actor projection contract:** Actor adapter methods receive hydrated actor documents from the platform actor cache. Keep `getActorCardData`, `normalizeActorData`, `computeActorData`, and `categorizeItems` deterministic from the actor and injected SDK services. The `getActor()` and `getActors()` SDK/request methods remain the public read surface, but they resolve from the platform actor cache and fail as not-ready before bootstrap completes; they must not repeatedly fetch from Foundry. Use `fetchByUuid` or compendium discovery only for exceptional linked references that are not embedded in the actor.
+**Actor projection contract:** Actor adapter methods receive hydrated actor documents from the platform actor cache. Keep `getActorCardData`, `normalizeActorData`, `computeActorData`, and `categorizeItems` deterministic from the actor and injected SDK services. The `getActor()` and `getActors()` SDK/request methods remain the public read surface, but they resolve from the platform actor cache and fail as not-ready before bootstrap completes; they must not repeatedly fetch from Foundry. Use `fetchByUuid` or `context.platform.compendiumPacks` only for exceptional linked references that are not embedded in the actor.
 
-**Compendium UUID contract:** `fetchByUuid` serves compendium documents from declared hydrated discovery shards by default. If module code needs `Compendium.<pack>.<type>.<id>` or `Compendium.<pack>.<id>` reads, list that pack in `info.json` with `hydrate: true`. Missing, undeclared, or non-hydrated shards return `null` and log a warning. The host can enable `foundry.allow-live-compendium-uuid-fallback` / `APP_ALLOW_LIVE_COMPENDIUM_UUID_FALLBACK=true` for diagnostics, but modules must not depend on live fallback.
+**Compendium UUID contract:** `fetchByUuid` serves compendium documents from declared hydrated compendium pack rows by default. If module code needs `Compendium.<pack>.<type>.<id>` or `Compendium.<pack>.<id>` reads, list that pack in `info.json` under `compendiumPacks.packs` with `hydrate: true`. Missing, undeclared, or non-hydrated pack rows return `null` and log a warning. The host can enable `foundry.allow-live-compendium-uuid-fallback` / `APP_ALLOW_LIVE_COMPENDIUM_UUID_FALLBACK=true` for diagnostics, but modules must not depend on live fallback.
 
 ---
 
@@ -349,8 +349,8 @@ The module does not talk to Foundry directly. The platform executes all operatio
 | `updateItemEffect(actorId, itemId, effectId, updates)` | Update an effect on an actor's item |
 | `deleteItemEffect(actorId, itemId, effectId)` | Remove an effect from an actor's item |
 | **Document access** | |
-| `fetchByUuid(uuid)` | Resolve a Foundry UUID through platform Stores and declared hydrated discovery shards; live compendium fallback is diagnostic opt-in only. |
-| `getWorldItems(options?)` | Fetch world-owned items (not compendium). Prefer `context.platform.discovery` for compendium pack data. |
+| `fetchByUuid(uuid)` | Resolve a Foundry UUID through platform Stores and declared hydrated compendium pack rows; live compendium fallback is diagnostic opt-in only. |
+| `getWorldItems(options?)` | Fetch world-owned items (not compendium). Prefer `context.platform.compendiumPacks` for compendium pack data. |
 | `drawTable(tableId, options?)` | Fetch a RollTable and simulate a draw. Returns `DrawResult`. |
 | **Utilities** | |
 | `resolveUrl(path)` | Resolve a relative path to a full URL |
@@ -373,9 +373,9 @@ async initialize(context: ModuleContext): Promise<void> {
     await context.platform.cache.set('configKey', { value: 42 });
     const cached = await context.platform.cache.get<{ value: number }>('configKey');
 
-    // Compendium discovery — lookups into hydrated packs declared in info.json/getDiscoveryConfig()
-    const item = await context.platform.discovery.getById('Item', 'someUuid');
-    const found = await context.platform.discovery.findOne('Item', { name: 'Longsword' });
+    // Compendium pack reads — lookups into hydrated packs declared in info.json/getCompendiumPackConfig()
+    const item = await context.platform.compendiumPacks.getById('Item', 'someUuid');
+    const found = await context.platform.compendiumPacks.findOne('Item', { name: 'Longsword' });
 }
 ```
 
@@ -383,7 +383,7 @@ async initialize(context: ModuleContext): Promise<void> {
 
 **`context.platform.cache`** — persistent key-value store scoped to this module. Data survives server restarts. Other modules cannot read this module's data.
 
-**`context.platform.discovery`** — lookups into compendium packs declared in `info.json` / `getDiscoveryConfig()`. Packs with `hydrate: true` are hydrated by the platform before `initialize()` is called and are also the default source for compendium UUID document reads.
+**`context.platform.compendiumPacks`** — lookups into compendium packs declared in `info.json` / `getCompendiumPackConfig()`. Packs with `hydrate: true` are hydrated by the platform before `initialize()` is called and are also the default source for compendium UUID document reads.
 
 ### `ModuleFoundryClient` — injected per API request
 

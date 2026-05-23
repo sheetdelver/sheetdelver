@@ -1,12 +1,12 @@
 import { strict as assert } from 'node:assert';
 import {
-    DiscoveryShardStore,
-    type DiscoveryShardCache,
-    type DiscoveryShardDocument,
-} from '@server/core/compendium/DiscoveryShardStore';
-import type { DiscoveryShardManifest } from '@server/core/compendium/types';
+    CompendiumPackStore,
+    type CompendiumPackCache,
+    type CompendiumPackDocument,
+} from '@server/core/compendium/CompendiumPackStore';
+import type { CompendiumPackManifest } from '@server/core/compendium/types';
 
-class MemoryShardCache implements DiscoveryShardCache {
+class MemoryPackCache implements CompendiumPackCache {
     public readonly values = new Map<string, unknown>();
 
     public async get<T>(namespace: string, key: string): Promise<T | null> {
@@ -19,16 +19,16 @@ class MemoryShardCache implements DiscoveryShardCache {
 }
 
 export async function run() {
-    await runManifestAndShardRoundTrip();
+    await runManifestAndPackRowRoundTrip();
     await runScopedQueries();
     await runFindDocument();
-    await runLegacyShardKeyCompatibility();
-    console.log('  - DiscoveryShardStore: all checks passed');
+    await runLegacyPackKeyCompatibility();
+    console.log('  - CompendiumPackStore: all checks passed');
 }
 
-// Synthetic shard documents only. These mirror the small shape DiscoveryService
+// Synthetic pack rows only. These mirror the small shape CompendiumPackSyncService
 // persists without committing real compendium pack data.
-function createManifest(): DiscoveryShardManifest {
+function createManifest(): CompendiumPackManifest {
     return {
         systemId: 'synthetic-system',
         _instanceId: 'synthetic-instance',
@@ -51,7 +51,7 @@ function createManifest(): DiscoveryShardManifest {
     };
 }
 
-function itemRows(): DiscoveryShardDocument[] {
+function itemRows(): CompendiumPackDocument[] {
     return [
         {
             _id: 'torch',
@@ -70,25 +70,25 @@ function itemRows(): DiscoveryShardDocument[] {
     ];
 }
 
-async function runManifestAndShardRoundTrip() {
-    const cache = new MemoryShardCache();
-    const store = new DiscoveryShardStore(cache);
+async function runManifestAndPackRowRoundTrip() {
+    const cache = new MemoryPackCache();
+    const store = new CompendiumPackStore(cache);
     const manifest = createManifest();
 
     await store.setManifest(manifest);
-    await store.setShard('synthetic-system', 'synthetic.items', itemRows());
+    await store.setPackRows('synthetic-system', 'synthetic.items', itemRows());
 
     assert.equal((await store.getManifest('synthetic-system'))?.packs['synthetic.items'].rowCount, 2);
-    assert.equal((await store.getShard('synthetic-system', 'synthetic.items'))?.[0]?.name, 'Torch');
+    assert.equal((await store.getPackRows('synthetic-system', 'synthetic.items'))?.[0]?.name, 'Torch');
 }
 
 async function runScopedQueries() {
-    const cache = new MemoryShardCache();
-    const store = new DiscoveryShardStore(cache);
+    const cache = new MemoryPackCache();
+    const store = new CompendiumPackStore(cache);
 
     await store.setManifest(createManifest());
-    await store.setShard('synthetic-system', 'synthetic.items', itemRows());
-    await store.setShard('synthetic-system', 'synthetic.tables', [
+    await store.setPackRows('synthetic-system', 'synthetic.items', itemRows());
+    await store.setPackRows('synthetic-system', 'synthetic.tables', [
         { _id: 'talents', uuid: 'Compendium.synthetic.tables.RollTable.talents', name: 'Talents' },
     ]);
 
@@ -116,10 +116,10 @@ async function runScopedQueries() {
 }
 
 async function runFindDocument() {
-    const cache = new MemoryShardCache();
-    const store = new DiscoveryShardStore(cache);
+    const cache = new MemoryPackCache();
+    const store = new CompendiumPackStore(cache);
 
-    await store.setShard('synthetic-system', 'synthetic.items', itemRows());
+    await store.setPackRows('synthetic-system', 'synthetic.items', itemRows());
 
     assert.equal((await store.findDocument('synthetic-system', 'synthetic.items', 'torch', 'Item'))?.name, 'Torch');
     assert.equal((await store.findDocument('synthetic-system', 'synthetic.items', 'Compendium.synthetic.items.Item.spell'))?.name, 'Spell');
@@ -128,16 +128,16 @@ async function runFindDocument() {
     assert.equal(await store.findDocument('synthetic-system', 'synthetic.missing', 'torch', 'Item'), null);
 }
 
-async function runLegacyShardKeyCompatibility() {
-    const cache = new MemoryShardCache();
-    const store = new DiscoveryShardStore(cache);
+async function runLegacyPackKeyCompatibility() {
+    const cache = new MemoryPackCache();
+    const store = new CompendiumPackStore(cache);
 
     await cache.set('synthetic-system', 'pack-synthetic-items.extra', [
         { _id: 'legacy', name: 'Legacy Key Row' },
     ]);
 
     assert.equal(
-        (await store.getShard('synthetic-system', 'synthetic.items.extra'))?.[0]?.name,
+        (await store.getPackRows('synthetic-system', 'synthetic.items.extra'))?.[0]?.name,
         'Legacy Key Row',
     );
 }

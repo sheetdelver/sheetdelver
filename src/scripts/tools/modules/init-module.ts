@@ -27,7 +27,7 @@ const MODULE_INFO_JSON = `{
       "roll-engine-api": ">=1.0.0 <2.0.0"
     }
   },
-  "discovery": {
+  "compendiumPacks": {
     "packs": [
       { "id": "%SYSTEM_ID%.items", "type": "Item", "hydrate": true },
       { "id": "%SYSTEM_ID%.spells", "type": "Item", "hydrate": false }
