@@ -9,7 +9,7 @@ export async function run() {
 
     const missingAdapterService = createActorNormalizationService({
         getAdapterBySystemId: async () => null as any,
-        getCompendiumCache: async () => ({}),
+        getCompendiumPacks: async () => ({ findOne: async () => null, findAll: async () => [], getById: async () => null }),
     });
 
     let missingError: Error | null = null;
@@ -21,7 +21,11 @@ export async function run() {
     assert.ok(missingError);
     assert.ok(missingError?.message.includes('shadowdark'));
 
-    const cache = { marker: 'cache' };
+    const packsReader = {
+        findOne: async () => null,
+        findAll: async () => [],
+        getById: async () => null,
+    };
     const resolveActorNamesCalls: Array<{ actorId: string; cacheRef: unknown }> = [];
     const normalizeCalls: Array<{ actorId: string; clientRef: unknown }> = [];
     const computeCalls: Array<{ actorId: string }> = [];
@@ -48,7 +52,7 @@ export async function run() {
 
     const serviceWithCompute = createActorNormalizationService({
         getAdapterBySystemId: async () => adapterWithCompute,
-        getCompendiumCache: async () => cache,
+        getCompendiumPacks: async () => packsReader,
     });
 
     const actors = [
@@ -71,8 +75,8 @@ export async function run() {
     const normalizedWithCompute = await serviceWithCompute.normalizeActors(actors as any, baseClient);
     assert.equal(normalizedWithCompute.length, 2);
     assert.equal(resolveActorNamesCalls.length, 2);
-    assert.equal(resolveActorNamesCalls[0].cacheRef, cache);
-    assert.equal(resolveActorNamesCalls[1].cacheRef, cache);
+    assert.equal(resolveActorNamesCalls[0].cacheRef, packsReader);
+    assert.equal(resolveActorNamesCalls[1].cacheRef, packsReader);
     assert.equal(normalizeCalls.length, 2);
     assert.equal(normalizeCalls[0].clientRef, baseClient);
     assert.equal(normalizeCalls[1].clientRef, baseClient);
@@ -94,7 +98,7 @@ export async function run() {
 
     const serviceWithoutOptionalMethods = createActorNormalizationService({
         getAdapterBySystemId: async () => adapterWithoutOptionalMethods,
-        getCompendiumCache: async () => cache,
+        getCompendiumPacks: async () => packsReader,
     });
 
     const normalizedWithoutOptional = await serviceWithoutOptionalMethods.normalizeActors([
@@ -115,7 +119,7 @@ export async function run() {
 
     const emptyService = createActorNormalizationService({
         getAdapterBySystemId: async () => emptyAdapter,
-        getCompendiumCache: async () => cache,
+        getCompendiumPacks: async () => packsReader,
     });
 
     const emptyResult = await emptyService.normalizeActors([], baseClient);

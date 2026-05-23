@@ -61,7 +61,6 @@ function createDocumentResolverForRoute(
         : client as FoundryCompendiumClientLike;
     const compendiumService = new CompendiumService({
         transport: createCompendiumTransport(transportClient),
-        getGameDataSnapshot: () => worldStateStore.getGameDataSnapshot(),
     });
 
     return new DocumentResolver({

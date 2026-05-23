@@ -1,6 +1,6 @@
 import { logger } from '@shared/utils/logger';
 import { getConfig } from '@core/config';
-import { compendiumPackStore, type CompendiumPackStore } from '@server/core/compendium/CompendiumPackStore';
+import { compendiumStore, type CompendiumStore } from '@server/core/compendium/CompendiumStore';
 import type {
     ModuleContext,
     ModuleLogger,
@@ -16,7 +16,7 @@ export interface CompendiumPackScope {
 }
 
 export interface ScopedCompendiumPackDeps {
-    packStore?: CompendiumPackStore;
+    packStore?: CompendiumStore;
     getCompendiumPackScope?: (moduleId: string) => Promise<CompendiumPackScope | null> | CompendiumPackScope | null;
 }
 
@@ -89,7 +89,7 @@ export async function createScopedCompendiumPacks(
     moduleId: string,
     deps: ScopedCompendiumPackDeps = {},
 ): Promise<CompendiumPackReader> {
-    const packStore = deps.packStore || compendiumPackStore;
+    const packStore = deps.packStore || compendiumStore;
     const scope = deps.getCompendiumPackScope
         ? await deps.getCompendiumPackScope(moduleId)
         : await resolveCompendiumPackScope(moduleId);

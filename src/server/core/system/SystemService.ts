@@ -4,7 +4,7 @@ import { FoundryConfig } from '../foundry/types';
 import type { SystemAdapter } from '@modules/registry/types';
 import { logger } from '@shared/utils/logger';
 import { worldBootstrapper } from '@server/services/world';
-import { CompendiumCache, compendiumStore } from '../compendium';
+import { compendiumStore } from '../compendium';
 import { worldStateStore } from '@server/core/world/WorldStateStore';
 import { worldLifecycleStore } from '@server/core/world/WorldLifecycleStore';
 import { clearDocumentCache } from '../documents/primary/PrimaryDocumentCacheCoordinator';
@@ -249,8 +249,9 @@ export class SystemService extends EventEmitter {
         logger.info('SystemService | System Client disconnected.');
         this.emit('world:disconnected');
         clearDocumentCache('world-disconnected');
+        // Per ADR-0021, compendiumStore.clear() drops in-memory state only.
+        // Persistent shards are reused on reconnect when world identity matches.
         compendiumStore.clear('world-disconnected');
-        CompendiumCache.getInstance().reset();
         worldBootstrapper.reset('world-disconnected');
     }
 

@@ -2,12 +2,6 @@ export {
     CompendiumService,
     type CompendiumServiceDeps,
     type CompendiumTransport,
-    type DiscoverIndicesOptions,
     type GetPackEntriesOptions,
+    type HydratePacksResult,
 } from './CompendiumService';
-export {
-    CompendiumPackSyncService,
-    compendiumPackSyncService,
-    type CompendiumPackIndexReader,
-    type CompendiumPackSyncClient,
-} from './CompendiumPackSyncService';

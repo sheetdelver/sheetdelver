@@ -3,8 +3,24 @@ import { CompendiumStore } from '@server/core/compendium/CompendiumStore';
 import type {
     CompendiumDiscoveryResult,
     CompendiumIndexEntry,
+    CompendiumPackCache,
+    CompendiumPackDocument,
+    CompendiumPackManifest,
     CompendiumPackMetadata,
+    GameDataPackEnvelope,
 } from '@server/core/compendium/types';
+
+class MemoryPackCache implements CompendiumPackCache {
+    public readonly values = new Map<string, unknown>();
+
+    public async get<T>(namespace: string, key: string): Promise<T | null> {
+        return this.values.get(`${namespace}/${key}`) as T || null;
+    }
+
+    public async set<T>(namespace: string, key: string, value: T): Promise<void> {
+        this.values.set(`${namespace}/${key}`, value);
+    }
+}
 
 export async function run() {
     await runSeedAndAccessors();
@@ -13,6 +29,12 @@ export async function run() {
     await runCloneOnRead();
     await runCloneOnWrite();
     await runClearAndReplacementSemantics();
+    await runSeedPackMetadataFromGameData();
+    await runManifestAndPackRowRoundTrip();
+    await runScopedQueries();
+    await runFindDocument();
+    await runLegacyPackKeyCompatibility();
+    await runClearPreservesPersistentShards();
     console.log('  - CompendiumStore: all checks passed');
 }
 
@@ -53,6 +75,48 @@ function createIndex(overrides: Partial<CompendiumIndexEntry>[] = []): Compendiu
     ];
 
     return base.map((entry, index) => ({ ...entry, ...(overrides[index] || {}) }));
+}
+
+function createManifest(): CompendiumPackManifest {
+    return {
+        systemId: 'synthetic-system',
+        _instanceId: 'synthetic-instance',
+        packs: {
+            'synthetic.items': {
+                id: 'synthetic.items',
+                hash: 'hash-items',
+                lastUpdated: 1,
+                rowCount: 2,
+                hydrate: true,
+            },
+            'synthetic.tables': {
+                id: 'synthetic.tables',
+                hash: 'hash-tables',
+                lastUpdated: 2,
+                rowCount: 1,
+                hydrate: false,
+            },
+        },
+    };
+}
+
+function itemRows(): CompendiumPackDocument[] {
+    return [
+        {
+            _id: 'torch',
+            uuid: 'Compendium.synthetic.items.Item.torch',
+            name: 'Torch',
+            type: 'Gear',
+            system: { tier: 1 },
+        },
+        {
+            _id: 'spell',
+            uuid: 'Compendium.synthetic.items.Item.spell',
+            name: 'Spell',
+            type: 'Spell',
+            system: { tier: 2 },
+        },
+    ];
 }
 
 async function runSeedAndAccessors() {
@@ -189,4 +253,168 @@ async function runClearAndReplacementSemantics() {
 
     assert.equal(store.getPackIndex('shadowdark.items'), null);
     assert.equal(store.getPackIndex('shadowdark.tables')?.[0]?.name, 'Talents');
+}
+
+async function runSeedPackMetadataFromGameData() {
+    const store = new CompendiumStore();
+    const envelope: GameDataPackEnvelope = {
+        packs: [
+            {
+                id: 'dnd5e.heroes',
+                name: 'heroes',
+                label: 'Starter Heroes',
+                path: 'systems/dnd5e/packs/heroes',
+                type: 'Actor',
+                system: 'dnd5e',
+                packageType: 'system',
+                packageName: 'dnd5e',
+            },
+        ],
+        system: {
+            id: 'dnd5e',
+            packs: [
+                {
+                    name: 'spells',
+                    label: 'Spells',
+                    type: 'Item',
+                    packageName: 'dnd5e',
+                },
+            ],
+        },
+        modules: [
+            {
+                id: 'shadowdark',
+                packs: [
+                    {
+                        id: 'shadowdark.gear',
+                        name: 'gear',
+                        label: 'Gear',
+                        type: 'Item',
+                    },
+                ],
+            },
+        ],
+    };
+
+    store.seedPackMetadataFromGameData(envelope);
+
+    assert.equal(store.hasPackMetadata('dnd5e.heroes'), true);
+    assert.equal(store.hasPackMetadata('dnd5e.spells'), true);
+    assert.equal(store.hasPackMetadata('shadowdark.gear'), true);
+
+    const heroes = store.getPackMetadata('dnd5e.heroes');
+    assert.equal(heroes?.type, 'Actor');
+    assert.equal(heroes?.source, 'game.packs');
+
+    const spells = store.getPackMetadata('dnd5e.spells');
+    assert.equal(spells?.source, 'system');
+
+    const gear = store.getPackMetadata('shadowdark.gear');
+    assert.equal(gear?.source, 'module');
+    assert.equal(gear?.moduleId, 'shadowdark');
+
+    // Re-seeding the same id from a later source must not duplicate or replace
+    // the first record's source attribution.
+    assert.equal(store.listPackMetadata().length, 3);
+
+    // Pre-filed metadata never carries index rows or documents.
+    assert.equal(store.getPackIndex('dnd5e.heroes'), null);
+    assert.equal(store.listPackIndices().length, 0);
+}
+
+async function runManifestAndPackRowRoundTrip() {
+    const cache = new MemoryPackCache();
+    const store = new CompendiumStore(cache);
+    const manifest = createManifest();
+
+    await store.setManifest(manifest);
+    await store.setPackRows('synthetic-system', 'synthetic.items', itemRows());
+
+    assert.equal((await store.getManifest('synthetic-system'))?.packs['synthetic.items'].rowCount, 2);
+    assert.equal((await store.getPackRows('synthetic-system', 'synthetic.items'))?.[0]?.name, 'Torch');
+}
+
+async function runScopedQueries() {
+    const cache = new MemoryPackCache();
+    const store = new CompendiumStore(cache);
+
+    await store.setManifest(createManifest());
+    await store.setPackRows('synthetic-system', 'synthetic.items', itemRows());
+    await store.setPackRows('synthetic-system', 'synthetic.tables', [
+        { _id: 'talents', uuid: 'Compendium.synthetic.tables.RollTable.talents', name: 'Talents' },
+    ]);
+
+    const scopedItems = await store.findAll(
+        'synthetic-system',
+        'Item',
+        { 'system.tier': 2 },
+        { packIds: ['synthetic.items'] },
+    );
+    assert.equal(scopedItems.length, 1);
+    assert.equal(scopedItems[0]._id, 'spell');
+
+    const missingFromScope = await store.findAll(
+        'synthetic-system',
+        'RollTable',
+        {},
+        { packIds: ['synthetic.items'] },
+    );
+    assert.equal(missingFromScope.length, 2);
+
+    assert.equal((await store.findOne('synthetic-system', 'Item', { name: 'Torch' }, { packIds: ['synthetic.items'] }))?._id, 'torch');
+    assert.equal((await store.getById('synthetic-system', 'Item', 'spell', { packIds: ['synthetic.items'] }))?.name, 'Spell');
+    assert.equal(await store.getById('synthetic-system', 'Item', 'missing', { packIds: ['synthetic.items'] }), null);
+    assert.deepEqual(await store.findAll('synthetic-system', 'Item', {}, { packIds: [] }), []);
+}
+
+async function runFindDocument() {
+    const cache = new MemoryPackCache();
+    const store = new CompendiumStore(cache);
+
+    await store.setPackRows('synthetic-system', 'synthetic.items', itemRows());
+
+    assert.equal((await store.findDocument('synthetic-system', 'synthetic.items', 'torch', 'Item'))?.name, 'Torch');
+    assert.equal((await store.findDocument('synthetic-system', 'synthetic.items', 'Compendium.synthetic.items.Item.spell'))?.name, 'Spell');
+    assert.equal((await store.findDocument('synthetic-system', 'synthetic.items', 'spell', 'Item'))?.name, 'Spell');
+    assert.equal(await store.findDocument('synthetic-system', 'synthetic.items', 'missing', 'Item'), null);
+    assert.equal(await store.findDocument('synthetic-system', 'synthetic.missing', 'torch', 'Item'), null);
+}
+
+async function runLegacyPackKeyCompatibility() {
+    const cache = new MemoryPackCache();
+    const store = new CompendiumStore(cache);
+
+    await cache.set('synthetic-system', 'pack-synthetic-items.extra', [
+        { _id: 'legacy', name: 'Legacy Key Row' },
+    ]);
+
+    assert.equal(
+        (await store.getPackRows('synthetic-system', 'synthetic.items.extra'))?.[0]?.name,
+        'Legacy Key Row',
+    );
+}
+
+// ADR-0021: clear(reason) must drop in-memory state only. Persistent shards
+// belong to the warm cache and survive a transient disconnect or world close.
+async function runClearPreservesPersistentShards() {
+    const cache = new MemoryPackCache();
+    const store = new CompendiumStore(cache);
+
+    store.setPackMetadata('synthetic.items', { id: 'synthetic.items', type: 'Item' });
+    await store.setManifest(createManifest());
+    await store.setPackRows('synthetic-system', 'synthetic.items', itemRows());
+
+    assert.equal(store.hasPackMetadata('synthetic.items'), true);
+    assert.equal(cache.values.size, 2);
+
+    store.clear('transient-disconnect');
+
+    // In-memory wiped …
+    assert.equal(store.hasPackMetadata('synthetic.items'), false);
+    assert.equal(store.isReady(), false);
+
+    // … but persistent shards untouched, ready to be reused on reconnect.
+    assert.equal(cache.values.size, 2);
+    assert.equal((await store.getManifest('synthetic-system'))?.packs['synthetic.items'].rowCount, 2);
+    assert.equal((await store.getPackRows('synthetic-system', 'synthetic.items'))?.[0]?.name, 'Torch');
 }

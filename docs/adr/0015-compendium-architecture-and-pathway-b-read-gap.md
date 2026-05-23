@@ -99,6 +99,8 @@ The optional heartbeat wrapper preserves today's `getPackEntries()` behavior, wh
 
 ### Pathway A and B
 
+> **Superseded by ADR-0021.** Pathway A no longer performs a broad live index fetch at bootstrap. `game.data.packs` is recorded passively into the unified `CompendiumStore` as pre-filed pack metadata (id, type, package source, label) without any transport calls. The legacy UUID/name map (`CompendiumCache`) is deleted; UUID name resolution comes from declared compendium pack rows or leaves the UUID unresolved. The text below is preserved for historical context; see ADR-0021 "Bootstrap is passive" and "One store, one service" for the current behavior.
+
 Pathway A stays broad and lightweight. It discovers every pack index and builds a UUID/name map. It must not hydrate every pack.
 
 Pathway B stays module-declared and potentially hydrated. Full documents are fetched only for packs a module explicitly declares with `hydrate: true`. This is the policy that prevents unrelated module packs from bloating bootstrap.

@@ -70,3 +70,21 @@ export interface CompendiumPackManifest {
     packs: Record<string, CompendiumPackManifestEntry>;
     _instanceId: string;
 }
+
+export interface CompendiumPackCache {
+    get<T>(namespace: string, key: string): Promise<T | null>;
+    set<T>(namespace: string, key: string, value: T): Promise<void>;
+}
+
+export interface CompendiumPackQueryOptions {
+    packIds?: readonly string[] | null;
+}
+
+export type CompendiumPackDocument = Record<string, unknown>;
+
+export interface GameDataPackEnvelope {
+    packs?: CompendiumPackMetadata[];
+    world?: { packs?: CompendiumPackMetadata[] } | null;
+    system?: { id?: string; packs?: CompendiumPackMetadata[] } | null;
+    modules?: Array<{ id?: string; packs?: CompendiumPackMetadata[] }>;
+}

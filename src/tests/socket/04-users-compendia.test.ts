@@ -23,10 +23,11 @@ export async function testUsersAndCompendia() {
     try {
         await client.connect();
         logger.info('✅ Connected\n');
-        const compendiumService = new CompendiumService({
+        // Compendium service is no longer needed for this user-roster test path,
+        // but instantiating it confirms its constructor still works.
+        new CompendiumService({
             transport: client,
             store: compendiumStore,
-            getGameDataSnapshot: () => worldStateStore.getGameDataSnapshot(),
         });
 
         // Test 4a: UserStore roster
@@ -55,15 +56,18 @@ export async function testUsersAndCompendia() {
             results.tests.push({ name: 'WorldStateStore users snapshot', success: false, error: error.message });
         }
 
-        // Test 4c: service-backed Pathway A discovery
-        logger.info('\n4c. Testing CompendiumService.discoverIndices()...');
+        // Test 4c: passive pack metadata seed from game.data.packs
+        logger.info('\n4c. Testing passive pack metadata seed...');
         try {
-            const indices = await compendiumService.discoverIndices();
-            logger.info(`   ✅ Found ${indices.length} compendium packs`);
-            results.tests.push({ name: 'CompendiumService.discoverIndices', success: true, data: { count: indices.length } });
+            const gameData = worldStateStore.getGameDataSnapshot();
+            if (!gameData) throw new Error('gameData unavailable');
+            compendiumStore.seedPackMetadataFromGameData(gameData, 'socket-test');
+            const inventory = compendiumStore.listPackMetadata();
+            logger.info(`   ✅ Seeded ${inventory.length} pack records`);
+            results.tests.push({ name: 'compendiumStore.seedPackMetadataFromGameData', success: true, data: { count: inventory.length } });
         } catch (error: any) {
             logger.info(`   ❌ Failed: ${error.message}`);
-            results.tests.push({ name: 'CompendiumService.discoverIndices', success: false, error: error.message });
+            results.tests.push({ name: 'compendiumStore.seedPackMetadataFromGameData', success: false, error: error.message });
         }
 
         const successCount = results.tests.filter((t: any) => t.success).length;

@@ -63,7 +63,18 @@ The store owns two responsibilities:
 
 Both tiers live in one class so consumers ask one thing for one answer. There is no separate metadata cache, no UUID→name map, no separate pack-row reader.
 
-#### What `game.data.packs` does and does not carry
+The service owns:
+
+- **`seedPackMetadataFromGameData(gameData)`** — passive, called by `WorldBootstrapper`. No transport calls.
+- **`hydratePack(systemId, packDeclaration)`** — module-triggered. Checks persistent manifest first. If the pack's hash matches and on-disk rows exist, returns without transport calls. Otherwise issues one pack-scoped freshness fetch, recomputes the hash, and refreshes rows per the declaration's `hydrate` / `fields` policy.
+- **`getPackIndex(packId, options?)`** — on-demand, scoped to a single pack. Used by `hydratePack` internally and available for diagnostics/admin.
+- **`getPackDocument(packId, documentId, type?)`** — on-demand, scoped to a single pack. Used by `DocumentResolver` when ADR-0020 policy permits it.
+
+The service has no `upsert` / `patch` / `delete`. Pack contents are owned upstream by Foundry; the platform only mirrors the slice modules declared.
+
+`CompendiumStore.clear(reason)` discards **in-memory state only** — pre-filed metadata records and any cached row arrays held in the store instance. It must not delete persistent shards or the manifest. A transient service-account disconnect or world-close call should not wipe the on-disk warm cache; reconnect verifies the world identity and reuses persistent shards via the normal manifest-hash short-circuit. Persistent shards are only evicted by explicit operator action (admin reset) or world identity change.
+
+### What `game.data.packs` does and does not carry
 
 Foundry's bootstrap envelope exposes pack lists under `.packs`, `.world.packs`, `.system.packs`, and `.modules[*].packs`. Each entry is a **manifest record**, not document data. Verified against captured world dumps, each pack entry has exactly these fields:
 
@@ -88,18 +99,9 @@ What is **not** in the envelope at any nesting level:
 - no `documents` / `entries` array
 - no per-document `_id`, `name`, `img`, or other document fields
 
-Implication: pre-filed metadata tells the platform *which* packs exist and *what kind* of documents they hold. It does not contain the documents or the per-document index rows. A `hydrate: false` declaration therefore still requires one Foundry index fetch per declared pack on cold start (the freshness fetch in the table below); a `hydrate: true` declaration adds chunked document fetches on top. Both are persisted, and warm restarts skip refetch when the manifest hash is current.
+Implication: pre-filed metadata tells the platform *which* packs exist and *what kind* of documents they hold. It does not contain the documents or the per-document index rows. A `hydrate: false` declaration therefore still requires one Foundry index fetch per declared pack on cold start (the freshness fetch in the Cache Discipline table); a `hydrate: true` declaration adds chunked document fetches on top. Both are persisted, and warm restarts skip refetch when the manifest hash is current.
 
 The `flags.<system>.types` array is a useful **subtype hint** (e.g. `["weapon", "equipment", "consumable", ...]` for an items pack). It can validate a module's declaration ("you declared `type: Item`, the pack confirms it carries items") but is not document data.
-
-The service owns:
-
-- **`seedPackMetadataFromGameData(gameData)`** — passive, called by `WorldBootstrapper`. No transport calls.
-- **`hydratePack(systemId, packDeclaration)`** — module-triggered. Checks persistent manifest first. If the pack's hash matches and on-disk rows exist, returns without transport calls. Otherwise issues one pack-scoped freshness fetch, recomputes the hash, and refreshes rows per the declaration's `hydrate` / `fields` policy.
-- **`getPackIndex(packId, options?)`** — on-demand, scoped to a single pack. Used by `hydratePack` internally and available for diagnostics/admin.
-- **`getPackDocument(packId, documentId, type?)`** — on-demand, scoped to a single pack. Used by `DocumentResolver` when ADR-0020 policy permits it.
-
-The service has no `upsert` / `patch` / `delete`. Pack contents are owned upstream by Foundry; the platform only mirrors the slice modules declared.
 
 ### Module Boundary: Declaration, Discovery, Sharding, Read Surface
 
@@ -139,7 +141,7 @@ When a declared pack is fresh in persistent cache, `hydratePack` returns without
 ### Pack Metadata Mutation Policy
 
 - `WorldBootstrapper` replaces pack metadata from the accepted bootstrap snapshot.
-- World change, world close, restart, and setup transition may clear/replace pack metadata as part of normal bootstrap lifecycle.
+- World change, world close, restart, and setup transition may clear/replace **in-memory** pack metadata as part of normal bootstrap lifecycle. Persistent shards survive; they are reused on reconnect when world identity matches and the manifest hash is current.
 - Active-module change is handled by world bootstrap reload — the close/restart path tears down state and the next bootstrap follows the standard procedure. There is no in-place reconfiguration. Persistent rows belonging to a previously-active module's declarations remain on disk but are unreachable (no declaration scopes them); they may be evicted opportunistically but are not required to be.
 - Module-declared pack hydration writes to the persistent rows side of the store; it must not mutate the pre-filed metadata.
 - Runtime name/document resolution must not mutate the store at all.
@@ -250,25 +252,28 @@ Comments describe ownership and direction of flow, not individual assignments.
 
 ### Phase 1: Unify the store
 
-**Status:** Proposed
+**Status:** Completed May 23, 2026.
 
 Phase 1 collapses the three storage classes into one read-only `CompendiumStore`.
 
 **Action items:**
 
-- [ ] Define the unified `CompendiumStore` shape: pre-filed metadata records keyed by pack id, plus persistent manifest and pack rows.
+- [x] Define the unified `CompendiumStore` shape: pre-filed metadata records keyed by pack id, plus persistent manifest and pack rows.
   Files: `src/server/core/compendium/CompendiumStore.ts`, `src/server/core/compendium/types.ts`.
 
-- [ ] Move persistent manifest/rows storage (currently in `CompendiumPackStore`) into the unified `CompendiumStore`. Preserve the existing per-pack shard key shape (`pack-<packId>` under `(systemId, ...)`) and systemId namespace so the on-disk cache is reused by the unified store, not rebuilt.
+- [x] Move persistent manifest/rows storage (currently in `CompendiumPackStore`) into the unified `CompendiumStore`. Preserve the existing per-pack shard key shape (`pack-<packId>` under `(systemId, ...)`) and systemId namespace so the on-disk cache is reused by the unified store, not rebuilt.
   Files: `src/server/core/compendium/CompendiumStore.ts`, `src/server/core/compendium/CompendiumPackStore.ts` (delete).
 
-- [ ] Delete `CompendiumCache`. Its UUID→name responsibility is absorbed by declared pack rows; unresolved UUIDs stay unresolved.
+- [x] Delete `CompendiumCache`. Its UUID→name responsibility is absorbed by declared pack rows; unresolved UUIDs stay unresolved.
   Files: `src/server/core/compendium/CompendiumCache.ts` (delete), `src/server/core/compendium/index.ts`.
 
-- [ ] Add `seedPackMetadataFromGameData(gameData)` and a read API that returns declared pack rows, declared documents, and pre-filed metadata in one shape.
+- [x] Add `seedPackMetadataFromGameData(gameData)` and a read API that returns declared pack rows, declared documents, and pre-filed metadata in one shape.
   Files: `src/server/core/compendium/CompendiumStore.ts`, store tests.
 
-- [ ] Add a comment at the metadata seed boundary explaining that records are passive and never trigger transport calls.
+- [x] Pin `CompendiumStore.clear(reason)` to in-memory state only: discard pre-filed metadata and cached row arrays held by the instance; do not delete persistent shards or the manifest. Add a comment at the method and a unit test that proves a `clear()` followed by reseed leaves on-disk shards untouched.
+  Files: `src/server/core/compendium/CompendiumStore.ts`, store tests.
+
+- [x] Add a comment at the metadata seed boundary explaining that records are passive and never trigger transport calls.
   Files: `src/server/core/compendium/CompendiumStore.ts`.
 
 **Non-goals for Phase 1:**
@@ -280,25 +285,25 @@ Phase 1 collapses the three storage classes into one read-only `CompendiumStore`
 
 ### Phase 2: Unify the service and remove broad warmup
 
-**Status:** Proposed
+**Status:** Completed May 23, 2026.
 
 Phase 2 merges `CompendiumPackSyncService` into `CompendiumService` and removes broad pack-index warmup from bootstrap.
 
 **Action items:**
 
-- [ ] Merge `CompendiumPackSyncService.sync` into `CompendiumService` as `hydratePack(systemId, declaration)` / `hydratePacks(systemId, config)`. Preserve the existing freshness-hash + persistent-rows short-circuit. `WorldBootstrapper` continues to source declared config from `getModuleCompendiumPackConfig(moduleId)`; that registry accessor is unchanged.
+- [x] Merge `CompendiumPackSyncService.sync` into `CompendiumService` as `hydratePack(systemId, declaration)` / `hydratePacks(systemId, config)`. Preserve the existing freshness-hash + persistent-rows short-circuit. `WorldBootstrapper` continues to source declared config from `getModuleCompendiumPackConfig(moduleId)`; that registry accessor is unchanged.
   Files: `src/server/services/compendium/CompendiumService.ts`, `src/server/services/compendium/CompendiumPackSyncService.ts` (delete), `src/server/services/world/WorldBootstrapper.ts`, `src/server/services/compendium/index.ts`.
 
-- [ ] Replace `WorldBootstrapper`'s `discoverIndices` + `rebuildCompendiumCache` calls with `compendiumService.seedPackMetadataFromGameData(...)`. Bootstrap performs no pack-index transport calls.
+- [x] Replace `WorldBootstrapper`'s `discoverIndices` + `rebuildCompendiumCache` calls with `compendiumService.seedPackMetadataFromGameData(...)`. Bootstrap performs no pack-index transport calls.
   Files: `src/server/services/world/WorldBootstrapper.ts`.
 
-- [ ] Keep `CompendiumService.getPackIndex` / `getPackDocument` / `getPackDocuments` as on-demand primitives used by `hydratePack` and `DocumentResolver`. Remove `discoverIndices`.
+- [x] Keep `CompendiumService.getPackIndex` / `getPackDocument` / `getPackDocuments` as on-demand primitives used by `hydratePack` and `DocumentResolver`. Remove `discoverIndices`.
   Files: `src/server/services/compendium/CompendiumService.ts`.
 
-- [ ] Add a comment in `hydratePack` documenting that persistent manifest is authoritative and that a fresh manifest skips all transport calls.
+- [x] Add a comment in `hydratePack` documenting that persistent manifest is authoritative and that a fresh manifest skips all transport calls.
   Files: `src/server/services/compendium/CompendiumService.ts`.
 
-- [ ] Update startup logs: "seeded pack metadata from game data" + "hydrated N/M declared packs (K skipped, fresh)".
+- [x] Update startup logs: "seeded pack metadata from game data" + "hydrated N/M declared packs (K skipped, fresh)".
   Files: `src/server/services/world/WorldBootstrapper.ts`, `src/server/services/compendium/CompendiumService.ts`.
 
 **Non-goals for Phase 2:**
@@ -310,28 +315,28 @@ Phase 2 merges `CompendiumPackSyncService` into `CompendiumService` and removes 
 
 ### Phase 3: Migrate consumers off the legacy name map
 
-**Status:** Proposed
+**Status:** Completed May 23, 2026.
 
 Phase 3 moves callers off the deleted `CompendiumCache` UUID→name surface.
 
 **Action items:**
 
-- [ ] Migrate actor normalization and detail name projection. Names come from declared pack rows when available; otherwise preserve the unresolved UUID string.
+- [x] Migrate actor normalization and detail name projection. Names come from declared pack rows when available; otherwise preserve the unresolved UUID string.
   Files: `src/server/services/actors/ActorNormalizationService.ts`, `src/server/services/actors/ActorService.ts`, adapter tests.
 
-- [ ] Remove the legacy `CompendiumCache` fallback from `createScopedCompendiumPacks(...)`. The scoped reader returns declared rows or fails closed.
+- [x] Remove the legacy `CompendiumCache` fallback from `createScopedCompendiumPacks(...)`. The scoped reader returns declared rows or fails closed.
   Files: `src/server/shared/utils/createModuleContext.ts`, `src/tests/unit/compendium/module-context-compendium-packs.test.ts`.
 
-- [ ] Migrate `DocumentResolver` to read declared rows from `CompendiumStore`. Live fallback via `CompendiumService.getPackDocument` is permitted only where ADR-0020 policy allows it.
+- [x] Migrate `DocumentResolver` to read declared rows from `CompendiumStore`. Live fallback via `CompendiumService.getPackDocument` is permitted only where ADR-0020 policy allows it.
   Files: `src/server/services/documents/DocumentResolver.ts`, resolver tests.
 
-- [ ] Remove `CompendiumCache` symbols from `SystemService` clear/reset and `CoreSocket` disconnect; replace with `compendiumStore.clear(reason)`.
+- [x] Remove `CompendiumCache` symbols from `SystemService` clear/reset and `CoreSocket` disconnect; replace with `compendiumStore.clear(reason)`.
   Files: `src/server/core/system/SystemService.ts`, `src/server/core/foundry/sockets/CoreSocket.ts`.
 
-- [ ] Audit any remaining `CompendiumCache` import. Each is either migrated or removed; no compatibility shim survives this phase.
+- [x] Audit any remaining `CompendiumCache` import. Each is either migrated or removed; no compatibility shim survives this phase.
   Files: grep + update.
 
-- [ ] Update ADR-0015 wording that still describes Pathway A as broad startup index fetch.
+- [x] Update ADR-0015 wording that still describes Pathway A as broad startup index fetch.
   Files: `docs/adr/0015-compendium-architecture-and-pathway-b-read-gap.md`.
 
 **Non-goals for Phase 3:**

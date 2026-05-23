@@ -158,14 +158,17 @@ export function createActorService(deps: ActorServiceDeps) {
             };
         }
 
-        const { CompendiumCache } = await import('@core/compendium/CompendiumCache');
-        const cache = CompendiumCache.getInstance();
+        const { compendiumStore } = await import('@core/compendium');
 
+        // Per ADR-0021, compendium UUID name resolution comes from declared
+        // pack rows held in CompendiumStore. UUIDs whose pack is undeclared,
+        // not pre-filed, or not yet hydrated stay unresolved (no live
+        // fallback to Foundry).
         const resolveUUIDs = (obj: unknown): unknown => {
             if (typeof obj === 'string') {
                 if (obj.startsWith('Compendium.')) {
-                    const name = cache.getName(obj);
-                    return name || obj;
+                    const lookup = compendiumStore.findIndexEntry(obj);
+                    return lookup?.entry.name || obj;
                 }
                 return obj;
             }

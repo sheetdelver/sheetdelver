@@ -1,8 +1,6 @@
 import { strict as assert } from 'node:assert';
-import {
-    CompendiumPackStore,
-    type CompendiumPackCache,
-} from '@server/core/compendium/CompendiumPackStore';
+import { CompendiumStore } from '@server/core/compendium/CompendiumStore';
+import type { CompendiumPackCache } from '@server/core/compendium/types';
 import { createScopedCompendiumPacks, type CompendiumPackScope } from '@server/shared/utils/createModuleContext';
 
 class MemoryPackCache implements CompendiumPackCache {
@@ -24,8 +22,8 @@ export async function run() {
     console.log('  - Module context compendium packs: all checks passed');
 }
 
-async function createSeededStore(): Promise<CompendiumPackStore> {
-    const store = new CompendiumPackStore(new MemoryPackCache());
+async function createSeededStore(): Promise<CompendiumStore> {
+    const store = new CompendiumStore(new MemoryPackCache());
     await store.setManifest({
         systemId: 'synthetic-module',
         _instanceId: 'synthetic-instance',
@@ -91,7 +89,7 @@ async function runFailClosedWithoutScope() {
 
 async function runNoNameCacheFallback() {
     const compendiumPacks = await createScopedCompendiumPacks('synthetic-module', {
-        packStore: new CompendiumPackStore(new MemoryPackCache()),
+        packStore: new CompendiumStore(new MemoryPackCache()),
         getCompendiumPackScope: () => itemOnlyScope(),
     });
 

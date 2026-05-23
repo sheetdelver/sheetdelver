@@ -58,14 +58,12 @@ function createCompatibilityBootstrapper(
             events.push(`seed-users:${count}`);
         },
         createCompendiumService: () => ({
-            discoverIndices: async () => {
-                events.push('discover');
-                return [];
-            },
+            seedPackMetadataFromGameData: () => undefined,
+            hydratePacks: async () => ({ manifest: { systemId: '', _instanceId: '', packs: {} }, hydrated: 0, skipped: 0, missing: 0 }),
             getPackEntries: async () => [],
-        }),
-        rebuildCompendiumCache: () => {
-            events.push('rebuild');
+        }) as any,
+        seedPackMetadata: () => {
+            events.push('seed-metadata');
         },
         getSystem: () => currentSystem,
         getRegisteredModules: () => [],
@@ -145,15 +143,16 @@ async function runBootstrapOrderingAndReadyCallback() {
     };
 
     const bootstrapper = new WorldBootstrapper({
+        getBootstrapSnapshot: async () => createBootstrapSnapshot(),
+        seedWorldSnapshot: () => undefined,
+        seedUserSnapshot: async () => undefined,
         createCompendiumService: () => ({
-            discoverIndices: async () => {
-                order.push('discover');
-                return [];
-            },
+            seedPackMetadataFromGameData: () => undefined,
+            hydratePacks: async () => ({ manifest: { systemId: '', _instanceId: '', packs: {} }, hydrated: 0, skipped: 0, missing: 0 }),
             getPackEntries: async () => [],
-        }),
-        rebuildCompendiumCache: () => {
-            order.push('rebuild');
+        }) as any,
+        seedPackMetadata: () => {
+            order.push('seed-metadata');
         },
         getSystem: () => ({ id: 'SyntheticSystem' }),
         getRegisteredModules: () => [{
@@ -164,7 +163,7 @@ async function runBootstrapOrderingAndReadyCallback() {
             order.push(`load-adapter:${systemId}`);
             return initializingAdapter;
         },
-        syncCompendiumPacks: async (_transport, systemId) => {
+        hydrateCompendiumPacks: async (systemId) => {
             order.push(`sync:${systemId}`);
         },
         seedDocuments: async () => {
@@ -184,8 +183,7 @@ async function runBootstrapOrderingAndReadyCallback() {
     });
 
     assert.deepEqual(order, [
-        'discover',
-        'rebuild',
+        'seed-metadata',
         'load-adapter:syntheticsystem',
         'sync:syntheticsystem',
         'seed',
@@ -219,14 +217,12 @@ async function runBootstrapAcceptsSnapshotBeforeServiceWork() {
             order.push(`seed-users:${count}`);
         },
         createCompendiumService: () => ({
-            discoverIndices: async () => {
-                order.push('discover');
-                return [];
-            },
+            seedPackMetadataFromGameData: () => undefined,
+            hydratePacks: async () => ({ manifest: { systemId: '', _instanceId: '', packs: {} }, hydrated: 0, skipped: 0, missing: 0 }),
             getPackEntries: async () => [],
-        }),
-        rebuildCompendiumCache: () => {
-            order.push('rebuild');
+        }) as any,
+        seedPackMetadata: () => {
+            order.push('seed-metadata');
         },
         getSystem: () => currentSystem,
         getRegisteredModules: () => [],
@@ -252,8 +248,7 @@ async function runBootstrapAcceptsSnapshotBeforeServiceWork() {
         'snapshot',
         'seed-world:SyntheticSystem',
         'seed-users:1',
-        'discover',
-        'rebuild',
+        'seed-metadata',
         'load-adapter:syntheticsystem',
         'seed-docs',
         'active:SyntheticSystem',
@@ -295,8 +290,7 @@ async function runBootstrapRejectsUnsupportedGenerationBeforeStoreSeeding() {
         'snapshot:13',
         'seed-world:SyntheticSystem',
         'seed-users:1',
-        'discover',
-        'rebuild',
+        'seed-metadata',
         'load-adapter:syntheticsystem',
         'seed-docs',
         'active:SyntheticSystem',
@@ -359,18 +353,23 @@ async function runBootstrapSharesConcurrentPromise() {
     let readyCalls = 0;
 
     const bootstrapper = new WorldBootstrapper({
+        getBootstrapSnapshot: async () => createBootstrapSnapshot(),
+        seedWorldSnapshot: () => undefined,
+        seedUserSnapshot: async () => undefined,
         createCompendiumService: () => ({
-            discoverIndices: async () => {
-                discoverCalls += 1;
-                await discoverGate;
-                return [];
-            },
+            seedPackMetadataFromGameData: () => undefined,
+            hydratePacks: async () => ({ manifest: { systemId: '', _instanceId: '', packs: {} }, hydrated: 0, skipped: 0, missing: 0 }),
             getPackEntries: async () => [],
-        }),
-        rebuildCompendiumCache: () => undefined,
+        }) as any,
+        seedPackMetadata: () => {
+            discoverCalls += 1;
+        },
         getSystem: () => ({ id: 'synthetic' }),
         getRegisteredModules: () => [],
-        loadAdapter: async () => null,
+        loadAdapter: async () => {
+            await discoverGate;
+            return null;
+        },
         seedDocuments: async () => undefined,
         markLifecycleActive,
     });
@@ -384,7 +383,9 @@ async function runBootstrapSharesConcurrentPromise() {
     const secondBootstrap = bootstrapper.bootstrap({} as any, options);
 
     assert.equal(firstBootstrap, secondBootstrap);
-    await Promise.resolve();
+    // Wait long enough for the snapshot/user/seed-metadata awaits to drain
+    // before the gated loadAdapter halts progress.
+    for (let i = 0; i < 5; i++) await Promise.resolve();
     assert.equal(discoverCalls, 1);
     releaseDiscover?.();
 
@@ -402,10 +403,11 @@ async function runBootstrapFailureResetsForRetry() {
     let readyCalls = 0;
     const bootstrapper = new WorldBootstrapper({
         createCompendiumService: () => ({
-            discoverIndices: async () => [],
+            seedPackMetadataFromGameData: () => undefined,
+            hydratePacks: async () => ({ manifest: { systemId: '', _instanceId: '', packs: {} }, hydrated: 0, skipped: 0, missing: 0 }),
             getPackEntries: async () => [],
-        }),
-        rebuildCompendiumCache: () => undefined,
+        }) as any,
+        seedPackMetadata: () => undefined,
         getSystem: () => ({ id: 'synthetic' }),
         getRegisteredModules: () => [],
         loadAdapter: async () => null,
@@ -443,10 +445,11 @@ async function runResetClearsReadinessAndAdapter() {
     const activeAdapter = adapter('synthetic');
     const bootstrapper = new WorldBootstrapper({
         createCompendiumService: () => ({
-            discoverIndices: async () => [],
+            seedPackMetadataFromGameData: () => undefined,
+            hydratePacks: async () => ({ manifest: { systemId: '', _instanceId: '', packs: {} }, hydrated: 0, skipped: 0, missing: 0 }),
             getPackEntries: async () => [],
-        }),
-        rebuildCompendiumCache: () => undefined,
+        }) as any,
+        seedPackMetadata: () => undefined,
         getSystem: () => ({ id: 'synthetic' }),
         getRegisteredModules: () => [],
         loadAdapter: async () => activeAdapter,

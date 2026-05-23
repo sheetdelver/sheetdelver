@@ -1,5 +1,6 @@
 import { getAdapter } from '@modules/registry/server';
 import type { ActorServiceClientLike, ActorDocument } from '@server/shared/types/actors';
+import type { CompendiumPackReader } from '@shared/sdk';
 
 interface NormalizedActor {
     derived?: Record<string, unknown>;
@@ -8,14 +9,17 @@ interface NormalizedActor {
 
 interface ActorNormalizationDeps {
     getAdapterBySystemId?: typeof getAdapter;
-    getCompendiumCache?: () => Promise<unknown>;
+    getCompendiumPacks?: (moduleId: string) => Promise<CompendiumPackReader>;
 }
 
 export function createActorNormalizationService(deps: ActorNormalizationDeps = {}) {
     const getAdapterBySystemId = deps.getAdapterBySystemId || getAdapter;
-    const getCompendiumCache = deps.getCompendiumCache || (async () => {
-        const { CompendiumCache } = await import('@core/compendium/CompendiumCache');
-        return CompendiumCache.getInstance();
+    // Per ADR-0021, adapters receive the module-scoped `CompendiumPackReader`
+    // built on the unified `CompendiumStore`. Undeclared packs return null
+    // through the reader and the adapter leaves the UUID unresolved.
+    const getCompendiumPacks = deps.getCompendiumPacks || (async (moduleId: string) => {
+        const { createScopedCompendiumPacks } = await import('@server/shared/utils/createModuleContext');
+        return createScopedCompendiumPacks(moduleId);
     });
 
     // Shared actor projection used by actor and combat services for UI-ready payloads.
@@ -24,12 +28,12 @@ export function createActorNormalizationService(deps: ActorNormalizationDeps = {
         const adapter = await getAdapterBySystemId(systemInfo.id.toLowerCase());
         if (!adapter) throw new Error(`Adapter for ${systemInfo.id} not found`);
 
-        const cache = await getCompendiumCache();
+        const packs = await getCompendiumPacks(systemInfo.id.toLowerCase());
 
         return Promise.all(actorList.map(async (actor) => {
             if (!actor.computed) actor.computed = {};
             if (!actor.computed.resolvedNames) actor.computed.resolvedNames = {};
-            if (adapter.resolveActorNames) await adapter.resolveActorNames(actor as any, cache as any);
+            if (adapter.resolveActorNames) await adapter.resolveActorNames(actor as any, packs);
 
             if (actor.img) actor.img = client.resolveUrl(actor.img);
             if (actor.prototypeToken?.texture?.src) {

@@ -5,8 +5,7 @@ import {
     type SystemAdapter,
     type SystemModuleInfo,
 } from '@modules/registry/types';
-import { CompendiumCache, compendiumStore } from '@server/core/compendium';
-import type { CompendiumDiscoveryResult } from '@server/core/compendium/types';
+import { compendiumStore } from '@server/core/compendium';
 import { seedDocumentCache } from '@server/core/documents/primary/PrimaryDocumentCacheCoordinator';
 import { userPresence } from '@server/core/documents/primary/users/UserPresence';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
@@ -16,10 +15,7 @@ import { worldStateStore } from '@server/core/world/WorldStateStore';
 import type { GameData, SceneDataCache } from '@server/core/world/types';
 import {
     CompendiumService,
-    compendiumPackSyncService,
     type CompendiumTransport,
-    type CompendiumPackIndexReader,
-    type CompendiumPackSyncClient,
 } from '@server/services/compendium';
 import { logger } from '@shared/utils/logger';
 import type { CompendiumPackConfig, ModuleContext } from '@shared/sdk';
@@ -37,15 +33,14 @@ export interface WorldBootstrapperDeps {
     getBootstrapSnapshot?: (transport: WorldBootstrapTransport) => Promise<WorldBootstrapSnapshot | null>;
     seedWorldSnapshot?: (snapshot: WorldBootstrapSnapshot) => void;
     seedUserSnapshot?: (snapshot: WorldBootstrapSnapshot) => Promise<void>;
-    createCompendiumService?: (transport: WorldBootstrapTransport) => BootstrapCompendiumService;
-    rebuildCompendiumCache?: (indices: CompendiumDiscoveryResult[]) => void;
+    createCompendiumService?: (transport: WorldBootstrapTransport) => CompendiumService;
+    seedPackMetadata?: (gameData: GameData) => void;
     getSystem?: () => { id?: string | null } | null;
     getRegisteredModules?: () => SystemModuleInfo[];
-    syncCompendiumPacks?: (
-        transport: WorldBootstrapTransport,
+    hydrateCompendiumPacks?: (
         systemId: string,
         config: CompendiumPackConfig,
-        compendiumService: BootstrapCompendiumService,
+        compendiumService: CompendiumService,
     ) => Promise<void>;
     seedDocuments?: (transport: WorldBootstrapTransport) => Promise<void>;
     createModuleContext?: (systemId: string) => Promise<ModuleContext>;
@@ -60,12 +55,8 @@ export interface WorldBootstrapSnapshot {
     sceneData?: SceneDataCache | null;
 }
 
-export type WorldBootstrapTransport = CompendiumTransport & CompendiumPackSyncClient & {
+export type WorldBootstrapTransport = CompendiumTransport & {
     getBootstrapSnapshot?(): Promise<WorldBootstrapSnapshot | null>;
-};
-
-export type BootstrapCompendiumService = CompendiumPackIndexReader & {
-    discoverIndices(): Promise<CompendiumDiscoveryResult[]>;
 };
 
 export interface WorldBootstrapReadyEvent {
@@ -92,15 +83,14 @@ export class WorldBootstrapper {
     private readonly getBootstrapSnapshot: (transport: WorldBootstrapTransport) => Promise<WorldBootstrapSnapshot | null>;
     private readonly seedWorldSnapshot: (snapshot: WorldBootstrapSnapshot) => void;
     private readonly seedUserSnapshot: (snapshot: WorldBootstrapSnapshot) => Promise<void>;
-    private readonly createCompendiumService: (transport: WorldBootstrapTransport) => BootstrapCompendiumService;
-    private readonly rebuildCompendiumCache: (indices: CompendiumDiscoveryResult[]) => void;
+    private readonly createCompendiumService: (transport: WorldBootstrapTransport) => CompendiumService;
+    private readonly seedPackMetadata: (gameData: GameData) => void;
     private readonly getSystem: () => { id?: string | null } | null;
     private readonly getRegisteredModules: () => SystemModuleInfo[];
-    private readonly syncCompendiumPacks: (
-        transport: WorldBootstrapTransport,
+    private readonly hydrateCompendiumPacks: (
         systemId: string,
         config: CompendiumPackConfig,
-        compendiumService: BootstrapCompendiumService,
+        compendiumService: CompendiumService,
     ) => Promise<void>;
     private readonly seedDocuments: (transport: WorldBootstrapTransport) => Promise<void>;
     private readonly createModuleContext: (systemId: string) => Promise<ModuleContext>;
@@ -147,15 +137,18 @@ export class WorldBootstrapper {
         this.createCompendiumService = deps.createCompendiumService ?? ((transport) => new CompendiumService({
             transport,
             store: compendiumStore,
-            getGameDataSnapshot: () => worldStateStore.getGameDataSnapshot(),
         }));
-        this.rebuildCompendiumCache = deps.rebuildCompendiumCache ?? ((indices) => {
-            CompendiumCache.getInstance().rebuildFromPacks(indices);
+        this.seedPackMetadata = deps.seedPackMetadata ?? ((gameData) => {
+            // Passive seed of pack metadata from the bootstrap envelope.
+            // Per ADR-0021 this records which packs exist; it does NOT issue
+            // any transport calls. Hydration of index rows or documents is
+            // module-driven via CompendiumService.hydratePacks(...).
+            compendiumStore.seedPackMetadataFromGameData(gameData, 'world-bootstrap');
         });
         this.getSystem = deps.getSystem ?? (() => worldStateStore.getSystem());
         this.getRegisteredModules = deps.getRegisteredModules ?? (() => getRegisteredModules({ includeExperimental: true }));
-        this.syncCompendiumPacks = deps.syncCompendiumPacks ?? (async (transport, systemId, config, compendiumService) => {
-            await compendiumPackSyncService.sync(transport, systemId, config, compendiumService);
+        this.hydrateCompendiumPacks = deps.hydrateCompendiumPacks ?? (async (systemId, config, compendiumService) => {
+            await compendiumService.hydratePacks(systemId, config);
         });
         this.seedDocuments = deps.seedDocuments ?? ((transport) => seedDocumentCache(transport as CoreSocket));
         this.createModuleContext = deps.createModuleContext ?? (async (systemId) => {
@@ -226,12 +219,19 @@ export class WorldBootstrapper {
                 await this.seedUserSnapshot(snapshot);
             }
 
-            // The broad game.data pack index is accepted into CompendiumStore
-            // once at bootstrap. Module-declared packs decide later which rows
-            // are hydrated for SDK and UUID-resolution reads.
+            // Per ADR-0021, bootstrap seeds pack metadata passively from
+            // game.data.packs — no transport calls. Hydration of index rows
+            // or documents is driven later by the active module's info.json
+            // through CompendiumService.hydratePacks(...).
+            if (snapshot?.gameData) {
+                this.seedPackMetadata(snapshot.gameData);
+                const packCount = (snapshot.gameData.packs?.length ?? 0)
+                    + (snapshot.gameData.system?.packs?.length ?? 0)
+                    + (snapshot.gameData.world?.packs?.length ?? 0)
+                    + (snapshot.gameData.modules?.reduce((n, m) => n + (m.packs?.length ?? 0), 0) ?? 0);
+                logger.info(`WorldBootstrapper | Seeded compendium pack metadata from game data (${packCount} entries across sources).`);
+            }
             const compendiumService = this.createCompendiumService(transport);
-            const compendiumIndices = await compendiumService.discoverIndices();
-            this.rebuildCompendiumCache(compendiumIndices);
 
             const sysInfo = this.getSystem();
             if (sysInfo?.id) {
@@ -246,8 +246,7 @@ export class WorldBootstrapper {
                 }
 
                 if (compendiumPackConfig) {
-                    logger.info(`WorldBootstrapper | Syncing declared compendium packs for ${sysId}...`);
-                    await this.syncCompendiumPacks(transport, sysId, compendiumPackConfig, compendiumService);
+                    await this.hydrateCompendiumPacks(sysId, compendiumPackConfig, compendiumService);
                 }
 
                 // Routes are not ready until every registered primary-document

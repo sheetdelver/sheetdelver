@@ -5,7 +5,7 @@ import { logger } from '@shared/utils/logger';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
 import { SetupManager } from '../../world/SetupManager';
 import { FoundryConfig } from '../types';
-import { CompendiumCache, compendiumStore } from '@server/core/compendium';
+import { compendiumStore } from '@server/core/compendium';
 import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
 import { userPresence } from '@server/core/documents/primary/users/UserPresence';
@@ -66,10 +66,10 @@ export class CoreSocket extends SocketBase {
     }
 
     private clearActiveWorldCompendiumState(reason: string): void {
-        // Pathway A indices and the UUID-name cache describe the active world
-        // only. Persistent Pathway B shards survive active-world teardown.
+        // Per ADR-0021, compendiumStore.clear() drops in-memory state only.
+        // Persistent pack shards survive active-world teardown and are reused
+        // on reconnect when world identity matches and the manifest is current.
         compendiumStore.clear(reason);
-        CompendiumCache.getInstance().reset();
     }
 
     private async loadInitialCache() {

@@ -10,7 +10,6 @@ export {
 export {
     WorldBootstrapper,
     worldBootstrapper,
-    type BootstrapCompendiumService,
     type WorldBootstrapOptions,
     type WorldBootstrapReadyEvent,
     type WorldBootstrapResult,

@@ -14,7 +14,8 @@ import { fogExplorationStore } from '@server/core/documents/primary/fog-explorat
 import { adventureStore } from '@server/core/documents/primary/adventures/AdventureStore';
 import { settingStore } from '@server/core/documents/primary/settings/SettingStore';
 import { worldStateStore } from '@server/core/world/WorldStateStore';
-import { compendiumPackStore, type CompendiumPackDocument } from '@server/core/compendium/CompendiumPackStore';
+import { compendiumStore } from '@server/core/compendium/CompendiumStore';
+import type { CompendiumPackDocument } from '@server/core/compendium/types';
 import {
     cloneDocument,
     getDocumentId,
@@ -321,7 +322,7 @@ export class DocumentResolver {
             ...(deps.documentStores || {}),
         };
         this.worldState = deps.worldStateStore || worldStateStore;
-        this.compendiumPacks = deps.compendiumPackStore || compendiumPackStore;
+        this.compendiumPacks = deps.compendiumPackStore || compendiumStore;
         this.getCompendiumService = deps.getCompendiumService;
         this.allowLiveCompendiumUuidFallback = deps.allowLiveCompendiumUuidFallback === true;
     }

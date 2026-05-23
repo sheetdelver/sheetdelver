@@ -54,8 +54,7 @@ import { run as runRouteOwnershipThresholds } from './routing/route-ownership-th
 // ── compendium ────────────────────────────────────────────────────────────────
 import { run as runCompendiumStore } from './compendium/compendium-store.test';
 import { run as runCompendiumService } from './compendium/compendium-service.test';
-import { run as runCompendiumPackStore } from './compendium/compendium-pack-store.test';
-import { run as runCompendiumPackSyncService } from './compendium/compendium-pack-sync-service.test';
+import { run as runCompendiumHydrate } from './compendium/compendium-hydrate.test';
 import { run as runModuleContextCompendiumPacks } from './compendium/module-context-compendium-packs.test';
 
 // ── world ─────────────────────────────────────────────────────────────────────
@@ -146,8 +145,7 @@ async function runAllUnitTests() {
     await runDocumentResolver();
     await runCompendiumStore();
     await runCompendiumService();
-    await runCompendiumPackStore();
-    await runCompendiumPackSyncService();
+    await runCompendiumHydrate();
     await runModuleContextCompendiumPacks();
     await runClientSocketTransport();
     await runRealtimeBroadcaster();

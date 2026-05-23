@@ -1,8 +1,6 @@
 import { strict as assert } from 'node:assert';
-import { CompendiumCache } from '@server/core/compendium/CompendiumCache';
 import { CompendiumStore } from '@server/core/compendium/CompendiumStore';
 import type { CompendiumIndexEntry } from '@server/core/compendium/types';
-import type { GameData } from '@server/core/world/types';
 import { CompendiumService, type CompendiumTransport } from '@server/services/compendium';
 
 type EmitHandler = (event: string, payloads: unknown[]) => Promise<unknown> | unknown;
@@ -55,48 +53,13 @@ class FakeCompendiumTransport implements CompendiumTransport {
 }
 
 export async function run() {
-    await runDiscoveryDedupAndStoreWrites();
     await runPackEntriesFallbackAndHeartbeat();
     await runPackIndexDispatchFallback();
     await runPackDocumentsTypeFallback();
     await runPackDocumentModifyDocumentFallback();
     await runPackDocumentGetDocumentsFallback();
     await runPackDocumentDisconnected();
-    await runCacheRebuildFromStore();
     console.log('  - CompendiumService: all checks passed');
-}
-
-// Keep these fixtures synthetic. They model the Foundry pack/index shapes the
-// service consumes without checking in real world or compendium content.
-function createGameData(): GameData {
-    return {
-        system: {
-            id: 'synthetic-system',
-            packs: [
-                { name: 'system-tables', label: 'System Tables', type: 'RollTable' },
-            ],
-        },
-        world: {
-            id: 'synthetic-world',
-            title: 'Synthetic World',
-            packs: [
-                { name: 'world-items', label: 'World Items', type: 'Item' },
-            ],
-        },
-        modules: [
-            {
-                id: 'synthetic-module',
-                title: 'Synthetic Module',
-                packs: [
-                    { name: 'module-items', label: 'Module Items', type: 'Item' },
-                    { id: 'synthetic.items', name: 'duplicate-items', label: 'Duplicate Items', type: 'Item' },
-                ],
-            },
-        ],
-        packs: [
-            { id: 'synthetic.items', name: 'items', label: 'Top-Level Items', type: 'Item' },
-        ],
-    };
 }
 
 function createIndex(packId: string, overrides: Partial<CompendiumIndexEntry> = {}): CompendiumIndexEntry[] {
@@ -109,38 +72,6 @@ function createIndex(packId: string, overrides: Partial<CompendiumIndexEntry> = 
             ...overrides,
         },
     ];
-}
-
-async function runDiscoveryDedupAndStoreWrites() {
-    const store = new CompendiumStore();
-    const transport = new FakeCompendiumTransport();
-    const service = new CompendiumService({
-        transport,
-        store,
-        getGameDataSnapshot: () => createGameData(),
-    });
-
-    transport.emitHandler = (event, payloads) => {
-        assert.equal(event, 'getCompendiumIndex');
-        const packId = String(payloads[0]);
-        return { result: createIndex(packId) };
-    };
-
-    const results = await service.discoverIndices();
-
-    assert.equal(results.length, 4);
-    assert.equal(transport.calls.length, 4);
-    assert.deepEqual(results.map(result => result.id), [
-        'synthetic.items',
-        'synthetic-system.world-items',
-        'synthetic-system.system-tables',
-        'synthetic-module.module-items',
-    ]);
-    assert.equal(store.getPackIndex('synthetic.items')?.[0]?.name, 'synthetic.items Row');
-
-    const cached = await service.discoverIndices();
-    assert.equal(cached.length, 4);
-    assert.equal(transport.calls.length, 4);
 }
 
 async function runPackEntriesFallbackAndHeartbeat() {
@@ -252,15 +183,3 @@ async function runPackDocumentDisconnected() {
     assert.equal(transport.calls.length, 0);
 }
 
-async function runCacheRebuildFromStore() {
-    const store = new CompendiumStore();
-    const cache = CompendiumCache.getInstance();
-    cache.reset();
-
-    store.setPackIndex('synthetic.items', { id: 'synthetic.items', type: 'Item' }, createIndex('synthetic.items'));
-    cache.rebuildFromStore(store);
-
-    assert.equal(cache.hasLoaded(), true);
-    assert.equal(cache.getName('Compendium.synthetic.items.Item.synthetic.items-row'), 'synthetic.items Row');
-    cache.reset();
-}

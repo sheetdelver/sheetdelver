@@ -1,3 +1,4 @@
+import { persistentCache } from '@server/core/cache/PersistentCache';
 import { cloneDocument } from '@server/core/documents/primary/base/PrimaryDocumentStore';
 import type {
     CompendiumDiscoveryResult,
@@ -5,8 +6,13 @@ import type {
     CompendiumIndexLookupResult,
     CompendiumIndexOptions,
     CompendiumIndexVariant,
+    CompendiumPackCache,
+    CompendiumPackDocument,
     CompendiumPackIndexSnapshot,
+    CompendiumPackManifest,
     CompendiumPackMetadata,
+    CompendiumPackQueryOptions,
+    GameDataPackEnvelope,
 } from './types';
 
 const DEFAULT_FIELD_KEY = 'default';
@@ -39,6 +45,48 @@ function getDocumentId(entry: CompendiumIndexEntry): string | null {
     return entry._id || entry.id || null;
 }
 
+function getRowDocumentId(document: CompendiumPackDocument): string | null {
+    const id = document._id || document.id;
+    return typeof id === 'string' ? id : null;
+}
+
+function matchesDocumentId(document: CompendiumPackDocument, documentId: string): boolean {
+    const id = getRowDocumentId(document);
+    if (id === documentId) return true;
+
+    const uuid = document.uuid;
+    return typeof uuid === 'string' && (uuid === documentId || uuid.endsWith(`.${documentId}`));
+}
+
+function getPathValue(document: CompendiumPackDocument, path: string): unknown {
+    if (Object.prototype.hasOwnProperty.call(document, path)) return document[path];
+
+    return path.split('.').reduce<unknown>((current, segment) => {
+        if (!current || typeof current !== 'object') return undefined;
+        return (current as Record<string, unknown>)[segment];
+    }, document);
+}
+
+function valuesEqual(actual: unknown, expected: unknown): boolean {
+    if (actual === expected) return true;
+    if (actual == null || expected == null) return false;
+    if (typeof actual !== 'object' && typeof expected !== 'object') return String(actual) === String(expected);
+    return JSON.stringify(actual) === JSON.stringify(expected);
+}
+
+function matchesQuery(document: CompendiumPackDocument, query: Record<string, unknown> = {}): boolean {
+    for (const [key, expected] of Object.entries(query)) {
+        if (key === '_id' || key === 'id') {
+            const id = getRowDocumentId(document);
+            if (id === String(expected)) continue;
+        }
+
+        if (!valuesEqual(getPathValue(document, key), expected)) return false;
+    }
+
+    return true;
+}
+
 function parseCompendiumUuid(uuid: string): { packId: string; documentId: string; type: string | null } | null {
     if (!uuid.startsWith('Compendium.')) return null;
     const parts = uuid.split('.');
@@ -57,23 +105,131 @@ function parseCompendiumUuid(uuid: string): { packId: string; documentId: string
     return { packId, documentId, type };
 }
 
+function manifestKeyFor(systemId: string): string {
+    return `manifest-${systemId}`;
+}
+
+function shardKeyFor(packId: string): string {
+    // Preserve the key shape CompendiumPackSyncService has written historically.
+    return `pack-${packId.replace('.', '-')}`;
+}
+
+function stableShardKeyFor(packId: string): string {
+    return `pack-${packId.replace(/\./g, '-')}`;
+}
+
+function getPackId(pack: CompendiumPackMetadata, systemId?: string | null): string | null {
+    const explicit = pack.id || pack._id;
+    if (typeof explicit === 'string' && explicit) return explicit;
+    const moduleId = typeof pack.moduleId === 'string' ? pack.moduleId : null;
+    const name = typeof pack.name === 'string' ? pack.name : null;
+    if (moduleId && name) return `${moduleId}.${name}`;
+    if (name) return `${systemId || 'system'}.${name}`;
+    return null;
+}
+
 /**
- * ADR-0015 Phase 1 Store for active-world compendium index state.
+ * Unified read-only store for compendium pack state.
  *
- * This is intentionally index-only. Module-declared hydrated pack rows live in
- * CompendiumPackStore; this Store owns the lightweight Pathway A
- * index snapshots plus field-aware index variants used to avoid duplicate
- * fetches when Pathway B needs the same rows.
+ * Two surfaces, one owner:
+ *
+ *  - **In-memory** (synchronous): pre-filed pack metadata seeded from
+ *    `game.data.packs`, plus per-pack index variants used by name/index
+ *    lookups. Cleared by `clear(reason)` on world close / restart / world
+ *    change. Never holds documents.
+ *
+ *  - **Persistent** (async via `PersistentCache`): per-pack shards of declared
+ *    rows or full documents, plus the per-system manifest used for freshness
+ *    detection. Survives transient disconnects and restarts; only an
+ *    operator-driven reset or world identity change evicts shards.
+ *
+ * The store has no `upsert` / `patch` / `delete` for compendium documents.
+ * Pack contents are owned upstream by Foundry; the platform mirrors only the
+ * slice modules declared.
  */
 export class CompendiumStore {
     private packs = new Map<string, StoredPack>();
 
+    public constructor(private readonly cache: CompendiumPackCache = persistentCache) { }
+
+    /**
+     * Discards in-memory state only.
+     *
+     * Per ADR-0021, `clear(reason)` drops the in-memory pre-filed metadata
+     * and any cached index variants held by this instance. It must NOT
+     * delete persistent shards or the manifest — a transient service-account
+     * disconnect or world close should not wipe the on-disk warm cache.
+     * Persistent shards are reused on reconnect when world identity matches
+     * and the manifest hash is current; explicit eviction is reserved for
+     * operator action or world identity change.
+     */
     public clear(_reason?: string): void {
         this.packs.clear();
     }
 
     public isReady(): boolean {
         return this.packs.size > 0;
+    }
+
+    /**
+     * Passive seed from the bootstrap envelope.
+     *
+     * Per ADR-0021, this records which packs exist (id, document type,
+     * package source, label, etc.) WITHOUT issuing any transport calls.
+     * `game.data.packs` is a manifest of packs, not document data — see the
+     * ADR's "What `game.data.packs` does and does not carry" section.
+     *
+     * Hydration of index rows or full documents is module-driven via
+     * `CompendiumService.hydratePack(...)`; this method must not call any
+     * Foundry socket API.
+     */
+    public seedPackMetadataFromGameData(gameData: GameDataPackEnvelope | null | undefined, _reason?: string): void {
+        if (!gameData) return;
+
+        const systemId = gameData.system?.id;
+        const seen = new Set<string>();
+        const sources: Array<{ source: string; packs: CompendiumPackMetadata[] | undefined }> = [
+            { source: 'game.packs', packs: gameData.packs },
+            { source: 'world', packs: gameData.world?.packs },
+            { source: 'system', packs: gameData.system?.packs },
+        ];
+
+        if (Array.isArray(gameData.modules)) {
+            for (const module of gameData.modules) {
+                if (!module?.packs?.length) continue;
+                sources.push({
+                    source: 'module',
+                    packs: module.packs.map(pack => ({
+                        ...pack,
+                        moduleId: pack.moduleId || module.id,
+                        packageName: pack.packageName || module.id,
+                    } as CompendiumPackMetadata)),
+                });
+            }
+        }
+
+        for (const { source, packs } of sources) {
+            if (!Array.isArray(packs)) continue;
+            for (const pack of packs) {
+                const id = getPackId(pack, systemId);
+                if (!id || seen.has(id)) continue;
+                seen.add(id);
+                this.setPackMetadata(id, { ...pack, id, source: pack.source || source });
+            }
+        }
+    }
+
+    public setPackMetadata(packId: string, metadata: CompendiumPackMetadata): void {
+        const id = String(packId || '').trim();
+        if (!id) throw new Error('CompendiumStore.setPackMetadata requires a pack id');
+
+        const existing = this.packs.get(id);
+        const stored: StoredPack = existing || {
+            metadata: { ...cloneDocument(metadata), id },
+            variants: new Map<string, CompendiumIndexVariant>(),
+        };
+        stored.metadata = { ...cloneDocument(stored.metadata), ...cloneDocument(metadata), id };
+        this.packs.set(id, stored);
     }
 
     public seedDiscoveredPacks(results: CompendiumDiscoveryResult[], _reason?: string): void {
@@ -133,6 +289,14 @@ export class CompendiumStore {
         return snapshots;
     }
 
+    public listPackMetadata(): CompendiumPackMetadata[] {
+        return Array.from(this.packs.values()).map(pack => cloneDocument(pack.metadata));
+    }
+
+    public hasPackMetadata(packId: string): boolean {
+        return this.packs.has(packId);
+    }
+
     public findIndexEntry(uuid: string): CompendiumIndexLookupResult | null {
         const parsed = parseCompendiumUuid(uuid);
         if (!parsed) return null;
@@ -164,6 +328,100 @@ export class CompendiumStore {
         }
 
         return null;
+    }
+
+    // ── Persistent tier ────────────────────────────────────────────────────────
+    //
+    // Per-pack shards keyed by `(systemId, "pack-<packId>")` and a per-system
+    // manifest. Sharding is preserved from the previous CompendiumPackStore so
+    // on-disk caches survive the unification.
+
+    public async getManifest(systemId: string): Promise<CompendiumPackManifest | null> {
+        return this.cache.get<CompendiumPackManifest>(systemId, manifestKeyFor(systemId));
+    }
+
+    public async setManifest(manifest: CompendiumPackManifest): Promise<void> {
+        await this.cache.set(manifest.systemId, manifestKeyFor(manifest.systemId), manifest);
+    }
+
+    public async getPackRows(systemId: string, packId: string): Promise<CompendiumPackDocument[] | null> {
+        const legacy = await this.cache.get<CompendiumPackDocument[]>(systemId, shardKeyFor(packId));
+        if (Array.isArray(legacy)) return legacy;
+
+        const stable = stableShardKeyFor(packId);
+        if (stable === shardKeyFor(packId)) return null;
+        const fallback = await this.cache.get<CompendiumPackDocument[]>(systemId, stable);
+        return Array.isArray(fallback) ? fallback : null;
+    }
+
+    public async setPackRows(systemId: string, packId: string, documents: CompendiumPackDocument[]): Promise<void> {
+        await this.cache.set(systemId, shardKeyFor(packId), documents);
+    }
+
+    public async findAll(
+        systemId: string,
+        _type: string,
+        query: Record<string, unknown> = {},
+        options: CompendiumPackQueryOptions = {},
+    ): Promise<CompendiumPackDocument[]> {
+        const packIds = await this.resolvePackIds(systemId, options.packIds);
+        if (packIds.length === 0) return [];
+
+        const results: CompendiumPackDocument[] = [];
+        for (const packId of packIds) {
+            const rows = await this.getPackRows(systemId, packId);
+            if (!rows) continue;
+            results.push(...rows.filter(document => matchesQuery(document, query)));
+        }
+
+        return results;
+    }
+
+    public async findOne(
+        systemId: string,
+        type: string,
+        query: Record<string, unknown>,
+        options: CompendiumPackQueryOptions = {},
+    ): Promise<CompendiumPackDocument | null> {
+        const results = await this.findAll(systemId, type, query, options);
+        return results[0] || null;
+    }
+
+    public async getById(
+        systemId: string,
+        type: string,
+        id: string,
+        options: CompendiumPackQueryOptions = {},
+    ): Promise<CompendiumPackDocument | null> {
+        const byUnderscoreId = await this.findOne(systemId, type, { _id: id }, options);
+        if (byUnderscoreId) return byUnderscoreId;
+
+        const byId = await this.findOne(systemId, type, { id }, options);
+        if (byId) return byId;
+
+        return this.findOne(systemId, type, { uuid: id }, options);
+    }
+
+    public async findDocument(
+        systemId: string,
+        packId: string,
+        documentId: string,
+        _type?: string | null,
+    ): Promise<CompendiumPackDocument | null> {
+        const rows = await this.getPackRows(systemId, packId);
+        if (!rows) return null;
+
+        // Pack scope tells us the root document type. Row `type` can be an item
+        // subtype in hydrated Item packs, so do not filter on it here.
+        return rows.find(document => matchesDocumentId(document, documentId)) || null;
+    }
+
+    private async resolvePackIds(systemId: string, packIds?: readonly string[] | null): Promise<string[]> {
+        if (packIds) return Array.from(new Set(packIds));
+
+        const manifest = await this.getManifest(systemId);
+        if (!manifest) return [];
+        return Object.keys(manifest.packs || {});
     }
 
     private getVariant(packId: string, options: CompendiumIndexOptions = {}): CompendiumIndexVariant | null {

@@ -2,7 +2,7 @@ import { CoreSocket } from '@core/foundry/sockets/CoreSocket';
 import { loadConfig } from '@core/config';
 import { compendiumStore } from '@core/compendium';
 import { CompendiumService } from '@server/services/compendium';
-import type { CompendiumDiscoveryResult } from '@server/core/compendium/types';
+import type { CompendiumPackMetadata } from '@server/core/compendium/types';
 import { worldStateStore } from '@core/world/WorldStateStore';
 import * as fs from 'fs';
 
@@ -32,45 +32,38 @@ export async function testUsersAndCompendia() {
         const compendiumService = new CompendiumService({
             transport: client,
             store: compendiumStore,
-            getGameDataSnapshot: () => worldStateStore.getGameDataSnapshot(),
         });
 
-        let indices: CompendiumDiscoveryResult[] = [];
+        // Seed pack metadata passively from the bootstrap envelope (no transport).
+        const gameData = worldStateStore.getGameDataSnapshot();
+        if (gameData) compendiumStore.seedPackMetadataFromGameData(gameData, 'socket-test');
 
-        // Test 4c: service-backed Pathway A discovery
-        logger.info('\n4a. Testing CompendiumService.discoverIndices()...');
-        try {
-            indices = await compendiumService.discoverIndices({ onlyGamePacks: true });
-            logger.info(`   ✅ Found ${indices.length} compendium packs`);
-            results.tests.push({ name: 'CompendiumService.discoverIndices', success: true, data: { count: indices.length } });
-        } catch (error: any) {
-            logger.info(`   ❌ Failed: ${error.message}`);
-            results.tests.push({ name: 'CompendiumService.discoverIndices', success: false, error: error.message });
+        // Filter to game.data top-level packs to mirror the old onlyGamePacks flag.
+        const topLevelIds = new Set((gameData?.packs ?? []).map(pack => pack.id).filter(Boolean) as string[]);
+        const inventory: CompendiumPackMetadata[] = compendiumStore.listPackMetadata().filter(pack => pack.id && topLevelIds.has(pack.id));
+
+        logger.info('\n4a. Seeded passive compendium pack metadata from game.data.packs...');
+        logger.info(`   ✅ Found ${inventory.length} compendium packs`);
+        results.tests.push({ name: 'compendiumStore.seedPackMetadataFromGameData', success: inventory.length > 0, data: { count: inventory.length } });
+        if (inventory.length === 0) {
+            logger.info(`   ❌ No compendium packs found`);
         }
 
         const successCount = results.tests.filter((t: any) => t.success).length;
         results.success = successCount === results.tests.length;
-
-        if (indices.length === 0) {
-            logger.info(`   ❌ No compendium packs found`);
-            results.tests.push({ name: 'CompendiumService.discoverIndices', success: false, error: 'No compendium packs found' });
-        }
 
         // Create directory in temp/systemid
         const dir = `temp/${system.id}`;
         if (!fs.existsSync(dir)) {
             fs.mkdirSync(dir, { recursive: true });
         }
-        // Output Compedium content
-        for (const index of indices) {
-            // logger.info(`Data: ` + JSON.stringify(index, null, 2));
-            logger.info(`   ✅ Found ${index.id} compendium pack`);
-            const docType = index.metadata?.type || index.metadata?.entity || 'Item';
-            const items = await compendiumService.getPackDocuments(index.id, docType);
-            logger.info(`   ✅ Fetched ${items.length} full documents from ${index.metadata?.name || index.id}`);
-            // logger.info(`Data: ` + JSON.stringify(index, null, 2));
-            // Output items to file, overwrite if exists
-            fs.writeFileSync(`${dir}/${index.id}.json`, JSON.stringify(items, null, 2));
+        // Fetch full documents on demand using the explicit pack primitive.
+        for (const pack of inventory) {
+            logger.info(`   ✅ Found ${pack.id} compendium pack`);
+            const docType = pack.type || pack.entity || 'Item';
+            const items = await compendiumService.getPackDocuments(pack.id!, docType);
+            logger.info(`   ✅ Fetched ${items.length} full documents from ${pack.name || pack.id}`);
+            fs.writeFileSync(`${dir}/${pack.id}.json`, JSON.stringify(items, null, 2));
         }
 
         logger.info(`\n📊 ${successCount}/${results.tests.length} tests passed`);
