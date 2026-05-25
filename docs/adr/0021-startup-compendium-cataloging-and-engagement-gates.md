@@ -27,7 +27,7 @@ The primary-document side of the codebase already shows the simpler pattern: one
 
 A startup log review also exposed an engagement/readiness issue. Browser clients are not supposed to be a control plane for `CoreSocket`, but the policy chain lets them affect it indirectly: a browser Socket.io connection updates `EngagementService`, and `EngagementService` can ask the service-account transport to reconnect on return-to-engagement. That wakeup behavior is useful for `offline` / `setup` monitoring, but it is wrong during `startup`. In `startup`, `CoreSocket` is already connected or connecting and `WorldBootstrapper` owns the in-flight bootstrap. A browser connection at that point should receive status only; it should not restart the system transport.
 
-Finally, pack reads that fall through to `dispatchDocumentSocket(...)` can route `modifyDocument` responses through the world Store router. Foundry's compendium document type set overlaps with primary document classes (`Actor`, `Item`, `JournalEntry`, `RollTable`, `Scene`, `Macro`, `Playlist`, `Cards`, etc. — see [CONST.COMPENDIUM_DOCUMENT_TYPES](https://foundryvtt.com/api/variables/CONST.COMPENDIUM_DOCUMENT_TYPES.html)), so the boundary cannot be document type. The boundary is **scope**: world collection vs. compendium pack. Pack reads must not mirror into world Stores even when the returned class is a primary document class.
+Finally, pack reads that fall through to `dispatchDocumentSocket(...)` write their `modifyDocument` responses back through the world Store router as an initiator confirmation. Foundry's compendium document type set overlaps with primary document classes (`Actor`, `Item`, `JournalEntry`, `RollTable`, `Scene`, `Macro`, `Playlist`, `Cards`, etc. — see [CONST.COMPENDIUM_DOCUMENT_TYPES](https://foundryvtt.com/api/variables/CONST.COMPENDIUM_DOCUMENT_TYPES.html)), so the boundary cannot be document type. The boundary is **scope**: world collection vs. compendium pack. A pack-scoped response must not be written back into world Stores even when the returned class is a primary document class — that would leak compendium content into the live world cache and emit phantom `actorChanged` / `itemChanged` events. (This is purely about the write-back mirror; pack *reads* have always used `CompendiumStore`'s own API and never touched world Stores.)
 
 ---
 
@@ -41,7 +41,7 @@ ADR-0021 makes four decisions.
 
 3. **Browser clients are status-only until readiness.** Browser Socket.io clients are not allowed to direct, restart, or wake `CoreSocket`. `EngagementService` may request a service-account monitor wakeup on return-to-engagement only from `offline` or `setup`; it must not request reconnect during `startup` or `active`. Per-user Foundry `ClientSocket` restore and world-backed listener attachment must wait until `SystemService.isReady()`.
 
-4. **Pack reads do not mirror into world Stores.** Any explicit pack index/document fetch must use a transport path that does not proactively apply `operation.pack` results through `modifyDocumentRouter`. The dispatcher branches on `operation.pack`, not on the returned document's `type`.
+4. **Pack read responses do not write back into world Stores.** Any explicit pack index/document fetch must use a transport path that does not proactively apply `operation.pack` results through `modifyDocumentRouter`. The dispatcher branches on `operation.pack`, not on the returned document's `type`. This is about the proactive write-back mirror only; reads themselves continue to work through the `CompendiumStore` read API (`findOne` / `findAll` / `getById` / `findDocument` / `findIndexEntry`).
 
 ---
 
@@ -187,7 +187,9 @@ Required policy:
 
 HTTP world-backed routes retain their existing readiness gates. This ADR is about making browser socket connection and engagement behavior match those gates.
 
-### Pack Reads Do Not Mirror Into World Stores
+### Pack Read Responses Do Not Write Back Into World Stores
+
+This section is about the *write-back* path — the proactive mirror that `dispatchDocumentSocket` performs after a transport response, not the read API. Reads use `CompendiumStore.findOne` / `findAll` / `getById` / `findDocument` / `findIndexEntry` directly; those do not touch world Stores at all and need no guard.
 
 Foundry's [`CONST.COMPENDIUM_DOCUMENT_TYPES`](https://foundryvtt.com/api/variables/CONST.COMPENDIUM_DOCUMENT_TYPES.html) overlaps with primary document classes. The boundary is therefore not the document `type`. The boundary is **scope**:
 
@@ -483,7 +485,7 @@ Rejected. Public status during `startup` is useful for login/loading UI. The pro
 - [x] A warm restart with current persistent manifest performs zero pack transport calls.
 - [x] `context.platform.compendiumPacks` reads declared rows from `CompendiumStore` only.
 - [x] Missing/non-hydrated compendium pack rows do not trigger a legacy UUID→name Foundry fetch; unresolved UUIDs stay unresolved.
-- [x] Compendium pack reads do not route through world Stores, even when the returned document class is a primary document type.
+- [x] Compendium pack read responses do not write back into world Stores via `modifyDocumentRouter`, even when the returned document class is a primary document type. (Reads themselves use the `CompendiumStore` read API and never touched world Stores to begin with.)
 - [x] `EngagementService` still wakes monitoring from `offline` / `setup` but not from `startup` / `active`.
 - [x] Browser clients during `startup` receive status but do not trigger `CoreSocket` reconnect, per-user `ClientSocket` restore, or world-backed listener attachment.
 - [x] No source file imports `CompendiumCache`, `CompendiumPackStore`, or `CompendiumPackSyncService`. (`src/tests/deprecated/module-specific/shadowdark/05-compendium-resolution.test.ts` retains a historical import but is not in the test runner or tsconfig include path.)
