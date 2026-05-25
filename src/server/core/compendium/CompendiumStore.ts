@@ -195,14 +195,14 @@ export class CompendiumStore {
         ];
 
         if (Array.isArray(gameData.modules)) {
-            for (const module of gameData.modules) {
-                if (!module?.packs?.length) continue;
+            for (const gameModule of gameData.modules) {
+                if (!gameModule?.packs?.length) continue;
                 sources.push({
                     source: 'module',
-                    packs: module.packs.map(pack => ({
+                    packs: gameModule.packs.map(pack => ({
                         ...pack,
-                        moduleId: pack.moduleId || module.id,
-                        packageName: pack.packageName || module.id,
+                        moduleId: pack.moduleId || gameModule.id,
+                        packageName: pack.packageName || gameModule.id,
                     } as CompendiumPackMetadata)),
                 });
             }
