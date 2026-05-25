@@ -40,7 +40,13 @@ export interface HydratePacksResult {
     missing: number;
 }
 
-const CORE_PACK_DOCUMENT_TYPES = ['Item', 'Actor', 'JournalEntry', 'RollTable', 'Scene', 'Macro', 'Playlist'] as const;
+// Reconciled with Foundry's CONST.COMPENDIUM_DOCUMENT_TYPES
+// (https://foundryvtt.com/api/variables/CONST.COMPENDIUM_DOCUMENT_TYPES.html).
+// These overlap with primary document classes by design — pack reads can return
+// the same Actor/Item/etc. classes used by world Stores. The boundary between
+// pack scope and world scope is `operation.pack`, not the document `type`
+// (see ADR-0021 "Pack reads do not mirror into world Stores").
+const CORE_PACK_DOCUMENT_TYPES = ['Item', 'Actor', 'JournalEntry', 'RollTable', 'Scene', 'Macro', 'Playlist', 'Cards', 'Adventure'] as const;
 const DEFAULT_PACK_DOCUMENT_TYPES = ['Item', 'Actor', 'JournalEntry', 'RollTable'] as const;
 const DEFAULT_INDEX_FIELDS = ['name', 'img', 'type'] as const;
 

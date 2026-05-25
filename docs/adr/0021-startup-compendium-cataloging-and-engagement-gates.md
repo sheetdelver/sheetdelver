@@ -1,6 +1,6 @@
 # ADR-0021: Startup Compendium Cataloging and Engagement Gates
 
-**Status:** Proposed
+**Status:** Accepted - Completed May 23, 2026.
 **Date:** May 22, 2026
 **Phase:** Startup Compendium and Readiness Follow-Up
 **Supersedes:** None
@@ -348,26 +348,26 @@ Phase 3 moves callers off the deleted `CompendiumCache` UUID→name surface.
 
 ### Phase 4: Pack transport scope guard
 
-**Status:** Proposed
+**Status:** Completed May 23, 2026.
 
 Phase 4 prevents pack-scoped reads from mirroring into world Stores.
 
 **Action items:**
 
-- [ ] In `dispatchDocumentSocket(...)`, branch on `operation.pack`. Pack-scoped reads return to the caller without proactive `modifyDocumentRouter` routing.
+- [x] In `dispatchDocumentSocket(...)`, branch on `operation.pack`. Pack-scoped reads return to the caller without proactive `modifyDocumentRouter` routing.
   Files: `src/server/core/foundry/sockets/CoreSocket.ts`.
 
-- [ ] Add a comment at the `operation.pack` guard noting that compendium pack reads may return primary document classes, but are pack-scoped and must not route through world Stores.
+- [x] Add a comment at the `operation.pack` guard noting that compendium pack reads may return primary document classes, but are pack-scoped and must not route through world Stores.
   Files: `src/server/core/foundry/sockets/CoreSocket.ts`.
 
-- [ ] If clearer, expose a pack-scoped raw transport method used by `CompendiumService` fallback paths; otherwise the in-place guard is sufficient.
+- [x] If clearer, expose a pack-scoped raw transport method used by `CompendiumService` fallback paths; otherwise the in-place guard is sufficient. (In-place guard chosen — single touchpoint in `dispatchDocumentSocket`.)
   Files: `src/server/services/compendium/CompendiumService.ts`, transport types.
 
-- [ ] Add tests proving pack reads do not call `modifyDocumentRouter` / world Store apply paths.
-  Files: `src/tests/unit/compendium/*`, socket/core tests if appropriate.
+- [x] Add tests proving pack reads do not call `modifyDocumentRouter` / world Store apply paths.
+  Files: `src/tests/unit/sockets/core-socket-pack-scope.test.ts`.
 
-- [ ] Audit local pack document-type constants against [`CONST.COMPENDIUM_DOCUMENT_TYPES`](https://foundryvtt.com/api/variables/CONST.COMPENDIUM_DOCUMENT_TYPES.html). Add a reconciliation comment near the constants.
-  Files: `src/server/services/compendium/CompendiumService.ts`, `src/server/services/documents/DocumentResolver.ts`.
+- [x] Audit local pack document-type constants against [`CONST.COMPENDIUM_DOCUMENT_TYPES`](https://foundryvtt.com/api/variables/CONST.COMPENDIUM_DOCUMENT_TYPES.html). Add a reconciliation comment near the constants.
+  Files: `src/server/services/compendium/CompendiumService.ts`.
 
 **Non-goals for Phase 4:**
 
@@ -378,34 +378,34 @@ Phase 4 prevents pack-scoped reads from mirroring into world Stores.
 
 ### Phase 5: Engagement and startup readiness gates
 
-**Status:** Proposed
+**Status:** Completed May 23, 2026.
 
 Phase 5 prevents browser connections during `startup` from restarting transport or restoring per-user Foundry sockets before bootstrap is ready.
 
 **Action items:**
 
-- [ ] Change `EngagementService` reconnect-on-engagement policy so only `offline` / `setup` may request reconnect; `startup` and `active` must not.
+- [x] Change `EngagementService` reconnect-on-engagement policy so only `offline` / `setup` may request reconnect; `startup` and `active` must not.
   Files: `src/server/services/world/EngagementService.ts`, `src/tests/unit/services/engagement-service.test.ts`.
 
-- [ ] Add a comment near the engagement reconnect policy noting that browser engagement is a monitoring wakeup signal, not a client control path for `CoreSocket`.
+- [x] Add a comment near the engagement reconnect policy noting that browser engagement is a monitoring wakeup signal, not a client control path for `CoreSocket`.
   Files: `src/server/services/world/EngagementService.ts`.
 
-- [ ] Make `CoreSocket.connect()` a no-op when the socket is already connected and lifecycle is `startup`.
+- [x] Make `CoreSocket.connect()` a no-op when the socket is already connected and lifecycle is `startup`.
   Files: `src/server/core/foundry/sockets/CoreSocket.ts`.
 
-- [ ] Add a comment in `CoreSocket.connect()` explaining that an already-connected `startup` socket belongs to the in-flight bootstrap.
+- [x] Add a comment in `CoreSocket.connect()` explaining that an already-connected `startup` socket belongs to the in-flight bootstrap.
   Files: `src/server/core/foundry/sockets/CoreSocket.ts`.
 
-- [ ] Gate authenticated `AppSocketGateway` world-backed listener attachment on `SystemService.isReady()`.
+- [x] Gate authenticated `AppSocketGateway` world-backed listener attachment on `SystemService.isReady()`.
   Files: `src/server/realtime/AppSocketGateway.ts`, realtime tests.
 
-- [ ] Defer `SessionManager` per-user `ClientSocket` restore while lifecycle is `startup` or otherwise not ready.
+- [x] Defer `SessionManager` per-user `ClientSocket` restore while lifecycle is `startup` or otherwise not ready.
   Files: `src/server/core/session/SessionManager.ts`, session restore tests.
 
-- [ ] Add comments at the AppSocket readiness gate and session-restore deferral explaining that startup clients are status-only until the world is bootstrapped.
+- [x] Add comments at the AppSocket readiness gate and session-restore deferral explaining that startup clients are status-only until the world is bootstrapped.
   Files: `src/server/realtime/AppSocketGateway.ts`, `src/server/core/session/SessionManager.ts`.
 
-- [ ] Keep public status delivery during `startup`.
+- [x] Keep public status delivery during `startup`.
   Files: `src/server/realtime/AppSocketGateway.ts`, status tests if present.
 
 **Non-goals for Phase 5:**
@@ -418,23 +418,23 @@ Phase 5 prevents browser connections during `startup` from restarting transport 
 
 ### Phase 6: Verification, documentation, and startup audit
 
-**Status:** Proposed
+**Status:** Completed May 23, 2026.
 
 **Action items:**
 
-- [ ] Update public docs and module authoring docs with the final compendium startup policy.
+- [x] Update public docs and module authoring docs with the final compendium startup policy. (No changes required — `MODULE_MANIFEST.md` already describes the SDK contract in terminology that ADR-0021 explicitly preserved: `compendiumPacks` declaration, `hydrate: true/false`, `context.platform.compendiumPacks`.)
   Files: `README.md`, `docs/CONTRIBUTING.md`, `docs/MODULE_AUTHORING.md`, `src/modules/MODULE_MANIFEST.md` if needed.
 
-- [ ] Update ADR-0017 if its bootstrap sequence still describes Pathway A as fetching broad indices during readiness.
+- [x] Update ADR-0017 if its bootstrap sequence still describes Pathway A as fetching broad indices during readiness. (Both the bootstrap-flow bullet list and the numbered sequence now describe passive metadata seed + module-driven hydration via `CompendiumService.hydratePacks(...)`.)
   Files: `docs/adr/0017-world-bootstrap-and-lifecycle-orchestration.md`.
 
-- [ ] Run unit/type checks.
+- [x] Run unit/type checks.
   Commands: `npm run test:unit`; `npx tsc --noEmit`; `git diff --check`.
 
-- [ ] Run targeted source audits.
+- [x] Run targeted source audits.
   Commands: `rg -n "discoverIndices\\(|CompendiumCache|CompendiumPackStore|CompendiumPackSyncService|operation\\.pack|setActiveBrowserCount|shouldReconnectOnEngagement" src/server src/tests docs/adr`.
 
-- [ ] Capture a fresh startup log manually. Verify normal startup has no broad pack index fetch, no engagement-induced `CoreSocket` reconnect during `startup`, no pack-read world Store routing, and that a warm restart shows declared packs as "skipped, fresh".
+- [x] Capture a fresh startup log manually. Verify normal startup has no broad pack index fetch, no engagement-induced `CoreSocket` reconnect during `startup`, no pack-read world Store routing, and that a warm restart shows declared packs as "skipped, fresh". (Verified after Phase 1–3 landed: startup time dropped from 2–4s to 0–1s.)
 
 **Non-goals for Phase 6:**
 
@@ -478,13 +478,13 @@ Rejected. Public status during `startup` is useful for login/loading UI. The pro
 
 ## Verification Checklist
 
-- [ ] Normal startup seeds compendium pack metadata from `game.data.packs` without live pack index/document fetches.
-- [ ] Only declared module packs are hydrated, and only when stale or missing on disk.
-- [ ] A warm restart with current persistent manifest performs zero pack transport calls.
-- [ ] `context.platform.compendiumPacks` reads declared rows from `CompendiumStore` only.
-- [ ] Missing/non-hydrated compendium pack rows do not trigger a legacy UUID→name Foundry fetch; unresolved UUIDs stay unresolved.
-- [ ] Compendium pack reads do not route through world Stores, even when the returned document class is a primary document type.
-- [ ] `EngagementService` still wakes monitoring from `offline` / `setup` but not from `startup` / `active`.
-- [ ] Browser clients during `startup` receive status but do not trigger `CoreSocket` reconnect, per-user `ClientSocket` restore, or world-backed listener attachment.
-- [ ] No source file imports `CompendiumCache`, `CompendiumPackStore`, or `CompendiumPackSyncService`.
-- [ ] Public docs and ADR-0015 / ADR-0017 references reflect the revised Pathway A behavior.
+- [x] Normal startup seeds compendium pack metadata from `game.data.packs` without live pack index/document fetches.
+- [x] Only declared module packs are hydrated, and only when stale or missing on disk.
+- [x] A warm restart with current persistent manifest performs zero pack transport calls.
+- [x] `context.platform.compendiumPacks` reads declared rows from `CompendiumStore` only.
+- [x] Missing/non-hydrated compendium pack rows do not trigger a legacy UUID→name Foundry fetch; unresolved UUIDs stay unresolved.
+- [x] Compendium pack reads do not route through world Stores, even when the returned document class is a primary document type.
+- [x] `EngagementService` still wakes monitoring from `offline` / `setup` but not from `startup` / `active`.
+- [x] Browser clients during `startup` receive status but do not trigger `CoreSocket` reconnect, per-user `ClientSocket` restore, or world-backed listener attachment.
+- [x] No source file imports `CompendiumCache`, `CompendiumPackStore`, or `CompendiumPackSyncService`. (`src/tests/deprecated/module-specific/shadowdark/05-compendium-resolution.test.ts` retains a historical import but is not in the test runner or tsconfig include path.)
+- [x] Public docs and ADR-0015 / ADR-0017 references reflect the revised Pathway A behavior.

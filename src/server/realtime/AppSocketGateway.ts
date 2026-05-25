@@ -86,9 +86,24 @@ export function registerAppSocketGateway({
         const payload = await getSystemStatusPayload();
         socket.emit('systemStatus', payload);
 
-        // Attach listeners to individual foundry client for sensitive/per-user data
+        // Per ADR-0021, authenticated world-backed listener attachment must wait
+        // until SystemService.isReady(). Browser clients during `startup` are
+        // status-only — they receive `systemStatus` above but do not subscribe
+        // to world-backed fan-out (actorChanged / chatMessageChanged / etc.)
+        // until WorldBootstrapper has finished and `world:ready` has fired.
         const foundryClient = socket.foundryClient;
-        if (foundryClient) {
+
+        // Always-on engagement decrement — registered once for both guest and
+        // authenticated paths, and runs whether or not world-backed listeners
+        // were ever attached. Listener cleanup is a separate disconnect handler
+        // registered inside attachWorldBackedListeners.
+        socket.on('disconnect', () => {
+            const remaining = io.engine.clientsCount;
+            logger.debug(`App Socket | Client disconnected: ${socket.id}. Remaining: ${remaining}`);
+            engagementService.setActiveBrowserCount(remaining);
+        });
+
+        const attachWorldBackedListeners = (foundryClient: FoundryDocumentClientLike) => {
             const sessionIdentity = socket.userSession?.username || socket.userSession?.userId || foundryClient.userId || 'unknown';
             logger.info(`App Socket | Attaching per-user listeners for ${sessionIdentity} (${socket.id})`);
 
@@ -329,11 +344,7 @@ export function registerAppSocketGateway({
             foundryClient.on('worldShutdown', broadcastSystemStatus);
             foundryClient.on('worldReload', broadcastSystemStatus);
 
-            socket.on('disconnect', () => {
-                const remaining = io.engine.clientsCount;
-                logger.debug(`App Socket | Client disconnected: ${socket.id}. Remaining: ${remaining}`);
-                engagementService.setActiveBrowserCount(remaining);
-
+            const detachWorldBackedListeners = () => {
                 systemClient.off('actorChanged', handleActorChanged);
                 systemClient.off('chatMessageChanged', handleChatMessageChanged);
                 systemClient.off('chatMessageListInvalidated', handleChatMessageListInvalidated);
@@ -358,13 +369,35 @@ export function registerAppSocketGateway({
                 unsubscribeSharedContent();
                 foundryClient.off('worldShutdown', broadcastSystemStatus);
                 foundryClient.off('worldReload', broadcastSystemStatus);
-            });
-        } else {
-            socket.on('disconnect', () => {
-                const remaining = io.engine.clientsCount;
-                logger.debug(`App Socket | Client disconnected: ${socket.id}. Remaining: ${remaining}`);
-                engagementService.setActiveBrowserCount(remaining);
-            });
+            };
+
+            if (socket.connected) {
+                socket.on('disconnect', detachWorldBackedListeners);
+            } else {
+                // Edge case: socket disconnected between readiness wait and
+                // attach — run cleanup immediately so we don't leak listeners.
+                detachWorldBackedListeners();
+            }
+        };
+
+        if (foundryClient) {
+            if (systemService.isReady()) {
+                attachWorldBackedListeners(foundryClient);
+            } else {
+                // Defer attach until WorldBootstrapper signals readiness. If
+                // the socket disconnects before then, drop the wait so we
+                // don't attach world-backed listeners to a dead socket.
+                logger.debug(`App Socket | Deferring per-user listeners for ${socket.id} until world:ready`);
+                const onWorldReady = () => {
+                    socket.off('disconnect', onSocketDisconnect);
+                    attachWorldBackedListeners(foundryClient);
+                };
+                const onSocketDisconnect = () => {
+                    systemService.off('world:ready', onWorldReady);
+                };
+                systemService.once('world:ready', onWorldReady);
+                socket.on('disconnect', onSocketDisconnect);
+            }
         }
     });
 }

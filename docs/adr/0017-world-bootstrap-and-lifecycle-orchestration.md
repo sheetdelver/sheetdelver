@@ -44,8 +44,8 @@ The codebase now has the right state/service owners, and `WorldBootstrapper.boot
 - accepts the connected-world `game.data` / scene snapshot
 - seeds `WorldStateStore`
 - seeds `UserStore` and `UserPresence`
-- Pathway A compendium discovery
-- Pathway B discovery shard sync
+- passive compendium pack metadata seed from `game.data.packs` (no transport calls — superseded by ADR-0021; was previously a broad Pathway A index fetch)
+- module-declared compendium pack hydration via `CompendiumService.hydratePacks(systemId, config)` — only stale or missing declared packs fetch (ADR-0021)
 - primary-document Store seeding through `seedDocumentCache(client)`
 - adapter initialization
 - lifecycle transition to `active`
@@ -82,8 +82,8 @@ Introduce service-layer owners for the remaining non-transport behavior:
 1. consume the connected Foundry transport
 2. seed `WorldStateStore` from the accepted `game.data` snapshot
 3. seed presence/user state from that same snapshot
-4. run compendium Pathway A discovery
-5. run module-declared Pathway B discovery shard sync
+4. passively seed compendium pack metadata from `game.data.packs` into the unified `CompendiumStore` (no transport calls — see ADR-0021)
+5. hydrate module-declared compendium packs via `CompendiumService.hydratePacks(systemId, config)`; fresh persistent shards short-circuit with zero transport calls
 6. seed primary-document Stores
 7. resolve, cache, and initialize the active adapter
 8. transition lifecycle to `active`

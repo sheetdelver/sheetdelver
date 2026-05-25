@@ -20,6 +20,7 @@ import { run as runSessionManagerRestore } from './session/session-manager-resto
 import { run as runRealtimeBroadcaster } from './sockets/realtime-broadcaster.test';
 import { run as runAppSocketGateway } from './sockets/app-socket-gateway.test';
 import { run as runClientSocketTransport } from './sockets/client-socket-transport.test';
+import { run as runCoreSocketPackScope } from './sockets/core-socket-pack-scope.test';
 
 // ── actors ────────────────────────────────────────────────────────────────────
 import { run as runActorCombatSmoke } from './actors/actor-combat-smoke.test';
@@ -148,6 +149,7 @@ async function runAllUnitTests() {
     await runCompendiumHydrate();
     await runModuleContextCompendiumPacks();
     await runClientSocketTransport();
+    await runCoreSocketPackScope();
     await runRealtimeBroadcaster();
     await runAppSocketGateway();
     await runAdminCredentialStore();

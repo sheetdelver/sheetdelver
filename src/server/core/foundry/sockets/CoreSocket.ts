@@ -157,8 +157,12 @@ export class CoreSocket extends SocketBase {
 
     private isConnecting = false;
     async connect(): Promise<void> {
-        // Only return if we are fully active. If we are in setup/offline, we should allow re-checks.
-        if (this.isConnected && worldLifecycleStore.isState('active')) return;
+        // Per ADR-0021, an already-connected socket in `active` or `startup`
+        // belongs to either a live world or an in-flight bootstrap owned by
+        // WorldBootstrapper. A browser engagement wakeup or other re-entrant
+        // caller must not replace it. Only `setup` / `offline` states allow
+        // re-checks because the platform is monitoring for Foundry to return.
+        if (this.isConnected && (worldLifecycleStore.isState('active') || worldLifecycleStore.isState('startup'))) return;
         if (this.isConnecting) return;
 
         this.stopHeartbeat(); // Ensure clean slate
@@ -600,10 +604,18 @@ export class CoreSocket extends SocketBase {
             const result: any = await this.emitSocketEvent('modifyDocument', { type, action, operation }, 5000);
             this.consecutiveFailures = 0;
 
+            // Per ADR-0021, compendium pack operations (`operation.pack` set) are
+            // pack-scoped reads. Foundry's CONST.COMPENDIUM_DOCUMENT_TYPES overlap
+            // with world primary documents (Actor, Item, JournalEntry, …), so the
+            // boundary is scope, not the returned document `type`. Pack-scoped
+            // results must not mirror into world Stores via the modifyDocumentRouter.
+            const isPackScoped = Boolean(operation && operation.pack);
+
             // Proactive cache update (initiator confirmation). The router fan-outs to
             // whichever Store handles this type. Broadcast that follows is idempotent
-            // via each Store's emit-only-on-change rule.
-            if (result) {
+            // via each Store's emit-only-on-change rule. Skipped entirely for pack
+            // reads — those are owned by CompendiumStore, not world Stores.
+            if (result && !isPackScoped) {
                 this._routeModifyDocument(type, action, result.result, result.operation || operation);
             }
 

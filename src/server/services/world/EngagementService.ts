@@ -139,8 +139,16 @@ export class EngagementService {
         }
     }
 
+    // Per ADR-0021, browser return-to-engagement is a monitoring wakeup signal,
+    // not a client control path for CoreSocket. Reconnect attempts (= early
+    // monitoring polls for whether Foundry is reachable) are only valid when
+    // the platform is actually monitoring — i.e. `offline` or `setup`. During
+    // `startup` and `active`, CoreSocket is already connected/connecting and
+    // WorldBootstrapper owns the in-flight bootstrap; a browser tab opening
+    // must not restart the system transport.
     private shouldReconnectOnEngagement(inputs: { lifecycleState: WorldLifecycleState; isConnecting: boolean }): boolean {
-        return this.browserCount > 0 && !inputs.isConnecting && inputs.lifecycleState !== 'active';
+        if (this.browserCount === 0 || inputs.isConnecting) return false;
+        return inputs.lifecycleState === 'offline' || inputs.lifecycleState === 'setup';
     }
 }
 

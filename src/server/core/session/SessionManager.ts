@@ -119,15 +119,28 @@ export class SessionManager {
     public async getOrRestoreSession(sessionId: string): Promise<Session | undefined> {
         const session = this.sessions.get(sessionId);
 
-        // Defer validation if world is not yet active/discovered
+        // Per ADR-0021, per-user ClientSocket creation/restore is gated on
+        // SystemService readiness. Browser callers (socket auth middleware,
+        // HTTP middleware) that ask for a session during `startup` get a
+        // deferred answer — existing in-memory sessions still return, but
+        // cache-driven restore (which spawns a new ClientSocket) waits until
+        // bootstrap is complete. The caller degrades to status-only.
         const lifecycleState = worldLifecycleStore.getState();
-        if (lifecycleState === 'setup' || lifecycleState === 'offline') {
+        if (lifecycleState === 'setup' || lifecycleState === 'offline' || lifecycleState === 'startup') {
             if (session) {
-                // Return existing session from memory, but avoid world ID checks
+                // Return existing session from memory, but defer validation
+                // (world ID checks) until the world is ready.
                 session.lastActive = Date.now();
                 return session;
             }
-            // If not in memory, let the cache path decide whether the active
+            if (lifecycleState === 'startup') {
+                // Bootstrap is in-flight; WorldBootstrapper owns world setup.
+                // A browser connection at this point is status-only — do not
+                // spawn a per-user ClientSocket against the in-flight world.
+                logger.debug(`SessionManager | Deferring restore for ${sessionId} (lifecycle=startup); caller is status-only until ready.`);
+                return undefined;
+            }
+            // setup/offline: let the cache path decide whether the active
             // world is known enough to safely restore this token.
             return this.restoreSessionFromCache(sessionId, 1);
         }
