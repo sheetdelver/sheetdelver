@@ -19,6 +19,11 @@ export {
 } from './WorldBootstrapper';
 
 export {
+    SystemService,
+    systemService,
+} from './SystemService';
+
+export {
     KNOWN_FOUNDRY_GENERATION_MAX,
     SUPPORTED_FOUNDRY_GENERATION_MIN,
     UnsupportedFoundryVersionError,

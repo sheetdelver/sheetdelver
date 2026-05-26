@@ -7,7 +7,7 @@ import type {
 } from '@server/shared/types/foundry';
 import { logger } from '@shared/utils/logger';
 import { getConfig } from '@server/core/config';
-import { systemService } from '@server/core/system/SystemService';
+import { systemService } from '@server/services/world';
 import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
 import { ActorRepository } from '@server/core/documents/primary/actors/ActorRepository';
 import { ChatMessageRepository } from '@server/core/documents/primary/chat-messages/ChatMessageRepository';

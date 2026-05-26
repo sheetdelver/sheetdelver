@@ -81,8 +81,10 @@ graph TD
 `SystemService.bootstrap()` blocks world readiness on the data the platform needs before serving user workflows:
 
 1. Module discovery and compendium hydration from each module's `info.json`.
-2. Primary document seeding through `seedDocumentCache()`.
+2. Primary document seeding through `PrimaryDocumentCacheCoordinator.seedAll()`.
 3. Active module adapter initialization.
+
+Per ADR-0022, `SystemService` lives at `src/server/services/world/SystemService.ts` (relocated from `core/system/`) so the orchestration facade sits alongside `WorldBootstrapper` and `EngagementService`. `core/` never imports `services/`.
 
 For actors, the platform performs one system-client fetch during bootstrap, seeds `ActorStore`, and then keeps that store in parity through Foundry `modifyDocument` results and broadcasts. Actor API reads and dashboard card projections should read from this platform cache; they should not repeatedly ask Foundry to rehydrate the same actor list.
 

@@ -22,12 +22,7 @@ import {
 } from '../base/ownership';
 
 /**
- * @deprecated kept for Round 01 callers; use ChangeAction.
- */
-export type ActorMutationAction = ModifyDocumentAction;
-
-/**
- * Round 01 discriminated-union event payload. Re-emitted alongside the base
+ * Discriminated-union event payload re-emitted alongside the base
  * documentChanged / documentListInvalidated events so any existing subscribers
  * (e.g., SystemService's actorChanged bridge) keep working unchanged.
  */

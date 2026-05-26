@@ -4,12 +4,6 @@ import type { ModifyDocumentAction } from '../base/PrimaryDocumentStore';
 import { actorStore } from './ActorStore';
 
 /**
- * @deprecated Round 01 alias preserved for callers that import the old shape.
- * Use {@link DocumentTransport} directly in new code.
- */
-export type ActorDocumentTransport = DocumentTransport;
-
-/**
  * Actor primary-document Repository. Per-request transport binding ensures
  * writes dispatch over the requesting user's authenticated socket/session
  * so Foundry enforces per-user permissions. Mirrors mutation results into

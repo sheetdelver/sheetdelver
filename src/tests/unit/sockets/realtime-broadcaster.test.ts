@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert';
 import { createSystemStatusBroadcaster } from '@server/realtime/SystemStatusBroadcaster';
-import { systemService } from '@core/system/SystemService';
+import { systemService } from '@server/services/world';
 import type { SystemStatusPayload } from '@shared/contracts/status';
 
 type ListenerMap = Record<string, Array<(...args: unknown[]) => void>>;

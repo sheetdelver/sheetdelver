@@ -322,18 +322,3 @@ modifyDocumentRouter.registerEmbeddedHandler('Cards', cardsStore);
 // invalidation when actor ownership crossings affect combat visibility.
 combatStore.bindActorVisibilityBridge(actorStore);
 
-/**
- * @deprecated Use {@link primaryDocumentCacheCoordinator}.seedAll(client) directly.
- * Preserved for backward compat with `WorldBootstrapper.bootstrap()`.
- */
-export async function seedDocumentCache(client: CoreSocket): Promise<void> {
-    await primaryDocumentCacheCoordinator.seedAll(client);
-}
-
-/**
- * @deprecated Use {@link primaryDocumentCacheCoordinator}.clearAll(reason) directly.
- * Preserved for backward compat with `SystemService.handleDisconnect()`.
- */
-export function clearDocumentCache(reason?: string): void {
-    primaryDocumentCacheCoordinator.clearAll(reason);
-}

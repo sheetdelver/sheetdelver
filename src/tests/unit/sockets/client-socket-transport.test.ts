@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert';
 import { ClientSocket } from '@core/foundry/sockets/ClientSocket';
-import { systemService } from '@core/system/SystemService';
+import { systemService } from '@server/services/world';
 
 async function runClientSocketTransportTests() {
     const client = new ClientSocket({ url: 'http://foundry.example', username: 'player' });

@@ -11,7 +11,7 @@ import {
 } from '@server/core/documents/primary/base/ownership';
 import { createSystemRouteFoundryClient } from '@server/shared/utils/createRouteFoundryClient';
 import { DocumentResolver } from '@server/services/documents';
-import { systemService } from '@server/core/system/SystemService';
+import { systemService } from '@server/services/world';
 import type { ActorDocument } from '@server/shared/types/actors';
 
 export async function run() {

@@ -125,12 +125,38 @@ function runDisconnectPolicyTest() {
     assert.equal(service.shouldReconnectAfterUnexpectedDisconnect('io client disconnect'), false);
 }
 
+// Per ADR-0022 Phase 2: CoreSocket exposes a transport-callback set; the
+// composition root (SystemService.initialize) wires it into EngagementService.
+// This test exercises the bridge shape end-to-end via the public API to prove
+// `setTransportCallbacks` correctly invokes the underlying socket callbacks.
+function runTransportCallbackBridge() {
+    const service = new EngagementService({ now: () => 1000 });
+    const calls: string[] = [];
+
+    // Pretend CoreSocket.getTransportCallbacks() returned this object.
+    service.setTransportCallbacks({
+        resetRetryBackoff: () => calls.push('reset'),
+        startHeartbeat: (immediate = false) => calls.push(`heartbeat:${immediate}`),
+        getReconnectInputs: () => ({
+            lifecycleState: 'offline' as WorldLifecycleState,
+            isConnecting: false,
+        }),
+        reconnect: () => { calls.push('reconnect'); },
+    });
+
+    // Return-to-engagement should invoke the bridged callbacks in order:
+    // reset → heartbeat(immediate) → reconnect (since lifecycle=offline + browserCount>0).
+    service.setActiveBrowserCount(1);
+    assert.deepEqual(calls, ['reset', 'heartbeat:true', 'reconnect']);
+}
+
 export async function run() {
     runReturnToEngagementTest();
     runNoReconnectWhenAlreadyActiveTest();
     runHeartbeatCadenceTest();
     await runPauseAndRunPolicyTest();
     runDisconnectPolicyTest();
+    runTransportCallbackBridge();
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

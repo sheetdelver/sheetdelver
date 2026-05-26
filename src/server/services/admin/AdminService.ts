@@ -1,5 +1,4 @@
-import { logger } from '@shared/utils/logger';
-import { systemService } from '@core/system/SystemService';
+import { systemService } from '@server/services/world';
 import { SetupManager } from '@core/world/SetupManager';
 import { worldLifecycleStore } from '@server/core/world/WorldLifecycleStore';
 import type {
@@ -24,39 +23,21 @@ export function createAdminService(deps: AdminServiceDeps): AdminServiceResult {
         };
     };
 
-    // World listing flow with scrape-first and cache fallback behavior.
+    // World listing reads from the imported-worlds cache only. Per ADR-0022
+    // Phase 1, in-app world scraping was removed; operators can re-import
+    // worlds via `npm run admin:import` (or use `npm run admin:scrape` for
+    // a one-shot authenticated probe) and re-warm the cache that way.
     const listWorlds = async () => {
-        const client = systemService.getSystemClient() as unknown as AdminStatusClientLike;
-        let worlds: WorldEntry[] = [];
-
-        worlds = await SetupManager.scrapeAvailableWorlds(client.url || '');
-
-        if (worlds.length === 0) {
-            const cache = await SetupManager.loadCache();
-            if (cache.currentWorldId && cache.worlds[cache.currentWorldId]) {
-                worlds = [cache.worlds[cache.currentWorldId]];
-            }
+        const worlds: WorldEntry[] = [];
+        const cache = await SetupManager.loadCache();
+        if (cache.currentWorldId && cache.worlds[cache.currentWorldId]) {
+            worlds.push(cache.worlds[cache.currentWorldId]);
         }
-
         return worlds;
     };
 
     const getCache = async () => {
         return SetupManager.loadCache();
-    };
-
-    // Manual setup scrape used by local admin workflows.
-    // TODO Fix: The scraper should be done on the backend, however we will leave the single world scrape to be fixed later.
-    const scrapeSetup = async (sessionCookie: string) => {
-        if (!sessionCookie) return { error: 'Session cookie required', status: 400 };
-
-        const client = systemService.getSystemClient() as unknown as AdminStatusClientLike;
-        logger.info('Core Service | Triggering manual deep-scrape via CLI...');
-
-        const result = await SetupManager.scrapeWorldData(client.url || '', sessionCookie);
-        await SetupManager.saveCache(result);
-
-        return { success: true, data: result };
     };
 
     const launchWorld = async (worldId: string) => {
@@ -75,7 +56,6 @@ export function createAdminService(deps: AdminServiceDeps): AdminServiceResult {
         getStatus,
         listWorlds,
         getCache,
-        scrapeSetup,
         launchWorld,
         shutdownWorld
     };

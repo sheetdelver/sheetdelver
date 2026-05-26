@@ -1,5 +1,5 @@
 import { getAdapter } from '@modules/registry/server';
-import { systemService } from '@core/system/SystemService';
+import { systemService } from '@server/services/world';
 import { SetupManager } from '@core/world/SetupManager';
 import { worldStateStore } from '@server/core/world/WorldStateStore';
 import { worldLifecycleStore } from '@server/core/world/WorldLifecycleStore';

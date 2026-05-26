@@ -2,7 +2,7 @@ import { resolveDataDir, initDataDir, checkLegacyPaths, getDataDir } from '@core
 import { loadConfig } from '@core/config';
 import { logger } from '@shared/utils/logger';
 import { initializeRegistry } from '@modules/registry/server';
-import { systemService } from '@core/system/SystemService';
+import { systemService } from '@server/services/world';
 import { initAdminCredentialStore } from '@server/security/adminCredentialStore';
 import { adminSessionManager } from '@server/security/adminSessionService';
 import { createApp } from '@server/app/createApp';
@@ -70,6 +70,14 @@ async function startServer() {
 
     // Start System Provider
     await systemService.initialize(config.foundry);
+
+    // Per ADR-0022 Phase 2, SessionManager (in `core/`) does not import from
+    // `services/`. Wire the readiness probe and world-lifecycle listener here
+    // from the composition root.
+    sessionManager.setSystemReadinessProbe(() => systemService.isReady());
+    systemService.on('world:connected', (data: { state: string }) => {
+        if (data?.state === 'setup') sessionManager.handleWorldEnteredSetup();
+    });
 
     // Register realtime pipelines before route mounts so lifecycle events are ready at startup.
     const { getSystemStatusPayload } = registerSockets({ io, sessionManager, config });

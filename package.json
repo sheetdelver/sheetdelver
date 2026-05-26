@@ -11,6 +11,7 @@
     "lint": "eslint",
     "core": "npx tsx src/server/index.ts",
     "admin:import": "npx tsx src/scripts/tools/admin/import-worlds.ts",
+    "admin:scrape": "npx tsx src/scripts/tools/admin/scrape-world.ts",
     "test:socket": "npx tsx src/tests/socket/run-all.ts",
     "test:socket:connection": "npx tsx src/tests/socket/01-connection.test.ts",
     "test:socket:system": "npx tsx src/tests/socket/02-system-info.test.ts",

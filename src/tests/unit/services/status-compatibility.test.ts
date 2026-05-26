@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert';
-import { systemService } from '@core/system/SystemService';
+import { systemService } from '@server/services/world';
 import { SetupManager } from '@core/world/SetupManager';
 import { worldLifecycleStore } from '@server/core/world/WorldLifecycleStore';
 import { worldStateStore } from '@server/core/world/WorldStateStore';

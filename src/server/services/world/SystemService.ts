@@ -1,25 +1,26 @@
 import { EventEmitter } from 'node:events';
-import { CoreSocket } from '../foundry/sockets/CoreSocket';
-import { FoundryConfig } from '../foundry/types';
+import { CoreSocket } from '@server/core/foundry/sockets/CoreSocket';
+import { FoundryConfig } from '@server/core/foundry/types';
 import type { SystemAdapter } from '@modules/registry/types';
 import { logger } from '@shared/utils/logger';
-import { worldBootstrapper } from '@server/services/world';
-import { compendiumStore } from '../compendium';
+import { worldBootstrapper } from './WorldBootstrapper';
+import { engagementService } from './EngagementService';
+import { compendiumStore } from '@server/core/compendium';
 import { worldStateStore } from '@server/core/world/WorldStateStore';
 import { worldLifecycleStore } from '@server/core/world/WorldLifecycleStore';
-import { clearDocumentCache } from '../documents/primary/PrimaryDocumentCacheCoordinator';
-import { actorStore } from '../documents/primary/actors/ActorStore';
-import { chatMessageStore } from '../documents/primary/chat-messages/ChatMessageStore';
-import { combatStore } from '../documents/primary/combats/CombatStore';
-import { folderStore } from '../documents/primary/folders/FolderStore';
-import { cardsStore } from '../documents/primary/cards/CardsStore';
-import { itemStore } from '../documents/primary/items/ItemStore';
-import { journalStore } from '../documents/primary/journals/JournalStore';
-import { macroStore } from '../documents/primary/macros/MacroStore';
-import { playlistStore } from '../documents/primary/playlists/PlaylistStore';
-import { rollTableStore } from '../documents/primary/roll-tables/RollTableStore';
-import { userStore } from '../documents/primary/users/UserStore';
-import type { DocumentChangedEvent, DocumentListInvalidatedEvent } from '../documents/primary/base/PrimaryDocumentStore';
+import { primaryDocumentCacheCoordinator } from '@server/core/documents/primary/PrimaryDocumentCacheCoordinator';
+import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
+import { chatMessageStore } from '@server/core/documents/primary/chat-messages/ChatMessageStore';
+import { combatStore } from '@server/core/documents/primary/combats/CombatStore';
+import { folderStore } from '@server/core/documents/primary/folders/FolderStore';
+import { cardsStore } from '@server/core/documents/primary/cards/CardsStore';
+import { itemStore } from '@server/core/documents/primary/items/ItemStore';
+import { journalStore } from '@server/core/documents/primary/journals/JournalStore';
+import { macroStore } from '@server/core/documents/primary/macros/MacroStore';
+import { playlistStore } from '@server/core/documents/primary/playlists/PlaylistStore';
+import { rollTableStore } from '@server/core/documents/primary/roll-tables/RollTableStore';
+import { userStore } from '@server/core/documents/primary/users/UserStore';
+import type { DocumentChangedEvent, DocumentListInvalidatedEvent } from '@server/core/documents/primary/base/PrimaryDocumentStore';
 
 /**
  * SystemService: The authoritative provider for the Backend "World Context".
@@ -219,9 +220,22 @@ export class SystemService extends EventEmitter {
 
         this.config = config;
         logger.info('SystemService | Initializing Core system socket...');
-        
+
         this.systemClient = new CoreSocket(config);
-        
+
+        // Per ADR-0022 Phase 2, engagement wiring lives here, not in CoreSocket.
+        // CoreSocket exposes its transport-callback set and accepts an engagement
+        // policy; the services layer composes both ends so `core` never imports
+        // `services`.
+        engagementService.setTransportCallbacks(this.systemClient.getTransportCallbacks());
+        this.systemClient.setEngagementPolicy({
+            shouldReconnectAfterUnexpectedDisconnect: (reason) => engagementService.shouldReconnectAfterUnexpectedDisconnect(reason),
+            shouldRunHeartbeat: (input) => engagementService.shouldRunHeartbeat(input),
+            getNextHeartbeatDelayMs: () => engagementService.getNextHeartbeatDelayMs(),
+            getInitialHeartbeatDelayMs: (immediate) => engagementService.getInitialHeartbeatDelayMs(immediate),
+            withHeartbeatPaused: (operation) => engagementService.withHeartbeatPaused(operation),
+        });
+
         // Setup world lifecycle monitoring
         this.systemClient.on('connect', () => this.handleConnect());
         this.systemClient.on('disconnect', () => this.handleDisconnect());
@@ -248,7 +262,7 @@ export class SystemService extends EventEmitter {
     private handleDisconnect() {
         logger.info('SystemService | System Client disconnected.');
         this.emit('world:disconnected');
-        clearDocumentCache('world-disconnected');
+        primaryDocumentCacheCoordinator.clearAll('world-disconnected');
         // Per ADR-0021, compendiumStore.clear() drops in-memory state only.
         // Persistent shards are reused on reconnect when world identity matches.
         compendiumStore.clear('world-disconnected');

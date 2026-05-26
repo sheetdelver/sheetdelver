@@ -418,11 +418,11 @@ export function postDryRun(
 /**
  * Execute a world management action.
  *
- * @param action - 'launch', 'shutdown', 'retry', or 'scrape'
+ * @param action - 'launch', 'shutdown', or 'retry'
  * @param body - Optional request body (e.g., { worldId: '...' } for launch)
  */
 export function postWorldAction(
-    action: 'launch' | 'shutdown' | 'retry' | 'scrape',
+    action: 'launch' | 'shutdown' | 'retry',
     body?: Record<string, unknown>
 ) {
     // Map action to the correct endpoint path
@@ -430,7 +430,6 @@ export function postWorldAction(
         launch: '/world/launch',
         shutdown: '/world/shutdown',
         retry: '/world/retry',
-        scrape: '/setup/scrape',
     };
 
     return adminFetch<WorldActionResult>(pathMap[action], {

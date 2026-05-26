@@ -1,6 +1,6 @@
 import express from 'express';
 import type { AppConfig } from '@shared/interfaces';
-import { systemService } from '@core/system/SystemService';
+import { systemService } from '@server/services/world';
 import { logger } from '@shared/utils/logger';
 import type { SessionManager } from '@core/session/SessionManager';
 import {

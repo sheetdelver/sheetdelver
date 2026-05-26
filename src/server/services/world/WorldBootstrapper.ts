@@ -6,7 +6,7 @@ import {
     type SystemModuleInfo,
 } from '@modules/registry/types';
 import { compendiumStore } from '@server/core/compendium';
-import { seedDocumentCache } from '@server/core/documents/primary/PrimaryDocumentCacheCoordinator';
+import { primaryDocumentCacheCoordinator } from '@server/core/documents/primary/PrimaryDocumentCacheCoordinator';
 import { userPresence } from '@server/core/documents/primary/users/UserPresence';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
 import type { CoreSocket } from '@server/core/foundry/sockets/CoreSocket';
@@ -150,7 +150,7 @@ export class WorldBootstrapper {
         this.hydrateCompendiumPacks = deps.hydrateCompendiumPacks ?? (async (systemId, config, compendiumService) => {
             await compendiumService.hydratePacks(systemId, config);
         });
-        this.seedDocuments = deps.seedDocuments ?? ((transport) => seedDocumentCache(transport as CoreSocket));
+        this.seedDocuments = deps.seedDocuments ?? ((transport) => primaryDocumentCacheCoordinator.seedAll(transport as CoreSocket));
         this.createModuleContext = deps.createModuleContext ?? (async (systemId) => {
             const { createModuleContext } = await import('@server/shared/utils/createModuleContext');
             return createModuleContext(systemId);

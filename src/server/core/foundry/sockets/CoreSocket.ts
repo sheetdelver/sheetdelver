@@ -13,9 +13,62 @@ import { modifyDocumentRouter } from '@server/core/documents/primary/base/modify
 import { worldStateStore } from '@server/core/world/WorldStateStore';
 import { worldLifecycleStore, type WorldLifecycleState } from '@server/core/world/WorldLifecycleStore';
 import { sharedContentStore } from '@server/core/world/SharedContentStore';
-import { engagementService, type WorldBootstrapSnapshot } from '@server/services/world';
 // Side-effect import: registers Stores with the coordinator and router.
 import '@server/core/documents/primary/PrimaryDocumentCacheCoordinator';
+
+/**
+ * WorldBootstrapSnapshot is the connected-world snapshot shape consumed by
+ * WorldBootstrapper. CoreSocket only produces it; the consumer lives in
+ * `services/world`. Locally re-declared here so `core` does not import
+ * `services` (ADR-0022 Phase 2).
+ */
+export interface WorldBootstrapSnapshot {
+    gameData: any;
+    sceneData?: any | null;
+}
+
+/**
+ * The transport-callback contract that EngagementService consumes. CoreSocket
+ * exposes a structurally compatible object via getTransportCallbacks(); the
+ * composition root (SystemService.initialize) wires it into the service.
+ * Locally re-declared so core has no `services/` import (ADR-0022 Phase 2).
+ */
+export interface CoreSocketTransportCallbacks {
+    resetRetryBackoff(): void;
+    startHeartbeat(immediate?: boolean): void;
+    getReconnectInputs(): {
+        lifecycleState: WorldLifecycleState;
+        isConnecting: boolean;
+    };
+    reconnect(): void | Promise<void>;
+}
+
+/**
+ * Engagement-policy queries that CoreSocket asks during heartbeat / unexpected
+ * disconnect. Structurally compatible with EngagementService's read surface.
+ * Injected via setEngagementPolicy() from the composition root so core does
+ * not import services (ADR-0022 Phase 2). Defaults to a no-op policy
+ * (no heartbeat, no auto-reconnect, transparent pause) until wired.
+ */
+export interface CoreSocketEngagementPolicy {
+    shouldReconnectAfterUnexpectedDisconnect(reason: string): boolean;
+    shouldRunHeartbeat(input: {
+        isConnected: boolean;
+        isConnecting: boolean;
+        lifecycleState: WorldLifecycleState;
+    }): boolean;
+    getNextHeartbeatDelayMs(): number;
+    getInitialHeartbeatDelayMs(immediate?: boolean): number;
+    withHeartbeatPaused<T>(operation: () => Promise<T>): Promise<T>;
+}
+
+const NOOP_ENGAGEMENT_POLICY: CoreSocketEngagementPolicy = {
+    shouldReconnectAfterUnexpectedDisconnect: () => false,
+    shouldRunHeartbeat: () => false,
+    getNextHeartbeatDelayMs: () => 30000,
+    getInitialHeartbeatDelayMs: () => 5000,
+    withHeartbeatPaused: <T,>(operation: () => Promise<T>): Promise<T> => operation(),
+};
 
 
 export class CoreSocket extends SocketBase {
@@ -45,11 +98,32 @@ export class CoreSocket extends SocketBase {
     }
 
 
+    private engagementPolicy: CoreSocketEngagementPolicy = NOOP_ENGAGEMENT_POLICY;
+
     constructor(config: any) {
         super(config);
-        // EngagementService owns browser-count and heartbeat policy. CoreSocket
-        // only supplies the raw transport operations that policy may request.
-        engagementService.setTransportCallbacks({
+        this.loadInitialCache();
+    }
+
+    /**
+     * Wires the engagement policy CoreSocket consults during heartbeat /
+     * unexpected disconnect. Called from the composition root immediately
+     * after construction; defaults to a no-op policy if never set. Per
+     * ADR-0022 Phase 2, core does not import services — the policy interface
+     * is structurally compatible with EngagementService.
+     */
+    public setEngagementPolicy(policy: CoreSocketEngagementPolicy): void {
+        this.engagementPolicy = policy;
+    }
+
+    /**
+     * Transport-callback set EngagementService consumes. Per ADR-0022 Phase 2,
+     * the engagement bridge is composed at the services-layer composition root
+     * (SystemService.initialize) — CoreSocket no longer reaches into services
+     * itself.
+     */
+    public getTransportCallbacks(): CoreSocketTransportCallbacks {
+        return {
             resetRetryBackoff: () => {
                 this.retryCount = 0;
             },
@@ -61,8 +135,7 @@ export class CoreSocket extends SocketBase {
                 isConnecting: this.isConnecting,
             }),
             reconnect: () => this.connect(),
-        });
-        this.loadInitialCache();
+        };
     }
 
     private clearActiveWorldCompendiumState(reason: string): void {
@@ -350,7 +423,7 @@ export class CoreSocket extends SocketBase {
                     this.emit('disconnect', reason);
 
                     // Immediate verification handshake if disconnect was unexpected
-                    if (engagementService.shouldReconnectAfterUnexpectedDisconnect(reason)) {
+                    if (this.engagementPolicy.shouldReconnectAfterUnexpectedDisconnect(reason)) {
                         this.connect();
                     }
                 });
@@ -464,7 +537,7 @@ export class CoreSocket extends SocketBase {
             // Heartbeat can run while disconnected IF we are in setup or offline (acting as a Probe)
             const worldState = worldLifecycleStore.getState();
             const canProbe = worldState === 'setup' || worldState === 'offline';
-            if (!engagementService.shouldRunHeartbeat({
+            if (!this.engagementPolicy.shouldRunHeartbeat({
                 isConnected: this.isConnected,
                 isConnecting: this.isConnecting,
                 lifecycleState: worldState,
@@ -498,13 +571,13 @@ export class CoreSocket extends SocketBase {
 
             // Schedule next heartbeat with adaptive timing
             if (this.heartbeatInterval !== null) {
-                const nextInterval = engagementService.getNextHeartbeatDelayMs();
+                const nextInterval = this.engagementPolicy.getNextHeartbeatDelayMs();
                 this.heartbeatInterval = setTimeout(runHeartbeat, nextInterval);
             }
         };
 
         // Start the recursive timeout chain
-        this.heartbeatInterval = setTimeout(runHeartbeat, engagementService.getInitialHeartbeatDelayMs(immediate));
+        this.heartbeatInterval = setTimeout(runHeartbeat, this.engagementPolicy.getInitialHeartbeatDelayMs(immediate));
     }
 
     private stopHeartbeat() {
@@ -518,7 +591,7 @@ export class CoreSocket extends SocketBase {
         // Compendium pack scans can be slow enough to trip the heartbeat loop.
         // The route/compendium transport shape stays stable, while the pause
         // state itself is owned by EngagementService.
-        return engagementService.withHeartbeatPaused(operation);
+        return this.engagementPolicy.withHeartbeatPaused(operation);
     }
 
     public startRuntimeHeartbeat(): void {

@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert';
 import { registerAppSocketGateway } from '@server/realtime/AppSocketGateway';
-import { systemService } from '@core/system/SystemService';
+import { systemService } from '@server/services/world';
 import { engagementService } from '@server/services/world';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
 import { FoundryUserRole } from '@server/core/documents/primary/base/ownership';
@@ -204,8 +204,110 @@ async function runGatewayTests() {
     }
 }
 
+// Per ADR-0021 Phase 5 + ADR-0022 Phase 1: a browser socket connecting during
+// lifecycle `startup` (systemService.isReady() === false) must NOT attach
+// world-backed listeners at connection time. Attachment is deferred until the
+// `world:ready` event fires on systemService.
+async function runDeferredAttachWhenNotReady() {
+    let authMiddleware: ((socket: MockSocket, next: () => void) => Promise<void>) | undefined;
+    let connectionHandler: ((socket: MockSocket) => Promise<void>) | undefined;
+
+    const io = {
+        engine: { clientsCount: 1 },
+        use: (middleware: (socket: MockSocket, next: () => void) => Promise<void>) => {
+            authMiddleware = middleware;
+        },
+        on: (event: string, handler: (socket: MockSocket) => Promise<void>) => {
+            if (event === 'connection') connectionHandler = handler;
+        },
+    };
+
+    const attachedHandlers: Array<{ event: string; handler: EventHandler }> = [];
+    const systemAttachedHandlers: Array<{ event: string; handler: EventHandler }> = [];
+
+    const foundryClient: MockFoundryClient = {
+        userId: 'user-1',
+        isConnected: true,
+        url: 'http://foundry.test',
+        on: (event, handler) => attachedHandlers.push({ event, handler }),
+        off: () => undefined,
+        dispatchDocument: async () => ({}),
+        dispatchDocumentSocket: async () => ({}),
+    };
+
+    const sessionManager = {
+        isCacheReady: () => true,
+        getOrRestoreSession: async () => ({ client: foundryClient, userId: 'user-1', username: 'tester' }),
+    };
+
+    const originalGetSystemClient = (systemService as any).getSystemClient;
+    const originalIsReady = (systemService as any).isReady;
+    const originalSetActiveBrowserCount = engagementService.setActiveBrowserCount;
+    let ready = false;
+
+    try {
+        await userStore.seed(async () => [
+            { _id: 'user-1', name: 'Deferred User', role: FoundryUserRole.GAMEMASTER },
+        ]);
+
+        (systemService as any).getSystemClient = () => ({
+            on: (event: string, handler: EventHandler) => systemAttachedHandlers.push({ event, handler }),
+            off: () => undefined,
+        });
+        (systemService as any).isReady = () => ready;
+        engagementService.setActiveBrowserCount = (() => ({
+            previousCount: 0, browserCount: 1, becameEngaged: true,
+        })) as typeof engagementService.setActiveBrowserCount;
+
+        const socket: MockSocket = {
+            id: 'socket-deferred',
+            handshake: { auth: { token: 'valid-token' } },
+            rooms: new Set(),
+            connected: true,
+            join(room: string) { this.rooms.add(room); },
+            emit: () => undefined,
+            on: () => undefined,
+            off: () => undefined,
+        } as MockSocket & { connected: boolean; off: (e: string, h: EventHandler) => void };
+
+        registerAppSocketGateway({
+            io: io as any,
+            sessionManager,
+            getSystemStatusPayload: async () => ({
+                connected: true, worldId: 'w1', initialized: true, isConfigured: true,
+                foundryCompatibility: null, users: [],
+                system: { id: 'shadowdark', worldTitle: 'Test', status: 'startup' },
+                url: 'http://localhost:30000', appVersion: '0.0.0-test',
+                debug: { enabled: false, level: 1 },
+            } as SystemStatusPayload),
+            broadcastSystemStatus: () => undefined,
+        });
+
+        await authMiddleware!(socket, () => undefined);
+        await connectionHandler!(socket);
+
+        // Lifecycle was not ready at connection time, so no world-backed
+        // listener attachment happened on the system client.
+        assert.equal(systemAttachedHandlers.length, 0);
+
+        // Mark ready and emit `world:ready`. The gateway is listening via
+        // `systemService.once('world:ready', ...)` and should attach now.
+        ready = true;
+        systemService.emit('world:ready', { systemId: 'shadowdark' });
+
+        // After readiness fires, the 21 system-client listeners are attached.
+        assert.equal(systemAttachedHandlers.length, 21);
+    } finally {
+        (systemService as any).getSystemClient = originalGetSystemClient;
+        (systemService as any).isReady = originalIsReady;
+        engagementService.setActiveBrowserCount = originalSetActiveBrowserCount;
+        userStore.clear('app-socket-gateway-deferred-test');
+    }
+}
+
 export async function run() {
     await runGatewayTests();
+    await runDeferredAttachWhenNotReady();
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

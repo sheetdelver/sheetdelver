@@ -4,7 +4,7 @@
  * WorldManagementPanel
  *
  * World management controls — lists available Foundry worlds, allows launching,
- * shutting down, connection retry, and manual deep-scrape operations.
+ * shutting down, and connection retry.
  */
 
 import React, { useState, useEffect, useCallback } from 'react';

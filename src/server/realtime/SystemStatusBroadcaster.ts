@@ -1,5 +1,5 @@
 import type { Server } from 'socket.io';
-import { systemService } from '@core/system/SystemService';
+import { systemService } from '@server/services/world';
 import { logger } from '@shared/utils/logger';
 import type { SystemStatusPayload } from '@shared/contracts/status';
 

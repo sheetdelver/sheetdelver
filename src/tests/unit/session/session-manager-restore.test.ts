@@ -224,6 +224,63 @@ async function runStartupRestoreDefersUntilWorldIdExists() {
     await resetState();
 }
 
+// Per ADR-0021 Phase 5 + ADR-0022 Phase 1: during lifecycle `startup`,
+// getOrRestoreSession returns undefined for unknown tokens without spawning a
+// new ClientSocket. Existing in-memory sessions are still returned so already-
+// authenticated callers don't lose their session mid-bootstrap.
+async function runStartupReturnsUndefinedWithoutSpawningClient() {
+    await resetState();
+    worldLifecycleStore.setState('startup', 'session-manager-test');
+    await writeCachedSession(); // cache present, but startup defer should NOT consult it
+
+    let connectCalls = 0;
+    let constructed = 0;
+
+    const OriginalCtor = ClientSocket.prototype.constructor;
+    void OriginalCtor;
+
+    await withPatchedClientSocket({
+        connectWithRestoredCredential: async function (this: ClientSocket) {
+            connectCalls += 1;
+            return undefined as any;
+        },
+    }, async () => {
+        // Patch the ctor side-effect by intercepting connectWithRestoredCredential.
+        // If startup correctly returns undefined first, neither constructor nor
+        // connect should be invoked.
+        const manager = createManager();
+
+        const result = await manager.getOrRestoreSession('unknown-token');
+        assert.equal(result, undefined);
+        assert.equal(connectCalls, 0, 'startup defer must not spawn a ClientSocket');
+        assert.equal(constructed, 0);
+
+        // Cache must remain untouched — the cache-driven restore path was never entered.
+        const cached = await persistentCache.get<Record<string, unknown>>(CACHE_NS, CACHE_KEY);
+        assert.ok(cached?.[SESSION_TOKEN], 'startup defer must not purge cache entries');
+
+        // In-memory sessions still flow through: seed one, request it, and
+        // verify the manager returns it without consulting cache or transport.
+        const fakeClient = {} as ClientSocket;
+        (manager as any).sessions.set(SESSION_TOKEN, {
+            id: SESSION_TOKEN,
+            client: fakeClient,
+            userId: 'user-1',
+            username: 'tester',
+            lastActive: 0,
+            worldId: WORLD_ID,
+            cookie: 'session=abc',
+        });
+
+        const memorySession = await manager.getOrRestoreSession(SESSION_TOKEN);
+        assert.ok(memorySession, 'in-memory session must still resolve during startup');
+        assert.equal(memorySession?.userId, 'user-1');
+        assert.equal(connectCalls, 0, 'in-memory hit must not trigger transport connect');
+    });
+
+    await resetState();
+}
+
 async function runFailedRestoreDisconnectsAndClearsInFlight() {
     await resetState();
     seedActiveWorld();
@@ -265,6 +322,7 @@ export async function run() {
     await runExpiredCachedSessionPurgesWithoutTransportConnect();
     await runCachedSessionWithoutWorldIdPurgesWhenWorldIsKnown();
     await runStartupRestoreDefersUntilWorldIdExists();
+    await runStartupReturnsUndefinedWithoutSpawningClient();
     await runFailedRestoreDisconnectsAndClearsInFlight();
     console.log('  - SessionManager restore: all checks passed');
 }

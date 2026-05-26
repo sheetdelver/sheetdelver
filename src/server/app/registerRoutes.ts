@@ -2,7 +2,7 @@ import express from 'express';
 import type { Server as SocketIOServer } from 'socket.io';
 import type { AppConfig } from '@shared/interfaces';
 import type { SessionManager } from '@core/session/SessionManager';
-import { systemService } from '@core/system/SystemService';
+import { systemService } from '@server/services/world';
 import { SetupManager } from '@core/world/SetupManager';
 import { createAuthenticateSession } from '@server/middleware/authenticateSession';
 import { createTryAuthenticateSession } from '@server/middleware/tryAuthenticateSession';

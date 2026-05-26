@@ -7,7 +7,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { persistentCache } from '../cache/PersistentCache';
-import { systemService } from '../system/SystemService';
 import { worldStateStore } from '@server/core/world/WorldStateStore';
 import { worldLifecycleStore } from '@server/core/world/WorldLifecycleStore';
 import type { RestoredFoundrySessionCredential } from '@server/shared/types/foundry';
@@ -49,23 +48,45 @@ export class SessionManager {
     private readonly RESTORE_RETRY_BASE_DELAY_MS = 300;
     private readonly RESTORE_RETRY_MAX_DELAY_MS = 2000;
 
+    /**
+     * Predicate for "is the system ready to validate sessions against world state?"
+     * Wired from the composition root after SystemService is constructed. Per
+     * ADR-0022 Phase 2, SessionManager (in `core/`) no longer reaches up to
+     * `services/world/SystemService`; the readiness probe is injected instead.
+     * Defaults to a permissive `true` so test/synthetic constructions don't
+     * need the wiring.
+     */
+    private cacheReadyProbe: () => boolean = () => true;
+
     constructor(config: FoundryConfig) {
         this.config = config;
-
-        // Listen for world level changes to invalidate sessions
-        systemService.on('world:connected', (data) => {
-            if (data.state === 'setup') {
-                this.clearAllSessions();
-            }
-        });
     }
 
     public async initialize() {
         logger.info('SessionManager | Initializing Session storage...');
     }
 
+    /**
+     * Composition-root wiring point. The caller (server/index.ts) subscribes
+     * to SystemService events and forwards relevant lifecycle changes here so
+     * SessionManager doesn't need to import services. The predicate replaces
+     * the old direct call to `systemService.isReady()`.
+     */
+    public setSystemReadinessProbe(probe: () => boolean): void {
+        this.cacheReadyProbe = probe;
+    }
+
+    /**
+     * Triggered by the composition root when the world lifecycle transitions
+     * into `setup` (world swap). Drops all in-memory + cached sessions so
+     * stale tokens can't bridge a world identity change.
+     */
+    public handleWorldEnteredSetup(): void {
+        void this.clearAllSessions();
+    }
+
     public isCacheReady(): boolean {
-        return systemService.isReady();
+        return this.cacheReadyProbe();
     }
 
     public async createSession(username: string, password?: string): Promise<{ sessionId: string, userId: string }> {
