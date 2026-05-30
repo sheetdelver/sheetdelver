@@ -24,13 +24,8 @@ import { type SystemModuleInfo, type SystemPlugin } from './types';
 import { getModulesDataDir } from '@/server/core/paths';
 import {
     applyLifecycleClassification,
-    getLifecycleRecords,
-    loadLifecycleStore,
     ModuleLifecycleClassificationInput,
-    ModuleLifecycleRecord,
-    recordLifecycleRuntimeFailure,
     saveLifecycleStore,
-    upsertDiscoveredModule,
 } from '../lifecycle/lifecycle';
 import { evaluateModuleCompatibility, validateModuleInfoShape } from '../lifecycle/validation';
 import {
@@ -42,7 +37,6 @@ import {
     type InstallModuleInput,
     type UpgradeModuleInput,
     type ManagerOperationResult,
-    ModuleArtifactMetadata,
 } from './manager';
 import { getArtifact, loadArtifactStore, saveArtifactStore, upsertArtifactVerification } from '../distribution/artifactStore';
 import {
@@ -56,7 +50,6 @@ import {
     pluginMap,
     lifecycleStore,
     isInitialized,
-    setInitialized,
 } from './state';
 import {
     getLifecycleRecord,
@@ -66,9 +59,7 @@ import {
     getArtifactStateFilePathOverride,
     getCoreVersion,
     resolveManagedSource,
-    buildSourceResolutionContext,
 } from './internals';
-import { unloadSystemModules } from './adapterResolution';
 import { initializeRegistry, refreshRegistry } from './bootstrap';
 
 interface ManifestGateResult {
