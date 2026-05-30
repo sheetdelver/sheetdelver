@@ -175,8 +175,8 @@ export function JournalProvider({ children }: { children: React.ReactNode }) {
     );
 }
 
-export const useJournals = () => {
+export const useJournal = () => {
     const context = useContext(JournalContext);
-    if (!context) throw new Error('useJournals must be used within a JournalProvider');
+    if (!context) throw new Error('useJournal must be used within a JournalProvider');
     return context;
 };

@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useEffect, useRef } from 'react';
@@ -17,7 +16,7 @@ export default function DiceTrayDialog({ isOpen, onClose, onSend, speaker }: Dic
     const { system: adapter } = useFoundry();
     const popupRef = useRef<HTMLDivElement>(null);
 
-    // Close on click outside
+    // Kept for compatibility with modules that may still import internal UI components.
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
             if (popupRef.current && !popupRef.current.contains(event.target as Node)) {

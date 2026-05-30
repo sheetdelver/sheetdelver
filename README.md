@@ -215,6 +215,13 @@ Debug API surface follows the existing debug switch:
 
 *Note: The startup process automatically manages both the backend service and the frontend web server.*
 
+### Testing
+
+```bash
+npm run test:unit     # full unit suite
+npm run test:client   # client/browser-helper slice
+```
+
 ### Migrating from Previous Versions
 
 If upgrading from a version that used `.data/` in the project root and `settings.yaml` at the CWD:

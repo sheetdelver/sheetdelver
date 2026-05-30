@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useJournals, JournalEntry } from '@client/ui/context/JournalProvider';
+import { useJournal, JournalEntry } from '@client/ui/context/JournalProvider';
 import { useUI } from '@client/ui/context/UIContext';
 import { X, Edit, Book, ChevronLeft, ChevronRight, Share2, Loader2 } from 'lucide-react';
 import RichTextEditor from './RichTextEditor';
@@ -11,7 +11,7 @@ import { logger } from '@shared/utils/logger';
 
 export default function JournalModal() {
     const { activeJournalId, setActiveJournalId, sharedJournalId, setSharedJournalId } = useUI();
-    const { getJournal, updateJournal } = useJournals();
+    const { getJournal, updateJournal } = useJournal();
     const { foundryUrl } = useConfig();
     const { currentUser } = useSession();
 

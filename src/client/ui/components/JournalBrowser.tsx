@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
-import { useJournals, Folder, JournalEntry } from '@client/ui/context/JournalProvider';
+import { useJournal, Folder, JournalEntry } from '@client/ui/context/JournalProvider';
 import { useUI } from '@client/ui/context/UIContext';
 import { useSession } from '@client/ui/context/SessionContext';
 import { Folder as FolderIcon, FileText, ChevronRight, ChevronDown, Plus, Search, Trash2, Book, X } from 'lucide-react';
@@ -10,7 +10,7 @@ export default function JournalBrowser() {
     const {
         journals, folders, loading,
         createJournal, createFolder, deleteJournal
-    } = useJournals();
+    } = useJournal();
     const { isJournalOpen, setJournalOpen, setActiveJournalId } = useUI();
     const { currentUser } = useSession();
     const [search, setSearch] = useState('');

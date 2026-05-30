@@ -72,6 +72,13 @@ export function fetchActorById(token: string, actorId: string): Promise<ActorDet
     return requestJson<ActorDetailPayload>(`/api/actors/${actorId}`, { token });
 }
 
+export function deleteActor(token: string | null, actorId: string): Promise<Record<string, unknown>> {
+    return requestJson<Record<string, unknown>>(`/api/actors/${actorId}`, {
+        method: 'DELETE',
+        token,
+    });
+}
+
 export function fetchCombats(token: string): Promise<CombatListPayload> {
     return requestJson<CombatListPayload>('/api/combats', { token });
 }

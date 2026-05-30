@@ -3,6 +3,7 @@ import { SharedContentModal } from '@client/ui/components/SharedContentModal';
 import { ConfirmationModal } from '@client/ui/components/ConfirmationModal';
 import SystemTools from '@client/ui/components/SystemTools';
 import { useNotifications } from '@client/ui/components/NotificationSystem';
+import * as foundryApi from '@client/ui/api/foundryApi';
 import { Theme } from '../hooks/useTheme';
 import { ActorCard } from '../components/ActorCard';
 import type { ActorDto, ActorListPayload } from '@shared/contracts/actors';
@@ -46,19 +47,12 @@ export const DashboardView = ({
         setLoginMessage(`Deleting ${confirmDelete.actorName}...`);
 
         try {
-            const res = await fetch(`/api/actors/${confirmDelete.actorId}`, {
-                method: 'DELETE',
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            if (res.ok) {
-                addNotification(`Deleted ${confirmDelete.actorName}`, 'success');
-                await fetchActors();
-            } else {
-                const data = await res.json();
-                addNotification(`Failed to delete: ${data.error || 'Unknown error'}`, 'error');
-            }
-        } catch (e: any) {
-            addNotification(`Error: ${e.message}`, 'error');
+            await foundryApi.deleteActor(token, confirmDelete.actorId);
+            addNotification(`Deleted ${confirmDelete.actorName}`, 'success');
+            await fetchActors();
+        } catch (e) {
+            const message = e instanceof Error ? e.message : 'Unknown error';
+            addNotification(`Error: ${message}`, 'error');
         } finally {
             setLoading(false);
             setLoginMessage('');

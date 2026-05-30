@@ -22,6 +22,7 @@
     "test:socket:batch": "tsx src/tests/socket/10-batch-operations.test.ts",
     "test:socket:all": "tsx src/tests/socket/run-all.ts",
     "test:unit": "npx tsx src/tests/unit/run.ts",
+    "test:client": "npx tsx src/tests/unit/client/run.ts",
     "test:states": "npx tsx src/scripts/test-states.ts",
     "module:init": "npx tsx src/scripts/tools/modules/init-module.ts",
     "module:check": "npx tsx src/scripts/tools/modules/check-module.ts",

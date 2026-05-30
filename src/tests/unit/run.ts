@@ -13,6 +13,9 @@ import { run as runSyncTokenService } from './services/sync-token-service.test';
 import { run as runEngagementService } from './services/engagement-service.test';
 import { run as runStatusCompatibility } from './services/status-compatibility.test';
 
+// ── client ───────────────────────────────────────────────────────────────────
+import { run as runClientUnitTests } from './client/run';
+
 // ── Foundry user connections ─────────────────────────────────────────────────
 import { run as runFoundryUserConnectionRestore } from './session/session-manager-restore.test';
 
@@ -112,6 +115,7 @@ async function runAllUnitTests() {
     runSyncTokenService();
     await runEngagementService();
     await runStatusCompatibility();
+    runClientUnitTests();
     await runFoundryUserConnectionRestore();
     await runAuthStatusSmoke();
     await runActorCombatSmoke();
