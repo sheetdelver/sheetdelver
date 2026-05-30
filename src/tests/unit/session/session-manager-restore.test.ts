@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert';
-import { SessionManager } from '@core/session/SessionManager';
+import { FoundryUserConnectionService } from '@server/services/foundry';
 import { persistentCache } from '@core/cache/PersistentCache';
 import { ClientSocket } from '@core/foundry/sockets/ClientSocket';
 import { worldStateStore } from '@server/core/world/WorldStateStore';
@@ -12,8 +12,8 @@ const WORLD_ID = 'world-1';
 
 type ConnectWithRestoredCredential = ClientSocket['connectWithRestoredCredential'];
 
-function createManager(): SessionManager {
-    const manager = new SessionManager({ url: 'http://foundry.test' });
+function createManager(): FoundryUserConnectionService {
+    const manager = new FoundryUserConnectionService({ url: 'http://foundry.test' });
     (manager as any).waitForRestoreBackoff = async () => undefined;
     return manager;
 }
@@ -24,7 +24,7 @@ function seedActiveWorld(worldId = WORLD_ID): void {
         system: { id: 'dnd5e', title: 'D&D 5e' },
         users: [],
     } as any);
-    worldLifecycleStore.setState('active', 'session-manager-test');
+    worldLifecycleStore.setState('active', 'foundry-user-connection-service-test');
 }
 
 async function writeCachedSession(worldId = WORLD_ID, overrides: Record<string, unknown> = {}): Promise<void> {
@@ -42,8 +42,8 @@ async function writeCachedSession(worldId = WORLD_ID, overrides: Record<string, 
 
 async function resetState(): Promise<void> {
     await persistentCache.delete(CACHE_NS, CACHE_KEY);
-    worldStateStore.clear('session-manager-test');
-    worldLifecycleStore.reset('session-manager-test');
+    worldStateStore.clear('foundry-user-connection-service-test');
+    worldLifecycleStore.reset('foundry-user-connection-service-test');
 }
 
 async function withPatchedClientSocket<T>(
@@ -200,7 +200,7 @@ async function runCachedSessionWithoutWorldIdPurgesWhenWorldIsKnown() {
 
 async function runStartupRestoreDefersUntilWorldIdExists() {
     await resetState();
-    worldLifecycleStore.setState('startup', 'session-manager-test');
+    worldLifecycleStore.setState('startup', 'foundry-user-connection-service-test');
     await writeCachedSession();
 
     let connectCalls = 0;
@@ -230,7 +230,7 @@ async function runStartupRestoreDefersUntilWorldIdExists() {
 // authenticated callers don't lose their session mid-bootstrap.
 async function runStartupReturnsUndefinedWithoutSpawningClient() {
     await resetState();
-    worldLifecycleStore.setState('startup', 'session-manager-test');
+    worldLifecycleStore.setState('startup', 'foundry-user-connection-service-test');
     await writeCachedSession(); // cache present, but startup defer should NOT consult it
 
     let connectCalls = 0;
@@ -262,7 +262,7 @@ async function runStartupReturnsUndefinedWithoutSpawningClient() {
         // In-memory sessions still flow through: seed one, request it, and
         // verify the manager returns it without consulting cache or transport.
         const fakeClient = {} as ClientSocket;
-        (manager as any).sessions.set(SESSION_TOKEN, {
+        (manager as any).connections.set(SESSION_TOKEN, {
             id: SESSION_TOKEN,
             client: fakeClient,
             userId: 'user-1',
@@ -324,12 +324,12 @@ export async function run() {
     await runStartupRestoreDefersUntilWorldIdExists();
     await runStartupReturnsUndefinedWithoutSpawningClient();
     await runFailedRestoreDisconnectsAndClearsInFlight();
-    console.log('  - SessionManager restore: all checks passed');
+    console.log('  - FoundryUserConnectionService restore: all checks passed');
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
     run()
-        .then(() => console.log('session-manager-restore.test.ts passed'))
+        .then(() => console.log('foundry-user-connection-service restore tests passed'))
         .catch((error) => {
             console.error(error);
             process.exit(1);

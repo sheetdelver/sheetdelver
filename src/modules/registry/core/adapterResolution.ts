@@ -5,8 +5,8 @@
  *
  * Per ADR-0022 Phase 3, this was carved out of the monolithic `server.ts`.
  * State lives in `./state`; cross-cutting private helpers live in
- * `./internals`. `initializeRegistry` and `FALLBACK_ADAPTER` are owned by
- * `./server` so that orchestration stays in one place; we import them here.
+ * `./internals`. Bootstrap and fallback adapter ownership live in dedicated
+ * registry modules to avoid satellite imports back through `./server`.
  */
 import path from 'node:path';
 import { logger } from '@shared/utils/logger';
@@ -30,10 +30,8 @@ import {
     saveLifecycleStore,
 } from '../lifecycle/lifecycle';
 
-// initializeRegistry and FALLBACK_ADAPTER live in server.ts; we import them
-// lazily-callable here. Circular-import is safe because both are used inside
-// function bodies, not at module evaluation time.
-import { initializeRegistry, FALLBACK_ADAPTER } from './server';
+import { initializeRegistry } from './bootstrap';
+import { FALLBACK_ADAPTER } from './fallbackAdapter';
 
 /**
  * JIT Logic Adapter Loader

@@ -3,8 +3,6 @@ import { logger } from '@shared/utils/logger';
 import { FoundryConfig } from '../types';
 import { EventEmitter } from 'events';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
-import { sharedContentStore } from '@server/core/world/SharedContentStore';
-import type { RealtimeSharedContentPayload } from '@shared/contracts/realtime';
 
 type HeadersWithSetCookie = Headers & {
     getSetCookie?: () => string[];
@@ -310,36 +308,14 @@ export abstract class SocketBase extends EventEmitter {
     }
 
     protected setupSharedContentListeners(socket: Socket) {
-        // The socket is the wire-event source, but the canonical snapshot lives
-        // in SharedContentStore. Defensive copies on Store read/write keep
-        // request-time projections from mutating what other consumers read next.
         socket.on('shareImage', (data: any) => {
             logger.info(`[${this.constructor.name}] Received shared image: ${data.image}`);
-            const payload: RealtimeSharedContentPayload = {
-                type: 'image',
-                data: {
-                    url: data.image,
-                    title: data.title,
-                },
-                timestamp: Date.now(),
-            };
-            sharedContentStore.set(payload);
+            this.emit('foundry:shareImage', { data });
         });
 
-        socket.on('showEntry', (uuid: string, ..._args: any[]) => {
+        socket.on('showEntry', (uuid: string, ...args: any[]) => {
             logger.info(`[${this.constructor.name}] Received shared entry: ${uuid}`);
-            const parts = uuid.split('.');
-            if (parts.length >= 2 && parts[0] === 'JournalEntry') {
-                const payload: RealtimeSharedContentPayload = {
-                    type: 'journal',
-                    data: {
-                        id: parts[1],
-                        uuid,
-                    },
-                    timestamp: Date.now(),
-                };
-                sharedContentStore.set(payload);
-            }
+            this.emit('foundry:showEntry', { uuid, args });
         });
     }
 

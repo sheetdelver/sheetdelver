@@ -15,20 +15,9 @@ function createClock(initial: number) {
 
 function runReturnToEngagementTest() {
     const service = new EngagementService({ now: () => 1000 });
-    const calls: string[] = [];
-    const reconnectInputs = { lifecycleState: 'offline' as WorldLifecycleState, isConnecting: false };
-
-    service.setTransportCallbacks({
-        resetRetryBackoff: () => {
-            calls.push('reset-backoff');
-        },
-        startHeartbeat: (immediate = false) => {
-            calls.push(`heartbeat:${immediate}`);
-        },
-        getReconnectInputs: () => reconnectInputs,
-        reconnect: () => {
-            calls.push('reconnect');
-        },
+    let returnedToEngagement = 0;
+    service.on('returnedToEngagement', () => {
+        returnedToEngagement += 1;
     });
 
     const update = service.setActiveBrowserCount(1);
@@ -37,41 +26,37 @@ function runReturnToEngagementTest() {
         browserCount: 1,
         becameEngaged: true,
     });
-    assert.deepEqual(calls, ['reset-backoff', 'heartbeat:true', 'reconnect']);
+    assert.equal(returnedToEngagement, 1);
+    assert.equal(service.shouldReconnectOnEngagement({
+        lifecycleState: 'offline' as WorldLifecycleState,
+        isConnecting: false,
+    }), true);
 
-    calls.length = 0;
     service.setActiveBrowserCount(2);
-    assert.deepEqual(calls, []);
+    assert.equal(returnedToEngagement, 1);
 }
 
 function runNoReconnectWhenAlreadyActiveTest() {
     const service = new EngagementService({ now: () => 1000 });
-    const calls: string[] = [];
-    let lifecycleState: WorldLifecycleState = 'active';
-    let isConnecting = false;
-
-    service.setTransportCallbacks({
-        resetRetryBackoff: () => {
-            calls.push('reset-backoff');
-        },
-        startHeartbeat: (immediate = false) => {
-            calls.push(`heartbeat:${immediate}`);
-        },
-        getReconnectInputs: () => ({ lifecycleState, isConnecting }),
-        reconnect: () => {
-            calls.push('reconnect');
-        },
+    let returnedToEngagement = 0;
+    service.on('returnedToEngagement', () => {
+        returnedToEngagement += 1;
     });
 
     service.setActiveBrowserCount(1);
-    assert.deepEqual(calls, ['reset-backoff', 'heartbeat:true']);
+    assert.equal(returnedToEngagement, 1);
+    assert.equal(service.shouldReconnectOnEngagement({
+        lifecycleState: 'active',
+        isConnecting: false,
+    }), false);
 
-    calls.length = 0;
     service.setActiveBrowserCount(0);
-    lifecycleState = 'setup';
-    isConnecting = true;
     service.setActiveBrowserCount(1);
-    assert.deepEqual(calls, ['reset-backoff', 'heartbeat:true']);
+    assert.equal(returnedToEngagement, 2);
+    assert.equal(service.shouldReconnectOnEngagement({
+        lifecycleState: 'setup',
+        isConnecting: true,
+    }), false);
 }
 
 function runHeartbeatCadenceTest() {
@@ -125,38 +110,12 @@ function runDisconnectPolicyTest() {
     assert.equal(service.shouldReconnectAfterUnexpectedDisconnect('io client disconnect'), false);
 }
 
-// Per ADR-0022 Phase 2: CoreSocket exposes a transport-callback set; the
-// composition root (SystemService.initialize) wires it into EngagementService.
-// This test exercises the bridge shape end-to-end via the public API to prove
-// `setTransportCallbacks` correctly invokes the underlying socket callbacks.
-function runTransportCallbackBridge() {
-    const service = new EngagementService({ now: () => 1000 });
-    const calls: string[] = [];
-
-    // Pretend CoreSocket.getTransportCallbacks() returned this object.
-    service.setTransportCallbacks({
-        resetRetryBackoff: () => calls.push('reset'),
-        startHeartbeat: (immediate = false) => calls.push(`heartbeat:${immediate}`),
-        getReconnectInputs: () => ({
-            lifecycleState: 'offline' as WorldLifecycleState,
-            isConnecting: false,
-        }),
-        reconnect: () => { calls.push('reconnect'); },
-    });
-
-    // Return-to-engagement should invoke the bridged callbacks in order:
-    // reset → heartbeat(immediate) → reconnect (since lifecycle=offline + browserCount>0).
-    service.setActiveBrowserCount(1);
-    assert.deepEqual(calls, ['reset', 'heartbeat:true', 'reconnect']);
-}
-
 export async function run() {
     runReturnToEngagementTest();
     runNoReconnectWhenAlreadyActiveTest();
     runHeartbeatCadenceTest();
     await runPauseAndRunPolicyTest();
     runDisconnectPolicyTest();
-    runTransportCallbackBridge();
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

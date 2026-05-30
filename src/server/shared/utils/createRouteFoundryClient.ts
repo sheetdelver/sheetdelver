@@ -35,8 +35,11 @@ import { DocumentResolver } from '@server/services/documents';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
 import { resolveFoundryUrl } from '@server/shared/utils/foundryUrl';
 
-function createCompendiumTransport(client: FoundryCompendiumClientLike): CompendiumTransport {
-    const withHeartbeatPaused = client.withHeartbeatPaused?.bind(client);
+function createCompendiumTransport(
+    client: FoundryCompendiumClientLike,
+    options: { withHeartbeatPaused?: <T>(operation: () => Promise<T>) => Promise<T> } = {},
+): CompendiumTransport {
+    const withHeartbeatPaused = options.withHeartbeatPaused ?? client.withHeartbeatPaused?.bind(client);
     return {
         get isConnected() {
             return client.isConnected;
@@ -60,7 +63,9 @@ function createDocumentResolverForRoute(
         ? systemService.getSystemClient() as unknown as FoundryCompendiumClientLike
         : client as FoundryCompendiumClientLike;
     const compendiumService = new CompendiumService({
-        transport: createCompendiumTransport(transportClient),
+        transport: createCompendiumTransport(transportClient, options.useSystemCompendiumTransport
+            ? { withHeartbeatPaused: (operation) => systemService.withTransportHeartbeatPaused(operation) }
+            : {}),
     });
 
     return new DocumentResolver({

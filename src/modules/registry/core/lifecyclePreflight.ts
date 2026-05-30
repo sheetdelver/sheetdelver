@@ -6,7 +6,7 @@
  * Per ADR-0022 Phase 3, this was carved out of `server.ts`.
  */
 import { pluginMap, lifecycleStore, isInitialized } from './state';
-import { initializeRegistry } from './server';
+import { initializeRegistry } from './bootstrap';
 
 /**
  * Check if a module can be enabled based on dependency constraints.

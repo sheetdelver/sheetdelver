@@ -4,10 +4,12 @@ import { FoundryConfig } from '@server/core/foundry/types';
 import type { SystemAdapter } from '@modules/registry/types';
 import { logger } from '@shared/utils/logger';
 import { worldBootstrapper } from './WorldBootstrapper';
-import { engagementService } from './EngagementService';
+import { foundryEventIngress } from './FoundryEventIngress';
+import { WorldTransportController } from './WorldTransportController';
 import { compendiumStore } from '@server/core/compendium';
 import { worldStateStore } from '@server/core/world/WorldStateStore';
 import { worldLifecycleStore } from '@server/core/world/WorldLifecycleStore';
+import { SetupManager } from '@server/core/world/SetupManager';
 import { primaryDocumentCacheCoordinator } from '@server/core/documents/primary/PrimaryDocumentCacheCoordinator';
 import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
 import { chatMessageStore } from '@server/core/documents/primary/chat-messages/ChatMessageStore';
@@ -30,6 +32,8 @@ export class SystemService extends EventEmitter {
     private static instance: SystemService;
     private config: FoundryConfig | null = null;
     private systemClient: CoreSocket | null = null;
+    private worldTransportController: WorldTransportController | null = null;
+    private detachFoundryEventIngress: (() => void) | null = null;
 
     private constructor() {
         super();
@@ -220,30 +224,33 @@ export class SystemService extends EventEmitter {
 
         this.config = config;
         logger.info('SystemService | Initializing Core system socket...');
+        await this.loadInitialSetupCache();
 
         this.systemClient = new CoreSocket(config);
-
-        // Per ADR-0022 Phase 2, engagement wiring lives here, not in CoreSocket.
-        // CoreSocket exposes its transport-callback set and accepts an engagement
-        // policy; the services layer composes both ends so `core` never imports
-        // `services`.
-        engagementService.setTransportCallbacks(this.systemClient.getTransportCallbacks());
-        this.systemClient.setEngagementPolicy({
-            shouldReconnectAfterUnexpectedDisconnect: (reason) => engagementService.shouldReconnectAfterUnexpectedDisconnect(reason),
-            shouldRunHeartbeat: (input) => engagementService.shouldRunHeartbeat(input),
-            getNextHeartbeatDelayMs: () => engagementService.getNextHeartbeatDelayMs(),
-            getInitialHeartbeatDelayMs: (immediate) => engagementService.getInitialHeartbeatDelayMs(immediate),
-            withHeartbeatPaused: (operation) => engagementService.withHeartbeatPaused(operation),
+        this.detachFoundryEventIngress?.();
+        this.detachFoundryEventIngress = foundryEventIngress.attach(this.systemClient, {
+            onStatusUpdate: () => this.emit('system:status-update'),
+        });
+        this.worldTransportController?.dispose();
+        this.worldTransportController = new WorldTransportController({
+            transport: this.systemClient,
         });
 
         // Setup world lifecycle monitoring
         this.systemClient.on('connect', () => this.handleConnect());
         this.systemClient.on('disconnect', () => this.handleDisconnect());
-        this.systemClient.on('systemStatusUpdate', () => this.emit('system:status-update'));
-
-        await this.systemClient.connect().catch(err => {
+        await this.worldTransportController.connect().catch(err => {
             logger.error(`SystemService | Core socket initial connection failed: ${err.message}`);
         });
+    }
+
+    private async loadInitialSetupCache(): Promise<void> {
+        try {
+            const cache = await SetupManager.loadCache();
+            worldStateStore.setCachedWorlds(cache);
+        } catch (e) {
+            logger.warn('SystemService | Failed to load initial setup cache: ' + e);
+        }
     }
 
     private handleConnect() {
@@ -277,7 +284,7 @@ export class SystemService extends EventEmitter {
         if (!this.systemClient) throw new Error("SystemService not initialized");
         await worldBootstrapper.bootstrap(this.systemClient, {
             onReady: ({ systemId }) => {
-                this.systemClient?.startRuntimeHeartbeat();
+                this.worldTransportController?.startHeartbeat();
                 this.emit('world:ready', { systemId });
             },
         });
@@ -286,6 +293,23 @@ export class SystemService extends EventEmitter {
     public getSystemClient(): CoreSocket {
         if (!this.systemClient) throw new Error("SystemService not initialized");
         return this.systemClient;
+    }
+
+    public getWorldTransportController(): WorldTransportController {
+        if (!this.worldTransportController) throw new Error("SystemService not initialized");
+        return this.worldTransportController;
+    }
+
+    public async launchWorld(worldId: string) {
+        return this.getWorldTransportController().launchWorld(worldId);
+    }
+
+    public async shutdownWorld() {
+        return this.getWorldTransportController().shutdownWorld();
+    }
+
+    public async withTransportHeartbeatPaused<T>(operation: () => Promise<T>): Promise<T> {
+        return this.getWorldTransportController().withHeartbeatPaused(operation);
     }
 
     public isReady(): boolean {

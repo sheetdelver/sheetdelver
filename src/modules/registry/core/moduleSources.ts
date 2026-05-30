@@ -5,8 +5,7 @@
  *
  * Per ADR-0022 Phase 3, this was carved out of `server.ts`. State lives in
  * `./state`; cross-cutting private helpers in `./internals`. `unloadSystemModules`
- * comes from `./adapterResolution`. `refreshRegistry` and the initial
- * `initializeRegistry` ensure-discovery call come from `./server`.
+ * comes from `./adapterResolution`. Registry scanning comes from `./bootstrap`.
  */
 import path from 'node:path';
 import fs from 'node:fs';
@@ -17,7 +16,7 @@ import { getModulesDataDir } from '@/server/core/paths';
 import { pluginMap, lifecycleStore, isInitialized } from './state';
 import { getLifecycleRecord, getLifecycleStateFilePathOverride } from './internals';
 import { unloadSystemModules } from './adapterResolution';
-import { initializeRegistry, refreshRegistry } from './server';
+import { initializeRegistry, refreshRegistry } from './bootstrap';
 
 /**
  * Switches a module between its local dev version and managed install.

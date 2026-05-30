@@ -74,7 +74,7 @@ async function projectCompatibility(
 ): Promise<SystemStatusPayload> {
     const statusService = createStatusService({
         config: createConfig(),
-        sessionManager: { isCacheReady: () => true },
+        foundryUserConnections: { isCacheReady: () => true },
         getFoundryCompatibility: () => compatibility,
     });
 

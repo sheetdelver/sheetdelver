@@ -41,15 +41,13 @@ export function createAdminService(deps: AdminServiceDeps): AdminServiceResult {
     };
 
     const launchWorld = async (worldId: string) => {
-        const client = systemService.getSystemClient() as unknown as AdminStatusClientLike;
-        await client.launchWorld(worldId);
-        return { success: true as const, message: `Request to launch world ${worldId} sent.` };
+        await systemService.launchWorld(worldId);
+        return { success: true as const, message: `Foundry accepted launch request for world ${worldId}.` };
     };
 
     const shutdownWorld = async () => {
-        const client = systemService.getSystemClient() as unknown as AdminStatusClientLike;
-        await client.shutdownWorld();
-        return { success: true as const, message: 'Request to shut down current world sent.' };
+        await systemService.shutdownWorld();
+        return { success: true as const, message: 'Foundry accepted shutdown request for the current world.' };
     };
 
     return {

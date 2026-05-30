@@ -2,13 +2,16 @@ import express from 'express';
 import type { AppConfig } from '@shared/interfaces';
 import { systemService } from '@server/services/world';
 import { logger } from '@shared/utils/logger';
-import type { SessionManager } from '@core/session/SessionManager';
+import type { FoundryUserConnectionServiceLike } from '@server/shared/types/foundry';
 import {
     createSessionRouteFoundryClient,
     createSystemRouteFoundryClient,
 } from '@server/shared/utils/createRouteFoundryClient';
 
-export function createAuthenticateSession(sessionManager: SessionManager, config: AppConfig): express.RequestHandler {
+export function createAuthenticateSession(
+    foundryUserConnections: Pick<FoundryUserConnectionServiceLike, 'getOrRestoreSession'>,
+    config: AppConfig,
+): express.RequestHandler {
     return (req: express.Request, res: express.Response, next: express.NextFunction) => {
         // Exempt Socket.io handshake from REST middleware
         if (req.url.includes('socket.io')) return next();
@@ -28,7 +31,7 @@ export function createAuthenticateSession(sessionManager: SessionManager, config
         }
 
         // 2. Fallback to Standard User Session
-        sessionManager.getOrRestoreSession(token).then((session) => {
+        foundryUserConnections.getOrRestoreSession(token).then((session) => {
             if (!session || !session.client.userId) {
                 return res.status(401).json({ error: 'Unauthorized: Invalid or Expired Session' });
             }

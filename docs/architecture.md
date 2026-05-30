@@ -17,7 +17,7 @@ SheetDelver is designed as a **Headless Client Proxy** for Foundry VTT. It follo
 To ensure stability and prevent environment pollution (e.g., Node.js leaks in the browser), SheetDelver enforces a strict **Logic Firewall** via its directory structure:
 
 - **`src/client` (`@client`)**: Pure frontend code. Contains UI components, React hooks, and browser-safe services. Strictly forbidden from importing Node.js globals (`fs`, `path`, `process`).
-- **`src/server` (`@server`, `@core`)**: Pure backend code. Contains the Express API, Session Manager, and direct Foundry socket implementations.
+- **`src/server` (`@server`, `@core`)**: Pure backend code. Contains the Express API, service orchestration, server-owned Stores, and direct Foundry socket transports.
 - **`src/shared` (`@shared`)**: Environment-agnostic logic. Contains interfaces, constants, and pure utilities (math, string parsing) safe for both environments.
 - **`src/modules` (`@modules`)**: Pluggable system adapters. Each module carries its own internal firewall (`src/server` vs `src/ui`).
 
@@ -29,12 +29,15 @@ To ensure stability and prevent environment pollution (e.g., Node.js leaks in th
 graph TD
     subgraph "@server/core (Backend)"
         API["Express API (Proxy Interface)"]
-        SM["Session Manager"]
+        FUC["Foundry User Connection Service"]
+        WTC["World Transport Controller"]
+        INGRESS["Foundry Event Ingress"]
         CACHE["Compendium Cache"]
         
-        API --> SM
-        SM --> SYS["System Client (Service Account)"]
-        SM --> POOL["User Client Pool"]
+        API --> FUC
+        WTC --> SYS["CoreSocket Transport (Service Account)"]
+        FUC --> POOL["ClientSocket Transports"]
+        SYS --> INGRESS
         
         SYS --> CACHE
     end
@@ -58,12 +61,17 @@ graph TD
 ```
 
 ### 3.1 The Core Description (Server-Only)
-- **Session Manager (`@core/session`)**:
-    - Manages the lifecycle of user sessions and maps API Tokens to `ClientSocket` instances.
-    - Maintains the **System Client** (`CoreSocket`) for unauthenticated status checks and world monitoring.
+- **Foundry User Connection Service (`src/server/services/foundry`)**:
+    - Owns upstream Foundry user connection lifecycle and maps API tokens to `ClientSocket` transports.
+    - Resolves Foundry user identity before creating a user transport; app-admin/backend sessions remain separate under `src/server/security`.
+- **World Transport Controller (`src/server/services/world/WorldTransportController.ts`)**:
+    - Owns service-account lifecycle policy: retry/backoff, heartbeat, browser engagement wakeups, world launch/shutdown, and lifecycle Store updates.
+    - Commands `CoreSocket` as a transport; it does not live in `core/`.
+- **Foundry Event Ingress (`src/server/services/world/FoundryEventIngress.ts`)**:
+    - Subscribes to neutral Foundry socket events and applies application semantics such as document routing, user presence, shared-content updates, and runtime teardown.
 - **Foundry Sockets (`@core/foundry/sockets`)**:
-    - **CoreSocket**: A singleton connection acting as a service account. Tracks player lists, world status, and system metadata.
-    - **ClientSocket**: A per-user connection. Receives personal notifications (Item sharing, whispered chat) and performs user-authorized writes.
+    - **CoreSocket**: A singleton service-account transport. Emits protocol facts and raw dispatch helpers; controller/ingress services own policy and Store mutation.
+    - **ClientSocket**: A per-user transport. Receives neutral Foundry protocol events and performs user-authorized writes after identity is resolved by services.
 - **Compendium Store / Discovery Shards**: Centralized services cache broad pack indices for name lookup and module-declared hydrated shards for compendium UUID document reads. Live Foundry pack-document fallback is diagnostic opt-in only.
 - **Primary Document Cache**: Server-owned stores under `src/server/core/documents/primary/` that keep hydrated Foundry primary documents available after bootstrap. Actors are currently seeded through `ActorStore`; additional primary document types should join this area behind the same coordinator pattern.
 
@@ -84,9 +92,9 @@ graph TD
 2. Primary document seeding through `PrimaryDocumentCacheCoordinator.seedAll()`.
 3. Active module adapter initialization.
 
-Per ADR-0022, `SystemService` lives at `src/server/services/world/SystemService.ts` (relocated from `core/system/`) so the orchestration facade sits alongside `WorldBootstrapper` and `EngagementService`. `core/` never imports `services/`.
+Per ADR-0022 and ADR-0023, `SystemService` lives at `src/server/services/world/SystemService.ts` (relocated from `core/system/`) so the orchestration facade sits alongside `WorldBootstrapper`, `WorldTransportController`, `FoundryEventIngress`, and `EngagementService`. `core/` never imports `services/`.
 
-For actors, the platform performs one system-client fetch during bootstrap, seeds `ActorStore`, and then keeps that store in parity through Foundry `modifyDocument` results and broadcasts. Actor API reads and dashboard card projections should read from this platform cache; they should not repeatedly ask Foundry to rehydrate the same actor list.
+For actors, the platform performs one system-client fetch during bootstrap, seeds `ActorStore`, and then keeps that store in parity through Foundry event ingress (`modifyDocument` results and broadcasts). Actor API reads and dashboard card projections should read from this platform cache; they should not repeatedly ask Foundry to rehydrate the same actor list.
 
 ---
 
@@ -140,12 +148,12 @@ See `src/modules/MODULE_MANIFEST.md` for the full module authoring reference.
 
 ### 6.1 World Discovery & Status
 1.  Frontend polls `/api/status`.
-2.  Backend queries the `SystemClient` for world status and active user counts.
-3.  If a valid `Authorization` header is present, the backend also checks the specific `UserClient`'s connection state.
+2.  Backend projects status from world Stores maintained by `WorldTransportController`, `WorldBootstrapper`, and `FoundryEventIngress`.
+3.  If a valid `Authorization` header is present, the backend restores the matching Foundry user connection through `FoundryUserConnectionService`.
 
 ### 6.2 Authentication & Handshake
 1.  Frontend POST `/api/login`.
-2.  Backend creates a new `ClientSocket`, performs the Foundry login handshake, and returns a token.
+2.  Backend resolves the Foundry user id, creates a `ClientSocket` transport through `FoundryUserConnectionService`, performs the Foundry login handshake, and returns a token.
 3.  `FoundryContext` transitions to `'authenticating'` until the next status poll confirms the specific socket session is ready.
 
 ### 6.3 Data Normalization & Computation

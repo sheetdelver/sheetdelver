@@ -13,7 +13,7 @@ import type {
 import { userStore } from '@server/core/documents/primary/users/UserStore';
 import type {
     FoundrySystemClientLike,
-    SessionManagerLike,
+    FoundryUserConnectionServiceLike,
     StatusServiceConfigLike,
 } from '@server/shared/types/foundry';
 import type { UserWithPresence } from '@server/shared/types/users';
@@ -21,7 +21,7 @@ import { resolveFoundryUrl } from '@server/shared/utils/foundryUrl';
 
 interface StatusServiceDeps {
     config: StatusServiceConfigLike;
-    sessionManager: Pick<SessionManagerLike, 'isCacheReady'>;
+    foundryUserConnections: Pick<FoundryUserConnectionServiceLike, 'isCacheReady'>;
     getFoundryCompatibility?: () => FoundryCompatibilityStatusPayload | null;
 }
 
@@ -126,7 +126,7 @@ export function createStatusService(deps: StatusServiceDeps) {
         return {
             connected: systemClient.isConnected,
             worldId: worldStateStore.getCurrentWorldId(),
-            initialized: deps.sessionManager.isCacheReady(),
+            initialized: deps.foundryUserConnections.isCacheReady(),
             // During setup/offline states, SetupManager's disk cache may be the
             // only known configured-world source, so keep the Store/disk fallback.
             isConfigured: !!(worldStateStore.getCachedWorldData() || (await SetupManager.loadCache()).currentWorldId),

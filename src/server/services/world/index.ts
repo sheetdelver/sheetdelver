@@ -2,10 +2,15 @@ export {
     EngagementService,
     engagementService,
     type EngagementServiceDeps,
-    type EngagementTransportCallbacks,
     type EngagementUpdate,
     type HeartbeatPolicyInput,
 } from './EngagementService';
+
+export {
+    WorldTransportController,
+    type WorldControlResult,
+    type WorldTransportControllerDeps,
+} from './WorldTransportController';
 
 export {
     WorldBootstrapper,
@@ -22,6 +27,11 @@ export {
     SystemService,
     systemService,
 } from './SystemService';
+
+export {
+    FoundryEventIngress,
+    foundryEventIngress,
+} from './FoundryEventIngress';
 
 export {
     KNOWN_FOUNDRY_GENERATION_MAX,

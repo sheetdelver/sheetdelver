@@ -6,7 +6,7 @@
  *
  * Per ADR-0022 Phase 3, this was carved out of `server.ts`. State lives in
  * `./state`; cross-cutting private helpers in `./internals`; ensure-discovery
- * imports `initializeRegistry` from `./server`.
+ * imports registry scanning from `./bootstrap`.
  */
 import path from 'node:path';
 import fs from 'node:fs';
@@ -69,7 +69,7 @@ import {
     buildSourceResolutionContext,
 } from './internals';
 import { unloadSystemModules } from './adapterResolution';
-import { initializeRegistry, refreshRegistry } from './server';
+import { initializeRegistry, refreshRegistry } from './bootstrap';
 
 interface ManifestGateResult {
     allowed: boolean;
@@ -1085,4 +1085,3 @@ export function validateManagedModule(moduleId: string, source?: ModuleSourceCat
 
     return operationSuccess(id, 'validate', record.status, sourceState.status);
 }
-

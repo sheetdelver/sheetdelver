@@ -1,14 +1,5 @@
+import { EventEmitter } from 'node:events';
 import type { WorldLifecycleState } from '@server/core/world/WorldLifecycleStore';
-
-export interface EngagementTransportCallbacks {
-    resetRetryBackoff(): void;
-    startHeartbeat(immediate?: boolean): void;
-    getReconnectInputs(): {
-        lifecycleState: WorldLifecycleState;
-        isConnecting: boolean;
-    };
-    reconnect(): void | Promise<void>;
-}
 
 export interface EngagementServiceDeps {
     now?: () => number;
@@ -41,26 +32,16 @@ const COLD_IDLE_AFTER_MS = 1800000;
  * browser count, last activity, long-operation suspension, and reconnect on
  * return from idle.
  */
-export class EngagementService {
+export class EngagementService extends EventEmitter {
     private readonly now: () => number;
     private browserCount = 0;
     private lastActivityAt: number;
     private pauseDepth = 0;
-    private transportCallbacks: EngagementTransportCallbacks | null = null;
 
     public constructor(deps: EngagementServiceDeps = {}) {
+        super();
         this.now = deps.now ?? Date.now;
         this.lastActivityAt = this.now();
-    }
-
-    public setTransportCallbacks(callbacks: EngagementTransportCallbacks): () => void {
-        this.transportCallbacks = callbacks;
-
-        return () => {
-            if (this.transportCallbacks === callbacks) {
-                this.transportCallbacks = null;
-            }
-        };
     }
 
     public setActiveBrowserCount(count: number): EngagementUpdate {
@@ -74,7 +55,7 @@ export class EngagementService {
 
         const becameEngaged = previousCount === 0 && nextCount > 0;
         if (becameEngaged) {
-            this.handleReturnToEngagement();
+            this.emit('returnedToEngagement');
         }
 
         return {
@@ -126,19 +107,6 @@ export class EngagementService {
         return this.pauseDepth > 0;
     }
 
-    private handleReturnToEngagement(): void {
-        const callbacks = this.transportCallbacks;
-        if (!callbacks) return;
-
-        callbacks.resetRetryBackoff();
-        callbacks.startHeartbeat(true);
-
-        const inputs = callbacks.getReconnectInputs();
-        if (this.shouldReconnectOnEngagement(inputs)) {
-            void Promise.resolve(callbacks.reconnect()).catch(() => undefined);
-        }
-    }
-
     // Per ADR-0021, browser return-to-engagement is a monitoring wakeup signal,
     // not a client control path for CoreSocket. Reconnect attempts (= early
     // monitoring polls for whether Foundry is reachable) are only valid when
@@ -146,7 +114,7 @@ export class EngagementService {
     // `startup` and `active`, CoreSocket is already connected/connecting and
     // WorldBootstrapper owns the in-flight bootstrap; a browser tab opening
     // must not restart the system transport.
-    private shouldReconnectOnEngagement(inputs: { lifecycleState: WorldLifecycleState; isConnecting: boolean }): boolean {
+    public shouldReconnectOnEngagement(inputs: { lifecycleState: WorldLifecycleState; isConnecting: boolean }): boolean {
         if (this.browserCount === 0 || inputs.isConnecting) return false;
         return inputs.lifecycleState === 'offline' || inputs.lifecycleState === 'setup';
     }

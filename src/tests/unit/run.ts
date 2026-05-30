@@ -13,8 +13,8 @@ import { run as runSyncTokenService } from './services/sync-token-service.test';
 import { run as runEngagementService } from './services/engagement-service.test';
 import { run as runStatusCompatibility } from './services/status-compatibility.test';
 
-// ── session ──────────────────────────────────────────────────────────────────
-import { run as runSessionManagerRestore } from './session/session-manager-restore.test';
+// ── Foundry user connections ─────────────────────────────────────────────────
+import { run as runFoundryUserConnectionRestore } from './session/session-manager-restore.test';
 
 // ── sockets ───────────────────────────────────────────────────────────────────
 import { run as runRealtimeBroadcaster } from './sockets/realtime-broadcaster.test';
@@ -63,6 +63,7 @@ import { run as runWorldStateStore } from './world/world-state-store.test';
 import { run as runWorldLifecycleStore } from './world/world-lifecycle-store.test';
 import { run as runFoundryVersionCompatibility } from './world/foundry-version-compatibility.test';
 import { run as runWorldBootstrapper } from './world/world-bootstrapper.test';
+import { run as runWorldTransportController } from './world/world-transport-controller.test';
 
 // ── admin ─────────────────────────────────────────────────────────────────────
 import { run as runAdminCredentialStore } from './admin/admin-credential-store.test';
@@ -111,7 +112,7 @@ async function runAllUnitTests() {
     runSyncTokenService();
     await runEngagementService();
     await runStatusCompatibility();
-    await runSessionManagerRestore();
+    await runFoundryUserConnectionRestore();
     await runAuthStatusSmoke();
     await runActorCombatSmoke();
     await runActorStore();
@@ -142,6 +143,7 @@ async function runAllUnitTests() {
     await runWorldLifecycleStore();
     runFoundryVersionCompatibility();
     await runWorldBootstrapper();
+    await runWorldTransportController();
     await runSharedContentStore();
     await runDocumentResolver();
     await runCompendiumStore();

@@ -3,7 +3,6 @@ import { SocketBase } from './SocketBase';
 import { logger } from '@shared/utils/logger';
 import { FoundryConfig } from '../types';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
-import { userStore } from '@server/core/documents/primary/users/UserStore';
 import type { RestoredFoundrySessionCredential } from '@server/shared/types/foundry';
 
 export class ClientSocket extends SocketBase {
@@ -35,23 +34,8 @@ export class ClientSocket extends SocketBase {
                 throw new Error("Cannot connect ClientSocket in Setup Mode");
             }
 
-            // 2. Identification (via Discovery Probe or CoreSocket)
             if (!this.userId) {
-                logger.info('ClientSocket | Identifying user ID...');
-                // User lookup priority while establishing transport identity:
-                // 1. UserStore after the active-world bootstrap.
-                // 2. Probe fallback before a full bootstrap is possible.
-                const storeUser = userStore.isReady() ? userStore.findByName(this.config.username || '') : null;
-                const users = storeUser ? [storeUser] : (await this.probeWorldState(baseUrl))?.users;
-
-                const user = users?.find((u: any) => u.name === this.config.username);
-                if (user) {
-                    this.userId = user._id;
-                }
-            }
-
-            if (!this.userId) {
-                throw new Error(`Could not identify user ID for ${this.config.username}`);
+                throw new Error(`Cannot connect ClientSocket without a resolved Foundry user id`);
             }
 
             // 3. Login (Skip if we already have a session cookie from restoration)
@@ -188,15 +172,14 @@ export class ClientSocket extends SocketBase {
     }
 
     private setupSocketRelays(socket: any) {
-        // Lifecycle relay
         socket.on('shutdown', () => {
             logger.warn(`ClientSocket | Relay: World Shutdown detected for ${this.userId}`);
-            this.emit('worldShutdown');
+            this.emit('foundry:shutdown');
         });
 
         socket.on('reload', () => {
             logger.info(`ClientSocket | Relay: World Reload detected for ${this.userId}`);
-            this.emit('worldReload');
+            this.emit('foundry:reload');
         });
     }
 }

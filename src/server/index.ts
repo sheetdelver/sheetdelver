@@ -9,6 +9,7 @@ import { createApp } from '@server/app/createApp';
 import { registerMiddleware } from '@server/app/registerMiddleware';
 import { registerSockets } from '@server/app/registerSockets';
 import { registerRoutes } from '@server/app/registerRoutes';
+import { FoundryUserConnectionService } from '@server/services/foundry';
 
 async function startServer() {
     // Resolve and initialize the data directory before anything else.
@@ -62,36 +63,33 @@ async function startServer() {
     const { app, httpServer, io } = createApp(config);
     registerMiddleware(app);
 
-    // Initialize Session Manager with Service Account
-    const { SessionManager } = await import('@core/session/SessionManager');
-    const sessionManager = new SessionManager({
+    // Initialize Foundry user connection orchestration outside core transports.
+    const foundryUserConnections = new FoundryUserConnectionService({
         ...config.foundry
     });
 
     // Start System Provider
     await systemService.initialize(config.foundry);
 
-    // Per ADR-0022 Phase 2, SessionManager (in `core/`) does not import from
-    // `services/`. Wire the readiness probe and world-lifecycle listener here
-    // from the composition root.
-    sessionManager.setSystemReadinessProbe(() => systemService.isReady());
+    // Wire readiness and world lifecycle policy from the composition root.
+    foundryUserConnections.setSystemReadinessProbe(() => systemService.isReady());
     systemService.on('world:connected', (data: { state: string }) => {
-        if (data?.state === 'setup') sessionManager.handleWorldEnteredSetup();
+        if (data?.state === 'setup') foundryUserConnections.handleWorldEnteredSetup();
     });
 
     // Register realtime pipelines before route mounts so lifecycle events are ready at startup.
-    const { getSystemStatusPayload } = registerSockets({ io, sessionManager, config });
+    const { getSystemStatusPayload } = registerSockets({ io, foundryUserConnections, config });
 
-    // Initialize Session storage in background
-    sessionManager.initialize().catch(err => {
-        logger.error(`Core Service | SessionManager initialization failed: ${err.message}`);
+    // Initialize Foundry user connection storage in background.
+    foundryUserConnections.initialize().catch(err => {
+        logger.error(`Core Service | Foundry user connection initialization failed: ${err.message}`);
     });
 
     // Compose all HTTP route domains (public/protected/debug/module/admin) with preserved mount order.
     registerRoutes({
         app,
         config,
-        sessionManager,
+        foundryUserConnections,
         getSystemStatusPayload,
         io,
     });

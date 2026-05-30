@@ -75,7 +75,7 @@ export interface FoundrySystemClientLike {
     url: string;
 }
 
-export interface UserSessionLike {
+export interface FoundryUserConnectionLike {
     id?: string;
     token?: string;
     userId?: string | null;
@@ -85,9 +85,11 @@ export interface UserSessionLike {
     client: FoundryDocumentClientLike;
 }
 
-export interface SessionManagerLike {
+export interface FoundryUserConnectionServiceLike {
     isCacheReady(): boolean;
-    getOrRestoreSession(token: string): Promise<UserSessionLike | undefined>;
+    createSession(username: string, password?: string): Promise<{ sessionId: string; userId: string }>;
+    getOrRestoreSession(token: string): Promise<FoundryUserConnectionLike | undefined>;
+    destroySession(token: string): Promise<void>;
 }
 
 export type StatusServiceConfigLike = Pick<AppConfig, 'app' | 'foundry' | 'debug'>;

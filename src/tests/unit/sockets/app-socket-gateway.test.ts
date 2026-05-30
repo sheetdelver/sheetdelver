@@ -58,7 +58,7 @@ async function runGatewayTests() {
         dispatchDocumentSocket: async () => ({}),
     };
 
-    const sessionManager = {
+    const foundryUserConnections = {
         isCacheReady: () => true,
         getOrRestoreSession: async (token: string) => {
             if (token === 'valid-token') {
@@ -109,7 +109,7 @@ async function runGatewayTests() {
 
         registerAppSocketGateway({
             io: io as any,
-            sessionManager,
+            foundryUserConnections: foundryUserConnections as any,
             getSystemStatusPayload: async () => ({
                 connected: true,
                 worldId: 'w1',
@@ -141,11 +141,9 @@ async function runGatewayTests() {
         await connectionHandler!(socket);
 
         assert.ok(emitted.some((entry) => entry.event === 'systemStatus'));
-        // Per-user foundry client now receives worldShutdown/worldReload only (2).
-        // Shared-content fan-out subscribes to SharedContentStore directly, so
-        // per-session foundryClient emits are not part of this count.
-        // User presence/status now broadcasts once from the system client path.
-        // combatUpdate also flows through the system bridge.
+        // Per-user Foundry clients are route transports only here. World lifecycle,
+        // shared-content, presence/status, and combat updates flow through the
+        // system client / Store bridges.
         // The system client carries Store-bridged events:
         //   actorChanged + chatMessageChanged + chatMessageListInvalidated
         //   + userChanged + userListInvalidated + folderChanged + folderListInvalidated
@@ -156,7 +154,7 @@ async function runGatewayTests() {
         //   + macroChanged + macroListInvalidated
         //   + playlistChanged + playlistListInvalidated
         //   + cardsChanged + cardsListInvalidated = 21.
-        assert.equal(attachedHandlers.length, 2);
+        assert.equal(attachedHandlers.length, 0);
         assert.equal(systemAttachedHandlers.length, 21);
         assert.ok(browserCounts.includes(1));
 
@@ -174,7 +172,7 @@ async function runGatewayTests() {
         io.engine.clientsCount = 0;
         disconnectHandler?.();
 
-        assert.equal(detachedHandlers.length, 2);
+        assert.equal(detachedHandlers.length, 0);
         assert.equal(systemDetachedHandlers.length, 21);
         assert.ok(browserCounts.includes(0));
 
@@ -235,7 +233,7 @@ async function runDeferredAttachWhenNotReady() {
         dispatchDocumentSocket: async () => ({}),
     };
 
-    const sessionManager = {
+    const foundryUserConnections = {
         isCacheReady: () => true,
         getOrRestoreSession: async () => ({ client: foundryClient, userId: 'user-1', username: 'tester' }),
     };
@@ -272,7 +270,7 @@ async function runDeferredAttachWhenNotReady() {
 
         registerAppSocketGateway({
             io: io as any,
-            sessionManager,
+            foundryUserConnections: foundryUserConnections as any,
             getSystemStatusPayload: async () => ({
                 connected: true, worldId: 'w1', initialized: true, isConfigured: true,
                 foundryCompatibility: null, users: [],

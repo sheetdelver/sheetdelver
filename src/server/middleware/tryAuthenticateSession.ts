@@ -1,13 +1,16 @@
 import express from 'express';
 import type { AppConfig } from '@shared/interfaces';
 import { systemService } from '@server/services/world';
-import type { SessionManager } from '@core/session/SessionManager';
+import type { FoundryUserConnectionServiceLike } from '@server/shared/types/foundry';
 import {
     createSessionRouteFoundryClient,
     createSystemRouteFoundryClient,
 } from '@server/shared/utils/createRouteFoundryClient';
 
-export function createTryAuthenticateSession(sessionManager: SessionManager, config: AppConfig): express.RequestHandler {
+export function createTryAuthenticateSession(
+    foundryUserConnections: Pick<FoundryUserConnectionServiceLike, 'getOrRestoreSession'>,
+    config: AppConfig,
+): express.RequestHandler {
     return (req: express.Request, res: express.Response, next: express.NextFunction) => {
         const authHeader = req.headers.authorization;
         if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -24,7 +27,7 @@ export function createTryAuthenticateSession(sessionManager: SessionManager, con
         }
 
         // 2. Fallback to User Session
-        sessionManager.getOrRestoreSession(token).then((session) => {
+        foundryUserConnections.getOrRestoreSession(token).then((session) => {
             if (session && session.client.userId) {
                 req.foundryClient = createSessionRouteFoundryClient(session.client, session.username);
                 req.userSession = session;

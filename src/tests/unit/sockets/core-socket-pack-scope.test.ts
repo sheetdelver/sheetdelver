@@ -1,12 +1,12 @@
 import { strict as assert } from 'node:assert';
 import { CoreSocket } from '@core/foundry/sockets/CoreSocket';
 import { modifyDocumentRouter } from '@server/core/documents/primary/base/modifyDocumentRouter';
+import { foundryEventIngress } from '@server/services/world/FoundryEventIngress';
 
 /**
- * Per ADR-0021, CoreSocket.dispatchDocumentSocket must NOT route results
- * through modifyDocumentRouter when `operation.pack` is set. Pack-scoped
- * results may carry primary document classes (Actor/Item/etc.) but they
- * are owned by CompendiumStore, not world Stores.
+ * Per ADR-0021/0023, CoreSocket.dispatchDocumentSocket emits confirmed
+ * world-scoped writes for FoundryEventIngress, but must not emit pack-scoped
+ * reads into the world document ingress path.
  */
 class FakeSocket {
     public connected = true;
@@ -35,6 +35,7 @@ async function runPackScopedDispatchSkipsWorldRouter() {
     (modifyDocumentRouter as any).route = (input: { type: string; action: string; operation?: unknown }) => {
         routerCalls.push({ type: input.type, action: input.action, operation: input.operation });
     };
+    const detachIngress = foundryEventIngress.attach(socket);
 
     try {
         await socket.dispatchDocumentSocket('Item', 'get', { pack: 'dnd5e.items', index: true });
@@ -45,6 +46,7 @@ async function runPackScopedDispatchSkipsWorldRouter() {
         assert.equal(routerCalls[0].type, 'Item');
         assert.equal(routerCalls[0].action, 'update');
     } finally {
+        detachIngress();
         (modifyDocumentRouter as any).route = originalRoute;
     }
 }

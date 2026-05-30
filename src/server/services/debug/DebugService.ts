@@ -1,7 +1,7 @@
-import type { UserSessionLike } from '@server/shared/types/foundry';
+import type { FoundryUserConnectionLike } from '@server/shared/types/foundry';
 import { createSessionRouteFoundryClient } from '@server/shared/utils/createRouteFoundryClient';
 
-type GetOrRestoreSession = (token: string) => Promise<UserSessionLike | undefined>;
+type GetOrRestoreSession = (token: string) => Promise<FoundryUserConnectionLike | undefined>;
 
 interface DebugServiceDeps {
     getOrRestoreSession: GetOrRestoreSession;

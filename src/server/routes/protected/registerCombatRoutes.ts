@@ -77,6 +77,4 @@ export function registerCombatRoutes(appRouter: express.Router, deps: CombatRout
             res.status(500).json({ error: getErrorMessage(error) });
         }
     });
-
-    /* TODO Add next or finish round if actorId matches current combatant.actorId */
 }

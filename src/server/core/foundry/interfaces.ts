@@ -19,7 +19,6 @@ export interface FoundrySystemTransportClient extends FoundryCompendiumClientLik
     connect(): Promise<void>;
     disconnect(): void;
     logout(): Promise<void>;
-    startRuntimeHeartbeat(): void;
 }
 
 export type FoundryClient = FoundryUserTransportClient;

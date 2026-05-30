@@ -8,8 +8,6 @@ export interface AdminStatusClientLike {
     isExplicitSession?: boolean;
     discoveredUserId?: string | null;
     url?: string;
-    launchWorld(worldId: string): Promise<void>;
-    shutdownWorld(): Promise<void>;
 }
 
 export interface AdminServiceDeps {

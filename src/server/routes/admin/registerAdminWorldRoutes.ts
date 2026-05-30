@@ -46,10 +46,8 @@ export function registerAdminWorldRoutes(opts: RegisterAdminWorldRoutesOptions):
         try {
             const { systemService } = await import('@server/services/world');
             const { worldLifecycleStore } = await import('@server/core/world/WorldLifecycleStore');
-            // Only allow retry if world is closed
-            const client = systemService.getSystemClient();
-            if (client && worldLifecycleStore.isState('closed')) {
-                await client.connect();
+            if (worldLifecycleStore.isState('closed')) {
+                await systemService.getWorldTransportController().connect();
                 res.json({ success: true, message: 'Manual retry triggered. Attempting to reconnect to world.' });
             } else {
                 res.status(400).json({ error: 'World is not in a closed state. Retry not allowed.' });

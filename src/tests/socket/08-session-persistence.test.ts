@@ -1,5 +1,5 @@
 
-import { SessionManager } from '@core/session/SessionManager';
+import { FoundryUserConnectionService } from '@server/services/foundry';
 import { loadConfig } from '@core/config';
 import { createSessionRouteFoundryClient } from '@server/shared/utils/createRouteFoundryClient';
 import readline from 'readline';
@@ -22,21 +22,21 @@ async function testSessionPersistence() {
         throw new Error('Failed to load configuration');
     }
 
-    const sessionManager = new SessionManager(config.foundry);
+    const foundryUserConnections = new FoundryUserConnectionService(config.foundry);
 
     try {
-        logger.info('8a. Initializing SessionManager (connecting system socket)...');
-        await sessionManager.initialize();
+        logger.info('8a. Initializing Foundry user connection service...');
+        await foundryUserConnections.initialize();
 
         const username = await ask('Enter Foundry Username: ');
         const password = await ask('Enter Foundry Password: ');
 
         logger.info(`\n8b. Creating session for "${username}"...`);
-        const { sessionId, userId } = await sessionManager.createSession(username, password);
+        const { sessionId, userId } = await foundryUserConnections.createSession(username, password);
 
         logger.info(`✅ Session created. ID: ${sessionId}, UserID: ${userId}`);
 
-        const session = await sessionManager.getOrRestoreSession(sessionId);
+        const session = await foundryUserConnections.getOrRestoreSession(sessionId);
         if (!session) throw new Error('Session not found after creation');
 
         logger.info('8c. Verifying data fetch (Actors)...');
@@ -45,11 +45,10 @@ async function testSessionPersistence() {
         logger.info(`   ✅ Fetched ${actors.length} actors.`);
 
         logger.info('\n8d. Simulating Server Restart (clearing in-memory sessions)...');
-        // @ts-ignore - reaching into private map for testing
-        sessionManager.sessions.clear();
+        (foundryUserConnections as any).connections.clear();
 
         logger.info('8e. Attempting to restore session from disk...');
-        const restoredSession = await sessionManager.getOrRestoreSession(sessionId);
+        const restoredSession = await foundryUserConnections.getOrRestoreSession(sessionId);
 
         if (restoredSession) {
             logger.info('   ✅ Session restored successfully.');

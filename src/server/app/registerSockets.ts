@@ -1,13 +1,13 @@
 import type { Server as SocketIOServer } from 'socket.io';
-import type { SessionManager } from '@core/session/SessionManager';
 import type { AppConfig } from '@shared/interfaces';
 import { createStatusService } from '@server/services/status/StatusService';
 import { createSystemStatusBroadcaster } from '@server/realtime/SystemStatusBroadcaster';
 import { registerAppSocketGateway } from '@server/realtime/AppSocketGateway';
+import type { FoundryUserConnectionServiceLike } from '@server/shared/types/foundry';
 
 interface RegisterSocketsDeps {
     io: SocketIOServer;
-    sessionManager: SessionManager;
+    foundryUserConnections: FoundryUserConnectionServiceLike;
     config: AppConfig;
 }
 
@@ -15,7 +15,7 @@ export function registerSockets(deps: RegisterSocketsDeps) {
     // Status read model feeds both REST status responses and socket broadcasts.
     const statusService = createStatusService({
         config: deps.config,
-        sessionManager: deps.sessionManager
+        foundryUserConnections: deps.foundryUserConnections
     });
     const { getSystemStatusPayload } = statusService;
 
@@ -29,7 +29,7 @@ export function registerSockets(deps: RegisterSocketsDeps) {
     const lifecycleRegistration = systemStatusBroadcaster.registerLifecycleBroadcasts();
     registerAppSocketGateway({
         io: deps.io,
-        sessionManager: deps.sessionManager,
+        foundryUserConnections: deps.foundryUserConnections,
         getSystemStatusPayload,
         broadcastSystemStatus
     });

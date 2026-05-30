@@ -2,7 +2,7 @@ import type { Server, Socket } from 'socket.io';
 import { systemService } from '@server/services/world';
 import { logger } from '@shared/utils/logger';
 import { engagementService } from '@server/services/world';
-import type { SessionManagerLike, UserSessionLike, FoundryDocumentClientLike } from '@server/shared/types/foundry';
+import type { FoundryUserConnectionServiceLike, FoundryUserConnectionLike, FoundryDocumentClientLike } from '@server/shared/types/foundry';
 import type { SystemStatusPayload } from '@shared/contracts/status';
 import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
 import { chatMessageStore } from '@server/core/documents/primary/chat-messages/ChatMessageStore';
@@ -21,20 +21,20 @@ import { sharedContentStore, type SharedContentChangedEvent } from '@server/core
 import type { RealtimeActorChangedPayload } from '@shared/contracts/realtime';
 
 type AppSocket = Socket & {
-    userSession?: UserSessionLike;
+    userSession?: FoundryUserConnectionLike;
     foundryClient?: FoundryDocumentClientLike;
 };
 
 interface AppSocketGatewayDeps {
     io: Server;
-    sessionManager: SessionManagerLike;
+    foundryUserConnections: FoundryUserConnectionServiceLike;
     getSystemStatusPayload: () => Promise<SystemStatusPayload>;
     broadcastSystemStatus: () => void | Promise<void>;
 }
 
 export function registerAppSocketGateway({
     io,
-    sessionManager,
+    foundryUserConnections,
     getSystemStatusPayload,
     broadcastSystemStatus,
 }: AppSocketGatewayDeps): void {
@@ -49,7 +49,7 @@ export function registerAppSocketGateway({
         }
 
         try {
-            const session = await sessionManager.getOrRestoreSession(token);
+            const session = await foundryUserConnections.getOrRestoreSession(token);
             const sessionUserId = session?.userId || session?.client.userId;
             if (!session || !sessionUserId) {
                 // Invalid token, but still allow guest connection
@@ -75,8 +75,8 @@ export function registerAppSocketGateway({
         const clientCount = io.engine.clientsCount;
         logger.debug(`App Socket | Client connected: ${socket.id} (Total: ${clientCount}, Auth: ${socket.rooms.has('authenticated')})`);
 
-        // Browser engagement is application policy, not transport state.
-        // EngagementService may wake the CoreSocket through its narrow callbacks.
+        // Browser engagement is application policy. EngagementService emits a
+        // return-to-engagement signal consumed by WorldTransportController.
         engagementService.setActiveBrowserCount(clientCount);
 
         // Initial setup for this specific socket connection.
@@ -339,11 +339,6 @@ export function registerAppSocketGateway({
             systemClient.on('cardsListInvalidated', handleCardsListInvalidated);
             const unsubscribeSharedContent = sharedContentStore.onSharedContentChanged(handleSharedUpdate);
 
-            // Per-user relays retained only for route-client lifecycle/shared-content events.
-            // User presence/status is broadcast once from the system client path.
-            foundryClient.on('worldShutdown', broadcastSystemStatus);
-            foundryClient.on('worldReload', broadcastSystemStatus);
-
             const detachWorldBackedListeners = () => {
                 systemClient.off('actorChanged', handleActorChanged);
                 systemClient.off('chatMessageChanged', handleChatMessageChanged);
@@ -367,8 +362,6 @@ export function registerAppSocketGateway({
                 systemClient.off('cardsChanged', handleCardsChanged);
                 systemClient.off('cardsListInvalidated', handleCardsListInvalidated);
                 unsubscribeSharedContent();
-                foundryClient.off('worldShutdown', broadcastSystemStatus);
-                foundryClient.off('worldReload', broadcastSystemStatus);
             };
 
             if (socket.connected) {

@@ -1,5 +1,5 @@
 import type { IncomingHttpHeaders } from 'node:http';
-import type { UserSessionLike } from '@server/shared/types/foundry';
+import type { FoundryUserConnectionLike } from '@server/shared/types/foundry';
 import type { RouteFoundryClient } from '@server/shared/types/requestContext';
 
 export interface ModuleProxyDispatchRequest {
@@ -9,7 +9,7 @@ export interface ModuleProxyDispatchRequest {
     headers: IncomingHttpHeaders;
     body: unknown;
     foundryClient?: RouteFoundryClient;
-    userSession?: UserSessionLike;
+    userSession?: FoundryUserConnectionLike;
 }
 
 export interface ModuleRouteParams {
@@ -22,7 +22,7 @@ export interface ModuleRouteRequest {
     url: string;
     headers: IncomingHttpHeaders;
     foundryClient: RouteFoundryClient;
-    userSession?: UserSessionLike;
+    userSession?: FoundryUserConnectionLike;
 }
 
 export interface ModuleProxyDispatchResult {
