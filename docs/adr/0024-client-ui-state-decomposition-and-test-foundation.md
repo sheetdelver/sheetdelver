@@ -5,7 +5,7 @@
 **Phase:** Client/UI Stabilization
 **Supersedes:** None
 **Revises:** None
-**Related:** ADR-0023 (Foundry socket transport boundary), Audit B (Client/UI), Audit C (test coverage audit).
+**Related:** ADR-0023 (Foundry socket transport boundary), ADR-0025 (test infrastructure truthfulness and coverage baseline).
 
 ---
 
@@ -26,17 +26,28 @@ The next comparable boundary issue is on the browser side. The client provider g
 
 This creates a maintainability and testability problem. One realtime `useEffect` rebinds eight socket handlers and has a large dependency list including frequently changing objects such as `system`, `users`, and `sharedContent`. The local equality helper uses `JSON.stringify(...)` for comparisons. That helper is order-sensitive, can throw on circular input, and serializes nested state on every realtime push.
 
-The client audit also found several smaller cleanup items:
+The relevant untracked audit findings are summarized below so this ADR stands on its own.
 
-- `DiceTrayDialog.tsx` appears app-orphaned, but local modules still import internal `@client/ui/components/*` paths; it is compatibility-sensitive and should be retained until the SDK/public component boundary is explicit.
-- `DashboardView` deletes actors with a hand-written `fetch(...)` instead of the existing `foundryApi` / `requestJson(...)` path.
-- `JournalProvider` exports `useJournals`, while the rest of the context hooks use names aligned to their provider/context.
-- `(player)/layout.tsx` exposes the full provider stack inline instead of using a `PlayerProviders` wrapper like the admin side.
-- At audit time, the front end had no direct tests for components, contexts, providers, or browser hooks.
+### Audit Input Summary
 
-Some Audit B findings are intentionally not solved here. The `@ts-ignore` entries in `DiceTray.tsx` and the `as any` clusters around dynamic module components and module-supplied actor data are SDK typing gaps. Local modules also still import some internal `@client/ui/components/*` modules directly, so deleting apparently orphaned UI components requires a local-module compatibility check and, ideally, an SDK/public component replacement first. These should be handled by SDK alignment work, not by local front-end cleanup.
+ADR-0024 was based on two local audit passes that are not part of the tracked documentation set. The client/UI audit found:
 
-Audit C also found broader test infrastructure issues: unwired socket tests, a dormant integration test, missing coverage tooling, and route-level coverage gaps. Those are real, but they are wider than this ADR. ADR-0024 only takes the client-side test foundation needed to make the UI state decomposition safe.
+- The provider graph was acyclic and directionally healthy, with no `@server` imports from client code.
+- `FoundryContext.tsx` had grown into a 412-line orchestration hub with connection-step projection, eight socket event handlers, world-change cleanup, module UI hot reload, actor-card patching, user-roster refresh coalescing, combat refresh scheduling, and several context-composition concerns in one file.
+- One realtime effect had a 17-entry dependency array, including frequently changing objects such as `system`, `users`, `sharedContent`, and `appVersion`, causing broad socket unsubscribe/resubscribe churn.
+- `FoundryContext` used a `JSON.stringify(...)` equality helper on realtime payloads, making comparisons order-sensitive, expensive for nested data, and unsafe for circular values.
+- The front end had no direct tests for React components, contexts, providers, browser hooks, connection-step projection, runtime-surface warnings, or realtime handlers.
+- `DashboardView` deleted actors with a hand-written `fetch(...)` instead of the shared `foundryApi` / `requestJson(...)` path.
+- `JournalProvider` exported `useJournals`, while the rest of the context hooks followed provider/context naming.
+- The player layout manually nested the full provider stack, unlike the admin side's provider composer.
+- `DiceTrayDialog.tsx` looked app-orphaned, but a local-module check showed modules directly import other internal `@client/ui/components/*` files. That makes app-orphaned internal UI compatibility-sensitive until a public SDK/component boundary exists.
+- `DiceTray.tsx` `@ts-ignore` entries and client-side `as any` clusters around dynamic module UI/component data were SDK typing gaps, not safe one-off front-end cleanup.
+
+ADR-0024 closed the client audit items that were safe without SDK design: `FoundryContext` became a facade over focused realtime hooks, connection-step projection became a pure helper, realtime comparisons moved to shape-aware helpers, `DashboardView` uses `foundryApi.deleteActor(...)`, `useJournal` aligns with provider naming, `PlayerProviders` composes the player provider stack, `DiceTrayDialog.tsx` is retained pending SDK boundary work, and the stale combat-route note was closed after a source check found no remaining combat TODO in `src/client`, `src/app`, or `src/server`.
+
+The test-coverage audit found a broader test infrastructure problem: unwired socket tests, one dormant integration test, no coverage command, near-zero route coverage, parked deprecated tests, and no front-end test baseline. ADR-0024 only closed the client-side slice by adding `npm run test:client` and tests for the connection-step helper, realtime comparison helpers, runtime-surface warning behavior, and shared-content realtime subscription behavior. ADR-0025 later handled the broader runner truthfulness, integration, route smoke, service smoke, deprecated-test disposition, and unit coverage baseline work.
+
+Parked after this ADR: full SDK/public component boundary work, SDK typing for module-supplied data, internal component import migration for local modules, and broader React component/render coverage.
 
 ---
 
@@ -123,7 +134,7 @@ Testing lands in layers:
 - Hook/component tests next, using a browser-capable test setup only when pure tests cannot cover the behavior.
 - The first React/browser targets are `useRuntimeSurface()` / `assertPlayerSurface()` warning behavior and one extracted realtime hook.
 
-If React Testing Library and Vitest/jsdom are introduced, they should be added as explicit front-end tooling rather than quietly mixed into the current hand-rolled server unit runner.
+If a browser-capable React test stack is introduced later, it should be added as explicit front-end tooling rather than quietly mixed into the current hand-rolled server unit runner.
 
 ### SDK Typing Debt Stays Parked
 
@@ -139,8 +150,8 @@ Those are valid issues, but they require SDK shape decisions. Local UI cleanup s
 
 ## What Stays Out
 
-- ADR-0024 does not migrate the whole test suite to Vitest.
-- ADR-0024 does not fix the unwired socket test runner, dormant integration test, coverage tooling, or route-level test gaps from Audit C.
+- ADR-0024 does not migrate the whole test suite to a new test runner.
+- ADR-0024 does not fix the unwired socket test runner, dormant integration test, coverage tooling, or route-level test gaps from the broader test-coverage audit; ADR-0025 handles those.
 - ADR-0024 does not redesign the SDK or type all module-supplied data.
 - ADR-0024 does not remove the `useFoundry()` facade or require component call sites to consume the extracted hooks directly.
 - ADR-0024 does not change server-side socket, lifecycle, or user-connection ownership settled by ADR-0023.
@@ -153,7 +164,7 @@ Those are valid issues, but they require SDK shape decisions. Local UI cleanup s
 
 **Status:** Completed May 30, 2026.
 
-Close the small, verified Audit B items before touching the larger provider shape.
+Close the small, verified client/UI audit items before touching the larger provider shape.
 
 **Action items:**
 
@@ -169,8 +180,8 @@ Close the small, verified Audit B items before touching the larger provider shap
 - [x] Introduce `PlayerProviders` and simplify `(player)/layout.tsx` to mirror the admin provider composition style.
   Files: `src/app/(player)/PlayerProviders.tsx`, `src/app/(player)/layout.tsx`.
 
-- [x] Mark the Audit B combat-route TODO note as closed or superseded by ADR-0023 if no stale client-side TODO remains.
-  Files: `temp/audit-reports/audit-report-052626-option-b.md`.
+- [x] Mark the client/UI audit combat-route TODO note as closed or superseded by ADR-0023 if no stale client-side TODO remains.
+  Result: no stale combat TODO remains in `src/client`, `src/app`, or `src/server`; this ADR records the closeout inline.
 
 ### Phase 2: Extract Pure Client State Helpers
 
@@ -222,7 +233,7 @@ Move socket event ownership out of the `FoundryContext` body while preserving th
 
 **Status:** Completed May 30, 2026.
 
-Add React/browser-oriented tests only after there are focused hooks/components worth testing. This phase uses the existing `tsx` runner for a first client slice rather than adding Vitest/RTL before there is enough component coverage to justify a new test stack.
+Add React/browser-oriented tests only after there are focused hooks/components worth testing. This phase uses the existing `tsx` runner for a first client slice rather than adding a new React/browser test stack before there is enough component coverage to justify it.
 
 **Action items:**
 
@@ -242,18 +253,18 @@ Add React/browser-oriented tests only after there are focused hooks/components w
 
 **Status:** Completed May 30, 2026.
 
-Reflect the completed work back into the audit trail and leave SDK typing debt clearly parked.
+Record the completed audit closeout inline and leave SDK typing debt clearly parked.
 
 **Action items:**
 
-- [x] Update Audit B to mark completed client quick wins, extracted hooks, and front-end test foundation status.
-  Files: `temp/audit-reports/audit-report-052626-option-b.md`.
+- [x] Summarize the client/UI audit input and ADR-0024 closeout in this ADR.
+  Result: client quick wins, extracted hooks, and the front-end test foundation are recorded above.
 
-- [x] Cross-reference Audit C's front-end test finding to ADR-0024 and leave the broader runner/coverage issues for a later ADR.
-  Files: `temp/audit-reports/audit-report-052626-option-c.md`.
+- [x] Summarize the test-coverage audit's front-end finding in this ADR and leave the broader runner/coverage issues to ADR-0025.
+  Result: ADR-0024 records the client test baseline; ADR-0025 records broader runner truthfulness and coverage work.
 
 - [x] Add a short parked note for SDK typing debt if no tracker already exists.
-  Files: audit report or future SDK ADR tracker.
+  Result: SDK typing debt and public component boundary work are explicitly parked above.
 
 ### Verification
 
@@ -273,7 +284,7 @@ ADR-0024 is complete when:
 - `FoundryContext` is primarily a composer/facade rather than the implementation home for all client realtime behavior.
 - Browser socket subscriptions are split by concern and avoid broad object-driven rebinds.
 - `JSON.stringify(...)` equality is gone from realtime hot paths.
-- The client quick wins from Audit B are closed.
+- The client/UI audit quick wins are closed.
 - At least one pure client helper test and one browser/hook-oriented front-end test exist.
-- Audit B and Audit C reflect the resulting status accurately.
+- This ADR records the audit input, closeout, and parked SDK/test backlog inline without relying on untracked audit reports.
 - TypeScript, lint for touched files, and the relevant unit/front-end tests pass.
