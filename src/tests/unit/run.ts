@@ -14,6 +14,7 @@ import { run as runEngagementService } from './services/engagement-service.test'
 import { run as runStatusCompatibility } from './services/status-compatibility.test';
 import { run as runDebugService } from './services/debug-service.test';
 import { run as runUtilityService } from './services/utility-service.test';
+import { run as runSystemService } from './services/system-service.test';
 
 // ── client ───────────────────────────────────────────────────────────────────
 import { run as runClientUnitTests } from './client/run';
@@ -57,6 +58,7 @@ import { run as runModifyDocumentRouter } from './routing/modify-document-router
 import { run as runOwnershipHelpers } from './routing/ownership.test';
 import { run as runRouteOwnershipThresholds } from './routing/route-ownership-thresholds.test';
 import { run as runDebugUtilityRoutes } from './routing/debug-utility-routes.test';
+import { run as runAdminSystemModuleRoutes } from './routing/admin-system-module-routes.test';
 
 // ── compendium ────────────────────────────────────────────────────────────────
 import { run as runCompendiumStore } from './compendium/compendium-store.test';
@@ -120,6 +122,7 @@ async function runAllUnitTests() {
     await runStatusCompatibility();
     await runDebugService();
     await runUtilityService();
+    await runSystemService();
     runClientUnitTests();
     await runFoundryUserConnectionRestore();
     await runAuthStatusSmoke();
@@ -144,6 +147,7 @@ async function runAllUnitTests() {
     await runOwnershipHelpers();
     await runRouteOwnershipThresholds();
     await runDebugUtilityRoutes();
+    await runAdminSystemModuleRoutes();
     await runRollTableStore();
     await runMacroStore();
     await runPlaylistStore();

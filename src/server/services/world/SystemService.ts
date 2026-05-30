@@ -24,6 +24,23 @@ import { rollTableStore } from '@server/core/documents/primary/roll-tables/RollT
 import { userStore } from '@server/core/documents/primary/users/UserStore';
 import type { DocumentChangedEvent, DocumentListInvalidatedEvent } from '@server/core/documents/primary/base/PrimaryDocumentStore';
 
+export interface SystemServiceDeps {
+    createSystemClient: (config: FoundryConfig) => CoreSocket;
+    attachFoundryEventIngress: (
+        transport: CoreSocket,
+        options: { onStatusUpdate: () => void },
+    ) => () => void;
+    createWorldTransportController: (deps: { transport: CoreSocket }) => WorldTransportController;
+    loadSetupCache: typeof SetupManager.loadCache;
+}
+
+const defaultSystemServiceDeps: SystemServiceDeps = {
+    createSystemClient: (config) => new CoreSocket(config),
+    attachFoundryEventIngress: (transport, options) => foundryEventIngress.attach(transport, options),
+    createWorldTransportController: (deps) => new WorldTransportController(deps),
+    loadSetupCache: () => SetupManager.loadCache(),
+};
+
 /**
  * SystemService: The authoritative provider for the Backend "World Context".
  * Owns the SystemSocket (service account) and handles all world-wide logic.
@@ -35,7 +52,7 @@ export class SystemService extends EventEmitter {
     private worldTransportController: WorldTransportController | null = null;
     private detachFoundryEventIngress: (() => void) | null = null;
 
-    private constructor() {
+    private constructor(private readonly deps: SystemServiceDeps = defaultSystemServiceDeps) {
         super();
         // ActorStore is the single actor-change source; SystemService bridges it onto
         // the realtime wire event. Phase 7 closure renamed the legacy `actorUpdate`
@@ -216,6 +233,13 @@ export class SystemService extends EventEmitter {
         return SystemService.instance;
     }
 
+    public static createForTests(overrides: Partial<SystemServiceDeps>): SystemService {
+        return new SystemService({
+            ...defaultSystemServiceDeps,
+            ...overrides,
+        });
+    }
+
     /**
      * Initializes the system socket and begins monitoring for world changes.
      */
@@ -226,13 +250,13 @@ export class SystemService extends EventEmitter {
         logger.info('SystemService | Initializing Core system socket...');
         await this.loadInitialSetupCache();
 
-        this.systemClient = new CoreSocket(config);
+        this.systemClient = this.deps.createSystemClient(config);
         this.detachFoundryEventIngress?.();
-        this.detachFoundryEventIngress = foundryEventIngress.attach(this.systemClient, {
+        this.detachFoundryEventIngress = this.deps.attachFoundryEventIngress(this.systemClient, {
             onStatusUpdate: () => this.emit('system:status-update'),
         });
         this.worldTransportController?.dispose();
-        this.worldTransportController = new WorldTransportController({
+        this.worldTransportController = this.deps.createWorldTransportController({
             transport: this.systemClient,
         });
 
@@ -246,7 +270,7 @@ export class SystemService extends EventEmitter {
 
     private async loadInitialSetupCache(): Promise<void> {
         try {
-            const cache = await SetupManager.loadCache();
+            const cache = await this.deps.loadSetupCache();
             worldStateStore.setCachedWorlds(cache);
         } catch (e) {
             logger.warn('SystemService | Failed to load initial setup cache: ' + e);

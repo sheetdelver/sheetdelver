@@ -38,7 +38,7 @@ ADR-0026 records six decisions.
 
 5. **Document shared state mutation rules.** `lifecycleStore` remains a stable imported object identity. Refresh/reset paths must mutate its fields in place instead of replacing `registryState.lifecycleStore`.
 
-6. **World control remains service/controller-owned.** Admin world launch/shutdown calls flow through `AdminService` -> `SystemService` -> `WorldTransportController`, not through CoreSocket policy or no-op methods. Route-level admin world smoke tests remain a separate Audit C follow-up.
+6. **World control remains service/controller-owned.** Admin world launch/shutdown calls flow through `AdminService` -> `SystemService` -> `WorldTransportController`, not through CoreSocket policy or no-op methods. Route-level admin world smoke tests were closed under ADR-0025.
 
 ---
 
@@ -53,7 +53,7 @@ ADR-0026 records six decisions.
 - [x] `state.ts` documents that `IS_DEV` is captured at module load.
 - [x] `WorldTransportController` implements launch/shutdown setup actions.
 - [x] `world-transport-controller.test.ts` asserts launch/shutdown setup payloads.
-- [ ] Add admin world route smoke tests under the Audit C route coverage track.
+- [x] Add admin world route smoke tests under the Audit C route coverage track.
 
 ---
 

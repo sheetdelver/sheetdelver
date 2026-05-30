@@ -1,6 +1,6 @@
 # ADR-0025: Test Infrastructure Truthfulness and Coverage Baseline
 
-**Status:** Accepted - In Progress.
+**Status:** Accepted - Implemented.
 **Date:** May 30, 2026
 **Phase:** Core/Base Hardening
 **Supersedes:** None
@@ -48,8 +48,8 @@ ADR-0025 makes six decisions.
 - ADR-0025 does not begin SDK boundary/content work.
 - ADR-0025 does not migrate the whole test suite to Vitest.
 - ADR-0025 does not require live Foundry socket tests to run in normal unit CI.
-- ADR-0025 does not solve all route coverage in one pass.
-- ADR-0025 does not add coverage tooling unless the required package/dependency path is available and verified.
+- ADR-0025 does not provide exhaustive per-endpoint route assertions; it closes the first-pass route smoke gap.
+- ADR-0025 does not add an external coverage dependency; the baseline uses Node's native V8 coverage output.
 
 ---
 
@@ -86,7 +86,7 @@ Close the high-signal Audit C issues that cause tests to be invisible or mislabe
 
 ### Phase 2: Service Smoke Coverage
 
-**Status:** Completed May 30, 2026 for untested services. `SystemService` remains a follow-up.
+**Status:** Completed May 30, 2026.
 
 Add narrow direct coverage for services Audit C identified as untested.
 
@@ -98,8 +98,8 @@ Add narrow direct coverage for services Audit C identified as untested.
 - [x] Add `UtilityService` document/shared-content smoke coverage.
   Files: `src/tests/unit/services/utility-service.test.ts`, `src/tests/unit/run.ts`.
 
-- [ ] Add a `SystemService` orchestration/wiring test if a stable seam can be introduced without testing private singleton internals.
-  Files: future unit test or small service seam.
+- [x] Add a `SystemService` orchestration/wiring test through an explicit dependency seam.
+  Files: `src/server/services/world/SystemService.ts`, `src/tests/unit/services/system-service.test.ts`, `src/tests/unit/run.ts`.
 
 ### Phase 3: Deprecated Test Disposition
 
@@ -117,21 +117,23 @@ Make parked/deprecated tests explicit rather than invisible.
 
 ### Phase 4: Coverage Baseline
 
-**Status:** Open - not started.
+**Status:** Completed May 30, 2026.
 
 Add coverage instrumentation only after runner truthfulness is fixed.
 
 **Action items:**
 
-- [ ] Add a coverage command around the unit runner using an available tool.
-  Files: `package.json`, lockfile if a dependency is required.
+- [x] Add a coverage command around the unit runner using Node V8 coverage output.
+  Files: `package.json`, `src/scripts/tools/testing/coverage-unit.ts`.
 
-- [ ] Capture and document the first baseline.
-  Files: `README.md` or `docs/testing.md`.
+- [x] Capture and document the first baseline.
+  Files: `README.md`, this ADR, Audit C.
+
+**Initial baseline:** `12,369 / 27,217` source lines covered (`45.45%`) under `npm run coverage:unit`.
 
 ### Phase 5: Route Coverage
 
-**Status:** Partially completed May 30, 2026.
+**Status:** Completed May 30, 2026.
 
 Add route-level smoke tests after the service tests settle.
 
@@ -140,13 +142,20 @@ Add route-level smoke tests after the service tests settle.
 - [x] Add protected route smoke tests for utility route registration.
   Files: `src/tests/unit/routing/debug-utility-routes.test.ts`, `src/tests/unit/run.ts`.
 
-- [ ] Add protected route smoke tests for system route registration.
+- [x] Add protected route smoke tests for system route registration.
+  Files: `src/tests/unit/routing/admin-system-module-routes.test.ts`, `src/tests/unit/routing/route-test-helpers.ts`, `src/tests/unit/run.ts`.
 
 - [x] Add debug route smoke tests.
   Files: `src/tests/unit/routing/debug-utility-routes.test.ts`, `src/tests/unit/run.ts`.
 
-- [ ] Add admin status/world/module route smoke tests in focused slices.
-- [ ] Keep admin world-control tests aligned with the post-ADR-0023 world transport controller behavior.
+- [x] Add admin auth/status/world/module route smoke tests in focused slices.
+  Files: `src/tests/unit/routing/admin-system-module-routes.test.ts`, `src/tests/unit/routing/route-test-helpers.ts`, `src/tests/unit/run.ts`.
+
+- [x] Add module-router smoke coverage.
+  Files: `src/tests/unit/routing/admin-system-module-routes.test.ts`.
+
+- [x] Keep admin world-control tests aligned with the post-ADR-0023 world transport controller behavior.
+  Files: `src/tests/unit/routing/admin-system-module-routes.test.ts`, `src/tests/unit/world/world-transport-controller.test.ts`.
 
 ### Phase 6: Audit Closeout
 
@@ -158,9 +167,9 @@ Update Audit C with the completed runner, service, and deprecated-test dispositi
 
 - [x] Update Audit C sections 1-3 for integration/socket runner status.
 - [x] Update Audit C section 5 for `DebugService` and `UtilityService`.
-- [x] Update Audit C section 6 for debug/utility route smoke coverage and remaining route gaps.
+- [x] Update Audit C section 6 for debug/utility/system/admin/module route smoke coverage.
 - [x] Update Audit C section 7 for deprecated test READMEs.
-- [x] Leave coverage, `SystemService`, and remaining route coverage work open.
+- [x] Update Audit C for coverage, `SystemService`, and route coverage closeout.
 
 ---
 
@@ -170,25 +179,28 @@ Verified May 30, 2026:
 
 - `npx tsc --noEmit`
 - `npm run lint -- --no-warn-ignored src/tests/socket/run-all.ts src/tests/integration/run.ts src/tests/integration/module-lifecycle-dependencies.test.ts src/tests/unit/services/debug-service.test.ts src/tests/unit/services/utility-service.test.ts src/tests/unit/routing/debug-utility-routes.test.ts src/tests/unit/run.ts`
+- `npm run lint -- --no-warn-ignored src/server/services/world/SystemService.ts src/scripts/tools/testing/coverage-unit.ts src/tests/unit/services/system-service.test.ts src/tests/unit/routing/route-test-helpers.ts src/tests/unit/routing/admin-system-module-routes.test.ts src/tests/unit/run.ts`
 - `npm run test:unit`
 - `npm run test:integration`
+- `npm run coverage:unit`
 
 Not run: live Foundry socket tests. They still require a configured Foundry instance and credentials.
 
-Coverage verification is not included here. Phase 4 remains open because no coverage command, tooling, artifact, or baseline has been added.
+Coverage artifacts are written to ignored `coverage/unit/summary.json` and `coverage/unit/summary.md`; the committed baseline is recorded above and in Audit C.
 
 ---
 
-## Completed Truthfulness Baseline
+## Completion Criteria
 
-ADR-0025's runner/service/deprecated-test baseline is complete. The ADR itself remains in progress while Phase 4 coverage baseline and the remaining route/service follow-ups are open.
-
-Completed baseline criteria:
+ADR-0025 is complete because:
 
 - `npm run test:integration` exists and runs the integration test suite.
 - `npm run test:socket` cannot silently skip root socket `*.test.ts` files.
 - Manual socket probes are documented and no longer counted as automated socket tests.
 - `DebugService` and `UtilityService` have direct smoke coverage.
+- `SystemService` has orchestration/wiring smoke coverage through an explicit dependency seam.
 - Deprecated tests have written disposition notes.
+- `npm run coverage:unit` exists and the first baseline is documented.
+- Debug, utility, system, admin, and module route families have focused route smoke coverage.
 - Audit C reflects what is closed and what remains open.
 - TypeScript, unit tests, integration tests, and relevant lint checks pass.

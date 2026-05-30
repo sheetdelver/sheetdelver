@@ -221,6 +221,7 @@ Debug API surface follows the existing debug switch:
 npm run test:unit     # full unit suite
 npm run test:client   # client/browser-helper slice
 npm run test:integration
+npm run coverage:unit # unit suite with V8 coverage baseline
 npm run test:socket   # live Foundry socket suite; requires configured Foundry
 ```
 
