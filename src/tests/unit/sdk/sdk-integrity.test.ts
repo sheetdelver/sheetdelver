@@ -7,8 +7,8 @@ import {
     type ModuleServerRequest,
     type ModuleServerParams,
     type ModuleServerExport,
-    type ModuleContext,
-    type PersistentCache,
+    type ModuleRuntime,
+    type DataStore,
     type CompendiumPackReader,
     type ModuleLogger,
     type UIModuleManifest,
@@ -75,8 +75,8 @@ async function runAdapterTests() {
     const computed = adapter.computeActorData!(normalized);
     assert.ok(typeof computed === 'object');
 
-    // initialize noop (no context, no throw)
-    const mockContext: ModuleContext = {
+    // initialize noop (no runtime, no throw)
+    const mockRuntime: ModuleRuntime = {
         moduleId: 'mock',
         foundryUrl: 'http://localhost:30000',
         logger: {
@@ -85,21 +85,21 @@ async function runAdapterTests() {
             warn: () => {},
             error: () => {},
         },
-        platform: {
-            cache: {
-                get: async () => null,
-                set: async () => {},
-                delete: async () => {},
-            },
-            compendiumPacks: {
-                findOne: async () => null,
-                findAll: async () => [],
-                getById: async () => null,
-            },
+        dataStore: {
+            get: async () => null,
+            set: async () => {},
+            delete: async () => {},
+            has: async () => false,
+            keys: async () => [],
+        },
+        compendium: {
+            findOne: async () => null,
+            findAll: async () => [],
+            getById: async () => null,
         },
     };
-    await adapter.initialize!(mockContext);
-    assert.equal((adapter as any)._context, mockContext);
+    await adapter.initialize!(mockRuntime);
+    assert.equal((adapter as any)._runtime, mockRuntime);
 
     console.log('  - BaseSystemAdapter: all checks passed');
 }
@@ -187,17 +187,19 @@ async function runServerExportTests() {
 }
 
 // ---------------------------------------------------------------------------
-// ModuleContext shape
+// ModuleRuntime shape
 // ---------------------------------------------------------------------------
 
 async function runContextTests() {
-    const cache: PersistentCache = {
+    const dataStore: DataStore = {
         get: async <T>(_key: string) => null as T | null,
         set: async (_key: string, _value: unknown) => {},
         delete: async (_key: string) => {},
+        has: async (_key: string) => false,
+        keys: async (_prefix?: string) => [],
     };
 
-    const compendiumPacks: CompendiumPackReader = {
+    const compendium: CompendiumPackReader = {
         findOne: async (_type, _query) => null,
         findAll: async (_type, _query) => [],
         getById: async (_type, _id) => null,
@@ -210,19 +212,21 @@ async function runContextTests() {
         error: () => {},
     };
 
-    const context: ModuleContext = {
+    const runtime: ModuleRuntime = {
         moduleId: 'test-module',
         foundryUrl: 'http://localhost:30000',
         logger,
-        platform: { cache, compendiumPacks },
+        dataStore,
+        compendium,
     };
 
-    assert.equal(context.moduleId, 'test-module');
-    assert.ok(typeof context.logger.info === 'function');
-    assert.ok(context.platform.cache.get);
-    assert.ok(context.platform.compendiumPacks.findOne);
+    assert.equal(runtime.moduleId, 'test-module');
+    assert.ok(typeof runtime.logger.info === 'function');
+    assert.ok(runtime.dataStore.get);
+    assert.ok(runtime.dataStore.keys);
+    assert.ok(runtime.compendium.findOne);
 
-    console.log('  - ModuleContext: shape verified');
+    console.log('  - ModuleRuntime: shape verified');
 }
 
 // ---------------------------------------------------------------------------

@@ -36,7 +36,7 @@ export interface CompendiumPackConfigProviderAdapter {
 }
 
 export interface InitializableAdapter {
-    initialize(context: import('@shared/sdk').ModuleContext): Promise<void>;
+    initialize(runtime: import('@shared/sdk').ModuleRuntime): Promise<void>;
 }
 
 export function hasCompendiumPackConfig(

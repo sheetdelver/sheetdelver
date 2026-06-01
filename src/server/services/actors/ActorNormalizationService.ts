@@ -18,7 +18,7 @@ export function createActorNormalizationService(deps: ActorNormalizationDeps = {
     // built on the unified `CompendiumStore`. Undeclared packs return null
     // through the reader and the adapter leaves the UUID unresolved.
     const getCompendiumPacks = deps.getCompendiumPacks || (async (moduleId: string) => {
-        const { createScopedCompendiumPacks } = await import('@server/shared/utils/createModuleContext');
+        const { createScopedCompendiumPacks } = await import('@server/shared/utils/createModuleRuntime');
         return createScopedCompendiumPacks(moduleId);
     });
 

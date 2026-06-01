@@ -118,6 +118,30 @@ export class PersistentCache {
         }
     }
 
+    public async has(namespace: string, key: string): Promise<boolean> {
+        await this.ensureInitialized();
+        if (isBrowser || !this.baseDir || !fs || !path) return false;
+        return fs.existsSync(path.join(this.baseDir, namespace, `${key}.json`));
+    }
+
+    /** List stored keys under a namespace (extension stripped), optionally filtered by prefix. */
+    public async keys(namespace: string, prefix?: string): Promise<string[]> {
+        await this.ensureInitialized();
+        if (isBrowser || !this.baseDir || !fs || !path) return [];
+        const nsDir = path.join(this.baseDir, namespace);
+        if (!fs.existsSync(nsDir)) return [];
+        try {
+            const entries: string[] = await fs.promises.readdir(nsDir);
+            return entries
+                .filter((name: string) => name.endsWith('.json'))
+                .map((name: string) => name.slice(0, -('.json'.length)))
+                .filter((key: string) => (prefix ? key.startsWith(prefix) : true));
+        } catch (error) {
+            logger.error(`PersistentCache | Failed to list keys for ${namespace}:`, error);
+            return [];
+        }
+    }
+
     public async delete(namespace: string, key: string): Promise<void> {
         return this.remove(namespace, key);
     }

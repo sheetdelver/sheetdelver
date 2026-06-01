@@ -287,7 +287,7 @@ export interface ModuleFoundryClient {
 
     /**
      * Fetch items from the active world (non-compendium).
-     * Use context.platform.compendiumPacks for declared compendium pack data.
+     * Use runtime.compendium for declared compendium pack data.
      * This is for world-owned items that are not in a compendium.
      */
     getWorldItems(options?: { type?: string }): Promise<Record<string, unknown>[]>;

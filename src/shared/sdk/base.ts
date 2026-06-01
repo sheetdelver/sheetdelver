@@ -1,4 +1,4 @@
-import { ModuleContext } from './context';
+import { ModuleRuntime } from './runtime';
 import { ModuleFoundryClient } from './contracts';
 import { resolveImage } from './utils';
 import {
@@ -14,7 +14,7 @@ import {
     FoundryActor,
     FoundryItem,
 } from './interfaces';
-import { CompendiumPackReader } from './context';
+import { CompendiumPackReader } from './runtime';
 
 /**
  * BaseSystemAdapter provides default implementations of the SystemAdapter interface.
@@ -26,11 +26,11 @@ import { CompendiumPackReader } from './context';
 export class BaseSystemAdapter implements SystemAdapter {
     systemId = 'generic';
 
-    protected _context: ModuleContext | null = null;
+    protected _runtime: ModuleRuntime | null = null;
 
     /** Base URL of the connected Foundry server. Available after initialize() is called. */
     protected get foundryUrl(): string {
-        return this._context?.foundryUrl ?? '';
+        return this._runtime?.foundryUrl ?? '';
     }
 
     normalizeActorData(actor: FoundryActor, _client?: ModuleFoundryClient): ActorSheetData {
@@ -51,8 +51,8 @@ export class BaseSystemAdapter implements SystemAdapter {
         return false;
     }
 
-    async initialize(context: ModuleContext): Promise<void> {
-        this._context = context;
+    async initialize(runtime: ModuleRuntime): Promise<void> {
+        this._runtime = runtime;
     }
 
     async getSystemData(_client: ModuleFoundryClient, _options?: { minimal?: boolean }): Promise<unknown> {

@@ -1,6 +1,6 @@
-import { ModuleContext } from './context';
+import { ModuleRuntime } from './runtime';
 import { ModuleFoundryClient } from './contracts';
-import { CompendiumPackReader } from './context';
+import { CompendiumPackReader } from './runtime';
 
 // ---------------------------------------------------------------------------
 // Foundry document primitives
@@ -273,7 +273,7 @@ export interface SystemAdapter {
     match(actor: FoundryActor): boolean;
 
     // --- Optional: core calls if present (all verified by runtime grep) ---
-    initialize?(context: ModuleContext): Promise<void>;
+    initialize?(runtime: ModuleRuntime): Promise<void>;
     getSystemData?(client: ModuleFoundryClient, options?: { minimal?: boolean }): Promise<unknown>;
     getCompendiumPackConfig?(): CompendiumPackConfig;
     getActorCardData?(actor: FoundryActor): ActorCardData;

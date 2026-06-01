@@ -8,22 +8,16 @@ import * as esbuild from 'esbuild';
 import { initDataDir, resolveDataDir, getLocalModulesDataDir } from '../../../server/core/paths';
 import { validateModuleInfoShape, evaluateModuleCompatibility } from '../../../modules/registry/lifecycle/validation';
 import type { SystemModuleInfo } from '../../../modules/registry/core/types';
+import {
+    ENTRIES,
+    BUILD_TARGET,
+    BUILD_LOADER,
+    FORBIDDEN_IMPORT_PREFIXES,
+    SOURCE_EXTENSIONS,
+} from './build-config';
 
-// ---------------------------------------------------------------------------
-// Build configuration mirrors module packaging, but writes to a disposable temp dir.
-// ---------------------------------------------------------------------------
-
-const LOGIC_EXTERNALS = ['@sheet-delver/sdk'];
-const UI_EXTERNALS = ['@sheet-delver/sdk', 'react', 'react-dom', 'react/jsx-runtime'];
-
-const ENTRIES = [
-    { key: 'logic', outName: 'logic.js', externals: LOGIC_EXTERNALS, platform: 'node' as const, jsx: false, required: true },
-    { key: 'ui', outName: 'ui.js', externals: UI_EXTERNALS, platform: 'browser' as const, jsx: true, required: true },
-    { key: 'server', outName: 'server.js', externals: LOGIC_EXTERNALS, platform: 'node' as const, jsx: false, required: false },
-];
-
-const FORBIDDEN_IMPORT_PREFIXES = ['@shared/', '@client/', '@server/', '@core/', '@modules/', '@/'];
-const SOURCE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs']);
+// Build configuration is shared with package-module.ts via ./build-config so
+// validation and packaging can never drift (ADR-0027 decision 29).
 
 const IMPORT_MIGRATION_HINTS: Array<{ test: RegExp; hint: string }> = [
     {
@@ -56,11 +50,11 @@ const IMPORT_MIGRATION_HINTS: Array<{ test: RegExp; hint: string }> = [
     },
     {
         test: /^@server\//,
-        hint: 'Server internals are not module API. Use ModuleServerRequest, req.foundryClient, or ModuleContext from @sheet-delver/sdk.',
+        hint: 'Server internals are not module API. Use ModuleServerRequest or ModuleRuntime services from @sheet-delver/sdk.',
     },
     {
         test: /^@core\//,
-        hint: 'Core internals are not module API. Use ModuleContext platform services or req.foundryClient from @sheet-delver/sdk.',
+        hint: 'Core internals are not module API. Use ModuleRuntime services (documents, dataStore, compendium) from @sheet-delver/sdk.',
     },
     {
         test: /^@client\//,
@@ -287,11 +281,11 @@ async function dryBundle(ctx: CheckContext): Promise<void> {
                     bundle: true,
                     format: 'esm',
                     outfile: path.join(stagingDir, entry.outName),
-                    external: entry.externals,
+                    external: [...entry.externals],
                     platform: entry.platform,
-                    target: 'es2022',
+                    target: BUILD_TARGET,
                     jsx: entry.jsx ? 'automatic' : undefined,
-                    loader: { '.json': 'json' },
+                    loader: BUILD_LOADER,
                     logLevel: 'silent',
                     write: true,
                 });

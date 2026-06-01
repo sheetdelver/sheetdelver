@@ -4,7 +4,7 @@ import {
     WorldBootstrapper,
 } from '@server/services/world';
 import type { SystemAdapter } from '@modules/registry/types';
-import type { ModuleContext } from '@shared/sdk';
+import type { ModuleRuntime } from '@shared/sdk';
 import { logger } from '@shared/utils/logger';
 
 function adapter(id: string): SystemAdapter {
@@ -169,9 +169,9 @@ async function runBootstrapOrderingAndReadyCallback() {
         seedDocuments: async () => {
             order.push('seed');
         },
-        createModuleContext: async (systemId) => {
+        createModuleRuntime: async (systemId) => {
             order.push(`context:${systemId}`);
-            return {} as ModuleContext;
+            return {} as ModuleRuntime;
         },
         markLifecycleActive,
     });

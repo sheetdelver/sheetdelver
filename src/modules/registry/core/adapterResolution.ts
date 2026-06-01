@@ -101,12 +101,12 @@ export async function getAdapter(systemId: string): Promise<SystemAdapter | null
 
         const adapter = new AdapterClass();
 
-        // Optional initialization hook: inject ModuleContext so adapters have
-        // a namespaced logger, scoped cache, and declared compendium pack reader.
+        // Optional initialization hook: inject ModuleRuntime so adapters have
+        // a namespaced logger, scoped data store, and declared compendium pack reader.
         if (hasInitialize(adapter)) {
-            const { createModuleContext } = await import('@server/shared/utils/createModuleContext');
-            const context = await createModuleContext(pluginId);
-            await adapter.initialize(context);
+            const { createModuleRuntime } = await import('@server/shared/utils/createModuleRuntime');
+            const runtime = await createModuleRuntime(pluginId);
+            await adapter.initialize(runtime);
         }
 
         adapterInstances.set(id, adapter);

@@ -51,14 +51,14 @@ export type {
 } from './contracts';
 
 // ---------------------------------------------------------------------------
-// Module context — injected into adapter initialize()
+// Module runtime — injected into adapter initialize() (and module route factories)
 // ---------------------------------------------------------------------------
 
 export type {
-    ModuleContext,
-    PersistentCache,
+    ModuleRuntime,
+    DataStore,
     CompendiumPackReader,
-} from './context';
+} from './runtime';
 
 export type { ModuleLogger } from './logging';
 

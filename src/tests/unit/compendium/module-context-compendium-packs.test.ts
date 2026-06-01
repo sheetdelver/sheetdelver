@@ -1,7 +1,7 @@
 import { strict as assert } from 'node:assert';
 import { CompendiumStore } from '@server/core/compendium/CompendiumStore';
 import type { CompendiumPackCache } from '@server/core/compendium/types';
-import { createScopedCompendiumPacks, type CompendiumPackScope } from '@server/shared/utils/createModuleContext';
+import { createScopedCompendiumPacks, type CompendiumPackScope } from '@server/shared/utils/createModuleRuntime';
 
 class MemoryPackCache implements CompendiumPackCache {
     private readonly values = new Map<string, unknown>();

@@ -5,19 +5,11 @@ import crypto from 'node:crypto';
 import * as tar from 'tar';
 import * as esbuild from 'esbuild';
 import { resolveDataDir, initDataDir, getModulesDataDir, getDistModulesDir, getLocalModulesDataDir } from '../../../server/core/paths';
+import { ENTRIES, BUILD_TARGET, BUILD_LOADER } from './build-config';
 
-// ---------------------------------------------------------------------------
-// Build configuration
-// ---------------------------------------------------------------------------
-
-const LOGIC_EXTERNALS = ['@sheet-delver/sdk'];
-const UI_EXTERNALS    = ['@sheet-delver/sdk', 'react', 'react-dom', 'react/jsx-runtime'];
-
-const ENTRIES = [
-    { key: 'logic',  outName: 'logic.js',  externals: LOGIC_EXTERNALS, platform: 'node'    as const, jsx: false },
-    { key: 'ui',     outName: 'ui.js',     externals: UI_EXTERNALS,    platform: 'browser' as const, jsx: true  },
-    { key: 'server', outName: 'server.js', externals: LOGIC_EXTERNALS, platform: 'node'    as const, jsx: false },
-];
+// Build configuration (ENTRIES, externals, target, loaders) is shared with
+// check-module.ts via ./build-config so packaging and validation never drift
+// (ADR-0027 decision 29).
 
 // Optional files copied from the module root into the archive if they exist
 const OPTIONAL_FILES = ['LICENSE', 'README.md'];
@@ -54,19 +46,19 @@ function copyDirRecursive(src: string, dest: string): void {
 async function compile(
     entryFile: string,
     outFile: string,
-    options: { externals: string[]; platform: 'node' | 'browser'; jsx: boolean; sourcemap: boolean }
+    options: { externals: readonly string[]; platform: 'node' | 'browser'; jsx: boolean; sourcemap: boolean }
 ): Promise<void> {
     await esbuild.build({
         entryPoints: [entryFile],
         bundle: true,
         format: 'esm',
         outfile: outFile,
-        external: options.externals,
+        external: [...options.externals],
         platform: options.platform,
-        target: 'es2022',
+        target: BUILD_TARGET,
         jsx: options.jsx ? 'automatic' : undefined,
         sourcemap: options.sourcemap ? 'linked' : false,
-        loader: { '.json': 'json' },
+        loader: BUILD_LOADER,
         logLevel: 'warning',
     });
 }

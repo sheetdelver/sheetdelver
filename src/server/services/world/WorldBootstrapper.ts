@@ -18,7 +18,7 @@ import {
     type CompendiumTransport,
 } from '@server/services/compendium';
 import { logger } from '@shared/utils/logger';
-import type { CompendiumPackConfig, ModuleContext } from '@shared/sdk';
+import type { CompendiumPackConfig, ModuleRuntime } from '@shared/sdk';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
 import type { UserDocument } from '@server/shared/types/users';
 import {
@@ -43,7 +43,7 @@ export interface WorldBootstrapperDeps {
         compendiumService: CompendiumService,
     ) => Promise<void>;
     seedDocuments?: (transport: WorldBootstrapTransport) => Promise<void>;
-    createModuleContext?: (systemId: string) => Promise<ModuleContext>;
+    createModuleRuntime?: (systemId: string) => Promise<ModuleRuntime>;
     markLifecycleActive?: (systemId?: string) => void;
     markLifecycleClosed?: (reason: string) => void;
     evaluateCompatibility?: typeof evaluateFoundryVersionCompatibility;
@@ -93,7 +93,7 @@ export class WorldBootstrapper {
         compendiumService: CompendiumService,
     ) => Promise<void>;
     private readonly seedDocuments: (transport: WorldBootstrapTransport) => Promise<void>;
-    private readonly createModuleContext: (systemId: string) => Promise<ModuleContext>;
+    private readonly createModuleRuntime: (systemId: string) => Promise<ModuleRuntime>;
     private readonly markLifecycleActive: (systemId?: string) => void;
     private readonly markLifecycleClosed: (reason: string) => void;
     private readonly evaluateCompatibility: typeof evaluateFoundryVersionCompatibility;
@@ -151,9 +151,9 @@ export class WorldBootstrapper {
             await compendiumService.hydratePacks(systemId, config);
         });
         this.seedDocuments = deps.seedDocuments ?? ((transport) => primaryDocumentCacheCoordinator.seedAll(transport as CoreSocket));
-        this.createModuleContext = deps.createModuleContext ?? (async (systemId) => {
-            const { createModuleContext } = await import('@server/shared/utils/createModuleContext');
-            return createModuleContext(systemId);
+        this.createModuleRuntime = deps.createModuleRuntime ?? (async (systemId) => {
+            const { createModuleRuntime } = await import('@server/shared/utils/createModuleRuntime');
+            return createModuleRuntime(systemId);
         });
         this.markLifecycleActive = deps.markLifecycleActive ?? ((systemId) => {
             worldLifecycleStore.setState('active', systemId ? `world-bootstrap-ready:${systemId}` : 'world-bootstrap-ready');
@@ -255,8 +255,8 @@ export class WorldBootstrapper {
 
                 if (hasInitialize(adapter)) {
                     logger.info(`WorldBootstrapper | Initializing adapter for ${sysInfo.id}...`);
-                    const context = await this.createModuleContext(sysId);
-                    await adapter.initialize(context);
+                    const runtime = await this.createModuleRuntime(sysId);
+                    await adapter.initialize(runtime);
                 }
 
                 this.ready = true;

@@ -2,13 +2,19 @@ import { logger } from '@shared/utils/logger';
 import { getConfig } from '@core/config';
 import { compendiumStore, type CompendiumStore } from '@server/core/compendium/CompendiumStore';
 import type {
-    ModuleContext,
+    ModuleRuntime,
     ModuleLogger,
-    PersistentCache,
+    DataStore,
     CompendiumPackReader,
     CompendiumPackConfig,
     CompendiumPackDeclaration,
 } from '@shared/sdk';
+
+/**
+ * Sub-namespace under the module's cache dir for DataStore-owned data, kept separate
+ * from compendium backing so `keys()` never returns pack shards (ADR-0027).
+ */
+const DATASTORE_NS = 'datastore';
 
 export interface CompendiumPackScope {
     systemId: string;
@@ -35,22 +41,27 @@ function createModuleLogger(moduleId: string): ModuleLogger {
 }
 
 /**
- * Creates a namespace-scoped PersistentCache for a module.
- * The module's id is used as the namespace so modules cannot read each other's data.
+ * Creates the module-scoped DataStore, backed by PersistentCache under
+ * `<moduleId>/datastore/` so module-owned data cannot collide with compendium backing
+ * and `keys()` only sees module data. The module id namespaces it so modules cannot
+ * read each other's data.
  */
-async function createScopedCache(moduleId: string): Promise<PersistentCache> {
+async function createScopedDataStore(moduleId: string): Promise<DataStore> {
     const { PersistentCache } = await import('@core/cache/PersistentCache');
     const cache = PersistentCache.getInstance();
+    const ns = `${moduleId}/${DATASTORE_NS}`;
     return {
-        get: <T>(key: string) => cache.get<T>(moduleId, key),
-        set: <T>(key: string, value: T) => cache.set<T>(moduleId, key, value),
-        delete: (key: string) => cache.delete(moduleId, key),
+        get: <T>(key: string) => cache.get<T>(ns, key),
+        set: <T>(key: string, value: T) => cache.set<T>(ns, key, value),
+        delete: (key: string) => cache.delete(ns, key),
+        has: (key: string) => cache.has(ns, key),
+        keys: (prefix?: string) => cache.keys(ns, prefix),
     };
 }
 
 /**
  * Resolve the module-declared pack scope that is allowed to back
- * `context.platform.compendiumPacks`. No scope means pack reads fail closed.
+ * `runtime.compendium`. No scope means pack reads fail closed.
  */
 async function resolveCompendiumPackScope(moduleId: string): Promise<CompendiumPackScope | null> {
     const { getModuleCompendiumPackConfig } = await import('@modules/registry/server');
@@ -120,12 +131,12 @@ export async function createScopedCompendiumPacks(
 }
 
 /**
- * Builds a ModuleContext for a given module id.
+ * Builds a ModuleRuntime for a given module id.
  * Called by the registry when initializing an adapter.
  */
-export async function createModuleContext(moduleId: string): Promise<ModuleContext> {
-    const [scopedCache, scopedCompendiumPacks] = await Promise.all([
-        createScopedCache(moduleId),
+export async function createModuleRuntime(moduleId: string): Promise<ModuleRuntime> {
+    const [dataStore, compendium] = await Promise.all([
+        createScopedDataStore(moduleId),
         createScopedCompendiumPacks(moduleId),
     ]);
 
@@ -140,9 +151,7 @@ export async function createModuleContext(moduleId: string): Promise<ModuleConte
         moduleId,
         logger: createModuleLogger(moduleId),
         foundryUrl,
-        platform: {
-            cache: scopedCache,
-            compendiumPacks: scopedCompendiumPacks,
-        },
+        dataStore,
+        compendium,
     };
 }

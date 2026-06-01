@@ -17,7 +17,7 @@ export function getModuleCompendiumPackConfig(moduleId: string): CompendiumPackC
 
     // If the adapter is already instantiated, expose its pack config hook without
     // creating it here. That avoids recursive adapter initialization while still
-    // letting ModuleContext use hook-declared packs after SystemService has
+    // letting ModuleRuntime use hook-declared packs after SystemService has
     // loaded the adapter.
     const adapter = adapterInstances.get(id);
     if (hasCompendiumPackConfig(adapter)) return adapter.getCompendiumPackConfig();
