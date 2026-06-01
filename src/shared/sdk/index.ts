@@ -71,8 +71,16 @@ export type {
     ModuleServerParams,
     ModuleServerResponse,
     ModuleRouteHandler,
+    ModuleRouteTable,
     ModuleServerExport,
+    ModuleAccessContext,
 } from './server';
+
+export { json, error } from './server';
+
+// Structured error taxonomy
+export { SdkError, isSdkError, SDK_ERROR_STATUS } from './errors';
+export type { SdkErrorCode } from './errors';
 
 // ---------------------------------------------------------------------------
 // UI component contracts — prop interfaces for platform-provided components

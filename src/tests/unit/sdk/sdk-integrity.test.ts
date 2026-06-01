@@ -20,6 +20,8 @@ import {
     type UseFoundry,
     type UseUI,
     type UseNotifications,
+    json,
+    error,
     SDK_VERSION,
     API_CONTRACT_VERSIONS,
 } from '../../../shared/sdk/index';
@@ -121,12 +123,15 @@ async function runInterfaceTests() {
 // ---------------------------------------------------------------------------
 
 async function runServerRequestTests() {
-    // Verify the shape is what a handler would receive
+    // Verify the request shape a handler receives. `foundryClient` is transitional
+    // (removed with the dispatch rewrite); `getAccessContext` is the new access surface.
     const mockRequest: ModuleServerRequest = {
         json: async <T>() => ({} as T),
         method: 'POST',
         url: '/api/modules/mock/test',
         headers: { 'content-type': 'application/json' },
+        userSession: { userId: 'u1', username: 'Tester', isGM: false, role: 1 },
+        getAccessContext: () => ({ userId: 'u1', role: 1, isGM: false, moduleId: 'mock' }),
         foundryClient: {
             isConnected: true,
             roll: async () => ({ id: '1', content: '', timestamp: 0, user: '' }),
@@ -152,11 +157,11 @@ async function runServerRequestTests() {
             resolveUrl: (p) => p,
             getSystemId: async () => 'mock',
         },
-        userSession: { userId: 'u1', username: 'Tester', isGM: false, role: 1 },
     };
 
     assert.equal(mockRequest.method, 'POST');
-    assert.ok(mockRequest.foundryClient.isConnected);
+    assert.equal(mockRequest.getAccessContext?.().userId, 'u1');
+    assert.equal(mockRequest.getAccessContext?.().moduleId, 'mock');
     assert.equal(mockRequest.userSession?.isGM, false);
 
     const params: ModuleServerParams = {
@@ -166,7 +171,15 @@ async function runServerRequestTests() {
     assert.equal(resolved.systemId, 'mock');
     assert.deepEqual(resolved.route, ['test']);
 
-    console.log('  - ModuleServerRequest/Params: shape verified');
+    // Response helpers (ADR-0027 decision 24)
+    const ok = json({ ok: true }, { status: 201 });
+    assert.equal(ok.status, 201);
+    assert.deepEqual(await ok.json(), { ok: true });
+    const err = error('out_of_scope', 'nope');
+    assert.equal(err.status, 403);
+    assert.equal((await err.json() as { code: string }).code, 'out_of_scope');
+
+    console.log('  - ModuleServerRequest/Params + json/error: shape verified');
 }
 
 // ---------------------------------------------------------------------------
