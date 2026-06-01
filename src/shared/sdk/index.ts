@@ -56,8 +56,18 @@ export type {
 
 export type {
     ModuleRuntime,
+    ModuleRequestRuntime,
     DataStore,
     CompendiumPackReader,
+    ReadonlyDocumentStore,
+    DocumentStore,
+    DocumentQuery,
+    DocumentListResult,
+    DocumentOpOptions,
+    ModuleOwnershipLevel,
+    RollResult,
+    RollRuntime,
+    TableRuntime,
 } from './runtime';
 
 export type { ModuleLogger } from './logging';

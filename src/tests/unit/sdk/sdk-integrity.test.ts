@@ -99,6 +99,11 @@ async function runAdapterTests() {
             findAll: async () => [],
             getById: async () => null,
         },
+        documents: {
+            get: async () => null,
+            list: async () => ({ rows: [], total: 0 }),
+            fetchByUuid: async () => null,
+        },
     };
     await adapter.initialize!(mockRuntime);
     assert.equal((adapter as any)._runtime, mockRuntime);
@@ -231,6 +236,11 @@ async function runContextTests() {
         logger,
         dataStore,
         compendium,
+        documents: {
+            get: async () => null,
+            list: async () => ({ rows: [], total: 0 }),
+            fetchByUuid: async () => null,
+        },
     };
 
     assert.equal(runtime.moduleId, 'test-module');

@@ -1,4 +1,96 @@
 import { ModuleLogger } from './logging';
+import type { DrawResult } from './utils';
+
+/** Foundry-style ownership ladder used for read visibility and write thresholds. */
+export type ModuleOwnershipLevel = 'limited' | 'observer' | 'owner';
+
+/**
+ * Per-operation authorization context (ADR-0027 decision 9). On `req.runtime`,
+ * document ops default their acting identity to the calling user (`req.userSession`);
+ * passing `{ access }` overrides it for the non-norm case (e.g. system context).
+ */
+export interface ModuleAccessContext {
+    userId: string;
+    role: number;
+    isGM: boolean;
+    moduleId: string;
+    trustTier?: 'first-party' | 'verified-third-party' | 'unverified';
+    permissions?: {
+        network?: boolean;
+        adminRoutes?: boolean;
+        sensitiveData?: string[];
+    };
+}
+
+/** Optional per-op access override + ownership threshold. Default acting subject = caller. */
+export interface DocumentOpOptions {
+    access?: ModuleAccessContext;
+    minOwnership?: ModuleOwnershipLevel;
+}
+
+/** Query shape for `documents.list` (ADR-0027 decision 3). */
+export interface DocumentQuery {
+    filter?: Record<string, unknown>;
+    sort?: string | { field: string; dir?: 'asc' | 'desc' };
+    page?: number;
+    pageSize?: number;
+    limit?: number;
+}
+
+export interface DocumentListResult {
+    rows: Record<string, unknown>[];
+    total: number;
+    page?: number;
+}
+
+/** Structured server-side roll result (counterpart to the client-side `simulateRoll`). */
+export interface RollResult {
+    formula: string;
+    total: number;
+    terms?: unknown[];
+    dice?: number[];
+    [key: string]: unknown;
+}
+
+/**
+ * Read surface over the platform's primary document stores, type-keyed. This is the
+ * adapter's *entire* document surface (read-only — decision 14) and the read half of a
+ * route's `req.runtime.documents`.
+ */
+export interface ReadonlyDocumentStore {
+    list(type: string, query?: DocumentQuery, opts?: DocumentOpOptions): Promise<DocumentListResult>;
+    get(type: string, id: string, opts?: DocumentOpOptions): Promise<Record<string, unknown> | null>;
+    fetchByUuid(uuid: string, opts?: DocumentOpOptions): Promise<Record<string, unknown> | null>;
+}
+
+/**
+ * Full document surface — only on a route's `req.runtime` (decision 5/6). Writes default
+ * to the calling user and fail closed when ownership/permission is insufficient.
+ */
+export interface DocumentStore extends ReadonlyDocumentStore {
+    create(type: string, data: Record<string, unknown>, opts?: DocumentOpOptions): Promise<Record<string, unknown>>;
+    patch(type: string, id: string, updates: Record<string, unknown>, opts?: DocumentOpOptions): Promise<Record<string, unknown>>;
+    upsert(type: string, data: Record<string, unknown>, opts?: DocumentOpOptions): Promise<Record<string, unknown>>;
+    delete(type: string, id: string, opts?: DocumentOpOptions): Promise<void>;
+    /** Batched CRUD in one round-trip; each op is access-checked before dispatch. */
+    commit(type: string, ops: Array<Record<string, unknown>>, opts?: DocumentOpOptions): Promise<Record<string, unknown>[]>;
+    /** Embedded sub-document (ActiveEffect) mutations on an actor/item parent. */
+    effects: {
+        create(parent: { type: string; id: string }, data: Record<string, unknown>, opts?: DocumentOpOptions): Promise<Record<string, unknown>>;
+        update(parent: { type: string; id: string }, effectId: string, updates: Record<string, unknown>, opts?: DocumentOpOptions): Promise<Record<string, unknown>>;
+        delete(parent: { type: string; id: string }, effectId: string, opts?: DocumentOpOptions): Promise<void>;
+    };
+}
+
+/** Dice evaluation primitive (structured result; no forced chat). */
+export interface RollRuntime {
+    roll(formula: string, label?: string, options?: { displayChat?: boolean; [key: string]: unknown }): Promise<RollResult>;
+}
+
+/** RollTable draw primitive (roll + match). */
+export interface TableRuntime {
+    draw(uuid: string, options?: { rollOverride?: number }): Promise<DrawResult>;
+}
 
 /**
  * DataStore is the module-scoped, durable backend persistence surface (ADR-0027).
@@ -58,4 +150,20 @@ export interface ModuleRuntime {
     dataStore: DataStore;
     /** Read surface for the module's declared compendium packs (fail-closed). */
     compendium: CompendiumPackReader;
+    /** Read-only document access (get/list/fetchByUuid). Writes are route-only (see ModuleRequestRuntime). */
+    documents: ReadonlyDocumentStore;
+}
+
+/**
+ * ModuleRequestRuntime is the per-request handle a route handler receives as `req.runtime`
+ * (ADR-0027 decision 5). It extends the read-only base with user-bound write services;
+ * document ops default their acting identity to the calling user (`req.userSession`).
+ */
+export interface ModuleRequestRuntime extends ModuleRuntime {
+    /** Full read + write document surface (CRUD + commit + effects), user-bound. */
+    documents: DocumentStore;
+    /** Dice evaluation primitive. */
+    rolls: RollRuntime;
+    /** RollTable draw primitive. */
+    tables: TableRuntime;
 }

@@ -18,7 +18,7 @@ Concrete evidence in the current tree:
 - The only compliant local module, `data/local/modules/dnd5e`, passes `module:check` but does so by **re-implementing host behavior**. `data/local/modules/dnd5e/src/ui/ActorPage.tsx` hand-rewrites `src/client/ui/pages/GenericActorPage.tsx` (fetch, roll, update, refresh, realtime), and in doing so dropped behavior the core page has — its `handleRoll` omits the `rollMode`/`speaker` defaulting and it lacks item create/delete and shared-content handling. Hand-rolled pages drift from platform behavior.
 - The other local modules import private internals because the public SDK does not expose enough. `module:check shadowdark` and `module:check morkborg` fail on import-boundary violations into `@client/*`, `@server/*`, `@modules/*`, and `@shared/*`.
 - Server module routes receive a broad `ModuleFoundryClient` (`src/server/services/modules/ModuleProxyService.ts`, `src/server/shared/utils/createModuleFoundryClient.ts`). Modules also call methods that are not even in the SDK contract — `getActorRaw`, `dispatchDocument`, `dispatchDocumentSocket` — reaching onto the internal route client.
-- The server-side module injection (`ModuleContext`, from `src/server/shared/utils/createModuleContext.ts`) is only handed to `adapter.initialize()`. Route handlers had no path to module-scoped persistence, and reached compendium reads a second way. There is no durable backend write surface beyond the raw `PersistentCache`.
+- The server-side module injection has started moving from `ModuleContext` to `ModuleRuntime` (`src/server/shared/utils/createModuleRuntime.ts`, `src/shared/sdk/runtime.ts`) and now carries `DataStore` + `compendium`, but it is still only handed to `adapter.initialize()`. Route handlers still lack the user-bound `req.runtime` surface for document/roll/table operations, and the old route contract still exposes `foundryClient`.
 - `SystemAdapter` still threads a `ModuleFoundryClient` through projection hooks (`normalizeActorData`, `getSystemData`, `performAutomatedSequence`) even though most do not use it.
 - There is no host-owned React error boundary anywhere in `src/client`; `src/app/(player)/actors/[id]/page.tsx` catches resolve/fetch errors only, not render throws, and `data/local/modules/shadowdark/src/ui/components/ErrorBoundary.tsx` exists to compensate.
 - Realtime exposed to modules is actor-only (`onActorChanged`), although `src/shared/contracts/realtime.ts`-style payloads already exist for items, combat, roll-tables, macros, playlists, and cards.
@@ -46,79 +46,92 @@ ADR-0027 standardizes the module SDK across server, client, cross-cutting contra
 
 3. **Rename `ModuleContext` → `ModuleRuntime`.** The long-lived, module-scoped server injection passed to `adapter.initialize()` is renamed to disambiguate it from the client React context (`SDKContext`/`SDKContextValue`) and the per-call access context (`ModuleAccessContext`, decision 9).
 
-4. **Flatten the `platform` wrapper.** Today `ModuleContext` nests `cache` and `compendiumPacks` under `platform` while leaving `logger` (also host-provided) flat — an inconsistent, half-applied grouping. `ModuleRuntime` flattens all surfaces onto the runtime, matching the rest of the SDK (`SDKContextValue`, server singletons, `ModuleAccessContext` are flat). If the capability set ever grows large, a single `capabilities` namespace may be introduced — grouping **all** services including `logger`, never half-applied.
+4. **Flatten the `platform` wrapper.** The old `ModuleContext` nested `cache` and `compendiumPacks` under `platform` while leaving `logger` (also host-provided) flat — an inconsistent, half-applied grouping. `ModuleRuntime` flattens all surfaces onto the runtime, matching the rest of the SDK (`SDKContextValue`, server singletons, `ModuleAccessContext` are flat). If the capability set ever grows large, a single `capabilities` namespace may be introduced — grouping **all** services including `logger`, never half-applied.
 
-5. **`ModuleRuntime` is the single server capability handle.** It is built by the platform from mounted singletons and carries:
+5. **Singleton services; `ModuleRuntime` is the per-request handle over them.** The platform mounts the document/roll/table services + stores **once** at server start. What a module receives is a thin `ModuleRuntime` handle that forwards to those singletons — the services are never re-instantiated per request and module code never calls `getInstance()` (internal wiring). The runtime comes in **two flavors**:
 
    ```ts
+   // Read-only base — passed to adapter.initialize(runtime). Module-scoped, memoizable.
    interface ModuleRuntime {
      moduleId: string;
-     foundryUrl?: string;
+     foundryUrl: string;
      logger: ModuleLogger;
-     // module-scoped:
-     dataStore: DataStore;             // decision 12
-     compendium: CompendiumPackReader; // decision 11
-     // shared document services (platform wires the mounted singletons in; per-call { access }):
-     documents: PrimaryDocumentStore;  // decision 6
-     rolls: { roll(formula: string, label?: string, options?: RollOptions): Promise<RollResult> };
-     tables: { draw(uuid: string, options?: { rollOverride?: number }): Promise<DrawResult> };
+     dataStore: DataStore;                 // decision 12 (module's own sandbox)
+     compendium: CompendiumPackReader;     // decision 11 (read)
+     documents: ReadonlyDocumentStore;     // decision 6 — get/list/fetchByUuid ONLY (no CRUD)
+   }
+
+   // Request runtime — `req.runtime` on a route handler. Base + user-bound writes + primitives.
+   interface ModuleRequestRuntime extends ModuleRuntime {
+     documents: DocumentStore;             // read + create/patch/upsert/delete/commit/effects
+     rolls: { roll(formula, label?, options?): Promise<RollResult> };
+     tables: { draw(uuid, options?): Promise<DrawResult> };
    }
    ```
 
-   The platform instantiates the services once when the server mounts (backed by `src/server/services/*` and the stores in `src/server/core/documents/primary/*`) and wires them into `ModuleRuntime`. **Module and adapter code never import or call `getInstance()`** — that is internal wiring. The *same* `ModuleRuntime` is passed to both `adapter.initialize(runtime)` and `createApiRoutes(runtime)`, so adapter and routes share one handle.
+   Why per-request: writes go through the **acting user's** Foundry socket (`FoundryUserConnectionService` holds one `ClientSocket` per session), so a document op must act as a specific user. The runtime handle is per-request and **defaults its acting identity to `req.userSession`** (decision 9); the heavy services beneath are singletons, so per-request cost is just binding the default subject + a few closures (the base runtime is memoized per module). **Core resolves the user's transport from identity internally — the socket never crosses the SDK boundary.** This deliberately rejects (a) a per-request *factory* (`createApiRoutes(runtime)` per call — overcomplication) and (b) `AsyncLocalStorage`/ambient context — ambient would be a foreign pattern in a system that elsewhere reasons about visibility by **explicit subject** (`createAccessSubject`, ownership levels), and making it consistent would force a system-wide retrofit. The runtime-on-request keeps the platform's explicit-subject model intact.
 
 6. **Generic, type-keyed document store.** The document surface is the shared `PrimaryDocumentStore` contract (already the base of every primary store: `get` / `list` / `patch` / `upsert` / `delete` / `seed` in `src/server/core/documents/primary/base/`), exposed as `runtime.documents`:
 
    ```ts
-   interface PrimaryDocumentStore {
-     list(type, query?, opts): Promise<{ rows, total, page }>;  // query: filter/sort/page/pageSize/limit
-     get(type, id, opts): Promise<FoundryDocument | null>;
-     create(type, data, opts): Promise<FoundryDocument>;
-     patch(type, id, updates, opts): Promise<FoundryDocument>;
-     upsert(type, data, opts): Promise<FoundryDocument>;
-     delete(type, id, opts): Promise<void>;
-     commit(type, ops[], opts): Promise<...>;        // batched CRUD, one round-trip
-     fetchByUuid(uuid, opts): Promise<FoundryDocument | null>;
+   // Reads — also the adapter's entire document surface (read-only, decision 14).
+   interface ReadonlyDocumentStore {
+     list(type, query?, opts?): Promise<{ rows, total, page }>;  // query: filter/sort/page/pageSize/limit
+     get(type, id, opts?): Promise<FoundryDocument | null>;
+     fetchByUuid(uuid, opts?): Promise<FoundryDocument | null>;
+   }
+   // Writes — only on the per-request `req.runtime` (decision 5), never the adapter.
+   interface DocumentStore extends ReadonlyDocumentStore {
+     create(type, data, opts?): Promise<FoundryDocument>;
+     patch(type, id, updates, opts?): Promise<FoundryDocument>;
+     upsert(type, data, opts?): Promise<FoundryDocument>;
+     delete(type, id, opts?): Promise<void>;
+     commit(type, ops[], opts?): Promise<...>;       // batched CRUD, one round-trip
      effects: { create, update, delete };            // embedded sub-docs on actor/item
    }
+   // On req.runtime, opts carries the optional access override (decision 9);
+   // default is the calling user. Base-runtime reads are platform/system scoped
+   // and fail closed when a user-scoped access decision is required.
    ```
 
    `Actor` is **not** a special surface; it was migrated into the primary stores alongside `Item`, `JournalEntry`, `Combat`, `RollTable`, `Macro`, etc. precisely so one uniform pattern serves all. Adding a store to the public surface is an allowlist decision, not new per-type API. Implemented (exposed) types: `Actor`, `Item`, `JournalEntry`, `Combat`, `RollTable`, `Macro`, `Playlist`, `Cards`, `Folder`, `User`, `ChatMessage`. Stub stores stay internal: `Scene`, `Adventure`, `Setting`, `FogExploration`. The reach-ins `getActorRaw` / `dispatchDocument` / `dispatchDocumentSocket` are eliminated and collapse into `documents.*` + `fetchByUuid`.
 
-7. **Irreducible non-CRUD primitives only; richer behavior is module-authored.** Beyond the document store, the runtime exposes `rolls.roll` (dice evaluation, structured result, no forced chat), `tables.draw` (roll + match), and `compendium` (decision 11). `chat.send` is `documents.create('ChatMessage', …)`. Anything richer — attack sequences, level-up, combat turn control, formatted chat cards — is composed by the module author in their own routes over these primitives. The platform does not pre-bake an action for every system mechanic. `performAutomatedSequence`-style logic relocates here (decision 15).
+7. **Irreducible non-CRUD primitives only; richer behavior is module-authored.** Beyond the document store, the request runtime exposes `rolls.roll` (dice evaluation, structured result, no forced chat) and `tables.draw` (roll + match); `compendium` is available on both the base runtime and `req.runtime` (decision 11). `chat.send` is `documents.create('ChatMessage', …)`. Anything richer — attack sequences, level-up, combat turn control, formatted chat cards — is composed by the module author in their own routes over these primitives. The platform does not pre-bake an action for every system mechanic. `performAutomatedSequence`-style logic relocates here (decision 15).
 
-8. **Thin request + `createApiRoutes(runtime)` factory.** The request carries only identity and body; no services are injected on it.
+8. **Static `apiRoutes`; the runtime arrives on the request (`req.runtime`).** No per-request factory. A module exports a static handler table once; the platform attaches the per-request runtime to the request before invoking the handler.
 
    ```ts
    interface ModuleServerRequest {
      method: string; url: string; headers: Headers;
-     userSession?: ModuleUserSession;
-     getAccessContext(): ModuleAccessContext;   // user id, role, module id, trust/permission grants
      json<T = unknown>(): Promise<T>;
-     logger: ModuleLogger;
+     userSession?: ModuleUserSession;          // identity
+     runtime: ModuleRequestRuntime;            // per-request handle, defaulted to userSession
+     getAccessContext(): ModuleAccessContext;  // read the caller's access / build an override
    }
 
    // Module code imports only types + stateless helpers — never service singletons.
-   import { json, error, type ModuleRuntime, type ModuleRouteTable } from '@sheet-delver/sdk/server';
-   export function createApiRoutes(runtime: ModuleRuntime): ModuleRouteTable {
-     return {
-       'attack': async (req) => {
-         const access = req.getAccessContext();
-         const actor  = await runtime.documents.get('Actor', actorId, { access, minOwnership: 'observer' });
-         return json({ ok: true });
-       },
-     };
-   }
+   import { json, error, type ModuleRouteTable } from '@sheet-delver/sdk/server';
+   export const apiRoutes: ModuleRouteTable = {
+     'attack': async (req) => {
+       // defaults to the calling user (req.userSession):
+       const actor = await req.runtime.documents.get('Actor', actorId);
+       await req.runtime.documents.patch('Actor', actorId, updates);
+       return json({ ok: true });
+       // non-norm override: req.runtime.documents.patch('Actor', id, updates, { access });
+     },
+   };
    ```
 
-   `createApiRoutes(runtime)` is the preferred server export; a static `apiRoutes` table remains valid only for route tables that need no runtime services. Route keys stay path-only (`attack`, `actors/[id]`); method dispatch is via `req.method` unless the router is deliberately given method-aware keys.
+   Dispatch flow in `ModuleProxyService`, per request: `userSession` (already resolved by auth middleware) → `req.runtime = base(moduleId) + user-bound { documents, rolls, tables }` → invoke `handler(req, params)`. `base(moduleId)` is memoized per module. Route keys stay path-only (`attack`, `actors/[id]`); method dispatch is via `req.method` unless the router is deliberately given method-aware keys. There is no `foundryClient` on the request.
 
 ### C. Access, permission, and fail-closed semantics
 
-9. **Explicit per-operation access context.** Document reads and writes take an explicit `{ access, minOwnership }` derived from the request via `req.getAccessContext()`. This makes authorization visible at the call site rather than ambient. Ownership thresholds use the Foundry-style ladder (`limited` / `observer` / `owner`).
+9. **Default to the calling user; explicit `{ access }` only for the non-norm case.** Document ops on `req.runtime` default their acting identity to `req.userSession` — so `req.runtime.documents.patch('Actor', id, updates)` acts as the caller with **no ceremony**. A module passes `{ access }` (and optional `minOwnership`) **only** to act as a different subject (e.g. system context) — the deliberate, visible escape hatch. Ownership thresholds use the Foundry-style ladder (`limited` / `observer` / `owner`); `getAccessContext()` reads the caller's access or builds an override.
+
+   This is **explicit-with-default**, not ambient. `AsyncLocalStorage`/ambient was considered and rejected: the platform reasons about visibility by **explicit subject** everywhere else (`createAccessSubject`, ownership maps, `DOCUMENT_VISIBILITY`), so ambient would be either an inconsistent island or a system-wide retrofit. The default-from-`userSession` keeps call sites clean for the common case while staying within the explicit-subject model; the acting subject is always a real subject, never hidden context.
 
 10. **Enforcement at the service/store boundary, fail-closed.** The platform already declares a security model — `ModuleTrustDeclaration` (`trust.tier`) and `ModulePermissionDeclaration` (`network.outbound`, `filesystem`, `adminRoutes`, `sensitiveData`) — and a live policy layer (`src/modules/registry/security/permissionPolicy.ts`, `trustPolicy.ts`). The SDK exports the declarations but does not yet gate any surface on them. The document service must be wired to this policy, with scoping riding the store ownership layer (`src/server/core/documents/primary/base/ownership.ts`):
-    - Reads fail closed when access is missing, the document is not visible at the requested ownership threshold, or ownership cannot be resolved.
+    - Reads fail closed when no access context can be resolved, the document is not visible at the requested ownership threshold, or ownership cannot be resolved.
     - Writes require both module trust/permission grants and document ownership at the required write threshold; otherwise a structured error (`permission_denied` / `out_of_scope`).
     - Unknown/ambiguous ownership blocks the operation; it is not a soft warning.
     - `commit` verifies each target operation before dispatch; no privileged internal batch path bypasses per-document checks.
@@ -126,7 +139,7 @@ ADR-0027 standardizes the module SDK across server, client, cross-cutting contra
 
 ### D. Compendium and persistence
 
-11. **Compendium declaration = hydration intent, not an access gate.** `info.json` `compendiumPacks` declares which packs are hydrated (full documents available). A pack present in `game.data.packs` but undeclared is still readable at index level (harmless — the compendium store is read-only, no CRUD). The only fail-closed rule is that a read for something **not present in `game.data.packs` or the compendium at all** does not reach into Foundry (a live fetch that cannot resolve). This preserves the passive seeding and cache-first hydration of ADR-0020/0021. The read API is `runtime.compendium` (`findOne` / `findAll` / `getById`), shared by adapter `initialize` and routes via `createApiRoutes`.
+11. **Compendium declaration = hydration intent, not an access gate.** `info.json` `compendiumPacks` declares which packs are hydrated (full documents available). A pack present in `game.data.packs` but undeclared is still readable at index level (harmless — the compendium store is read-only, no CRUD). The only fail-closed rule is that a read for something **not present in `game.data.packs` or the compendium at all** does not reach into Foundry (a live fetch that cannot resolve). This preserves the passive seeding and cache-first hydration of ADR-0020/0021. The read API is `runtime.compendium` (`findOne` / `findAll` / `getById`), present on both the adapter's base runtime (`initialize`) and the route's `req.runtime`.
 
 12. **`DataStore` for backend module persistence.** `PersistentCache` (`src/server/core/cache/PersistentCache.ts`) is raw and cache-connoted (`get`/`set`/`delete` only). The SDK exposes a durable, bounded `DataStore` on the runtime instead:
 
@@ -140,7 +153,7 @@ ADR-0027 standardizes the module SDK across server, client, cross-cutting contra
 
 ### E. Adapter purity and hook relocation
 
-14. **Pure projection adapter; drop the `client` parameter.** Projection hooks do not receive a `ModuleFoundryClient`. Keep the actual signatures:
+14. **Pure projection adapter; read-only runtime; drop the `client` parameter.** Projection hooks do not receive a `ModuleFoundryClient`. The runtime passed to `adapter.initialize(runtime)` is the **read-only base** (decision 5): `documents` is `ReadonlyDocumentStore` (get/list/fetchByUuid) — no CRUD. Adapters never mutate the store; if a hook needs to transform a document it works on a **copy** in memory (which is what projection already is — `normalizeActorData` returns a new shape), never writing back. Writes only exist on a route's `req.runtime`. Keep the actual signatures:
 
     ```ts
     interface SystemAdapter {
@@ -231,10 +244,10 @@ ADR-0027 standardizes the module SDK across server, client, cross-cutting contra
 
 29. **Checker, packager, `next.config.ts`, and `init-module` conform to the SDK — not preserved as-is.** `src/scripts/tools/modules/check-module.ts` and `package-module.ts` duplicate build config inline; extract a single shared build-config module so validation cannot drift from packaging. Both must:
     - externalize the SDK subpaths and React as wildcards (`@sheet-delver/sdk`, `@sheet-delver/sdk/*`, `react`, `react/*`, `react-dom`, `react-dom/*`);
-    - recognize the `createApiRoutes` export (and named re-exports), in addition to `apiRoutes` / `export { apiRoutes }`; continue rejecting `export *`;
+    - keep recognizing `apiRoutes` / `export { apiRoutes }`; continue rejecting `export *` (no `createApiRoutes` factory — runtime arrives on `req.runtime`);
     - drop reliance on TSX asset imports (no `file`/`dataurl` loader) in favor of `assetUrl()`;
     - gate packaging on `module:check` — a non-conforming module is not packageable.
-    `next.config.ts` currently aliases only the exact `@sheet-delver/sdk` (turbopack + webpack blocks); add `@sheet-delver/sdk/react|server|testing` prefix aliases, and the browser import rewriter / global map in `createModuleRouter.ts` (`GLOBAL_MAP`) must expose the subpath globals (server-only rejected from UI). `init-module` generates no per-module webpack/next config — only `tsconfig.json`, `info.json`, a starter stylesheet, and templates — so there is nothing generated to migrate; its templates should model `assetUrl()` and `createApiRoutes`, and avoid bundler asset imports.
+    `next.config.ts` currently aliases only the exact `@sheet-delver/sdk` (turbopack + webpack blocks); add `@sheet-delver/sdk/react|server|testing` prefix aliases, and the browser import rewriter / global map in `createModuleRouter.ts` (`GLOBAL_MAP`) must expose the subpath globals (server-only rejected from UI). `init-module` generates no per-module webpack/next config — only `tsconfig.json`, `info.json`, a starter stylesheet, and templates — so there is nothing generated to migrate; its templates should model `assetUrl()` and the static `apiRoutes` + `req.runtime` shape, and avoid bundler asset imports.
 
 30. **Contract tests and testing utilities.** `@sheet-delver/sdk/testing` provides a mock host (mock `ModuleRuntime`, the wired services, and SDK providers). Per ADR-0025, SDK changes need contract tests, not just type exports: a fixture module using only public SDK APIs must render a sheet, fetch/mutate through the runtime, send a roll, process a realtime change, resolve a declared compendium document, persist via `DataStore`, and resolve a packaged asset URL. Removed compatibility surfaces get no module-facing deprecation window; any staging bridge is internal-only per decision 31 and absent from the fixture surface.
 
@@ -249,8 +262,8 @@ ADR-0027 standardizes the module SDK across server, client, cross-cutting contra
 **Positive**
 
 - Modules write system-specific projection and presentation; the platform owns document access, identity, realtime, modals, page hosting, persistence, and asset serving.
-- One server capability handle (`ModuleRuntime`) for adapter and routes; no per-request service injection; no module-facing `getInstance()`.
-- Least-privilege is enforced and visible (`{ access }` at every call), backed by the existing trust/permission policy.
+- Singleton services + a cheap per-request `req.runtime` handle; no per-request service re-instantiation, no module-facing `getInstance()`, no broad client on the request.
+- Least-privilege is enforced by the core ownership layer; document ops default to the calling user (`req.userSession`) with `{ access }` as the explicit non-norm override — clean call sites without hiding the acting subject.
 - The `dnd5e` page-shell duplication is deleted; behavior drift between modules and the platform is structurally prevented.
 - Build and release tooling cannot drift from validation (shared config), and dev/packaged behavior is identical for assets/CSS.
 
@@ -265,7 +278,7 @@ ADR-0027 standardizes the module SDK across server, client, cross-cutting contra
 
 ## Implementation Plan
 
-Phases are sequenced so each slice is independently verifiable. Checkpoints are markable as work lands. A phase is "done" only when its checkpoints and the relevant Verification items pass. This ADR intentionally reorders the audit's recommended migration plan: the server runtime lands before the client sheet SDK so removed module-facing clients cannot leak into the new public surface.
+Phases are sequenced so each slice is independently verifiable. Checkpoints are markable as work lands. A phase is "done" only when its checkpoints and the relevant Verification items pass.
 
 ### Phase 0 — Baseline and policy
 
@@ -276,10 +289,10 @@ Phases are sequenced so each slice is independently verifiable. Checkpoints are 
 
 ### Phase 1 — Server runtime, services, access, persistence
 
-- [x] Rename `ModuleContext` → `ModuleRuntime`; flatten the `platform` wrapper; update `createModuleContext.ts` and the `sdk-integrity.test.ts` assertions (decisions 3, 4). — files also renamed `runtime.ts` / `createModuleRuntime.ts`; verified green (unit suite + `module:check dnd5e`).
+- [x] Rename `ModuleContext` → `ModuleRuntime`; flatten the `platform` wrapper; update `createModuleRuntime.ts` and the `sdk-integrity.test.ts` assertions (decisions 3, 4). — files also renamed `runtime.ts` / `createModuleRuntime.ts`; verified green (unit suite + `module:check dnd5e`).
 - [ ] Mount document/roll/table services as singletons and wire them onto `ModuleRuntime` (`documents`, `rolls`, `tables`); module code never calls `getInstance()` (decision 5).
 - [ ] Implement the generic type-keyed `PrimaryDocumentStore` surface incl. `commit`, `fetchByUuid`, `effects`, and list query (filter/sort/page/limit) (decision 6).
-- [ ] Add `ModuleServerRequest.getAccessContext()` and the `createApiRoutes(runtime)` factory export contract (decision 8).
+- [ ] Attach `req.runtime` per request (base + user-bound `documents`/`rolls`/`tables`, defaulting to `req.userSession`); static `apiRoutes` contract; `getAccessContext()` for overrides (decision 8).
 - [ ] Wire permission/trust + ownership enforcement; reads/writes fail closed; `commit` verifies per-op (decisions 9, 10).
 - [~] Add `DataStore` on the runtime and the `datastore/` vs `compendiums/` storage boundary; make `PersistentCache` internal (decisions 12, 13). — `DataStore` (`get/set/delete/has/keys`) on `ModuleRuntime`, backed under `<moduleId>/datastore/`; `PersistentCache` no longer SDK-exported. Remaining: relocate compendium backing to `compendiums/` (DataStore is already isolated, so not blocking).
 - [ ] Make service calls readiness-aware (block until ready; `not_ready` on unreachable) (decision 25).
@@ -297,7 +310,7 @@ Phases are sequenced so each slice is independently verifiable. Checkpoints are 
 
 ### Phase 3 — Prove it with dnd5e (conform)
 
-- [ ] Migrate `dnd5e` to `ModuleRuntime`, `createApiRoutes`, the client sheet SDK, and document hooks; expect breakage and conform it (design stance).
+- [ ] Migrate `dnd5e` to `req.runtime` / static `apiRoutes`, the client sheet SDK, and document hooks; expect breakage and conform it (design stance).
 - [ ] Remove the hand-rolled page-shell duplication; keep the visual sheet module-owned; restore the dropped `rollMode`/`speaker`/item/shared-content behavior via the platform host.
 - [ ] Leave the `dnd5e` adapter as the canonical pure-projection example; keep `module:check dnd5e` green from here on.
 
@@ -316,15 +329,15 @@ Phases are sequenced so each slice is independently verifiable. Checkpoints are 
 
 - [ ] Subpath entry points + package `exports`; checker allows only the SDK family (decisions 2, 29).
 - [ ] Wildcard externals for SDK subpaths + React in checker and packager (decision 29).
-- [ ] Checker recognizes `createApiRoutes`; packaging gated on `module:check`; drop asset loaders (decision 29).
+- [ ] Checker keeps recognizing static `apiRoutes` (no `createApiRoutes` factory); packaging gated on `module:check`; drop asset loaders (decision 29).
 - [ ] `next.config.ts` subpath aliases + browser rewriter/global map subpath globals (server-only rejected from UI) (decision 29).
-- [ ] Update `init-module` templates to model `assetUrl()` + `createApiRoutes` (decision 29).
+- [ ] Update `init-module` templates to model `assetUrl()` + static `apiRoutes` over `req.runtime` (decision 29).
 - [ ] Ship `@sheet-delver/sdk/testing` mock host + the contract-test suite (decision 30).
 
 ### Phase 6 — Migrate Mörk Borg
 
 - [ ] Replace the removed generic adapter with `BaseSystemAdapter`.
-- [ ] Export `createApiRoutes` (or `apiRoutes` if runtime-free); move server ops to runtime services + access options.
+- [ ] Export static `apiRoutes`; move server ops to `req.runtime` (default-to-caller, `{ access }` override).
 - [ ] Move image handling to `assetUrl()`; remove TSX image imports.
 - [ ] Replace private UI imports with `useSDK`, `useSDKComponents`, `useActorSheet`, and document hooks.
 - [ ] `module:check morkborg` passes.
@@ -352,7 +365,8 @@ The SDK is considered standardized when all of the following hold:
 
 - [ ] A new system module renders an actor sheet without importing `@client/*`, `@server/*`, `@core/*`, `@modules/*`, or `@shared/*` — only `@sheet-delver/sdk` and its subpaths.
 - [ ] A module can choose a platform-hosted sheet or a custom actor page using public SDK hooks only.
-- [ ] A module route reads/writes documents, rolls, and UUID lookups through `runtime` services with explicit per-operation `{ access }`; no `getInstance()` in module code, no services on the request.
+- [ ] A module route reads/writes documents, rolls, and UUID lookups through `req.runtime` (defaulting to the caller; `{ access }` override); no `getInstance()` in module code, no broad client on the request.
+- [ ] `adapter.initialize(runtime)` receives the read-only base runtime (no document CRUD); adapters never mutate the store.
 - [ ] Document reads/writes fail closed on missing/insufficient access; `commit` verifies per-op; unknown/ambiguous ownership blocks.
 - [ ] Adapter projection hooks are deterministic and take no request-scoped client.
 - [ ] Compendium reads come through `runtime.compendium` (declaration = hydration intent); the truly unknown is never live-fetched.

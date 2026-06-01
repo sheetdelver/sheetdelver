@@ -1,31 +1,15 @@
 import type { ModuleFoundryClient } from './contracts';
 import type { UserSession } from './contracts';
-import type { ModuleRuntime } from './runtime';
+import type { ModuleAccessContext, ModuleRequestRuntime } from './runtime';
 import { SDK_ERROR_STATUS, type SdkErrorCode } from './errors';
 
-/**
- * Explicit per-operation authorization context derived from the request
- * (ADR-0027 decision 9). Passed into document operations as `{ access }`; the
- * platform resolves effective ownership against it and fails closed.
- */
-export interface ModuleAccessContext {
-    userId: string;
-    role: number;
-    isGM: boolean;
-    moduleId: string;
-    /** Module trust/permission grants resolved by the platform (decision 10). */
-    trustTier?: 'first-party' | 'verified-third-party' | 'unverified';
-    permissions?: {
-        network?: boolean;
-        adminRoutes?: boolean;
-        sensitiveData?: string[];
-    };
-}
+// ModuleAccessContext is defined in ./runtime (it's a runtime concept) and re-exported here.
+export type { ModuleAccessContext } from './runtime';
 
 /**
  * The request object passed to module apiRoute handlers by the platform.
- * Thin: identity + body only. Document/roll/table/compendium access is on the
- * `ModuleRuntime` passed to `createApiRoutes(runtime)` — not on the request.
+ * Identity + body + the per-request runtime handle (ADR-0027 decision 8). Document /
+ * roll / table services live on `req.runtime`, defaulting to the calling user.
  */
 export interface ModuleServerRequest {
     json<T = unknown>(): Promise<T>;
@@ -34,12 +18,14 @@ export interface ModuleServerRequest {
     headers: Record<string, string | string[] | undefined>;
     userSession?: UserSession;
     /**
-     * Per-call authorization context derived from the request (ADR-0027 decision 9).
-     * Optional during the transition; becomes required and `foundryClient` is removed
-     * when the dispatch rewrite lands.
+     * Per-request runtime handle; document ops default to the caller (`userSession`).
+     * Optional during the transition; becomes required when the dispatch rewrite attaches it
+     * and `foundryClient` is removed.
      */
+    runtime?: ModuleRequestRuntime;
+    /** Read the caller's access context (or build a `{ access }` override). */
     getAccessContext?(): ModuleAccessContext;
-    /** @deprecated Transitional. Removed with the dispatch rewrite; use ModuleRuntime services. */
+    /** @deprecated Transitional. Removed with the dispatch rewrite; use `req.runtime`. */
     foundryClient: ModuleFoundryClient;
 }
 
@@ -72,12 +58,11 @@ export type ModuleRouteHandler = (
 export type ModuleRouteTable = Record<string, ModuleRouteHandler>;
 
 /**
- * The shape a module's server.ts must satisfy.
- * Prefer `createApiRoutes(runtime)` (route handlers compose over the mounted runtime);
- * `apiRoutes` is for runtime-free route tables only.
+ * The shape a module's server.ts must satisfy: a static `apiRoutes` table.
+ * The per-request runtime is delivered on `req.runtime` (ADR-0027 decision 8) — there is
+ * no `createApiRoutes(runtime)` factory.
  */
 export interface ModuleServerExport {
-    createApiRoutes?: (runtime: ModuleRuntime) => ModuleRouteTable | Promise<ModuleRouteTable>;
     apiRoutes?: ModuleRouteTable;
 }
 

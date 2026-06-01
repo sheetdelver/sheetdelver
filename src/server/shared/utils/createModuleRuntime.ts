@@ -147,11 +147,16 @@ export async function createModuleRuntime(moduleId: string): Promise<ModuleRunti
         // config not yet loaded — adapter will get an empty string
     }
 
+    const { createReadonlyDocumentStore } = await import('@server/shared/utils/moduleDocumentServices');
+
     return {
         moduleId,
         logger: createModuleLogger(moduleId),
         foundryUrl,
         dataStore,
         compendium,
+        // Adapters are read-only (ADR-0027 decision 14). Base reads are system-level;
+        // fetchByUuid is not wired on the base (throws not_ready if used at init).
+        documents: createReadonlyDocumentStore(),
     };
 }
