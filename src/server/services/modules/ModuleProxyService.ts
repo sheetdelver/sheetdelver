@@ -1,12 +1,28 @@
 import { getServerModule } from '@modules/registry/server';
 import { logger } from '@shared/utils/logger';
 import { createModuleFoundryClient } from '@server/shared/utils/createModuleFoundryClient';
+import { createModuleRuntime } from '@server/shared/utils/createModuleRuntime';
+import { createModuleRequestRuntime } from '@server/shared/utils/moduleDocumentServices';
+import type { ModuleRuntime } from '@shared/sdk';
 import type {
     ModuleProxyDispatchRequest,
     ModuleProxyDispatchResult,
     ModuleServerLike,
     NextLikeResponse,
 } from '@server/shared/types/moduleProxy';
+
+// Base runtime is module-scoped (logger/dataStore/compendium/foundryUrl + read-only
+// documents) — memoize per module so per-request work is just binding the user-bound
+// services onto req.runtime (ADR-0027 decision 5).
+const baseRuntimeCache = new Map<string, Promise<ModuleRuntime>>();
+function getBaseRuntime(moduleId: string): Promise<ModuleRuntime> {
+    let base = baseRuntimeCache.get(moduleId);
+    if (!base) {
+        base = createModuleRuntime(moduleId);
+        baseRuntimeCache.set(moduleId, base);
+    }
+    return base;
+}
 
 function escapeRegexSegment(value: string): string {
     return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -74,11 +90,19 @@ export function createModuleProxyService() {
 
         const handler = sysModule.apiRoutes[matchedPattern];
         const rawClient = request.foundryClient;
+
+        // Per-request runtime handle (ADR-0027): base (memoized per module) + the caller's
+        // user-bound document/roll/table services. Document ops default to the caller.
+        const baseRuntime = await getBaseRuntime(systemId);
+        const runtime = createModuleRequestRuntime(baseRuntime, rawClient);
+
         const nextRequest = {
             json: async () => request.body,
             method: request.method,
             url: request.url,
             headers: request.headers,
+            runtime,
+            // foundryClient is transitional (removed with the ModuleFoundryClient deletion slice).
             foundryClient: createModuleFoundryClient(rawClient),
             userSession: request.userSession
         };
