@@ -34,7 +34,7 @@ export function registerSystemRoutes(appRouter: express.Router, deps: SystemRout
             const adapterName = adapter?.constructor?.name || 'Unknown';
 
             if (adapter && adapter.getSystemData) {
-                const data = await adapter.getSystemData(systemClient as any);
+                const data = await adapter.getSystemData();
                 logger.debug(`[CoreService] [PID:${process.pid}] System data fetched (${adapterName}). Keys: ${Object.keys(data || {}).length}`);
                 res.json(data);
             } else {

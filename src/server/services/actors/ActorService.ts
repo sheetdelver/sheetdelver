@@ -189,7 +189,7 @@ export function createActorService(deps: ActorServiceDeps) {
 
         if (!adapter) throw new Error(`Adapter for ${systemInfo.id} not found`);
 
-        const normalizedActor: ActorProjection = adapter.normalizeActorData(resolvedActor as any, client as any);
+        const normalizedActor: ActorProjection = adapter.normalizeActorData(resolvedActor as any);
 
         if (adapter.computeActorData) {
             normalizedActor.derived = {
@@ -297,10 +297,9 @@ export function createActorService(deps: ActorServiceDeps) {
 
         if (!rollData) throw new Error('Cannot determine roll formula');
 
-        if (rollData.isAutomated && typeof adapter.performAutomatedSequence === 'function') {
-            const result = await adapter.performAutomatedSequence(client as any, actor as any, rollData, options);
-            return { success: true, result, label: rollData.label };
-        }
+        // performAutomatedSequence was removed from the adapter contract (ADR-0027):
+        // automated multi-roll sequences are now a module-authored route over req.runtime
+        // (rolls.roll + documents + parseRollResult), not a core-invoked adapter hook.
 
         if (!rollData.formula) {
             throw new Error(`No roll formula for type "${type}" key "${key}"`);

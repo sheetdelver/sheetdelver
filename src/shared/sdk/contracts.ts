@@ -211,99 +211,9 @@ export interface ChatMessage {
     [key: string]: unknown;
 }
 
-/**
- * ModuleFoundryClient defines the interface for modules to interact with the Foundry backend.
- * All methods are pre-authenticated by the platform and scoped to the user's permissions.
- * FoundryClient is kept as an alias for backwards compatibility.
- */
-export interface ModuleFoundryClient {
-    /** Whether the client has an active connection to the Foundry server. */
-    isConnected: boolean;
+// ModuleFoundryClient was removed (ADR-0027). Module document/roll/table access is
+// on req.runtime (server) backed by core; the broad client is no longer a module API.
 
-    /** Perform a dice roll in Foundry. */
-    roll(formula: string, label?: string, options?: { displayChat?: boolean; [key: string]: unknown }): Promise<ChatMessage>;
-    
-    /** Send a chat message to the Foundry world. */
-    sendMessage(data: { content: string; [key: string]: unknown }, options?: { rollMode?: string; speaker?: unknown }): Promise<ChatMessage>;
-    
-    /** Trigger the 'use' action for an item on an actor. */
-    useItem(actorId: string, itemId: string): Promise<ChatMessage | unknown>;
-
-    // --- Actor CRUD ---
-
-    /** Retrieve raw actor data by ID. */
-    getActor(id: string): Promise<Record<string, unknown>>;
-
-    /** Retrieve all actors in the current world. */
-    getActors(): Promise<Record<string, unknown>[]>;
-
-    /** Create a new actor in the world. */
-    createActor(actorData: Record<string, unknown>): Promise<Record<string, unknown>>;
-
-    /** Update actor data. */
-    updateActor(id: string, updates: Record<string, unknown>): Promise<Record<string, unknown>>;
-
-    /** Delete an actor from the world. */
-    deleteActor(actorId: string): Promise<void>;
-
-    // --- Actor Item CRUD ---
-
-    /** Create a new item on an existing actor. */
-    createActorItem(actorId: string, itemData: Record<string, unknown>): Promise<Record<string, unknown>>;
-
-    /** Update an existing item on an actor. */
-    updateActorItem(actorId: string, itemData: Record<string, unknown>): Promise<Record<string, unknown>>;
-
-    /** Delete an item from an actor. */
-    deleteActorItem(actorId: string, itemId: string): Promise<void>;
-
-    // --- Actor Active Effect CRUD ---
-
-    /** Create an active effect on an actor. */
-    createActorEffect(actorId: string, effectData: Record<string, unknown>): Promise<Record<string, unknown>>;
-
-    /** Update an active effect on an actor. */
-    updateActorEffect(actorId: string, effectId: string, updates: Record<string, unknown>): Promise<Record<string, unknown>>;
-
-    /** Delete an active effect from an actor. */
-    deleteActorEffect(actorId: string, effectId: string): Promise<void>;
-
-    // --- Item Active Effect operations (effects on an actor's item) ---
-
-    // Mirrors Foundry's nested parentUuid path: Actor.<actorId>.Item.<itemId>.
-    /** Create an active effect on one of an actor's items. */
-    createItemEffect(actorId: string, itemId: string, effectData: Record<string, unknown>): Promise<Record<string, unknown>>;
-
-    /** Update an active effect on one of an actor's items. */
-    updateItemEffect(actorId: string, itemId: string, effectId: string, updates: Record<string, unknown>): Promise<Record<string, unknown>>;
-
-    /** Delete an active effect from one of an actor's items. */
-    deleteItemEffect(actorId: string, itemId: string, effectId: string): Promise<void>;
-
-    // --- World document access ---
-
-    /** Fetch a document from Foundry using its UUID. */
-    fetchByUuid(uuid: string): Promise<Record<string, unknown>>;
-
-    /**
-     * Fetch items from the active world (non-compendium).
-     * Use runtime.compendium for declared compendium pack data.
-     * This is for world-owned items that are not in a compendium.
-     */
-    getWorldItems(options?: { type?: string }): Promise<Record<string, unknown>[]>;
-    
-    /**
-     * Fetch a RollTable document by UUID and simulate a draw from it.
-     * Returns a standardized DrawResult with roll value, matched results, and resolved items.
-     */
-    drawTable(tableId: string, options?: { rollOverride?: number }): Promise<import('./utils').DrawResult>;
-
-    /** Resolve a relative path to a full URL (handling platform base paths). */
-    resolveUrl(path: string): string;
-
-    /** Get the current Foundry system id (e.g. 'shadowdark'). */
-    getSystemId(): Promise<string>;
-}
 
 /**
  * ModuleApiRequest is the standard Request object passed to module API handlers.
@@ -334,5 +244,3 @@ export interface UserSession {
     role: number;
 }
 
-/** @deprecated Use ModuleFoundryClient instead. */
-export type FoundryClient = ModuleFoundryClient;

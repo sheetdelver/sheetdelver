@@ -3,8 +3,8 @@ import {
     BaseSystemAdapter,
     type SystemAdapter,
     type ActorSheetData,
-    type ModuleFoundryClient,
     type ModuleServerRequest,
+    type ModuleRequestRuntime,
     type ModuleServerParams,
     type ModuleServerExport,
     type ModuleRuntime,
@@ -33,8 +33,8 @@ import {
 class MockAdapter extends BaseSystemAdapter {
     systemId = 'mock';
 
-    override normalizeActorData(actor: FoundryActor, _client?: ModuleFoundryClient): ActorSheetData {
-        const data = super.normalizeActorData(actor, _client);
+    override normalizeActorData(actor: FoundryActor): ActorSheetData {
+        const data = super.normalizeActorData(actor);
         return { ...data, derived: { test: 'value' } };
     }
 }
@@ -128,8 +128,46 @@ async function runInterfaceTests() {
 // ---------------------------------------------------------------------------
 
 async function runServerRequestTests() {
-    // Verify the request shape a handler receives. `foundryClient` is transitional
-    // (removed with the dispatch rewrite); `getAccessContext` is the new access surface.
+    // Verify the request shape a handler receives. `req.runtime` is the only document
+    // surface (ADR-0027 decision 8); `getAccessContext` is the access surface.
+    const mockRuntime: ModuleRequestRuntime = {
+        moduleId: 'mock',
+        foundryUrl: 'http://localhost:30000',
+        logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
+        dataStore: {
+            get: async () => null,
+            set: async () => {},
+            delete: async () => {},
+            has: async () => false,
+            keys: async () => [],
+        },
+        compendium: {
+            findOne: async () => null,
+            findAll: async () => [],
+            getById: async () => null,
+        },
+        documents: {
+            get: async () => null,
+            list: async () => ({ rows: [], total: 0 }),
+            fetchByUuid: async () => null,
+            create: async () => ({}),
+            patch: async () => ({}),
+            upsert: async () => ({}),
+            delete: async () => {},
+            commit: async () => [],
+            effects: {
+                create: async () => ({}),
+                update: async () => ({}),
+                delete: async () => {},
+            },
+        },
+        rolls: {
+            roll: async () => ({ formula: '1d20', total: 1 }),
+        },
+        tables: {
+            draw: async () => ({ roll: 1, formula: '1d20', results: [], items: [], table: {} }),
+        },
+    };
     const mockRequest: ModuleServerRequest = {
         json: async <T>() => ({} as T),
         method: 'POST',
@@ -137,31 +175,7 @@ async function runServerRequestTests() {
         headers: { 'content-type': 'application/json' },
         userSession: { userId: 'u1', username: 'Tester', isGM: false, role: 1 },
         getAccessContext: () => ({ userId: 'u1', role: 1, isGM: false, moduleId: 'mock' }),
-        foundryClient: {
-            isConnected: true,
-            roll: async () => ({ id: '1', content: '', timestamp: 0, user: '' }),
-            sendMessage: async () => ({ id: '1', content: '', timestamp: 0, user: '' }),
-            useItem: async () => null,
-            getActor: async () => ({}),
-            getActors: async () => [],
-            createActor: async () => ({}),
-            updateActor: async () => ({}),
-            deleteActor: async () => {},
-            createActorItem: async () => ({}),
-            updateActorItem: async () => ({}),
-            deleteActorItem: async () => {},
-            createActorEffect: async () => ({}),
-            updateActorEffect: async () => ({}),
-            deleteActorEffect: async () => {},
-            createItemEffect: async () => ({}),
-            updateItemEffect: async () => ({}),
-            deleteItemEffect: async () => {},
-            fetchByUuid: async () => ({}),
-            getWorldItems: async () => [],
-            drawTable: async () => ({ roll: 1, formula: '1d20', results: [], items: [], table: {} }),
-            resolveUrl: (p) => p,
-            getSystemId: async () => 'mock',
-        },
+        runtime: mockRuntime,
     };
 
     assert.equal(mockRequest.method, 'POST');

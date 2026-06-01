@@ -40,12 +40,10 @@ export type {
 export { BaseSystemAdapter } from './base';
 
 // ---------------------------------------------------------------------------
-// Platform client — injected into module server handlers
+// Platform contracts — chat/session shapes used by route handlers
 // ---------------------------------------------------------------------------
 
 export type {
-    ModuleFoundryClient,
-    FoundryClient,     // @deprecated alias for ModuleFoundryClient
     ChatMessage,
     UserSession,
 } from './contracts';

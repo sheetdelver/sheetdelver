@@ -1,12 +1,10 @@
 import { ModuleRuntime } from './runtime';
-import { ModuleFoundryClient } from './contracts';
 import { resolveImage } from './utils';
 import {
     SystemAdapter,
     ActorSheetData,
     ActorCardData,
     CompendiumPackConfig,
-    RollMode,
     RollData,
     RollDataOptions,
     SystemThemeColors,
@@ -14,7 +12,6 @@ import {
     FoundryActor,
     FoundryItem,
 } from './interfaces';
-import { CompendiumPackReader } from './runtime';
 
 /**
  * BaseSystemAdapter provides default implementations of the SystemAdapter interface.
@@ -33,7 +30,7 @@ export class BaseSystemAdapter implements SystemAdapter {
         return this._runtime?.foundryUrl ?? '';
     }
 
-    normalizeActorData(actor: FoundryActor, _client?: ModuleFoundryClient): ActorSheetData {
+    normalizeActorData(actor: FoundryActor): ActorSheetData {
         return {
             id: actor._id,
             name: actor.name,
@@ -55,7 +52,7 @@ export class BaseSystemAdapter implements SystemAdapter {
         this._runtime = runtime;
     }
 
-    async getSystemData(_client: ModuleFoundryClient, _options?: { minimal?: boolean }): Promise<unknown> {
+    async getSystemData(_options?: { minimal?: boolean }): Promise<unknown> {
         return {};
     }
 
@@ -80,14 +77,6 @@ export class BaseSystemAdapter implements SystemAdapter {
 
     getRollData(_actor: FoundryActor, _type: string, _key: string, _options?: RollDataOptions): RollData | null {
         return null;
-    }
-
-    async performAutomatedSequence(_client: ModuleFoundryClient, _actor: FoundryActor, _rollData: RollData, _options: unknown): Promise<unknown> {
-        return null;
-    }
-
-    resolveActorNames(_actor: FoundryActor, _packs: CompendiumPackReader): void {
-        // noop
     }
 
     getInitiativeFormula(_actor: FoundryActor): string {

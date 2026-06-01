@@ -1,6 +1,5 @@
 import { getServerModule } from '@modules/registry/server';
 import { logger } from '@shared/utils/logger';
-import { createModuleFoundryClient } from '@server/shared/utils/createModuleFoundryClient';
 import { createModuleRuntime } from '@server/shared/utils/createModuleRuntime';
 import { createModuleRequestRuntime } from '@server/shared/utils/moduleDocumentServices';
 import type { ModuleRuntime } from '@shared/sdk';
@@ -102,8 +101,6 @@ export function createModuleProxyService() {
             url: request.url,
             headers: request.headers,
             runtime,
-            // foundryClient is transitional (removed with the ModuleFoundryClient deletion slice).
-            foundryClient: createModuleFoundryClient(rawClient),
             userSession: request.userSession
         };
         const nextParams = { params: Promise.resolve({ systemId, route: routePath.split('/') }) };

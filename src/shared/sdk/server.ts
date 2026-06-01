@@ -1,4 +1,3 @@
-import type { ModuleFoundryClient } from './contracts';
 import type { UserSession } from './contracts';
 import type { ModuleAccessContext, ModuleRequestRuntime } from './runtime';
 import { SDK_ERROR_STATUS, type SdkErrorCode } from './errors';
@@ -9,7 +8,8 @@ export type { ModuleAccessContext } from './runtime';
 /**
  * The request object passed to module apiRoute handlers by the platform.
  * Identity + body + the per-request runtime handle (ADR-0027 decision 8). Document /
- * roll / table services live on `req.runtime`, defaulting to the calling user.
+ * roll / table services live on `req.runtime`, defaulting to the calling user. The broad
+ * `foundryClient` was removed — `req.runtime` is the only document surface.
  */
 export interface ModuleServerRequest {
     json<T = unknown>(): Promise<T>;
@@ -17,16 +17,10 @@ export interface ModuleServerRequest {
     url: string;
     headers: Record<string, string | string[] | undefined>;
     userSession?: UserSession;
-    /**
-     * Per-request runtime handle; document ops default to the caller (`userSession`).
-     * Optional during the transition; becomes required when the dispatch rewrite attaches it
-     * and `foundryClient` is removed.
-     */
-    runtime?: ModuleRequestRuntime;
+    /** Per-request runtime handle; document ops default to the caller (`userSession`). */
+    runtime: ModuleRequestRuntime;
     /** Read the caller's access context (or build a `{ access }` override). */
     getAccessContext?(): ModuleAccessContext;
-    /** @deprecated Transitional. Removed with the dispatch rewrite; use `req.runtime`. */
-    foundryClient: ModuleFoundryClient;
 }
 
 /**

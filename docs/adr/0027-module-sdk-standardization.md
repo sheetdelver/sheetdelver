@@ -290,15 +290,15 @@ Phases are sequenced so each slice is independently verifiable. Checkpoints are 
 ### Phase 1 — Server runtime, services, access, persistence
 
 - [x] Rename `ModuleContext` → `ModuleRuntime`; flatten the `platform` wrapper; update `createModuleRuntime.ts` and the `sdk-integrity.test.ts` assertions (decisions 3, 4). — files also renamed `runtime.ts` / `createModuleRuntime.ts`; verified green (unit suite + `module:check dnd5e`).
-- [ ] Mount document/roll/table services as singletons and wire them onto `ModuleRuntime` (`documents`, `rolls`, `tables`); module code never calls `getInstance()` (decision 5).
-- [ ] Implement the generic type-keyed `PrimaryDocumentStore` surface incl. `commit`, `fetchByUuid`, `effects`, and list query (filter/sort/page/limit) (decision 6).
-- [ ] Attach `req.runtime` per request (base + user-bound `documents`/`rolls`/`tables`, defaulting to `req.userSession`); static `apiRoutes` contract; `getAccessContext()` for overrides (decision 8).
+- [x] Mount document/roll/table services as singletons and wire them onto `ModuleRuntime` (`documents`, `rolls`, `tables`); module code never calls `getInstance()` (decision 5). — base runtime memoized per module (`ModuleProxyService.getBaseRuntime`); `req.runtime` adds user-bound `documents`/`rolls`/`tables` via `createModuleRequestRuntime`.
+- [x] Implement the generic type-keyed `PrimaryDocumentStore` surface incl. `commit`, `fetchByUuid`, `effects`, and list query (filter/sort/page/limit) (decision 6). — `moduleDocumentServices.ts`: `STORE_BY_TYPE` (11 stores), `makeReads`, `createDocumentStore` (create/patch/upsert/delete/commit/effects over `dispatchDocument`), `applyQuery`.
+- [x] Attach `req.runtime` per request (base + user-bound `documents`/`rolls`/`tables`, defaulting to `req.userSession`); static `apiRoutes` contract; `getAccessContext()` for overrides (decision 8). — wired in `ModuleProxyService.dispatchModuleRoute`; `ModuleServerRequest.runtime` now required, `ModuleServerExport = { apiRoutes? }`.
 - [ ] Wire permission/trust + ownership enforcement; reads/writes fail closed; `commit` verifies per-op (decisions 9, 10).
 - [~] Add `DataStore` on the runtime and the `datastore/` vs `compendiums/` storage boundary; make `PersistentCache` internal (decisions 12, 13). — `DataStore` (`get/set/delete/has/keys`) on `ModuleRuntime`, backed under `<moduleId>/datastore/`; `PersistentCache` no longer SDK-exported. Remaining: relocate compendium backing to `compendiums/` (DataStore is already isolated, so not blocking).
 - [ ] Make service calls readiness-aware (block until ready; `not_ready` on unreachable) (decision 25).
 - [ ] Eliminate `getActorRaw` / `dispatchDocument` / `dispatchDocumentSocket` reach-ins (decision 6).
-- [ ] Add `SdkError` taxonomy + `json()`/`error()` response helpers (decision 24).
-- [ ] Relocate `getSystemData` (source from `runtime`) and `performAutomatedSequence` (module-authored route); then **remove** `ModuleFoundryClient` from the module surface, the adapter `client` parameters, and `resolveActorNames` — breaking, no module-facing shim; `dnd5e` is conformed in Phase 3 (decisions 14, 15, 31).
+- [x] Add `SdkError` taxonomy + `json()`/`error()` response helpers (decision 24). — `src/shared/sdk/errors.ts` (`SdkError`, `SdkErrorCode`, `SDK_ERROR_STATUS`, `isSdkError`); `json()`/`error()` in `server.ts`.
+- [x] Relocate `getSystemData` (source from `runtime`) and `performAutomatedSequence` (module-authored route); then **remove** `ModuleFoundryClient` from the module surface, the adapter `client` parameters, and `resolveActorNames` — breaking, no module-facing shim; `dnd5e` is conformed in Phase 3 (decisions 14, 15, 31). — `ModuleFoundryClient`/`FoundryClient` deleted; `getSystemData()`/`normalizeActorData(actor)` drop the client; `resolveActorNames`/`performAutomatedSequence` removed from the adapter; `req.foundryClient` gone; `init-module` template + `sdk-integrity`/`actor-normalization` tests conformed. Verified: `tsc --noEmit`, `lint`, `test:unit`, `module:check dnd5e` all green.
 
 ### Phase 2 — Client sheet SDK and surface hosting
 

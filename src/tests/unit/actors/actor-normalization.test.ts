@@ -9,7 +9,6 @@ export async function run() {
 
     const missingAdapterService = createActorNormalizationService({
         getAdapterBySystemId: async () => null as any,
-        getCompendiumPacks: async () => ({ findOne: async () => null, findAll: async () => [], getById: async () => null }),
     });
 
     let missingError: Error | null = null;
@@ -21,21 +20,15 @@ export async function run() {
     assert.ok(missingError);
     assert.ok(missingError?.message.includes('shadowdark'));
 
-    const packsReader = {
-        findOne: async () => null,
-        findAll: async () => [],
-        getById: async () => null,
-    };
-    const resolveActorNamesCalls: Array<{ actorId: string; cacheRef: unknown }> = [];
-    const normalizeCalls: Array<{ actorId: string; clientRef: unknown }> = [];
+    // Per ADR-0027, `normalizeActorData` is pure projection (no client) and
+    // `resolveActorNames` is removed — adapters read declared packs via `runtime.compendium`.
+    const normalizeCalls: Array<{ actorId: string; argCount: number }> = [];
     const computeCalls: Array<{ actorId: string }> = [];
 
     const adapterWithCompute = {
-        resolveActorNames: async (actor: any, cacheRef: unknown) => {
-            resolveActorNamesCalls.push({ actorId: String(actor._id || actor.id), cacheRef });
-        },
-        normalizeActorData: (actor: any, clientRef: unknown) => {
-            normalizeCalls.push({ actorId: String(actor._id || actor.id), clientRef });
+        normalizeActorData: (...args: any[]) => {
+            const actor = args[0];
+            normalizeCalls.push({ actorId: String(actor._id || actor.id), argCount: args.length });
             return {
                 _id: actor._id,
                 id: actor.id,
@@ -52,7 +45,6 @@ export async function run() {
 
     const serviceWithCompute = createActorNormalizationService({
         getAdapterBySystemId: async () => adapterWithCompute,
-        getCompendiumPacks: async () => packsReader,
     });
 
     const actors = [
@@ -74,12 +66,10 @@ export async function run() {
 
     const normalizedWithCompute = await serviceWithCompute.normalizeActors(actors as any, baseClient);
     assert.equal(normalizedWithCompute.length, 2);
-    assert.equal(resolveActorNamesCalls.length, 2);
-    assert.equal(resolveActorNamesCalls[0].cacheRef, packsReader);
-    assert.equal(resolveActorNamesCalls[1].cacheRef, packsReader);
     assert.equal(normalizeCalls.length, 2);
-    assert.equal(normalizeCalls[0].clientRef, baseClient);
-    assert.equal(normalizeCalls[1].clientRef, baseClient);
+    // Projection receives the actor only — no client argument.
+    assert.equal(normalizeCalls[0].argCount, 1);
+    assert.equal(normalizeCalls[1].argCount, 1);
     assert.equal(computeCalls.length, 2);
     assert.deepEqual((normalizedWithCompute[0] as any).derived, { power: 'high' });
     assert.equal((actors[0] as any).img, 'resolved:/alpha.png');
@@ -98,7 +88,6 @@ export async function run() {
 
     const serviceWithoutOptionalMethods = createActorNormalizationService({
         getAdapterBySystemId: async () => adapterWithoutOptionalMethods,
-        getCompendiumPacks: async () => packsReader,
     });
 
     const normalizedWithoutOptional = await serviceWithoutOptionalMethods.normalizeActors([
@@ -119,7 +108,6 @@ export async function run() {
 
     const emptyService = createActorNormalizationService({
         getAdapterBySystemId: async () => emptyAdapter,
-        getCompendiumPacks: async () => packsReader,
     });
 
     const emptyResult = await emptyService.normalizeActors([], baseClient);

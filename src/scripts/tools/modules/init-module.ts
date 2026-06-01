@@ -279,7 +279,8 @@ async function addCustomItemToActor(req: ModuleServerRequest, params: ModuleServ
             return { status: 400, json: async () => ({ error: 'Missing actor id' }) };
         }
 
-        const item = await req.foundryClient.createActorItem(actorId, itemData);
+        // Document ops live on req.runtime and default to the calling user (req.userSession).
+        const item = await req.runtime.documents.create('item', { ...itemData, actorId });
         return { status: 200, json: async () => ({ success: true, item }) };
     } catch (error) {
         return { status: 500, json: async () => ({ error: getErrorMessage(error) }) };

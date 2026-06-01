@@ -1,6 +1,4 @@
 import { ModuleRuntime } from './runtime';
-import { ModuleFoundryClient } from './contracts';
-import { CompendiumPackReader } from './runtime';
 
 // ---------------------------------------------------------------------------
 // Foundry document primitives
@@ -268,22 +266,23 @@ export interface SystemAdapter {
     // --- Identity ---
     systemId: string;
 
-    // --- Required: core always calls these ---
-    normalizeActorData(actor: FoundryActor, client?: ModuleFoundryClient): ActorSheetData;
+    // --- Required: core always calls these (pure projection, no client — ADR-0027) ---
+    normalizeActorData(actor: FoundryActor): ActorSheetData;
     match(actor: FoundryActor): boolean;
 
     // --- Optional: core calls if present (all verified by runtime grep) ---
     initialize?(runtime: ModuleRuntime): Promise<void>;
-    getSystemData?(client: ModuleFoundryClient, options?: { minimal?: boolean }): Promise<unknown>;
+    /** Read-only system data the adapter produces for the /system/data route; sources from its runtime. */
+    getSystemData?(options?: { minimal?: boolean }): Promise<unknown>;
     getCompendiumPackConfig?(): CompendiumPackConfig;
     getActorCardData?(actor: FoundryActor): ActorCardData;
     computeActorData?(actor: ActorSheetData): Record<string, unknown>;
     categorizeItems?(actor: ActorSheetData): Record<string, FoundryItem[]>;
     getRollData?(actor: FoundryActor, type: string, key: string, options?: RollDataOptions): RollData | null;
-    performAutomatedSequence?(client: ModuleFoundryClient, actor: FoundryActor, rollData: RollData, options: unknown): Promise<unknown>;
-    resolveActorNames?(actor: FoundryActor, packs: CompendiumPackReader): void | Promise<void>;
     getInitiativeFormula?(actor: FoundryActor): string;
     validateUpdate?(path: string, value: unknown): boolean;
+    // performAutomatedSequence + resolveActorNames removed (ADR-0027): automated rolls are a
+    // module-authored route over req.runtime; name resolution flows through runtime.compendium.
 
     // --- Visual theming ---
     theme?: SystemThemeColors;
