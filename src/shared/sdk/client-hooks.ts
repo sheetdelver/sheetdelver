@@ -1,4 +1,4 @@
-import { createElement, useCallback, useEffect, useMemo, useSyncExternalStore } from 'react';
+import { createElement, Fragment, useCallback, useEffect, useMemo, useSyncExternalStore } from 'react';
 import type { ComponentType } from 'react';
 import { useSDK, useSDKComponents } from './react';
 import { processHtmlContent } from './utils';
@@ -54,8 +54,8 @@ export interface ActorSheetProps<TActor = FoundryActor> {
     actor: TActor;
     isOwner: boolean;
     foundryUrl?: string;
-    onRoll: (type: string, key: string, options?: Record<string, unknown>) => void | Promise<void>;
-    onUpdate: (path: string, value: unknown) => void | Promise<void>;
+    onRoll: (type: string, key: string, options?: Record<string, unknown>) => Promise<void>;
+    onUpdate: (path: string, value: unknown) => Promise<void>;
     refreshActor?: () => void;
 }
 
@@ -150,7 +150,7 @@ export function createActorPage<TActor = FoundryActor>(
     Sheet: ComponentType<ActorSheetProps<TActor>>,
 ): ComponentType<ActorPageProps> {
     function PlatformActorPage({ actorId }: ActorPageProps) {
-        const { LoadingModal } = useSDKComponents();
+        const { LoadingModal, SharedContentModal } = useSDKComponents();
         const sheet = useActorSheet<TActor>(actorId);
 
         if (sheet.loading && !sheet.actor) {
@@ -163,14 +163,21 @@ export function createActorPage<TActor = FoundryActor>(
                 'This character is no longer available.',
             );
         }
-        return createElement(Sheet, {
-            actor: sheet.actor,
-            isOwner: sheet.isOwner,
-            foundryUrl: sheet.foundryUrl,
-            onRoll: sheet.roll,
-            onUpdate: sheet.update,
-            refreshActor: sheet.refresh,
-        });
+        // The platform host owns shared-content presentation (GM image/journal shares),
+        // so modules don't re-implement it (ADR-0027 Phase 3 — restore via the host).
+        return createElement(
+            Fragment,
+            null,
+            createElement(Sheet, {
+                actor: sheet.actor,
+                isOwner: sheet.isOwner,
+                foundryUrl: sheet.foundryUrl,
+                onRoll: sheet.roll,
+                onUpdate: sheet.update,
+                refreshActor: sheet.refresh,
+            }),
+            createElement(SharedContentModal, {}),
+        );
     }
     PlatformActorPage.displayName = 'PlatformActorPage';
     return PlatformActorPage;

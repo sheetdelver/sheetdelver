@@ -333,8 +333,8 @@ function runClientSdkTests() {
     const _sheetProps: ActorSheetProps = {
         actor: {} as FoundryActor,
         isOwner: true,
-        onRoll: () => {},
-        onUpdate: () => {},
+        onRoll: async () => {},
+        onUpdate: async () => {},
     };
     const _pageProps: ActorPageProps = { actorId: 'a1' };
     void _sheetProps; void _pageProps;

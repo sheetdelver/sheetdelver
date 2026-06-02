@@ -310,9 +310,9 @@ Phases are sequenced so each slice is independently verifiable. Checkpoints are 
 
 ### Phase 3 — Prove it with dnd5e (conform)
 
-- [ ] Migrate `dnd5e` to `req.runtime` / static `apiRoutes`, the client sheet SDK, and document hooks; expect breakage and conform it (design stance).
-- [ ] Remove the hand-rolled page-shell duplication; keep the visual sheet module-owned; restore the dropped `rollMode`/`speaker`/item/shared-content behavior via the platform host.
-- [ ] Leave the `dnd5e` adapter as the canonical pure-projection example; keep `module:check dnd5e` green from here on.
+- [x] Migrate `dnd5e` to `req.runtime` / static `apiRoutes`, the client sheet SDK, and document hooks; expect breakage and conform it (design stance). — `dnd5e` ships **no** server entry (manifest declares only `ui`/`logic`); it uses the platform `/api/actors` surface, so there were no module `apiRoutes` to migrate. Client conformed to the sheet SDK: the `Sheet` consumes `ActorSheetProps` and the host's `useActorSheet` provides load/roll/update through the host-owned cache.
+- [x] Remove the hand-rolled page-shell duplication; keep the visual sheet module-owned; restore the dropped `rollMode`/`speaker`/item/shared-content behavior via the platform host. — deleted `src/ui/ActorPage.tsx` and dropped `actorPage` from the manifest so the platform default host (`createActorPage(Sheet)`) renders the module's visual sheet. `rollMode`/`speaker` defaults are restored by `useActorSheet.roll`; shared-content is rendered by the default host (`SharedContentModal`), which the old dnd5e page never showed. (dnd5e is read+roll+field-update; it has no item/effect CRUD.)
+- [x] Leave the `dnd5e` adapter as the canonical pure-projection example; keep `module:check dnd5e` green from here on. — adapter is pure projection (`normalizeActorData(actor)`, no client/reach-ins); `module:check dnd5e` green (info.json, import boundary, module tsconfig typecheck, dry bundles all pass).
 
 ### Phase 4 — Compendium, assets, styles, settings, capabilities, events
 
