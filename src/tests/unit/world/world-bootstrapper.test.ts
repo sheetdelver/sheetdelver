@@ -469,6 +469,44 @@ async function runResetClearsReadinessAndAdapter() {
     assert.equal(bootstrapper.getActiveSystemId(), null);
 }
 
+// ADR-0027 decision 22: clearing the active adapter calls the courtesy
+// `adapter.dispose(runtime)` once, with the same runtime instance initialize received.
+async function runDisposeCalledOnClear() {
+    let disposedWith: ModuleRuntime | null = null;
+    const runtime = { moduleId: 'syntheticsystem' } as unknown as ModuleRuntime;
+    const disposingAdapter: SystemAdapter = {
+        ...adapter('syntheticsystem'),
+        initialize: async () => undefined,
+        dispose: (rt) => { disposedWith = rt; },
+    };
+
+    const bootstrapper = new WorldBootstrapper({
+        getBootstrapSnapshot: async () => createBootstrapSnapshot(),
+        seedWorldSnapshot: () => undefined,
+        seedUserSnapshot: async () => undefined,
+        createCompendiumService: () => ({
+            seedPackMetadataFromGameData: () => undefined,
+            hydratePacks: async () => ({ manifest: { systemId: '', _instanceId: '', packs: {} }, hydrated: 0, skipped: 0, missing: 0 }),
+            getPackEntries: async () => [],
+        }) as any,
+        seedPackMetadata: () => undefined,
+        getSystem: () => ({ id: 'SyntheticSystem' }),
+        getRegisteredModules: () => [{ id: 'syntheticsystem', compendiumPacks: { packs: [] } } as any],
+        loadAdapter: async () => disposingAdapter,
+        hydrateCompendiumPacks: async () => undefined,
+        seedDocuments: async () => undefined,
+        createModuleRuntime: async () => runtime,
+        markLifecycleActive,
+    });
+
+    await bootstrapper.bootstrap({} as any);
+    assert.equal(disposedWith, null, 'dispose not called before teardown');
+
+    bootstrapper.reset('unit-test-dispose');
+    // Fire-and-forget: dispose runs synchronously here since the handler is sync.
+    assert.equal(disposedWith, runtime, 'dispose called with the initialize runtime on teardown');
+}
+
 export async function run() {
     await runActiveAdapterLoadAndReuse();
     await runActiveAdapterClearAndReload();
@@ -480,6 +518,7 @@ export async function run() {
     await runBootstrapSharesConcurrentPromise();
     await runBootstrapFailureResetsForRetry();
     await runResetClearsReadinessAndAdapter();
+    await runDisposeCalledOnClear();
     console.log('  - WorldBootstrapper: all checks passed');
 }
 

@@ -12,7 +12,8 @@ import { ConfirmationModal } from '@client/ui/components/ConfirmationModal';
 import RichTextEditor from '@client/ui/components/RichTextEditor';
 import { SharedContentModal } from '@client/ui/components/SharedContentModal';
 import { getClientDocumentSource, resetClientDocumentSource } from '@client/ui/sdk/createClientDocumentSource';
-import type { RealtimeActorChangedPayload } from '@shared/sdk/contracts';
+import { createSdkEventBus } from '@client/ui/sdk/createSdkEventBus';
+import { buildModuleAssetUrl } from '@shared/sdk';
 
 /**
  * SDKProvider bridges the platform's internal contexts and components into
@@ -45,39 +46,32 @@ export function SDKProvider({ children, moduleId }: { children: React.ReactNode;
         return fetch(input, { ...init, headers });
     }, [token]);
 
-    const onActorChanged = useCallback((
-        actorId: string,
-        callback: (data: RealtimeActorChangedPayload) => void,
-    ) => {
-        const socket = appSocket as any;
-        if (!socket) return () => {};
-        const handler = (data: RealtimeActorChangedPayload) => {
-            if (data.actorId === actorId) callback(data);
-        };
-        socket.on('actorChanged', handler);
-        return () => { socket.off('actorChanged', handler); };
-    }, [appSocket]);
+    // Host-owned realtime signal bus (ADR-0027 decision 20). Recreated when the socket
+    // changes; maps platform socket events onto the stable SDK signal set.
+    const events = useMemo(() => createSdkEventBus(appSocket as any), [appSocket]);
+    useEffect(() => () => events.dispose(), [events]);
 
     // Host-owned document cache (ADR-0027 decisions 17/25). App-level singleton so a
     // dashboard card and an open sheet share one fetch; the call keeps its transport current.
     const documents = getClientDocumentSource(fetchWithAuth);
+
+    // Cache invalidation rides the signal bus (decision 25): any document:changed for a
+    // cached key refreshes every mounted surface from the single source — all types, not
+    // just actors.
+    useEffect(() => events.on('document:changed', ({ type, id }) => {
+        if (id) documents.invalidate(type, id);
+    }), [events, documents]);
 
     // Clear the shared cache when the session ends (logout / world change drops the token).
     useEffect(() => {
         if (!token) resetClientDocumentSource();
     }, [token]);
 
-    // A single realtime listener invalidates the shared cache for the changed actor, so
-    // every mounted surface refreshes from one fetch (replacing per-surface subscriptions).
-    useEffect(() => {
-        const socket = appSocket as any;
-        if (!socket) return;
-        const handler = (data: RealtimeActorChangedPayload) => {
-            if (data.actorId) documents.invalidate('Actor', data.actorId);
-        };
-        socket.on('actorChanged', handler);
-        return () => { socket.off('actorChanged', handler); };
-    }, [appSocket, documents]);
+    const resolvedModuleId = moduleId ?? system?.id ?? null;
+    const assetUrl = useCallback(
+        (assetPath: string) => (resolvedModuleId ? buildModuleAssetUrl(resolvedModuleId, assetPath) : assetPath),
+        [resolvedModuleId],
+    );
 
     const logger = useMemo(() => ({
         debug: (...args: unknown[]) => console.debug('[module]', ...args),
@@ -100,26 +94,27 @@ export function SDKProvider({ children, moduleId }: { children: React.ReactNode;
             ? { id: system.id, title: system.title, version: system.version }
             : null,
         isConnected,
-        moduleId:       moduleId ?? system?.id ?? null,
+        moduleId:       resolvedModuleId,
         worldId:        worldId ?? null,
         documents,
         baseUrl:        typeof window !== 'undefined' ? window.location.origin : '',
         foundryUrl:     foundryUrl ?? '',
         resolveImageUrl,
+        assetUrl,
         addNotification,
         isDiceTrayOpen,
         toggleDiceTray,
         isChatOpen,
         setChatOpen,
         fetchWithAuth,
-        onActorChanged,
+        events,
         logger,
     }), [
         token, currentUser, system, isConnected,
-        moduleId, worldId, documents,
-        foundryUrl, resolveImageUrl, addNotification,
+        resolvedModuleId, worldId, documents,
+        foundryUrl, resolveImageUrl, assetUrl, addNotification,
         isDiceTrayOpen, toggleDiceTray, isChatOpen, setChatOpen,
-        fetchWithAuth, onActorChanged, logger,
+        fetchWithAuth, events, logger,
     ]);
 
     // Components are stable references — useMemo avoids recreating the object

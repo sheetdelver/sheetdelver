@@ -2,6 +2,7 @@ import { createContext, useContext } from 'react';
 import type { ComponentType } from 'react';
 import type { RealtimeActorChangedPayload } from './contracts';
 import type { ClientDocumentSource } from './client-documents';
+import type { SdkEvents } from './events';
 
 // ---------------------------------------------------------------------------
 // Logger — client-side, for use in module UI components
@@ -38,6 +39,8 @@ export interface SDKContextValue {
     baseUrl: string;
     foundryUrl: string;
     resolveImageUrl: (path: string) => string;
+    /** Resolve a module static asset to its platform URL (ADR-0027 decision 27). */
+    assetUrl: (assetPath: string) => string;
 
     // Notifications
     addNotification: (
@@ -55,12 +58,9 @@ export interface SDKContextValue {
     // Authenticated fetch for platform REST APIs (/api/actors/[id], etc.)
     fetchWithAuth: (input: string, init?: RequestInit) => Promise<Response>;
 
-    // Realtime — subscribe to actor change events for a specific actor.
-    // Returns a cleanup function; call it in useEffect cleanup.
-    onActorChanged: (
-        actorId: string,
-        callback: (data: RealtimeActorChangedPayload) => void,
-    ) => () => void;
+    // Realtime signal bus (ADR-0027 decision 20) — `events.on(signal, handler)`.
+    // Replaces the actor-only `onActorChanged`; covers all document types + lifecycle.
+    events: SdkEvents;
 
     // Client logger — prefixed with [module] in the browser console
     logger: ModuleClientLogger;

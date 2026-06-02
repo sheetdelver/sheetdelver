@@ -73,17 +73,6 @@ async function resolveCompendiumPackScope(moduleId: string): Promise<CompendiumP
     };
 }
 
-function parseCompendiumPackId(uuid: string): string | null {
-    if (!uuid.startsWith('Compendium.')) return null;
-    const parts = uuid.split('.');
-    if (parts.length < 4) return null;
-
-    parts.pop();
-    const possibleType = parts[parts.length - 1] || '';
-    const hasTypeSegment = /^[A-Z]/.test(possibleType);
-    return (hasTypeSegment ? parts.slice(1, -1) : parts.slice(1)).join('.') || null;
-}
-
 function getScopedPackIds(scope: CompendiumPackScope | null, type: string): string[] {
     if (!scope) return [];
     return scope.packs
@@ -91,11 +80,22 @@ function getScopedPackIds(scope: CompendiumPackScope | null, type: string): stri
         .map(pack => pack.id);
 }
 
-function isScopedUuid(id: string, packIds: readonly string[]): boolean {
-    const packId = parseCompendiumPackId(id);
-    return Boolean(packId && packIds.includes(packId));
-}
-
+/**
+ * The module-facing compendium read surface (ADR-0027 decision 11).
+ *
+ * Declaration in `info.json` `compendiumPacks` is **hydration intent, not an access gate**.
+ * The fail-closed rule is only that an unknown read (a pack not present in the compendium
+ * at all) resolves to null and never triggers a live Foundry fetch — satisfied by
+ * construction, since the reader only ever touches the offline `CompendiumStore`.
+ *
+ * Reads are bounded by the module's *system* (cross-system isolation). Within it:
+ *  - query reads (`findOne`/`findAll`) are scoped to the declared packs of the requested
+ *    `type` — not as an access gate, but because the declaration is the reader's
+ *    authoritative type→pack map (the Store's row query is type-agnostic);
+ *  - `getById` with a fully-qualified `Compendium.<pack>.<Type>.<id>` UUID names its own
+ *    pack, so declaration is not consulted: any pack *present* in the system resolves
+ *    (an undeclared-but-present pack is readable), and an absent one returns null offline.
+ */
 export async function createScopedCompendiumPacks(
     moduleId: string,
     deps: ScopedCompendiumPackDeps = {},
@@ -105,27 +105,29 @@ export async function createScopedCompendiumPacks(
         ? await deps.getCompendiumPackScope(moduleId)
         : await resolveCompendiumPackScope(moduleId);
 
+    const systemId = scope?.systemId ?? moduleId.toLowerCase();
+
     return {
         findOne: async (type: string, query: Record<string, unknown>) => {
             const packIds = getScopedPackIds(scope, type);
-            if (!scope || packIds.length === 0) return null;
-
-            return packStore.findOne(scope.systemId, type, query, { packIds });
+            if (packIds.length === 0) return null;
+            return packStore.findOne(systemId, type, query, { packIds });
         },
         findAll: async (type: string, query?: Record<string, unknown>) => {
             const packIds = getScopedPackIds(scope, type);
-            if (!scope || packIds.length === 0) return [];
-            return packStore.findAll(scope.systemId, type, query || {}, { packIds });
+            if (packIds.length === 0) return [];
+            return packStore.findAll(systemId, type, query || {}, { packIds });
         },
         getById: async (type: string, id: string) => {
+            // Fully-qualified UUID names its own pack — declaration is not an access gate
+            // (decision 11): resolve any present pack in the system, offline.
+            if (id.startsWith('Compendium.')) {
+                return packStore.getById(systemId, type, id);
+            }
+            // Bare id: type-scope to declared packs (the reader's authoritative type map).
             const packIds = getScopedPackIds(scope, type);
-            if (!scope || packIds.length === 0) return null;
-            // Bare document ids are safe because the Store call is still scoped
-            // to declared pack ids. Fully-qualified UUIDs must name one of those
-            // packs before we ask the Store to search.
-            if (id.startsWith('Compendium.') && !isScopedUuid(id, packIds)) return null;
-
-            return packStore.getById(scope.systemId, type, id, { packIds });
+            if (packIds.length === 0) return null;
+            return packStore.getById(systemId, type, id, { packIds });
         },
     };
 }

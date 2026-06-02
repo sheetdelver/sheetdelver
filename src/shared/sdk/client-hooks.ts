@@ -3,7 +3,7 @@ import type { ComponentType } from 'react';
 import { useSDK, useSDKComponents } from './react';
 import { processHtmlContent } from './utils';
 import type { DocumentSnapshot, ClientDocumentMutations } from './client-documents';
-import type { FoundryActor } from './interfaces';
+import type { FoundryActor, ModuleSettingDeclaration } from './interfaces';
 
 /**
  * Client data hooks (ADR-0027 decisions 16/17/25).
@@ -139,6 +139,92 @@ export function useActorSheet<TActor = FoundryActor>(
         roll,
         update,
     };
+}
+
+// ---------------------------------------------------------------------------
+// Module settings (decision 21)
+// ---------------------------------------------------------------------------
+
+/** The `useModuleSettings` controller — get/set client settings persisted to localStorage. */
+export interface ModuleSettings {
+    /** Read a setting: stored value, else the schema default, else `fallback`. */
+    get<T = unknown>(key: string, fallback?: T): T | undefined;
+    /** Persist a setting and notify every consumer in the same namespace. */
+    set<T = unknown>(key: string, value: T): void;
+    /** Snapshot of all settings (schema defaults merged with stored values). */
+    all(): Record<string, unknown>;
+}
+
+interface SettingsEntry {
+    values: Record<string, unknown>;
+    listeners: Set<() => void>;
+}
+
+// One reactive store per `worldId+moduleId` namespace so every consumer (e.g. a theme
+// toggle and the layout reading the theme) observes the same value. Seeded from
+// localStorage; `set` reassigns `values` (stable-snapshot contract) and notifies.
+const settingsStores = new Map<string, SettingsEntry>();
+
+function settingsEntryFor(ns: string): SettingsEntry {
+    let entry = settingsStores.get(ns);
+    if (!entry) {
+        const values: Record<string, unknown> = {};
+        if (typeof window !== 'undefined') {
+            const prefix = `${ns}:`;
+            for (let i = 0; i < window.localStorage.length; i++) {
+                const k = window.localStorage.key(i);
+                if (!k || !k.startsWith(prefix)) continue;
+                const raw = window.localStorage.getItem(k);
+                if (raw === null) continue;
+                try { values[k.slice(prefix.length)] = JSON.parse(raw); } catch { /* skip */ }
+            }
+        }
+        entry = { values, listeners: new Set() };
+        settingsStores.set(ns, entry);
+    }
+    return entry;
+}
+
+function writeSetting(ns: string, key: string, value: unknown) {
+    const entry = settingsEntryFor(ns);
+    entry.values = { ...entry.values, [key]: value };
+    if (typeof window !== 'undefined') {
+        window.localStorage.setItem(`${ns}:${key}`, JSON.stringify(value));
+    }
+    entry.listeners.forEach((listener) => listener());
+}
+
+/**
+ * Module-scoped client settings (decision 21). Values persist to localStorage namespaced
+ * by the host-provided `worldId + moduleId`; `schema` (from `info.json` `settings`) seeds
+ * defaults. The client counterpart to the server-side `DataStore` (decision 12); replaces
+ * ad-hoc per-module localStorage.
+ */
+export function useModuleSettings(schema?: ModuleSettingDeclaration[]): ModuleSettings {
+    const { worldId, moduleId } = useSDK();
+    const ns = `sheetdelver:settings:${worldId ?? 'global'}:${moduleId ?? 'unknown'}`;
+    const entry = settingsEntryFor(ns);
+
+    const subscribe = useCallback((onStoreChange: () => void) => {
+        entry.listeners.add(onStoreChange);
+        return () => { entry.listeners.delete(onStoreChange); };
+    }, [entry]);
+    const values = useSyncExternalStore(subscribe, () => entry.values, () => entry.values);
+
+    const defaults = useMemo(() => {
+        const out: Record<string, unknown> = {};
+        for (const decl of schema ?? []) {
+            if (decl.default !== undefined) out[decl.key] = decl.default;
+        }
+        return out;
+    }, [schema]);
+
+    return useMemo<ModuleSettings>(() => ({
+        get: <T,>(key: string, fallback?: T) =>
+            (key in values ? values[key] : (key in defaults ? defaults[key] : fallback)) as T | undefined,
+        set: (key, value) => writeSetting(ns, key, value),
+        all: () => ({ ...defaults, ...values }),
+    }), [values, defaults, ns]);
 }
 
 /**

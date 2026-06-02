@@ -4,10 +4,23 @@ import path from 'node:path';
 import { createModuleProxyService } from '@server/services/modules/ModuleProxyService';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
 import { logger } from '@shared/utils/logger';
-import { getModulesDataDir } from '@core/paths';
+import { getModulesDataDir, getLocalModulesDataDir } from '@core/paths';
 
 interface ModuleRouterDeps {
     tryAuthenticateSession: express.RequestHandler;
+}
+
+/**
+ * Resolve a module's base directory, checking installed modules first
+ * (`<DATA_DIR>/modules/<id>`) then local-dev modules (`<DATA_DIR>/local/modules/<id>`).
+ * Per ADR-0027 decision 27, the asset URL must resolve identically in dev and packaged.
+ */
+function resolveModuleBaseDir(moduleId: string): string | null {
+    for (const root of [getModulesDataDir(), getLocalModulesDataDir()]) {
+        const candidate = path.join(root, moduleId);
+        if (fs.existsSync(candidate)) return candidate;
+    }
+    return null;
 }
 
 // ─── Module JS rewriter ────────────────────────────────────────────────────────
@@ -150,9 +163,10 @@ export function createModuleRouter(deps: ModuleRouterDeps) {
     /**
      * GET /api/modules/:id/assets/*
      *
-     * Serves static assets for a managed module from <DATA_DIR>/modules/:id/assets/.
-     * Local dev module assets are handled by the Next.js webpack pipeline and are
-     * intentionally not served here. Includes path traversal protection.
+     * Serves static assets for a module from its `assets/` directory, resolving both
+     * installed (<DATA_DIR>/modules/:id) and local-dev (<DATA_DIR>/local/modules/:id)
+     * modules so `assetUrl()` resolves identically in dev and packaged (ADR-0027
+     * decision 27). Includes path traversal protection.
      */
     moduleRouter.get('/:id/assets/{*assetPath}', async (req, res) => {
         const moduleId = String(req.params.id).toLowerCase();
@@ -161,9 +175,9 @@ export function createModuleRouter(deps: ModuleRouterDeps) {
         const prefix = `/${moduleId}/assets/`;
         const assetPath = req.path.slice(prefix.length);
 
-        const baseDir = path.join(getModulesDataDir(), moduleId);
+        const baseDir = resolveModuleBaseDir(moduleId);
 
-        if (!fs.existsSync(baseDir)) {
+        if (!baseDir) {
             return res.status(404).json({ error: `Module "${moduleId}" not found` });
         }
 

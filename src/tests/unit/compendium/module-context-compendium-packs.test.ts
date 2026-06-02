@@ -17,7 +17,8 @@ class MemoryPackCache implements CompendiumPackCache {
 
 export async function run() {
     await runModuleScopedPackReads();
-    await runFailClosedWithoutScope();
+    await runUndeclaredButPresentPackReadableByUuid();
+    await runFailClosedForOtherSystem();
     await runNoNameCacheFallback();
     console.log('  - Module context compendium packs: all checks passed');
 }
@@ -69,6 +70,8 @@ async function runModuleScopedPackReads() {
         getCompendiumPackScope: () => itemOnlyScope(),
     });
 
+    // Query reads stay type-scoped to declared packs (the reader's authoritative type map);
+    // an undeclared type resolves to empty (type unknown to the reader, not an access denial).
     assert.equal((await compendiumPacks.findOne('Item', { name: 'Torch' }))?._id, 'torch');
     assert.equal((await compendiumPacks.getById('Item', 'torch'))?.name, 'Torch');
     assert.equal((await compendiumPacks.findAll('Item')).length, 1);
@@ -76,7 +79,31 @@ async function runModuleScopedPackReads() {
     assert.equal(await compendiumPacks.getById('RollTable', 'talents'), null);
 }
 
-async function runFailClosedWithoutScope() {
+// ADR-0027 decision 11: declaration is hydration intent, NOT an access gate. A
+// fully-qualified UUID names its own pack, so an undeclared-but-present pack is readable
+// by UUID even though the scope declared only the Item pack. An absent pack returns null
+// (fail-closed, offline — no live Foundry fetch).
+async function runUndeclaredButPresentPackReadableByUuid() {
+    const compendiumPacks = await createScopedCompendiumPacks('synthetic-module', {
+        packStore: await createSeededStore(),
+        getCompendiumPackScope: () => itemOnlyScope(),
+    });
+
+    assert.equal(
+        (await compendiumPacks.getById('RollTable', 'Compendium.synthetic.tables.RollTable.talents'))?.name,
+        'Talents',
+        'undeclared-but-present pack resolves via fully-qualified UUID',
+    );
+    assert.equal(
+        await compendiumPacks.getById('RollTable', 'Compendium.synthetic.missing.RollTable.x'),
+        null,
+        'absent pack fails closed',
+    );
+}
+
+// Cross-system isolation is preserved by the systemId namespace: a module reading under a
+// different system id finds nothing present and fails closed (no live Foundry fetch).
+async function runFailClosedForOtherSystem() {
     const compendiumPacks = await createScopedCompendiumPacks('missing-module', {
         packStore: await createSeededStore(),
         getCompendiumPackScope: () => null,

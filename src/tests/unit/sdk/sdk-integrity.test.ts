@@ -25,9 +25,12 @@ import {
     useDocument,
     useDocumentMutation,
     useActorSheet,
+    useModuleSettings,
     createActorPage,
     json,
     error,
+    capabilities,
+    parseRollResult,
     SDK_VERSION,
     API_CONTRACT_VERSIONS,
 } from '../../../shared/sdk/index';
@@ -343,12 +346,23 @@ function runClientSdkTests() {
     assert.equal(typeof useDocument, 'function');
     assert.equal(typeof useDocumentMutation, 'function');
     assert.equal(typeof useActorSheet, 'function');
+    assert.equal(typeof useModuleSettings, 'function');
 
     // createActorPage produces a component without rendering it.
     const Page = createActorPage(() => null);
     assert.equal(typeof Page, 'function');
 
-    console.log('  - Client SDK (hooks + actor sheet): surface verified');
+    // parseRollResult normalizes raw roll shapes (decision 15).
+    const parsed = parseRollResult({ total: 7, formula: '1d6+1' });
+    assert.equal(parsed.formula, '1d6+1');
+    assert.equal(parsed.total, 7);
+    const fromRollTotal = parseRollResult({ rollTotal: 5 }, '1d4');
+    assert.equal(fromRollTotal.total, 5);
+    assert.equal(fromRollTotal.formula, '1d4');
+    const withDice = parseRollResult({ formula: '2d6', total: 7, terms: [{ results: [{ result: 3 }, { result: 4 }] }] });
+    assert.deepEqual(withDice.dice, [3, 4]);
+
+    console.log('  - Client SDK (hooks + actor sheet + parseRollResult): surface verified');
 }
 
 // ---------------------------------------------------------------------------
@@ -361,6 +375,14 @@ function runVersionTests() {
     assert.ok('module-api' in API_CONTRACT_VERSIONS);
     assert.ok('ui-extension-api' in API_CONTRACT_VERSIONS);
     assert.ok('roll-engine-api' in API_CONTRACT_VERSIONS);
+
+    // Capability detection (decision 23)
+    assert.equal(capabilities.supports('combat'), true);
+    assert.equal(capabilities.supports('documents'), true);
+    assert.equal(capabilities.supports('events'), true);
+    assert.equal(capabilities.supports('nonexistent-capability'), false);
+    assert.ok(capabilities.list().includes('rolls'));
+
     console.log(`  - SDK version: ${SDK_VERSION}`);
 }
 

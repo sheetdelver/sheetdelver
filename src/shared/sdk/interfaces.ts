@@ -144,6 +144,21 @@ export interface ModulePackageDeclaration {
     include?: string[];
 }
 
+/**
+ * A single module setting declared in `info.json` `settings` (ADR-0027 decision 21).
+ * `useModuleSettings()` reads these to seed defaults; values persist to localStorage
+ * namespaced by the host-provided `worldId + moduleId`.
+ */
+export interface ModuleSettingDeclaration {
+    key: string;
+    type: 'string' | 'number' | 'boolean' | 'select';
+    default?: unknown;
+    label?: string;
+    description?: string;
+    /** Allowed values for `type: 'select'`. */
+    options?: Array<{ value: string; label: string }>;
+}
+
 export interface ModuleInfo {
     id: string;
     title: string;
@@ -158,6 +173,8 @@ export interface ModuleInfo {
     };
     manifest: ModuleManifestPaths;
     compendiumPacks?: CompendiumPackConfig;
+    /** Declared client settings schema (decision 21). */
+    settings?: ModuleSettingDeclaration[];
     package?: ModulePackageDeclaration;
     dependencies?: string[];
     conflicts?: string[];
@@ -177,6 +194,37 @@ export interface SystemThemeColors {
     input?: string;
     success?: string;
     [key: string]: string | undefined;
+}
+
+/**
+ * Chat-card render contract (ADR-0027 decision 15). A module produces a `ChatCard`
+ * (e.g. from an automated-sequence route) and the platform renders it, styled by
+ * `SystemComponentStyles.chat`. Pairs with the server-side `parseRollResult` helper.
+ */
+export interface ChatCardRoll {
+    formula: string;
+    total: number;
+    flavor?: string;
+}
+
+export interface ChatCardButton {
+    text: string;
+    /** Opaque value echoed back to the module's route when the button is used. */
+    value?: string;
+    /** Action key the module's route dispatches on. */
+    action?: string;
+}
+
+export interface ChatCard {
+    title?: string;
+    flavor?: string;
+    /** Pre-rendered HTML/text body. */
+    content?: string;
+    /** Structured rolls rendered with `componentStyles.chat.rollResult/rollFormula/rollTotal`. */
+    rolls?: ChatCardRoll[];
+    /** Interactive buttons rendered with `componentStyles.chat.button*`. */
+    buttons?: ChatCardButton[];
+    [key: string]: unknown;
 }
 
 export interface SystemComponentStyles {
@@ -272,6 +320,12 @@ export interface SystemAdapter {
 
     // --- Optional: core calls if present (all verified by runtime grep) ---
     initialize?(runtime: ModuleRuntime): Promise<void>;
+    /**
+     * Optional courtesy teardown on a world state transition (return-to-setup / shutdown,
+     * ADR-0027 decision 22) — for state-saving, not a per-operation resource contract.
+     * Called fire-and-forget as the active adapter is cleared.
+     */
+    dispose?(runtime: ModuleRuntime): void | Promise<void>;
     /** Read-only system data the adapter produces for the /system/data route; sources from its runtime. */
     getSystemData?(options?: { minimal?: boolean }): Promise<unknown>;
     getCompendiumPackConfig?(): CompendiumPackConfig;

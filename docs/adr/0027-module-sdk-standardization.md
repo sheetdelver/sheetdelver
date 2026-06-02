@@ -316,14 +316,14 @@ Phases are sequenced so each slice is independently verifiable. Checkpoints are 
 
 ### Phase 4 — Compendium, assets, styles, settings, capabilities, events
 
-- [ ] Implement `runtime.compendium` hydration-intent semantics + fail-closed unknown reads (decision 11).
+- [x] Implement `runtime.compendium` hydration-intent semantics + fail-closed unknown reads (decision 11). — the reader only ever touches the offline `CompendiumStore`, so the sole fail-closed rule (no live Foundry fetch for unknown reads) holds by construction. Declaration is no longer an access gate: `getById` with a fully-qualified `Compendium.<pack>.<Type>.<id>` UUID resolves any pack *present* in the system (undeclared-but-present readable), returning null offline when absent. Query reads (`findOne`/`findAll`) stay scoped to declared packs of the requested `type` — not as a gate but because the declaration is the reader's authoritative type→pack map (the Store's row query is type-agnostic) and in-memory pack metadata isn't system-scoped. Covered by `module-context-compendium-packs.test.ts`.
 - [ ] Implement `assetUrl()` and extend the asset route to serve local-dev modules; drop TSX asset imports (decision 27).
 - [ ] Implement runtime CSS scoping under the `SurfaceHost` root + the `module:check` global-leak lint (decision 28).
-- [ ] Implement `useModuleSettings` + `info.json` `settings` schema (decision 21).
-- [ ] Implement `SDK.capabilities.supports(...)` (decision 23).
-- [ ] Implement the realtime/event signal bus across all document types; retire actor-only `onActorChanged` (decision 20).
-- [ ] Add `adapter.dispose?(runtime)` courtesy teardown on world state transition (decision 22).
-- [ ] Add `parseRollResult` and the chat-card render contract (decision 15).
+- [x] Implement `useModuleSettings` + `info.json` `settings` schema (decision 21). — `ModuleSettingDeclaration` added to `ModuleInfo.settings`; `useModuleSettings(schema?)` is a self-contained reactive hook (per-`worldId+moduleId` localStorage namespace, `useSyncExternalStore` so all consumers sync, schema-seeded defaults) — the client counterpart to `DataStore`. (dnd5e's `useSheetSetting` left in place for now; conversion is optional polish tied up with the deferred theme/CSS work.)
+- [x] Implement `SDK.capabilities.supports(...)` (decision 23). — `capabilities.supports(cap)` + `SDK_CAPABILITIES`/`SdkCapability` (`capabilities.ts`), reporting the features this SDK build exposes (documents/rolls/tables/compendium/effects/combat/settings/assets/events). Asserted in `sdk-integrity`.
+- [x] Implement the realtime/event signal bus across all document types; retire actor-only `onActorChanged` (decision 20). — `SdkEvents`/`SdkSignal` (`events.ts`); host bus `createSdkEventBus` maps every `<type>Changed`/`<type>ListInvalidated` socket event to `document:changed`/`document:listInvalidated` (Combat included, no special-casing), plus `content:shared` and `connection:changed`/`world:ready`/`world:teardown` from the status stream. `SDKContextValue.events` replaces `onActorChanged`; the host document cache now invalidates via `events.on('document:changed')` (all types). Covered by `src/tests/unit/client/sdk-event-bus.test.ts`.
+- [x] Add `adapter.dispose?(runtime)` courtesy teardown on world state transition (decision 22). — optional `dispose?(runtime)` on `SystemAdapter`; `WorldBootstrapper` retains the `initialize` runtime as `activeRuntime` and calls `dispose` fire-and-forget in `clearActiveAdapter` (reached via `reset()` on disconnect), so a slow/throwing dispose never blocks the transition. Covered by `world-bootstrapper.test.ts`.
+- [x] Add `parseRollResult` and the chat-card render contract (decision 15). — `parseRollResult(raw, fallbackFormula?)` in `utils.ts` (server-side counterpart to `simulateRoll`; flattens Foundry `Roll.toJSON()`/`rolls.roll` shapes into `{ formula, total, terms?, dice? }`, extracting dice from `terms[].results[]`). `ChatCard`/`ChatCardRoll`/`ChatCardButton` render contract added to `interfaces.ts`; `componentStyles.chat` already existed and pairs with it. Covered in `sdk-integrity`.
 
 ### Phase 5 — Tooling conformance
 

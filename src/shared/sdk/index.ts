@@ -6,6 +6,9 @@ export type {
     SystemAdapter,
     SystemThemeColors,
     SystemComponentStyles,
+    ChatCard,
+    ChatCardRoll,
+    ChatCardButton,
 } from './interfaces';
 
 export type {
@@ -23,6 +26,7 @@ export type {
 export type {
     UIModuleManifest,
     ModuleInfo,
+    ModuleSettingDeclaration,
     ModuleManifestPaths,
     ModulePackageDeclaration,
     ModulePermissionDeclaration,
@@ -120,6 +124,8 @@ export {
     getSafeDescription,
     simulateRoll,
     simulateTableDraw,
+    parseRollResult,
+    buildModuleAssetUrl,
 } from './utils';
 
 export type {
@@ -147,10 +153,19 @@ export type {
     ClientDocumentError,
 } from './client-documents';
 
+export type {
+    SdkEvents,
+    SdkSignal,
+    SdkSignalPayloads,
+    SdkSignalHandler,
+    DocumentChangeAction,
+} from './events';
+
 export {
     useDocument,
     useDocumentMutation,
     useActorSheet,
+    useModuleSettings,
     createActorPage,
 } from './client-hooks';
 
@@ -158,11 +173,15 @@ export type {
     ActorSheetProps,
     ActorPageProps,
     UseActorSheetResult,
+    ModuleSettings,
 } from './client-hooks';
 
 // ---------------------------------------------------------------------------
 // Version constants — matched against info.json compatibility.apiContracts
 // ---------------------------------------------------------------------------
+
+export { capabilities, SDK_CAPABILITIES } from './capabilities';
+export type { SdkCapability } from './capabilities';
 
 export const SDK_VERSION = '1.0.0';
 

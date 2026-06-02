@@ -2,12 +2,14 @@ import { run as runFoundryStateHelpers } from './foundry-state-helpers.test';
 import { run as runRuntimeSurface } from './runtime-surface.test';
 import { run as runSharedContentRealtime } from './shared-content-realtime.test';
 import { run as runDocumentSource } from './document-source.test';
+import { run as runSdkEventBus } from './sdk-event-bus.test';
 
 export async function run() {
     runFoundryStateHelpers();
     runRuntimeSurface();
     runSharedContentRealtime();
     await runDocumentSource();
+    runSdkEventBus();
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

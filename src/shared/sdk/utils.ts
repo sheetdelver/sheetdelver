@@ -33,6 +33,16 @@ export function resolveImage(path: string, baseUrl?: string): string {
 }
 
 /**
+ * Build the platform URL for a module's static asset (ADR-0027 decision 27).
+ * The same URL — `/api/modules/<id>/assets/<path>` — resolves in dev and packaged.
+ * A leading `assets/` (as declared in `info.json` `stylesheet`) is tolerated.
+ */
+export function buildModuleAssetUrl(moduleId: string, assetPath: string): string {
+    const clean = assetPath.replace(/^\/+/, '').replace(/^assets\//, '');
+    return `/api/modules/${moduleId}/assets/${clean}`;
+}
+
+/**
  * Fix relative `src=` attributes in Foundry-enriched HTML.
  * Prepends the Foundry base URL to relative image paths.
  */
@@ -100,6 +110,51 @@ export interface DrawResultRow {
     /** Legacy document id. */
     documentId?: string;
     [key: string]: unknown;
+}
+
+/**
+ * Normalize a raw roll evaluation into the structured `RollResult` shape (ADR-0027
+ * decision 15) — the server-side counterpart to `simulateRoll`. Module route handlers
+ * compose automated sequences over `runtime.rolls.roll`; `parseRollResult` flattens a
+ * raw roll-ish object (Foundry `Roll.toJSON()`, the `rolls.roll` payload, etc.) into a
+ * consistent `{ formula, total, terms?, dice? }` so chat-card rendering and downstream
+ * logic don't each re-parse vendor shapes.
+ */
+export function parseRollResult(
+    raw: unknown,
+    fallbackFormula = '',
+): { formula: string; total: number; terms?: unknown[]; dice?: number[]; [key: string]: unknown } {
+    const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+
+    const formula = String(r.formula ?? r.expression ?? fallbackFormula ?? '');
+    const total = Number(r.total ?? r.rollTotal ?? r.result ?? 0) || 0;
+    const terms = Array.isArray(r.terms) ? (r.terms as unknown[]) : undefined;
+
+    // Pull individual die results from common shapes: a flat `dice` array, or
+    // Foundry's `terms[].results[].result`.
+    let dice: number[] | undefined;
+    if (Array.isArray(r.dice) && r.dice.every((d) => typeof d === 'number')) {
+        dice = r.dice as number[];
+    } else if (terms) {
+        const collected: number[] = [];
+        for (const term of terms) {
+            const results = (term as { results?: Array<{ result?: unknown }> })?.results;
+            if (Array.isArray(results)) {
+                for (const res of results) {
+                    if (typeof res?.result === 'number') collected.push(res.result);
+                }
+            }
+        }
+        if (collected.length) dice = collected;
+    }
+
+    return {
+        ...r,
+        formula,
+        total,
+        ...(terms ? { terms } : {}),
+        ...(dice ? { dice } : {}),
+    };
 }
 
 /**

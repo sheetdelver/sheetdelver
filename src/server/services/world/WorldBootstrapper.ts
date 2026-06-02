@@ -100,6 +100,9 @@ export class WorldBootstrapper {
     private readonly now: () => number;
     private activeSystemId: string | null = null;
     private activeAdapter: SystemAdapter | null = null;
+    // Retained so the courtesy `adapter.dispose(runtime)` (decision 22) gets the same
+    // runtime instance that `initialize` received.
+    private activeRuntime: ModuleRuntime | null = null;
     private lastCompatibility: FoundryVersionCompatibilityDiagnostic | null = null;
     private ready = false;
     private bootstrapPromise: Promise<WorldBootstrapResult> | null = null;
@@ -256,6 +259,7 @@ export class WorldBootstrapper {
                 if (hasInitialize(adapter)) {
                     logger.info(`WorldBootstrapper | Initializing adapter for ${sysInfo.id}...`);
                     const runtime = await this.createModuleRuntime(sysId);
+                    this.activeRuntime = runtime;
                     await adapter.initialize(runtime);
                 }
 
@@ -323,8 +327,24 @@ export class WorldBootstrapper {
         if (!this.activeSystemId && !this.activeAdapter) return;
 
         logger.debug(`WorldBootstrapper | Clearing active adapter (${reason})`);
+
+        // Courtesy teardown (decision 22): fire-and-forget so a slow or throwing dispose
+        // never blocks or breaks the world transition.
+        const adapter = this.activeAdapter;
+        const runtime = this.activeRuntime;
+        if (adapter?.dispose && runtime) {
+            try {
+                void Promise.resolve(adapter.dispose(runtime)).catch((error) => {
+                    logger.warn(`WorldBootstrapper | adapter.dispose threw (${reason}): ${getErrorMessage(error)}`);
+                });
+            } catch (error) {
+                logger.warn(`WorldBootstrapper | adapter.dispose threw (${reason}): ${getErrorMessage(error)}`);
+            }
+        }
+
         this.activeSystemId = null;
         this.activeAdapter = null;
+        this.activeRuntime = null;
     }
 
     private handleCompatibilityResult(compatibility: FoundryVersionCompatibilityResult): void {
