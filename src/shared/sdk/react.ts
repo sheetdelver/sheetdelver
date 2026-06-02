@@ -1,6 +1,7 @@
 import { createContext, useContext } from 'react';
 import type { ComponentType } from 'react';
 import type { RealtimeActorChangedPayload } from './contracts';
+import type { ClientDocumentSource } from './client-documents';
 
 // ---------------------------------------------------------------------------
 // Logger — client-side, for use in module UI components
@@ -23,6 +24,15 @@ export interface SDKContextValue {
     currentUser: { id: string; name: string; isGM: boolean; role: number } | null;
     system: { id: string | null; title?: string; version?: string } | null;
     isConnected: boolean;
+
+    // Host-provided runtime identity (ADR-0027 decision 19). Supplied by the host at
+    // each surface rather than discovered by modules via `/system/data`.
+    moduleId: string | null;
+    worldId: string | null;
+
+    // Host-owned document cache + data API (ADR-0027 decisions 17/25). The only
+    // module-facing data surface; consumed by useDocument / useDocumentMutation / useActorSheet.
+    documents: ClientDocumentSource;
 
     // URL resolution
     baseUrl: string;

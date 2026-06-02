@@ -1,5 +1,6 @@
-import React, { Suspense } from 'react';
+import React from 'react';
 import { getUIModule } from '@modules/registry/client';
+import { SurfaceHost } from '@client/ui/components/SurfaceHost';
 
 interface SystemToolsProps {
     systemId: string;
@@ -38,14 +39,18 @@ export default function SystemTools({ systemId, setLoading, setLoginMessage, the
 
     if (ResolvedTools) {
         return (
-            <Suspense fallback={LoadingComponent ? <LoadingComponent /> : null}>
+            <SurfaceHost
+                moduleId={systemId}
+                surface="dashboardTools"
+                loading={LoadingComponent ? <LoadingComponent /> : null}
+            >
                 <ResolvedTools
                     setLoading={setLoading}
                     setLoginMessage={setLoginMessage}
                     theme={theme}
                     token={token}
                 />
-            </Suspense>
+            </SurfaceHost>
         );
     }
 

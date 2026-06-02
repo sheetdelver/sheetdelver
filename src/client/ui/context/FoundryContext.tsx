@@ -32,6 +32,8 @@ interface FoundryContextType {
     users: User[];
     currentUser: User | null;
     system: AppSystemInfo | null;
+    /** Active world identifier (from StatusService); null until a world is connected. */
+    worldId: string | null;
     messages: ChatMessageDto[];
     appVersion: string | null;
     activeUIModule: UIModuleManifest | null;
@@ -173,7 +175,7 @@ export function FoundryProvider({ children }: { children: ReactNode }) {
         step, setStep,
         token, setToken,
         users, currentUser,
-        system, messages,
+        system, worldId: lastWorldId, messages,
         appVersion,
         activeUIModule,
         actorCards,
@@ -185,7 +187,7 @@ export function FoundryProvider({ children }: { children: ReactNode }) {
         combats, fetchCombats,
         appSocket
     }), [
-        step, setStep, token, users, currentUser, system, messages,
+        step, setStep, token, users, currentUser, system, lastWorldId, messages,
         appVersion, activeUIModule, actorCards, ownedActors, readOnlyActors,
         sharedContent, combats, appSocket, isConfigured,
         fetchActorCards, handleLogin, handleChatSend, handleLogout, fetchActors, fetchCombats, setToken

@@ -20,6 +20,12 @@ import {
     type UseFoundry,
     type UseUI,
     type UseNotifications,
+    type ActorSheetProps,
+    type ActorPageProps,
+    useDocument,
+    useDocumentMutation,
+    useActorSheet,
+    createActorPage,
     json,
     error,
     SDK_VERSION,
@@ -319,6 +325,33 @@ function runUIPropTests() {
 }
 
 // ---------------------------------------------------------------------------
+// Client SDK — data hooks + actor sheet (decisions 16/17/25)
+// ---------------------------------------------------------------------------
+
+function runClientSdkTests() {
+    // Sheet/page prop shapes compile and compose.
+    const _sheetProps: ActorSheetProps = {
+        actor: {} as FoundryActor,
+        isOwner: true,
+        onRoll: () => {},
+        onUpdate: () => {},
+    };
+    const _pageProps: ActorPageProps = { actorId: 'a1' };
+    void _sheetProps; void _pageProps;
+
+    // Hooks are exported as functions (cannot be invoked outside a React render).
+    assert.equal(typeof useDocument, 'function');
+    assert.equal(typeof useDocumentMutation, 'function');
+    assert.equal(typeof useActorSheet, 'function');
+
+    // createActorPage produces a component without rendering it.
+    const Page = createActorPage(() => null);
+    assert.equal(typeof Page, 'function');
+
+    console.log('  - Client SDK (hooks + actor sheet): surface verified');
+}
+
+// ---------------------------------------------------------------------------
 // Version constants
 // ---------------------------------------------------------------------------
 
@@ -344,6 +377,7 @@ export async function run() {
     await runContextTests();
     await runManifestTests();
     runUIPropTests();
+    runClientSdkTests();
     runVersionTests();
 }
 

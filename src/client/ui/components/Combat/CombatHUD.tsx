@@ -1,11 +1,12 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useMemo, Suspense } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useFoundry } from '@client/ui/context/FoundryContext';
 import { useActorCombat } from '@client/ui/context/ActorCombatContext';
 import { useSession } from '@client/ui/context/SessionContext';
 import type { CombatDto } from '@shared/contracts/combats';
 import { resolveImage, getUIModule } from '@modules/registry/client';
+import { SurfaceHost } from '@client/ui/components/SurfaceHost';
 import { logger } from '@shared/utils/logger';
 import { Swords, Skull, Shield, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, SkipForward, SkipBack } from 'lucide-react';
 import RollDialog from '../RollDialog';
@@ -418,7 +419,7 @@ export default function CombatHUD() {
             </div>
 
             {DynamicRollModal && (
-                <Suspense fallback={null}>
+                <SurfaceHost moduleId={system?.id ?? undefined} surface="rollModal" loading={null}>
                     <DynamicRollModal
                         isOpen={isRollDialogOpen}
                         title={rollCommand?.title || 'Roll Initiative'}
@@ -432,7 +433,7 @@ export default function CombatHUD() {
                         onConfirm={handleConfirmRoll}
                         onClose={() => setIsRollDialogOpen(false)}
                     />
-                </Suspense>
+                </SurfaceHost>
             )}
         </>
     );

@@ -124,7 +124,7 @@ async function runAllUnitTests() {
     await runDebugService();
     await runUtilityService();
     await runSystemService();
-    runClientUnitTests();
+    await runClientUnitTests();
     await runFoundryUserConnectionRestore();
     await runAuthStatusSmoke();
     await runActorCombatSmoke();

@@ -302,11 +302,11 @@ Phases are sequenced so each slice is independently verifiable. Checkpoints are 
 
 ### Phase 2 — Client sheet SDK and surface hosting
 
-- [ ] Export `ActorSheetProps`, `useActorSheet` (actor-focused), and `createActorPage`; make `actorPage` optional with a default platform host (decision 16).
-- [ ] Add `useDocument` / `useDocumentMutation` client hooks; remove item/effect CRUD from `useActorSheet` (decision 17).
-- [ ] Add `SurfaceHost` (host-owned error + loading boundary + style-scope root) and wrap every dynamic surface: actor page, `tools`, `dashboardTools`, `rollModal` (decision 18).
-- [ ] Provide host-supplied runtime identity (`moduleId`, `worldId`, `system`) via the provider; stop `/system/data` identity discovery (decision 19).
-- [ ] Back data hooks with a host-owned cache (dedup + realtime invalidation); expose no query library (decision 25).
+- [x] Export `ActorSheetProps`, `useActorSheet` (actor-focused), and `createActorPage`; make `actorPage` optional with a default platform host (decision 16). — `client-hooks.ts`: `useActorSheet` returns `{ actor, loading, notFound, isOwner, foundryUrl, refresh, roll, update }` (rollMode/speaker defaults centralized); `createActorPage(Sheet)` hosts a presentational sheet. `ActorPageRouter` now resolves `actorPage` → else `createActorPage(sheet)` → else `GenericActorPage`.
+- [x] Add `useDocument` / `useDocumentMutation` client hooks; remove item/effect CRUD from `useActorSheet` (decision 17). — `useDocument(type,id)` (read+subscribe via `useSyncExternalStore`) and `useDocumentMutation(type)` (`create`/`patch`/`delete` + `embedded`); `useActorSheet` is actor-focused only (no item/effect CRUD).
+- [x] Add `SurfaceHost` (host-owned error + loading boundary + style-scope root) and wrap every dynamic surface: actor page, `tools`, `dashboardTools`, `rollModal` (decision 18). — `SurfaceHost.tsx` (first React error boundary in `src/client`) wraps `ActorPageRouter`, `ToolPageRouter`, `SystemTools`, and `CombatHUD`'s rollModal; emits a `sd-surface-root` scope anchor (data-surface/data-module) for decision 28. Wrapping `tools`/`dashboardTools` also gives them SDK context they previously lacked.
+- [x] Provide host-supplied runtime identity (`moduleId`, `worldId`, `system`) via the provider; stop `/system/data` identity discovery (decision 19). — `worldId` lifted out of `FoundryContext` (was internal `lastWorldId`); `SDKContextValue` gains `moduleId`/`worldId`; `SurfaceHost`/`SDKProvider` inject `moduleId` per surface. Module-side removal of any `/system/data` identity probing rides Phase 3 conformance.
+- [x] Back data hooks with a host-owned cache (dedup + realtime invalidation); expose no query library (decision 25, client half). — `createClientDocumentSource` is an **app-level singleton** (`getClientDocumentSource`) so a dashboard card and an open sheet share one fetch; concurrent reads dedup on the in-flight promise; a single `actorChanged` listener in `SDKProvider` invalidates the key (every mounted surface refreshes from one source); mutations write through + invalidate; `resetClientDocumentSource` clears on logout/world change. No query library is exposed. Covered by `src/tests/unit/client/document-source.test.ts`.
 
 ### Phase 3 — Prove it with dnd5e (conform)
 

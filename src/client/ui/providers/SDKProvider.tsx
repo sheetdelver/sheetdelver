@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useCallback } from 'react';
+import React, { useMemo, useCallback, useEffect } from 'react';
 import { SDKContext, SDKComponentsContext } from '@shared/sdk/react';
 import { useFoundry } from '@client/ui/context/FoundryContext';
 import { useUI } from '@client/ui/context/UIContext';
@@ -11,15 +11,19 @@ import RollDialog from '@client/ui/components/RollDialog';
 import { ConfirmationModal } from '@client/ui/components/ConfirmationModal';
 import RichTextEditor from '@client/ui/components/RichTextEditor';
 import { SharedContentModal } from '@client/ui/components/SharedContentModal';
+import { getClientDocumentSource, resetClientDocumentSource } from '@client/ui/sdk/createClientDocumentSource';
 import type { RealtimeActorChangedPayload } from '@shared/sdk/contracts';
 
 /**
  * SDKProvider bridges the platform's internal contexts and components into
  * the stable SDK surface that external modules consume via useSDK() and
  * useSDKComponents(). Place this above any dynamically-loaded module component.
+ *
+ * `moduleId` is the surface's resolved module (defaults to the active system id);
+ * surfaces that resolve a specific module pass it explicitly (ADR-0027 decision 19).
  */
-export function SDKProvider({ children }: { children: React.ReactNode }) {
-    const { token, currentUser, system, step, appSocket } = useFoundry();
+export function SDKProvider({ children, moduleId }: { children: React.ReactNode; moduleId?: string }) {
+    const { token, currentUser, system, worldId, step, appSocket } = useFoundry();
     const { isDiceTrayOpen, toggleDiceTray, isChatOpen, setChatOpen } = useUI();
     const { foundryUrl, resolveImageUrl } = useConfig();
     const { addNotification: addToast } = useNotifications();
@@ -54,6 +58,27 @@ export function SDKProvider({ children }: { children: React.ReactNode }) {
         return () => { socket.off('actorChanged', handler); };
     }, [appSocket]);
 
+    // Host-owned document cache (ADR-0027 decisions 17/25). App-level singleton so a
+    // dashboard card and an open sheet share one fetch; the call keeps its transport current.
+    const documents = getClientDocumentSource(fetchWithAuth);
+
+    // Clear the shared cache when the session ends (logout / world change drops the token).
+    useEffect(() => {
+        if (!token) resetClientDocumentSource();
+    }, [token]);
+
+    // A single realtime listener invalidates the shared cache for the changed actor, so
+    // every mounted surface refreshes from one fetch (replacing per-surface subscriptions).
+    useEffect(() => {
+        const socket = appSocket as any;
+        if (!socket) return;
+        const handler = (data: RealtimeActorChangedPayload) => {
+            if (data.actorId) documents.invalidate('Actor', data.actorId);
+        };
+        socket.on('actorChanged', handler);
+        return () => { socket.off('actorChanged', handler); };
+    }, [appSocket, documents]);
+
     const logger = useMemo(() => ({
         debug: (...args: unknown[]) => console.debug('[module]', ...args),
         info:  (...args: unknown[]) => console.info('[module]',  ...args),
@@ -75,6 +100,9 @@ export function SDKProvider({ children }: { children: React.ReactNode }) {
             ? { id: system.id, title: system.title, version: system.version }
             : null,
         isConnected,
+        moduleId:       moduleId ?? system?.id ?? null,
+        worldId:        worldId ?? null,
+        documents,
         baseUrl:        typeof window !== 'undefined' ? window.location.origin : '',
         foundryUrl:     foundryUrl ?? '',
         resolveImageUrl,
@@ -88,6 +116,7 @@ export function SDKProvider({ children }: { children: React.ReactNode }) {
         logger,
     }), [
         token, currentUser, system, isConnected,
+        moduleId, worldId, documents,
         foundryUrl, resolveImageUrl, addNotification,
         isDiceTrayOpen, toggleDiceTray, isChatOpen, setChatOpen,
         fetchWithAuth, onActorChanged, logger,

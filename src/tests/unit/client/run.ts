@@ -1,14 +1,17 @@
 import { run as runFoundryStateHelpers } from './foundry-state-helpers.test';
 import { run as runRuntimeSurface } from './runtime-surface.test';
 import { run as runSharedContentRealtime } from './shared-content-realtime.test';
+import { run as runDocumentSource } from './document-source.test';
 
-export function run() {
+export async function run() {
     runFoundryStateHelpers();
     runRuntimeSurface();
     runSharedContentRealtime();
+    await runDocumentSource();
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-    run();
-    console.log('client unit tests passed');
+    run()
+        .then(() => console.log('client unit tests passed'))
+        .catch((error) => { console.error(error); process.exit(1); });
 }

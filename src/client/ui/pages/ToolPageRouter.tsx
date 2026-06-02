@@ -1,9 +1,10 @@
 'use client';
 
-import React, { use, useEffect, useState, Suspense } from 'react';
+import React, { use, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { getUIModule } from '@modules/registry/client';
 import LoadingModal from '@client/ui/components/LoadingModal';
+import { SurfaceHost } from '@client/ui/components/SurfaceHost';
 
 /**
  * Generic tool page router.
@@ -80,8 +81,8 @@ export default function ToolPageRouter({ params }: { params: Promise<{ systemId:
     if (!ToolComponent) return Loading;
 
     return (
-        <Suspense fallback={Loading}>
+        <SurfaceHost moduleId={systemId} surface="tools" loading={Loading}>
             <ToolComponent />
-        </Suspense>
+        </SurfaceHost>
     );
 }

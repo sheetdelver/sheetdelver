@@ -1,12 +1,13 @@
 'use client';
 
-import React, { use, useEffect, useState, useRef, Suspense } from 'react';
+import React, { use, useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useFoundry } from '@client/ui/context/FoundryContext';
 import { getUIModule, invalidateModuleSourceCache } from '@modules/registry/client';
 import LoadingModal from '@client/ui/components/LoadingModal';
 import GenericActorPage from '@client/ui/pages/GenericActorPage';
-import { SDKProvider } from '@client/ui/providers/SDKProvider';
+import { SurfaceHost } from '@client/ui/components/SurfaceHost';
+import { createActorPage } from '@shared/sdk';
 
 /**
  * Core actor page router.
@@ -21,6 +22,7 @@ export default function ActorPageRouter({ params }: { params: Promise<{ id: stri
     const router = useRouter();
     const { token, appSocket } = useFoundry();
     const [ActorPage, setActorPage] = useState<React.ComponentType<{ actorId: string; token?: string | null }> | null>(null);
+    const [moduleId, setModuleId] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     // Incrementing this key causes the resolve effect to re-run in place,
@@ -87,6 +89,7 @@ export default function ActorPageRouter({ params }: { params: Promise<{ id: stri
                 }
 
                 resolvedSystemIdRef.current = systemId;
+                setModuleId(systemId);
                 // Always capture the real Foundry system even when module is disabled
                 // and systemId has fallen back to 'generic'.
                 if (data.foundrySystemId) foundrySystemIdRef.current = data.foundrySystemId;
@@ -94,12 +97,22 @@ export default function ActorPageRouter({ params }: { params: Promise<{ id: stri
                 const actorPageEntry = manifest?.actorPage;
 
                 if (actorPageEntry) {
+                    // Module ships a bespoke actor page (the escape hatch, decision 16).
                     const ResolvedComponent = typeof actorPageEntry === 'function'
                         ? React.lazy(actorPageEntry as any)
                         : actorPageEntry;
                     setActorPage(() => ResolvedComponent as any);
+                } else if (manifest?.sheet) {
+                    // No custom actorPage: host the module's presentational Sheet in the
+                    // default platform actor page via createActorPage (decision 16).
+                    const sheetEntry = manifest.sheet;
+                    const ResolvedSheet = typeof sheetEntry === 'function'
+                        ? React.lazy(sheetEntry as any)
+                        : sheetEntry;
+                    const HostedPage = createActorPage(ResolvedSheet as any);
+                    setActorPage(() => HostedPage as any);
                 } else {
-                    // Module does not provide a custom actorPage — use platform fallback.
+                    // Neither actorPage nor sheet (e.g. generic fallback) — platform generic page.
                     setActorPage(() => GenericActorPage as any);
                 }
             } catch (e: any) {
@@ -137,10 +150,8 @@ export default function ActorPageRouter({ params }: { params: Promise<{ id: stri
     if (!ActorPage) return null;
 
     return (
-        <SDKProvider>
-            <Suspense fallback={<LoadingModal message="Loading..." />}>
-                <ActorPage actorId={id} token={token} />
-            </Suspense>
-        </SDKProvider>
+        <SurfaceHost moduleId={moduleId ?? undefined} surface="actorPage">
+            <ActorPage actorId={id} token={token} />
+        </SurfaceHost>
     );
 }

@@ -140,6 +140,26 @@ export type {
     RealtimeActorChangedPayload,
 } from './react';
 
+export type {
+    ClientDocumentSource,
+    ClientDocumentMutations,
+    DocumentSnapshot,
+    ClientDocumentError,
+} from './client-documents';
+
+export {
+    useDocument,
+    useDocumentMutation,
+    useActorSheet,
+    createActorPage,
+} from './client-hooks';
+
+export type {
+    ActorSheetProps,
+    ActorPageProps,
+    UseActorSheetResult,
+} from './client-hooks';
+
 // ---------------------------------------------------------------------------
 // Version constants — matched against info.json compatibility.apiContracts
 // ---------------------------------------------------------------------------
