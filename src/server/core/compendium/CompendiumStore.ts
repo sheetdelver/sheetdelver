@@ -105,6 +105,14 @@ function parseCompendiumUuid(uuid: string): { packId: string; documentId: string
     return { packId, documentId, type };
 }
 
+// Compendium backing lives under a `compendiums/` sub-namespace of the module's cache
+// dir (ADR-0027 decision 13), a sibling of the DataStore's `datastore/` boundary, so the
+// two never collide and `DataStore.keys()` cannot observe pack shards or the manifest.
+const COMPENDIUM_NS = 'compendiums';
+function packNamespaceFor(systemId: string): string {
+    return `${systemId}/${COMPENDIUM_NS}`;
+}
+
 function manifestKeyFor(systemId: string): string {
     return `manifest-${systemId}`;
 }
@@ -332,30 +340,34 @@ export class CompendiumStore {
 
     // ── Persistent tier ────────────────────────────────────────────────────────
     //
-    // Per-pack shards keyed by `(systemId, "pack-<packId>")` and a per-system
-    // manifest. Sharding is preserved from the previous CompendiumPackStore so
-    // on-disk caches survive the unification.
+    // Per-pack shards keyed by `(<systemId>/compendiums, "pack-<packId>")` and a
+    // per-system manifest. Shard key shape is preserved from the previous
+    // CompendiumPackStore; the `compendiums/` sub-namespace (ADR-0027 decision 13)
+    // isolates backing from DataStore. Shards re-hydrate from `game.data` on
+    // bootstrap, so the namespace move needs no migration — stale flat-layout files
+    // from before the move are simply left orphaned and re-seeded under the new path.
 
     public async getManifest(systemId: string): Promise<CompendiumPackManifest | null> {
-        return this.cache.get<CompendiumPackManifest>(systemId, manifestKeyFor(systemId));
+        return this.cache.get<CompendiumPackManifest>(packNamespaceFor(systemId), manifestKeyFor(systemId));
     }
 
     public async setManifest(manifest: CompendiumPackManifest): Promise<void> {
-        await this.cache.set(manifest.systemId, manifestKeyFor(manifest.systemId), manifest);
+        await this.cache.set(packNamespaceFor(manifest.systemId), manifestKeyFor(manifest.systemId), manifest);
     }
 
     public async getPackRows(systemId: string, packId: string): Promise<CompendiumPackDocument[] | null> {
-        const legacy = await this.cache.get<CompendiumPackDocument[]>(systemId, shardKeyFor(packId));
+        const ns = packNamespaceFor(systemId);
+        const legacy = await this.cache.get<CompendiumPackDocument[]>(ns, shardKeyFor(packId));
         if (Array.isArray(legacy)) return legacy;
 
         const stable = stableShardKeyFor(packId);
         if (stable === shardKeyFor(packId)) return null;
-        const fallback = await this.cache.get<CompendiumPackDocument[]>(systemId, stable);
+        const fallback = await this.cache.get<CompendiumPackDocument[]>(ns, stable);
         return Array.isArray(fallback) ? fallback : null;
     }
 
     public async setPackRows(systemId: string, packId: string, documents: CompendiumPackDocument[]): Promise<void> {
-        await this.cache.set(systemId, shardKeyFor(packId), documents);
+        await this.cache.set(packNamespaceFor(systemId), shardKeyFor(packId), documents);
     }
 
     public async findAll(

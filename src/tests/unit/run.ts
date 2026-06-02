@@ -104,6 +104,7 @@ import { run as runModuleInitScaffold } from './modules/module-init-scaffold.tes
 
 // ── sdk ───────────────────────────────────────────────────────────────────────
 import { run as runSdkIntegrity } from './sdk/sdk-integrity.test';
+import { run as runModuleDocumentStore } from './sdk/module-document-store.test';
 
 async function runAllUnitTests() {
     // Initialize test data directory before running any tests
@@ -189,6 +190,7 @@ async function runAllUnitTests() {
     await runModuleManagerDryRun();
     await runModuleManagerTelemetry();
     await runSdkIntegrity();
+    await runModuleDocumentStore();
     await runModuleInitScaffold();
 }
 

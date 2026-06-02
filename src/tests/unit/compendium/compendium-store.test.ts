@@ -384,7 +384,9 @@ async function runLegacyPackKeyCompatibility() {
     const cache = new MemoryPackCache();
     const store = new CompendiumStore(cache);
 
-    await cache.set('synthetic-system', 'pack-synthetic-items.extra', [
+    // Seed under the `compendiums/` sub-namespace (ADR-0027 decision 13) using the
+    // legacy single-dot-replaced shard key; getPackRows must still resolve it.
+    await cache.set('synthetic-system/compendiums', 'pack-synthetic-items.extra', [
         { _id: 'legacy', name: 'Legacy Key Row' },
     ]);
 

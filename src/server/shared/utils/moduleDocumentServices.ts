@@ -22,6 +22,7 @@ import type {
     TableRuntime,
 } from '@shared/sdk';
 import { SdkError, simulateTableDraw } from '@shared/sdk';
+import { awaitWorldReady } from '@server/shared/utils/worldReadiness';
 import type { RouteFoundryClient } from '@server/shared/types/requestContext';
 import {
     DocumentOwnershipLevel,
@@ -46,6 +47,8 @@ interface ReadOpts { subject?: DocumentAccessSubject; minOwnership?: ResolvedDoc
 interface ReadableStore {
     get(id: string, options?: ReadOpts): Record<string, unknown> | null;
     list(options?: ReadOpts): Record<string, unknown>[];
+    /** Ownership predicate — false for missing docs and for denied access (fail-closed). */
+    canReadDocument(id: string, subject: DocumentAccessSubject, minOwnership?: ResolvedDocumentOwnershipLevel): boolean;
     isReady(): boolean;
 }
 
@@ -114,27 +117,42 @@ interface ReaderDeps {
     /** Resolve the acting subject for an op (undefined = privileged/system read). */
     getSubject?: (opts?: DocumentOpOptions) => DocumentAccessSubject | undefined;
     fetchByUuid?: (uuid: string) => Promise<Record<string, unknown> | null>;
+    /** Block until the world is ready before an op (route only; base/bootstrap omits it). */
+    ensureReady?: () => Promise<void>;
 }
 
 /** Shared read surface; subject behavior is injected (base = none, route = caller). */
 function makeReads(deps: ReaderDeps): ReadonlyDocumentStore {
-    const subjectFor = deps.getSubject ?? (() => undefined);
+    // Scoped (route) mode: a real subject MUST resolve; a null subject fails closed
+    // (decision 10 — "Reads fail closed when no access context can be resolved").
+    // Privileged (base/adapter bootstrap) mode: no acting user, reads run system-level.
+    const scoped = Boolean(deps.getSubject);
+    const ensureReady = deps.ensureReady ?? (async () => {});
+    const resolveSubject = (opts?: DocumentOpOptions): DocumentAccessSubject | undefined => {
+        if (!scoped) return undefined;
+        const subject = deps.getSubject!(opts);
+        if (!subject) throw new SdkError('permission_denied', 'No access context could be resolved for this request');
+        return subject;
+    };
     return {
         async get(type, id, opts) {
+            await ensureReady();
             const store = requireStore(type);
-            const subject = subjectFor(opts);
+            const subject = resolveSubject(opts);
             if (!subject) return store.get(id) ?? null;
             return store.get(id, { subject, minOwnership: resolveMinOwnership(opts?.minOwnership, DOCUMENT_VISIBILITY.DETAIL_VISIBLE) }) ?? null;
         },
         async list(type, query, opts) {
+            await ensureReady();
             const store = requireStore(type);
-            const subject = subjectFor(opts);
+            const subject = resolveSubject(opts);
             const rows = subject
                 ? store.list({ subject, minOwnership: resolveMinOwnership(opts?.minOwnership, DOCUMENT_VISIBILITY.LIST_VISIBLE) })
                 : store.list();
             return applyQuery(rows, query);
         },
         async fetchByUuid(uuid) {
+            await ensureReady();
             if (!deps.fetchByUuid) {
                 throw new SdkError('not_ready', 'fetchByUuid is not available on the base (adapter) runtime');
             }
@@ -159,7 +177,10 @@ export function createReadonlyDocumentStore(deps: {
  * override); writes dispatch through the caller's transport (Foundry attributes them to the
  * acting user). The socket never leaves core — modules only see this typed surface.
  */
-export function createDocumentStore(client: RouteFoundryClient): DocumentStore {
+export function createDocumentStore(
+    client: RouteFoundryClient,
+    ensureReady: () => Promise<void> = awaitWorldReady,
+): DocumentStore {
     const c = client as unknown as {
         userId: string;
         dispatchDocument(type: string, action: string, operation?: unknown, parent?: { type: string; id: string }): Promise<unknown>;
@@ -171,30 +192,79 @@ export function createDocumentStore(client: RouteFoundryClient): DocumentStore {
         return userStore.createAccessSubject(userId) ?? undefined;
     };
 
-    const reads = makeReads({ getSubject: subjectFor, fetchByUuid: (uuid) => c.fetchByUuid(uuid) as Promise<Record<string, unknown> | null> });
+    const reads = makeReads({
+        getSubject: subjectFor,
+        fetchByUuid: (uuid) => c.fetchByUuid(uuid) as Promise<Record<string, unknown> | null>,
+        ensureReady,
+    });
     const one = (r: unknown): Record<string, unknown> => {
         const res = r as { result?: Record<string, unknown>[] } | Record<string, unknown>;
         return ((res as { result?: Record<string, unknown>[] })?.result?.[0] ?? res) as Record<string, unknown>;
     };
 
+    // Writes block until the world is ready (decision 25) and fail closed (decisions 9/10):
+    // a real acting subject must resolve, and for ops targeting an existing document it must
+    // hold OWNER-level (WRITEABLE) ownership. `canReadDocument` returns false for missing docs
+    // and unresolved ownership, so unknown/ambiguous ownership blocks rather than warning.
+    const requireSubject = async (opts?: DocumentOpOptions): Promise<DocumentAccessSubject> => {
+        await ensureReady();
+        const subject = subjectFor(opts);
+        if (!subject) throw new SdkError('permission_denied', 'No access context could be resolved for this request');
+        return subject;
+    };
+    const assertWriteable = async (type: string, id: string, opts?: DocumentOpOptions): Promise<void> => {
+        const subject = await requireSubject(opts);
+        if (!requireStore(type).canReadDocument(id, subject, DOCUMENT_VISIBILITY.WRITEABLE)) {
+            throw new SdkError('permission_denied', `Write denied: user ${subject.userId} lacks owner-level access to ${type} ${id}`);
+        }
+    };
+
     return {
         ...reads,
-        create: async (type, data) => one(await c.dispatchDocument(type, 'create', { data: [data] })),
-        patch: async (type, id, updates) => one(await c.dispatchDocument(type, 'update', { updates: [{ _id: id, ...updates }] })),
-        upsert: async (type, data) => {
+        create: async (type, data, opts) => {
+            await requireSubject(opts);
+            requireStore(type);
+            return one(await c.dispatchDocument(type, 'create', { data: [data] }));
+        },
+        patch: async (type, id, updates, opts) => {
+            await assertWriteable(type, id, opts);
+            return one(await c.dispatchDocument(type, 'update', { updates: [{ _id: id, ...updates }] }));
+        },
+        upsert: async (type, data, opts) => {
+            const subject = await requireSubject(opts);
             const id = (data as { _id?: string })._id;
             const exists = id ? requireStore(type).get(id) : null;
-            return exists
-                ? one(await c.dispatchDocument(type, 'update', { updates: [data] }))
-                : one(await c.dispatchDocument(type, 'create', { data: [data] }));
+            if (exists) {
+                if (!requireStore(type).canReadDocument(id!, subject, DOCUMENT_VISIBILITY.WRITEABLE)) {
+                    throw new SdkError('permission_denied', `Write denied: user ${subject.userId} lacks owner-level access to ${type} ${id}`);
+                }
+                return one(await c.dispatchDocument(type, 'update', { updates: [data] }));
+            }
+            return one(await c.dispatchDocument(type, 'create', { data: [data] }));
         },
-        delete: async (type, id) => { await c.dispatchDocument(type, 'delete', { ids: [id] }); },
-        commit: async (type, ops) => {
-            // Batched by action; each group is one dispatch. Each op may carry `action`.
-            const results: Record<string, unknown>[] = [];
-            for (const op of ops) {
+        delete: async (type, id, opts) => {
+            await assertWriteable(type, id, opts);
+            await c.dispatchDocument(type, 'delete', { ids: [id] });
+        },
+        commit: async (type, ops, opts) => {
+            // Verify EVERY op before dispatching ANY — no privileged batch path bypasses
+            // the per-document check (decision 10).
+            const subject = await requireSubject(opts);
+            requireStore(type);
+            const plan = ops.map(op => {
                 const action = (op as { action?: string }).action ?? ((op as { _id?: string })._id ? 'update' : 'create');
-                const payload = action === 'delete' ? { ids: [(op as { _id?: string })._id] }
+                const id = (op as { _id?: string })._id;
+                if (action === 'update' || action === 'delete') {
+                    if (!id) throw new SdkError('validation', `commit ${action} requires an _id`);
+                    if (!requireStore(type).canReadDocument(id, subject, DOCUMENT_VISIBILITY.WRITEABLE)) {
+                        throw new SdkError('permission_denied', `Write denied: user ${subject.userId} lacks owner-level access to ${type} ${id}`);
+                    }
+                }
+                return { op, action, id };
+            });
+            const results: Record<string, unknown>[] = [];
+            for (const { op, action, id } of plan) {
+                const payload = action === 'delete' ? { ids: [id] }
                     : action === 'update' ? { updates: [op] }
                         : { data: [op] };
                 results.push(one(await c.dispatchDocument(type, action, payload)));
@@ -202,18 +272,31 @@ export function createDocumentStore(client: RouteFoundryClient): DocumentStore {
             return results;
         },
         effects: {
-            create: async (parent, data) => one(await c.dispatchDocument('ActiveEffect', 'create', { data: [data] }, parent)),
-            update: async (parent, effectId, updates) => one(await c.dispatchDocument('ActiveEffect', 'update', { updates: [{ _id: effectId, ...updates }] }, parent)),
-            delete: async (parent, effectId) => { await c.dispatchDocument('ActiveEffect', 'delete', { ids: [effectId] }, parent); },
+            create: async (parent, data, opts) => {
+                await assertWriteable(parent.type, parent.id, opts);
+                return one(await c.dispatchDocument('ActiveEffect', 'create', { data: [data] }, parent));
+            },
+            update: async (parent, effectId, updates, opts) => {
+                await assertWriteable(parent.type, parent.id, opts);
+                return one(await c.dispatchDocument('ActiveEffect', 'update', { updates: [{ _id: effectId, ...updates }] }, parent));
+            },
+            delete: async (parent, effectId, opts) => {
+                await assertWriteable(parent.type, parent.id, opts);
+                await c.dispatchDocument('ActiveEffect', 'delete', { ids: [effectId] }, parent);
+            },
         },
     };
 }
 
 /** Roll primitive backed by the request client (structured result, no forced chat). */
-export function createRollRuntime(client: RouteFoundryClient): RollRuntime {
+export function createRollRuntime(
+    client: RouteFoundryClient,
+    ensureReady: () => Promise<void> = awaitWorldReady,
+): RollRuntime {
     const c = client as unknown as { roll(formula: string, label?: string, options?: unknown): Promise<Record<string, unknown>> };
     return {
         roll: async (formula, label, options) => {
+            await ensureReady();
             const res = await c.roll(formula, label ?? '', { ...options, displayChat: options?.displayChat ?? false });
             const total = (res.rollTotal ?? res.total ?? 0) as number;
             return { formula, total, ...res };
@@ -222,10 +305,14 @@ export function createRollRuntime(client: RouteFoundryClient): RollRuntime {
 }
 
 /** RollTable draw primitive (fetch the table, then simulate the draw). */
-export function createTableRuntime(client: RouteFoundryClient): TableRuntime {
+export function createTableRuntime(
+    client: RouteFoundryClient,
+    ensureReady: () => Promise<void> = awaitWorldReady,
+): TableRuntime {
     const c = client as unknown as { fetchByUuid(uuid: string): Promise<Record<string, unknown>> };
     return {
         draw: async (uuid, options) => {
+            await ensureReady();
             const table = await c.fetchByUuid(uuid);
             if (!table) throw new SdkError('not_found', `RollTable not found: ${uuid}`);
             return simulateTableDraw(table, {
@@ -241,13 +328,18 @@ export function createTableRuntime(client: RouteFoundryClient): TableRuntime {
 /**
  * Assemble the per-request `req.runtime` from the read-only base + the request's client.
  * The base (logger/dataStore/compendium/foundryUrl/moduleId) is reused; document/roll/table
- * services are bound to the caller's transport.
+ * services are bound to the caller's transport. `ensureReady` (default `awaitWorldReady`) is
+ * injectable for tests.
  */
-export function createModuleRequestRuntime(base: ModuleRuntime, client: RouteFoundryClient): ModuleRequestRuntime {
+export function createModuleRequestRuntime(
+    base: ModuleRuntime,
+    client: RouteFoundryClient,
+    ensureReady: () => Promise<void> = awaitWorldReady,
+): ModuleRequestRuntime {
     return {
         ...base,
-        documents: createDocumentStore(client),
-        rolls: createRollRuntime(client),
-        tables: createTableRuntime(client),
+        documents: createDocumentStore(client, ensureReady),
+        rolls: createRollRuntime(client, ensureReady),
+        tables: createTableRuntime(client, ensureReady),
     };
 }
