@@ -1,5 +1,6 @@
 import { ModuleLogger } from './logging';
 import type { DrawResult } from './utils';
+import type { ChatCard } from './interfaces';
 
 /** Foundry-style ownership ladder used for read visibility and write thresholds. */
 export type ModuleOwnershipLevel = 'limited' | 'observer' | 'owner';
@@ -74,11 +75,21 @@ export interface DocumentStore extends ReadonlyDocumentStore {
     delete(type: string, id: string, opts?: DocumentOpOptions): Promise<void>;
     /** Batched CRUD in one round-trip; each op is access-checked before dispatch. */
     commit(type: string, ops: Array<Record<string, unknown>>, opts?: DocumentOpOptions): Promise<Record<string, unknown>[]>;
-    /** Embedded sub-document (ActiveEffect) mutations on an actor/item parent. */
+    /** Embedded ActiveEffect mutations on an actor/item parent. */
     effects: {
         create(parent: { type: string; id: string }, data: Record<string, unknown>, opts?: DocumentOpOptions): Promise<Record<string, unknown>>;
         update(parent: { type: string; id: string }, effectId: string, updates: Record<string, unknown>, opts?: DocumentOpOptions): Promise<Record<string, unknown>>;
         delete(parent: { type: string; id: string }, effectId: string, opts?: DocumentOpOptions): Promise<void>;
+    };
+    /**
+     * Embedded Item mutations on an actor parent (ADR-0027 addendum). Parent-scoped so
+     * an actor's owned items can be created/updated/deleted server-side via the runtime —
+     * the server counterpart to the client `useDocumentMutation().embedded` surface.
+     */
+    items: {
+        create(parent: { type: string; id: string }, data: Record<string, unknown>, opts?: DocumentOpOptions): Promise<Record<string, unknown>>;
+        update(parent: { type: string; id: string }, itemId: string, updates: Record<string, unknown>, opts?: DocumentOpOptions): Promise<Record<string, unknown>>;
+        delete(parent: { type: string; id: string }, itemId: string, opts?: DocumentOpOptions): Promise<void>;
     };
 }
 
@@ -90,6 +101,19 @@ export interface RollRuntime {
 /** RollTable draw primitive (roll + match). */
 export interface TableRuntime {
     draw(uuid: string, options?: { rollOverride?: number }): Promise<DrawResult>;
+}
+
+/**
+ * Chat primitive (ADR-0027 decision 7 addendum), all user-bound + readiness-gated:
+ *  - `send` posts a raw ChatMessage document (the module builds the body);
+ *  - `card` posts the structured `ChatCard` render contract (decision 15) — the reusable
+ *    "create a chat card" primitive (title/flavor/content/rolls/buttons);
+ *  - `useItem` posts the default "uses item" card for an actor's item.
+ */
+export interface ChatRuntime {
+    send(message: Record<string, unknown>): Promise<unknown>;
+    card(card: ChatCard, options?: { speaker?: Record<string, unknown>; rollMode?: string }): Promise<unknown>;
+    useItem(actorId: string, itemId: string): Promise<unknown>;
 }
 
 /**
@@ -160,10 +184,12 @@ export interface ModuleRuntime {
  * document ops default their acting identity to the calling user (`req.userSession`).
  */
 export interface ModuleRequestRuntime extends ModuleRuntime {
-    /** Full read + write document surface (CRUD + commit + effects), user-bound. */
+    /** Full read + write document surface (CRUD + commit + effects + items), user-bound. */
     documents: DocumentStore;
     /** Dice evaluation primitive. */
     rolls: RollRuntime;
     /** RollTable draw primitive. */
     tables: TableRuntime;
+    /** Chat primitive (post a ChatMessage / default item-use card), user-bound. */
+    chat: ChatRuntime;
 }

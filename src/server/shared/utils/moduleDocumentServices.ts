@@ -20,6 +20,7 @@ import type {
     ModuleRequestRuntime,
     RollRuntime,
     TableRuntime,
+    ChatRuntime,
 } from '@shared/sdk/runtime';
 import { SdkError, simulateTableDraw } from '@shared/sdk';
 import { awaitWorldReady } from '@server/shared/utils/worldReadiness';
@@ -285,6 +286,20 @@ export function createDocumentStore(
                 await c.dispatchDocument('ActiveEffect', 'delete', { ids: [effectId] }, parent);
             },
         },
+        items: {
+            create: async (parent, data, opts) => {
+                await assertWriteable(parent.type, parent.id, opts);
+                return one(await c.dispatchDocument('Item', 'create', { data: [data] }, parent));
+            },
+            update: async (parent, itemId, updates, opts) => {
+                await assertWriteable(parent.type, parent.id, opts);
+                return one(await c.dispatchDocument('Item', 'update', { updates: [{ _id: itemId, ...updates }] }, parent));
+            },
+            delete: async (parent, itemId, opts) => {
+                await assertWriteable(parent.type, parent.id, opts);
+                await c.dispatchDocument('Item', 'delete', { ids: [itemId] }, parent);
+            },
+        },
     };
 }
 
@@ -325,11 +340,47 @@ export function createTableRuntime(
     };
 }
 
+/** Chat primitive backed by the request client (post a message / default item-use card). */
+export function createChatRuntime(
+    client: RouteFoundryClient,
+    ensureReady: () => Promise<void> = awaitWorldReady,
+): ChatRuntime {
+    const c = client as unknown as {
+        createChatMessage(data: Record<string, unknown>): Promise<unknown>;
+        useItem(actorId: string, itemId: string): Promise<unknown>;
+    };
+    return {
+        send: async (message) => {
+            await ensureReady();
+            return c.createChatMessage(message);
+        },
+        card: async (card, options) => {
+            await ensureReady();
+            // Serialize the structured ChatCard into a ChatMessage: the rendered body goes
+            // to `content`, and the full card rides a flag so a client renderer (decision 28
+            // componentStyles.chat) can present rolls/buttons richly. Modules that pre-render
+            // HTML pass it as `card.content`.
+            const message: Record<string, unknown> = {
+                content: String(card.content ?? card.flavor ?? card.title ?? ''),
+                flags: { sheetDelver: { chatCard: card } },
+            };
+            if (card.flavor) message.flavor = card.flavor;
+            if (Array.isArray(card.rolls) && card.rolls.length) message.rolls = card.rolls;
+            if (options?.speaker) message.speaker = options.speaker;
+            return c.createChatMessage(message);
+        },
+        useItem: async (actorId, itemId) => {
+            await ensureReady();
+            return c.useItem(actorId, itemId);
+        },
+    };
+}
+
 /**
  * Assemble the per-request `req.runtime` from the read-only base + the request's client.
- * The base (logger/dataStore/compendium/foundryUrl/moduleId) is reused; document/roll/table
- * services are bound to the caller's transport. `ensureReady` (default `awaitWorldReady`) is
- * injectable for tests.
+ * The base (logger/dataStore/compendium/foundryUrl/moduleId) is reused; document/roll/table/
+ * chat services are bound to the caller's transport. `ensureReady` (default `awaitWorldReady`)
+ * is injectable for tests.
  */
 export function createModuleRequestRuntime(
     base: ModuleRuntime,
@@ -341,5 +392,6 @@ export function createModuleRequestRuntime(
         documents: createDocumentStore(client, ensureReady),
         rolls: createRollRuntime(client, ensureReady),
         tables: createTableRuntime(client, ensureReady),
+        chat: createChatRuntime(client, ensureReady),
     };
 }

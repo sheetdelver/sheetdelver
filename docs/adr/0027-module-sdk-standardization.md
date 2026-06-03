@@ -87,16 +87,21 @@ ADR-0027 standardizes the module SDK across server, client, cross-cutting contra
      upsert(type, data, opts?): Promise<FoundryDocument>;
      delete(type, id, opts?): Promise<void>;
      commit(type, ops[], opts?): Promise<...>;       // batched CRUD, one round-trip
-     effects: { create, update, delete };            // embedded sub-docs on actor/item
+     effects: { create, update, delete };            // embedded ActiveEffect on a parent
+     items:   { create, update, delete };            // embedded Item on an actor parent (Phase 6 addendum)
    }
    // On req.runtime, opts carries the optional access override (decision 9);
    // default is the calling user. Base-runtime reads are platform/system scoped
    // and fail closed when a user-scoped access decision is required.
    ```
 
+   **Addendum (Phase 6).** A parent-scoped embedded `items` surface was added next to `effects` so a module's *server* route can create/update/delete an actor's owned Items via `req.runtime.documents.items` — the server counterpart to the client `useDocumentMutation().embedded`. Each op is parent-ownership gated like `effects` (WRITEABLE on the parent). Surfaced by conforming `morkborg`, whose server sequences create/delete actor items; without it the server runtime could only mutate ActiveEffects.
+
    `Actor` is **not** a special surface; it was migrated into the primary stores alongside `Item`, `JournalEntry`, `Combat`, `RollTable`, `Macro`, etc. precisely so one uniform pattern serves all. Adding a store to the public surface is an allowlist decision, not new per-type API. Implemented (exposed) types: `Actor`, `Item`, `JournalEntry`, `Combat`, `RollTable`, `Macro`, `Playlist`, `Cards`, `Folder`, `User`, `ChatMessage`. Stub stores stay internal: `Scene`, `Adventure`, `Setting`, `FogExploration`. The reach-ins `getActorRaw` / `dispatchDocument` / `dispatchDocumentSocket` are eliminated and collapse into `documents.*` + `fetchByUuid`.
 
 7. **Irreducible non-CRUD primitives only; richer behavior is module-authored.** Beyond the document store, the request runtime exposes `rolls.roll` (dice evaluation, structured result, no forced chat) and `tables.draw` (roll + match); `compendium` is available on both the base runtime and `req.runtime` (decision 11). `chat.send` is `documents.create('ChatMessage', …)`. Anything richer — attack sequences, level-up, combat turn control, formatted chat cards — is composed by the module author in their own routes over these primitives. The platform does not pre-bake an action for every system mechanic. `performAutomatedSequence`-style logic relocates here (decision 15).
+
+   **Addendum (Phase 6).** Promoted `chat` to a first-class `req.runtime.chat` surface: `chat.send(message)` (post a raw ChatMessage — the module builds the body), `chat.card(card, options?)` (post the structured `ChatCard` render contract of decision 15 — the reusable "create a chat card" primitive; the rendered body goes to `content` and the full card rides a `flags.sheetDelver.chatCard` flag for a client renderer), and `chat.useItem(actorId, itemId)` (the default "uses item" card for an actor's item). `useItem` had no SDK equivalent during the `morkborg` conformance and several systems post a card on item-use / actions, so these are reusable primitives rather than per-module reimplementations. All three are user-bound and readiness-gated like the other request services.
 
 8. **Static `apiRoutes`; the runtime arrives on the request (`req.runtime`).** No per-request factory. A module exports a static handler table once; the platform attaches the per-request runtime to the request before invoking the handler.
 

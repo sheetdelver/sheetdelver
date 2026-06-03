@@ -103,6 +103,11 @@ export function createMockModuleRuntime(opts: MockRuntimeOptions = {}): ModuleRe
             async update(parent, effectId, updates) { return documents.patch(`${parent.type}.Effect`, effectId, updates); },
             async delete(parent, effectId) { return documents.delete(`${parent.type}.Effect`, effectId); },
         },
+        items: {
+            async create(parent, dataIn) { return documents.create(`${parent.type}.Item`, dataIn); },
+            async update(parent, itemId, updates) { return documents.patch(`${parent.type}.Item`, itemId, updates); },
+            async delete(parent, itemId) { return documents.delete(`${parent.type}.Item`, itemId); },
+        },
     };
 
     return {
@@ -132,6 +137,11 @@ export function createMockModuleRuntime(opts: MockRuntimeOptions = {}): ModuleRe
         },
         tables: {
             async draw(uuid): Promise<DrawResult> { return { roll: 0, formula: '', results: [], items: [], table: { uuid } }; },
+        },
+        chat: {
+            async send(message) { return documents.create('ChatMessage', message); },
+            async card(card) { return documents.create('ChatMessage', { content: String(card.content ?? ''), flags: { sheetDelver: { chatCard: card } } }); },
+            async useItem(actorId, itemId) { return { actorId, itemId, used: true }; },
         },
     };
 }

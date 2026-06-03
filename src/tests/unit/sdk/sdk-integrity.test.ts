@@ -176,12 +176,22 @@ async function runServerRequestTests() {
                 update: async () => ({}),
                 delete: async () => {},
             },
+            items: {
+                create: async () => ({}),
+                update: async () => ({}),
+                delete: async () => {},
+            },
         },
         rolls: {
             roll: async () => ({ formula: '1d20', total: 1 }),
         },
         tables: {
             draw: async () => ({ roll: 1, formula: '1d20', results: [], items: [], table: {} }),
+        },
+        chat: {
+            send: async () => ({}),
+            card: async () => ({}),
+            useItem: async () => ({}),
         },
     };
     const mockRequest: ModuleServerRequest = {

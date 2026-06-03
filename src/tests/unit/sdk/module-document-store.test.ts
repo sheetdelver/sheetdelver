@@ -67,6 +67,16 @@ export async function run() {
     await ownerStore.delete('Actor', 'actor-owned', asOwner);
     assert.equal(ownerCalls[1].action, 'delete');
 
+    // --- embedded item CRUD: parent-ownership gated, dispatched with the parent ---
+    ownerCalls.length = 0;
+    await ownerStore.items.create({ type: 'Actor', id: 'actor-owned' }, { name: 'Torch', type: 'gear' });
+    assert.equal(ownerCalls[0].type, 'Item');
+    assert.equal(ownerCalls[0].action, 'create');
+    assert.deepEqual(ownerCalls[0].parent, { type: 'Actor', id: 'actor-owned' });
+    await ownerStore.items.delete({ type: 'Actor', id: 'actor-owned' }, 'item-1');
+    assert.equal(ownerCalls[1].action, 'delete');
+    assert.deepEqual(ownerCalls[1].parent, { type: 'Actor', id: 'actor-owned' });
+
     // --- owner: write to a missing doc is blocked (ambiguous ownership) ---
     ownerCalls.length = 0;
     await rejectsWithCode(() => ownerStore.patch('Actor', 'does-not-exist', { name: 'x' }), 'permission_denied');

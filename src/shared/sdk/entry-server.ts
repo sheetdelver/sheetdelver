@@ -35,4 +35,5 @@ export type {
     RollResult,
     RollRuntime,
     TableRuntime,
+    ChatRuntime,
 } from './runtime';
