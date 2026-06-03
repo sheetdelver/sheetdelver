@@ -238,10 +238,15 @@ export default uiManifest;
 `;
 
 const UI_SHEET_TSX = `import React from 'react';
+import { useSDK } from '@sheet-delver/sdk/react';
 
 export default function Sheet() {
+    // Client SDK lives at @sheet-delver/sdk/react. assetUrl() resolves a module asset
+    // to a URL that works the same in dev and packaged (ADR-0027) — no bundler imports.
+    const { assetUrl } = useSDK();
     return (
-        <div>
+        <div className="sheet-root">
+            <img src={assetUrl('icon.png')} alt="" width={32} height={32} />
             <h1>Sheet Component</h1>
             <p>This is the character sheet UI for the module.</p>
         </div>
@@ -266,7 +271,7 @@ const SERVER_TS_IMPORT = `export { apiRoutes } from '../src/server/server';
 `;
 
 // Template content for server.ts file
-const SERVER_TS = `import type { ModuleServerExport, ModuleServerRequest, ModuleServerParams } from '@sheet-delver/sdk';
+const SERVER_TS = `import type { ModuleServerExport, ModuleServerRequest, ModuleServerParams } from '@sheet-delver/sdk/server';
 import { getErrorMessage } from '@sheet-delver/sdk';
 
 async function addCustomItemToActor(req: ModuleServerRequest, params: ModuleServerParams) {

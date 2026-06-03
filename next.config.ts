@@ -45,6 +45,11 @@ const nextConfig: NextConfig = {
       '@app': path.join(process.cwd(), 'src', 'app'),
       '@': path.join(process.cwd(), 'src'),
       '@sheet-delver/sdk': turboRelative(path.join(process.cwd(), 'src', 'shared', 'sdk')),
+      // SDK subpath entry points (ADR-0027 decision 2). Turbopack exact aliases do not
+      // prefix-match, so each subpath is listed explicitly.
+      '@sheet-delver/sdk/react': turboRelative(path.join(process.cwd(), 'src', 'shared', 'sdk', 'entry-react')),
+      '@sheet-delver/sdk/server': turboRelative(path.join(process.cwd(), 'src', 'shared', 'sdk', 'entry-server')),
+      '@sheet-delver/sdk/testing': turboRelative(path.join(process.cwd(), 'src', 'shared', 'sdk', 'testing')),
     }
   },
   webpack: (config, { isServer }) => {
@@ -55,6 +60,11 @@ const nextConfig: NextConfig = {
     config.resolve.alias['@local-modules'] = localModulesDir;
     config.resolve.alias['@data-registry'] = DATA_DIR;
     config.resolve.alias['@sheet-delver/sdk'] = path.join(process.cwd(), 'src', 'shared', 'sdk');
+    // SDK subpath entry points (ADR-0027 decision 2). Exact (`$`) keys win over the bare
+    // prefix alias above so `/react` resolves to the entry barrel, not the context file.
+    config.resolve.alias['@sheet-delver/sdk/react$'] = path.join(process.cwd(), 'src', 'shared', 'sdk', 'entry-react.ts');
+    config.resolve.alias['@sheet-delver/sdk/server$'] = path.join(process.cwd(), 'src', 'shared', 'sdk', 'entry-server.ts');
+    config.resolve.alias['@sheet-delver/sdk/testing$'] = path.join(process.cwd(), 'src', 'shared', 'sdk', 'testing.ts');
 
     // Tell webpack's file watcher to ignore runtime JSON files in DATA_DIR.
     // Without this, server writes to state.json / artifacts.json (triggered by

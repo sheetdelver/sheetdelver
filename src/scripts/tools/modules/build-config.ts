@@ -12,15 +12,24 @@
 
 export type ModuleEntryKey = 'logic' | 'ui' | 'server';
 
-/** Peers externalized from logic/server bundles (Node). */
-export const LOGIC_EXTERNALS: readonly string[] = ['@sheet-delver/sdk'];
+// Externals are the SDK family + React, declared as wildcards so subpath entry points
+// (`@sheet-delver/sdk/react|server|testing`, `react/jsx-runtime`, …) are externalized
+// too — never bundled into a module (ADR-0027 decisions 2 / 29). The host provides them.
 
-/** Peers externalized from the UI bundle (browser): SDK + the host React runtime. */
+/** Peers externalized from logic/server bundles (Node). */
+export const LOGIC_EXTERNALS: readonly string[] = [
+    '@sheet-delver/sdk',
+    '@sheet-delver/sdk/*',
+];
+
+/** Peers externalized from the UI bundle (browser): SDK family + the host React runtime. */
 export const UI_EXTERNALS: readonly string[] = [
     '@sheet-delver/sdk',
+    '@sheet-delver/sdk/*',
     'react',
+    'react/*',
     'react-dom',
-    'react/jsx-runtime',
+    'react-dom/*',
 ];
 
 export interface ModuleBuildEntry {

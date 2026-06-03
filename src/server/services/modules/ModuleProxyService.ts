@@ -2,7 +2,7 @@ import { getServerModule } from '@modules/registry/server';
 import { logger } from '@shared/utils/logger';
 import { createModuleRuntime } from '@server/shared/utils/createModuleRuntime';
 import { createModuleRequestRuntime } from '@server/shared/utils/moduleDocumentServices';
-import type { ModuleRuntime } from '@shared/sdk';
+import type { ModuleRuntime } from '@shared/sdk/runtime';
 import type {
     ModuleProxyDispatchRequest,
     ModuleProxyDispatchResult,

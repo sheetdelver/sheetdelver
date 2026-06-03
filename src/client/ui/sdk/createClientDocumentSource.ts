@@ -5,7 +5,7 @@ import type {
     ClientDocumentMutations,
     DocumentSnapshot,
     ClientDocumentError,
-} from '@shared/sdk';
+} from '@shared/sdk/client-documents';
 
 /**
  * Host-owned client document cache (ADR-0027 decisions 17/25).

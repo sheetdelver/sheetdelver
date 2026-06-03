@@ -20,7 +20,7 @@ import type {
     ModuleRequestRuntime,
     RollRuntime,
     TableRuntime,
-} from '@shared/sdk';
+} from '@shared/sdk/runtime';
 import { SdkError, simulateTableDraw } from '@shared/sdk';
 import { awaitWorldReady } from '@server/shared/utils/worldReadiness';
 import type { RouteFoundryClient } from '@server/shared/types/requestContext';

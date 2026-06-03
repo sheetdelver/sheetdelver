@@ -1,8 +1,20 @@
 import { strict as assert } from 'node:assert';
+// Shared entry (@sheet-delver/sdk)
 import {
     BaseSystemAdapter,
     type SystemAdapter,
     type ActorSheetData,
+    type ModuleLogger,
+    type UIModuleManifest,
+    type FoundryActor,
+    type FoundryItem,
+    capabilities,
+    parseRollResult,
+    SDK_VERSION,
+    API_CONTRACT_VERSIONS,
+} from '../../../shared/sdk/index';
+// Server entry (@sheet-delver/sdk/server)
+import {
     type ModuleServerRequest,
     type ModuleRequestRuntime,
     type ModuleServerParams,
@@ -10,10 +22,11 @@ import {
     type ModuleRuntime,
     type DataStore,
     type CompendiumPackReader,
-    type ModuleLogger,
-    type UIModuleManifest,
-    type FoundryActor,
-    type FoundryItem,
+    json,
+    error,
+} from '../../../shared/sdk/entry-server';
+// Client entry (@sheet-delver/sdk/react)
+import {
     type LoadingModalProps,
     type RollDialogProps,
     type ConfirmationModalProps,
@@ -27,13 +40,7 @@ import {
     useActorSheet,
     useModuleSettings,
     createActorPage,
-    json,
-    error,
-    capabilities,
-    parseRollResult,
-    SDK_VERSION,
-    API_CONTRACT_VERSIONS,
-} from '../../../shared/sdk/index';
+} from '../../../shared/sdk/entry-react';
 
 // ---------------------------------------------------------------------------
 // BaseSystemAdapter defaults

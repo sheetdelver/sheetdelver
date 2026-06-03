@@ -6,6 +6,7 @@ import * as tar from 'tar';
 import * as esbuild from 'esbuild';
 import { resolveDataDir, initDataDir, getModulesDataDir, getDistModulesDir, getLocalModulesDataDir } from '../../../server/core/paths';
 import { ENTRIES, BUILD_TARGET, BUILD_LOADER } from './build-config';
+import { checkModule, printModuleCheckSummary } from './check-module';
 
 // Build configuration (ENTRIES, externals, target, loaders) is shared with
 // check-module.ts via ./build-config so packaging and validation never drift
@@ -106,6 +107,16 @@ async function packageModule() {
     const info = JSON.parse(fs.readFileSync(infoPath, 'utf8'));
     const version: string = info.version || '0.0.0-dev';
     const manifest = info.manifest as Record<string, string>;
+
+    // Gate packaging on module:check — a non-conforming module is not packageable
+    // (ADR-0027 decision 29). Same shared build config, so validation can't drift.
+    console.log(`\nValidating ${moduleId} before packaging...`);
+    const checkResult = await checkModule(moduleId);
+    if (!checkResult.passed) {
+        printModuleCheckSummary(checkResult);
+        console.error(`\nRefusing to package "${moduleId}": module:check failed. Fix the issues above and retry.`);
+        process.exit(1);
+    }
 
     console.log(`\nPackaging ${moduleId} v${version}...`);
     console.log(`Source : ${modulePath}`);

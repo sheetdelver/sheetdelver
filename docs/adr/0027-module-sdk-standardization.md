@@ -327,12 +327,12 @@ Phases are sequenced so each slice is independently verifiable. Checkpoints are 
 
 ### Phase 5 — Tooling conformance
 
-- [ ] Subpath entry points + package `exports`; checker allows only the SDK family (decisions 2, 29).
-- [ ] Wildcard externals for SDK subpaths + React in checker and packager (decision 29).
-- [ ] Checker keeps recognizing static `apiRoutes` (no `createApiRoutes` factory); packaging gated on `module:check`; drop asset loaders (decision 29).
-- [ ] `next.config.ts` subpath aliases + browser rewriter/global map subpath globals (server-only rejected from UI) (decision 29).
-- [ ] Update `init-module` templates to model `assetUrl()` + static `apiRoutes` over `req.runtime` (decision 29).
-- [ ] Ship `@sheet-delver/sdk/testing` mock host + the contract-test suite (decision 30).
+- [x] Subpath entry points + package `exports`; checker allows only the SDK family (decisions 2, 29). — `index.ts` trimmed to shared types/utils; new entry barrels `entry-react.ts` (client surface) and `entry-server.ts` (route helpers + runtime types); `testing.ts` reserved. Subpaths mapped in the generated `.managed/tsconfig.paths.json` (via `start-server`) so tsc + module tsconfig resolve `@sheet-delver/sdk/react|server|testing`. Internal imports repointed to precise source files; dnd5e client imports moved to `/react`.
+- [x] Wildcard externals for SDK subpaths + React in checker and packager (decision 29). — `build-config.ts` `LOGIC_EXTERNALS`/`UI_EXTERNALS` now wildcard (`@sheet-delver/sdk/*`, `react/*`, `react-dom/*`), shared by the checker dry-bundle and the packager so subpath imports are externalized, never bundled.
+- [x] Checker keeps recognizing static `apiRoutes` (no `createApiRoutes` factory); packaging gated on `module:check`; drop asset loaders (decision 29). — checker still recognizes `export const apiRoutes` / `export { apiRoutes }` and now rejects `export *` on the server entry; `package-module` runs `checkModule` first and aborts on failure; `BUILD_LOADER` is JSON-only (no file/dataurl asset loaders).
+- [x] `next.config.ts` subpath aliases + browser rewriter/global map subpath globals (server-only rejected from UI) (decision 29). — turbopack + webpack aliases for `/react`,`/server`,`/testing`; `GLOBAL_MAP` maps `@sheet-delver/sdk/react` → `window.__SD.sdkReact` and `SDKGlobalProvider` exposes it; `/server` deliberately unmapped + a checker rule rejects it from `.tsx` UI files.
+- [x] Update `init-module` templates to model `assetUrl()` + static `apiRoutes` over `req.runtime` (decision 29). — server template imports from `@sheet-delver/sdk/server` and uses `req.runtime`; UI Sheet template models `useSDK().assetUrl(...)` from `@sheet-delver/sdk/react`; no bundler asset imports.
+- [x] Ship `@sheet-delver/sdk/testing` mock host + the contract-test suite (decision 30). — `testing.ts`: `createMockModuleRuntime` (in-memory documents/rolls/tables/dataStore/compendium), `createMockDocumentSource`, `createMockSdkEvents`, `createMockSdkContext`/`createMockSdkComponents`/`MockSDKProvider`. Contract test (`src/tests/unit/sdk/contract.test.ts`) drives a fixture module over the public SDK only: renders a sheet via `createActorPage`→`useActorSheet` (`renderToStaticMarkup`), fetches/mutates + rolls + resolves compendium (incl. UUID) + persists via DataStore through the runtime, processes a realtime `document:changed`, and resolves an `assetUrl()`.
 
 ### Phase 6 — Migrate Mörk Borg
 

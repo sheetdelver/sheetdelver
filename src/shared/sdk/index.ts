@@ -1,4 +1,14 @@
 // ---------------------------------------------------------------------------
+// @sheet-delver/sdk — shared entry point (ADR-0027 decision 2).
+//
+// This barrel exposes ONLY environment-agnostic types and pure utilities. The
+// client surface lives at `@sheet-delver/sdk/react`, the server runtime + route
+// helpers at `@sheet-delver/sdk/server`, and the mock host at
+// `@sheet-delver/sdk/testing`. Server-only exports are kept out of this barrel so
+// they can never be pulled into a UI bundle.
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
 // Adapter contract — implement these to create a system module
 // ---------------------------------------------------------------------------
 
@@ -44,7 +54,7 @@ export type {
 export { BaseSystemAdapter } from './base';
 
 // ---------------------------------------------------------------------------
-// Platform contracts — chat/session shapes used by route handlers
+// Platform contracts — chat/session shapes
 // ---------------------------------------------------------------------------
 
 export type {
@@ -52,69 +62,17 @@ export type {
     UserSession,
 } from './contracts';
 
-// ---------------------------------------------------------------------------
-// Module runtime — injected into adapter initialize() (and module route factories)
-// ---------------------------------------------------------------------------
-
-export type {
-    ModuleRuntime,
-    ModuleRequestRuntime,
-    DataStore,
-    CompendiumPackReader,
-    ReadonlyDocumentStore,
-    DocumentStore,
-    DocumentQuery,
-    DocumentListResult,
-    DocumentOpOptions,
-    ModuleOwnershipLevel,
-    RollResult,
-    RollRuntime,
-    TableRuntime,
-} from './runtime';
-
 export type { ModuleLogger } from './logging';
 
 // ---------------------------------------------------------------------------
-// Server API surface — type module/server.ts apiRoutes with these
+// Structured error taxonomy — shared by routes (server) and hooks (client)
 // ---------------------------------------------------------------------------
 
-export type {
-    ModuleServerRequest,
-    ModuleServerParams,
-    ModuleServerResponse,
-    ModuleRouteHandler,
-    ModuleRouteTable,
-    ModuleServerExport,
-    ModuleAccessContext,
-} from './server';
-
-export { json, error } from './server';
-
-// Structured error taxonomy
 export { SdkError, isSdkError, SDK_ERROR_STATUS } from './errors';
 export type { SdkErrorCode } from './errors';
 
 // ---------------------------------------------------------------------------
-// UI component contracts — prop interfaces for platform-provided components
-// ---------------------------------------------------------------------------
-
-export type {
-    LoadingModalProps,
-    RollDialogProps,
-    ConfirmationModalProps,
-    SharedContentModalProps,
-    RichTextEditorProps,
-} from './ui';
-
-export type {
-    UseFoundry,
-    UseUI,
-    UseNotifications,
-    UseConfig,
-} from './ui';
-
-// ---------------------------------------------------------------------------
-// Utilities — error handling, HTML/image processing, dice simulation
+// Utilities — error handling, HTML/image processing, dice, asset URLs
 // ---------------------------------------------------------------------------
 
 export {
@@ -134,54 +92,15 @@ export type {
 } from './utils';
 
 // ---------------------------------------------------------------------------
-// Client-side SDK hooks — for use in module UI components
-// ---------------------------------------------------------------------------
-
-export { useSDK, useSDKComponents, SDKContext, SDKComponentsContext } from './react';
-
-export type {
-    SDKContextValue,
-    SDKComponentsValue,
-    ModuleClientLogger,
-    RealtimeActorChangedPayload,
-} from './react';
-
-export type {
-    ClientDocumentSource,
-    ClientDocumentMutations,
-    DocumentSnapshot,
-    ClientDocumentError,
-} from './client-documents';
-
-export type {
-    SdkEvents,
-    SdkSignal,
-    SdkSignalPayloads,
-    SdkSignalHandler,
-    DocumentChangeAction,
-} from './events';
-
-export {
-    useDocument,
-    useDocumentMutation,
-    useActorSheet,
-    useModuleSettings,
-    createActorPage,
-} from './client-hooks';
-
-export type {
-    ActorSheetProps,
-    ActorPageProps,
-    UseActorSheetResult,
-    ModuleSettings,
-} from './client-hooks';
-
-// ---------------------------------------------------------------------------
-// Version constants — matched against info.json compatibility.apiContracts
+// Capability detection
 // ---------------------------------------------------------------------------
 
 export { capabilities, SDK_CAPABILITIES } from './capabilities';
 export type { SdkCapability } from './capabilities';
+
+// ---------------------------------------------------------------------------
+// Version constants — matched against info.json compatibility.apiContracts
+// ---------------------------------------------------------------------------
 
 export const SDK_VERSION = '1.0.0';
 

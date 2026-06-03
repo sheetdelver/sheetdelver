@@ -205,11 +205,24 @@ function checkImportBoundaries(ctx: CheckContext): void {
 
     for (const filePath of files) {
         const source = fs.readFileSync(filePath, 'utf8');
+        // UI components are .tsx; the server entry point must not be pulled into a UI
+        // bundle (ADR-0027 decision 2 — server-only exports rejected from UI).
+        const isUiFile = path.extname(filePath) === '.tsx';
         for (const specifier of extractImportSpecifiers(source)) {
             const forbidden = FORBIDDEN_IMPORT_PREFIXES.find((prefix) => specifier === prefix.slice(0, -1) || specifier.startsWith(prefix));
             if (forbidden) {
                 const hint = getMigrationHint(specifier);
                 fail(ctx, 'import-boundary', `${path.relative(ctx.modulePath, filePath)} imports internal platform alias "${specifier}"`, hint ?? undefined);
+                issueCount += 1;
+            }
+
+            if (isUiFile && (specifier === '@sheet-delver/sdk/server' || specifier.startsWith('@sheet-delver/sdk/server/'))) {
+                fail(
+                    ctx,
+                    'import-boundary',
+                    `${path.relative(ctx.modulePath, filePath)} imports the server entry "@sheet-delver/sdk/server" from a UI component`,
+                    'Server runtime types/helpers are not available in UI bundles. Use @sheet-delver/sdk/react and the data hooks instead.',
+                );
                 issueCount += 1;
             }
 
@@ -426,7 +439,12 @@ function checkEntryExports(ctx: CheckContext): void {
     const server = ctx.entries.server;
     if (server) {
         const source = fs.readFileSync(server, 'utf8');
-        if (/\bexport\s+const\s+apiRoutes\b/.test(source) || /\bexport\s*\{[^}]*\bapiRoutes\b[^}]*\}/.test(source)) {
+        // Reject wildcard re-export: the server entry must expose a named static
+        // `apiRoutes` table — there is no `createApiRoutes` factory and `export *`
+        // would obscure the contract (ADR-0027 decision 29).
+        if (/\bexport\s*\*/.test(source)) {
+            fail(ctx, 'export', 'server entry must not use `export *`; export a named static `apiRoutes` table');
+        } else if (/\bexport\s+const\s+apiRoutes\b/.test(source) || /\bexport\s*\{[^}]*\bapiRoutes\b[^}]*\}/.test(source)) {
             pass(ctx, 'server entry exports apiRoutes');
         } else {
             fail(ctx, 'export', 'server entry must export named apiRoutes');

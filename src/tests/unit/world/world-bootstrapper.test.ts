@@ -4,7 +4,7 @@ import {
     WorldBootstrapper,
 } from '@server/services/world';
 import type { SystemAdapter } from '@modules/registry/types';
-import type { ModuleRuntime } from '@shared/sdk';
+import type { ModuleRuntime } from '@shared/sdk/runtime';
 import { logger } from '@shared/utils/logger';
 
 function adapter(id: string): SystemAdapter {

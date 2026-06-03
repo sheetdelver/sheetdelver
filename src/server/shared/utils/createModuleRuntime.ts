@@ -2,13 +2,15 @@ import { logger } from '@shared/utils/logger';
 import { getConfig } from '@core/config';
 import { compendiumStore, type CompendiumStore } from '@server/core/compendium/CompendiumStore';
 import type {
-    ModuleRuntime,
     ModuleLogger,
-    DataStore,
-    CompendiumPackReader,
     CompendiumPackConfig,
     CompendiumPackDeclaration,
 } from '@shared/sdk';
+import type {
+    ModuleRuntime,
+    DataStore,
+    CompendiumPackReader,
+} from '@shared/sdk/runtime';
 
 /**
  * Sub-namespace under the module's cache dir for DataStore-owned data, kept separate

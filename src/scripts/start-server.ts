@@ -329,7 +329,11 @@ function ensureManagedConfigs() {
                 "@data-registry/*": [
                     rel(getDataDir()) + "/*"
                 ],
-                "@sheet-delver/sdk": ["../src/shared/sdk"]
+                "@sheet-delver/sdk": ["../src/shared/sdk"],
+                // SDK subpath entry points (ADR-0027 decision 2).
+                "@sheet-delver/sdk/react": ["../src/shared/sdk/entry-react"],
+                "@sheet-delver/sdk/server": ["../src/shared/sdk/entry-server"],
+                "@sheet-delver/sdk/testing": ["../src/shared/sdk/testing"]
             }
         }
     };

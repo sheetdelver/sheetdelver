@@ -20,6 +20,7 @@
 import React from 'react';
 import * as ReactJSX from 'react/jsx-runtime';
 import * as SDKExports from '@sheet-delver/sdk';
+import * as SDKReactExports from '@sheet-delver/sdk/react';
 
 // Synchronous assignment — intentionally outside a useEffect so the globals
 // are present before any component renders.
@@ -30,8 +31,12 @@ if (typeof window !== 'undefined') {
         React,
         /** react/jsx-runtime re-exported from the host bundle. */
         ReactJSX,
-        /** All exports from @sheet-delver/sdk. */
+        /** Shared @sheet-delver/sdk exports (types/utils). */
         sdk: SDKExports,
+        /** Client @sheet-delver/sdk/react exports (hooks, context, components).
+         *  The server entry is intentionally NOT exposed — server-only code is
+         *  rejected from UI bundles (ADR-0027 decisions 2 / 29). */
+        sdkReact: SDKReactExports,
     };
 }
 

@@ -7,7 +7,7 @@ import { getUIModule, invalidateModuleSourceCache } from '@modules/registry/clie
 import LoadingModal from '@client/ui/components/LoadingModal';
 import GenericActorPage from '@client/ui/pages/GenericActorPage';
 import { SurfaceHost } from '@client/ui/components/SurfaceHost';
-import { createActorPage } from '@shared/sdk';
+import { createActorPage } from '@shared/sdk/client-hooks';
 
 /**
  * Core actor page router.

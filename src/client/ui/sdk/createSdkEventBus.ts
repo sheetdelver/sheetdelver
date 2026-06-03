@@ -1,6 +1,6 @@
 'use client';
 
-import type { SdkEvents, SdkSignal, SdkSignalHandler, SdkSignalPayloads, DocumentChangeAction } from '@shared/sdk';
+import type { SdkEvents, SdkSignal, SdkSignalHandler, SdkSignalPayloads, DocumentChangeAction } from '@shared/sdk/events';
 
 /**
  * Host-owned realtime signal bus (ADR-0027 decision 20).

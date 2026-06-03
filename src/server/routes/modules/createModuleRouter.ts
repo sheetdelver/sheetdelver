@@ -36,10 +36,13 @@ function resolveModuleBaseDir(moduleId: string): string | null {
 // module context (useSDK, useSDKComponents) works correctly.
 
 const GLOBAL_MAP: Record<string, string> = {
-    'react':                'window.__SD.React',
-    'react/jsx-runtime':    'window.__SD.ReactJSX',
-    'react-dom':            'window.__SD.React',
-    '@sheet-delver/sdk':    'window.__SD.sdk',
+    'react':                  'window.__SD.React',
+    'react/jsx-runtime':      'window.__SD.ReactJSX',
+    'react-dom':              'window.__SD.React',
+    '@sheet-delver/sdk':      'window.__SD.sdk',
+    // Client subpath (ADR-0027 decision 2). `@sheet-delver/sdk/server` is intentionally
+    // absent — a UI bundle importing it stays unresolved (server-only rejected from UI).
+    '@sheet-delver/sdk/react': 'window.__SD.sdkReact',
 };
 
 /**

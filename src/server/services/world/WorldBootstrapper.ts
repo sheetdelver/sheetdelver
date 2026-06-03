@@ -18,7 +18,8 @@ import {
     type CompendiumTransport,
 } from '@server/services/compendium';
 import { logger } from '@shared/utils/logger';
-import type { CompendiumPackConfig, ModuleRuntime } from '@shared/sdk';
+import type { CompendiumPackConfig } from '@shared/sdk';
+import type { ModuleRuntime } from '@shared/sdk/runtime';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
 import type { UserDocument } from '@server/shared/types/users';
 import {
