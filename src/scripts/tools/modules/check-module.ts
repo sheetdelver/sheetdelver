@@ -4,6 +4,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import * as esbuild from 'esbuild';
+import postcss from 'postcss';
 
 import { initDataDir, resolveDataDir, getLocalModulesDataDir } from '../../../server/core/paths';
 import { validateModuleInfoShape, evaluateModuleCompatibility } from '../../../modules/registry/lifecycle/validation';
@@ -79,6 +80,7 @@ export type ModuleCheckIssueKind =
     | 'import-boundary'
     | 'typecheck'
     | 'bundle'
+    | 'style-scope'
     | 'filesystem';
 
 export interface ModuleCheckIssue {
@@ -220,6 +222,88 @@ function checkImportBoundaries(ctx: CheckContext): void {
     }
 
     if (issueCount === 0) pass(ctx, `import boundary clean (${files.length} source files scanned)`);
+}
+
+function walkCssFiles(root: string): string[] {
+    const files: string[] = [];
+    if (!fs.existsSync(root)) return files;
+    for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+        if (entry.name === 'node_modules' || entry.name === 'dist' || entry.name === '.git') continue;
+        const fullPath = path.join(root, entry.name);
+        if (entry.isDirectory()) {
+            files.push(...walkCssFiles(fullPath));
+        } else if (path.extname(entry.name) === '.css') {
+            files.push(fullPath);
+        }
+    }
+    return files;
+}
+
+/** A selector is scoped iff it begins with the module root class as a whole token. */
+function isScopedSelector(selector: string, scopeClass: string): boolean {
+    const s = selector.trim();
+    if (!s.startsWith(scopeClass)) return false;
+    const next = s.charAt(scopeClass.length);
+    // The char after the scope class must end the identifier (combinator / pseudo /
+    // attribute / class / comma / end) — not an identifier char that would make it a
+    // different class (e.g. `.sdk-module--dnd5edark`).
+    return next === '' || !/[A-Za-z0-9_-]/.test(next);
+}
+
+/**
+ * Style-isolation lint (ADR-0027 decision 28): every selector in the module's CSS must be
+ * scoped under the host-generated `.sdk-module--<id>` root. `@keyframes` step rules,
+ * `@font-face`, `@import`, and `@charset` are exempt (global by necessity); `@media` /
+ * `@supports` / `@container` are descended into. There is no build-time CSS rewrite — this
+ * only validates authoring, so dev and packaged stay identical.
+ */
+function checkStyleScoping(ctx: CheckContext): void {
+    const scopeClass = `.sdk-module--${ctx.moduleId}`;
+    const cssFiles = walkCssFiles(ctx.modulePath);
+    if (cssFiles.length === 0) return;
+
+    const leaks: string[] = [];
+
+    const insideKeyframes = (node: postcss.Node | undefined): boolean => {
+        let parent = node?.parent as postcss.Container | undefined;
+        while (parent) {
+            if (parent.type === 'atrule' && /keyframes$/i.test((parent as postcss.AtRule).name)) return true;
+            parent = parent.parent as postcss.Container | undefined;
+        }
+        return false;
+    };
+
+    for (const file of cssFiles) {
+        const rel = path.relative(ctx.modulePath, file);
+        let root: postcss.Root;
+        try {
+            root = postcss.parse(fs.readFileSync(file, 'utf8'), { from: file });
+        } catch (error) {
+            fail(ctx, 'style-scope', `${rel}: failed to parse CSS`, error instanceof Error ? error.message : String(error));
+            continue;
+        }
+
+        root.walkRules((rule) => {
+            if (insideKeyframes(rule)) return;
+            for (const selector of rule.selectors) {
+                if (!isScopedSelector(selector, scopeClass)) {
+                    leaks.push(`${rel}: "${selector.trim()}"`);
+                }
+            }
+        });
+    }
+
+    if (leaks.length > 0) {
+        const sample = leaks.slice(0, 6).join('; ') + (leaks.length > 6 ? ` … (+${leaks.length - 6} more)` : '');
+        fail(
+            ctx,
+            'style-scope',
+            `module CSS has ${leaks.length} selector(s) not scoped under ${scopeClass} (global style leak)`,
+            `Prefix each selector with ${scopeClass}. Leaks: ${sample}`,
+        );
+    } else {
+        pass(ctx, `module CSS scoped under ${scopeClass} (${cssFiles.length} file(s))`);
+    }
 }
 
 function checkPackageIncludes(ctx: CheckContext): void {
@@ -418,6 +502,7 @@ export async function checkModule(moduleId: string, options: ModuleCheckOptions 
     checkPackageIncludes(ctx);
     checkCompatibility(ctx);
     checkImportBoundaries(ctx);
+    checkStyleScoping(ctx);
     checkTypeScript(ctx);
     await dryBundle(ctx);
 

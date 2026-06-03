@@ -72,10 +72,19 @@ export interface SurfaceHostProps {
 }
 
 export function SurfaceHost({ moduleId, surface, loading, fallback, children }: SurfaceHostProps) {
+    // Style-scope root (ADR-0027 decision 28): the module's own CSS is authored scoped
+    // under `.sdk-module--<id>`; the platform Tailwind utility layer stays global. The
+    // class is applied here at runtime — identical in dev and packaged (no build-time
+    // CSS rewrite), enforced by the `module:check` global-leak lint.
+    const scopeClass = moduleId ? `sdk-module--${moduleId}` : undefined;
     return (
         <SurfaceErrorBoundary surface={surface} fallback={fallback}>
             <SDKProvider moduleId={moduleId}>
-                <div className="sd-surface-root" data-sd-surface={surface} data-sd-module={moduleId}>
+                <div
+                    className={['sd-surface-root', scopeClass].filter(Boolean).join(' ')}
+                    data-sd-surface={surface}
+                    data-sd-module={moduleId}
+                >
                     <Suspense fallback={loading ?? <LoadingModal message="Loading..." />}>
                         {children}
                     </Suspense>
