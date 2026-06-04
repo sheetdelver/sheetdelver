@@ -293,8 +293,8 @@ Phases are sequenced so each slice is independently verifiable. Checkpoints are 
 
 - [x] Record current `module:check dnd5e` as a baseline, explicitly not a contract to preserve.
 - [x] Extract a shared build-config module consumed by `check-module.ts` and `package-module.ts` (decision 29). — `src/scripts/tools/modules/build-config.ts`; both tools consume it.
-- [ ] Document the SDK boundary policy: public entry points only; no module-facing compatibility shims or deprecation windows — breaking changes land and modules conform (decisions 1, 2, 31).
-- [ ] Fix stale server-route docs (`docs/MODULE_AUTHORING.md`) to current `ModuleRouteHandler` + `json()`/`error()` usage.
+- [x] Document the SDK boundary policy: public entry points only; no module-facing compatibility shims or deprecation windows — breaking changes land and modules conform (decisions 1, 2, 31). — `docs/MODULE_AUTHORING.md` now documents the four subpath entry points (`@sheet-delver/sdk` / `/react` / `/server` / `/testing`) and the "missing SDK surface or module-specific code" rule; no shim/deprecation surface is described.
+- [x] Fix stale server-route docs (`docs/MODULE_AUTHORING.md`) to current `ModuleRouteHandler` + `json()`/`error()` usage. — server-route section rewritten: static `apiRoutes` keyed by pattern, handler `(req, { params })`, `req.json()` is the request-body reader (not a response), responses via `json()`/`error()`, host access through `req.runtime` (no Foundry client). Also refreshed the adapter section (`initialize(runtime)` flat `ModuleRuntime`, no client on projection methods) and added an Assets section (`assetUrl()` / no binary imports / scoped CSS).
 
 ### Phase 1 — Server runtime, services, access, persistence
 
@@ -358,11 +358,11 @@ Phases are sequenced so each slice is independently verifiable. Checkpoints are 
 
 ### Phase 6 — Migrate Mörk Borg
 
-- [ ] Replace the removed generic adapter with `BaseSystemAdapter`.
-- [ ] Export static `apiRoutes`; move server ops to `req.runtime` (default-to-caller, `{ access }` override).
-- [ ] Move image handling to `assetUrl()`; remove TSX image imports.
-- [ ] Replace private UI imports with `useSDK`, `useSDKComponents`, `useActorSheet`, and document hooks.
-- [ ] `module:check morkborg` passes.
+- [x] Replace the removed generic adapter with `BaseSystemAdapter`. — `MorkBorgAdapter extends BaseSystemAdapter`; `normalizeActorData(actor)` drops the client and resolves images via `resolveImage`. The preserved 925-line mechanics engine is fed a `req.runtime`-backed shim (`engineClient`) exposing the old `roll`/`createActorItem`/`sendMessage`/`useItem`/`dispatchDocumentSocket` method names, so the engine body is unchanged.
+- [x] Export static `apiRoutes`; move server ops to `req.runtime` (default-to-caller, `{ access }` override). — `server.ts` exports static `apiRoutes` with only the SYSTEM-SPECIFIC routes that have no core equivalent: `actors/[id]/roll` (the sequence engine, which now also drives brew-decoctions/get-better), `generate-character`, and `items` (compendium item-picker). Generic actor read/field-update/item CRUD use the platform `/api/actors` surface; the old `getModuleFoundryClient` + `dispatchDocumentSocket` reach-ins are gone. The offline JSON `src/data/packs/*.json` were deleted — `createMorkBorgData(req.runtime.compendium)` reads `findAll('Item')`/`findAll('RollTable')` per request (failure-on-missing is intended; no offline fallback).
+- [x] Move image handling to `assetUrl()`; remove TSX image imports. — the 8 `import grunge from './assets/*.png'` (Next static-image `.src`) imports were replaced with `buildModuleAssetUrl('morkborg', '<file>.png')`; the pngs were moved to the module's served `assets/` dir. No bundler asset loader is needed (`BUILD_LOADER` stays JSON-only).
+- [x] Replace private UI imports with `useSDK`, `useSDKComponents`, `useActorSheet`, and document hooks. — `ActorPage` is a custom `actorPage` (decision 16 escape hatch — morkborg's rolls are a system-specific engine, not the generic platform roll): read/field-update via `useActorSheet`, roll sequences + brew via the module roll route, item CRUD via the platform actor-item surface; `RichTextEditor`/`resolveImageUrl`/`fetchWithAuth` via `useSDK`/`useSDKComponents`; no hand-rolled fetch/realtime. **Brew note:** the SpecialTab "Brew Decoctions" button (`onRoll('feat','Create Decoctions')`) and Get Better were latent dead paths — `getRollData` never mapped those keys to their automated types, and the `onBrewDecoctions` prop was passed to the sheet but consumed by no component. Conformance completed the `getRollData` mapping (`'Create Decoctions'`→`decoctions`, `getBetter`→`getBetter`) so both drive the engine's existing `performAutomatedSequence` branches through the single roll route; the redundant dedicated `brew-decoctions` route + unused `onBrewDecoctions` prop were dropped.
+- [x] `module:check morkborg` passes. — passes (info.json, import boundary across 31 source files, root-tsconfig typecheck, dry bundles for logic/ui/server). Platform `tsc --noEmit`, `lint`, and `test:unit` all green.
 
 ### Phase 7 — Migrate Shadowdark
 

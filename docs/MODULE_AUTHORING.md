@@ -64,11 +64,22 @@ The three entry points are:
 | `module/ui.tsx` | Exports the UI manifest. |
 | `module/server.ts` | Optionally exports server API routes. |
 
-All module-facing platform APIs come from:
+All module-facing platform APIs come from the `@sheet-delver/sdk` family, split into four subpath entry points so client code never pulls in server code (and vice versa):
+
+| Entry | Use it for |
+|---|---|
+| `@sheet-delver/sdk` | Shared, environment-agnostic surface: `BaseSystemAdapter`, the actor/document/card types, and pure utils (`resolveImage`, `parseRollResult`, `buildModuleAssetUrl`, `getErrorMessage`). Safe in any file. |
+| `@sheet-delver/sdk/react` | UI surface (client only): `useSDK`, `useSDKComponents`, `useActorSheet`, `useDocument`, `useDocumentMutation`, `useModuleSettings`, `createActorPage`, and the prop interfaces (`ActorSheetProps`, `RichTextEditorProps`, …). |
+| `@sheet-delver/sdk/server` | Route surface (server only): the `json()` / `error()` response helpers and the route + runtime types (`ModuleServerRequest`, `ModuleRouteHandler`, `ModuleRequestRuntime`, …). |
+| `@sheet-delver/sdk/testing` | A mock host for unit-testing a module against the public contract (`createMockModuleRuntime`, `MockSDKProvider`, …). |
 
 ```ts
-import { BaseSystemAdapter, useSDK, useSDKComponents } from '@sheet-delver/sdk';
+import { BaseSystemAdapter, resolveImage } from '@sheet-delver/sdk';
+import { useSDK, useSDKComponents, useActorSheet } from '@sheet-delver/sdk/react';
+import { json, error } from '@sheet-delver/sdk/server';
 ```
+
+The checker rejects `@sheet-delver/sdk/server` imports from UI (`.tsx`) source — server helpers must not reach the client bundle.
 
 Do not import from Sheet Delver internals such as `@shared/*`, `@client/*`, `@server/*`, `@core/*`, or `@modules/*`. If a module needs something that is not in the SDK, treat that as either a missing SDK surface or module-specific code that should live inside the module.
 
@@ -136,9 +147,9 @@ export class Adapter extends BaseSystemAdapter {
 export default Adapter;
 ```
 
-The platform provides `context.logger`, `context.platform.cache`, and `context.platform.compendiumPacks` through `initialize(context)`. Use those context fields instead of importing platform services directly.
+If the adapter needs setup, implement `initialize?(runtime: ModuleRuntime)`. The `ModuleRuntime` is a flat, module-scoped handle (no `platform` wrapper): `runtime.logger`, `runtime.foundryUrl`, `runtime.dataStore` (durable backend persistence), `runtime.compendium` (read surface for declared packs), and `runtime.documents` (read-only `get`/`list`/`fetchByUuid`). Use those fields instead of importing platform services directly. An optional `dispose?(runtime)` is called on world teardown.
 
-Adapter methods receive hydrated actor documents from the platform actor cache. Keep actor projection methods (`getActorCardData`, `normalizeActorData`, `computeActorData`, `categorizeItems`) deterministic from the actor they receive and the already-injected SDK services. The `getActor()` and `getActors()` SDK/request methods remain the public read surface, but they resolve from the platform actor cache and fail as not-ready before bootstrap completes; they must not repeatedly fetch from Foundry.
+Adapter projection methods (`normalizeActorData(actor)`, `getActorCardData`, `computeActorData`, `categorizeItems`) receive a hydrated actor document and must be deterministic from it — they take **no** client/runtime argument. Build full image URLs with `resolveImage(img, runtime.foundryUrl)`. The broad Foundry client, the adapter `client` parameters, and `resolveActorNames` were removed; document reads outside projection happen through `runtime.documents`.
 
 Use `fetchByUuid` or compendium lookups only for exceptional linked references that are not already embedded in the actor. Compendium UUID reads are cache-required by default: add the pack to `info.json` under `compendiumPacks.packs` with `hydrate: true` when module code needs full documents. Missing or non-hydrated pack rows return `null` and log a warning. The `foundry.allow-live-compendium-uuid-fallback` / `APP_ALLOW_LIVE_COMPENDIUM_UUID_FALLBACK` setting is a diagnostic operator escape hatch, not a module contract.
 
@@ -155,7 +166,6 @@ const info = infoJson as ModuleInfo;
 const manifest: UIModuleManifest = {
     info,
     sheet: () => import('../src/ui/Sheet'),
-    actorPage: () => import('../src/ui/ActorPage'),
     stylesheet: 'assets/styles.css',
 };
 
@@ -164,40 +174,64 @@ export default manifest;
 
 `info` is synchronous metadata. Component entries are lazy `() => import(...)` thunks, and each imported component module must provide a default React component export.
 
-Inside React components, use SDK hooks:
+A bare `sheet` is enough: the platform wraps it in a default actor page that supplies load / roll / field-update (via `useActorSheet`), shared-content, and an error/loading boundary. Only declare a custom `actorPage: () => import('../src/ui/ActorPage')` when the system needs page-level behavior the default host can't express (e.g. a system-specific roll engine rather than the generic platform roll) — see Mörk Borg for an example.
+
+Inside React components, use the SDK hooks from `@sheet-delver/sdk/react`:
 
 ```tsx
-import { useSDK, useSDKComponents } from '@sheet-delver/sdk';
+import { useSDK, useSDKComponents, useActorSheet } from '@sheet-delver/sdk/react';
+import type { ActorSheetProps } from '@sheet-delver/sdk/react';
 
-export default function Sheet() {
-    const { fetchWithAuth, resolveImageUrl, addNotification } = useSDK();
+export default function Sheet({ actor, onRoll, onUpdate }: ActorSheetProps) {
+    const { fetchWithAuth, resolveImageUrl, addNotification, assetUrl } = useSDK();
     const { RollDialog, RichTextEditor } = useSDKComponents();
 
     return null;
 }
 ```
 
+A presentational sheet receives `ActorSheetProps` from the host; a custom `actorPage` instead calls `useActorSheet(actorId)` itself to drive load / roll / update through the host-owned cache.
+
+### Assets
+
+Reference static assets (images, extra CSS) by URL — do **not** `import logo from './logo.png'`. The bundler ships no binary-asset loader, and the same URL must resolve identically in local dev and packaged builds. Put the file under the module's `assets/` directory and build the URL with the host:
+
+```tsx
+const { assetUrl } = useSDK();
+<div style={{ backgroundImage: `url(${assetUrl('grunge.png')})` }} />
+```
+
+`assetUrl(path)` is bound to the current module's id; outside a component, `buildModuleAssetUrl(moduleId, path)` from `@sheet-delver/sdk` produces the same `/api/modules/<id>/assets/<path>` URL. The module's declared `stylesheet` is injected by the platform via that same route. Author CSS scoped under the surface root (`.sdk-module--<id>`); the checker fails on global selector leaks.
+
 ## Server Routes
 
-If the module has server-side routes, export `apiRoutes` from the server entry.
+A server entry is optional — generic actor read / field-update / item CRUD are served by the platform `/api/actors` surface, so only export `apiRoutes` for routes that have **no** core equivalent (a system-specific roll engine, table draws, character generation, etc.). `apiRoutes` is a static object keyed by route pattern (`[id]` segments are captured as params); the platform matches and dispatches it.
 
 ```ts
-import type { ModuleServerRoute } from '@sheet-delver/sdk';
+import type { ModuleServerRequest, ModuleServerParams } from '@sheet-delver/sdk/server';
+import { json, error } from '@sheet-delver/sdk/server';
 
-export const apiRoutes: Record<string, ModuleServerRoute> = {
-    async ping(req) {
-        return req.json({ ok: true });
+export const apiRoutes = {
+    'actors/[id]/ping': async (req: ModuleServerRequest, { params }: ModuleServerParams) => {
+        const { route } = await params;          // ['actors', '<id>', 'ping']
+        const body = await req.json<{ note?: string }>().catch(() => ({}));
+        const actor = await req.runtime.documents.get('Actor', route[1]);
+        if (!actor) return error('not_found', 'Actor not found');
+        return json({ ok: true, note: body.note });
     },
 };
 ```
+
+Two things to get right:
+
+- `req.json()` reads the **request body**; it is not a response. Build responses with the `json(payload, status?)` / `error(code, message)` helpers from `@sheet-delver/sdk/server` (the latter maps an `SdkErrorCode` to an HTTP status).
+- There is no Foundry client on the request. All host access is through `req.runtime` — the per-request `ModuleRequestRuntime`, which extends the base runtime with the **write** surfaces: `documents` (CRUD + `commit` + `effects` + embedded `items`), `rolls`, `tables`, and `chat`. These are user-bound and default to the caller; pass `{ access }` to act as another subject. Reads/writes are ownership-gated and fail closed.
 
 Routes are exposed under:
 
 ```text
 /api/modules/<moduleId>/<route>
 ```
-
-Prefer narrow route handlers that use the SDK request object and injected Foundry client instead of importing server internals.
 
 ## Checking a Module
 
