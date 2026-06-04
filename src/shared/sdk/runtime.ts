@@ -1,6 +1,17 @@
 import { ModuleLogger } from './logging';
 import type { DrawResult } from './utils';
-import type { ChatCard } from './interfaces';
+import type { ChatCard, RollMode } from './interfaces';
+
+/** Options shared by chat-posting primitives (ADR-0027 decision 7 addendum). */
+export interface ChatPostOptions {
+    /**
+     * Roll mode governing visibility: `publicroll` (all), `gmroll` (whisper GMs),
+     * `blindroll` (blind + GMs), `selfroll` (whisper self). The platform resolves it into
+     * whisper/blind; any explicit `whisper`/`blind` already on the message overrides it.
+     */
+    rollMode?: RollMode;
+    speaker?: Record<string, unknown>;
+}
 
 /** Foundry-style ownership ladder used for read visibility and write thresholds. */
 export type ModuleOwnershipLevel = 'limited' | 'observer' | 'owner';
@@ -111,9 +122,9 @@ export interface TableRuntime {
  *  - `useItem` posts the default "uses item" card for an actor's item.
  */
 export interface ChatRuntime {
-    send(message: Record<string, unknown>): Promise<unknown>;
-    card(card: ChatCard, options?: { speaker?: Record<string, unknown>; rollMode?: string }): Promise<unknown>;
-    useItem(actorId: string, itemId: string): Promise<unknown>;
+    send(message: Record<string, unknown>, options?: ChatPostOptions): Promise<unknown>;
+    card(card: ChatCard, options?: ChatPostOptions): Promise<unknown>;
+    useItem(actorId: string, itemId: string, options?: ChatPostOptions): Promise<unknown>;
 }
 
 /**

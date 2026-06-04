@@ -21,6 +21,7 @@ import type {
     RollRuntime,
     TableRuntime,
     ChatRuntime,
+    ChatPostOptions,
 } from '@shared/sdk/runtime';
 import { SdkError, simulateTableDraw } from '@shared/sdk';
 import { awaitWorldReady } from '@server/shared/utils/worldReadiness';
@@ -340,19 +341,38 @@ export function createTableRuntime(
     };
 }
 
-/** Chat primitive backed by the request client (post a message / default item-use card). */
+/** Chat primitive backed by the request client (post a message / card / default item-use card). */
 export function createChatRuntime(
     client: RouteFoundryClient,
     ensureReady: () => Promise<void> = awaitWorldReady,
 ): ChatRuntime {
     const c = client as unknown as {
+        userId: string;
         createChatMessage(data: Record<string, unknown>): Promise<unknown>;
         useItem(actorId: string, itemId: string): Promise<unknown>;
     };
+
+    // Apply rollMode visibility (whisper/blind) to a message. Any explicit whisper/blind on
+    // the message overrides the rollMode-derived value (manual targeting wins).
+    const applyVisibility = async (
+        message: Record<string, unknown>,
+        options?: ChatPostOptions,
+    ): Promise<Record<string, unknown>> => {
+        const out: Record<string, unknown> = { ...message };
+        if (options?.speaker && out.speaker === undefined) out.speaker = options.speaker;
+        if (options?.rollMode) {
+            const { resolveRollModeData } = await import('@server/core/documents/primary/chat-messages/chatMessagePayload');
+            const modeData = await resolveRollModeData(options.rollMode, c.userId, () => userStore.getGmUserIds());
+            // rollMode sets defaults; explicit message fields override (manual targeting wins).
+            return { ...modeData, ...out };
+        }
+        return out;
+    };
+
     return {
-        send: async (message) => {
+        send: async (message, options) => {
             await ensureReady();
-            return c.createChatMessage(message);
+            return c.createChatMessage(await applyVisibility(message, options));
         },
         card: async (card, options) => {
             await ensureReady();
@@ -366,8 +386,7 @@ export function createChatRuntime(
             };
             if (card.flavor) message.flavor = card.flavor;
             if (Array.isArray(card.rolls) && card.rolls.length) message.rolls = card.rolls;
-            if (options?.speaker) message.speaker = options.speaker;
-            return c.createChatMessage(message);
+            return c.createChatMessage(await applyVisibility(message, options));
         },
         useItem: async (actorId, itemId) => {
             await ensureReady();
