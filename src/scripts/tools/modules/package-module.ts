@@ -5,7 +5,8 @@ import crypto from 'node:crypto';
 import * as tar from 'tar';
 import * as esbuild from 'esbuild';
 import { resolveDataDir, initDataDir, getModulesDataDir, getDistModulesDir, getLocalModulesDataDir } from '../../../server/core/paths';
-import { ENTRIES, BUILD_TARGET, BUILD_LOADER } from './build-config';
+import { ENTRIES, BUILD_TARGET, BUILD_LOADER, compiledStylesRel } from './build-config';
+import { compileModuleTailwind } from './tailwind-compile';
 import { checkModule, printModuleCheckSummary } from './check-module';
 
 // Build configuration (ENTRIES, externals, target, loaders) is shared with
@@ -160,10 +161,28 @@ async function packageModule() {
         }
 
         // -----------------------------------------------------------------------
+        // Compile the module's Tailwind entry (if any) into a scoped artifact
+        // (ADR-0027 decisions 37/38). Recorded as info.compiledStyles so the client
+        // injector loads it first; written into staging assets/ below.
+        // -----------------------------------------------------------------------
+
+        let compiledCss: string | null = null;
+        try {
+            process.stdout.write(`  Compiling Tailwind (${compiledStylesRel(moduleId)}) ... `);
+            compiledCss = await compileModuleTailwind(modulePath, moduleId);
+            console.log(compiledCss ? `✓ (${(compiledCss.length / 1024).toFixed(1)} KB)` : 'skipped (no src/styles/tailwind.css)');
+        } catch (err: any) {
+            console.log('✗');
+            console.error(`\nTailwind compile failed:\n${err.message ?? err}`);
+            process.exit(1);
+        }
+
+        // -----------------------------------------------------------------------
         // Write patched info.json into staging root (source info.json untouched)
         // -----------------------------------------------------------------------
 
-        const artifactInfo = { ...info, manifest: { ...manifest, ...compiledManifest } };
+        const artifactInfo: Record<string, unknown> = { ...info, manifest: { ...manifest, ...compiledManifest } };
+        if (compiledCss) artifactInfo.compiledStyles = compiledStylesRel(moduleId);
         fs.writeFileSync(
             path.join(stagingDir, 'info.json'),
             JSON.stringify(artifactInfo, null, 2)
@@ -184,6 +203,15 @@ async function packageModule() {
         if (fs.existsSync(assetsDir)) {
             copyDirRecursive(assetsDir, path.join(stagingDir, 'assets'));
             console.log('  Copied assets/ directory');
+        }
+
+        // Emit the compiled Tailwind artifact into staging assets/ (reserved name, decision 37).
+        // Written after the copy so it never collides with an author file of the same name.
+        if (compiledCss) {
+            const compiledPath = path.join(stagingDir, compiledStylesRel(moduleId));
+            fs.mkdirSync(path.dirname(compiledPath), { recursive: true });
+            fs.writeFileSync(compiledPath, compiledCss);
+            console.log(`  Wrote ${compiledStylesRel(moduleId)}`);
         }
 
         // Process developer-declared includes from info.json package.include

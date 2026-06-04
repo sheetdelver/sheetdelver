@@ -165,18 +165,28 @@ export async function getUIModule(systemId: string): Promise<UIModuleManifest> {
 
     manifestCache.set(id, manifest);
 
-    // Inject module stylesheet if declared
-    if (manifest.stylesheet && typeof document !== 'undefined') {
-        const sheetPath = manifest.stylesheet.replace(/^\/?assets\//, '');
-        const href = `/api/modules/${id}/assets/${sheetPath}`;
-        const existing = document.querySelector(`link[data-module="${id}"]`);
-        if (!existing) {
+    // Inject module stylesheet(s). The package-time compiled Tailwind artifact (if the
+    // packager produced one — `info.compiledStyles`, ADR-0027 decision 37) is linked FIRST
+    // so author CSS declared via `stylesheet` (string | string[], decision 36) can override
+    // utilities. Each entry is a separate <link>, deduped per href — they compose via the
+    // cascade under `.sdk-module--<id>`, never merged.
+    if (typeof document !== 'undefined') {
+        const injectStylesheet = (relPath: string) => {
+            const sheetPath = relPath.replace(/^\/?assets\//, '');
+            const href = `/api/modules/${id}/assets/${sheetPath}`;
+            if (document.querySelector(`link[rel="stylesheet"][href="${href}"]`)) return;
             const link = document.createElement('link');
             link.rel = 'stylesheet';
             link.href = href;
             link.dataset.module = id;
             document.head.appendChild(link);
-        }
+        };
+
+        if (manifest.info?.compiledStyles) injectStylesheet(manifest.info.compiledStyles);
+
+        const declared = manifest.stylesheet;
+        const sheets = Array.isArray(declared) ? declared : declared ? [declared] : [];
+        for (const sheet of sheets) injectStylesheet(sheet);
     }
 
     return manifest;

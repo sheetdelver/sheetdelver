@@ -52,6 +52,24 @@ export const ENTRIES: readonly ModuleBuildEntry[] = [
 /** esbuild target shared by validation and packaging. */
 export const BUILD_TARGET = 'es2022';
 
+// ---------------------------------------------------------------------------
+// Tailwind / CSS (ADR-0027 section M, Phase 6.5)
+// ---------------------------------------------------------------------------
+
+/** Author-owned Tailwind entry, relative to the module root (decision 38). Optional. */
+export const TAILWIND_ENTRY_REL = 'src/styles/tailwind.css';
+
+/** Bare specifier authors `@import` for the shared design tokens (decision 34). */
+export const SDK_THEME_SPECIFIER = '@sheet-delver/sdk/theme.css';
+
+/** The shared SDK theme file, relative to the platform repo root. */
+export const SDK_THEME_REL = 'src/shared/sdk/theme.css';
+
+/** Reserved, packager-owned compiled-Tailwind artifact path for a module (decision 37). */
+export function compiledStylesRel(moduleId: string): string {
+    return `assets/${moduleId}.tailwind.css`;
+}
+
 /** esbuild loaders shared by validation and packaging. */
 export const BUILD_LOADER: Record<string, 'json'> = { '.json': 'json' };
 

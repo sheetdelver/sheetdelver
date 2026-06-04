@@ -15,7 +15,10 @@ import {
     BUILD_LOADER,
     FORBIDDEN_IMPORT_PREFIXES,
     SOURCE_EXTENSIONS,
+    TAILWIND_ENTRY_REL,
+    SDK_THEME_SPECIFIER,
 } from './build-config';
+import { compileModuleTailwind, probeTailwindUtilityCount } from './tailwind-compile';
 
 // Build configuration is shared with package-module.ts via ./build-config so
 // validation and packaging can never drift (ADR-0027 decision 29).
@@ -408,6 +411,54 @@ function checkTypeScript(ctx: CheckContext): void {
     fail(ctx, 'typecheck', `TypeScript check failed${output ? `:\n${output}` : ''}`);
 }
 
+// Validate the Tailwind setup (ADR-0027 decision 39). A module styled via inline Tailwind
+// utilities looks correct in dev (the host scans its source) but ships unstyled when packaged
+// unless it has a `src/styles/tailwind.css` entry the packager compiles. This closes that trap.
+async function checkTailwind(ctx: CheckContext): Promise<void> {
+    const entryAbs = path.join(ctx.modulePath, TAILWIND_ENTRY_REL);
+
+    if (fs.existsSync(entryAbs)) {
+        const content = fs.readFileSync(entryAbs, 'utf8');
+        if (!content.includes(SDK_THEME_SPECIFIER)) {
+            fail(ctx, 'bundle',
+                `${TAILWIND_ENTRY_REL} must @import "${SDK_THEME_SPECIFIER}" so platform design tokens resolve`,
+                `Add: @import "${SDK_THEME_SPECIFIER}";`);
+        }
+        if (!/@import\s+["']tailwindcss/.test(content)) {
+            fail(ctx, 'bundle',
+                `${TAILWIND_ENTRY_REL} must import Tailwind`,
+                `e.g. @import "tailwindcss/utilities.css" layer(utilities); (omit preflight — the host provides it)`);
+        }
+        try {
+            const css = await compileModuleTailwind(ctx.modulePath, ctx.moduleId);
+            if (!css || css.trim().length === 0) {
+                fail(ctx, 'bundle', `${TAILWIND_ENTRY_REL} compiled to empty CSS`);
+            } else {
+                pass(ctx, `Tailwind entry compiles → scoped ${(css.length / 1024).toFixed(1)} KB`);
+            }
+        } catch (e) {
+            const msg = e instanceof Error ? e.message.split('\n')[0] : String(e);
+            fail(ctx, 'bundle', `Tailwind compile failed for ${TAILWIND_ENTRY_REL}: ${msg}`);
+        }
+        return;
+    }
+
+    // No entry: probe the source. Utilities generated here would ship only in dev.
+    try {
+        const utilityCount = await probeTailwindUtilityCount(ctx.modulePath, ctx.moduleId);
+        if (utilityCount > 0) {
+            fail(ctx, 'bundle',
+                `module uses Tailwind utility classes (${utilityCount} generated) but has no ${TAILWIND_ENTRY_REL}`,
+                `It styles in dev (the host scans source) but ships unstyled when packaged. Add ${TAILWIND_ENTRY_REL} (see docs/MODULE_AUTHORING.md), or convert to hand-authored scoped CSS.`);
+        } else {
+            pass(ctx, 'no Tailwind entry needed (module uses no utility classes)');
+        }
+    } catch (e) {
+        const msg = e instanceof Error ? e.message.split('\n')[0] : String(e);
+        warn(ctx, 'bundle', `could not probe Tailwind usage: ${msg}`);
+    }
+}
+
 async function dryBundle(ctx: CheckContext): Promise<void> {
     const stagingDir = fs.mkdtempSync(path.join(os.tmpdir(), `sd-check-${ctx.moduleId}-`));
     try {
@@ -565,6 +616,7 @@ export async function checkModule(moduleId: string, options: ModuleCheckOptions 
     checkImportBoundaries(ctx);
     checkStyleScoping(ctx);
     checkTypeScript(ctx);
+    await checkTailwind(ctx);
     await dryBundle(ctx);
 
     return {

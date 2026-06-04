@@ -178,6 +178,13 @@ export interface ModuleInfo {
     package?: ModulePackageDeclaration;
     dependencies?: string[];
     conflicts?: string[];
+    /**
+     * Reserved, packager-managed: path (relative to module root) of the compiled, scoped
+     * Tailwind artifact produced from `src/styles/tailwind.css` at package time (ADR-0027
+     * decisions 37, 38). Authors do not set this — `module:package` writes it into the
+     * artifact's info.json so the client injector loads it first. Absent in local dev.
+     */
+    compiledStyles?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -356,11 +363,15 @@ export interface UIModuleManifest {
     dashboardTools?: () => Promise<{ default: unknown }>;
     dashboardLoading?: unknown;
     /**
-     * Path to a CSS file relative to the module root (e.g. "assets/styles.css").
-     * The platform injects this as a <link rel="stylesheet"> when the module mounts.
-     * The file must be present in the module's assets/ directory.
+     * Path(s) to CSS file(s) relative to the module root (e.g. "assets/styles.css"),
+     * or an array of them. The platform injects each as a <link rel="stylesheet"> when the
+     * module mounts, in declaration order. Each file must be present in the module's assets/
+     * directory. Multiple stylesheets compose via the normal CSS cascade under the module's
+     * `.sdk-module--<id>` scope root — they are never merged (ADR-0027 decision 36). The
+     * package-time compiled Tailwind artifact (`assets/<id>.tailwind.css`, decision 37) is
+     * loaded automatically and need not be listed here.
      */
-    stylesheet?: string;
+    stylesheet?: string | string[];
 }
 
 export interface ModuleManifest extends UIModuleManifest {

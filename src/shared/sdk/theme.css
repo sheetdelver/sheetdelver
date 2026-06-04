@@ -1,0 +1,24 @@
+/*
+ * @sheet-delver/sdk/theme.css — shared module design tokens (ADR-0027 decision 34).
+ *
+ * `@reference` this from a module's `src/styles/tailwind.css` (decision 38) so its
+ * package-time Tailwind compile resolves the platform's custom design tokens — the
+ * font families and base colors the host exposes as utilities (e.g. `font-imfell`,
+ * `bg-background`). `@reference` is token-resolution only: this file emits no CSS.
+ *
+ * The *values* behind these tokens (e.g. `--font-imfell`) are supplied at runtime by the
+ * host at page level (Next.js `next/font` in the root layout), so a module's compiled CSS
+ * only ever emits `var(--font-imfell)` and the host fills it in.
+ *
+ * Keep in sync with the host `@theme` in `src/app/globals.css`. Standard Tailwind utilities
+ * (palette, spacing, etc.) come from the module entry's own `@import "tailwindcss"`, not here.
+ */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-inter: var(--font-inter);
+  --font-imfell: var(--font-imfell);
+  --font-crimson: var(--font-crimson);
+}

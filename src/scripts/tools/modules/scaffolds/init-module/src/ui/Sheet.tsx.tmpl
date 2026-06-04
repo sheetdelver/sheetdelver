@@ -6,12 +6,16 @@ export default function Sheet({ actor, isOwner }: ActorSheetProps) {
     const { assetUrl, resolveImageUrl } = useSDK();
     const portrait = actor.img ? resolveImageUrl(actor.img) : assetUrl('icon.svg');
 
+    // Styling is your choice (ADR-0027 section M):
+    //   • Tailwind utility classes (below) — compiled at package time from src/styles/tailwind.css.
+    //   • Hand-authored CSS (the `sheet-*` classes) — in assets/styles.css.
+    // Both compose under the host's `.sdk-module--<module-id>` scope root; mix freely.
     return (
-        <section className="sheet-root">
+        <section className="sheet-root flex items-center gap-4">
             <img className="sheet-portrait" src={portrait} alt="" />
-            <div>
-                <p className="sheet-type">{actor.type}</p>
-                <h1>{actor.name}</h1>
+            <div className="flex flex-col">
+                <p className="sheet-type text-xs uppercase tracking-wide opacity-70">{actor.type}</p>
+                <h1 className="text-2xl font-bold">{actor.name}</h1>
                 <p className="sheet-access">{isOwner ? 'Owner' : 'Observer'}</p>
             </div>
         </section>

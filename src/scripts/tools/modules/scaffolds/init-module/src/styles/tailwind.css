@@ -1,0 +1,18 @@
+/*
+ * Tailwind entry — compiled at package time into assets/<module-id>.tailwind.css, scoped
+ * under .sdk-module--<module-id> (ADR-0027 decisions 37, 38). In local dev this file is
+ * dormant; the host scans your source directly. Write Tailwind utility classes in your
+ * components (className="flex gap-2 …") and they ship correctly when packaged.
+ *
+ * Preflight is intentionally omitted (theme + utilities layers only) — the host supplies a
+ * global reset. The SDK theme is `@import`ed (not `@reference`d) so the platform's design
+ * tokens register without suppressing theme emission.
+ *
+ * Extend below as needed:
+ *   @theme { --color-brand: #c0ffee; }
+ *   @layer components { .my-card { @apply rounded-lg border p-4; } }
+ *   @font-face { font-family: "MySystem"; src: url("/api/modules/<id>/assets/font.woff2"); }
+ */
+@import "tailwindcss/theme.css" layer(theme);
+@import "@sheet-delver/sdk/theme.css";          /* platform design tokens */
+@import "tailwindcss/utilities.css" layer(utilities);

@@ -380,6 +380,16 @@ module.exports = (opts = {}) => {
         root.prepend(\`@source "\${relativePath}/**/*.tsx";\`);
       }
 
+      // Local-dev modules live under <DATA_DIR>/local/modules (gitignored, so Tailwind v4
+      // auto-detection skips them). Scan them explicitly so module utility classes are not
+      // purged (ADR-0027 decision 33, layer 1). Honors $SHEET_DELVER_LOCAL_MODULES.
+      const LOCAL_MODULES = process.env.SHEET_DELVER_LOCAL_MODULES
+        || (DATA_DIR ? path.join(DATA_DIR, 'local', 'modules') : '${localModulesDir}');
+      if (LOCAL_MODULES) {
+        const relativeLocalPath = path.relative(currentDir, LOCAL_MODULES);
+        root.prepend(\`@source "\${relativeLocalPath}/**/*.tsx";\`);
+      }
+
       const srcModulesPath = '${srcModules}';
       const relativeSrcPath = path.relative(currentDir, srcModulesPath);
       root.prepend(\`@source "\${relativeSrcPath}/**/*.tsx";\`);
