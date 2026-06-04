@@ -2,13 +2,19 @@ import { getServerModule } from '@modules/registry/server';
 import { logger } from '@shared/utils/logger';
 import { createModuleRuntime } from '@server/shared/utils/createModuleRuntime';
 import { createModuleRequestRuntime } from '@server/shared/utils/moduleDocumentServices';
-import type { ModuleRuntime } from '@shared/sdk/runtime';
+import { SdkError } from '@shared/sdk';
+import type { ModuleAccessContext, ModuleRuntime } from '@shared/sdk/runtime';
+import type { UserSession } from '@shared/sdk/contracts';
 import type {
     ModuleProxyDispatchRequest,
     ModuleProxyDispatchResult,
     ModuleServerLike,
     NextLikeResponse,
 } from '@server/shared/types/moduleProxy';
+import type { FoundryUserConnectionLike } from '@server/shared/types/foundry';
+import type { RouteFoundryClient } from '@server/shared/types/requestContext';
+import { userStore } from '@server/core/documents/primary/users/UserStore';
+import { FoundryUserRole } from '@server/core/documents/primary/base/ownership';
 
 // Base runtime is module-scoped (logger/dataStore/compendium/foundryUrl + read-only
 // documents) — memoize per module so per-request work is just binding the user-bound
@@ -25,6 +31,37 @@ function getBaseRuntime(moduleId: string): Promise<ModuleRuntime> {
 
 function escapeRegexSegment(value: string): string {
     return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function resolveRequestUserId(rawClient: RouteFoundryClient, userSession?: FoundryUserConnectionLike): string | null {
+    const clientUserId = (rawClient as RouteFoundryClient & { userId?: string | null }).userId;
+    return userSession?.userId ?? clientUserId ?? null;
+}
+
+function createModuleUserSession(rawClient: RouteFoundryClient, userSession?: FoundryUserConnectionLike): UserSession | undefined {
+    const userId = resolveRequestUserId(rawClient, userSession);
+    if (!userId) return undefined;
+    const role = userStore.getRole(userId);
+    return {
+        userId,
+        username: userSession?.username ?? rawClient.username ?? userId,
+        role,
+        isGM: role >= FoundryUserRole.GAMEMASTER,
+    };
+}
+
+// Access data is derived at the module boundary rather than trusting caller-supplied
+// role/GM flags; the User Store remains the authority for the active world.
+function createAccessContext(moduleId: string, rawClient: RouteFoundryClient, userSession?: FoundryUserConnectionLike): ModuleAccessContext {
+    const userId = resolveRequestUserId(rawClient, userSession);
+    if (!userId) throw new SdkError('permission_denied', 'No access context could be resolved for this request');
+    const role = userStore.getRole(userId);
+    return {
+        userId,
+        role,
+        isGM: role >= FoundryUserRole.GAMEMASTER,
+        moduleId,
+    };
 }
 
 export function compileModuleRoutePattern(pattern: string): RegExp {
@@ -94,6 +131,7 @@ export function createModuleProxyService() {
         // user-bound document/roll/table services. Document ops default to the caller.
         const baseRuntime = await getBaseRuntime(systemId);
         const runtime = createModuleRequestRuntime(baseRuntime, rawClient);
+        const userSession = createModuleUserSession(rawClient, request.userSession);
 
         const nextRequest = {
             json: async () => request.body,
@@ -101,7 +139,8 @@ export function createModuleProxyService() {
             url: request.url,
             headers: request.headers,
             runtime,
-            userSession: request.userSession
+            userSession,
+            getAccessContext: () => createAccessContext(systemId, rawClient, request.userSession),
         };
         const nextParams = { params: Promise.resolve({ systemId, route: routePath.split('/') }) };
 

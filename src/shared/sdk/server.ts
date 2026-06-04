@@ -20,7 +20,7 @@ export interface ModuleServerRequest {
     /** Per-request runtime handle; document ops default to the caller (`userSession`). */
     runtime: ModuleRequestRuntime;
     /** Read the caller's access context (or build a `{ access }` override). */
-    getAccessContext?(): ModuleAccessContext;
+    getAccessContext(): ModuleAccessContext;
 }
 
 /**

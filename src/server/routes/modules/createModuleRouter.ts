@@ -5,6 +5,7 @@ import { createModuleProxyService } from '@server/services/modules/ModuleProxySe
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
 import { logger } from '@shared/utils/logger';
 import { getModulesDataDir, getLocalModulesDataDir } from '@core/paths';
+import { isSdkError } from '@shared/sdk/errors';
 
 interface ModuleRouterDeps {
     tryAuthenticateSession: express.RequestHandler;
@@ -223,6 +224,10 @@ export function createModuleRouter(deps: ModuleRouterDeps) {
 
             return res.status(result.status).json(result.payload);
         } catch (error: unknown) {
+            if (isSdkError(error)) {
+                logger.error(`Module Routing Error (${req.path}): ${error.message}`);
+                return res.status(error.status).json({ error: error.message, code: error.code, status: error.status });
+            }
             const message = getErrorMessage(error);
             logger.error(`Module Routing Error (${req.path}): ${message}`);
             return res.status(500).json({ error: message });

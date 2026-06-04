@@ -185,6 +185,48 @@ function extractImportSpecifiers(source: string): string[] {
     return specs;
 }
 
+function resolveRelativeSourceImport(filePath: string, specifier: string): string | null {
+    if (!specifier.startsWith('.')) return null;
+
+    const base = path.resolve(path.dirname(filePath), specifier);
+    const candidates = [
+        base,
+        ...Array.from(SOURCE_EXTENSIONS, (ext) => base + ext),
+        ...Array.from(SOURCE_EXTENSIONS, (ext) => path.join(base, `index${ext}`)),
+    ];
+
+    for (const candidate of candidates) {
+        if (!SOURCE_EXTENSIONS.has(path.extname(candidate))) continue;
+        if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) return candidate;
+    }
+    return null;
+}
+
+/**
+ * Follow the declared UI entry's local imports so server-only SDK imports are rejected
+ * from every source file that can enter the browser bundle, including plain `.ts` helpers.
+ */
+function collectUiBundleFiles(ctx: CheckContext): Set<string> {
+    const uiEntry = ctx.entries.ui;
+    if (!uiEntry) return new Set();
+
+    const files = new Set<string>();
+    const pending = [path.resolve(uiEntry)];
+    while (pending.length > 0) {
+        const filePath = pending.pop()!;
+        if (files.has(filePath)) continue;
+        files.add(filePath);
+
+        const source = fs.readFileSync(filePath, 'utf8');
+        for (const specifier of extractImportSpecifiers(source)) {
+            if (checkRelativeImport(ctx.modulePath, filePath, specifier)) continue;
+            const importedFile = resolveRelativeSourceImport(filePath, specifier);
+            if (importedFile && !files.has(importedFile)) pending.push(importedFile);
+        }
+    }
+    return files;
+}
+
 function checkRelativeImport(modulePath: string, filePath: string, specifier: string): string | null {
     if (!specifier.startsWith('.')) return null;
     const resolved = path.resolve(path.dirname(filePath), specifier);
@@ -201,13 +243,14 @@ function getMigrationHint(specifier: string): string | null {
 
 function checkImportBoundaries(ctx: CheckContext): void {
     const files = walkFiles(ctx.modulePath);
+    const uiBundleFiles = collectUiBundleFiles(ctx);
     let issueCount = 0;
 
     for (const filePath of files) {
         const source = fs.readFileSync(filePath, 'utf8');
-        // UI components are .tsx; the server entry point must not be pulled into a UI
-        // bundle (ADR-0027 decision 2 — server-only exports rejected from UI).
-        const isUiFile = path.extname(filePath) === '.tsx';
+        // The server entry point must not be pulled into the browser bundle through a
+        // component, a plain TypeScript helper, or a lazy dynamic import.
+        const isUiFile = uiBundleFiles.has(path.resolve(filePath));
         for (const specifier of extractImportSpecifiers(source)) {
             const forbidden = FORBIDDEN_IMPORT_PREFIXES.find((prefix) => specifier === prefix.slice(0, -1) || specifier.startsWith(prefix));
             if (forbidden) {
@@ -220,7 +263,7 @@ function checkImportBoundaries(ctx: CheckContext): void {
                 fail(
                     ctx,
                     'import-boundary',
-                    `${path.relative(ctx.modulePath, filePath)} imports the server entry "@sheet-delver/sdk/server" from a UI component`,
+                    `${path.relative(ctx.modulePath, filePath)} imports the server entry "@sheet-delver/sdk/server" from the UI bundle`,
                     'Server runtime types/helpers are not available in UI bundles. Use @sheet-delver/sdk/react and the data hooks instead.',
                 );
                 issueCount += 1;

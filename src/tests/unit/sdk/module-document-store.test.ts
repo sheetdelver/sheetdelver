@@ -19,7 +19,11 @@ import type { ActorDocument } from '@server/shared/types/actors';
 
 interface DispatchCall { type: string; action: string; operation: unknown; parent?: { type: string; id: string } }
 
-function makeClient(userId: string | null, calls: DispatchCall[]) {
+function makeClient(
+    userId: string | null,
+    calls: DispatchCall[],
+    fetchByUuid: (uuid: string) => Promise<Record<string, unknown> | null> = async () => null,
+) {
     return {
         userId,
         isConnected: true,
@@ -27,7 +31,7 @@ function makeClient(userId: string | null, calls: DispatchCall[]) {
             calls.push({ type, action, operation, parent });
             return { result: [{ _id: 'dispatched', type, action }] };
         },
-        fetchByUuid: async () => null,
+        fetchByUuid,
     } as never;
 }
 
@@ -45,6 +49,7 @@ export async function run() {
             _id: 'actor-owned',
             name: 'Owned Actor',
             ownership: { 'owner-user': DocumentOwnershipLevel.OWNER, default: DocumentOwnershipLevel.NONE },
+            items: [{ _id: 'item-hidden', name: 'Hidden Dagger', type: 'loot' }],
         },
         {
             _id: 'actor-observed',
@@ -91,6 +96,21 @@ export async function run() {
     await rejectsWithCode(() => playerStore.patch('Actor', 'actor-observed', { name: 'x' }), 'permission_denied');
     assert.equal(playerCalls.length, 0, 'observer write never dispatched');
 
+    // --- fetchByUuid is access-scoped for world docs and root-gated for embedded docs ---
+    const rawUuidFetch = async (uuid: string) => {
+        if (uuid === 'Actor.actor-owned') return { _id: 'actor-owned', name: 'Raw Hidden Actor' };
+        if (uuid === 'Actor.actor-observed') return { _id: 'actor-observed', name: 'Raw Observed Actor' };
+        if (uuid === 'Actor.actor-owned.Item.item-hidden') return { _id: 'item-hidden', name: 'Raw Hidden Dagger' };
+        return null;
+    };
+    const uuidOwnerStore = createDocumentStore(makeClient('owner-user', [], rawUuidFetch), noop);
+    const uuidPlayerStore = createDocumentStore(makeClient('player-user', [], rawUuidFetch), noop);
+    assert.equal((await uuidOwnerStore.fetchByUuid('Actor.actor-owned'))?.name, 'Owned Actor');
+    assert.equal((await uuidOwnerStore.fetchByUuid('Actor.actor-owned.Item.item-hidden'))?.name, 'Raw Hidden Dagger');
+    assert.equal(await uuidPlayerStore.fetchByUuid('Actor.actor-owned'), null, 'hidden world UUID returns null');
+    assert.equal(await uuidPlayerStore.fetchByUuid('Actor.actor-owned.Item.item-hidden'), null, 'hidden root blocks embedded UUID');
+    assert.equal((await uuidPlayerStore.fetchByUuid('Actor.actor-observed'))?.name, 'Observed Actor');
+
     // --- { access } override: player acts as the owner ---
     await playerStore.patch('Actor', 'actor-observed', { name: 'ByOwner' }, asOwner);
     assert.equal(playerCalls.length, 1, 'override write dispatched');
@@ -100,6 +120,7 @@ export async function run() {
     const anonStore = createDocumentStore(makeClient(null, anonCalls), noop);
     await rejectsWithCode(() => anonStore.patch('Actor', 'actor-observed', { name: 'x' }), 'permission_denied');
     await rejectsWithCode(() => anonStore.get('Actor', 'actor-observed'), 'permission_denied');
+    await rejectsWithCode(() => anonStore.fetchByUuid('Actor.actor-observed'), 'permission_denied');
 
     // --- commit verifies EVERY op before dispatching ANY ---
     const commitCalls: DispatchCall[] = [];

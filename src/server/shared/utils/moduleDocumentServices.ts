@@ -23,9 +23,10 @@ import type {
     ChatRuntime,
     ChatPostOptions,
 } from '@shared/sdk/runtime';
-import { SdkError, simulateTableDraw } from '@shared/sdk';
+import { SdkError, isSdkError, simulateTableDraw } from '@shared/sdk';
 import { awaitWorldReady } from '@server/shared/utils/worldReadiness';
 import type { RouteFoundryClient } from '@server/shared/types/requestContext';
+import { parseDocumentUuid } from '@server/services/documents';
 import {
     DocumentOwnershipLevel,
     DOCUMENT_VISIBILITY,
@@ -153,11 +154,12 @@ function makeReads(deps: ReaderDeps): ReadonlyDocumentStore {
                 : store.list();
             return applyQuery(rows, query);
         },
-        async fetchByUuid(uuid) {
+        async fetchByUuid(uuid, opts) {
             await ensureReady();
             if (!deps.fetchByUuid) {
                 throw new SdkError('not_ready', 'fetchByUuid is not available on the base (adapter) runtime');
             }
+            resolveSubject(opts);
             return deps.fetchByUuid(uuid);
         },
     };
@@ -165,7 +167,7 @@ function makeReads(deps: ReaderDeps): ReadonlyDocumentStore {
 
 /**
  * Read-only document surface for the adapter's base runtime (ADR-0027 decision 14).
- * Reads are system-level (no acting user); `fetchByUuid` is not wired on the base.
+ * Reads are system-level (no acting user).
  */
 export function createReadonlyDocumentStore(deps: {
     fetchByUuid?: (uuid: string) => Promise<Record<string, unknown> | null>;
@@ -220,9 +222,40 @@ export function createDocumentStore(
             throw new SdkError('permission_denied', `Write denied: user ${subject.userId} lacks owner-level access to ${type} ${id}`);
         }
     };
+    const getVisibleDocument = async (type: string, id: string, opts?: DocumentOpOptions): Promise<Record<string, unknown> | null> => {
+        try {
+            return await reads.get(type, id, opts);
+        } catch (error: unknown) {
+            if (isSdkError(error) && error.code === 'not_found') return null;
+            throw error;
+        }
+    };
+    const fetchByUuid = async (uuid: string, opts?: DocumentOpOptions): Promise<Record<string, unknown> | null> => {
+        await ensureReady();
+        const parsed = parseDocumentUuid(uuid);
+        if (!parsed) return null;
+
+        if (parsed.kind === 'world') {
+            return getVisibleDocument(parsed.documentType, parsed.documentId, opts);
+        }
+
+        if (parsed.kind === 'embedded-world') {
+            // Embedded UUID transport remains resolver-backed, but the root Store read
+            // enforces caller visibility before exposing any embedded child payload.
+            const root = await getVisibleDocument(parsed.root.type, parsed.root.id, opts);
+            if (!root) return null;
+            return c.fetchByUuid(parsed.raw) as Promise<Record<string, unknown> | null>;
+        }
+
+        // Compendium UUIDs are read-only and resolver-backed; still require a caller
+        // context on route runtime so reads fail closed when no subject can resolve.
+        await requireSubject(opts);
+        return c.fetchByUuid(parsed.raw) as Promise<Record<string, unknown> | null>;
+    };
 
     return {
         ...reads,
+        fetchByUuid,
         create: async (type, data, opts) => {
             await requireSubject(opts);
             requireStore(type);

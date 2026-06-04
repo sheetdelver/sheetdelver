@@ -105,6 +105,7 @@ import { run as runModuleInitScaffold } from './modules/module-init-scaffold.tes
 // ── sdk ───────────────────────────────────────────────────────────────────────
 import { run as runSdkIntegrity } from './sdk/sdk-integrity.test';
 import { run as runModuleDocumentStore } from './sdk/module-document-store.test';
+import { run as runModuleDataStore } from './sdk/module-datastore.test';
 import { run as runSdkContract } from './sdk/contract.test';
 
 async function runAllUnitTests() {
@@ -192,6 +193,7 @@ async function runAllUnitTests() {
     await runModuleManagerTelemetry();
     await runSdkIntegrity();
     await runModuleDocumentStore();
+    await runModuleDataStore();
     await runSdkContract();
     await runModuleInitScaffold();
 }

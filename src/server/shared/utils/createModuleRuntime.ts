@@ -1,10 +1,11 @@
 import { logger } from '@shared/utils/logger';
 import { getConfig } from '@core/config';
 import { compendiumStore, type CompendiumStore } from '@server/core/compendium/CompendiumStore';
-import type {
-    ModuleLogger,
-    CompendiumPackConfig,
-    CompendiumPackDeclaration,
+import {
+    SdkError,
+    type ModuleLogger,
+    type CompendiumPackConfig,
+    type CompendiumPackDeclaration,
 } from '@shared/sdk';
 import type {
     ModuleRuntime,
@@ -17,6 +18,7 @@ import type {
  * from compendium backing so `keys()` never returns pack shards (ADR-0027).
  */
 const DATASTORE_NS = 'datastore';
+const RESERVED_DATASTORE_KEYS = new Set(['datastore', 'compendiums', 'manifest']);
 
 export interface CompendiumPackScope {
     systemId: string;
@@ -42,22 +44,44 @@ function createModuleLogger(moduleId: string): ModuleLogger {
     };
 }
 
+function hasPathCharacters(value: string): boolean {
+    return value.includes('/') || value.includes('\\') || value.includes('\0');
+}
+
+export function validateDataStoreKey(key: string): string {
+    if (!key) throw new SdkError('validation', 'DataStore key cannot be empty');
+    if (key === '.' || key === '..') throw new SdkError('validation', `DataStore key is reserved: ${key}`);
+    if (hasPathCharacters(key)) throw new SdkError('validation', `DataStore key must be a flat logical name: ${key}`);
+    if (RESERVED_DATASTORE_KEYS.has(key.toLowerCase())) {
+        throw new SdkError('validation', `DataStore key is reserved: ${key}`);
+    }
+    return key;
+}
+
+export function validateDataStorePrefix(prefix?: string): string | undefined {
+    if (prefix === undefined || prefix === '') return undefined;
+    if (prefix === '.' || prefix === '..') throw new SdkError('validation', `DataStore key prefix is reserved: ${prefix}`);
+    if (hasPathCharacters(prefix)) throw new SdkError('validation', `DataStore key prefix must be flat: ${prefix}`);
+    return prefix;
+}
+
 /**
  * Creates the module-scoped DataStore, backed by PersistentCache under
  * `<moduleId>/datastore/` so module-owned data cannot collide with compendium backing
  * and `keys()` only sees module data. The module id namespaces it so modules cannot
- * read each other's data.
+ * read each other's data. Keys are validated here because PersistentCache is a
+ * general-purpose internal utility and does not enforce the SDK's flat-key contract.
  */
 async function createScopedDataStore(moduleId: string): Promise<DataStore> {
     const { PersistentCache } = await import('@core/cache/PersistentCache');
     const cache = PersistentCache.getInstance();
     const ns = `${moduleId}/${DATASTORE_NS}`;
     return {
-        get: <T>(key: string) => cache.get<T>(ns, key),
-        set: <T>(key: string, value: T) => cache.set<T>(ns, key, value),
-        delete: (key: string) => cache.delete(ns, key),
-        has: (key: string) => cache.has(ns, key),
-        keys: (prefix?: string) => cache.keys(ns, prefix),
+        get: <T>(key: string) => cache.get<T>(ns, validateDataStoreKey(key)),
+        set: <T>(key: string, value: T) => cache.set<T>(ns, validateDataStoreKey(key), value),
+        delete: (key: string) => cache.delete(ns, validateDataStoreKey(key)),
+        has: (key: string) => cache.has(ns, validateDataStoreKey(key)),
+        keys: (prefix?: string) => cache.keys(ns, validateDataStorePrefix(prefix)),
     };
 }
 
@@ -151,7 +175,11 @@ export async function createModuleRuntime(moduleId: string): Promise<ModuleRunti
         // config not yet loaded — adapter will get an empty string
     }
 
-    const { createReadonlyDocumentStore } = await import('@server/shared/utils/moduleDocumentServices');
+    const [{ createReadonlyDocumentStore }, { DocumentResolver }] = await Promise.all([
+        import('@server/shared/utils/moduleDocumentServices'),
+        import('@server/services/documents'),
+    ]);
+    const documentResolver = new DocumentResolver({ allowLiveCompendiumUuidFallback: false });
 
     return {
         moduleId,
@@ -160,7 +188,9 @@ export async function createModuleRuntime(moduleId: string): Promise<ModuleRunti
         dataStore,
         compendium,
         // Adapters are read-only (ADR-0027 decision 14). Base reads are system-level;
-        // fetchByUuid is not wired on the base (throws not_ready if used at init).
-        documents: createReadonlyDocumentStore(),
+        // UUID resolution uses the Store-backed resolver with no live compendium fetch fallback.
+        documents: createReadonlyDocumentStore({
+            fetchByUuid: async (uuid) => (await documentResolver.fetchByUuid(uuid)) as Record<string, unknown> | null,
+        }),
     };
 }

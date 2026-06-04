@@ -205,8 +205,8 @@ async function runServerRequestTests() {
     };
 
     assert.equal(mockRequest.method, 'POST');
-    assert.equal(mockRequest.getAccessContext?.().userId, 'u1');
-    assert.equal(mockRequest.getAccessContext?.().moduleId, 'mock');
+    assert.equal(mockRequest.getAccessContext().userId, 'u1');
+    assert.equal(mockRequest.getAccessContext().moduleId, 'mock');
     assert.equal(mockRequest.userSession?.isGM, false);
 
     const params: ModuleServerParams = {

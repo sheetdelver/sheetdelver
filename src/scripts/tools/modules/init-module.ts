@@ -46,19 +46,22 @@ const MODULE_INFO_JSON = `{
 // Template content for the module's README.md file, with placeholders for system ID and name
 const MODULE_README = `# %SYSTEM_NAME% Module: %SYSTEM_ID%
 
-This module is designed for the %SYSTEM_NAME% system. It includes basic scaffolding for UI, logic, and server components.
+This module is designed for the %SYSTEM_NAME% system. It includes SDK-conforming scaffolding for UI, logic, and server components.
 
 ## Directory Structure
 
-- \`module/\`: Place any static assets or resources here.
+- \`module/\`: Public logic, UI, and server entry points.
+- \`assets/\`: Stylesheets and static assets served through the module asset route.
 - \`src/logic/\`: Implement your module's logic and data transformations here.
-- \`src/ui/\`: Create React components for your module's user interface here.
+- \`src/ui/\`: Create the presentational actor sheet and other React surfaces here.
+- \`src/server/\`: Add system-specific API routes over the request runtime here.
 
 ## Getting Started
 
-1. Implement your module's logic in the \`src/logic/\` directory.
-2. Build your UI components in the \`src/ui/\` directory.
-3. Use the provided APIs to integrate with the Sheet Delver system.
+1. Implement your adapter projections in the \`src/logic/\` directory.
+2. Build your actor sheet over \`ActorSheetProps\` in the \`src/ui/\` directory.
+3. Add system-specific server routes using \`req.runtime\` in the \`src/server/\` directory.
+4. Run \`npm run module:check %SYSTEM_ID%\` before packaging.
 
 Refer to the [Sheet Delver Module Manifest documentation](https://github.com/sheetdelver/sheet-delver/blob/main/src/modules/MODULE_MANIFEST.md) for detailed API usage and examples.
 
@@ -227,43 +230,66 @@ import infoJson from '../info.json';
 
 const info = infoJson as ModuleInfo;
 
+// The platform hosts the actor page when only a presentational sheet is declared.
+// Add actorPage only when the system genuinely needs a custom page shell.
 const uiManifest: UIModuleManifest = {
     info,
     sheet: () => import('../src/ui/Sheet'),
-    actorPage: () => import('../src/ui/ActorPage'),
     stylesheet: 'assets/styles.css',
 };
 
 export default uiManifest;
 `;
 
-const UI_SHEET_TSX = `import React from 'react';
+const UI_SHEET_TSX = `import type { ActorSheetProps } from '@sheet-delver/sdk/react';
 import { useSDK } from '@sheet-delver/sdk/react';
 
-export default function Sheet() {
-    // Client SDK lives at @sheet-delver/sdk/react. assetUrl() resolves a module asset
-    // to a URL that works the same in dev and packaged (ADR-0027) — no bundler imports.
-    const { assetUrl } = useSDK();
+export default function Sheet({ actor, isOwner }: ActorSheetProps) {
+    // assetUrl() resolves module-owned assets identically in dev and packaged builds.
+    const { assetUrl, resolveImageUrl } = useSDK();
+    const portrait = actor.img ? resolveImageUrl(actor.img) : assetUrl('icon.svg');
+
     return (
-        <div className="sheet-root">
-            <img src={assetUrl('icon.png')} alt="" width={32} height={32} />
-            <h1>Sheet Component</h1>
-            <p>This is the character sheet UI for the module.</p>
-        </div>
+        <section className="sheet-root">
+            <img className="sheet-portrait" src={portrait} alt="" />
+            <div>
+                <p className="sheet-type">{actor.type}</p>
+                <h1>{actor.name}</h1>
+                <p className="sheet-access">{isOwner ? 'Owner' : 'Observer'}</p>
+            </div>
+        </section>
     );
 }
 `;
 
-const UI_ACTOR_PAGE_TSX = `import React from 'react';
-
-export default function ActorPage() {
-    return (
-        <div>
-            <h1>Actor Page Component</h1>
-            <p>This is the actor page UI for the module.</p>
-        </div>
-    );
+const MODULE_STYLES_CSS = `/* Module styles must stay beneath the host-generated scope root. */
+.sdk-module--%SYSTEM_ID% .sheet-root {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1rem;
 }
+
+.sdk-module--%SYSTEM_ID% .sheet-portrait {
+    width: 5rem;
+    height: 5rem;
+    object-fit: cover;
+    border-radius: 4px;
+}
+
+.sdk-module--%SYSTEM_ID% .sheet-type,
+.sdk-module--%SYSTEM_ID% .sheet-access {
+    margin: 0;
+    color: #6b7280;
+}
+`;
+
+const MODULE_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Module icon">
+  <rect width="64" height="64" rx="8" fill="#1f2937"/>
+  <path d="M18 16h22l6 6v26H18z" fill="#f9fafb"/>
+  <path d="M40 16v8h8" fill="none" stroke="#1f2937" stroke-width="3"/>
+  <path d="M24 31h16M24 38h16" stroke="#1f2937" stroke-width="3" stroke-linecap="round"/>
+</svg>
 `;
 
 // Template content for server.ts import file
@@ -271,30 +297,25 @@ const SERVER_TS_IMPORT = `export { apiRoutes } from '../src/server/server';
 `;
 
 // Template content for server.ts file
-const SERVER_TS = `import type { ModuleServerExport, ModuleServerRequest, ModuleServerParams } from '@sheet-delver/sdk/server';
-import { getErrorMessage } from '@sheet-delver/sdk';
+const SERVER_TS = `import { error, json, type ModuleRouteTable } from '@sheet-delver/sdk/server';
 
-async function addCustomItemToActor(req: ModuleServerRequest, params: ModuleServerParams) {
-    try {
-        const { route } = await params.params;
+const apiRoutes: ModuleRouteTable = {
+    'actors/[id]/items': async (req, { params }) => {
+        const { route } = await params;
         const actorId = route[1];
+        if (!actorId) return error('validation', 'Missing actor id');
+
         const itemData = await req.json<Record<string, unknown>>();
-
-        if (!actorId) {
-            return { status: 400, json: async () => ({ error: 'Missing actor id' }) };
-        }
-
-        // Document ops live on req.runtime and default to the calling user (req.userSession).
-        const item = await req.runtime.documents.create('item', { ...itemData, actorId });
-        return { status: 200, json: async () => ({ success: true, item }) };
-    } catch (error) {
-        return { status: 500, json: async () => ({ error: getErrorMessage(error) }) };
-    }
-}
-
-export const apiRoutes: ModuleServerExport['apiRoutes'] = {
-    'actor/[id]/addItem': addCustomItemToActor,
+        // Runtime document ops default to the calling user and enforce parent ownership.
+        const item = await req.runtime.documents.items.create(
+            { type: 'Actor', id: actorId },
+            itemData,
+        );
+        return json({ success: true, item }, { status: 201 });
+    },
 };
+
+export { apiRoutes };
 `;
 
 // ---------------------------------------------------------------------------
@@ -331,13 +352,16 @@ export function initModule(moduleId: string, systemName: string): void {
 
   console.log(`Created module directory structure at ${modulePath}`);
 
-  // Create starter stylesheet
+  // Create a scoped starter stylesheet and a real asset for the assetUrl() example.
+  const stylesContent = MODULE_STYLES_CSS.replace(/%SYSTEM_ID%/g, moduleId);
   fs.writeFileSync(
       path.join(modulePath, 'assets', 'styles.css'),
-      `/* ${systemName} — module stylesheet */\n`,
+      stylesContent,
       'utf8'
   );
   console.log('Created assets/styles.css');
+  fs.writeFileSync(path.join(modulePath, 'assets', 'icon.svg'), MODULE_ICON_SVG, 'utf8');
+  console.log('Created assets/icon.svg');
 
   // Create info.json with template content
   const infoContent = MODULE_INFO_JSON.replace(/%SYSTEM_ID%/g, moduleId).replace(/%SYSTEM_NAME%/g, systemName);
@@ -379,8 +403,6 @@ export function initModule(moduleId: string, systemName: string): void {
   console.log('Created UI import file with template content at ' + path.join(modulePath, 'module', 'ui.tsx'));
   fs.writeFileSync(path.join(modulePath, 'src', 'ui', 'Sheet.tsx'), UI_SHEET_TSX, 'utf8');
   console.log('Created UI Sheet component file with template content at ' + path.join(modulePath, 'src', 'ui', 'Sheet.tsx'));
-  fs.writeFileSync(path.join(modulePath, 'src', 'ui', 'ActorPage.tsx'), UI_ACTOR_PAGE_TSX, 'utf8');
-  console.log('Created UI ActorPage component file with template content at ' + path.join(modulePath, 'src', 'ui', 'ActorPage.tsx'));
 
   // Create server files with template content
   const serverImportContent = SERVER_TS_IMPORT.replace(/%SYSTEM_ID%/g, classPrefix);

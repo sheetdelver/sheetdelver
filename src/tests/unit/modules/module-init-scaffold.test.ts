@@ -37,13 +37,28 @@ export async function run() {
     const adapterSource = fs.readFileSync(path.join(modulePath, 'src', 'logic', 'adapter.ts'), 'utf8');
     const uiEntrySource = fs.readFileSync(uiEntry, 'utf8');
     const serverEntrySource = fs.readFileSync(serverEntry, 'utf8');
+    const sheetPath = path.join(modulePath, 'src', 'ui', 'Sheet.tsx');
+    const sheetSource = fs.readFileSync(sheetPath, 'utf8');
+    const serverSource = fs.readFileSync(path.join(modulePath, 'src', 'server', 'server.ts'), 'utf8');
+    const stylesSource = fs.readFileSync(path.join(modulePath, 'assets', 'styles.css'), 'utf8');
 
     assert.match(logicEntrySource, /export \{ SdkCheckTestAdapter as Adapter \}/);
     assert.match(adapterSource, /export class SdkCheckTestAdapter extends BaseSystemAdapter/);
     assert.match(adapterSource, /systemId = 'sdk-check-test'/);
     assert.doesNotMatch(adapterSource, /return \{\};/);
     assert.match(uiEntrySource, /import type \{ ModuleInfo, UIModuleManifest \} from '@sheet-delver\/sdk'/);
+    assert.doesNotMatch(uiEntrySource, /^\s*actorPage:/m);
+    assert.match(sheetSource, /ActorSheetProps/);
+    assert.match(sheetSource, /assetUrl\('icon\.svg'\)/);
+    assert.equal(fs.existsSync(path.join(modulePath, 'src', 'ui', 'ActorPage.tsx')), false);
+    assert.equal(fs.existsSync(path.join(modulePath, 'assets', 'icon.svg')), true);
+    assert.match(stylesSource, /\.sdk-module--sdk-check-test \.sheet-root/);
     assert.match(serverEntrySource, /export \{ apiRoutes \}/);
+    assert.match(serverSource, /type ModuleRouteTable/);
+    assert.match(serverSource, /documents\.items\.create/);
+    assert.match(serverSource, /\{ type: 'Actor', id: actorId \}/);
+    assert.match(serverSource, /return json\(\{ success: true, item \}, \{ status: 201 \}\)/);
+    assert.doesNotMatch(serverSource, /documents\.create\('item'/);
 
     const result = await checkModule(moduleId, { dataDir: testDataDir, silent: true });
     assert.equal(result.passed, true, result.failures.map((issue) => issue.message).join('\n'));
@@ -51,6 +66,32 @@ export async function run() {
     assert.ok(result.passes.includes('info.json shape valid'));
     assert.ok(result.passes.includes('logic entry exports Adapter'));
     assert.ok(result.passes.includes('server entry exports apiRoutes'));
+
+    // A plain TypeScript helper becomes UI-side when the declared UI entry imports it.
+    // The checker must reject server-only SDK imports anywhere in that browser graph.
+    const helpersDir = path.join(modulePath, 'src', 'helpers');
+    fs.mkdirSync(helpersDir, { recursive: true });
+    fs.writeFileSync(
+        path.join(helpersDir, 'server-leak.ts'),
+        `import type { ModuleServerRequest } from '@sheet-delver/sdk/server';\nexport type BrowserLeak = ModuleServerRequest;\n`,
+        'utf8',
+    );
+    fs.writeFileSync(
+        sheetPath,
+        sheetSource.replace(
+            `import { useSDK } from '@sheet-delver/sdk/react';`,
+            `import { useSDK } from '@sheet-delver/sdk/react';\nimport type { BrowserLeak } from '../helpers/server-leak';`,
+        ),
+        'utf8',
+    );
+
+    const leakResult = await checkModule(moduleId, { dataDir: testDataDir, silent: true });
+    const leakFailure = leakResult.failures.find((issue) =>
+        issue.kind === 'import-boundary'
+        && issue.message.includes('src/helpers/server-leak.ts')
+        && issue.message.includes('UI bundle')
+    );
+    assert.ok(leakFailure, leakResult.failures.map((issue) => issue.message).join('\n'));
 
     console.log('module-init-scaffold: PASS');
 }

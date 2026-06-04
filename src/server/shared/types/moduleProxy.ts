@@ -1,6 +1,8 @@
 import type { IncomingHttpHeaders } from 'node:http';
 import type { FoundryUserConnectionLike } from '@server/shared/types/foundry';
 import type { RouteFoundryClient } from '@server/shared/types/requestContext';
+import type { UserSession } from '@shared/sdk/contracts';
+import type { ModuleAccessContext, ModuleRequestRuntime } from '@shared/sdk/runtime';
 
 export interface ModuleProxyDispatchRequest {
     path: string;
@@ -21,8 +23,9 @@ export interface ModuleRouteRequest {
     method: string;
     url: string;
     headers: IncomingHttpHeaders;
-    foundryClient: RouteFoundryClient;
-    userSession?: FoundryUserConnectionLike;
+    runtime: ModuleRequestRuntime;
+    userSession?: UserSession;
+    getAccessContext(): ModuleAccessContext;
 }
 
 export interface ModuleProxyDispatchResult {
