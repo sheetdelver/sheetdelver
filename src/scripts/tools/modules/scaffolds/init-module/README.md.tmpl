@@ -1,0 +1,22 @@
+# %SYSTEM_NAME% Module: %SYSTEM_ID%
+
+This module is designed for the %SYSTEM_NAME% system. It includes SDK-conforming scaffolding for UI, logic, and server components.
+
+## Directory Structure
+
+- `module/`: Public logic, UI, and server entry points.
+- `assets/`: Stylesheets and static assets served through the module asset route.
+- `src/logic/`: Implement your module's logic and data transformations here.
+- `src/ui/`: Create the presentational actor sheet and other React surfaces here.
+- `src/server/`: Add system-specific API routes over the request runtime here.
+
+## Getting Started
+
+1. Implement your adapter projections in the `src/logic/` directory.
+2. Build your actor sheet over `ActorSheetProps` in the `src/ui/` directory.
+3. Add system-specific server routes using `req.runtime` in the `src/server/` directory.
+4. Run `npm run module:check %SYSTEM_ID%` before packaging.
+
+Refer to the [Sheet Delver Module Manifest documentation](https://github.com/sheetdelver/sheet-delver/blob/main/src/modules/MODULE_MANIFEST.md) for detailed API usage and examples.
+
+Happy developing!

@@ -16,6 +16,16 @@ function resolveEntry(modulePath: string, manifestEntry: string): string {
     throw new Error(`Entry not found: ${manifestEntry}`);
 }
 
+function walkFiles(root: string): string[] {
+    const files: string[] = [];
+    for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+        const fullPath = path.join(root, entry.name);
+        if (entry.isDirectory()) files.push(...walkFiles(fullPath));
+        else if (entry.isFile()) files.push(fullPath);
+    }
+    return files;
+}
+
 export async function run() {
     const testDataDir = path.join(process.cwd(), 'temp', 'module-init-scaffold-test');
     fs.rmSync(testDataDir, { recursive: true, force: true });
@@ -26,8 +36,18 @@ export async function run() {
     initModule(moduleId, 'SDK Check Test');
 
     const modulePath = path.join(testDataDir, 'local', 'modules', moduleId);
+    const scaffoldPath = path.join(process.cwd(), 'src', 'scripts', 'tools', 'modules', 'scaffolds', 'init-module');
     const infoPath = path.join(modulePath, 'info.json');
     const info = JSON.parse(fs.readFileSync(infoPath, 'utf8'));
+
+    assert.equal(fs.existsSync(path.join(scaffoldPath, 'module', 'ui.tsx.tmpl')), true);
+    assert.equal(fs.existsSync(path.join(scaffoldPath, 'src', 'server', 'server.ts.tmpl')), true);
+    assert.equal(fs.existsSync(path.join(modulePath, '.github', 'workflows', `ci-${moduleId}.yaml`)), true);
+    const generatedFiles = walkFiles(modulePath);
+    assert.equal(generatedFiles.some((file) => file.endsWith('.tmpl')), false);
+    for (const file of generatedFiles) {
+        assert.doesNotMatch(fs.readFileSync(file, 'utf8'), /%[A-Z][A-Z0-9_]*%/, path.relative(modulePath, file));
+    }
 
     const logicEntry = resolveEntry(modulePath, info.manifest.logic);
     const uiEntry = resolveEntry(modulePath, info.manifest.ui);

@@ -1,0 +1,26 @@
+import {
+    BaseSystemAdapter,
+    type FoundryActor,
+    type ActorSheetData,
+} from '@sheet-delver/sdk';
+
+export class %CLASS_PREFIX%Adapter extends BaseSystemAdapter {
+    systemId = '%SYSTEM_ID%';
+
+    match(actor: FoundryActor): boolean {
+        return actor._stats?.systemId === this.systemId;
+    }
+
+    normalizeActorData(actor: FoundryActor): ActorSheetData {
+        return {
+            id: actor._id,
+            name: actor.name,
+            type: actor.type,
+            img: actor.img ?? '',
+            system: actor.system ?? {},
+            items: actor.items ?? [],
+            effects: actor.effects ?? [],
+            derived: {},
+        };
+    }
+}

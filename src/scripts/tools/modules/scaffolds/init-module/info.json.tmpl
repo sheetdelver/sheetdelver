@@ -1,0 +1,31 @@
+{
+  "id": "%SYSTEM_ID%",
+  "version": "1.0.0",
+  "title": "%SYSTEM_NAME%",
+  "experimental": false,
+  "manifest": {
+    "ui": "module/ui",
+    "logic": "module/logic",
+    "server": "module/server"
+  },
+  "compatibility": {
+    "apiContracts": {
+      "module-api": ">=1.0.0 <2.0.0",
+      "ui-extension-api": ">=1.0.0 <2.0.0",
+      "roll-engine-api": ">=1.0.0 <2.0.0"
+    }
+  },
+  "compendiumPacks": {
+    "packs": [
+      { "id": "%SYSTEM_ID%.items", "type": "Item", "hydrate": true },
+      { "id": "%SYSTEM_ID%.spells", "type": "Item", "hydrate": false }
+    ]
+  },
+  "trust": { "tier": "first-party" },
+  "package": {
+    "include": []
+  },
+  "aliases": ["%SYSTEM_ID%"],
+  "dependencies": [],
+  "conflicts": []
+}

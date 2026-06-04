@@ -1,0 +1,19 @@
+import type { ActorSheetProps } from '@sheet-delver/sdk/react';
+import { useSDK } from '@sheet-delver/sdk/react';
+
+export default function Sheet({ actor, isOwner }: ActorSheetProps) {
+    // assetUrl() resolves module-owned assets identically in dev and packaged builds.
+    const { assetUrl, resolveImageUrl } = useSDK();
+    const portrait = actor.img ? resolveImageUrl(actor.img) : assetUrl('icon.svg');
+
+    return (
+        <section className="sheet-root">
+            <img className="sheet-portrait" src={portrait} alt="" />
+            <div>
+                <p className="sheet-type">{actor.type}</p>
+                <h1>{actor.name}</h1>
+                <p className="sheet-access">{isOwner ? 'Owner' : 'Observer'}</p>
+            </div>
+        </section>
+    );
+}

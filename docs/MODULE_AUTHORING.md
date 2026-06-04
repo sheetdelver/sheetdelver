@@ -40,6 +40,7 @@ The scaffold creates the expected layout:
 ```text
 <DATA_DIR>/local/modules/my-system/
   assets/
+    icon.svg
     styles.css
   info.json
   module/
@@ -51,6 +52,9 @@ The scaffold creates the expected layout:
     ui/
     server/
 ```
+
+The platform-owned source for this generated tree lives under
+`src/scripts/tools/modules/scaffolds/init-module/`.
 
 The three entry points are:
 
