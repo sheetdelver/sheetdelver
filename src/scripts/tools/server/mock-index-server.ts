@@ -13,9 +13,62 @@ const PORT = 3005;
 
 app.use(cors());
 
+interface ModuleInfo {
+    moduleId: string;
+    title: string;
+    latestVersion: string;
+    versions: {
+        [version: string]: {
+            source: string;
+            publishedAt: number;
+            integrity: string;
+            signature: string;
+            compatibility: {
+                [key: string]: string; // e.g. "coreVersion": ">=0.1.0"
+            };
+        };
+    };
+}
+
+function getLocalModuleDetails(distPath: string): ModuleInfo[] {
+    if (!fs.existsSync(distPath)) return [];
+    const files = fs.readdirSync(distPath);
+    logger.info(`[MockServer] Scanning dist/modules for tarballs [${files.length}] at ${new Date(Date.now()).toLocaleString()}`);
+    const modules = [];
+
+    for (const file of files) {
+        logger.info(`[MockServer] Found tarball: ${file} in dist/modules at ${new Date(Date.now()).toLocaleString()}`);
+        const name = file.replace('-*.tgz', '');
+        const version = file.replace(`${name}-`, '').replace('.tgz', '');
+        logger.info(`[MockServer] Detected module: ${name} from tarball name at ${new Date(Date.now()).toLocaleString()}`);
+        const hash = crypto.createHash('sha256');
+        hash.update(fs.readFileSync(path.join(distPath, file)));
+        const integrity = `sha256:${hash.digest('hex')}`;
+        logger.info(`[MockServer] Calculated integrity for ${file}: ${integrity} at ${new Date(Date.now()).toLocaleString()}`);
+        modules.push({
+            moduleId: name,
+            title: `${name} (Mock)`,
+            latestVersion: version,
+            versions: {
+                [version]: {
+                    source: `http://localhost:${PORT}/download/${file}`,
+                    publishedAt: fs.statSync(path.join(distPath, file)).mtimeMs,
+                    integrity,
+                    signature: `minisign:mock-${name}-signature`,
+                    compatibility: {
+                        "module-api": ">=1.0.0 <2.0.0"
+                    }
+                }
+            }
+        });
+    }
+    return modules;
+}
+
 // Serve static files from dist/modules at /download
 const distPath = getDistModulesDir();
 app.use('/download', express.static(distPath));
+const modules = getLocalModuleDetails(distPath);
 
 app.get('/', (req, res) => {
     // Dynamically build index
@@ -38,40 +91,9 @@ app.get('/', (req, res) => {
                     }
                 }
             },
-            "dnd5e": {}
+            ...modules
         }
     };
-
-    // If dnd5e is packaged, add it to the index
-    if (fs.existsSync(distPath)) {
-        const files = fs.readdirSync(distPath);
-        for (const file of files) {
-            if (file.startsWith('dnd5e-') && file.endsWith('.tgz')) {
-                const version = file.replace('dnd5e-', '').replace('.tgz', '');
-                const filePath = path.join(distPath, file);
-                const hash = crypto.createHash('sha256');
-                hash.update(fs.readFileSync(filePath));
-                const integrity = `sha256:${hash.digest('hex')}`;
-
-                MOCK_INDEX.modules['dnd5e'] = {
-                    moduleId: 'dnd5e',
-                    title: 'D&D 5th Edition (Mock)',
-                    latestVersion: version,
-                    versions: {
-                        [version]: {
-                            source: `http://localhost:${PORT}/download/${file}`,
-                            publishedAt: fs.statSync(filePath).mtimeMs,
-                            integrity,
-                            signature: 'minisign:mock-dnd5e-signature',
-                            compatibility: {
-                                "module-api": ">=1.0.0 <2.0.0"
-                            }
-                        }
-                    }
-                };
-            }
-        }
-    }
 
     res.json(MOCK_INDEX);
     logger.info(`[MockServer] Served index at http://localhost:${PORT}/ to ${req.ip} at ${new Date(Date.now()).toLocaleString()}`);

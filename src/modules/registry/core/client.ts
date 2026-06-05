@@ -150,10 +150,16 @@ export async function getUIModule(systemId: string): Promise<UIModuleManifest> {
     // Next.js build. Load via the platform API which serves the artifact with bare
     // ESM imports rewritten to window.__SD.* globals so the browser can execute it.
     // webpackIgnore tells webpack not to attempt static analysis of this import.
+    // compiledStyles lives on the packager-patched artifact info.json, not the source
+    // info.json bundled into ui.js — so the runtime UI route re-exports it (decision 37).
+    let routeCompiledStyles: string | undefined;
     if (manifest === PLATFORM_DEFAULT_MANIFEST) {
         try {
             const m = await import(/* webpackIgnore: true */ `/api/modules/${id}/ui`);
             manifest = m.default || m;
+            if (typeof (m as { __sdCompiledStyles?: unknown }).__sdCompiledStyles === 'string') {
+                routeCompiledStyles = (m as { __sdCompiledStyles?: string }).__sdCompiledStyles;
+            }
         } catch (e) {
             console.warn(`[Registry] Failed to load runtime UI manifest for "${id}":`, e);
         }
@@ -182,7 +188,8 @@ export async function getUIModule(systemId: string): Promise<UIModuleManifest> {
             document.head.appendChild(link);
         };
 
-        if (manifest.info?.compiledStyles) injectStylesheet(manifest.info.compiledStyles);
+        const compiledStyles = manifest.info?.compiledStyles ?? routeCompiledStyles;
+        if (compiledStyles) injectStylesheet(compiledStyles);
 
         const declared = manifest.stylesheet;
         const sheets = Array.isArray(declared) ? declared : declared ? [declared] : [];

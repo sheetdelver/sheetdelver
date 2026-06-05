@@ -85,6 +85,7 @@ import { run as runAdminAuditLog } from './admin/admin-audit-log.test';
 import { run as runModuleProxyMatcher } from './modules/module-proxy-matcher.test';
 import { run as runModuleLifecycleState } from './modules/module-lifecycle-state.test';
 import { run as runModuleManifestValidation } from './modules/module-manifest-validation.test';
+import { run as runModuleUiRewrite } from './modules/module-ui-rewrite.test';
 import { run as runModuleRegistryManager } from './modules/module-registry-manager.test';
 import { run as runModuleLifecycleTransitions } from './modules/module-lifecycle-transitions.test';
 import { run as runModuleManagerOperations } from './modules/module-manager-operations.test';
@@ -141,6 +142,7 @@ async function runAllUnitTests() {
     runModuleProxyMatcher();
     runModuleLifecycleState();
     runModuleManifestValidation();
+    runModuleUiRewrite();
     await runModuleRegistryManager();
     await runActorNormalization();
     await runJournalStore();
