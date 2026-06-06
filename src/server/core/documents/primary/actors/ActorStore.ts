@@ -160,7 +160,14 @@ export class ActorStore extends PrimaryDocumentStore<ActorDocument> {
                 }
             }
         } else if (action === 'create') {
-            actor.items.push(...docs.map(item => cloneDocument(item)));
+            // Idempotent create: the initiator-side mirror and the Foundry broadcast both
+            // apply the same create (ADR-0012). Skip any doc already present by _id so the
+            // second apply is a no-op instead of pushing a duplicate row.
+            for (const item of docs) {
+                const id = getDocumentId(item);
+                if (id && actor.items.some(existing => getDocumentId(existing) === id)) continue;
+                actor.items.push(cloneDocument(item));
+            }
         }
 
         this.documents.set(actorId, actor);
@@ -225,7 +232,15 @@ export class ActorStore extends PrimaryDocumentStore<ActorDocument> {
         }
 
         if (action === 'create') {
-            return [...effects, ...docs.map(effect => cloneDocument(effect))];
+            // Idempotent create (see embedded Item create): skip effects already present by
+            // _id so the mirror + broadcast double-apply doesn't duplicate a row.
+            const next = [...effects];
+            for (const effect of docs) {
+                const id = getDocumentId(effect);
+                if (id && next.some(existing => isRecord(existing) && getDocumentId(existing) === id)) continue;
+                next.push(cloneDocument(effect));
+            }
+            return next;
         }
 
         return effects;

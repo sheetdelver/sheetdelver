@@ -88,6 +88,24 @@ function documentMatchesId(document: unknown, documentId: string): document is R
     return typeof row.uuid === 'string' && (row.uuid === documentId || row.uuid.endsWith(`.${documentId}`));
 }
 
+/**
+ * Collapse pack documents to one per `_id` (falling back to `id`). A compendium pack is
+ * primary-keyed by `_id`; redundant fetches (e.g. a chunked `get` that returns the whole
+ * pack each time) must not multiply rows. Documents without an id are preserved as-is.
+ */
+function dedupeById<T extends Record<string, unknown>>(documents: T[]): T[] {
+    const byId = new Map<string, T>();
+    const noId: T[] = [];
+    for (const doc of documents) {
+        const id = doc && typeof doc === 'object'
+            ? (doc as { _id?: unknown; id?: unknown })._id ?? (doc as { id?: unknown }).id
+            : undefined;
+        if (typeof id === 'string' && id) byId.set(id, doc);
+        else noId.push(doc);
+    }
+    return [...byId.values(), ...noId];
+}
+
 function findDocumentInResponse(response: unknown, documentId: string): Record<string, unknown> | null {
     const rows = responseArray<Record<string, unknown>>(response);
     return rows?.find(row => documentMatchesId(row, documentId)) || null;
@@ -310,6 +328,13 @@ export class CompendiumService {
         } else {
             documents = await this.getIndexedPackRows(declaration, entries, packFields);
         }
+
+        // A compendium pack is primary-keyed by `_id` — exactly one document per id. The
+        // chunked `get` above can return the WHOLE pack regardless of the requested `ids`
+        // (Foundry ignores the id filter for some pack/transport shapes), so concatenating
+        // the chunks duplicates every row (chunks×). Collapse by `_id` (last write wins) to
+        // enforce the invariant at the persistence boundary, independent of transport quirks.
+        documents = dedupeById(documents);
 
         await this.store.setPackRows(systemId, packId, documents);
 

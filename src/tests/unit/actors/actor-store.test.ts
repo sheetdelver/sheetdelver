@@ -18,6 +18,7 @@ export async function run() {
     initDataDir(resolveDataDir(['--data-dir', path.join(process.cwd(), 'temp', 'test-data')]));
     await runActorStoreOwnershipAndClone();
     await runActorStoreMutations();
+    await runEmbeddedCreateIdempotency();
     await runActorRepositoryAppliesEffects();
     await runRouteClientReadsFromActorStore();
     await runRouteClientRoutesNestedActorItemEffectsThroughActorRepository();
@@ -103,6 +104,40 @@ async function runActorStoreMutations() {
     // Applying the same visible state twice should not create duplicate realtime work.
     store.applyModifyDocument('Actor', 'update', [{ _id: 'actor-1', 'system.attributes.hp.value': 5 }]);
     assert.deepEqual(events, ['actor-1:update', 'actor-1:update', 'actor-1:update']);
+}
+
+// Regression: a Sheet-Delver-initiated write applies the same embedded create twice — once
+// when the Repository mirrors the Foundry result, once when the broadcast lands (ADR-0012).
+// The create push must be idempotent by `_id` or one added item shows up as two.
+async function runEmbeddedCreateIdempotency() {
+    const store = new ActorStore();
+    await store.seed(async () => ([
+        {
+            _id: 'a1',
+            name: 'Hero',
+            items: [],
+            effects: [],
+            ownership: { default: DocumentOwnershipLevel.OWNER },
+        },
+    ] as unknown as ActorDocument[]));
+
+    const item = { _id: 'item-x', name: 'Sword', type: 'weapon' };
+    const op = { parentUuid: 'Actor.a1' };
+
+    store.applyModifyDocument('Item', 'create', [item], op);  // mirror
+    store.applyModifyDocument('Item', 'create', [item], op);  // broadcast (same _id)
+    assert.equal(store.get('a1')?.items?.length, 1, 'embedded Item create is idempotent (mirror + broadcast → one)');
+    assert.equal(store.get('a1')?.items?.[0]._id, 'item-x');
+
+    // A genuinely different item still creates.
+    store.applyModifyDocument('Item', 'create', [{ _id: 'item-y', name: 'Shield', type: 'shield' }], op);
+    assert.equal(store.get('a1')?.items?.length, 2, 'distinct items still create');
+
+    // Actor-level ActiveEffect create is idempotent too.
+    const eff = { _id: 'eff-1', label: 'Cursed' };
+    store.applyModifyDocument('ActiveEffect', 'create', [eff], op);
+    store.applyModifyDocument('ActiveEffect', 'create', [eff], op);
+    assert.equal(((store.get('a1') as { effects?: unknown[] }).effects ?? []).length, 1, 'embedded effect create is idempotent');
 }
 
 async function runActorRepositoryAppliesEffects() {
