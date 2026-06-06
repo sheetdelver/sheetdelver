@@ -13,6 +13,7 @@ import RichTextEditor from '@client/ui/components/RichTextEditor';
 import { SharedContentModal } from '@client/ui/components/SharedContentModal';
 import { getClientDocumentSource, resetClientDocumentSource } from '@client/ui/sdk/createClientDocumentSource';
 import { createSdkEventBus } from '@client/ui/sdk/createSdkEventBus';
+import type { SdkEvents } from '@shared/sdk/events';
 import { buildModuleAssetUrl } from '@shared/sdk';
 
 /**
@@ -46,10 +47,15 @@ export function SDKProvider({ children, moduleId }: { children: React.ReactNode;
         return fetch(input, { ...init, headers });
     }, [token]);
 
-    // Host-owned realtime signal bus (ADR-0027 decision 20). Recreated when the socket
-    // changes; maps platform socket events onto the stable SDK signal set.
-    const events = useMemo(() => createSdkEventBus(appSocket as any), [appSocket]);
+    // Host-owned realtime signal bus (ADR-0027 decision 20). Created once (pure — no socket
+    // side effects in render, so React re-renders can't desync the binding from subscribers);
+    // the socket is bound via attach() from an effect and re-bound when it changes.
+    const events = useMemo(() => createSdkEventBus(), []);
     useEffect(() => () => events.dispose(), [events]);
+    useEffect(() => {
+        events.attach(appSocket as any);
+        return () => events.detach();
+    }, [events, appSocket]);
 
     // Host-owned document cache (ADR-0027 decisions 17/25). App-level singleton so a
     // dashboard card and an open sheet share one fetch; the call keeps its transport current.
@@ -61,6 +67,13 @@ export function SDKProvider({ children, moduleId }: { children: React.ReactNode;
     useEffect(() => events.on('document:changed', ({ type, id }) => {
         if (id) documents.invalidate(type, id);
     }), [events, documents]);
+
+    // What modules receive is a narrowed `{ on }` facade — the bus's host-only lifecycle
+    // methods (`attach` / `detach` / `dispose`) are not present on the object handed across
+    // the SDK boundary, so a module can't tear down or rebind the shared realtime bus.
+    const eventsPublic = useMemo<SdkEvents>(() => ({
+        on: (signal, handler) => events.on(signal, handler),
+    }), [events]);
 
     // Clear the shared cache when the session ends (logout / world change drops the token).
     useEffect(() => {
@@ -107,14 +120,14 @@ export function SDKProvider({ children, moduleId }: { children: React.ReactNode;
         isChatOpen,
         setChatOpen,
         fetchWithAuth,
-        events,
+        events: eventsPublic,
         logger,
     }), [
         token, currentUser, system, isConnected,
         resolvedModuleId, worldId, documents,
         foundryUrl, resolveImageUrl, assetUrl, addNotification,
         isDiceTrayOpen, toggleDiceTray, isChatOpen, setChatOpen,
-        fetchWithAuth, events, logger,
+        fetchWithAuth, eventsPublic, logger,
     ]);
 
     // Components are stable references — useMemo avoids recreating the object

@@ -1,6 +1,7 @@
 import { strict as assert } from 'node:assert';
-import { createDocumentStore } from '@server/shared/utils/moduleDocumentServices';
+import { createDocumentStore, createChatRuntime } from '@server/shared/utils/moduleDocumentServices';
 import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
+import { chatMessageStore } from '@server/core/documents/primary/chat-messages/ChatMessageStore';
 import { DocumentOwnershipLevel } from '@server/core/documents/primary/base/ownership';
 import { SdkError, isSdkError } from '@shared/sdk';
 import type { ActorDocument } from '@server/shared/types/actors';
@@ -149,6 +150,66 @@ export async function run() {
     const gatedStore = createDocumentStore(makeClient('owner-user', []), notReady);
     await rejectsWithCode(() => gatedStore.get('Actor', 'actor-owned'), 'not_ready');
     await rejectsWithCode(() => gatedStore.patch('Actor', 'actor-owned', { name: 'x' }), 'not_ready');
+
+    // --- chat runtime: author defaulting + rollMode visibility (ADR-0027) ---
+    // Foundry denies a non-GM creating a ChatMessage authored by anyone else, so the
+    // runtime defaults `author` to the acting user; rollMode sets whisper/blind, and
+    // explicit message fields override (manual targeting wins).
+    {
+        const sent: Record<string, unknown>[] = [];
+        const chatClient = {
+            userId: 'player-user',
+            createChatMessage: async (data: Record<string, unknown>) => { sent.push(data); return { result: [data] }; },
+            useItem: async () => true,
+        } as never;
+        const chat = createChatRuntime(chatClient, noop);
+
+        // 1. author defaults to the acting user; public roll adds no whisper/blind.
+        await chat.send({ content: 'hi' }, { rollMode: 'publicroll' });
+        assert.equal(sent[0].author, 'player-user', 'chat.send must default author to the acting user');
+        assert.equal(sent[0].whisper, undefined, 'publicroll must not whisper');
+        assert.equal(sent[0].blind, undefined, 'publicroll must not be blind');
+
+        // 2. self roll whispers to self only; author still defaulted.
+        await chat.send({ content: 'self' }, { rollMode: 'selfroll' });
+        assert.deepEqual(sent[1].whisper, ['player-user'], 'selfroll whispers to self');
+        assert.equal(sent[1].author, 'player-user');
+
+        // 3. blind roll sets blind; author still the acting user.
+        await chat.send({ content: 'blind' }, { rollMode: 'blindroll' });
+        assert.equal(sent[2].blind, true, 'blindroll must be blind');
+        assert.equal(sent[2].author, 'player-user');
+
+        // 4. card() defaults author too.
+        await chat.card({ title: 'Card', content: 'body' });
+        assert.equal(sent[3].author, 'player-user', 'chat.card must default author to the acting user');
+
+        // 5. explicit author + explicit whisper override the defaults (manual targeting wins).
+        await chat.send({ content: 'gm-said', author: 'gm-user', whisper: ['someone'] }, { rollMode: 'selfroll' });
+        assert.equal(sent[4].author, 'gm-user', 'explicit author preserved');
+        assert.deepEqual(sent[4].whisper, ['someone'], 'explicit whisper overrides rollMode');
+    }
+
+    // --- document store: author-bearing creates (ChatMessage/Macro) default author ---
+    // A module may also post chat via the generic store, not just chat.send — that path
+    // must attach the author too, or Foundry denies a non-GM create.
+    {
+        await chatMessageStore.seed(async () => []);
+        const chatDocCalls: DispatchCall[] = [];
+        const chatDocStore = createDocumentStore(makeClient('player-user', chatDocCalls), noop);
+
+        await chatDocStore.create('ChatMessage', { content: 'via store' });
+        const created = chatDocCalls.find(call => call.type === 'ChatMessage' && call.action === 'create');
+        const createdData = (created?.operation as { data: Record<string, unknown>[] }).data[0];
+        assert.equal(createdData.author, 'player-user', 'documents.create(ChatMessage) must default author to the acting user');
+
+        await chatDocStore.create('ChatMessage', { content: 'gm', author: 'gm-user' });
+        const explicit = chatDocCalls.filter(call => call.type === 'ChatMessage' && call.action === 'create')[1];
+        const explicitData = (explicit?.operation as { data: Record<string, unknown>[] }).data[0];
+        assert.equal(explicitData.author, 'gm-user', 'explicit author preserved on store create');
+
+        chatMessageStore.clear('module-document-store-test');
+    }
 
     actorStore.clear('module-document-store-test');
 

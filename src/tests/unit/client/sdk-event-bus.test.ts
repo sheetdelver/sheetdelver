@@ -25,7 +25,8 @@ class FakeSocket {
 
 export function run() {
     const socket = new FakeSocket();
-    const bus = createSdkEventBus(socket as any);
+    const bus = createSdkEventBus();
+    bus.attach(socket as any);
 
     // actorChanged → document:changed { type: 'Actor' }
     const changes: Array<{ type: string; id: string; action: string }> = [];
@@ -70,6 +71,30 @@ export function run() {
 
     assert.deepEqual(conns, [true, false, true]);
     assert.deepEqual(lifecycle, ['teardown', 'ready']);
+
+    // Regression (the real-world bug): a subscriber registered once must keep receiving
+    // events after the socket is re-attached. Binding the socket used to happen at creation
+    // (in useMemo), so a re-render rebuilt a second bus bound to the socket while the
+    // subscriber stayed on the first — events were silently dropped. With attach/detach the
+    // subscriber lives on the stable bus and survives re-binding.
+    {
+        const reBus = createSdkEventBus();
+        const sockA = new FakeSocket();
+        const seen: string[] = [];
+        reBus.on('document:changed', (p) => seen.push(p.id));
+
+        reBus.attach(sockA as any);
+        sockA.emit('actorChanged', { actorId: 'before', action: 'update' });
+
+        // Re-attach a different socket (simulates appSocket reconnect / a new render).
+        const sockB = new FakeSocket();
+        reBus.attach(sockB as any);
+        assert.equal(sockA.count('actorChanged'), 0, 're-attach detaches the previous socket');
+        sockB.emit('actorChanged', { actorId: 'after', action: 'update' });
+
+        assert.deepEqual(seen, ['before', 'after'], 'subscriber survives socket re-attach');
+        reBus.dispose();
+    }
 
     // dispose detaches all socket handlers.
     bus.dispose();

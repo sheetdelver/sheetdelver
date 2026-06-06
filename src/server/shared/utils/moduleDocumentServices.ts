@@ -90,6 +90,20 @@ function requireStore(type: string): ReadableStore {
     return store;
 }
 
+// World documents whose creation Foundry gates on the `author` field: a non-GM may only
+// create one authored by themselves. Because the SDK dispatches the raw document straight to
+// Foundry's backend (bypassing the client-side `author = game.user` default), a player-bound
+// create with no author is denied. Default `author` to the acting user for these types; a
+// module may set `author`/`user` explicitly to override (e.g. a GM/system message).
+const AUTHOR_BEARING_TYPES = new Set(['ChatMessage', 'Macro']);
+
+function withDefaultAuthor(type: string, data: unknown, userId: string | null): Record<string, unknown> {
+    const record = (data ?? {}) as Record<string, unknown>;
+    if (!userId || !AUTHOR_BEARING_TYPES.has(type)) return record;
+    if (record.author !== undefined || record.user !== undefined) return record;
+    return { ...record, author: userId };
+}
+
 /** Apply the SDK `DocumentQuery` (filter/sort/page/limit) to an in-memory row set. */
 function applyQuery(rows: Record<string, unknown>[], query?: DocumentQuery): DocumentListResult {
     let out = rows;
@@ -257,9 +271,9 @@ export function createDocumentStore(
         ...reads,
         fetchByUuid,
         create: async (type, data, opts) => {
-            await requireSubject(opts);
+            const subject = await requireSubject(opts);
             requireStore(type);
-            return one(await c.dispatchDocument(type, 'create', { data: [data] }));
+            return one(await c.dispatchDocument(type, 'create', { data: [withDefaultAuthor(type, data, subject.userId)] }));
         },
         patch: async (type, id, updates, opts) => {
             await assertWriteable(type, id, opts);
@@ -275,7 +289,7 @@ export function createDocumentStore(
                 }
                 return one(await c.dispatchDocument(type, 'update', { updates: [data] }));
             }
-            return one(await c.dispatchDocument(type, 'create', { data: [data] }));
+            return one(await c.dispatchDocument(type, 'create', { data: [withDefaultAuthor(type, data, subject.userId)] }));
         },
         delete: async (type, id, opts) => {
             await assertWriteable(type, id, opts);
@@ -301,7 +315,7 @@ export function createDocumentStore(
             for (const { op, action, id } of plan) {
                 const payload = action === 'delete' ? { ids: [id] }
                     : action === 'update' ? { updates: [op] }
-                        : { data: [op] };
+                        : { data: [withDefaultAuthor(type, op, subject.userId)] };
                 results.push(one(await c.dispatchDocument(type, action, payload)));
             }
             return results;
@@ -392,6 +406,12 @@ export function createChatRuntime(
         options?: ChatPostOptions,
     ): Promise<Record<string, unknown>> => {
         const out: Record<string, unknown> = { ...message };
+        // Default the message author to the acting user. We dispatch the raw document
+        // straight to Foundry's backend (bypassing the client-side `author = game.user`
+        // default), and a non-GM may only create a ChatMessage authored by themselves —
+        // without this, player-triggered module chat is denied. A module may still set
+        // `author` explicitly to override (e.g. a GM/system message).
+        if (out.author === undefined && out.user === undefined) out.author = c.userId;
         if (options?.speaker && out.speaker === undefined) out.speaker = options.speaker;
         if (options?.rollMode) {
             const { resolveRollModeData } = await import('@server/core/documents/primary/chat-messages/chatMessagePayload');

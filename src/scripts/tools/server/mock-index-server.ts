@@ -38,8 +38,8 @@ function getLocalModuleDetails(distPath: string): ModuleInfo[] {
 
     for (const file of files) {
         logger.info(`[MockServer] Found tarball: ${file} in dist/modules at ${new Date(Date.now()).toLocaleString()}`);
-        const name = file.replace('-*.tgz', '');
-        const version = file.replace(`${name}-`, '').replace('.tgz', '');
+        const name = file.split('-')[0];//file.replace(`^\\-[0-9].*.tgz`, '');
+        const version = file.split('-')[1]?.replace('.tgz', '');//file.replace(`${name}-`, '').replace('.tgz', '');
         logger.info(`[MockServer] Detected module: ${name} from tarball name at ${new Date(Date.now()).toLocaleString()}`);
         const hash = crypto.createHash('sha256');
         hash.update(fs.readFileSync(path.join(distPath, file)));
@@ -91,7 +91,7 @@ app.get('/', (req, res) => {
                     }
                 }
             },
-            ...modules
+            ...Object.fromEntries(modules.map(m => [m.moduleId, m] as const))
         }
     };
 
