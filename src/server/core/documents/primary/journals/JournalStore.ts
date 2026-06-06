@@ -1,6 +1,7 @@
 import type { JournalEntryDocument, JournalEntryPageDocument } from '@server/shared/types/documents';
 import {
     cloneDocument,
+    appendCreatedById,
     deepMerge,
     getDocumentId,
     getOperationIds,
@@ -178,7 +179,8 @@ export class JournalStore extends PrimaryDocumentStore<JournalEntryDocument> {
                 }
             }
         } else if (action === 'create') {
-            entry.pages.push(...docs.map(page => cloneDocument(page)));
+            // Idempotent create (mirror + broadcast both apply — ADR-0012).
+            entry.pages = appendCreatedById(entry.pages, docs);
         }
 
         this.documents.set(entryId, entry);

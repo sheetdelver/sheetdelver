@@ -1,6 +1,8 @@
 import type { ItemDocument } from '@server/shared/types/actors';
 import {
     cloneDocument,
+    appendCreatedById,
+    type DocumentLike,
     deepMerge,
     getDocumentId,
     getOperationIds,
@@ -117,7 +119,8 @@ export class ItemStore extends PrimaryDocumentStore<ItemDocument> {
             }
             item.effects = effects;
         } else if (action === 'create') {
-            item.effects = [...effects, ...docs.map(e => cloneDocument(e))];
+            // Idempotent create (mirror + broadcast both apply — ADR-0012).
+            item.effects = appendCreatedById(effects as DocumentLike[], docs as unknown as DocumentLike[]) as unknown[];
         }
 
         this.documents.set(itemId, item);

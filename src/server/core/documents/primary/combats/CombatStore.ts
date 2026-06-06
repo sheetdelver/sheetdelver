@@ -1,6 +1,7 @@
 import type { CombatDocument, CombatantDocument } from '@server/shared/types/documents';
 import {
     cloneDocument,
+    appendCreatedById,
     deepMerge,
     getDocumentId,
     getOperationIds,
@@ -158,7 +159,8 @@ export class CombatStore extends PrimaryDocumentStore<CombatDocument> {
                 }
             }
         } else if (action === 'create') {
-            combat.combatants.push(...docs.map(c => cloneDocument(c)));
+            // Idempotent create (mirror + broadcast both apply — ADR-0012 / ADR-0028).
+            combat.combatants = appendCreatedById(combat.combatants, docs);
         }
 
         this.documents.set(combatId, combat);

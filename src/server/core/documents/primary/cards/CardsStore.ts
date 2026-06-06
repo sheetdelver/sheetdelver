@@ -1,6 +1,7 @@
 import type { CardsDocument, CardDocument } from '@server/shared/types/documents';
 import {
     cloneDocument,
+    appendCreatedById,
     deepMerge,
     getDocumentId,
     getOperationIds,
@@ -105,7 +106,8 @@ export class CardsStore extends PrimaryDocumentStore<CardsDocument> {
             }
             parent.cards = cards as CardDocument[];
         } else if (action === 'create') {
-            parent.cards = [...cards, ...docs.map(c => cloneDocument(c))] as CardDocument[];
+            // Idempotent create (mirror + broadcast both apply — ADR-0012).
+            parent.cards = appendCreatedById(cards, docs as unknown as CardDocument[]);
         }
 
         this.documents.set(parentId, parent);

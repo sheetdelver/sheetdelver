@@ -1,6 +1,7 @@
 import type { ActorDocument, ItemDocument } from '@server/shared/types/actors';
 import {
     cloneDocument,
+    appendCreatedById,
     deepMerge,
     getDocumentId,
     getOperationIds,
@@ -10,6 +11,7 @@ import {
     toDocumentArray,
     type ChangeAction,
     type DocumentChangedEvent,
+    type DocumentLike,
     type DocumentListInvalidatedEvent,
     type ModifyDocumentAction,
     type PrimaryDocumentType,
@@ -160,14 +162,8 @@ export class ActorStore extends PrimaryDocumentStore<ActorDocument> {
                 }
             }
         } else if (action === 'create') {
-            // Idempotent create: the initiator-side mirror and the Foundry broadcast both
-            // apply the same create (ADR-0012). Skip any doc already present by _id so the
-            // second apply is a no-op instead of pushing a duplicate row.
-            for (const item of docs) {
-                const id = getDocumentId(item);
-                if (id && actor.items.some(existing => getDocumentId(existing) === id)) continue;
-                actor.items.push(cloneDocument(item));
-            }
+            // Idempotent create (mirror + broadcast both apply — ADR-0012).
+            actor.items = appendCreatedById(actor.items, docs);
         }
 
         this.documents.set(actorId, actor);
@@ -232,15 +228,8 @@ export class ActorStore extends PrimaryDocumentStore<ActorDocument> {
         }
 
         if (action === 'create') {
-            // Idempotent create (see embedded Item create): skip effects already present by
-            // _id so the mirror + broadcast double-apply doesn't duplicate a row.
-            const next = [...effects];
-            for (const effect of docs) {
-                const id = getDocumentId(effect);
-                if (id && next.some(existing => isRecord(existing) && getDocumentId(existing) === id)) continue;
-                next.push(cloneDocument(effect));
-            }
-            return next;
+            // Idempotent create (mirror + broadcast both apply — ADR-0012).
+            return appendCreatedById(effects as DocumentLike[], docs as unknown as DocumentLike[]) as unknown[];
         }
 
         return effects;

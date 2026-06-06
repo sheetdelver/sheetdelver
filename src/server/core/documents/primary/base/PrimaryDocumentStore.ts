@@ -124,6 +124,29 @@ export function getOperationIds<TDocument extends DocumentLike>(
 }
 
 /**
+ * Append created embedded children to an array **idempotently by `_id`** (ADR-0012).
+ *
+ * A Sheet-Delver-initiated write applies the same create twice — once when the Repository
+ * mirrors the Foundry result, once when the broadcast lands. Embedded-array creates that
+ * `push` unconditionally turn one added child into two rows. Children already present (by id)
+ * are skipped; children with no id are appended (no key to dedupe on). Every embedded
+ * create path (items/effects/combatants/cards/sounds/pages/results) routes through here so
+ * the idempotency contract can't drift per store.
+ */
+export function appendCreatedById<TDocument extends DocumentLike>(
+    existing: TDocument[] | undefined,
+    created: TDocument[],
+): TDocument[] {
+    const next = [...(existing || [])];
+    for (const doc of created) {
+        const id = getDocumentId(doc);
+        if (id && next.some(item => getDocumentId(item) === id)) continue;
+        next.push(cloneDocument(doc));
+    }
+    return next;
+}
+
+/**
  * Abstract base for every Foundry primary-document Store.
  *
  * Subclasses implement `resolveOwnership` (the policy hook per ADR-0013).

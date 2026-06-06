@@ -1,6 +1,7 @@
 import type { RollTableDocument, RollTableResultDocument } from '@server/shared/types/documents';
 import {
     cloneDocument,
+    appendCreatedById,
     deepMerge,
     getDocumentId,
     getOperationIds,
@@ -104,7 +105,8 @@ export class RollTableStore extends PrimaryDocumentStore<RollTableDocument> {
             }
             table.results = results as RollTableResultDocument[];
         } else if (action === 'create') {
-            table.results = [...results, ...docs.map(r => cloneDocument(r))] as RollTableResultDocument[];
+            // Idempotent create (mirror + broadcast both apply — ADR-0012).
+            table.results = appendCreatedById(results, docs as unknown as RollTableResultDocument[]);
         }
 
         this.documents.set(tableId, table);

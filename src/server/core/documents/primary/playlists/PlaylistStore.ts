@@ -1,6 +1,7 @@
 import type { PlaylistDocument, PlaylistSoundDocument } from '@server/shared/types/documents';
 import {
     cloneDocument,
+    appendCreatedById,
     deepMerge,
     getDocumentId,
     getOperationIds,
@@ -105,7 +106,8 @@ export class PlaylistStore extends PrimaryDocumentStore<PlaylistDocument> {
             }
             playlist.sounds = sounds as PlaylistSoundDocument[];
         } else if (action === 'create') {
-            playlist.sounds = [...sounds, ...docs.map(s => cloneDocument(s))] as PlaylistSoundDocument[];
+            // Idempotent create (mirror + broadcast both apply — ADR-0012).
+            playlist.sounds = appendCreatedById(sounds, docs as unknown as PlaylistSoundDocument[]);
         }
 
         this.documents.set(playlistId, playlist);

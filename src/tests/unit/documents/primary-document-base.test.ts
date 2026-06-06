@@ -1,6 +1,7 @@
 import { strict as assert } from 'node:assert';
 import {
     PrimaryDocumentStore,
+    appendCreatedById,
     type ModifyDocumentAction,
     type DocumentChangedEvent,
     type DocumentListInvalidatedEvent,
@@ -49,7 +50,31 @@ export async function run() {
     await runListInvalidationOnOwnershipCrossing();
     await runGenericPrimaryDocumentChangedEvent();
     await runApplyModifyDocumentRoutes();
+    runAppendCreatedByIdIdempotency();
     console.log('  - PrimaryDocumentStore<T> base: all checks passed');
+}
+
+// The shared embedded-create helper every store routes through (items/effects/combatants/
+// cards/sounds/pages/results). Guards the idempotency that prevents a mirror + broadcast
+// double-apply from duplicating one added child (ADR-0012).
+function runAppendCreatedByIdIdempotency() {
+    const existing: MockDoc[] = [{ _id: 'a', name: 'A' }];
+
+    // Re-applying the same created child is a no-op (deduped by _id).
+    const once = appendCreatedById(existing, [{ _id: 'b', name: 'B' }]);
+    const twice = appendCreatedById(once, [{ _id: 'b', name: 'B' }]);
+    assert.deepEqual(twice.map(d => d._id), ['a', 'b'], 'same _id is not appended twice');
+
+    // Distinct ids still append; cloned (not the same reference).
+    const more = appendCreatedById(twice, [{ _id: 'c', name: 'C' }]);
+    assert.deepEqual(more.map(d => d._id), ['a', 'b', 'c']);
+
+    // Children with no id have no key to dedupe on — appended as-is.
+    const noId = appendCreatedById<MockDoc>([], [{ name: 'x' }, { name: 'y' }]);
+    assert.equal(noId.length, 2, 'id-less children are appended');
+
+    // Undefined existing is treated as empty.
+    assert.deepEqual(appendCreatedById(undefined, [{ _id: 'z' }]).map(d => d._id), ['z']);
 }
 
 async function runSeedAndCloning() {

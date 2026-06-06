@@ -518,3 +518,9 @@ This ADR is fulfilled when compendium discovery and module shard reads have serv
 - [x] Status flips to **Accepted** after all phases ship green.
 
 ADR-0016 owns the next step: full document resolution and UUID routing.
+
+---
+
+## Addendum (June 6, 2026) — Hydrated pack rows must be de-duplicated by `_id`
+
+Surfaced in real-world use: a module's item picker showed every entry ~5× and the persisted shard held 1090 rows for 218 unique items. Cause: `CompendiumService.hydratePack` fetches full documents in id-chunks (50 at a time) and `concat`s each response, but for some pack/transport shapes Foundry returns the **entire pack** per `get` regardless of the requested `ids` — so 218 ÷ 50 → 5 chunks each returned all 218 rows → 5× duplication (`setPackRows`/`PersistentCache.set` then faithfully *replaced* the shard with that already-duplicated set; the cache was not appending, and reconnects did not accumulate beyond one hydration). A compendium pack is primary-keyed by `_id`, so the write boundary now collapses the assembled documents with `dedupeById(...)` before `setPackRows`, enforcing one row per `_id` independent of transport quirks. Corrupted shards from before the fix are cleared so they re-hydrate clean (the freshness hash would otherwise skip re-hydration). This complements the Phase 4 Pathway A/B *index* de-duplication with the same invariant on hydrated *document* rows.
