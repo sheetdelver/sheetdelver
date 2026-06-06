@@ -61,6 +61,13 @@ export interface RollResult {
     total: number;
     terms?: unknown[];
     dice?: number[];
+    /**
+     * The evaluated roll(s) serialized as Foundry `Roll.toJSON()` strings. Attach these to a
+     * `chat.card({ rolls })` / `chat.send({ rolls })` message so Foundry registers the roll
+     * and animates the dice (e.g. Dice So Nice) even when the roll was evaluated without
+     * `displayChat` — the structured result drives the module's own card, these drive the dice.
+     */
+    rolls?: string[];
     [key: string]: unknown;
 }
 
@@ -104,9 +111,29 @@ export interface DocumentStore extends ReadonlyDocumentStore {
     };
 }
 
-/** Dice evaluation primitive (structured result; no forced chat). */
+/**
+ * Options for `rolls.roll`. The roll is always evaluated and the structured {@link RollResult}
+ * returned; these control whether and how it also posts to Foundry chat.
+ */
+export interface RollOptions {
+    /**
+     * Post the roll to Foundry as a real roll message — registering it and triggering the dice
+     * animation (e.g. Dice So Nice). Default `false`: the roll is evaluated and returned but
+     * nothing is posted, so a module can render its own card and (optionally) pass the result's
+     * `rolls` to `chat.card`/`chat.send` to surface the dice. Set `true` for a plain posted roll.
+     */
+    displayChat?: boolean;
+    /** Visibility when posted (decision 7): `publicroll` / `gmroll` / `blindroll` / `selfroll`. */
+    rollMode?: RollMode;
+    /** Speaker attribution for the posted roll message. */
+    speaker?: Record<string, unknown>;
+    /** Flags to attach to the posted message. */
+    flags?: Record<string, unknown>;
+}
+
+/** Dice evaluation primitive (structured result; chat posting is opt-in via {@link RollOptions}). */
 export interface RollRuntime {
-    roll(formula: string, label?: string, options?: { displayChat?: boolean; [key: string]: unknown }): Promise<RollResult>;
+    roll(formula: string, label?: string, options?: RollOptions): Promise<RollResult>;
 }
 
 /** RollTable draw primitive (roll + match). */

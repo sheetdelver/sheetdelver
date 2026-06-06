@@ -33,6 +33,7 @@ export type {
     DocumentOpOptions,
     ModuleOwnershipLevel,
     RollResult,
+    RollOptions,
     RollRuntime,
     TableRuntime,
     ChatRuntime,
