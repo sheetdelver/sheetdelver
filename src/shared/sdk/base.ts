@@ -1,4 +1,5 @@
 import { ModuleRuntime } from './runtime';
+import { setModuleLogSink } from './logging';
 import { resolveImage } from './utils';
 import {
     SystemAdapter,
@@ -50,6 +51,9 @@ export class BaseSystemAdapter implements SystemAdapter {
 
     async initialize(runtime: ModuleRuntime): Promise<void> {
         this._runtime = runtime;
+        // Route the module's SDK logger (`logger` / `createModuleLogger`, incl. pure
+        // logic files) through the platform logger — module-prefixed + level-controlled.
+        setModuleLogSink(runtime.logger);
     }
 
     async getSystemData(_options?: { minimal?: boolean }): Promise<unknown> {

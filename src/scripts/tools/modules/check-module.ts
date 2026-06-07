@@ -42,7 +42,7 @@ const IMPORT_MIGRATION_HINTS: Array<{ test: RegExp; hint: string }> = [
     },
     {
         test: /^@shared\/utils\/logger$/,
-        hint: 'Use context.logger in adapters, useSDK().logger in UI, or avoid direct logging in server route handlers.',
+        hint: 'Import { logger } or createModuleLogger() from @sheet-delver/sdk (or use runtime.logger / useSDK().logger where a runtime is in scope).',
     },
     {
         test: /^@shared\/utils\/errors$/,
@@ -81,6 +81,7 @@ export type ModuleCheckIssueKind =
     | 'package'
     | 'compatibility'
     | 'import-boundary'
+    | 'logging'
     | 'typecheck'
     | 'bundle'
     | 'style-scope'
@@ -161,7 +162,7 @@ function walkFiles(root: string): string[] {
     if (!fs.existsSync(root)) return files;
 
     for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
-        if (entry.name === 'node_modules' || entry.name === 'dist' || entry.name === '.git') continue;
+        if (entry.name === 'node_modules' || entry.name === 'dist' || entry.name === '.git' || entry.name === 'temp') continue;
         const fullPath = path.join(root, entry.name);
         if (entry.isDirectory()) {
             files.push(...walkFiles(fullPath));
@@ -283,11 +284,48 @@ function checkImportBoundaries(ctx: CheckContext): void {
     if (issueCount === 0) pass(ctx, `import boundary clean (${files.length} source files scanned)`);
 }
 
+// Module code must log through the SDK logger (`logger` / `createModuleLogger` from
+// @sheet-delver/sdk), never raw `console.*` — the SDK logger funnels through the
+// platform logger (module-prefixed + level-controlled). Test files are exempt.
+const CONSOLE_CALL = /\bconsole\s*\.\s*\w+\s*\(/;
+function isTestFile(filePath: string): boolean {
+    return /(?:^|[\\/])(?:__tests__|tests?)[\\/]/.test(filePath) || /\.(?:test|spec)\.[cm]?[jt]sx?$/.test(filePath);
+}
+
+// Blank out block (`/* */`, incl. JSX `{/* */}`) and line (`//`) comments so commented-out
+// `console.*` doesn't trip the scan. Replaces comment chars with spaces to preserve line/column.
+function stripComments(source: string): string {
+    return source
+        .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
+        .replace(/\/\/[^\n]*/g, (m) => ' '.repeat(m.length));
+}
+
+function checkLoggingDiscipline(ctx: CheckContext): void {
+    const files = walkFiles(ctx.modulePath).filter((f) => !isTestFile(f));
+    let issueCount = 0;
+
+    for (const filePath of files) {
+        const source = stripComments(fs.readFileSync(filePath, 'utf8'));
+        source.split('\n').forEach((line, idx) => {
+            if (!CONSOLE_CALL.test(line)) return;
+            fail(
+                ctx,
+                'logging',
+                `${path.relative(ctx.modulePath, filePath)}:${idx + 1} uses console.* directly`,
+                'Log through the SDK logger: import { logger } or createModuleLogger() from @sheet-delver/sdk.',
+            );
+            issueCount += 1;
+        });
+    }
+
+    if (issueCount === 0) pass(ctx, `logging discipline clean (${files.length} source files scanned)`);
+}
+
 function walkCssFiles(root: string): string[] {
     const files: string[] = [];
     if (!fs.existsSync(root)) return files;
     for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
-        if (entry.name === 'node_modules' || entry.name === 'dist' || entry.name === '.git') continue;
+        if (entry.name === 'node_modules' || entry.name === 'dist' || entry.name === '.git' || entry.name === 'temp') continue;
         const fullPath = path.join(root, entry.name);
         if (entry.isDirectory()) {
             files.push(...walkCssFiles(fullPath));
@@ -614,6 +652,7 @@ export async function checkModule(moduleId: string, options: ModuleCheckOptions 
     checkPackageIncludes(ctx);
     checkCompatibility(ctx);
     checkImportBoundaries(ctx);
+    checkLoggingDiscipline(ctx);
     checkStyleScoping(ctx);
     checkTypeScript(ctx);
     await checkTailwind(ctx);

@@ -14,7 +14,7 @@ import { SharedContentModal } from '@client/ui/components/SharedContentModal';
 import { getClientDocumentSource, resetClientDocumentSource } from '@client/ui/sdk/createClientDocumentSource';
 import { createSdkEventBus } from '@client/ui/sdk/createSdkEventBus';
 import type { SdkEvents } from '@shared/sdk/events';
-import { buildModuleAssetUrl } from '@shared/sdk';
+import { buildModuleAssetUrl, setModuleLogSink } from '@shared/sdk';
 
 /**
  * SDKProvider bridges the platform's internal contexts and components into
@@ -92,6 +92,14 @@ export function SDKProvider({ children, moduleId }: { children: React.ReactNode;
         warn:  (...args: unknown[]) => console.warn('[module]',  ...args),
         error: (...args: unknown[]) => console.error('[module]', ...args),
     }), []);
+
+    // Funnel the shared SDK logger (`import { logger } from '@sheet-delver/sdk'` in module
+    // UI/logic, resolved to window.__SD.sdk) through this provider's logger. The SDK is a
+    // host singleton on the client, so this binding reaches all module UI code.
+    useEffect(() => {
+        setModuleLogSink(logger);
+        return () => setModuleLogSink(null);
+    }, [logger]);
 
     const sdkValue = useMemo(() => ({
         token,

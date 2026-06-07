@@ -58,6 +58,26 @@ function matchesDocumentId(document: CompendiumPackDocument, documentId: string)
     return typeof uuid === 'string' && (uuid === documentId || uuid.endsWith(`.${documentId}`));
 }
 
+/**
+ * Stamp the derived Foundry identity (`uuid` + `pack`) onto a returned compendium row.
+ *
+ * Raw stored compendium documents carry `_id` but never a `uuid` — in Foundry the uuid is a
+ * *derived* value computed from the pack context (`Compendium.<packId>.<DocType>.<id>`), not
+ * persisted in `_source`. The store reads per declared pack, so it owns that context and is
+ * responsible for stamping the identity a consumer would expect on a live document. Returns a
+ * shallow copy so the in-memory/persistent cache rows are never mutated; respects any uuid the
+ * row already carries.
+ */
+function stampPackIdentity(document: CompendiumPackDocument, packId: string, type: string): CompendiumPackDocument {
+    const id = getRowDocumentId(document);
+    if (!id) return document;
+    const stamped: CompendiumPackDocument = { ...document, pack: document.pack ?? packId };
+    if (typeof document.uuid !== 'string' || !document.uuid) {
+        stamped.uuid = `Compendium.${packId}.${type}.${id}`;
+    }
+    return stamped;
+}
+
 function getPathValue(document: CompendiumPackDocument, path: string): unknown {
     if (Object.prototype.hasOwnProperty.call(document, path)) return document[path];
 
@@ -372,7 +392,7 @@ export class CompendiumStore {
 
     public async findAll(
         systemId: string,
-        _type: string,
+        type: string,
         query: Record<string, unknown> = {},
         options: CompendiumPackQueryOptions = {},
     ): Promise<CompendiumPackDocument[]> {
@@ -383,7 +403,10 @@ export class CompendiumStore {
         for (const packId of packIds) {
             const rows = await this.getPackRows(systemId, packId);
             if (!rows) continue;
-            results.push(...rows.filter(document => matchesQuery(document, query)));
+            for (const document of rows) {
+                if (!matchesQuery(document, query)) continue;
+                results.push(stampPackIdentity(document, packId, type));
+            }
         }
 
         return results;

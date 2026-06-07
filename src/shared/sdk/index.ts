@@ -63,6 +63,7 @@ export type {
 } from './contracts';
 
 export type { ModuleLogger } from './logging';
+export { logger, createModuleLogger, setModuleLogSink } from './logging';
 
 // ---------------------------------------------------------------------------
 // Structured error taxonomy — shared by routes (server) and hooks (client)
