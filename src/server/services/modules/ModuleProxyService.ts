@@ -1,4 +1,4 @@
-import { getServerModule } from '@modules/registry/server';
+import { getServerModule as getRegisteredServerModule } from '@modules/registry/server';
 import { logger } from '@shared/utils/logger';
 import { createModuleRuntime } from '@server/shared/utils/createModuleRuntime';
 import { createModuleRequestRuntime } from '@server/shared/utils/moduleDocumentServices';
@@ -33,18 +33,13 @@ function escapeRegexSegment(value: string): string {
     return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function resolveRequestUserId(rawClient: RouteFoundryClient, userSession?: FoundryUserConnectionLike): string | null {
-    const clientUserId = (rawClient as RouteFoundryClient & { userId?: string | null }).userId;
-    return userSession?.userId ?? clientUserId ?? null;
-}
-
-function createModuleUserSession(rawClient: RouteFoundryClient, userSession?: FoundryUserConnectionLike): UserSession | undefined {
-    const userId = resolveRequestUserId(rawClient, userSession);
-    if (!userId) return undefined;
+function createModuleUserSession(userSession: FoundryUserConnectionLike): UserSession {
+    const userId = userSession.userId;
+    if (!userId) throw new SdkError('permission_denied', 'No access context could be resolved for this request');
     const role = userStore.getRole(userId);
     return {
         userId,
-        username: userSession?.username ?? rawClient.username ?? userId,
+        username: userSession.username ?? userId,
         role,
         isGM: role >= FoundryUserRole.GAMEMASTER,
     };
@@ -52,8 +47,8 @@ function createModuleUserSession(rawClient: RouteFoundryClient, userSession?: Fo
 
 // Access data is derived at the module boundary rather than trusting caller-supplied
 // role/GM flags; the User Store remains the authority for the active world.
-function createAccessContext(moduleId: string, rawClient: RouteFoundryClient, userSession?: FoundryUserConnectionLike): ModuleAccessContext {
-    const userId = resolveRequestUserId(rawClient, userSession);
+function createAccessContext(moduleId: string, userSession: FoundryUserConnectionLike): ModuleAccessContext {
+    const userId = userSession.userId;
     if (!userId) throw new SdkError('permission_denied', 'No access context could be resolved for this request');
     const role = userStore.getRole(userId);
     return {
@@ -82,7 +77,15 @@ export function compileModuleRoutePattern(pattern: string): RegExp {
     return new RegExp(compiled);
 }
 
-export function createModuleProxyService() {
+interface ModuleProxyServiceDeps {
+    getServerModule?: (systemId: string) => Promise<ModuleServerLike | null> | ModuleServerLike | null;
+    getBaseRuntime?: (moduleId: string) => Promise<ModuleRuntime>;
+}
+
+export function createModuleProxyService(deps: ModuleProxyServiceDeps = {}) {
+    const resolveServerModule = deps.getServerModule ?? getRegisteredServerModule;
+    const resolveBaseRuntime = deps.getBaseRuntime ?? getBaseRuntime;
+
     // Route matcher for module apiRoutes patterns such as [id] segments.
     const findMatchedPattern = (routes: string[], routePath: string): string | undefined => {
         for (const pattern of routes) {
@@ -100,7 +103,24 @@ export function createModuleProxyService() {
 
         if (!systemId) return { status: 404, payload: { error: 'No system specified' } };
 
-        const sysModule = await getServerModule(systemId) as ModuleServerLike | null;
+        if (!request.foundryClient) {
+            return { status: 401, payload: { error: 'Unauthorized: Missing Foundry session' } };
+        }
+
+        if (!request.userSession?.userId) {
+            logger.warn(`Module Routing | Rejected non-user module API request for ${systemId}/${routePath || '<root>'}.`);
+            return { status: 403, payload: { error: 'Forbidden: Module API routes require a Foundry user session' } };
+        }
+
+        const rawClient = request.foundryClient;
+        if (!rawClient.userId || rawClient.userId !== request.userSession.userId) {
+            logger.warn(
+                `Module Routing | Rejected module API request for ${systemId}/${routePath || '<root>'}: session user ${request.userSession.userId} does not match transport user ${rawClient.userId ?? '<missing>'}.`
+            );
+            return { status: 403, payload: { error: 'Forbidden: Foundry session does not match the request transport' } };
+        }
+
+        const sysModule = await resolveServerModule(systemId) as ModuleServerLike | null;
         if (!sysModule) {
             logger.warn(`Module Routing | Module ${systemId} not found or missing server entry point.`);
             return { status: 404, payload: { error: `Module ${systemId} not found` } };
@@ -120,18 +140,13 @@ export function createModuleProxyService() {
             return { status: 404, payload: { error: `Route ${routePath} not found` } };
         }
 
-        if (!request.foundryClient) {
-            return { status: 401, payload: { error: 'Unauthorized: Missing Foundry session' } };
-        }
-
         const handler = sysModule.apiRoutes[matchedPattern];
-        const rawClient = request.foundryClient;
 
         // Per-request runtime handle (ADR-0027): base (memoized per module) + the caller's
         // user-bound document/roll/table services. Document ops default to the caller.
-        const baseRuntime = await getBaseRuntime(systemId);
+        const baseRuntime = await resolveBaseRuntime(systemId);
         const runtime = createModuleRequestRuntime(baseRuntime, rawClient);
-        const userSession = createModuleUserSession(rawClient, request.userSession);
+        const userSession = createModuleUserSession(request.userSession);
 
         const nextRequest = {
             json: async () => request.body,
@@ -140,7 +155,7 @@ export function createModuleProxyService() {
             headers: request.headers,
             runtime,
             userSession,
-            getAccessContext: () => createAccessContext(systemId, rawClient, request.userSession),
+            getAccessContext: () => createAccessContext(systemId, request.userSession!),
         };
         const nextParams = { params: Promise.resolve({ systemId, route: routePath.split('/') }) };
 

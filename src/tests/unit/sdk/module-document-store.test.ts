@@ -12,7 +12,7 @@ import type { ActorDocument } from '@server/shared/types/actors';
  *  - writes require OWNER-level (WRITEABLE) ownership on the target,
  *  - missing docs / insufficient ownership block (permission_denied),
  *  - `commit` verifies every op before dispatching any,
- *  - the `{ access }` override acts as a different subject,
+ *  - write-time `{ access }` must match the bound transport user,
  *  - the readiness gate surfaces `not_ready` on both reads and writes.
  *
  * `ensureReady` is injected (no-op / throwing) so the suite never depends on a live world.
@@ -112,9 +112,9 @@ export async function run() {
     assert.equal(await uuidPlayerStore.fetchByUuid('Actor.actor-owned.Item.item-hidden'), null, 'hidden root blocks embedded UUID');
     assert.equal((await uuidPlayerStore.fetchByUuid('Actor.actor-observed'))?.name, 'Observed Actor');
 
-    // --- { access } override: player acts as the owner ---
-    await playerStore.patch('Actor', 'actor-observed', { name: 'ByOwner' }, asOwner);
-    assert.equal(playerCalls.length, 1, 'override write dispatched');
+    // --- write-time { access } override must match the bound transport user ---
+    await rejectsWithCode(() => playerStore.patch('Actor', 'actor-observed', { name: 'ByOwner' }, asOwner), 'permission_denied');
+    assert.equal(playerCalls.length, 0, 'mismatched override write never dispatched');
 
     // --- subject that cannot resolve fails closed ---
     const anonCalls: DispatchCall[] = [];

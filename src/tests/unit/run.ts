@@ -139,7 +139,7 @@ async function runAllUnitTests() {
     await runModifyDocumentRouter();
     await runUserStore();
     runCombatSort();
-    runModuleProxyMatcher();
+    await runModuleProxyMatcher();
     runModuleLifecycleState();
     runModuleManifestValidation();
     runModuleUiRewrite();

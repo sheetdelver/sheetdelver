@@ -18,8 +18,9 @@ export type ModuleOwnershipLevel = 'limited' | 'observer' | 'owner';
 
 /**
  * Per-operation authorization context (ADR-0027 decision 9). On `req.runtime`,
- * document ops default their acting identity to the calling user (`req.userSession`);
- * passing `{ access }` overrides it for the non-norm case (e.g. system context).
+ * document ops default their acting identity to the calling user (`req.userSession`).
+ * Read operations may pass `{ access }` to evaluate visibility as an explicit subject;
+ * write operations must match the request's bound Foundry transport user.
  */
 export interface ModuleAccessContext {
     userId: string;
@@ -34,7 +35,7 @@ export interface ModuleAccessContext {
     };
 }
 
-/** Optional per-op access override + ownership threshold. Default acting subject = caller. */
+/** Optional per-op access context + ownership threshold. Default acting subject = caller. */
 export interface DocumentOpOptions {
     access?: ModuleAccessContext;
     minOwnership?: ModuleOwnershipLevel;

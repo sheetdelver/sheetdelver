@@ -192,8 +192,9 @@ export function createReadonlyDocumentStore(deps: {
 /**
  * Full document surface for a route's `req.runtime` (ADR-0027 decisions 5/6/9), backed by
  * the request's `RouteFoundryClient`. Reads are subject-scoped to the caller (or `{ access }`
- * override); writes dispatch through the caller's transport (Foundry attributes them to the
- * acting user). The socket never leaves core — modules only see this typed surface.
+ * override); writes dispatch through the caller's transport, so any write-time `{ access }`
+ * override must match that transport user. The socket never leaves core — modules only see
+ * this typed surface.
  */
 export function createDocumentStore(
     client: RouteFoundryClient,
@@ -230,8 +231,20 @@ export function createDocumentStore(
         if (!subject) throw new SdkError('permission_denied', 'No access context could be resolved for this request');
         return subject;
     };
+    const requireWriteSubject = async (opts?: DocumentOpOptions): Promise<DocumentAccessSubject> => {
+        await ensureReady();
+        if (opts?.access?.userId !== undefined && opts.access.userId !== c.userId) {
+            throw new SdkError(
+                'permission_denied',
+                `Write denied: access override user ${opts.access.userId} does not match bound transport user ${c.userId ?? 'unknown'}`
+            );
+        }
+        const subject = subjectFor(opts);
+        if (!subject) throw new SdkError('permission_denied', 'No access context could be resolved for this request');
+        return subject;
+    };
     const assertWriteable = async (type: string, id: string, opts?: DocumentOpOptions): Promise<void> => {
-        const subject = await requireSubject(opts);
+        const subject = await requireWriteSubject(opts);
         if (!requireStore(type).canReadDocument(id, subject, DOCUMENT_VISIBILITY.WRITEABLE)) {
             throw new SdkError('permission_denied', `Write denied: user ${subject.userId} lacks owner-level access to ${type} ${id}`);
         }
@@ -282,7 +295,7 @@ export function createDocumentStore(
         ...reads,
         fetchByUuid,
         create: async (type, data, opts) => {
-            const subject = await requireSubject(opts);
+            const subject = await requireWriteSubject(opts);
             requireStore(type);
             return one(await c.dispatchDocument(type, 'create', { data: [withDefaultAuthor(type, data, subject.userId)] }));
         },
@@ -291,7 +304,7 @@ export function createDocumentStore(
             return one(await c.dispatchDocument(type, 'update', { updates: [{ _id: id, ...updates }] }));
         },
         upsert: async (type, data, opts) => {
-            const subject = await requireSubject(opts);
+            const subject = await requireWriteSubject(opts);
             const id = (data as { _id?: string })._id;
             const exists = id ? requireStore(type).get(id) : null;
             if (exists) {
@@ -309,7 +322,7 @@ export function createDocumentStore(
         commit: async (type, ops, opts) => {
             // Verify EVERY op before dispatching ANY — no privileged batch path bypasses
             // the per-document check (decision 10).
-            const subject = await requireSubject(opts);
+            const subject = await requireWriteSubject(opts);
             requireStore(type);
             const plan = ops.map(op => {
                 const action = (op as { action?: string }).action ?? ((op as { _id?: string })._id ? 'update' : 'create');
