@@ -4,6 +4,8 @@ import { ModuleLifecycleStatus } from '@shared/types/modules';
 import {
     getLifecycleRecords,
     ModuleLifecycleRecord,
+    recordLifecycleRuntimeFailure,
+    saveLifecycleStore,
 } from '../lifecycle/lifecycle';
 import { type ModuleArtifactMetadata } from './manager';
 import { getArtifact, loadArtifactStore } from '../distribution/artifactStore';
@@ -17,6 +19,7 @@ import {
 } from './state';
 import {
     getArtifactStateFilePathOverride,
+    getLifecycleStateFilePathOverride,
     getLifecycleRecord,
 } from './internals';
 import { initializeRegistry } from './bootstrap';
@@ -37,6 +40,18 @@ export interface RegisteredModuleRuntimeInfo {
 export function getModuleLifecycleState() {
     if (!isInitialized()) initializeRegistry();
     return getLifecycleRecords(lifecycleStore);
+}
+
+/**
+ * Record a runtime failure against lifecycle health so admin state reflects
+ * failures detected outside adapter loading, such as managed UI import/report errors.
+ */
+export function recordModuleRuntimeFailure(moduleId: string, message: string): boolean {
+    if (!isInitialized()) initializeRegistry();
+    const updated = recordLifecycleRuntimeFailure(lifecycleStore, moduleId, message);
+    if (!updated) return false;
+    saveLifecycleStore(lifecycleStore, getLifecycleStateFilePathOverride());
+    return true;
 }
 
 export function listModules(options?: { includeExperimental?: boolean; includeDisabled?: boolean }): RegisteredModuleRuntimeInfo[] {

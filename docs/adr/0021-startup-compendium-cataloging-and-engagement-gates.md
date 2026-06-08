@@ -424,8 +424,8 @@ Phase 5 prevents browser connections during `startup` from restarting transport 
 
 **Action items:**
 
-- [x] Update public docs and module authoring docs with the final compendium startup policy. (No changes required — `MODULE_MANIFEST.md` already describes the SDK contract in terminology that ADR-0021 explicitly preserved: `compendiumPacks` declaration, `hydrate: true/false`, `context.platform.compendiumPacks`.)
-  Files: `README.md`, `docs/CONTRIBUTING.md`, `docs/MODULE_AUTHORING.md`, `src/modules/MODULE_MANIFEST.md` if needed.
+- [x] Update public docs and module authoring docs with the final compendium startup policy. (No changes required — `MODULE_MANIFEST.md` already describes the SDK contract in terminology that ADR-0021 explicitly preserved: `compendiumPacks` declaration, `hydrate: true/false`, and the module runtime compendium read surface.)
+  Files: `README.md`, `docs/CONTRIBUTING.md`, `docs/MODULE_AUTHORING.md`, `docs/MODULE_MANIFEST.md` if needed.
 
 - [x] Update ADR-0017 if its bootstrap sequence still describes Pathway A as fetching broad indices during readiness. (Both the bootstrap-flow bullet list and the numbered sequence now describe passive metadata seed + module-driven hydration via `CompendiumService.hydratePacks(...)`.)
   Files: `docs/adr/0017-world-bootstrap-and-lifecycle-orchestration.md`.

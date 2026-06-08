@@ -3,6 +3,7 @@
 import React, { Suspense } from 'react';
 import { SDKProvider } from '@client/ui/providers/SDKProvider';
 import LoadingModal from '@client/ui/components/LoadingModal';
+import { logger } from '@shared/utils/logger';
 
 /**
  * SurfaceHost — the single host-owned boundary for every dynamically loaded module
@@ -35,7 +36,7 @@ class SurfaceErrorBoundary extends React.Component<SurfaceErrorBoundaryProps, Su
 
     componentDidCatch(error: Error, info: React.ErrorInfo) {
         const label = this.props.surface ? `:${this.props.surface}` : '';
-        console.error(`[SurfaceHost${label}] module surface crashed:`, error, info);
+        logger.error(`[SurfaceHost${label}] module surface crashed:`, error, info);
     }
 
     render() {

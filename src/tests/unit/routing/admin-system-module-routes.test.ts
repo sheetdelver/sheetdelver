@@ -203,6 +203,7 @@ async function runModuleRouterSmokeTests() {
 
     assert.ok(router.stack.some((entry: any) => !entry.route && entry.name === 'tryAuthenticateSession'), 'auth middleware should be mounted');
     assert.ok(router.stack.some((entry: any) => entry.route?.path === '/:id/ui'), 'UI artifact route should be mounted');
+    assert.ok(router.stack.some((entry: any) => entry.route?.path === '/:id/ui-error'), 'UI health report route should be mounted');
     assert.ok(router.stack.some((entry: any) => entry.route?.path === '/:id/assets/{*assetPath}'), 'asset route should be mounted');
     assert.ok(router.stack.some((entry: any) => entry.route?.path instanceof RegExp), 'module proxy catch-all should be mounted');
 
@@ -211,6 +212,15 @@ async function runModuleRouterSmokeTests() {
     await uiHandler({ params: { id: 'missing-module' } } as any, res, (() => undefined) as any);
     assert.equal(res.statusCode, 404);
     assert.deepEqual(res.payload, { error: 'Module "missing-module" not found' });
+
+    const uiErrorHandler = getExpressRouteHandler(router, '/:id/ui-error', 'post');
+    const uiErrorRes = createResponseStub();
+    await uiErrorHandler({
+        params: { id: 'missing-module' },
+        body: { message: 'Client failed to import module UI', source: 'data' },
+    } as any, uiErrorRes, (() => undefined) as any);
+    assert.equal(uiErrorRes.statusCode, 200);
+    assert.deepEqual(uiErrorRes.payload, { success: true });
 }
 
 export async function run() {

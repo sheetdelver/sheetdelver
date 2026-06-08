@@ -10,13 +10,100 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import { logger } from '@shared/utils/logger';
-import { ModuleSourceCategory } from '@shared/types/modules';
-import { saveLifecycleStore } from '../lifecycle/lifecycle';
+import { ModuleLifecycleStatus, ModuleSourceCategory } from '@shared/types/modules';
+import { saveLifecycleStore, type ModuleLifecycleRecord, type ModuleLifecycleValidation } from '../lifecycle/lifecycle';
 import { getModulesDataDir } from '@/server/core/paths';
 import { pluginMap, lifecycleStore, isInitialized } from './state';
 import { getLifecycleRecord, getLifecycleStateFilePathOverride } from './internals';
 import { unloadSystemModules } from './adapterResolution';
 import { initializeRegistry, refreshRegistry } from './bootstrap';
+
+/** A validation failure that must block selecting or enabling a source. */
+interface SourceBlock {
+    status: typeof ModuleLifecycleStatus.Errored | typeof ModuleLifecycleStatus.Incompatible;
+    reason: string;
+}
+
+function getValidationBlock(validation?: ModuleLifecycleValidation): SourceBlock | undefined {
+    if (!validation) return undefined;
+
+    // Invalid manifests and declared incompatibility are already hard blockers.
+    if (!validation.manifestValid) {
+        return {
+            status: ModuleLifecycleStatus.Errored,
+            reason: validation.validationErrors?.[0] || 'Cannot enable invalid module manifest',
+        };
+    }
+
+    if (!validation.compatible) {
+        const diagnostic = validation.coreDiagnostics?.find(entry => !entry.compatible)
+            || validation.contractDiagnostics?.find(entry => !entry.compatible);
+        return {
+            status: ModuleLifecycleStatus.Incompatible,
+            reason: diagnostic?.reason || 'Cannot enable incompatible module',
+        };
+    }
+
+    // Artifact warnings are intentionally ignored here. Only an artifact diagnostic
+    // marked error means the installed source is too broken to select or enable.
+    const artifactError = validation.artifactDiagnostics?.find(diagnostic => diagnostic.severity === 'error');
+    if (artifactError) {
+        return {
+            status: ModuleLifecycleStatus.Errored,
+            reason: artifactError.message,
+        };
+    }
+
+    return undefined;
+}
+
+function getSourceBlock(record: ModuleLifecycleRecord, source: ModuleSourceCategory | undefined): SourceBlock | undefined {
+    // Prefer source-specific validation so enabling the dormant managed/local card
+    // uses that source's own artifact and compatibility diagnostics.
+    const sourceState = source ? record.sourceStates?.[source] : undefined;
+    const validation = sourceState?.validation ?? (source === record.activeSource || !source ? record.validation : undefined);
+    return getValidationBlock(validation);
+}
+
+function updateSourceState(
+    record: ModuleLifecycleRecord,
+    source: ModuleSourceCategory | undefined,
+    patch: { status: ModuleLifecycleRecord['status']; enabled: boolean; reason?: string }
+): void {
+    if (!source) return;
+    // The admin UI reads split-card state directly from sourceStates. Keep it in
+    // sync when an operator enables/disables without waiting for another scan.
+    const existingSourceState = record.sourceStates?.[source];
+    const baseSourceState = existingSourceState ?? {
+        status: patch.status,
+        enabled: patch.enabled,
+    };
+    record.sourceStates = {
+        ...record.sourceStates,
+        [source]: {
+            ...baseSourceState,
+            ...patch,
+        },
+    };
+}
+
+function markActiveSourceBlocked(record: ModuleLifecycleRecord, block: SourceBlock): void {
+    // A failed enable of the active source should leave both the top-level record
+    // and its source card in the same blocked state.
+    record.enabled = false;
+    record.status = block.status;
+    record.reason = block.reason;
+    record.updatedAt = Date.now();
+
+    if (record.activeSource === ModuleSourceCategory.Local) record.localEnabled = false;
+    else if (record.activeSource === ModuleSourceCategory.Managed) record.managedEnabled = false;
+
+    updateSourceState(record, record.activeSource, {
+        status: block.status,
+        enabled: false,
+        reason: block.reason,
+    });
+}
 
 /**
  * Switches a module between its local dev version and managed install.
@@ -29,6 +116,22 @@ export function switchModuleSource(moduleId: string, source: ModuleSourceCategor
     const record = getLifecycleRecord(id);
     if (!record) return { success: false, error: 'Module not found' };
 
+    if (source === ModuleSourceCategory.Local && !record.localDirectory) {
+        return { success: false, error: 'No local dev version available for this module' };
+    }
+    if (source === ModuleSourceCategory.Managed) {
+        const managedDir = path.join(getModulesDataDir(), id);
+        if (!fs.existsSync(managedDir)) return { success: false, error: 'No managed install found for this module' };
+    }
+
+    const targetBlock = getSourceBlock(record, source);
+    if (targetBlock) {
+        // Reject the switch before mutating activeSource so a broken installed
+        // package cannot become the runtime-selected implementation.
+        logger.warn(`Registry | Refusing to switch module "${id}" to ${source}: ${targetBlock.reason}`);
+        return { success: false, error: targetBlock.reason };
+    }
+
     // Persist the current enabled state for the source we're leaving
     if (record.activeSource === ModuleSourceCategory.Local) {
         record.localEnabled = record.enabled;
@@ -37,14 +140,14 @@ export function switchModuleSource(moduleId: string, source: ModuleSourceCategor
     }
 
     if (source === ModuleSourceCategory.Local) {
-        if (!record.localDirectory) return { success: false, error: 'No local dev version available for this module' };
-        record.directory    = record.localDirectory;
+        const localDirectory = record.localDirectory;
+        if (!localDirectory) return { success: false, error: 'No local dev version available for this module' };
+        record.directory    = localDirectory;
         record.activeSource = ModuleSourceCategory.Local;
         // Restore the saved enabled state for local, defaulting to true on first switch
         record.enabled = record.localEnabled ?? true;
     } else {
         const managedDir = path.join(getModulesDataDir(), id);
-        if (!fs.existsSync(managedDir)) return { success: false, error: 'No managed install found for this module' };
         record.directory    = managedDir;
         record.activeSource = ModuleSourceCategory.Managed;
         // Restore the saved enabled state for managed, defaulting to true on first switch
@@ -54,6 +157,11 @@ export function switchModuleSource(moduleId: string, source: ModuleSourceCategor
     record.status    = record.enabled ? 'validated' : 'disabled';
     record.reason    = record.enabled ? undefined : 'Module disabled in persisted lifecycle state';
     record.updatedAt = Date.now();
+    updateSourceState(record, record.activeSource, {
+        status: record.status,
+        enabled: record.enabled,
+        reason: record.reason,
+    });
     unloadSystemModules(id);
     saveLifecycleStore(lifecycleStore, getLifecycleStateFilePathOverride());
     refreshRegistry();
@@ -82,6 +190,11 @@ export function disableModule(moduleId: string, reason = 'Module disabled by ope
         if (targetSource === ModuleSourceCategory.Local) record.localEnabled   = false;
         else                          record.managedEnabled = false;
         record.updatedAt = Date.now();
+        updateSourceState(record, targetSource, {
+            status: ModuleLifecycleStatus.Disabled,
+            enabled: false,
+            reason,
+        });
         saveLifecycleStore(lifecycleStore, getLifecycleStateFilePathOverride());
         return true;
     }
@@ -93,6 +206,11 @@ export function disableModule(moduleId: string, reason = 'Module disabled by ope
 
     if (record.activeSource === ModuleSourceCategory.Local) record.localEnabled   = false;
     else                                 record.managedEnabled = false;
+    updateSourceState(record, record.activeSource, {
+        status: record.status,
+        enabled: false,
+        reason,
+    });
 
     unloadSystemModules(id);
     saveLifecycleStore(lifecycleStore, getLifecycleStateFilePathOverride());
@@ -118,13 +236,11 @@ export function enableModule(moduleId: string, source?: ModuleSourceCategory): b
         if (!switchResult.success) return false;
     }
 
-    if (record.validation && (!record.validation.manifestValid || !record.validation.compatible)) {
-        record.enabled = false;
-        record.status = record.validation.manifestValid ? 'incompatible' : 'errored';
-        record.reason = record.validation.manifestValid
-            ? 'Cannot enable incompatible module'
-            : 'Cannot enable invalid module manifest';
-        record.updatedAt = Date.now();
+    const block = getSourceBlock(record, record.activeSource);
+    if (block) {
+        // Enabling is the enforcement boundary for artifact errors. Warning-only
+        // diagnostics have already been recorded in lifecycle state and are allowed.
+        markActiveSourceBlocked(record, block);
         saveLifecycleStore(lifecycleStore, getLifecycleStateFilePathOverride());
         return false;
     }
@@ -136,6 +252,11 @@ export function enableModule(moduleId: string, source?: ModuleSourceCategory): b
 
     if (record.activeSource === ModuleSourceCategory.Local) record.localEnabled   = true;
     else                                 record.managedEnabled = true;
+    updateSourceState(record, record.activeSource, {
+        status: record.status,
+        enabled: true,
+        reason: undefined,
+    });
 
     saveLifecycleStore(lifecycleStore, getLifecycleStateFilePathOverride());
     return true;

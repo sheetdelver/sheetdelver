@@ -50,8 +50,9 @@ export function run() {
         });
     });
     assert.equal(adminWarnings.length, 1);
-    assert.equal(adminWarnings[0][0], '[Player Runtime Guard] Player context accessed on admin surface. This indicates a composition error.');
-    assert.deepEqual((adminWarnings[0][1] as { pathname: string }).pathname, '/admin');
+    assert.equal(adminWarnings[0][0], '[WARN]');
+    assert.equal(adminWarnings[0][1], '[Player Runtime Guard] Player context accessed on admin surface. This indicates a composition error.');
+    assert.deepEqual((adminWarnings[0][2] as { pathname: string }).pathname, '/admin');
 
     console.log('  - Runtime surface guard: all checks passed');
 }

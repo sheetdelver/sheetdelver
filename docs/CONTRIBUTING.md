@@ -52,13 +52,13 @@ Each RPG system is a **self-contained external module** discovered at runtime fr
 
 The registry (`src/modules/registry/core/server.ts`) scans these directories at startup — no manual registration is needed.
 
-*   **SDK import surface**: All platform APIs are accessed via `@sheet-delver/sdk`. Do not import from `@core/*`, `@server/*`, `@client/*`, or `@modules/*` internal aliases.
+*   **SDK import surface**: All platform APIs are accessed via the `@sheet-delver/sdk` entry-point family. Use `@sheet-delver/sdk` for shared adapter/types/utilities, `@sheet-delver/sdk/react` for client hooks, and `@sheet-delver/sdk/server` for route/runtime types. Do not import from `@core/*`, `@server/*`, `@client/*`, or `@modules/*` internal aliases.
 *   **Isolation**: Do not import code from other system modules.
 *   **Adapter contract**: Extend `BaseSystemAdapter` from `@sheet-delver/sdk`. Override only the methods you need — defaults are provided for everything.
-*   **Context injection**: The platform wraps every module component in `SDKProvider`, which injects contexts and shared components via `useSDK()` and `useSDKComponents()` from `@sheet-delver/sdk`.
+*   **Context injection**: The platform wraps every module component in `SDKProvider`, which injects contexts and shared components via `useSDK()` and `useSDKComponents()` from `@sheet-delver/sdk/react`.
 *   **Shared components**: Access platform UI components (`LoadingModal`, `RollDialog`, `ConfirmationModal`, `RichTextEditor`, `SharedContentModal`) via `useSDKComponents()` — do not import them from `@client/ui/components/` directly.
 
-See `src/modules/MODULE_MANIFEST.md` for the full authoring reference including SDK surface, `ModuleFoundryClient` methods, compendium pack configuration, and build setup.
+See `docs/MODULE_MANIFEST.md` for the full authoring reference including SDK surface, module runtime services, compendium pack configuration, and build setup.
 For the shorter end-to-end workflow, see [Module Authoring Guide](MODULE_AUTHORING.md).
 
 ## Adding a New System
@@ -72,7 +72,7 @@ npm run module:check my-system
 
 Pass `--data-dir` when working outside the default `./data` directory. The generated module is discovered automatically from `<DATA_DIR>/local/modules/<module-id>/`; no registry edits are required.
 
-The [Module Authoring Guide](MODULE_AUTHORING.md) covers the end-to-end development path. The manifest reference in `src/modules/MODULE_MANIFEST.md` remains the authoritative contract for metadata, entry points, SDK hooks, compendium packs, and server routes.
+The [Module Authoring Guide](MODULE_AUTHORING.md) covers the end-to-end development path. The manifest reference in `MODULE_MANIFEST.md` remains the authoritative contract for metadata, entry points, SDK hooks, compendium packs, and server routes.
 
 ## Packaging a Module for Distribution
 

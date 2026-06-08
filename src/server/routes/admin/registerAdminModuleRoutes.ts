@@ -20,6 +20,8 @@ import { requireAdminCsrf } from '@server/middleware/requireAdminCsrf';
 import { ModuleSourceCategory } from '@shared/types/modules';
 import { getConfig } from '@server/core/config';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
+import type { RegisteredModuleRuntimeInfo } from '@modules/registry/server';
+import type { ModuleLifecycleValidation, ModuleSourceState } from '@modules/registry/lifecycle/lifecycle';
 
 export interface RegisterAdminModuleRoutesOptions {
     adminRouter: express.Router;
@@ -32,6 +34,76 @@ export function registerAdminModuleRoutes(opts: RegisterAdminModuleRoutesOptions
     // Inline alias keeps the extracted handlers unchanged from their original
     // shape — they reference `deps.broadcastToClients` literally.
     const deps = { broadcastToClients: opts.broadcastToClients };
+
+    /**
+     * Convert internal lifecycle validation into the flat diagnostic rows rendered
+     * by the admin panel. Artifact warnings/errors are intentionally included here
+     * so the operator can audit old managed packages without opening a browser console.
+     */
+    function toValidationPayload(validation?: ModuleLifecycleValidation) {
+        if (!validation) return undefined;
+
+        return {
+            manifestValid: validation.manifestValid,
+            diagnostics: [
+                ...(validation.coreDiagnostics || []).map(d => ({
+                    code: `core:${d.constraint}`,
+                    message: d.reason || (d.compatible ? 'Constraint satisfied' : `Constraint ${d.constraint} not satisfied`),
+                    severity: d.compatible ? 'info' : 'error',
+                })),
+                ...(validation.contractDiagnostics || []).map(d => ({
+                    code: `contract:${d.contract}`,
+                    message: d.reason || (d.compatible ? `${d.contract} ${d.providedVersion || ''} satisfies ${d.requiredRange}` : `${d.contract} incompatible`),
+                    severity: d.compatible ? 'info' : 'error',
+                })),
+                ...(validation.validationErrors || []).map(e => ({
+                    code: 'manifest-error',
+                    message: e,
+                    severity: 'error' as const,
+                })),
+                ...(validation.artifactDiagnostics || []).map(d => ({
+                    code: d.code,
+                    message: d.message,
+                    severity: d.severity,
+                })),
+            ],
+        };
+    }
+
+    /**
+     * Source states are sent with the same validation shape as the active module.
+     * This lets the split local/managed cards show source-specific drift or blockers.
+     */
+    function toSourceStatesPayload(sourceStates?: Partial<Record<ModuleSourceCategory, ModuleSourceState>>) {
+        if (!sourceStates) return undefined;
+        return Object.fromEntries(
+            Object.entries(sourceStates)
+                .filter((entry): entry is [string, ModuleSourceState] => Boolean(entry[1]))
+                .map(([source, state]) => [
+                    source,
+                    {
+                        ...state,
+                        validation: toValidationPayload(state.validation),
+                    },
+                ])
+        );
+    }
+
+    /**
+     * When enable fails, re-read lifecycle state after the registry operation so the
+     * HTTP response can name the blocking source reason instead of returning a generic
+     * "invalid/incompatible" message.
+     */
+    function getLifecycleFailureReason(
+        modules: RegisteredModuleRuntimeInfo[],
+        moduleId: string,
+        source?: ModuleSourceCategory,
+    ): string | undefined {
+        const entry = modules.find(m => m.info.id.toLowerCase() === moduleId.toLowerCase());
+        if (!entry) return undefined;
+        return (source ? entry.lifecycle.sourceStates?.[source]?.reason : undefined)
+            || entry.lifecycle.reason;
+    }
 
     /**
      * GET /admin/api/lifecycle
@@ -60,30 +132,8 @@ export function registerAdminModuleRoutes(opts: RegisterAdminModuleRoutesOptions
                             managed: m.managed,
                             reason: m.reason,
                             health: m.lifecycle.health,
-                            // Validation diagnostics from lifecycle record
-                            validation: m.lifecycle.validation ? {
-                                manifestValid: m.lifecycle.validation.manifestValid,
-                                diagnostics: [
-                                    // Map core constraint diagnostics
-                                    ...(m.lifecycle.validation.coreDiagnostics || []).map(d => ({
-                                        code: `core:${d.constraint}`,
-                                        message: d.reason || (d.compatible ? 'Constraint satisfied' : `Constraint ${d.constraint} not satisfied`),
-                                        severity: d.compatible ? 'info' : 'error',
-                                    })),
-                                    // Map contract diagnostics
-                                    ...(m.lifecycle.validation.contractDiagnostics || []).map(d => ({
-                                        code: `contract:${d.contract}`,
-                                        message: d.reason || (d.compatible ? `${d.contract} ${d.providedVersion || ''} satisfies ${d.requiredRange}` : `${d.contract} incompatible`),
-                                        severity: d.compatible ? 'info' : 'error',
-                                    })),
-                                    // Map validation errors as simple diagnostics
-                                    ...(m.lifecycle.validation.validationErrors || []).map(e => ({
-                                        code: 'manifest-error',
-                                        message: e,
-                                        severity: 'error' as const,
-                                    })),
-                                ],
-                            } : undefined,
+                            validation: toValidationPayload(m.lifecycle.validation),
+                            sourceStates: toSourceStatesPayload(m.lifecycle.sourceStates),
                             artifact: m.artifact,
                             activeSource: m.lifecycle.activeSource,
                             localDirectory: m.lifecycle.localDirectory,
@@ -115,7 +165,7 @@ export function registerAdminModuleRoutes(opts: RegisterAdminModuleRoutesOptions
                 const moduleId = Array.isArray(req.params.moduleId)
                     ? req.params.moduleId[0]
                     : req.params.moduleId;
-                const { enableModule, checkCanEnableModule } = await import('@modules/registry/server');
+                const { enableModule, checkCanEnableModule, listModules } = await import('@modules/registry/server');
 
                 // Check dependencies and conflicts
                 const depCheck = checkCanEnableModule(moduleId);
@@ -131,9 +181,11 @@ export function registerAdminModuleRoutes(opts: RegisterAdminModuleRoutesOptions
                 const source = req.body?.source as ModuleSourceCategory | undefined;
                 const success = enableModule(moduleId, source);
                 if (!success) {
+                    const modules = listModules({ includeExperimental: true, includeDisabled: true });
+                    const reason = getLifecycleFailureReason(modules, moduleId, source);
                     return res.status(400).json({
                         success: false,
-                        error: `Failed to enable module ${moduleId}. Module may be incompatible or invalid.`,
+                        error: reason || `Failed to enable module ${moduleId}. Module may be incompatible or invalid.`,
                     });
                 }
 

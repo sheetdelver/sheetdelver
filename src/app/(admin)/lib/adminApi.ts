@@ -23,6 +23,25 @@ export interface AdminApiResult<T> {
     sessionExpired: boolean;
 }
 
+/** Admin-renderable lifecycle diagnostics from manifest, compatibility, and artifact health checks. */
+export interface ModuleLifecycleValidationInfo {
+    manifestValid: boolean;
+    diagnostics: Array<{ code: string; message: string; severity: string }>;
+}
+
+/** Per-source state for split local/managed cards; mirrors the server sourceStates payload. */
+export interface ModuleLifecycleSourceStateInfo {
+    status: string;
+    reason?: string;
+    enabled: boolean;
+    health?: {
+        errorCount: number;
+        lastError: string;
+        lastErrorAt: number;
+    };
+    validation?: ModuleLifecycleValidationInfo;
+}
+
 /** Module lifecycle info returned by GET /admin/lifecycle */
 export interface ModuleLifecycleInfo {
     moduleId: string;
@@ -42,41 +61,10 @@ export interface ModuleLifecycleInfo {
         lastError?: string;
         lastErrorAt?: number;
     };
-    validation?: {
-        manifestValid: boolean;
-        diagnostics: Array<{ code: string; message: string; severity: string }>;
-    };
+    validation?: ModuleLifecycleValidationInfo;
     sourceStates?: {
-        local?: {
-            status: string;
-            reason?: string;
-            enabled: boolean;
-            health?: {
-                errorCount: number;
-                lastError: string;
-                lastErrorAt: number;
-            };
-            validation?: {
-                manifestValid: boolean;
-                validationErrors?: string[];
-                compatible: boolean;
-            };
-        };
-        data?: {
-            status: string;
-            reason?: string;
-            enabled: boolean;
-            health?: {
-                errorCount: number;
-                lastError: string;
-                lastErrorAt: number;
-            };
-            validation?: {
-                manifestValid: boolean;
-                validationErrors?: string[];
-                compatible: boolean;
-            };
-        };
+        local?: ModuleLifecycleSourceStateInfo;
+        data?: ModuleLifecycleSourceStateInfo;
     };
     artifact?: {
         version: string;

@@ -1,5 +1,6 @@
 import { UIModuleManifest } from './types';
 import { ModuleSourceCategory } from '@shared/types/modules';
+import { logger } from '@shared/utils/logger';
 export * from './utils';
 import React from 'react';
 
@@ -54,6 +55,34 @@ const manifestCache = new Map<string, UIModuleManifest>();
 
 // Populated lazily on first getUIModule call; reset by invalidateModuleSourceCache().
 let activeSources: Record<string, string> | null = null;
+
+function getErrorMessage(error: unknown): string {
+    if (error instanceof Error) return error.message;
+    if (typeof error === 'string') return error;
+    return 'Unknown error';
+}
+
+function reportUIModuleLoadFailure(
+    moduleId: string,
+    source: string | undefined,
+    message: string,
+    error?: unknown,
+): void {
+    const errorMessage = error === undefined ? message : `${message}: ${getErrorMessage(error)}`;
+    logger.warn(`[Registry] ${errorMessage}`);
+
+    // Client-side import/evaluation failures are invisible to the server unless
+    // reported back. This best-effort call updates lifecycle health for admin review.
+    if (typeof fetch === 'undefined') return;
+    void fetch(`/api/modules/${encodeURIComponent(moduleId)}/ui-error`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source, message: errorMessage }),
+        keepalive: true,
+    }).catch(reportError => {
+        logger.debug(`[Registry] Failed to report UI load failure for "${moduleId}": ${getErrorMessage(reportError)}`);
+    });
+}
 
 async function fetchActiveSources(): Promise<Record<string, string>> {
     if (activeSources) return activeSources;
@@ -125,7 +154,7 @@ export async function getUIModule(systemId: string): Promise<UIModuleManifest> {
                 const m = await loader();
                 manifest = m.default || m;
             } catch (e) {
-                console.warn(`[Registry] Failed to load local UI manifest for "${id}":`, e);
+                reportUIModuleLoadFailure(id, ModuleSourceCategory.Local, `Failed to load local UI manifest for "${id}"`, e);
                 // Fall through to data loaders below.
             }
         }
@@ -141,7 +170,7 @@ export async function getUIModule(systemId: string): Promise<UIModuleManifest> {
                 const m = await loader();
                 manifest = m.default || m;
             } catch (e) {
-                console.warn(`[Registry] Failed to load data UI manifest for "${id}":`, e);
+                reportUIModuleLoadFailure(id, ModuleSourceCategory.Managed, `Failed to load data UI manifest for "${id}"`, e);
             }
         }
     }
@@ -161,12 +190,14 @@ export async function getUIModule(systemId: string): Promise<UIModuleManifest> {
                 routeCompiledStyles = (m as { __sdCompiledStyles?: string }).__sdCompiledStyles;
             }
         } catch (e) {
-            console.warn(`[Registry] Failed to load runtime UI manifest for "${id}":`, e);
+            reportUIModuleLoadFailure(id, source ?? ModuleSourceCategory.Managed, `Failed to load runtime UI manifest for "${id}"`, e);
         }
     }
 
     if (manifest === PLATFORM_DEFAULT_MANIFEST) {
-        console.warn(`[Registry] No UI manifest found for "${id}" (source: ${source ?? 'unknown'})`);
+        const message = `No UI manifest found for "${id}" (source: ${source ?? 'unknown'})`;
+        if (source) reportUIModuleLoadFailure(id, source, message);
+        else logger.warn(`[Registry] ${message}`);
     }
 
     manifestCache.set(id, manifest);

@@ -7,6 +7,7 @@ import { logger } from '@shared/utils/logger';
 import { getModulesDataDir, getLocalModulesDataDir } from '@core/paths';
 import { isSdkError } from '@shared/sdk/errors';
 import { rewriteImportsForBrowser } from './rewriteModuleImports';
+import { recordModuleRuntimeFailure } from '@modules/registry/server';
 
 interface ModuleRouterDeps {
     tryAuthenticateSession: express.RequestHandler;
@@ -23,6 +24,20 @@ function resolveModuleBaseDir(moduleId: string): string | null {
         if (fs.existsSync(candidate)) return candidate;
     }
     return null;
+}
+
+function toShortString(value: unknown, fallback: string): string {
+    if (typeof value !== 'string') return fallback;
+    const trimmed = value.trim();
+    if (!trimmed) return fallback;
+    return trimmed.length > 500 ? `${trimmed.slice(0, 500)}...` : trimmed;
+}
+
+function recordModuleUiFailure(moduleId: string, message: string, source?: string): void {
+    const sourceLabel = source ? ` (${source})` : '';
+    const lifecycleMessage = `UI load failure${sourceLabel}: ${message}`;
+    const recorded = recordModuleRuntimeFailure(moduleId, lifecycleMessage);
+    logger.warn(`Registry | ${lifecycleMessage} for module "${moduleId}"${recorded ? '' : ' (no lifecycle record found)'}`);
 }
 
 export function createModuleRouter(deps: ModuleRouterDeps) {
@@ -81,6 +96,7 @@ export function createModuleRouter(deps: ModuleRouterDeps) {
         }
 
         if (!uiFile) {
+            recordModuleUiFailure(moduleId, 'No UI artifact found');
             return res.status(404).json({ error: `No UI artifact found for module "${moduleId}"` });
         }
 
@@ -96,9 +112,29 @@ export function createModuleRouter(deps: ModuleRouterDeps) {
             res.setHeader('Cache-Control', 'no-store'); // always serve fresh after install/upgrade
             res.send(rewritten);
         } catch (err) {
+            recordModuleUiFailure(moduleId, getErrorMessage(err));
             logger.error(`[Registry] Failed to serve UI for module "${moduleId}":`, err);
             res.status(500).json({ error: getErrorMessage(err) });
         }
+    });
+
+    /**
+     * POST /api/modules/:id/ui-error
+     *
+     * Browser import/evaluation failures happen after the server has successfully
+     * served the UI artifact, so the server cannot detect them from the GET alone.
+     * The client reports a short message here and the registry records it into
+     * lifecycle health for admin visibility. This is an operational health signal,
+     * not a generic telemetry endpoint.
+     */
+    moduleRouter.post('/:id/ui-error', async (req, res) => {
+        const moduleId = String(req.params.id).toLowerCase();
+        const body = req.body as { message?: unknown; source?: unknown } | undefined;
+        const message = toShortString(body?.message, 'Client failed to import module UI');
+        const source = typeof body?.source === 'string' ? toShortString(body.source, 'unknown') : undefined;
+
+        recordModuleUiFailure(moduleId, message, source);
+        res.json({ success: true });
     });
 
     /**

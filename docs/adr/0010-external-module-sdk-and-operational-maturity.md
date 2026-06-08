@@ -184,12 +184,12 @@ Modules importing `@core/config`, `@core/foundry/instance`, `@core/foundry/compe
 
 The registry's module loader at `src/modules/registry/core/server.ts:376-383` already uses `import(path.join(modulePath, info.manifest.logic))` — Node.js native `import()` handles both `.ts` (via tsx) and `.js` (native). No loader change is needed. The distinction is in what the manifest points to.
 
-Document this in `src/modules/MODULE_MANIFEST.md` with:
+Document this in `docs/MODULE_MANIFEST.md` with:
 - The two modes and their constraints
 - The required exports (`Adapter` class, default `UIModuleManifest`, optional `apiRoutes`)
 - What SDK version to target (`compatibility.apiContracts`)
 
-**Files:** `src/modules/MODULE_MANIFEST.md`, `src/modules/registry/core/server.ts`
+**Files:** `docs/MODULE_MANIFEST.md`, `src/modules/registry/core/server.ts`
 
 ---
 
@@ -235,7 +235,7 @@ The `src/client/ui/module-surface/` re-export surface is no longer necessary. Th
 ### Slice 30-D: Build Contract Documentation — **COMPLETE**
 
 Completed May 2026:
-- `src/modules/MODULE_MANIFEST.md` fully rewritten — documents Mode A (source) and Mode B (artifact), full SDK import surface, all `ModuleFoundryClient` methods, discovery pack timing, utility functions, `tsup.config.ts` reference
+- `docs/MODULE_MANIFEST.md` fully rewritten — documents Mode A (source) and Mode B (artifact), full SDK import surface, all then-current `ModuleFoundryClient` methods, discovery pack timing, utility functions, `tsup.config.ts` reference
 - Mode detection already works in registry loader (`.ts` vs `.js` suffix)
 - `@sheet-delver/sdk` as external in tsup config documented
 

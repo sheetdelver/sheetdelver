@@ -15,6 +15,7 @@ import { getClientDocumentSource, resetClientDocumentSource } from '@client/ui/s
 import { createSdkEventBus } from '@client/ui/sdk/createSdkEventBus';
 import type { SdkEvents } from '@shared/sdk/events';
 import { buildModuleAssetUrl, setModuleLogSink } from '@shared/sdk';
+import { logger as platformLogger } from '@shared/utils/logger';
 
 /**
  * SDKProvider bridges the platform's internal contexts and components into
@@ -87,10 +88,10 @@ export function SDKProvider({ children, moduleId }: { children: React.ReactNode;
     );
 
     const logger = useMemo(() => ({
-        debug: (...args: unknown[]) => console.debug('[module]', ...args),
-        info:  (...args: unknown[]) => console.info('[module]',  ...args),
-        warn:  (...args: unknown[]) => console.warn('[module]',  ...args),
-        error: (...args: unknown[]) => console.error('[module]', ...args),
+        debug: (...args: unknown[]) => platformLogger.debug('[module]', ...args),
+        info:  (...args: unknown[]) => platformLogger.info('[module]',  ...args),
+        warn:  (...args: unknown[]) => platformLogger.warn('[module]',  ...args),
+        error: (...args: unknown[]) => platformLogger.error('[module]', ...args),
     }), []);
 
     // Funnel the shared SDK logger (`import { logger } from '@sheet-delver/sdk'` in module

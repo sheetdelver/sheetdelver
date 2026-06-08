@@ -6,21 +6,36 @@ import type { ModuleContractDiagnostic, ModuleCoreConstraintDiagnostic } from '.
 
 export type { ModuleLifecycleStatus };
 
+/** Admin-visible packaged-artifact diagnostic from the managed install audit. */
+export interface ModuleArtifactHealthDiagnostic {
+    code: string;
+    message: string;
+    severity: 'warning' | 'error';
+}
+
+/**
+ * Validation is stored both on the active lifecycle record and per source.
+ * Artifact diagnostics live here so the admin can compare local vs managed state.
+ */
+export interface ModuleLifecycleValidation {
+    manifestValid: boolean;
+    validationErrors?: string[];
+    compatible: boolean;
+    coreVersion: string;
+    requiredCoreVersion?: string;
+    requiredApiContracts?: Record<string, string>;
+    providedApiContracts?: Record<string, string>;
+    coreDiagnostics?: ModuleCoreConstraintDiagnostic[];
+    contractDiagnostics?: ModuleContractDiagnostic[];
+    /** Warning-only drift stays loadable; error diagnostics block enable/switch. */
+    artifactDiagnostics?: ModuleArtifactHealthDiagnostic[];
+}
+
 export interface ModuleSourceState {
     status: ModuleLifecycleStatus;
     enabled: boolean;
     reason?: string;
-    validation?: {
-        manifestValid: boolean;
-        validationErrors?: string[];
-        compatible: boolean;
-        coreVersion: string;
-        requiredCoreVersion?: string;
-        requiredApiContracts?: Record<string, string>;
-        providedApiContracts?: Record<string, string>;
-        coreDiagnostics?: ModuleCoreConstraintDiagnostic[];
-        contractDiagnostics?: ModuleContractDiagnostic[];
-    };
+    validation?: ModuleLifecycleValidation;
     health?: {
         errorCount: number;
         lastError: string;
@@ -43,17 +58,7 @@ export interface ModuleLifecycleRecord {
     enabled: boolean;
     trust?: { tier: string };
     reason?: string;
-    validation?: {
-        manifestValid: boolean;
-        validationErrors?: string[];
-        compatible: boolean;
-        coreVersion: string;
-        requiredCoreVersion?: string;
-        requiredApiContracts?: Record<string, string>;
-        providedApiContracts?: Record<string, string>;
-        coreDiagnostics?: ModuleCoreConstraintDiagnostic[];
-        contractDiagnostics?: ModuleContractDiagnostic[];
-    };
+    validation?: ModuleLifecycleValidation;
     health?: {
         errorCount: number;
         lastError: string;
@@ -138,6 +143,7 @@ export interface ModuleLifecycleClassificationInput {
     providedApiContracts?: Record<string, string>;
     coreDiagnostics?: ModuleCoreConstraintDiagnostic[];
     contractDiagnostics?: ModuleContractDiagnostic[];
+    artifactDiagnostics?: ModuleArtifactHealthDiagnostic[];
     activeSource?: ModuleSourceCategory;
     clearHealth?: boolean;
 }
@@ -248,6 +254,7 @@ export function applyLifecycleClassification(
             providedApiContracts: classification.providedApiContracts,
             coreDiagnostics: classification.coreDiagnostics,
             contractDiagnostics: classification.contractDiagnostics,
+            artifactDiagnostics: classification.artifactDiagnostics,
         },
         health: classification.clearHealth ? undefined : existingSourceState.health
     };

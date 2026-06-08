@@ -1,4 +1,5 @@
 import { usePathname } from 'next/navigation';
+import { logger } from '@shared/utils/logger';
 
 /**
  * Detect which runtime surface the current route belongs to.
@@ -23,12 +24,9 @@ export function assertPlayerSurface() {
 
   const pathname = window.location.pathname;
   if (pathname.startsWith('/admin')) {
-    console.warn(
-      '[Player Runtime Guard] Player context accessed on admin surface. This indicates a composition error.',
-      {
-        pathname,
-        stack: new Error().stack,
-      }
-    );
+    logger.warn('[Player Runtime Guard] Player context accessed on admin surface. This indicates a composition error.', {
+      pathname,
+      stack: new Error().stack,
+    });
   }
 }

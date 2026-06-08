@@ -89,6 +89,14 @@ export async function run(): Promise<void> {
                 logic: 'src/server/ShadowdarkAdapter.ts',
             },
         });
+        // Keep this managed fixture artifact-valid; governance assertions below are
+        // about install/upgrade policy, not packaged entry health.
+        const shadowdarkUiPath = path.join(shadowdarkDir, 'src', 'ui', 'index.tsx');
+        fs.mkdirSync(path.dirname(shadowdarkUiPath), { recursive: true });
+        fs.writeFileSync(shadowdarkUiPath, 'export default function ShadowdarkSheet() { return null; }', 'utf8');
+        const shadowdarkLogicPath = path.join(shadowdarkDir, 'src', 'server', 'ShadowdarkAdapter.ts');
+        fs.mkdirSync(path.dirname(shadowdarkLogicPath), { recursive: true });
+        fs.writeFileSync(shadowdarkLogicPath, 'export default class ShadowdarkAdapter {}', 'utf8');
 
         writeJson(stateFilePath, {
             version: 1,

@@ -9,6 +9,7 @@ import {
     saveLifecycleStore,
     upsertDiscoveredModule,
 } from '../lifecycle/lifecycle';
+import { validatePackagedModuleArtifact, type ModuleArtifactHealthResult } from '../lifecycle/artifactHealth';
 import { evaluateModuleCompatibility, validateModuleInfoShape } from '../lifecycle/validation';
 import { getModulesDataDir, getLocalModulesDir } from '@/server/core/paths';
 import {
@@ -56,6 +57,15 @@ export function initializeRegistry() {
 
         type SourceTag = ModuleSourceCategory;
         const candidates = new Map<string, Map<SourceTag, SystemPlugin>>();
+        // Managed artifact health is gathered while scanning and applied later when
+        // each source is classified. Keeping it per source prevents local-dev state
+        // from inheriting warnings/errors from an old installed package.
+        const artifactHealthBySource = new Map<string, Map<SourceTag, ModuleArtifactHealthResult>>();
+
+        const setArtifactHealth = (moduleId: string, source: SourceTag, result: ModuleArtifactHealthResult): void => {
+            if (!artifactHealthBySource.has(moduleId)) artifactHealthBySource.set(moduleId, new Map());
+            artifactHealthBySource.get(moduleId)!.set(source, result);
+        };
 
         for (const scanDir of scanDirs) {
             const modulesDir = scanDir.path;
@@ -140,6 +150,20 @@ export function initializeRegistry() {
 
                     const info = rawInfo as SystemPlugin['info'];
                     const compatibility = evaluateModuleCompatibility(info, coreVersion);
+                    // Do not run full module:check here. Installed modules may be old
+                    // but still usable; this lightweight audit only blocks load-breaking
+                    // packaged artifacts and reports survivable drift as warnings.
+                    const artifactHealth = scanDir.source === ModuleSourceCategory.Managed
+                        ? validatePackagedModuleArtifact(modulePath, info)
+                        : undefined;
+                    if (artifactHealth) {
+                        setArtifactHealth(info.id.toLowerCase(), scanDir.source, artifactHealth);
+                        for (const diagnostic of artifactHealth.diagnostics) {
+                            const message = `Registry | Packaged module health (${info.id}/${scanDir.source}): ${diagnostic.message}`;
+                            if (diagnostic.severity === 'error') logger.error(message);
+                            else logger.warn(message);
+                        }
+                    }
 
                     if (!compatibility.compatible) {
                         applyLifecycleClassification(lifecycleStore, inferredId, scanDir.source, {
@@ -206,22 +230,49 @@ export function initializeRegistry() {
             }
 
             const existingLifecycle = lifecycleStore.modules[id];
-            const enabled = existingLifecycle ? existingLifecycle.enabled : true;
-            const compat = evaluateModuleCompatibility(chosen.info, coreVersion);
-            applyLifecycleClassification(lifecycleStore, id, chosen.source as ModuleSourceCategory, {
-                status: enabled ? ModuleLifecycleStatus.Validated : ModuleLifecycleStatus.Disabled,
-                enabled,
-                reason: enabled ? undefined : 'Module disabled in persisted lifecycle state',
-                activeSource: existingLifecycle?.activeSource ?? (chosen.source === ModuleSourceCategory.Local ? ModuleSourceCategory.Local : chosen.source === ModuleSourceCategory.Managed ? ModuleSourceCategory.Managed : undefined),
-                manifestValid: true,
-                compatible: true,
-                coreVersion,
-                requiredCoreVersion: compat.requiredCoreVersion,
-                requiredApiContracts: compat.requiredApiContracts,
-                providedApiContracts: compat.providedApiContracts,
-                coreDiagnostics: compat.coreDiagnostics,
-                contractDiagnostics: compat.contractDiagnostics,
-            });
+            const activeSource = existingLifecycle?.activeSource
+                ?? (chosen.source === ModuleSourceCategory.Local ? ModuleSourceCategory.Local : chosen.source === ModuleSourceCategory.Managed ? ModuleSourceCategory.Managed : undefined);
+
+            // Classify every discovered source, not just the active one, so the admin
+            // split cards can explain why a dormant local/managed source can or cannot
+            // be enabled. Only the active source updates the top-level lifecycle record.
+            for (const [source, plugin] of sources) {
+                const sourceState = existingLifecycle?.sourceStates?.[source];
+                const enabled = source === activeSource
+                    ? (existingLifecycle ? existingLifecycle.enabled : true)
+                    : sourceState?.enabled ?? (
+                        source === ModuleSourceCategory.Local
+                            ? existingLifecycle?.localEnabled
+                            : source === ModuleSourceCategory.Managed
+                                ? existingLifecycle?.managedEnabled
+                                : undefined
+                    ) ?? true;
+                const compat = evaluateModuleCompatibility(plugin.info, coreVersion);
+                const artifactHealth = artifactHealthBySource.get(id)?.get(source);
+                const blockingArtifactError = artifactHealth?.hasErrors === true;
+                const firstArtifactError = artifactHealth?.diagnostics.find(diagnostic => diagnostic.severity === 'error')?.message;
+                // Warnings remain loadable; only health errors convert the source to
+                // `errored` and force enabled=false.
+                applyLifecycleClassification(lifecycleStore, id, source as ModuleSourceCategory, {
+                    status: blockingArtifactError
+                        ? ModuleLifecycleStatus.Errored
+                        : enabled ? ModuleLifecycleStatus.Validated : ModuleLifecycleStatus.Disabled,
+                    enabled: blockingArtifactError ? false : enabled,
+                    reason: blockingArtifactError
+                        ? firstArtifactError || 'Packaged module artifact failed health checks'
+                        : enabled ? undefined : 'Module disabled in persisted lifecycle state',
+                    activeSource,
+                    manifestValid: true,
+                    compatible: true,
+                    coreVersion,
+                    requiredCoreVersion: compat.requiredCoreVersion,
+                    requiredApiContracts: compat.requiredApiContracts,
+                    providedApiContracts: compat.providedApiContracts,
+                    coreDiagnostics: compat.coreDiagnostics,
+                    contractDiagnostics: compat.contractDiagnostics,
+                    artifactDiagnostics: artifactHealth?.diagnostics,
+                });
+            }
         }
 
         saveLifecycleStore(lifecycleStore, stateFilePath);

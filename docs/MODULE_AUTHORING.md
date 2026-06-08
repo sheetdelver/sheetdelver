@@ -1,6 +1,6 @@
 # Module Authoring Guide
 
-This guide is the happy path for building a Sheet Delver system module. For the full contract reference, see `src/modules/MODULE_MANIFEST.md`.
+This guide is the happy path for building a Sheet Delver system module. For the full contract reference, see `MODULE_MANIFEST.md`.
 
 ## Overview
 
