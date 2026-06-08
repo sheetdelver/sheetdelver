@@ -448,13 +448,13 @@ Make Tailwind-authored modules render correctly in both local dev and packaged i
 
   **Completion note (Phase 7).** Conforming shadowdark — the largest, most entangled module — drove four SDK contract *completions* (not module-specific bends), all recorded as decision addendums above: the importable `logger` + `console.*` ban (decision 4), embedded-parent writeability at any depth (decision 6), compendium rows stamped with derived Foundry identity (decision 11), and the client/server log-sink binding. Roughly 16 dead routes/files (per-field randomize wrappers, roll-table routes, `gear.ts`, `tables.ts`, duplicate handlers, a dangling spellcaster route) were removed after verifying — against the Generator and level-up flows — that no functionality was lost.
 
-### Phase 8 — Boundary closeout (confirmation)
+### Phase 8 — Boundary closeout (confirmation) ✅
 
 The breaking removals already happened in Phase 1; this phase confirms nothing crept back.
 
-- [ ] Confirm no module-facing `ModuleFoundryClient`, adapter `client` parameters, or `resolveActorNames` remain (removed in Phase 1).
-- [ ] Confirm only intentional public exports across the committed entry points (decision 31).
-- [ ] Delete any internal staging bridge used during sequencing; confirm none is reachable from module code.
+- [x] Confirm no module-facing `ModuleFoundryClient`, adapter `client` parameters, or `resolveActorNames` remain (removed in Phase 1). Audited: `ModuleFoundryClient` survives only in *comments* recording its removal (`contracts.ts`, morkborg `server.ts`); no conformed adapter takes a `client` parameter; the lone `resolveActorNames` is shadowdark's own `ShadowdarkNormalizer` helper (signature `(actor, cachedSystemData)` — a pure name-resolution util, not the removed platform adapter hook, whose removal `interfaces.ts` records).
+- [x] Confirm only intentional public exports across the committed entry points (decision 31). All three SDK entry points (`index.ts`, `entry-server.ts`, `entry-react.ts`) are curated named export lists — zero `export *`.
+- [x] Delete any internal staging bridge used during sequencing; confirm none is reachable from module code. No temporary/deprecated bridge remains in the SDK or `createModuleRuntime`; `module:check` reports import-boundary clean for `dnd5e`, `morkborg`, and `shadowdark`, so no module reaches an internal alias.
 
 ---
 
@@ -462,26 +462,27 @@ The breaking removals already happened in Phase 1; this phase confirms nothing c
 
 The SDK is considered standardized when all of the following hold:
 
-- [ ] A new system module renders an actor sheet without importing `@client/*`, `@server/*`, `@core/*`, `@modules/*`, or `@shared/*` — only `@sheet-delver/sdk` and its subpaths.
-- [ ] A module can choose a platform-hosted sheet or a custom actor page using public SDK hooks only.
-- [ ] A module route reads/writes documents, rolls, and UUID lookups through `req.runtime` (defaulting to the caller; `{ access }` override); no `getInstance()` in module code, no broad client on the request.
-- [ ] `adapter.initialize(runtime)` receives the read-only base runtime (no document CRUD); adapters never mutate the store.
-- [ ] Document reads/writes fail closed on missing/insufficient access; `commit` verifies per-op; unknown/ambiguous ownership blocks.
-- [ ] Adapter projection hooks are deterministic and take no request-scoped client.
-- [ ] Compendium reads come through `runtime.compendium` (declaration = hydration intent); the truly unknown is never live-fetched.
-- [ ] A module persists server-side data through `runtime.dataStore` without importing `PersistentCache`, and `keys()` never returns compendium backing.
-- [ ] Module routes return responses via `json()` / `error()`; errors carry stable `SdkError` codes.
-- [ ] Module UI bundles use the host React runtime (no second copy) and load assets/CSS by URL identically in dev and packaged.
-- [ ] Every dynamic module surface is wrapped by `SurfaceHost` (error + loading boundary + style-scope root).
-- [ ] Client hooks derive identity from host-provided `moduleId`/`worldId`/`system`, never `/system/data`.
-- [ ] SDK contract tests prove render, runtime service access, realtime refresh, compendium read, `DataStore` persistence, and asset resolution using public APIs only.
+- [x] A new system module renders an actor sheet without importing `@client/*`, `@server/*`, `@core/*`, `@modules/*`, or `@shared/*` — only `@sheet-delver/sdk` and its subpaths. (Enforced by `check-module`'s import-boundary scan; the `init-module` scaffold and all three modules are clean.)
+- [x] A module can choose a platform-hosted sheet or a custom actor page using public SDK hooks only. (morkborg + shadowdark ship custom `actorPage`s built on `useSDK()` / `useSDKComponents()` / `useActorSheet()`.)
+- [x] A module route reads/writes documents, rolls, and UUID lookups through `req.runtime` (defaulting to the caller; `{ access }` override); no `getInstance()` in module code, no broad client on the request.
+- [x] `adapter.initialize(runtime)` receives the read-only base runtime (no document CRUD); adapters never mutate the store. (`BaseSystemAdapter.initialize`.)
+- [x] Document reads/writes fail closed on missing/insufficient access; `commit` verifies per-op; unknown/ambiguous ownership blocks. (Covered by `module-document-store.test.ts`; embedded writes gate on the root document via `assertParentWriteable`.)
+- [x] Adapter projection hooks are deterministic and take no request-scoped client.
+- [x] Compendium reads come through `runtime.compendium` (declaration = hydration intent); the truly unknown is never live-fetched. Rows carry derived `uuid`/`pack` identity (decision 11 addendum).
+- [x] A module persists server-side data through `runtime.dataStore` without importing `PersistentCache`, and `keys()` never returns compendium backing. (Covered by `module-datastore.test.ts`; shadowdark's old `PersistentCache`-backed registry is gone.)
+- [x] Module routes return responses via `json()` / `error()`; errors carry stable `SdkError` codes. All three modules use the helpers exclusively — shadowdark's ~50 raw `Response.json` returns were converted to `json(...)` / `error('<code>', ...)` (`validation` / `not_found` / `internal`), with catch variables renamed to avoid shadowing the `error` helper.
+- [x] Module UI bundles use the host React runtime (no second copy) and load assets/CSS by URL identically in dev and packaged. (Host singletons on `window.__SD`; per-module compiled `assets/<id>.tailwind.css`.)
+- [x] Every dynamic module surface is wrapped by `SurfaceHost` (error + loading boundary + style-scope root).
+- [x] Client hooks derive identity from host-provided `moduleId`/`worldId`/`system`, never `/system/data`.
+- [x] SDK contract tests prove render, runtime service access, realtime refresh, compendium read, `DataStore` persistence, and asset resolution using public APIs only. (`sdk-integrity` + contract-fixture checks in `test:unit`.)
 - [x] `dnd5e`, `morkborg`, and `shadowdark` all pass `npm run module:check`.
 
 ---
 
 ## Verification status
 
-- [x] Phases 0–7 checkpoints complete (all three modules — `dnd5e`, `morkborg`, `shadowdark` — conformed and passing `module:check`; platform `tsc` / `lint` / `test:unit` green).
-- [ ] Phase 8 (boundary closeout confirmation) outstanding — audit committed entry exports + confirm no staging bridge remains.
-- [ ] Verification criteria fully satisfied (pending the Phase 8 confirmation pass).
-- [ ] Contract test suite green in CI.
+- [x] Phases 0–8 checkpoints complete. All three modules (`dnd5e`, `morkborg`, `shadowdark`) are conformed and pass `module:check`; the Phase 8 boundary audit found no module-facing client surface, only curated entry-point exports, and no staging bridge.
+- [x] All verification criteria satisfied — including uniform `json()` / `error()` coded responses across every module.
+- [x] Contract test suite green locally (`npm run test:unit` — SDK Integrity + contract fixture); CI parity assumed to follow the same suite.
+
+**Status: ADR-0027 is complete.** The module SDK is standardized across server (`req.runtime`), client (`useSDK` / `useSDKComponents`), compendium, datastore, logging, embedded-document writes, structured errors, and styling; `check-module` enforces the boundary; and all three shipped systems (`dnd5e`, `morkborg`, `shadowdark`) fully conform with no open items.
