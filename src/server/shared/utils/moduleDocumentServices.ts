@@ -236,6 +236,17 @@ export function createDocumentStore(
             throw new SdkError('permission_denied', `Write denied: user ${subject.userId} lacks owner-level access to ${type} ${id}`);
         }
     };
+    // Embedded parents are addressed by Foundry uuid (`type.id`): `Actor.x` for a top-level
+    // document, or the deeper `Actor.x.Item.y` for a document owned by another (an effect/item
+    // on an owned item, etc.). The transport (`dispatchDocument` → `parentUuid`) resolves any
+    // depth; the only gate is ownership. We check the WRITEABLE access of the ROOT document
+    // (the first `type.id` pair) — you may mutate an embedded child iff you can write the
+    // top-level document that ultimately owns it. This keeps embedded manipulation general
+    // (effects on owned items today, other nested members tomorrow) without per-type stores.
+    const assertParentWriteable = async (parent: { type: string; id: string }, opts?: DocumentOpOptions): Promise<void> => {
+        const [rootType, rootId] = `${parent.type}.${parent.id}`.split('.');
+        await assertWriteable(rootType, rootId, opts);
+    };
     const getVisibleDocument = async (type: string, id: string, opts?: DocumentOpOptions): Promise<Record<string, unknown> | null> => {
         try {
             return await reads.get(type, id, opts);
@@ -322,29 +333,29 @@ export function createDocumentStore(
         },
         effects: {
             create: async (parent, data, opts) => {
-                await assertWriteable(parent.type, parent.id, opts);
+                await assertParentWriteable(parent, opts);
                 return one(await c.dispatchDocument('ActiveEffect', 'create', { data: [data] }, parent));
             },
             update: async (parent, effectId, updates, opts) => {
-                await assertWriteable(parent.type, parent.id, opts);
+                await assertParentWriteable(parent, opts);
                 return one(await c.dispatchDocument('ActiveEffect', 'update', { updates: [{ _id: effectId, ...updates }] }, parent));
             },
             delete: async (parent, effectId, opts) => {
-                await assertWriteable(parent.type, parent.id, opts);
+                await assertParentWriteable(parent, opts);
                 await c.dispatchDocument('ActiveEffect', 'delete', { ids: [effectId] }, parent);
             },
         },
         items: {
             create: async (parent, data, opts) => {
-                await assertWriteable(parent.type, parent.id, opts);
+                await assertParentWriteable(parent, opts);
                 return one(await c.dispatchDocument('Item', 'create', { data: [data] }, parent));
             },
             update: async (parent, itemId, updates, opts) => {
-                await assertWriteable(parent.type, parent.id, opts);
+                await assertParentWriteable(parent, opts);
                 return one(await c.dispatchDocument('Item', 'update', { updates: [{ _id: itemId, ...updates }] }, parent));
             },
             delete: async (parent, itemId, opts) => {
-                await assertWriteable(parent.type, parent.id, opts);
+                await assertParentWriteable(parent, opts);
                 await c.dispatchDocument('Item', 'delete', { ids: [itemId] }, parent);
             },
         },

@@ -93,7 +93,14 @@ export interface DocumentStore extends ReadonlyDocumentStore {
     delete(type: string, id: string, opts?: DocumentOpOptions): Promise<void>;
     /** Batched CRUD in one round-trip; each op is access-checked before dispatch. */
     commit(type: string, ops: Array<Record<string, unknown>>, opts?: DocumentOpOptions): Promise<Record<string, unknown>[]>;
-    /** Embedded ActiveEffect mutations on an actor/item parent. */
+    /**
+     * Embedded ActiveEffect mutations. `parent` is addressed by Foundry uuid (`type.id`):
+     * a top-level `{ type: 'Actor', id }` / `{ type: 'Item', id }`, or a document owned by
+     * another — e.g. an effect on an actor's owned item via `{ type: 'Actor.<actorId>.Item',
+     * id: itemId }` (uuid `Actor.<actorId>.Item.<itemId>`). Writes are gated on owner-level
+     * access to the ROOT document, so any embedding depth is permitted for documents the
+     * caller can write.
+     */
     effects: {
         create(parent: { type: string; id: string }, data: Record<string, unknown>, opts?: DocumentOpOptions): Promise<Record<string, unknown>>;
         update(parent: { type: string; id: string }, effectId: string, updates: Record<string, unknown>, opts?: DocumentOpOptions): Promise<Record<string, unknown>>;

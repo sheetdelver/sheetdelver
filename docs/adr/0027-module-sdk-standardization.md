@@ -99,6 +99,8 @@ ADR-0027 standardizes the module SDK across server, client, cross-cutting contra
 
    **Addendum (Phase 6).** A parent-scoped embedded `items` surface was added next to `effects` so a module's *server* route can create/update/delete an actor's owned Items via `req.runtime.documents.items` — the server counterpart to the client `useDocumentMutation().embedded`. Each op is parent-ownership gated like `effects` (WRITEABLE on the parent). Surfaced by conforming `morkborg`, whose server sequences create/delete actor items; without it the server runtime could only mutate ActiveEffects.
 
+   **Addendum (Phase 7 — embedded parents at any depth, gated on the root).** The Phase 6 `effects`/`items` surfaces resolved their `parent` writeability via `requireStore(parent.type)` — which only knows *top-level* store types (`Actor`, `Item`, …). Conforming `shadowdark` surfaced the gap: it edits ActiveEffects that live on an actor's **owned item** ("Scale Effects"), whose parent is the embedded item, not a top-level document. The transport was never the limit — `dispatchDocument` builds `parentUuid = ${parent.type}.${parent.id}`, so the owned-item parent `{ type: 'Actor.<actorId>.Item', id: itemId }` already serializes to the valid Foundry uuid `Actor.<actorId>.Item.<itemId>`; only the SDK's writeability gate rejected the compound type (`requireStore` → `not_found`). This is a general shape, not an effects quirk: Foundry models documents as a tree (`Actor → Item → ActiveEffect`, and beyond), and a module that can write a document should be able to mutate its embedded members at any depth. Fix: `documents.effects`/`documents.items` now gate on the **root** document of the parent uuid (the first `type.id` pair) via `assertParentWriteable`, then forward the parent to `dispatchDocument` as before — so you may mutate an embedded child iff you can write the top-level document that ultimately owns it. This *completes* the embedded-mutation contract (decision 6) for arbitrary depth rather than bending it to a module; the parent type stays `{ type; id }` (a uuid), so it is additive.
+
    `Actor` is **not** a special surface; it was migrated into the primary stores alongside `Item`, `JournalEntry`, `Combat`, `RollTable`, `Macro`, etc. precisely so one uniform pattern serves all. Adding a store to the public surface is an allowlist decision, not new per-type API. Implemented (exposed) types: `Actor`, `Item`, `JournalEntry`, `Combat`, `RollTable`, `Macro`, `Playlist`, `Cards`, `Folder`, `User`, `ChatMessage`. Stub stores stay internal: `Scene`, `Adventure`, `Setting`, `FogExploration`. The reach-ins `getActorRaw` / `dispatchDocument` / `dispatchDocumentSocket` are eliminated and collapse into `documents.*` + `fetchByUuid`.
 
 7. **Irreducible non-CRUD primitives only; richer behavior is module-authored.** Beyond the document store, the request runtime exposes `rolls.roll` (dice evaluation, structured result, no forced chat) and `tables.draw` (roll + match); `compendium` is available on both the base runtime and `req.runtime` (decision 11). `chat.send` is `documents.create('ChatMessage', …)`. Anything richer — attack sequences, level-up, combat turn control, formatted chat cards — is composed by the module author in their own routes over these primitives. The platform does not pre-bake an action for every system mechanic. `performAutomatedSequence`-style logic relocates here (decision 15).
@@ -437,12 +439,14 @@ Make Tailwind-authored modules render correctly in both local dev and packaged i
 - [x] Prove it on `morkborg`: confirmed `assets/morkborg.tailwind.css` (104 KB) contains only morkborg's utilities, scoped under `.sdk-module--morkborg`, no platform leak; `module:check morkborg` + a full `module:package morkborg` succeed. Live dev visual restored by Layer 1; packaged-visual confirmation is the user's to eyeball on install.
 - [x] **Installed-module loading fixes (surfaced by packaging morkborg).** Two bugs blocked the packaged custom `actorPage` (it fell back to `GenericActorPage`): (1) the `/api/modules/:id/ui` import rewriter copied esbuild's `import { x as y }` collision-renames verbatim into a destructuring pattern (`const { x as y } = …`) — a **syntax error** that failed the whole UI manifest load for any multi-component module; fixed to emit `const { x: y } = …` (extracted to `rewriteModuleImports.ts` + regression test `module-ui-rewrite.test.ts`). (2) `info.compiledStyles` (decision 37) lives only on the packager-patched **artifact** info.json, not the **source** info.json bundled into `ui.js`, so the client injector couldn't see it — the `/ui` route now re-exports it (`__sdCompiledStyles`) and the client (`registry/core/client.ts`) injects from there. So an installed Tailwind module now loads its custom page **and** its compiled scoped CSS.
 
-### Phase 7 — Migrate Shadowdark
+### Phase 7 — Migrate Shadowdark ✅
 
-- [ ] Fix manifest UI entry, syntax errors, duplicate exports, and the `export *` server shape first.
-- [ ] Replace the cache-scanning registry with `runtime.compendium` + `runtime.dataStore`.
-- [ ] Replace internal compendium/document/socket access with runtime services; replace private UI contexts/components with SDK hooks.
-- [ ] `module:check shadowdark` passes.
+- [x] Fix manifest UI entry, syntax errors, duplicate exports, and the `export *` server shape first.
+- [x] Replace the cache-scanning registry with `runtime.compendium` + `runtime.documents`. `Registry.ts` no longer touches `PersistentCache` / `fs` / `info.json`; its categorized collections + nameIndex are an in-process derived projection over the platform compendium (sourced by `findAll('Item'|'RollTable')`, grouped by the now-stamped `pack`), with UUID hydration via `runtime.documents.fetchByUuid`.
+- [x] Replace internal compendium/document/socket access with runtime services; replace private UI contexts/components with SDK hooks. Every route runs on `req.runtime` (`getModuleFoundryClient` + `client.*` gone); the adapter extends `BaseSystemAdapter`; ~20 UI files moved to `useSDK()` / `useSDKComponents()`; ActorPage realtime rides `events.on('document:changed')`; the UI→server-adapter bundle leak (a dead `talent-handlers` import) was severed.
+- [x] `module:check shadowdark` passes (import-boundary, logging, style-scope, Tailwind compile, typecheck, all dry bundles), and `dnd5e` + `morkborg` still pass.
+
+  **Completion note (Phase 7).** Conforming shadowdark — the largest, most entangled module — drove four SDK contract *completions* (not module-specific bends), all recorded as decision addendums above: the importable `logger` + `console.*` ban (decision 4), embedded-parent writeability at any depth (decision 6), compendium rows stamped with derived Foundry identity (decision 11), and the client/server log-sink binding. Roughly 16 dead routes/files (per-field randomize wrappers, roll-table routes, `gear.ts`, `tables.ts`, duplicate handlers, a dangling spellcaster route) were removed after verifying — against the Generator and level-up flows — that no functionality was lost.
 
 ### Phase 8 — Boundary closeout (confirmation)
 
@@ -471,12 +475,13 @@ The SDK is considered standardized when all of the following hold:
 - [ ] Every dynamic module surface is wrapped by `SurfaceHost` (error + loading boundary + style-scope root).
 - [ ] Client hooks derive identity from host-provided `moduleId`/`worldId`/`system`, never `/system/data`.
 - [ ] SDK contract tests prove render, runtime service access, realtime refresh, compendium read, `DataStore` persistence, and asset resolution using public APIs only.
-- [ ] `dnd5e`, `morkborg`, and `shadowdark` all pass `npm run module:check`.
+- [x] `dnd5e`, `morkborg`, and `shadowdark` all pass `npm run module:check`.
 
 ---
 
 ## Verification status
 
-- [ ] Phases 0–8 checkpoints complete.
-- [ ] Verification criteria satisfied.
+- [x] Phases 0–7 checkpoints complete (all three modules — `dnd5e`, `morkborg`, `shadowdark` — conformed and passing `module:check`; platform `tsc` / `lint` / `test:unit` green).
+- [ ] Phase 8 (boundary closeout confirmation) outstanding — audit committed entry exports + confirm no staging bridge remains.
+- [ ] Verification criteria fully satisfied (pending the Phase 8 confirmation pass).
 - [ ] Contract test suite green in CI.
