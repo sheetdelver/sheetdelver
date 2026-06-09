@@ -118,11 +118,11 @@ SheetDelver relies on two primary methods within `CoreSocket` for communicating 
 
 SheetDelver uses a **Multiplexed Smart Proxy** to ensure data security and environment isolation.
 
-*   **Multiplexed Relay**: Unlike a standard browser client, the Backend Core maintains individual `ClientSocket` connections to Foundry for every authenticated user. 
-*   **Per-User Isolation**: Sensitive real-time events (e.g., `actorUpdate`, `combatUpdate`, `chatUpdate`) are intercepted at the server level. Instead of a global broadcast, the server identifies the specific `ClientSocket` the update belongs to and relays it only to the associated Socket.io connection in the frontend.
+*   **Multiplexed Relay**: Unlike a standard browser client, the Backend Core maintains individual `ClientSocket` connections to Foundry for every authenticated user.
+*   **Per-User Isolation**: World-backed realtime events are re-emitted only after the server checks the requesting user's visibility. The browser receives application events from `AppSocketGateway`, not raw Foundry broadcasts.
 *   **System Status**: The singleton `CoreSocket` remains the master source for global, non-sensitive world metadata (world title, status, active user counts).
-*   **Primary Document Cache**: To optimize performance, `SystemService.bootstrap()` calls `seedDocumentCache()` after module discovery. Actor documents are seeded into `ActorStore`, which becomes the authoritative platform read cache for actor routes. `CoreSocket` and request-scoped route clients feed modify-document results into this store instead of owning separate actor state.
-*   **Actor Realtime**: `ActorStore` emits one internal `actorChanged` event after applying a create/update/delete. `SystemService` bridges that onto the system client as `actorUpdate` with `{ actorId, action }`; `AppSocketGateway` re-checks per-user visibility before forwarding it to browser sockets.
+*   **Primary Document Cache**: To optimize performance, `SystemService.bootstrap()` seeds primary document stores after module discovery. Route clients and Foundry event ingress feed modify-document results into those stores instead of owning separate document state.
+*   **Document Realtime**: Primary document stores emit typed changed/list-invalidated events. `AppSocketGateway` forwards those as application socket events such as `<type>Changed` and `<type>ListInvalidated`; module UI consumes the SDK signal bus (`document:changed` / `document:listInvalidated`) rather than raw socket events.
 
 ## Limitations & Future Considerations
 

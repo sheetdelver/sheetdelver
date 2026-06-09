@@ -651,13 +651,13 @@ export async function installManagedModule(input: InstallManagedModuleInput): Pr
     const artifactStore = loadArtifactStore(artifactStorePath);
     const existingArtifact = getArtifact(artifactStore, id);
 
-    // Block install over built-in or manually-placed data/ modules.
+    // Block install over manually placed modules that are not lifecycle-managed.
     // Local-dev modules (source === ModuleSourceCategory.Local) are superseded by managed installs.
     if (plugin && !existingArtifact && plugin.source !== ModuleSourceCategory.Local) {
         return operationFailure(
             id,
             'install',
-            'Cannot install over an unmanaged (built-in or manual) module. Management operations are disabled for local system modules.',
+            'Cannot install over an unmanaged module. Management operations are disabled for local system modules.',
             undefined,
             'unmanaged-module-protection'
         );
@@ -828,7 +828,7 @@ export async function upgradeManagedModule(input: UpgradeManagedModuleInput): Pr
         return operationFailure(
             id,
             'upgrade',
-            'Cannot upgrade an unmanaged (built-in or manual) module. Management operations are disabled for local system modules.',
+            'Cannot upgrade an unmanaged module. Management operations are disabled for local system modules.',
             undefined,
             'unmanaged-module-protection'
         );
@@ -991,7 +991,7 @@ export function uninstallManagedModule(moduleId: string): ManagerOperationResult
         return operationFailure(
             id,
             'uninstall',
-            'Cannot uninstall an unmanaged (built-in or manual) module. These modules must be removed manually from the filesystem.',
+            'Cannot uninstall an unmanaged module. These modules must be removed manually from the filesystem.',
             undefined,
             'unmanaged-module-protection'
         );

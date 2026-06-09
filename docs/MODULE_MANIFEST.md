@@ -568,7 +568,6 @@ npm run module:check <moduleId> -- --json
 | `<DATA_DIR>/local/modules/` | Local dev source. | No |
 | `<DATA_DIR>/modules/` | Installed managed artifacts. | Yes |
 | `<DATA_DIR>/dist/modules/` | Packaged `.tgz` outputs. | No |
-| `src/modules/` | Deprecated compatibility location for legacy/built-in modules. | No |
 
 The data directory defaults to `./data` and can be configured with
 `--data-dir=<path>` or `SHEET_DELVER_DATA`. The local dev path can be overridden
@@ -586,7 +585,7 @@ Local and managed modules are intentionally loaded differently:
 |---|---|
 | Local dev | Explicit imports in generated `.managed/module-ui-registry.ts`; bundled by Next. |
 | Managed install | Runtime ESM served by `GET /api/modules/:id/ui`; not bundled by Next. |
-| Built-in / generic fallback | Host-owned fallback manifest. |
+| Generic fallback | Host-owned fallback manifest. |
 
 `getUIModule(systemId)` fetches `GET /api/registry/sources` to learn which source
 is active. Local dev source resolves through the generated registry. Managed

@@ -41,7 +41,7 @@ SheetDelver follows a **Decoupled Core/Shell** architecture to ensure stability 
 - `src/server`: The **Core Service**. Express API that wraps the Core logic and provides REST endpoints (App API and Admin API).
 - `src/app`: The **Frontend Shell**. Next.js application containing the UI. API requests are forwarded to the Core Service via Next.js rewrite rules.
   - `ui/`: React components and hooks.
-- `src/modules`: Pluggable **RPG System Modules**. Each module contains its own Adapter and Sheet UI.
+- `src/modules`: Module registry, lifecycle, distribution, and loading infrastructure.
 - `src/scripts/tools`: **Admin Tools**. Scripts for world management and direct imports.
 - `src/scripts`: Tooling, build scripts, and the unified startup manager.
 - `src/tests`: Automated unit and integration tests.
@@ -127,18 +127,18 @@ debug:
 Both the backend and frontend respect this setting. The frontend receives this config via the `/api/status` endpoint.
 
 ### Backend Usage
-Use the `logger` singleton from `src/core/logger.ts`:
+Use the platform logger:
 ```typescript
-import { logger } from '../core/logger';
+import { logger } from '@shared/utils/logger';
 
 logger.info('System initializing...');
 logger.debug('Payload received:', payload);
 ```
 
 ### Frontend Usage
-**Do not use `console.log` directly.** Use the frontend `logger` from `src/app/ui/logger.ts`:
+**Do not use `console.log` directly.** Use the shared logger in host UI code:
 ```typescript
-import { logger } from '@/app/ui/logger';
+import { logger } from '@shared/utils/logger';
 
 logger.info('Component mounted');
 logger.debug('State updated:', newState);
@@ -147,23 +147,24 @@ Logs below the configured level will be suppressed in the browser console.
 
 ## Development Workflow
 
-1.  **Refactoring Components**: When refactoring, ensure you split large components into smaller files within your module's directory.
+1.  **Refactoring Components**: When refactoring, split large components into smaller files near their feature area.
 2.  **Styling**: Use Tailwind CSS for styling.
 3.  **Testing**: Verify your changes against a live Foundry instance running the target system.
-4.  **Common Utilities**: Use `src/modules/core/utils.ts` for common helpers like `resolveImage` and `processHtmlContent` to ensure consistency.
+4.  **Common Utilities**: Use shared SDK or platform utilities instead of duplicating image, HTML, dice, or document helpers.
 
 ### Asset Resolution
 
 To ensure assets (images, icons) load correctly from the Foundry server, do not use direct path concatenation or hardcoded URLs.
 
-1.  **Centralized Resolution**: Use the `resolveImageUrl` helper from the `ConfigContext`.
-2.  **Hook Usage**: All module UI components should consume this via the `useConfig()` hook:
+1.  **Host UI**: Use existing host URL helpers rather than string concatenation.
+2.  **Module UI**: Use `useSDK().resolveImageUrl()` for Foundry images and `useSDK().assetUrl()` for module assets:
     ```tsx
-    const { resolveImageUrl } = useConfig();
-    // ...
-    <img src={resolveImageUrl(item.img)} />
+    const { resolveImageUrl, assetUrl } = useSDK();
+
+    <img src={resolveImageUrl(actor.img)} />
+    <img src={assetUrl('images/icon.png')} />
     ```
-3.  **Avoid Manual Resolve**: Do not manually pass `foundryUrl` to the `resolveImage` utility unless working outside the React component tree.
+3.  **Avoid Manual Resolve**: Do not manually pass `foundryUrl` around inside React surfaces.
 
 ## Reusable UI Components
 

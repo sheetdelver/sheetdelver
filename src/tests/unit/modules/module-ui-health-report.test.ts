@@ -58,7 +58,7 @@ export async function run(): Promise<void> {
         __resetRegistryForTests();
         initializeRegistry();
 
-        const recorded = recordModuleRuntimeFailure('uihealth', 'UI load failure (data): SyntaxError: bad import');
+        const recorded = recordModuleRuntimeFailure('uihealth', 'UI load failure (managed): SyntaxError: bad import');
         assert.equal(recorded, true);
 
         const record = getModuleLifecycleState().find(entry => entry.moduleId === 'uihealth');
@@ -66,8 +66,8 @@ export async function run(): Promise<void> {
         assert.equal(record?.status, 'errored');
         assert.equal(record?.enabled, false);
         assert.equal(record?.health?.errorCount, 1);
-        assert.equal(record?.health?.lastError, 'UI load failure (data): SyntaxError: bad import');
-        assert.equal(record?.sourceStates?.data?.health?.lastError, 'UI load failure (data): SyntaxError: bad import');
+        assert.equal(record?.health?.lastError, 'UI load failure (managed): SyntaxError: bad import');
+        assert.equal(record?.sourceStates?.managed?.health?.lastError, 'UI load failure (managed): SyntaxError: bad import');
 
         const missing = recordModuleRuntimeFailure('missing-uihealth', 'should not create a record');
         assert.equal(missing, false);

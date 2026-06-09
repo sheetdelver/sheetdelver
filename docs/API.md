@@ -1,323 +1,406 @@
 # API Documentation
 
-The Sheet Delver API provides access to Foundry VTT data through a headless session wrapper.
+The Sheet Delver API exposes Foundry-backed data through the Core Service. User
+routes are authenticated with a bearer token. Admin routes are protected by the
+admin session and CSRF flow.
 
-## Authentication
-All protected routes require a `Bearer` token in the `Authorization` header.
-Tokens are obtained via `/api/login`.
+Examples use abstract ids such as `<moduleId>`, `<actorId>`, and
+`example-system`; do not treat them as bundled systems.
 
 ---
 
-## Session & Status
+## Authentication
+
+Protected user routes require:
+
+```http
+Authorization: Bearer <token>
+```
+
+Tokens are returned by `POST /api/login`.
+
+Admin mutation routes require the admin session plus CSRF token handled by the
+admin UI client.
+
+---
+
+## Session And Status
 
 ### `GET /api/status`
-**Auth**: Try-Auth (Aggregates system + user state)
-Returns the current connection status, world metadata, and active user list.
 
-`initialized: true` means bootstrap has completed, including module discovery, compendium hydration, and primary document cache seeding.
+Auth: try-auth.
 
-**Response:**
+Returns connection, world, current user, and readiness status. `initialized:
+true` means world bootstrap has completed, including module discovery,
+compendium indexing/hydration, and primary document cache seeding.
+
 ```json
 {
   "connected": true,
   "isAuthenticated": true,
-  "currentUserId": "...",
+  "currentUserId": "user-id",
   "initialized": true,
   "users": [
     {
-      "_id": "...",
-      "name": "Gamemaster",
-      "curor": "...",
+      "_id": "user-id",
+      "name": "User",
       "role": 4,
       "isGM": true,
       "active": true,
-      "img": "..."
+      "img": "path/or/url"
     }
   ],
   "system": {
-    "id": "shadowdark",
+    "id": "example-system",
     "status": "active",
-    "worldTitle": "...",
-    "actorSyncToken": 1739634420,
-    "config": { ... }
+    "worldTitle": "Example World"
   },
-  "url": "http://foundryServer:30000",
-  "appVersion": "0.5.0"
+  "url": "http://foundry.example",
+  "appVersion": "0.7.0"
 }
 ```
 
 ### `POST /api/login`
-**Body**: `{ "username": "...", "password": "..." }`
-**Response**: `{ "success": true, "token": "uuid", "userId": "uuid" }`
+
+Body:
+
+```json
+{ "username": "User", "password": "password" }
+```
+
+Response:
+
+```json
+{ "success": true, "token": "session-token", "userId": "user-id" }
+```
 
 ### `POST /api/logout`
-**Auth**: Protected
-Destroys the current user session and closes their dedicated socket.
+
+Auth: protected.
+
+Destroys the current user session and closes the user's upstream Foundry
+transport.
 
 ### `GET /api/system`
-**Auth**: Protected
-Returns basic system information (id, version, world title).
+
+Auth: protected.
+
+Returns basic active-system and world information.
 
 ### `GET /api/system/data`
-**Auth**: Protected
-Returns full system-specific data (ancestries, classes, etc.) adapted from the world.
+
+Auth: protected.
+
+Returns system data produced by the active adapter. Adapter data is sourced from
+the module runtime, not from a broad module-facing client.
 
 ---
 
-## Actors & Items
+## Actors
 
 ### `GET /api/actors`
-**Auth**: Protected
-Returns actors visible to the current user, separated into `ownedActors` and `readOnlyActors`.
 
-Actor reads are served through the existing `getActors()` route-client method, but once bootstrap has completed that method resolves from the platform's seeded actor store instead of fetching the world actor list from Foundry. If bootstrap has not completed, the route returns **503** rather than racing Foundry directly. The response may also include `actorCards`, a dashboard card projection for the same visible actor set, so clients do not need to issue a second card fetch after the list call.
+Auth: protected.
+
+Returns actors visible to the current user, separated into owned and read-only
+sets. Reads resolve from the platform primary document stores after bootstrap.
+Before bootstrap completes, the route returns `503`.
 
 ### `GET /api/actors/:id`
-**Auth**: Protected
-Returns fully normalized actor data for an actor visible to the current user. This still flows through the route-client `getActor(id)` method, but after bootstrap the actor document comes from the platform actor store, then passes through the active system adapter for UUID/name resolution, derived data, and system-specific computation (e.g. slots, AC). Before bootstrap completes, actor detail reads return **503**.
+
+Auth: protected.
+
+Returns normalized actor sheet data for one actor visible to the current user.
+The platform reads the hydrated actor document, then applies the active adapter's
+projection methods.
 
 ### `PATCH /api/actors/:id`
-**Auth**: Protected
-Updates actor-level data using dot notation. Writes go through Foundry's document mutation path and are mirrored into the actor store so later reads and realtime invalidations stay in parity.
+
+Auth: protected.
+
+Updates actor-level data using dot notation. Writes run through the user's
+Foundry transport and are mirrored into platform stores.
 
 ### `POST /api/actors/:id/update`
-**Auth**: Protected
-**Hybrid Update**: Routes updates to either the actor or specific embedded items based on the provided paths (e.g., `items.ID.system.equipped`). Successful embedded item/effect mutations update the platform actor store as part of the same request flow.
+
+Auth: protected.
+
+Routes hybrid actor updates, including supported embedded item/effect paths.
 
 ### `POST /api/actors/:id/roll`
-**Auth**: Protected
-**Body**: 
-- `{ "type": "ability", "key": "str" }`
-- `{ "type": "formula", "key": "1d20+5" }`
-- `{ "type": "use-item", "key": "itemId" }`
+
+Auth: protected.
+
+Executes a platform-supported actor roll.
+
+Example body:
+
+```json
+{ "type": "formula", "key": "1d20+5" }
+```
 
 ---
 
-## Journals & Shared Content
+## Journals And Shared Content
 
 ### `GET /api/journals`
-**Auth**: Protected
-Returns a hierarchical list of journals and folders visible to the user.
-**Response**: `{ "journals": [...], "folders": [...] }`
+
+Auth: protected.
+
+Returns visible journals and folders.
 
 ### `POST /api/journals`
-**Auth**: Protected
-Creates a new journal entry or folder.
-**Body**: `{ "type": "JournalEntry" | "Folder", "data": { ... } }`
+
+Auth: protected.
+
+Creates a journal entry or folder.
+
+```json
+{ "type": "JournalEntry", "data": { "name": "Entry" } }
+```
 
 ### `GET /api/journals/:id`
-**Auth**: Protected
-Returns detailed data for a specific journal entry.
+
+Auth: protected.
+
+Returns one visible journal entry.
 
 ### `PATCH /api/journals/:id`
-**Auth**: Protected
-Updates an existing journal entry or folder.
-**Body**: `{ "type": "JournalEntry" | "Folder", "data": { ... } }`
+
+Auth: protected.
+
+Updates a journal entry or folder.
 
 ### `DELETE /api/journals/:id`
-**Auth**: Protected
-Deletes a journal entry or folder.
-**Query**: `type=JournalEntry` or `type=Folder`
+
+Auth: protected.
+
+Deletes a journal entry or folder. Pass `type=JournalEntry` or `type=Folder`.
 
 ### `GET /api/shared-content`
-**Auth**: Protected
-Returns the latest media or journal shared by the GM with the current user.
 
-### `GET /api/foundry/document?uuid=...`
-**Auth**: Protected
-Fetches a document by universal UUID through the platform `DocumentResolver`. World primary documents resolve from the platform document stores after bootstrap. Compendium UUIDs resolve from declared hydrated compendium pack rows by default; undeclared, non-hydrated, or missing pack documents return `null` with a warning. Live Foundry pack-document fallback is available only when `foundry.allow-live-compendium-uuid-fallback` or `APP_ALLOW_LIVE_COMPENDIUM_UUID_FALLBACK=true` is enabled for diagnostics.
+Auth: protected.
+
+Returns the latest media or journal content shared with the current user.
 
 ---
 
-## Module UI Serving (Public)
+## Document UUID Resolution
+
+### `GET /api/foundry/document?uuid=<uuid>`
+
+Auth: protected.
+
+Resolves a Foundry UUID through the platform `DocumentResolver`.
+
+- World primary documents resolve from platform stores after bootstrap.
+- Compendium UUIDs resolve from declared hydrated compendium pack rows by
+  default.
+- Undeclared, non-hydrated, or missing compendium rows return `null` with a
+  warning.
+- Live Foundry compendium fallback is diagnostics-only and must not be required
+  by module code.
+
+---
+
+## Module UI Serving
 
 ### `GET /api/modules/:id/ui`
-No authentication required. Serves the compiled UI artifact for a managed module as raw ESM JavaScript.
 
-This endpoint is the runtime fallback used by `getUIModule()` when a module was installed after the current Next.js build and is therefore absent from the static `module-ui-registry.ts`. The server:
-1. Looks up the module's `info.json` for a `manifest.ui` path (falls back to `dist/ui.js`).
-2. Reads the compiled artifact and rewrites bare import specifiers to `window.__SD.*` globals:
-   - `import { X } from 'react'` → `const { X } = window.__SD.react;`
-   - `import { X } from '@sheet-delver/sdk'` → `const { X } = window.__SD.sdk;`
-3. Returns the rewritten source with `Content-Type: application/javascript` and `Cache-Control: no-store`.
+Auth: none.
 
-Returns **404** if the module does not exist or has no UI artifact.
+Serves a managed module's compiled UI artifact from `<DATA_DIR>/modules/:id` as
+browser-compatible ESM. The server reads the artifact manifest, loads the UI
+entry, rewrites bare SDK/React imports to host browser globals, and returns
+JavaScript with `Cache-Control: no-store`.
 
-This enables hot-installation of modules at runtime without a rebuild — the browser executes the artifact using the host app's shared React and SDK instances.
+This route is for managed artifacts. Local dev UI source under
+`<DATA_DIR>/local/modules` is bundled through the generated
+`.managed/module-ui-registry.ts`.
+
+Returns `404` when the module or UI artifact is missing.
+
+### `POST /api/modules/:id/ui-error`
+
+Auth: try-auth.
+
+Records a browser-side module UI import/evaluation failure into lifecycle health.
+This is an operational health signal so the admin can see why a module fell back
+to the generic UI.
+
+```json
+{
+  "source": "managed",
+  "message": "Failed to load runtime UI manifest"
+}
+```
+
+### `GET /api/modules/:id/assets/*`
+
+Auth: none.
+
+Serves files from a module's `assets/` directory. The route resolves both local
+dev and managed module roots using the configured data directory.
 
 ---
 
-## Module Registry (Public)
+## Module Registry
 
-These endpoints require no authentication and are safe to call before a session is established.
+These public endpoints are safe to call before user login.
 
 ### `GET /api/registry/modules`
-Returns info metadata for every discovered module (enabled and disabled).
 
-**Response:**
+Returns manifest metadata for discovered modules.
+
 ```json
 [
-  { "id": "dnd5e", "title": "D&D 5e", "version": "0.1.0", "experimental": false },
-  { "id": "shadowdark", "title": "Shadowdark System", "version": "1.2.0", "experimental": false }
+  {
+    "id": "example-system",
+    "title": "Example System",
+    "version": "1.0.0",
+    "experimental": false
+  }
 ]
 ```
 
 ### `GET /api/registry/sources`
-Returns the active source for every known module.
+
+Returns the active source for each known module.
 
 Source values:
-- `"local"` — module is running from `data/local/modules/` (local dev source)
-- `"data"` — module is running from `data/modules/` (managed install)
-- `"built-in"` — module lives in `src/modules/` (platform-bundled)
 
-**Response:**
+- `"local"`: local dev source under `<DATA_DIR>/local/modules`.
+- `"managed"`: installed artifact under `<DATA_DIR>/modules`.
+
 ```json
 {
-  "dnd5e": "local",
-  "shadowdark": "data"
+  "example-system": "managed"
 }
 ```
 
-This endpoint is consumed by the browser's `getUIModule()` function to pick the correct webpack import alias (`@local-modules` vs `@modules`) when loading a module's UI. It is cached client-side until a `moduleSourceChanged` socket event triggers `invalidateModuleSourceCache()`.
+The browser uses this map to choose between local bundled UI source and the
+managed runtime ESM route. It is cached until module lifecycle events invalidate
+the module source cache.
 
 ---
 
-## Shadowdark Module Routes
-Base URL: `/api/modules/shadowdark`
+## Module API Routes
 
-### `GET /gear/list`
-Returns a list of all gear items from the `gear` and `magic-items` compendiums.
+Module-authored server routes are mounted under:
 
-### `GET /spells/list`
-Returns a list of all spells from the `spells` compendium.
+```text
+/api/modules/:moduleId/*
+```
 
-### `GET /effects/predefined-effects`
-Returns the system's predefined effects (e.g., "Blind", "Blessed").
+The route table and behavior are defined by the module's `module/server.ts`.
+Module handlers receive a `ModuleServerRequest` with `req.runtime` as the only
+document, roll, table, and chat surface.
 
-### `GET /roll-table`
-Lists all available roll tables from the local Shadowdark data packs.
+Module routes should use SDK response helpers from `@sheet-delver/sdk/server`:
 
-### `GET /roll-table/:id`
-Returns detailed table data, including results.
+```ts
+import { json, error, type ModuleRouteTable } from '@sheet-delver/sdk/server';
 
-### `POST /roll-table/:id/draw`
-Executes a **local draw** using the backend's Math.random logic.
-**Body**: `{ "rollMode": "self", "displayChat": true }`
+export const apiRoutes: ModuleRouteTable = {
+    'actors/[id]/action': async (req, params) => {
+        const { route } = await params.params;
+        const actorId = route[1];
+        const actor = await req.runtime.documents.get('Actor', actorId);
+        if (!actor) return error('not_found', 'Actor not found');
+        return json({ actor });
+    },
+};
+```
 
-### `GET /actors/:id/level-up/data`
-Returns context data for the Level Up wizard (class, ancestry, available talents).
-
-### `POST /actors/:id/level-up/roll-hp`
-Rolls HP for the current level.
-
-### `POST /actors/:id/level-up/roll-gold`
-Rolls starting gold for a new character.
-
-### `POST /actors/:id/level-up/roll-talent`
-Rolls on the class talent table.
-
-### `POST /actors/:id/level-up/roll-boon`
-Rolls on the patron boon table.
-
-### `POST /actors/:id/level-up/resolve-choice`
-Resolves a nested choice (e.g. Weapon Mastery selection).
-
-### `POST /actors/:id/level-up/finalize`
-Assembles and persists level-up changes to the actor.
-
-### `POST /actors/:id/spells/learn`
-Adds a spell to the actor's "Known Spells".
+Writes through `req.runtime.documents`, `req.runtime.chat`, `req.runtime.rolls`,
+and `req.runtime.tables` are bound to the requesting Foundry user.
 
 ---
 
-## Admin API (Localhost Only)
+## Admin API
 
-The browser-facing admin UI calls these through the Next.js proxy path `/api/admin/...`.
-The backend routes themselves are mounted at `/admin/...` on the Core Service.
+The browser-facing admin UI calls these through the Next.js proxy path
+`/api/admin/...`. The backend Core Service mounts them at `/admin/...`.
 
 ### `GET /admin/auth/status`
-Returns whether an admin account already exists.
+
+Returns whether an admin account exists.
 
 ### `POST /admin/auth/setup`
-**Body**: `{ "setupToken": "...", "password": "..." }`
-Creates the initial admin account and immediately returns an authenticated admin session.
+
+Creates the first admin account.
 
 ### `POST /admin/auth/login`
-**Body**: `{ "password": "..." }`
-Authenticates the admin account and returns a short-lived admin session token plus CSRF token.
+
+Authenticates the admin account and returns an admin session token plus CSRF
+token.
 
 ### `POST /admin/auth/reset`
-**Body**: `{ "setupToken": "...", "newPassword": "..." }`
-Resets the admin password locally and revokes all active admin sessions.
+
+Resets the admin password using the setup token and revokes active admin
+sessions.
 
 ### `GET /admin/status`
-Returns the status of the System Client.
+
+Returns Core Service and world status for the admin UI.
 
 ### `POST /admin/world/launch`
-**Body**: `{ "worldId": "..." }`
-Launches a specific world from setup.
 
-### `POST /admin/world/shutdown`
-Shuts down the currently active world.
+Launches a world from setup.
 
-### `GET /admin/audit`
-Returns recent admin audit events (newest first). Requires admin authentication.
-
-**Query Params:**
-- `limit` (optional): Max number of events to return, clamped to `1..500` (default `100`).
-
-**Response:**
 ```json
-{
-  "success": true,
-  "count": 2,
-  "events": [
-    {
-      "eventId": "1c0868ce-3bcd-4cb8-bfa3-0af3a8e0c4d1",
-      "timestamp": "2026-04-22T22:08:15.322Z",
-      "adminId": "admin",
-      "method": "POST",
-      "path": "/lifecycle/shadowdark/enable",
-      "statusCode": 200,
-      "outcome": "success",
-      "ip": "127.0.0.1",
-      "userAgent": "Mozilla/5.0 ...",
-      "durationMs": 34
-    }
-  ]
-}
+{ "worldId": "world-id" }
 ```
 
-## Module Lifecycle
+### `POST /admin/world/shutdown`
+
+Shuts down the active world.
+
+### `GET /admin/audit`
+
+Returns recent admin audit events.
+
+---
+
+## Module Lifecycle Admin
 
 ### `GET /admin/lifecycle`
-Returns module lifecycle state for all discovered modules. Requires admin authentication.
 
-**Response:**
+Returns lifecycle state for discovered modules.
+
 ```json
 {
   "success": true,
   "modules": [
     {
-      "moduleId": "dnd5e",
-      "title": "D&D 5e",
+      "moduleId": "example-system",
+      "title": "Example System",
       "enabled": true,
       "status": "validated",
       "experimental": false,
       "managed": true,
-      "reason": null,
-      "activeSource": "local",
-      "localDirectory": "/path/to/data/local/modules/dnd5e",
-      "localEnabled": true,
-      "managedEnabled": false,
+      "activeSource": "managed",
+      "localDirectory": "/path/to/<DATA_DIR>/local/modules/example-system",
+      "localEnabled": false,
+      "managedEnabled": true,
+      "sourceStates": {
+        "managed": {
+          "status": "validated",
+          "enabled": true,
+          "validation": {
+            "manifestValid": true,
+            "diagnostics": []
+          }
+        }
+      },
       "health": {
         "errorCount": 0,
         "lastError": "",
         "lastErrorAt": 0
       },
       "artifact": {
-        "version": "0.1.0",
-        "source": "index://my-repo",
+        "version": "1.0.0",
+        "source": "index://source-id",
         "installedAt": 1746000000000
       }
     }
@@ -325,250 +408,129 @@ Returns module lifecycle state for all discovered modules. Requires admin authen
 }
 ```
 
-`activeSource` is only present when the module has a local dev version alongside a managed install. `localDirectory` contains the path to the local dev copy. `localEnabled` / `managedEnabled` track each source's independently saved enabled state — only one may be `true` at a time.
+`localEnabled` and `managedEnabled` preserve independent enablement state when a
+module has both local dev source and a managed install.
 
 ### `POST /admin/lifecycle/:moduleId/enable`
-Enables the target module. Requires admin authentication and a valid admin CSRF token.
 
-If the module has unmet dependencies or conflicts with already-enabled modules, returns **409 Conflict** with violation details.
-
-**Success Response:**
-```json
-{
-  "success": true,
-  "message": "Module shadowdark enabled",
-  "moduleId": "shadowdark"
-}
-```
-
-**Conflict Response (409):**
-```json
-{
-  "success": false,
-  "error": "Cannot enable module due to dependency or conflict constraints",
-  "violations": [
-    {
-      "type": "unmet-dependency",
-      "moduleId": "shadowdark",
-      "affectedModule": "generic",
-      "reason": "Required dependency \"generic\" is not enabled. Enable it first."
-    },
-    {
-      "type": "conflicting-module",
-      "moduleId": "shadowdark",
-      "affectedModule": "dnd5e",
-      "reason": "Module \"Shadowdark System\" conflicts with enabled module \"D&D 5e System\". Disable it first."
-    }
-  ]
-}
-```
-
-### `POST /admin/lifecycle/:moduleId/switch-source`
-**Auth**: Admin + CSRF
-Switches the active source for a module that has both a local dev version and a managed install present.
-
-**Body:**
-```json
-{ "source": "local" }
-```
-`source` must be `"local"` or `"data"`.
-
-On success the server:
-1. Updates `activeSource` in the lifecycle store and persists the current source's enabled state.
-2. Re-scans the registry so the logic adapter from the new source is used immediately.
-3. Emits a `moduleSourceChanged` socket event to all connected clients so they can hot-reload the module UI.
-
-**Response:**
-```json
-{ "success": true, "moduleId": "dnd5e", "activeSource": "local" }
-```
+Enables a module or a specific source card. Requires admin auth and CSRF.
 
 ### `POST /admin/lifecycle/:moduleId/disable`
-Disables the target module. Requires admin authentication and a valid admin CSRF token.
 
-If other modules depend on this one, returns **409 Conflict** with dependent module details.
+Disables a module or a specific source card. Requires admin auth and CSRF.
 
-**Success Response:**
+### `POST /admin/lifecycle/:moduleId/switch-source`
+
+Switches between local dev source and managed install when both exist.
+
 ```json
-{
-  "success": true,
-  "message": "Module shadowdark disabled",
-  "moduleId": "shadowdark",
-  "reason": "Module disabled by admin"
-}
+{ "source": "managed" }
 ```
 
-**Conflict Response (409):**
-```json
-{
-  "success": false,
-  "error": "Cannot disable module because other modules depend on it",
-  "violations": [
-    {
-      "type": "has-dependents",
-      "moduleId": "generic",
-      "affectedModule": "shadowdark",
-      "reason": "Module \"Shadowdark System\" requires \"Generic\" to be enabled. Disable \"Shadowdark System\" first."
-    }
-  ]
-}
-```
+`source` must be `"local"` or `"managed"`.
 
-## Module Manager Operations
+On success, the server updates lifecycle state, refreshes the registry, and
+broadcasts `moduleSourceChanged`.
 
-These routes are authenticated, CSRF-protected, and audited admin mutation endpoints.
+---
+
+## Module Manager Admin
+
+These routes are authenticated, CSRF-protected, and audited.
 
 ### `POST /admin/manager/:moduleId/install`
+
 Installs a discovered module under manager policy.
 
-**Body:**
 ```json
 {
-  "source": "local://shadowdark",
+  "source": "index://source-id",
   "version": "1.0.0",
   "integrity": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
   "signature": "minisign:...",
   "permissions": {
-    "network": {
-      "outbound": false,
-      "allowHosts": []
-    },
-    "filesystem": {
-      "read": ["moduleData"],
-      "write": ["moduleData"]
-    },
+    "network": { "outbound": false, "allowHosts": [] },
+    "filesystem": { "read": ["moduleData"], "write": ["moduleData"] },
     "adminRoutes": false,
-    "sensitiveData": ["actor"]
+    "sensitiveData": []
   }
 }
 ```
 
-**Success Response:**
-```json
-{
-  "success": true,
-  "moduleId": "shadowdark",
-  "operation": "install",
-  "previousStatus": "discovered",
-  "newStatus": "validated"
-}
-```
-
 ### `POST /admin/manager/:moduleId/upgrade`
-Upgrades a module under trust, verification, and permission-escalation policy.
 
-**Body:**
-```json
-{
-  "source": "https://example.com/modules/shadowdark-2.0.0.tgz",
-  "targetVersion": "2.0.0",
-  "integrity": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-  "signature": "minisign:...",
-  "permissions": {
-    "network": {
-      "outbound": true,
-      "allowHosts": ["api.example.com"]
-    },
-    "adminRoutes": true,
-    "sensitiveData": ["actor", "chat"]
-  },
-  "approvePermissionEscalation": true
-}
-```
-
-**Success Response:**
-```json
-{
-  "success": true,
-  "moduleId": "shadowdark",
-  "operation": "upgrade",
-  "previousStatus": "disabled",
-  "newStatus": "validated"
-}
-```
+Upgrades a managed module under trust, verification, and permission-escalation
+policy.
 
 ### `POST /admin/manager/:moduleId/uninstall`
-Uninstalls a module and removes persisted artifact metadata.
+
+Uninstalls a managed module and removes persisted artifact metadata.
 
 ### `POST /admin/manager/:moduleId/validate`
-Re-runs manifest and compatibility validation for a module.
 
-### Manager Policy Error Responses
+Re-runs manifest, compatibility, and managed artifact health checks.
 
-`install` and `upgrade` may fail with the following structured errors:
+Manager policy errors use structured `errorCode` values, including:
 
-- `403 trust-policy-blocked`: module trust tier is below the configured minimum policy
-- `422 artifact-verification-failed`: remote artifact is missing or has malformed integrity/signature metadata
-- `409 permission-escalation-requires-approval`: upgrade requested broader permissions without explicit approval
-- `422 validation-failed`: manifest or compatibility validation failed
-- `404 module-not-found`: target module does not exist in lifecycle/registry state
-
-**Example Permission Escalation Block (409):**
-```json
-{
-  "success": false,
-  "moduleId": "shadowdark",
-  "operation": "upgrade",
-  "errorCode": "permission-escalation-requires-approval",
-  "error": "Permission escalation requires explicit approval: Admin route access enabled; Sensitive data access added: chat"
-}
-```
-
-**Example Artifact Verification Block (422):**
-```json
-{
-  "success": false,
-  "moduleId": "shadowdark",
-  "operation": "upgrade",
-  "errorCode": "artifact-verification-failed",
-  "error": "Artifact integrity is required and must be sha256:<64 hex> for non-local sources"
-}
-```
+- `trust-policy-blocked`
+- `artifact-verification-failed`
+- `permission-escalation-requires-approval`
+- `validation-failed`
+- `module-not-found`
 
 ---
 
-## Source Management
+## Source Profiles
 
 ### `GET /admin/sources`
-Returns all configured source profiles.
+
+Returns configured source profiles. The default local source profile is
+protected and cannot be modified or deleted.
 
 ### `POST /admin/sources`
-Creates a new source profile. Validates `baseUrl` against the host allowlist.
-**Body**: `{ "name": "...", "baseUrl": "index://...", "kind": "indexed", "enabled": true, "priority": 10 }`
 
-### `PUT /admin/sources/:id`
-Updates an existing source profile.
-**Body**: `{ "name": "...", "enabled": false, ... }`
+Creates a source profile.
 
-### `DELETE /admin/sources/:id`
-Deletes a source profile. Cannot delete the `built-in` profile.
-
-### `POST /admin/sources/:id/test`
-Tests the connection to a source and returns metadata about the remote index.
-**Response**: `{ "success": true, "moduleCount": 5, "publisher": "...", "schemaVersion": 1 }`
-
-### `GET /admin/sources/:id/modules`
-Returns the list of available modules from a specific remote source.
-**Response**: `{ "success": true, "modules": { "moduleId": { ... } } }`
-
-
-## Module Dependencies & Conflicts
-
-Module manifests (`info.json`) can declare:
-
-- **`dependencies`** (string[]): List of module IDs that must be enabled for this module to function.
-- **`conflicts`** (string[]): List of module IDs that cannot be enabled at the same time.
-
-Example `src/shadowdark/info.json`:
 ```json
 {
-  "id": "shadowdark",
-  "title": "Shadowdark System",
-  "dependencies": ["generic"],
-  "conflicts": ["dnd5e", "morkborg"]
+  "name": "Example Registry",
+  "baseUrl": "https://registry.example",
+  "kind": "indexed",
+  "enabled": true,
+  "priority": 10
 }
 ```
 
-When enabling or disabling a module:
-- **Enable**: Validates all dependencies exist and are enabled. Rejects if any conflicts are currently enabled.
-- **Disable**: Validates no other enabled modules depend on this one. Rejects with a list of dependent modules if necessary.
+### `PUT /admin/sources/:id`
+
+Updates a source profile.
+
+### `DELETE /admin/sources/:id`
+
+Deletes a source profile unless it is the protected default local source.
+
+### `POST /admin/sources/:id/test`
+
+Tests an indexed source profile.
+
+### `GET /admin/sources/:id/modules`
+
+Returns modules available from an indexed source profile.
+
+---
+
+## Dependencies And Conflicts
+
+Module manifests can declare dependencies and conflicts:
+
+```json
+{
+  "id": "example-system",
+  "title": "Example System",
+  "dependencies": ["required-module-id"],
+  "conflicts": ["conflicting-module-id"]
+}
+```
+
+Enable validates dependencies and conflicts before changing lifecycle state.
+Disable rejects when another enabled module depends on the target.

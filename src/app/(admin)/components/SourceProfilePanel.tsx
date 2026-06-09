@@ -12,7 +12,7 @@ import {
     type SourceProfile,
     type SourceModuleEntry
 } from '../lib/adminApi';
-import { ModuleSourceCategory, ModuleSourceKind } from '@shared/types/modules';
+import { ModuleSourceKind, SourceProfileId } from '@shared/types/modules';
 import { useAdminToast } from '../context/AdminToastContext';
 
 export default function SourceProfilePanel({
@@ -80,7 +80,7 @@ export default function SourceProfilePanel({
     };
 
     const handleToggleEnable = async (profile: SourceProfile) => {
-        if (profile.id === ModuleSourceCategory.BuiltIn) return;
+        if (profile.id === SourceProfileId.LocalDefault) return;
         const result = await updateSourceProfile(profile.id, { enabled: !profile.enabled });
         if (result.ok) loadProfiles();
         else addToast(result.error || 'Failed to update source profile.', 'error');
@@ -214,8 +214,8 @@ export default function SourceProfilePanel({
                             <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2 mb-1 flex-wrap">
                                     <h3 className="font-bold text-[var(--admin-text-primary)]">{profile.name}</h3>
-                                    {profile.id === ModuleSourceCategory.BuiltIn && (
-                                        <span className="rounded-full border border-[var(--admin-border)] bg-[var(--admin-surface-hover)] px-2 py-0.5 text-xs text-[var(--admin-text-muted)]">Built-in</span>
+                                    {profile.id === SourceProfileId.LocalDefault && (
+                                        <span className="rounded-full border border-[var(--admin-border)] bg-[var(--admin-surface-hover)] px-2 py-0.5 text-xs text-[var(--admin-text-muted)]">Default</span>
                                     )}
                                     {!profile.enabled && (
                                         <span className="rounded-full border border-[var(--admin-danger-border)] bg-[var(--admin-danger-bg)] px-2 py-0.5 text-xs text-[var(--admin-danger-text)]">Disabled</span>
@@ -263,7 +263,7 @@ export default function SourceProfilePanel({
                                         </button>
                                     </>
                                 )}
-                                {profile.id !== ModuleSourceCategory.BuiltIn && (
+                                {profile.id !== SourceProfileId.LocalDefault && (
                                     <>
                                         <button
                                             onClick={() => handleToggleEnable(profile)}

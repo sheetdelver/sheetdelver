@@ -216,7 +216,7 @@ function checkDeprecatedPatterns(
 }
 
 /**
- * Lightweight health check for installed packaged modules (`data/modules/*`).
+ * Lightweight health check for installed packaged modules (`<DATA_DIR>/modules/*`).
  *
  * This is deliberately not `module:check`: older packages should remain loadable
  * when drift is survivable. Only findings that make the selected package unable to

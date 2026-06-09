@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { getModulesDataDir } from '@core/paths';
-import { ModuleLifecycleStatus } from '@shared/types/modules';
+import { LegacyModuleSourceCategory, ModuleLifecycleStatus, ModuleSourceCategory } from '@shared/types/modules';
 import type { ModuleContractDiagnostic, ModuleCoreConstraintDiagnostic } from './compatibilityResolver';
 
 export type { ModuleLifecycleStatus };
@@ -130,6 +130,39 @@ function isValidRecord(value: unknown): value is ModuleLifecycleRecord {
         && typeof record.updatedAt === 'number';
 }
 
+function normalizeSourceCategory(value: unknown): ModuleSourceCategory | undefined {
+    if (value === ModuleSourceCategory.Local) return ModuleSourceCategory.Local;
+    if (value === ModuleSourceCategory.Managed || value === LegacyModuleSourceCategory.ManagedData) {
+        return ModuleSourceCategory.Managed;
+    }
+    // "built-in" was an old registry source that no longer maps to a runtime module location.
+    return undefined;
+}
+
+function normalizeSourceStates(
+    sourceStates: ModuleLifecycleRecord['sourceStates'] | Record<string, ModuleSourceState> | undefined,
+): ModuleLifecycleRecord['sourceStates'] | undefined {
+    if (!sourceStates) return undefined;
+
+    const normalized: Partial<Record<ModuleSourceCategory, ModuleSourceState>> = {};
+    const localState = sourceStates[ModuleSourceCategory.Local];
+    const managedState = sourceStates[ModuleSourceCategory.Managed]
+        ?? (sourceStates as Record<string, ModuleSourceState | undefined>)[LegacyModuleSourceCategory.ManagedData];
+
+    if (localState) normalized[ModuleSourceCategory.Local] = localState;
+    if (managedState) normalized[ModuleSourceCategory.Managed] = managedState;
+
+    return Object.keys(normalized).length > 0 ? normalized : undefined;
+}
+
+function normalizeLifecycleRecord(record: ModuleLifecycleRecord): ModuleLifecycleRecord {
+    return {
+        ...record,
+        activeSource: normalizeSourceCategory(record.activeSource),
+        sourceStates: normalizeSourceStates(record.sourceStates),
+    };
+}
+
 export interface ModuleLifecycleClassificationInput {
     status: ModuleLifecycleStatus;
     enabled: boolean;
@@ -164,7 +197,7 @@ export function loadLifecycleStore(stateFilePath = getDefaultLifecycleStateFileP
         const modules: Record<string, ModuleLifecycleRecord> = {};
         for (const [id, record] of Object.entries(parsed.modules)) {
             if (isValidRecord(record)) {
-                modules[id] = record;
+                modules[id] = normalizeLifecycleRecord(record);
             }
         }
 
@@ -223,8 +256,6 @@ export function upsertDiscoveredModule(
     return created;
 }
 
-import { ModuleSourceCategory } from '@shared/types/modules';
-
 export { ModuleSourceCategory };
 
 export function applyLifecycleClassification(
@@ -273,7 +304,7 @@ export function applyLifecycleClassification(
     const activeSource = classification.activeSource ?? existing.activeSource;
     next.activeSource = activeSource;
     
-    if (source === activeSource || source === ModuleSourceCategory.BuiltIn) {
+    if (source === activeSource) {
         next.status = classification.status;
         next.enabled = classification.enabled;
         next.reason = classification.reason;

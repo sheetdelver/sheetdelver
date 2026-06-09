@@ -217,7 +217,7 @@ async function runModuleRouterSmokeTests() {
     const uiErrorRes = createResponseStub();
     await uiErrorHandler({
         params: { id: 'missing-module' },
-        body: { message: 'Client failed to import module UI', source: 'data' },
+        body: { message: 'Client failed to import module UI', source: 'managed' },
     } as any, uiErrorRes, (() => undefined) as any);
     assert.equal(uiErrorRes.statusCode, 200);
     assert.deepEqual(uiErrorRes.payload, { success: true });

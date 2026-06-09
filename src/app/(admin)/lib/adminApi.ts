@@ -64,7 +64,7 @@ export interface ModuleLifecycleInfo {
     validation?: ModuleLifecycleValidationInfo;
     sourceStates?: {
         local?: ModuleLifecycleSourceStateInfo;
-        data?: ModuleLifecycleSourceStateInfo;
+        managed?: ModuleLifecycleSourceStateInfo;
     };
     artifact?: {
         version: string;

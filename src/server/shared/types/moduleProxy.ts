@@ -10,7 +10,8 @@ export interface ModuleProxyDispatchRequest {
     url: string;
     headers: IncomingHttpHeaders;
     body: unknown;
-    foundryClient?: RouteFoundryClient;
+    /** User-bound route transport used only to bind req.runtime; never exposed to module handlers. */
+    transportClient?: RouteFoundryClient;
     userSession?: FoundryUserConnectionLike;
 }
 

@@ -111,12 +111,12 @@ export async function run() {
         assert.equal(shadowdark?.enabled, false);
         assert.equal(shadowdark?.status, 'disabled');
         assert.equal(
-            shadowdark?.lifecycle.sourceStates?.data?.validation?.artifactDiagnostics?.some(diagnostic => diagnostic.severity === 'warning'),
+            shadowdark?.lifecycle.sourceStates?.managed?.validation?.artifactDiagnostics?.some(diagnostic => diagnostic.severity === 'warning'),
             true,
             'warning-only packaged artifact drift should be visible in lifecycle diagnostics',
         );
         assert.equal(
-            shadowdark?.lifecycle.sourceStates?.data?.validation?.artifactDiagnostics?.some(diagnostic => diagnostic.severity === 'error'),
+            shadowdark?.lifecycle.sourceStates?.managed?.validation?.artifactDiagnostics?.some(diagnostic => diagnostic.severity === 'error'),
             false,
             'warning-only packaged artifact drift should not be treated as blocking',
         );
@@ -126,7 +126,7 @@ export async function run() {
         assert.equal(broken?.enabled, false);
         assert.equal(broken?.status, 'errored');
         assert.equal(
-            broken?.lifecycle.sourceStates?.data?.validation?.artifactDiagnostics?.some(diagnostic => diagnostic.code === 'artifact.entry.ui.missing'),
+            broken?.lifecycle.sourceStates?.managed?.validation?.artifactDiagnostics?.some(diagnostic => diagnostic.code === 'artifact.entry.ui.missing'),
             true,
         );
 

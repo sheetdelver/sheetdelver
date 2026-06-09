@@ -210,7 +210,7 @@ export interface CompendiumPackReader {
  * when the mounted services are wired in (ADR-0027 Phase 1 heavy slice).
  */
 export interface ModuleRuntime {
-    /** The unique identifier of the module (e.g., 'shadowdark'). */
+    /** The unique identifier of the module. */
     moduleId: string;
     /** Namespaced logger for the module. */
     logger: ModuleLogger;

@@ -103,7 +103,7 @@ export function createModuleProxyService(deps: ModuleProxyServiceDeps = {}) {
 
         if (!systemId) return { status: 404, payload: { error: 'No system specified' } };
 
-        if (!request.foundryClient) {
+        if (!request.transportClient) {
             return { status: 401, payload: { error: 'Unauthorized: Missing Foundry session' } };
         }
 
@@ -112,10 +112,10 @@ export function createModuleProxyService(deps: ModuleProxyServiceDeps = {}) {
             return { status: 403, payload: { error: 'Forbidden: Module API routes require a Foundry user session' } };
         }
 
-        const rawClient = request.foundryClient;
-        if (!rawClient.userId || rawClient.userId !== request.userSession.userId) {
+        const transportClient = request.transportClient;
+        if (!transportClient.userId || transportClient.userId !== request.userSession.userId) {
             logger.warn(
-                `Module Routing | Rejected module API request for ${systemId}/${routePath || '<root>'}: session user ${request.userSession.userId} does not match transport user ${rawClient.userId ?? '<missing>'}.`
+                `Module Routing | Rejected module API request for ${systemId}/${routePath || '<root>'}: session user ${request.userSession.userId} does not match transport user ${transportClient.userId ?? '<missing>'}.`
             );
             return { status: 403, payload: { error: 'Forbidden: Foundry session does not match the request transport' } };
         }
@@ -145,7 +145,7 @@ export function createModuleProxyService(deps: ModuleProxyServiceDeps = {}) {
         // Per-request runtime handle (ADR-0027): base (memoized per module) + the caller's
         // user-bound document/roll/table services. Document ops default to the caller.
         const baseRuntime = await resolveBaseRuntime(systemId);
-        const runtime = createModuleRequestRuntime(baseRuntime, rawClient);
+        const runtime = createModuleRequestRuntime(baseRuntime, transportClient);
         const userSession = createModuleUserSession(request.userSession);
 
         const nextRequest = {

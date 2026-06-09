@@ -22,8 +22,6 @@ export interface RichTextTheme {
     editButton: string;
 }
 
-// SHADOWDARK_THEME moved to @modules/shadowdark/ui/themes/shadowdark.ts
-
 export const DASHBOARD_THEME: RichTextTheme = {
     container: 'relative group h-full flex flex-col bg-neutral-950/50 border border-neutral-800 rounded-lg overflow-hidden',
     toolbar: {

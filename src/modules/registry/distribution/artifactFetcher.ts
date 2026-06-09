@@ -90,7 +90,7 @@ export async function fetchAndExtractArtifact(
         }
     }
 
-        // Extract into <data/modules/<moduleId> — version is tracked in the artifact store, not the directory name.
+        // Extract into <DATA_DIR>/modules/<moduleId>; version is tracked in the artifact store, not the directory name.
         const targetDir = path.join(getModulesDataDir(), moduleId);
         
         // Clear target dir if it exists

@@ -343,7 +343,7 @@ function isScopedSelector(selector: string, scopeClass: string): boolean {
     const next = s.charAt(scopeClass.length);
     // The char after the scope class must end the identifier (combinator / pseudo /
     // attribute / class / comma / end) — not an identifier char that would make it a
-    // different class (e.g. `.sdk-module--dnd5edark`).
+    // different class such as `.sdk-module--exampledark`.
     return next === '' || !/[A-Za-z0-9_-]/.test(next);
 }
 

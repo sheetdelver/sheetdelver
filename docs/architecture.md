@@ -19,7 +19,7 @@ To ensure stability and prevent environment pollution (e.g., Node.js leaks in th
 - **`src/client` (`@client`)**: Pure frontend code. Contains UI components, React hooks, and browser-safe services. Strictly forbidden from importing Node.js globals (`fs`, `path`, `process`).
 - **`src/server` (`@server`, `@core`)**: Pure backend code. Contains the Express API, service orchestration, server-owned Stores, and direct Foundry socket transports.
 - **`src/shared` (`@shared`)**: Environment-agnostic logic. Contains interfaces, constants, and pure utilities (math, string parsing) safe for both environments.
-- **`src/modules` (`@modules`)**: Pluggable system adapters. Each module carries its own internal firewall (`src/server` vs `src/ui`).
+- **`src/modules` (`@modules`)**: Module registry, lifecycle, distribution, and runtime loading infrastructure. Author-owned system modules live under the configured data directory, not in the source tree.
 
 ---
 
@@ -109,7 +109,7 @@ For actors, the platform performs one system-client fetch during bootstrap, seed
 
 ## 5. Module System
 
-SheetDelver's RPG system support is entirely module-driven. Modules live outside the core in `<DATA_DIR>/modules/` (managed installs) or `<DATA_DIR>/local/modules/` (local dev source). The data directory is resolved from `--data-dir=<path>` CLI argument or the `SHEET_DELVER_DATA` environment variable (defaults to `./data/`). Built-in fallback components (`GenericActorPage`, `GenericSheet`) live in `src/client/ui/`.
+SheetDelver's RPG system support is entirely module-driven. Modules live outside the core in `<DATA_DIR>/modules/` (managed installs) or `<DATA_DIR>/local/modules/` (local dev source). The data directory is resolved from `--data-dir=<path>` CLI argument or the `SHEET_DELVER_DATA` environment variable. Generic fallback components (`GenericActorPage`, `GenericSheet`) live in `src/client/ui/`.
 
 ### 5.1 Module Operating Modes
 

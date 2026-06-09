@@ -40,12 +40,10 @@ export function initializeRegistry() {
         lifecycleStore.modules = loadedStore.modules;
         const coreVersion = getCoreVersion();
 
-        const builtInModulesDir = path.join(process.cwd(), 'src', 'modules');
         const dataModulesDir = getModulesDataDir();
         const localModulesDir = getLocalModulesDir();
 
         const scanDirs: Array<{ source: ModuleSourceCategory; path: string }> = [
-            { path: builtInModulesDir, source: ModuleSourceCategory.BuiltIn },
             { path: dataModulesDir, source: ModuleSourceCategory.Managed },
         ];
 
@@ -70,9 +68,6 @@ export function initializeRegistry() {
         for (const scanDir of scanDirs) {
             const modulesDir = scanDir.path;
             if (!fs.existsSync(modulesDir)) {
-                if (scanDir.source === ModuleSourceCategory.BuiltIn) {
-                    logger.error(`Registry [PID:${process.pid}] | Built-in modules directory NOT FOUND at: ${modulesDir}`);
-                }
                 continue;
             }
 
@@ -217,7 +212,6 @@ export function initializeRegistry() {
 
             const chosen =
                 (preferred && sources.get(preferred)) ??
-                sources.get(ModuleSourceCategory.BuiltIn) ??
                 sources.get(ModuleSourceCategory.Managed) ??
                 sources.get(ModuleSourceCategory.Local);
 

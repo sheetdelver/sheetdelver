@@ -213,8 +213,8 @@ export function createActorService(deps: ActorServiceDeps) {
             ...normalizedActor,
             foundryUrl: client.url,
             systemId: adapter.systemId,
-            // The Foundry system ID is always the real game system (e.g. 'dnd5e')
-            // regardless of whether that system's module is enabled. The client
+            // The Foundry system ID is always the real game system regardless of
+            // whether that system's module is enabled. The client
             // uses this to stay subscribed to moduleStateChanged events even when
             // the module is disabled and systemId falls back to 'generic'.
             foundrySystemId: systemInfo.id.toLowerCase(),

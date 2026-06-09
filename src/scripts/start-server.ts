@@ -245,7 +245,7 @@ function generateModuleUIRegistry(_managedDir: string, localModulesDir: string, 
     }
 
     const localModules = scanModules(localModulesDir);
-    // Installed modules (data/modules) are PRE-COMPILED artifacts. They are deliberately
+    // Installed modules (<DATA_DIR>/modules) are PRE-COMPILED artifacts. They are deliberately
     // NOT statically imported into the build (ADR-0027): doing so pulled their compiled
     // bundles into the turbopack/webpack graph, so a single stale or malignant module
     // with a bad import could fail the entire dev/build. Instead they load at runtime via
@@ -322,10 +322,7 @@ function ensureManagedConfigs() {
                 "@server/*": ["../src/server/*"],
                 "@shared/*": ["../src/shared/*"],
                 "@core/*": ["../src/server/core/*"],
-                "@modules/*": [
-                    "../src/modules/*",
-                    rel(path.join(getDataDir(), "modules")) + "/*"
-                ],
+                "@modules/*": ["../src/modules/*"],
                 "@local-modules/*": [
                     rel(localModulesDir) + "/*"
                 ],
@@ -342,8 +339,6 @@ function ensureManagedConfigs() {
             }
         }
     };
-    logger.info(`[Manager] tsconfig paths is including deprecated location src/modules for backward compatibility.\n        Please move any modules from src/modules to the data/local/modules or data/modules directory.`);
-
     fs.writeFileSync(
         path.join(managedDir, 'tsconfig.paths.json'),
         JSON.stringify(tsconfigPaths, null, 2)
@@ -359,7 +354,6 @@ function ensureManagedConfigs() {
     // Generate PostCSS plugin for dynamic Tailwind sources
     const pluginPath = path.join(managedDir, 'postcss-plugin.cjs');
     const dataDir = getDataDir();
-    const srcModules = path.join(process.cwd(), 'src', 'modules');
 
     const pluginContent = `const path = require('path');
 
@@ -374,11 +368,6 @@ module.exports = (opts = {}) => {
       const currentDir = path.dirname(currentFile);
 
       const DATA_DIR = process.env.SHEET_DELVER_DATA || '${dataDir}';
-      if (DATA_DIR) {
-        const modulesPath = path.resolve(DATA_DIR, 'modules');
-        const relativePath = path.relative(currentDir, modulesPath);
-        root.prepend(\`@source "\${relativePath}/**/*.tsx";\`);
-      }
 
       // Local-dev modules live under <DATA_DIR>/local/modules (gitignored, so Tailwind v4
       // auto-detection skips them). Scan them explicitly so module utility classes are not
@@ -389,11 +378,6 @@ module.exports = (opts = {}) => {
         const relativeLocalPath = path.relative(currentDir, LOCAL_MODULES);
         root.prepend(\`@source "\${relativeLocalPath}/**/*.tsx";\`);
       }
-
-      const srcModulesPath = '${srcModules}';
-      const relativeSrcPath = path.relative(currentDir, srcModulesPath);
-      root.prepend(\`@source "\${relativeSrcPath}/**/*.tsx";\`);
-
       root.raws.dynamicSourcesInjected = true;
     },
   };

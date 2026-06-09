@@ -31,10 +31,10 @@ const manifestCache = new Map<string, UIModuleManifest>();
 // run. It contains ONE EXPLICIT import() per LOCAL-DEV module (TypeScript source that
 // must be compiled):
 //
-//   localModuleUIs  — data/local/modules/<id>/module/ui (TypeScript source, bundled)
+//   localModuleUIs  — <DATA_DIR>/local/modules/<id>/module/ui (TypeScript source, bundled)
 //   dataModuleUIs   — intentionally EMPTY (see below)
 //
-// Installed/managed modules (data/modules/<id>/dist/ui.js) are PRE-COMPILED and are NOT
+// Installed/managed modules (<DATA_DIR>/modules/<id>/dist/ui.js) are PRE-COMPILED and are NOT
 // bundled into the build — they load at runtime via GET /api/modules/:id/ui (the ESM
 // route with window.__SD import rewriting). This keeps a stale or malignant installed
 // module out of the build graph, so it can never fail the dev/build; at runtime the
@@ -120,10 +120,8 @@ export function invalidateModuleSourceCache() {
  * map (GET /api/registry/sources) and then looking up the module in the pre-generated
  * registry (.managed/module-ui-registry.ts).
  *
- *   ModuleSourceCategory.Local   → localModuleUIs[id]   (data/local/modules, bundled source)
- *   ModuleSourceCategory.Managed → runtime ESM route    (data/modules, pre-compiled artifact)
- *   ModuleSourceCategory.BuiltIn → runtime ESM route    (no built-in UI modules currently)
- *
+ *   ModuleSourceCategory.Local   → localModuleUIs[id]   (<DATA_DIR>/local/modules, bundled source)
+ *   ModuleSourceCategory.Managed → runtime ESM route    (<DATA_DIR>/modules, pre-compiled artifact)
  * `dataModuleUIs` is always empty (installed modules are not bundled); managed installs
  * fall through to the runtime ESM route below. Falls back to PLATFORM_DEFAULT_MANIFEST
  * when the module is not resolvable or when its loader throws — a failing module never
@@ -170,7 +168,7 @@ export async function getUIModule(systemId: string): Promise<UIModuleManifest> {
                 const m = await loader();
                 manifest = m.default || m;
             } catch (e) {
-                reportUIModuleLoadFailure(id, ModuleSourceCategory.Managed, `Failed to load data UI manifest for "${id}"`, e);
+                reportUIModuleLoadFailure(id, ModuleSourceCategory.Managed, `Failed to load managed UI manifest for "${id}"`, e);
             }
         }
     }

@@ -45,11 +45,26 @@ export async function run(): Promise<void> {
 
     const stateFilePath = mkTempFile('sheet-delver-contract-lifecycle-state');
     const artifactFilePath = mkTempFile('sheet-delver-contract-lifecycle-artifacts');
+    const testDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sheet-delver-contract-lifecycle-data-'));
     const moduleDirName = `compat-contract-test-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    const moduleDirPath = path.join(process.cwd(), 'src', 'modules', moduleDirName);
     const moduleId = moduleDirName;
+    const {
+        __resetDataDirForTests,
+        getDataDir,
+        getLocalModulesDataDir,
+        initDataDir,
+    } = await import('../../../server/core/paths');
+    let previousDataDir: string | null = null;
 
     try {
+        try {
+            previousDataDir = getDataDir();
+        } catch {
+            previousDataDir = null;
+        }
+        initDataDir(testDataDir);
+
+        const moduleDirPath = path.join(getLocalModulesDataDir(), moduleDirName);
         fs.mkdirSync(moduleDirPath, { recursive: true });
         writeJson(path.join(moduleDirPath, 'info.json'), {
             id: moduleId,
@@ -71,10 +86,11 @@ export async function run(): Promise<void> {
                 [moduleId]: {
                     moduleId,
                     title: 'Compatibility Contract Test Module',
-                    directory: moduleDirName,
-                    status: 'discovered',
-                    enabled: true,
-                    firstSeenAt: 1,
+            directory: moduleDirPath,
+            activeSource: 'local',
+            status: 'discovered',
+            enabled: true,
+            firstSeenAt: 1,
                     lastSeenAt: 1,
                     updatedAt: 1,
                 },
@@ -134,9 +150,10 @@ export async function run(): Promise<void> {
         if (previousArtifactFile) process.env[ARTIFACT_ENV] = previousArtifactFile;
         else delete process.env[ARTIFACT_ENV];
 
+        __resetDataDirForTests(previousDataDir);
         if (fs.existsSync(stateFilePath)) fs.unlinkSync(stateFilePath);
         if (fs.existsSync(artifactFilePath)) fs.unlinkSync(artifactFilePath);
-        if (fs.existsSync(moduleDirPath)) fs.rmSync(moduleDirPath, { recursive: true, force: true });
+        fs.rmSync(testDataDir, { recursive: true, force: true });
     }
 }
 

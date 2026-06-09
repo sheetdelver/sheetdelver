@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { ModuleSourceCategory, ModuleSourceKind } from '@shared/types/modules';
+import { LegacyModuleSourceCategory, ModuleSourceKind, SourceProfileId } from '@shared/types/modules';
 import path from 'node:path';
 import { getModulesDataDir } from '@core/paths';
 import { logger } from '@shared/utils/logger';
@@ -22,11 +22,11 @@ export interface SourceProfile {
     updatedAt: number;
 }
 
-export const BUILT_IN_PROFILE_ID = ModuleSourceCategory.BuiltIn;
+export const DEFAULT_LOCAL_PROFILE_ID = SourceProfileId.LocalDefault;
 
-export const BUILT_IN_PROFILE: SourceProfile = {
-    id: BUILT_IN_PROFILE_ID,
-    name: 'Built-in Sources',
+export const DEFAULT_LOCAL_PROFILE: SourceProfile = {
+    id: DEFAULT_LOCAL_PROFILE_ID,
+    name: 'Default Local Source',
     kind: ModuleSourceKind.Local,
     baseUrl: 'local://',
     enabled: true,
@@ -57,10 +57,28 @@ export function loadSourceProfiles(): SourceProfile[] {
         }
     }
 
-    // Ensure built-in exists
-    const hasBuiltIn = profiles.some(p => p.id === BUILT_IN_PROFILE_ID);
-    if (!hasBuiltIn) {
-        profiles.push(BUILT_IN_PROFILE);
+    // Migrate the old protected "built-in" profile id to the current default local
+    // profile id so the admin API no longer exposes "built-in" as a module source.
+    let profilesChanged = false;
+    profiles = profiles.map(profile => {
+        if (profile.id !== LegacyModuleSourceCategory.BuiltIn) return profile;
+        profilesChanged = true;
+        return { ...profile, id: DEFAULT_LOCAL_PROFILE_ID, name: DEFAULT_LOCAL_PROFILE.name };
+    });
+    const beforeDedupeCount = profiles.length;
+    profiles = profiles.filter((profile, index, all) => (
+        profile.id !== DEFAULT_LOCAL_PROFILE_ID
+        || index === all.findIndex(candidate => candidate.id === DEFAULT_LOCAL_PROFILE_ID)
+    ));
+    profilesChanged = profilesChanged || profiles.length !== beforeDedupeCount;
+
+    // Ensure the protected default local source exists.
+    const hasDefaultLocal = profiles.some(p => p.id === DEFAULT_LOCAL_PROFILE_ID);
+    if (!hasDefaultLocal) {
+        profiles.push(DEFAULT_LOCAL_PROFILE);
+        profilesChanged = true;
+    }
+    if (profilesChanged) {
         saveSourceProfiles(profiles);
     }
 
@@ -102,8 +120,8 @@ export function createSourceProfile(profile: Omit<SourceProfile, 'id' | 'created
 }
 
 export function updateSourceProfile(id: string, updates: Partial<Omit<SourceProfile, 'id' | 'createdAt' | 'updatedAt'>>): SourceProfile | null {
-    if (id === BUILT_IN_PROFILE_ID) {
-        throw new Error('Cannot modify the built-in source profile');
+    if (id === DEFAULT_LOCAL_PROFILE_ID || id === LegacyModuleSourceCategory.BuiltIn) {
+        throw new Error('Cannot modify the default local source profile');
     }
 
     const profiles = loadSourceProfiles();
@@ -121,8 +139,8 @@ export function updateSourceProfile(id: string, updates: Partial<Omit<SourceProf
 }
 
 export function deleteSourceProfile(id: string): boolean {
-    if (id === BUILT_IN_PROFILE_ID) {
-        throw new Error('Cannot delete the built-in source profile');
+    if (id === DEFAULT_LOCAL_PROFILE_ID || id === LegacyModuleSourceCategory.BuiltIn) {
+        throw new Error('Cannot delete the default local source profile');
     }
 
     const profiles = loadSourceProfiles();

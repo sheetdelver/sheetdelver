@@ -73,7 +73,7 @@ function buildCardEntries(modules: ModuleLifecycleInfo[]): CardEntry[] {
             const managedEnabled = mod.managedEnabled ?? (mod.activeSource === ModuleSourceCategory.Managed ? mod.enabled : false);
 
             const localState = mod.sourceStates?.local;
-            const dataState = mod.sourceStates?.data;
+            const managedState = mod.sourceStates?.managed;
 
             entries.push({
                 key: `${mod.moduleId}-local`,
@@ -87,18 +87,18 @@ function buildCardEntries(modules: ModuleLifecycleInfo[]): CardEntry[] {
                 validation: localState?.validation as ModuleLifecycleInfo['validation'],
             });
             entries.push({
-                key: `${mod.moduleId}-data`,
+                key: `${mod.moduleId}-managed`,
                 mod,
                 cardSource: ModuleSourceCategory.Managed,
                 sourceEnabled: managedEnabled,
                 otherSourceEnabled: localEnabled,
-                status: dataState?.status || 'discovered',
-                reason: dataState?.reason,
-                health: dataState?.health,
-                validation: dataState?.validation as ModuleLifecycleInfo['validation'],
+                status: managedState?.status || 'discovered',
+                reason: managedState?.reason,
+                health: managedState?.health,
+                validation: managedState?.validation as ModuleLifecycleInfo['validation'],
             });
         } else {
-            // Single-source (only local, only managed, or built-in system module)
+            // Single-source (only local or only managed)
             entries.push({
                 key: mod.moduleId,
                 mod,
@@ -264,7 +264,7 @@ function ModuleCard({
 }: ModuleCardProps) {
     const { mod, cardSource, sourceEnabled, otherSourceEnabled, status, health } = entry;
     const isLocal = cardSource === ModuleSourceCategory.Local;
-    const isData  = cardSource === ModuleSourceCategory.Managed;
+    const isManaged = cardSource === ModuleSourceCategory.Managed;
     const blockedByOther = !sourceEnabled && otherSourceEnabled;
 
     // Card border/background reflects this source's enabled state.
@@ -296,18 +296,17 @@ function ModuleCard({
                                 Local Dev
                             </span>
                         )}
-                        {isData && mod.artifact?.version && (
+                        {isManaged && mod.artifact?.version && (
                             <span className="rounded-full border border-[var(--admin-border)] bg-[var(--admin-surface)] px-2 py-0.5 text-xs font-mono text-[var(--admin-text-muted)]">
                                 v{mod.artifact.version}
                             </span>
                         )}
-                        {/* Single-source cards: show Local Dev when activeSource is local,
-                            System only for built-in modules that are neither local nor managed. */}
+                        {/* Single-source cards: show the active source when it can be inferred. */}
                         {!cardSource && mod.activeSource === ModuleSourceCategory.Local && (
                             <span className="rounded-full border border-purple-500/30 bg-purple-500/10 px-2 py-0.5 text-xs font-medium text-purple-400">Local Dev</span>
                         )}
-                        {!cardSource && !mod.managed && mod.activeSource !== ModuleSourceCategory.Local && (
-                            <span className="rounded-full border border-blue-500/30 bg-blue-500/10 px-2 py-0.5 text-xs font-medium text-blue-400">System</span>
+                        {!cardSource && mod.activeSource === ModuleSourceCategory.Managed && (
+                            <span className="rounded-full border border-[var(--admin-border)] bg-[var(--admin-surface)] px-2 py-0.5 text-xs font-medium text-[var(--admin-text-muted)]">Managed</span>
                         )}
                     </div>
 

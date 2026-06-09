@@ -6,6 +6,7 @@ import {
     createEmptyLifecycleStore,
     getLifecycleRecords,
     loadLifecycleStore,
+    ModuleSourceCategory,
     recordLifecycleRuntimeFailure,
     saveLifecycleStore,
     upsertDiscoveredModule,
@@ -17,11 +18,45 @@ function mkTempStateFilePath() {
 
 export function run() {
     const stateFilePath = mkTempStateFilePath();
+    const legacyStateFilePath = mkTempStateFilePath();
 
     try {
         const initial = loadLifecycleStore(stateFilePath);
         assert.equal(initial.version, 1);
         assert.equal(Object.keys(initial.modules).length, 0);
+
+        fs.writeFileSync(legacyStateFilePath, JSON.stringify({
+            version: 1,
+            modules: {
+                legacy: {
+                    moduleId: 'legacy',
+                    title: 'Legacy',
+                    directory: 'legacy',
+                    activeSource: 'data',
+                    status: 'validated',
+                    enabled: true,
+                    sourceStates: {
+                        data: {
+                            status: 'validated',
+                            enabled: true,
+                            reason: 'old managed source key',
+                        },
+                        'built-in': {
+                            status: 'disabled',
+                            enabled: false,
+                        },
+                    },
+                    firstSeenAt: 1,
+                    lastSeenAt: 1,
+                    updatedAt: 1,
+                },
+            },
+        }), 'utf8');
+        const legacy = loadLifecycleStore(legacyStateFilePath);
+        assert.equal(legacy.modules.legacy.activeSource, ModuleSourceCategory.Managed);
+        assert.equal(legacy.modules.legacy.sourceStates?.managed?.reason, 'old managed source key');
+        assert.equal((legacy.modules.legacy.sourceStates as any)?.data, undefined);
+        assert.equal((legacy.modules.legacy.sourceStates as any)?.['built-in'], undefined);
 
         const store = createEmptyLifecycleStore();
         const created = upsertDiscoveredModule(store, {
@@ -88,6 +123,9 @@ export function run() {
     } finally {
         if (fs.existsSync(stateFilePath)) {
             fs.unlinkSync(stateFilePath);
+        }
+        if (fs.existsSync(legacyStateFilePath)) {
+            fs.unlinkSync(legacyStateFilePath);
         }
     }
 }

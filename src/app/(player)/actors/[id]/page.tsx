@@ -29,7 +29,7 @@ export default function ActorPageRouter({ params }: { params: Promise<{ id: stri
     // giving us an in-page reload of the module UI without a full navigation.
     const [resolveKey, setResolveKey] = useState(0);
     // resolvedSystemIdRef tracks the adapter's systemId (may be 'generic' when module is disabled).
-    // foundrySystemIdRef tracks the real Foundry game system (always e.g. 'dnd5e').
+    // foundrySystemIdRef tracks the real Foundry game system even when the adapter falls back.
     // Socket events carry the moduleId (game system), so we match against foundrySystemIdRef
     // to correctly re-resolve even when the module is currently disabled and showing generic.
     const resolvedSystemIdRef = useRef<string | null>(null);
@@ -43,7 +43,7 @@ export default function ActorPageRouter({ params }: { params: Promise<{ id: stri
             const mod = moduleId.toLowerCase();
             // Match against both the adapter systemId AND the underlying Foundry system.
             // The latter is critical on re-enable: the page may be showing 'generic'
-            // while foundrySystemId is still 'dnd5e', so we need the Foundry ref to match.
+            // while foundrySystemId still points at the game system, so the Foundry ref must match.
             const matches =
                 resolvedSystemIdRef.current?.toLowerCase() === mod ||
                 foundrySystemIdRef.current?.toLowerCase()  === mod;

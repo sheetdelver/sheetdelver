@@ -54,7 +54,7 @@ export function createModuleRouter(deps: ModuleRouterDeps) {
      * window.__SD.* references so the browser's native ESM loader can resolve
      * them without an importmap.
      *
-     * Local dev and built-in modules are loaded through webpack via the generated
+     * Local dev modules are loaded through webpack via the generated
      * @data-registry/module-ui-registry; this endpoint exists specifically for
      * managed modules installed after the Next.js build.
      *
@@ -191,7 +191,7 @@ export function createModuleRouter(deps: ModuleRouterDeps) {
                 url: req.url,
                 headers: req.headers,
                 body: req.body,
-                foundryClient: req.foundryClient,
+                transportClient: req.foundryClient,
                 userSession: req.userSession
             });
 

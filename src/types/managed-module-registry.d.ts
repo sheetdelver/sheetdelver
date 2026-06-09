@@ -11,8 +11,8 @@
  * file to exist at type-check time.
  */
 declare module '@data-registry/module-ui-registry' {
-    /** Loaders for local dev modules (data/local/modules/<id>/module/ui). */
+    /** Loaders for local dev modules (<DATA_DIR>/local/modules/<id>/module/ui). */
     export const localModuleUIs: Record<string, () => Promise<any>>;
-    /** Loaders for managed install modules (data/modules/<id>/dist/ui or module/ui). */
+    /** Legacy static map for managed installs. Intentionally empty; runtime ESM handles managed UI. */
     export const dataModuleUIs: Record<string, () => Promise<any>>;
 }

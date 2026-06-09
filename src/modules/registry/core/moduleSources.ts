@@ -264,17 +264,16 @@ export function enableModule(moduleId: string, source?: ModuleSourceCategory): b
 
 /**
  * Returns a map of moduleId → activeSource for all discovered modules.
- * ModuleSourceCategory.Local means the dev source in data/local/modules is active;
- * ModuleSourceCategory.Managed means the managed install in data/modules is active;
- * ModuleSourceCategory.BuiltIn means the module lives in <DATA_DIR>/modules.
- * Used by the client's getUIModule to pick the correct import alias.
+ * ModuleSourceCategory.Local means the dev source in <DATA_DIR>/local/modules is active;
+ * ModuleSourceCategory.Managed means the managed install in <DATA_DIR>/modules is active.
+ * Used by the client's getUIModule to choose local bundled source or runtime ESM.
  */
 export function getModuleActiveSources(): Record<string, ModuleSourceCategory> {
     const result: Record<string, ModuleSourceCategory> = {};
     for (const [id, plugin] of pluginMap.entries()) {
         const record = lifecycleStore.modules[id];
         const activeSource = record?.activeSource ?? plugin.source;
-        if (activeSource === ModuleSourceCategory.Local || activeSource === ModuleSourceCategory.Managed || activeSource === ModuleSourceCategory.BuiltIn) {
+        if (activeSource === ModuleSourceCategory.Local || activeSource === ModuleSourceCategory.Managed) {
             result[id] = activeSource;
         }
     }

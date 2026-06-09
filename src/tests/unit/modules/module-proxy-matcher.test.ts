@@ -82,7 +82,7 @@ export async function run() {
 
     const missingSession = await service.dispatchModuleRoute({
         ...baseRequest,
-        foundryClient: makeClient('user-1'),
+        transportClient: makeClient('user-1'),
     });
     assert.equal(missingSession.status, 403);
     assert.match((missingSession.payload as { error: string }).error, /Foundry user session/);
@@ -90,7 +90,7 @@ export async function run() {
 
     const mismatchedSession = await service.dispatchModuleRoute({
         ...baseRequest,
-        foundryClient: makeClient('transport-user'),
+        transportClient: makeClient('transport-user'),
         userSession: { userId: 'session-user', username: 'Session User', client: makeClient('session-user') },
     });
     assert.equal(mismatchedSession.status, 403);
@@ -99,7 +99,7 @@ export async function run() {
 
     const ok = await service.dispatchModuleRoute({
         ...baseRequest,
-        foundryClient: makeClient('user-1'),
+        transportClient: makeClient('user-1'),
         userSession: { userId: 'user-1', username: 'User One', client: makeClient('user-1') },
     });
     assert.equal(ok.status, 201);

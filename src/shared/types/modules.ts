@@ -1,15 +1,23 @@
 /**
  * Category labels for module sources.
- * Used to distinguish between built-in modules, managed data-directory modules,
- * and local developer overrides.
+ * Used to distinguish managed installs from local developer overrides.
  */
 export const ModuleSourceCategory = {
     Local: 'local',
-    Managed: 'data',
-    BuiltIn: 'built-in'
+    Managed: 'managed',
 } as const;
 
 export type ModuleSourceCategory = typeof ModuleSourceCategory[keyof typeof ModuleSourceCategory];
+
+/** Legacy persisted source key used before managed installs were renamed. */
+export const LegacyModuleSourceCategory = {
+    ManagedData: 'data',
+    BuiltIn: 'built-in',
+} as const;
+
+export const SourceProfileId = {
+    LocalDefault: 'local-default',
+} as const;
 
 /**
  * Origin types for module distribution.
