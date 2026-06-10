@@ -11,6 +11,8 @@ declare global {
     namespace Express {
         interface Request {
             adminSession?: AdminSessionClaims;
+            /** Raw admin session token as presented, retained so routes (e.g. logout) can revoke it. */
+            adminSessionToken?: string;
         }
     }
 }
@@ -131,9 +133,25 @@ export function requireAdminAuth(req: Request, res: Response, next: NextFunction
             return;
         }
 
+        // Session-store presence check: a structurally valid token must still
+        // correspond to an active (non-revoked) session. This is what makes
+        // revokeSession/revokeAllForAdmin authoritative — password reset and
+        // logout immediately stop the affected tokens from authenticating
+        // (ADR-0029 Phase 1). Stateless parsing alone is not sufficient.
+        const activeSession = adminSessionManager.getSession(token);
+        if (!activeSession) {
+            logger.debug('Admin auth: token structurally valid but session revoked or unknown');
+            res.status(401).json({
+                error: 'Admin authentication failed',
+                reason: 'Session has been revoked or is no longer active',
+            });
+            return;
+        }
+
         // Attach claims to request for downstream handlers
-        req.adminSession = claims;
-        logger.debug(`Admin auth: authenticated as ${claims.adminId}`);
+        req.adminSession = activeSession;
+        req.adminSessionToken = token;
+        logger.debug(`Admin auth: authenticated as ${activeSession.adminId}`);
         next();
     } catch (error) {
         logger.error('Admin auth middleware error', error);

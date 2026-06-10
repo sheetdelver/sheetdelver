@@ -270,7 +270,10 @@ export function registerAdminModuleRoutes(opts: RegisterAdminModuleRoutesOptions
      */
     adminRouter.post(
         '/lifecycle/:moduleId/switch-source',
-        requireAdminAccountExists, requireAdminAuth,
+        requireAdminAccountExists,
+        requireAdminAuth,
+        requireAdminCsrf,
+        auditAdminAction,
         async (req, res) => {
             try {
                 const moduleId = String(req.params.moduleId);
@@ -593,8 +596,8 @@ export function registerAdminModuleRoutes(opts: RegisterAdminModuleRoutesOptions
 
     adminRouter.get('/sources', requireAdminAccountExists, requireAdminAuth, async (req, res) => {
         try {
-            const { loadSourceProfiles } = await import('@modules/registry/distribution/sourceProfiles');
-            res.json({ success: true, profiles: loadSourceProfiles() });
+            const { loadSourceProfiles, redactSourceProfile } = await import('@modules/registry/distribution/sourceProfiles');
+            res.json({ success: true, profiles: loadSourceProfiles().map(redactSourceProfile) });
         } catch (error: unknown) {
             res.status(500).json({ error: getErrorMessage(error) });
         }
@@ -602,9 +605,9 @@ export function registerAdminModuleRoutes(opts: RegisterAdminModuleRoutesOptions
 
     adminRouter.post('/sources', requireAdminAccountExists, requireAdminAuth, requireAdminCsrf, auditAdminAction, async (req, res) => {
         try {
-            const { createSourceProfile } = await import('@modules/registry/distribution/sourceProfiles');
+            const { createSourceProfile, redactSourceProfile } = await import('@modules/registry/distribution/sourceProfiles');
             const { isHostAllowed } = await import('@modules/registry/security/sourceGovernance');
-            
+
             const profile = req.body;
             if (!profile || !profile.baseUrl) {
                 return res.status(400).json({ error: 'baseUrl is required' });
@@ -617,7 +620,7 @@ export function registerAdminModuleRoutes(opts: RegisterAdminModuleRoutesOptions
             }
 
             const created = createSourceProfile(profile);
-            res.json({ success: true, profile: created });
+            res.json({ success: true, profile: redactSourceProfile(created) });
         } catch (error: unknown) {
             res.status(500).json({ error: getErrorMessage(error) });
         }
@@ -625,7 +628,7 @@ export function registerAdminModuleRoutes(opts: RegisterAdminModuleRoutesOptions
 
     adminRouter.put('/sources/:id', requireAdminAccountExists, requireAdminAuth, requireAdminCsrf, auditAdminAction, async (req, res) => {
         try {
-            const { updateSourceProfile } = await import('@modules/registry/distribution/sourceProfiles');
+            const { updateSourceProfile, redactSourceProfile } = await import('@modules/registry/distribution/sourceProfiles');
             const { isHostAllowed } = await import('@modules/registry/security/sourceGovernance');
 
             const id = req.params.id as string;
@@ -644,7 +647,7 @@ export function registerAdminModuleRoutes(opts: RegisterAdminModuleRoutesOptions
                 return res.status(404).json({ error: 'Source profile not found' });
             }
 
-            res.json({ success: true, profile: updated });
+            res.json({ success: true, profile: redactSourceProfile(updated) });
         } catch (error: unknown) {
             res.status(500).json({ error: getErrorMessage(error) });
         }

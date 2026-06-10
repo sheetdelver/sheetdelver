@@ -16,8 +16,8 @@ import { fetchAuditLog, type AdminAuditEvent } from '../lib/adminApi';
 /** Default number of events to fetch per page. */
 const PAGE_SIZE = 25;
 
-/** Formats a unix timestamp to a locale-friendly date/time string. */
-function formatTimestamp(ts: number): string {
+/** Formats an ISO-8601 timestamp to a locale-friendly date/time string. */
+function formatTimestamp(ts: string): string {
     return new Date(ts).toLocaleString();
 }
 

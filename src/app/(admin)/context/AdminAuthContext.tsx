@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import { logger } from '@shared/utils/logger';
-import { adminApiPath } from '../lib/adminApi';
+import { adminApiPath, postLogout } from '../lib/adminApi';
 
 interface AdminAuthContextType {
   token: string | null;
@@ -198,6 +198,10 @@ export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   const logout = useCallback(() => {
+    // Revoke the session server-side first so the token cannot be replayed,
+    // then clear local state. Fire-and-forget: local cleanup happens regardless
+    // of whether the network call succeeds.
+    void postLogout().catch((err) => logger.warn('Server-side logout failed; clearing local state anyway', err));
     setToken(null);
     setCsrfToken(null);
     localStorage.removeItem('admin-token');

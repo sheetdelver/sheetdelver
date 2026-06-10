@@ -22,6 +22,26 @@ function requireAdminAccountExists(_req: unknown, _res: unknown, next: () => voi
     next();
 }
 
+/**
+ * Asserts a mutation route carries the full admin protection chain
+ * (auth -> csrf -> audit). Identifies middleware by function name, which matches
+ * the exported identifiers `requireAdminAuth`, `requireAdminCsrf`, `auditAdminAction`.
+ * Guards ADR-0029 Phase 2: no privileged mutation may skip CSRF or audit.
+ */
+function assertMutationChain(
+    routeMap: ReturnType<typeof createRouteMap>,
+    method: 'post' | 'put' | 'delete',
+    path: string,
+): void {
+    const registrations = routeMap[method].get(path);
+    assert.ok(registrations?.length, `expected ${method.toUpperCase()} ${path} to be registered`);
+    const chain = registrations[registrations.length - 1];
+    const names = chain.map((h) => h.name);
+    assert.ok(names.includes('requireAdminAuth'), `${method.toUpperCase()} ${path} must require admin auth`);
+    assert.ok(names.includes('requireAdminCsrf'), `${method.toUpperCase()} ${path} must enforce CSRF`);
+    assert.ok(names.includes('auditAdminAction'), `${method.toUpperCase()} ${path} must record an audit event`);
+}
+
 function seedSystemState(): void {
     worldStateStore.seed({
         world: { id: 'world-1', title: 'World One', system: 'synthetic' },
@@ -107,7 +127,18 @@ async function runAdminAuthRouteSmokeTests() {
     assert.equal(routeMap.post.has('/auth/setup'), true);
     assert.equal(routeMap.post.has('/auth/login'), true);
     assert.equal(routeMap.post.has('/auth/reset'), true);
+    assert.equal(routeMap.post.has('/auth/logout'), true);
     assert.equal(routeMap.get.has('/auth/status'), true);
+
+    // Logout is an authenticated mutation; it must carry the full protection chain.
+    assertMutationChain(routeMap, 'post', '/auth/logout');
+
+    // Credential-sensitive endpoints must be rate-limited (ADR-0029 Phase 3).
+    // The limiter is the exact handler passed in, so assert by reference.
+    for (const path of ['/auth/login', '/auth/setup', '/auth/reset']) {
+        const chain = routeMap.post.get(path)?.at(-1);
+        assert.ok(chain?.includes(adminLoginLimiter), `${path} must be rate-limited`);
+    }
 }
 
 async function runAdminWorldRouteSmokeTests() {
@@ -124,6 +155,11 @@ async function runAdminWorldRouteSmokeTests() {
     assert.equal(routeMap.post.has('/world/launch'), true);
     assert.equal(routeMap.post.has('/world/shutdown'), true);
     assert.equal(routeMap.post.has('/world/retry'), true);
+
+    // World control mutations must carry the full protection chain (ADR-0029 Phase 2).
+    assertMutationChain(routeMap, 'post', '/world/launch');
+    assertMutationChain(routeMap, 'post', '/world/shutdown');
+    assertMutationChain(routeMap, 'post', '/world/retry');
 
     const launchRes = await invokeHandler(
         getLastHandler(routeMap, 'post', '/world/launch'),
@@ -174,6 +210,20 @@ async function runAdminModuleRouteSmokeTests() {
     assert.equal(routeMap.put.has('/sources/:id'), true);
     assert.equal(routeMap.delete.has('/sources/:id'), true);
     assert.equal(routeMap.post.has('/server/restart'), true);
+
+    // Every module-lifecycle / source / restart mutation must carry the full
+    // protection chain. switch-source was previously missing CSRF + audit (ADR-0029 Phase 2).
+    assertMutationChain(routeMap, 'post', '/lifecycle/:moduleId/enable');
+    assertMutationChain(routeMap, 'post', '/lifecycle/:moduleId/disable');
+    assertMutationChain(routeMap, 'post', '/lifecycle/:moduleId/switch-source');
+    assertMutationChain(routeMap, 'post', '/manager/:moduleId/install');
+    assertMutationChain(routeMap, 'post', '/manager/:moduleId/uninstall');
+    assertMutationChain(routeMap, 'post', '/manager/:moduleId/upgrade');
+    assertMutationChain(routeMap, 'post', '/manager/:moduleId/validate');
+    assertMutationChain(routeMap, 'post', '/sources');
+    assertMutationChain(routeMap, 'put', '/sources/:id');
+    assertMutationChain(routeMap, 'delete', '/sources/:id');
+    assertMutationChain(routeMap, 'post', '/server/restart');
 
     const invalidSourceRes = await invokeHandler(
         getLastHandler(routeMap, 'post', '/lifecycle/:moduleId/switch-source'),

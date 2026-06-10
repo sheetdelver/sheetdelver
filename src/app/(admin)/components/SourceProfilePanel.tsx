@@ -31,7 +31,16 @@ export default function SourceProfilePanel({
     const [showAddForm, setShowAddForm] = useState(false);
     const [newUrl, setNewUrl] = useState('');
     const [newName, setNewName] = useState('');
+    const [newToken, setNewToken] = useState('');
     const [creating, setCreating] = useState(false);
+
+    // Edit form state (single profile edited at a time)
+    const [editingId, setEditingId] = useState<string | null>(null);
+    const [editName, setEditName] = useState('');
+    const [editUrl, setEditUrl] = useState('');
+    const [editPriority, setEditPriority] = useState(0);
+    const [editToken, setEditToken] = useState('');
+    const [savingEdit, setSavingEdit] = useState(false);
 
     // Per-profile state
     const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
@@ -60,23 +69,60 @@ export default function SourceProfilePanel({
     const handleCreate = async () => {
         if (!newUrl.trim()) return;
         setCreating(true);
+        const token = newToken.trim();
         const result = await createSourceProfile({
             name: newName.trim() || 'New Source',
             baseUrl: newUrl.trim(),
             kind: newUrl.startsWith('index://') || newUrl.startsWith('http') ? ModuleSourceKind.Indexed : ModuleSourceKind.Local,
             enabled: true,
             priority: profiles.length > 0 ? profiles[profiles.length - 1].priority + 10 : 10,
+            ...(token ? { auth: { type: 'bearer' as const, token } } : {}),
         });
         if (result.ok) {
             setShowAddForm(false);
             setNewUrl('');
             setNewName('');
+            setNewToken('');
             loadProfiles();
             addToast('Source profile created.', 'success');
         } else {
             addToast(result.error || 'Failed to create source profile.', 'error');
         }
         setCreating(false);
+    };
+
+    const startEdit = (profile: SourceProfile) => {
+        setEditingId(profile.id);
+        setEditName(profile.name);
+        setEditUrl(profile.baseUrl);
+        setEditPriority(profile.priority);
+        setEditToken(''); // write-only: blank means "leave token unchanged"
+        setDeleteConfirmId(null);
+    };
+
+    const cancelEdit = () => {
+        setEditingId(null);
+        setEditToken('');
+    };
+
+    const handleSaveEdit = async (profile: SourceProfile) => {
+        setSavingEdit(true);
+        const token = editToken.trim();
+        const result = await updateSourceProfile(profile.id, {
+            name: editName.trim() || profile.name,
+            baseUrl: editUrl.trim() || profile.baseUrl,
+            priority: Number.isFinite(editPriority) ? editPriority : profile.priority,
+            // Only send a token when one was typed — blank leaves existing auth untouched.
+            ...(token ? { auth: { type: 'bearer' as const, token } } : {}),
+        });
+        if (result.ok) {
+            cancelEdit();
+            loadProfiles();
+            addToast('Source profile updated.', 'success');
+        } else {
+            addToast(result.error || 'Failed to update source profile.', 'error');
+        }
+        setSavingEdit(false);
     };
 
     const handleToggleEnable = async (profile: SourceProfile) => {
@@ -131,10 +177,21 @@ export default function SourceProfilePanel({
         setBrowseLoading(false);
     };
 
-    const handleInstall = async (moduleId: string) => {
+    /**
+     * Build a source ref scoped to a specific profile. `index://<host>` resolves
+     * against only the matching profile's index, whereas a bare `index://`
+     * aggregates every enabled indexed source by global priority (ADR-0029 Phase 4).
+     */
+    const sourceRefForProfile = (profile: SourceProfile): string => {
+        if (profile.kind !== ModuleSourceKind.Indexed) return 'index://';
+        const host = profile.baseUrl.replace(/^https?:\/\//, '').replace(/^index:\/\//, '');
+        return host ? `index://${host}` : 'index://';
+    };
+
+    const handleInstall = async (moduleId: string, profile: SourceProfile) => {
         setInstallingId(moduleId);
         try {
-            const result = await postManagerAction(moduleId, 'install', { source: 'index://' });
+            const result = await postManagerAction(moduleId, 'install', { source: sourceRefForProfile(profile) });
             if (result.ok) {
                 addToast(`${moduleId} installed successfully.`, 'success');
                 if (onModuleInstalled) onModuleInstalled();
@@ -187,6 +244,14 @@ export default function SourceProfilePanel({
                             onChange={e => setNewName(e.target.value)}
                             className="w-full rounded-xl border border-[var(--admin-border)] bg-[var(--admin-surface-hover)] px-3 py-2 text-sm text-[var(--admin-text-primary)] placeholder-[var(--admin-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--admin-accent)]"
                         />
+                        <input
+                            type="password"
+                            placeholder="Bearer auth token (optional, for private registries)"
+                            value={newToken}
+                            onChange={e => setNewToken(e.target.value)}
+                            autoComplete="off"
+                            className="w-full rounded-xl border border-[var(--admin-border)] bg-[var(--admin-surface-hover)] px-3 py-2 text-sm text-[var(--admin-text-primary)] placeholder-[var(--admin-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--admin-accent)]"
+                        />
                     </div>
                     <div className="flex gap-2 justify-end">
                         <button
@@ -220,10 +285,67 @@ export default function SourceProfilePanel({
                                     {!profile.enabled && (
                                         <span className="rounded-full border border-[var(--admin-danger-border)] bg-[var(--admin-danger-bg)] px-2 py-0.5 text-xs text-[var(--admin-danger-text)]">Disabled</span>
                                     )}
+                                    {profile.auth?.configured && (
+                                        <span className="rounded-full border border-[var(--admin-border)] bg-[var(--admin-surface-hover)] px-2 py-0.5 text-xs text-[var(--admin-text-muted)]">🔒 Auth</span>
+                                    )}
                                 </div>
                                 <code className="text-xs text-[var(--admin-text-secondary)] break-all font-mono">
                                     {profile.baseUrl}
                                 </code>
+
+                                {/* Inline edit form */}
+                                {editingId === profile.id && (
+                                    <div className="mt-3 space-y-2 rounded-xl border border-[var(--admin-border)] bg-[var(--admin-surface-hover)] p-3">
+                                        <h4 className="text-xs font-bold uppercase tracking-wider text-[var(--admin-text-muted)]">Edit Source Profile</h4>
+                                        <input
+                                            type="text"
+                                            placeholder="Display name"
+                                            value={editName}
+                                            onChange={e => setEditName(e.target.value)}
+                                            className="w-full rounded-xl border border-[var(--admin-border)] bg-[var(--admin-surface)] px-3 py-2 text-sm text-[var(--admin-text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--admin-accent)]"
+                                        />
+                                        <input
+                                            type="text"
+                                            placeholder="URL"
+                                            value={editUrl}
+                                            onChange={e => setEditUrl(e.target.value)}
+                                            className="w-full rounded-xl border border-[var(--admin-border)] bg-[var(--admin-surface)] px-3 py-2 text-sm text-[var(--admin-text-primary)] font-mono focus:outline-none focus:ring-1 focus:ring-[var(--admin-accent)]"
+                                        />
+                                        <label className="flex items-center gap-2 text-xs text-[var(--admin-text-secondary)]">
+                                            Priority
+                                            <input
+                                                type="number"
+                                                value={editPriority}
+                                                onChange={e => setEditPriority(parseInt(e.target.value, 10))}
+                                                className="w-24 rounded-xl border border-[var(--admin-border)] bg-[var(--admin-surface)] px-3 py-1.5 text-sm text-[var(--admin-text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--admin-accent)]"
+                                            />
+                                        </label>
+                                        <input
+                                            type="password"
+                                            placeholder={profile.auth?.configured ? 'Bearer token (leave blank to keep existing)' : 'Bearer auth token (optional)'}
+                                            value={editToken}
+                                            onChange={e => setEditToken(e.target.value)}
+                                            autoComplete="off"
+                                            className="w-full rounded-xl border border-[var(--admin-border)] bg-[var(--admin-surface)] px-3 py-2 text-sm text-[var(--admin-text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--admin-accent)]"
+                                        />
+                                        <div className="flex justify-end gap-2 pt-1">
+                                            <button
+                                                onClick={cancelEdit}
+                                                disabled={savingEdit}
+                                                className="rounded-xl border border-[var(--admin-border)] bg-[var(--admin-surface)] px-3 py-1.5 text-xs text-[var(--admin-text-secondary)] transition hover:bg-[var(--admin-surface-hover)] disabled:opacity-50"
+                                            >
+                                                Cancel
+                                            </button>
+                                            <button
+                                                onClick={() => handleSaveEdit(profile)}
+                                                disabled={savingEdit}
+                                                className="rounded-xl bg-[var(--admin-accent)] px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-[var(--admin-accent-strong)] disabled:opacity-50"
+                                            >
+                                                {savingEdit ? 'Saving…' : 'Save'}
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
 
                                 {/* Inline delete confirmation */}
                                 {deleteConfirmId === profile.id && (
@@ -265,6 +387,12 @@ export default function SourceProfilePanel({
                                 )}
                                 {profile.id !== SourceProfileId.LocalDefault && (
                                     <>
+                                        <button
+                                            onClick={() => (editingId === profile.id ? cancelEdit() : startEdit(profile))}
+                                            className="rounded-2xl border border-[var(--admin-border)] bg-[var(--admin-surface)] px-3 py-1.5 text-sm text-[var(--admin-text-secondary)] transition hover:bg-[var(--admin-surface-hover)]"
+                                        >
+                                            {editingId === profile.id ? 'Close' : 'Edit'}
+                                        </button>
                                         <button
                                             onClick={() => handleToggleEnable(profile)}
                                             className={`rounded-2xl px-3 py-1.5 text-sm font-medium transition border ${
@@ -316,7 +444,7 @@ export default function SourceProfilePanel({
                                                             <div className="text-xs text-[var(--admin-text-muted)] font-mono">{modId} · v{modInfo.latestVersion}</div>
                                                         </div>
                                                         <button
-                                                            onClick={() => handleInstall(modId)}
+                                                            onClick={() => handleInstall(modId, profile)}
                                                             disabled={installingId === modId}
                                                             className={`rounded-2xl px-3 py-1.5 text-xs font-semibold transition disabled:opacity-50 ${btnClass}`}
                                                         >

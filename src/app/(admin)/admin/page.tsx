@@ -17,7 +17,6 @@ import ModuleLifecycleControl from '../components/ModuleLifecycleControl';
 import AuditLogViewer from '../components/AuditLogViewer';
 import CacheInfoPanel from '../components/CacheInfoPanel';
 import SourceProfilePanel from '../components/SourceProfilePanel';
-import RestartModal from '../components/RestartModal';
 import { type ModuleLifecycleInfo } from '../lib/adminApi';
 
 /** Chevron icon for collapsible section headers. */
@@ -77,10 +76,6 @@ export default function AdminPage() {
         setInstalledModules(modules);
     }, []);
 
-    // Manual restart state — no operations auto-trigger this; it can be wired to
-    // a dedicated "Restart Server" button in the future if needed.
-    const [restartOperation, setRestartOperation] = useState<string | null>(null);
-
     // ─── Loading state ─────────────────────────────────────────────
 
     if (loading) {
@@ -103,14 +98,6 @@ export default function AdminPage() {
 
     return (
         <main className="admin-screen min-h-screen">
-            {/* Modal restart prompt — appears after install/upgrade/uninstall */}
-            {restartOperation && (
-                <RestartModal
-                    operation={restartOperation}
-                    onDismiss={() => setRestartOperation(null)}
-                />
-            )}
-
             <div className="mx-auto max-w-5xl p-6">
                 {/* Header */}
                 <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">

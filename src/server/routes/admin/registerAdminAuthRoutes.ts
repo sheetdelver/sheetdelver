@@ -21,6 +21,8 @@ import {
 } from '@server/security/adminSessionService';
 import { getConfig } from '@server/core/config';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
+import { requireAdminAuth, auditAdminAction } from '@server/middleware/requireAdminAuth';
+import { requireAdminCsrf } from '@server/middleware/requireAdminCsrf';
 import type { AdminLoginRequest } from '@server/security/types/admin-auth.types';
 
 export interface RegisterAdminAuthRoutesOptions {
@@ -42,7 +44,7 @@ export function registerAdminAuthRoutes(opts: RegisterAdminAuthRoutesOptions): v
      * Requires one-time setup token from config/env.
      * Localhost-only.
      */
-    adminRouter.post('/auth/setup', async (req, res) => {
+    adminRouter.post('/auth/setup', adminLoginLimiter, async (req, res) => {
         try {
             const existingAccount = await loadAdminAccount();
             if (existingAccount) {
@@ -164,7 +166,7 @@ export function registerAdminAuthRoutes(opts: RegisterAdminAuthRoutesOptions): v
      * Local recovery endpoint to reset admin password and revoke all active sessions.
      * Requires the configured bootstrap/reset token and a new password.
      */
-    adminRouter.post('/auth/reset', requireAdminAccountExists, async (req, res) => {
+    adminRouter.post('/auth/reset', adminLoginLimiter, requireAdminAccountExists, async (req, res) => {
         try {
             const config = getConfig();
             const setupToken = config.security.adminSetupToken;
@@ -206,6 +208,32 @@ export function registerAdminAuthRoutes(opts: RegisterAdminAuthRoutesOptions): v
             res.status(500).json({ error: getErrorMessage(error) });
         }
     });
+
+    /**
+     * POST /admin/auth/logout
+     * Revoke the caller's admin session server-side. Client-side state clearing
+     * alone leaves the token valid until expiry; this makes logout authoritative
+     * (ADR-0029 Phase 2). Requires a valid admin session and CSRF for browser callers.
+     */
+    adminRouter.post(
+        '/auth/logout',
+        requireAdminAccountExists,
+        requireAdminAuth,
+        requireAdminCsrf,
+        auditAdminAction,
+        async (req, res) => {
+            try {
+                if (req.adminSessionToken) {
+                    adminSessionManager.revokeSession(req.adminSessionToken);
+                    logger.info(`Admin ${req.adminSession?.adminId ?? 'unknown'} logged out (session revoked)`);
+                }
+                res.json({ success: true, message: 'Logged out. Session revoked.' });
+            } catch (error: unknown) {
+                logger.error('Admin logout failed', error);
+                res.status(500).json({ error: getErrorMessage(error) });
+            }
+        }
+    );
 
     /**
      * GET /admin/auth/status

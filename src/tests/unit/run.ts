@@ -80,6 +80,7 @@ import { run as runAdminAuthMiddleware } from './admin/admin-auth-middleware.tes
 import { run as runAdminCsrfMiddleware } from './admin/admin-csrf-middleware.test';
 import { run as runAdminRateLimiter } from './admin/admin-rate-limiter.test';
 import { run as runAdminAuditLog } from './admin/admin-audit-log.test';
+import { run as runSourceProfileRedaction } from './admin/source-profile-redaction.test';
 
 // ── modules ───────────────────────────────────────────────────────────────────
 import { run as runModuleProxyMatcher } from './modules/module-proxy-matcher.test';
@@ -183,6 +184,7 @@ async function runAllUnitTests() {
     await runAdminCsrfMiddleware();
     await runAdminRateLimiter();
     await runAdminAuditLog();
+    await runSourceProfileRedaction();
     runModuleLifecycleTransitions();
     await runModuleManagerOperations();
     await runModuleManagerGovernance();

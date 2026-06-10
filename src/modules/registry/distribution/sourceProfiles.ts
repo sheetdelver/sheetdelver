@@ -9,6 +9,22 @@ export interface SourceProfileAuth {
     token: string;
 }
 
+/**
+ * Source profile with the secret `auth.token` removed for outbound responses.
+ * Callers learn that auth is configured without the cleartext token ever leaving
+ * the server (ADR-0029 Phase 3).
+ */
+export type RedactedSourceProfile = Omit<SourceProfile, 'auth'> & {
+    auth?: { type: SourceProfileAuth['type']; configured: true };
+};
+
+/** Strips `auth.token` from a profile, preserving the fact that auth is configured. */
+export function redactSourceProfile(profile: SourceProfile): RedactedSourceProfile {
+    const { auth, ...rest } = profile;
+    if (!auth) return rest;
+    return { ...rest, auth: { type: auth.type, configured: true } };
+}
+
 export interface SourceProfile {
     id: string;
     name: string;
@@ -92,6 +108,16 @@ export function saveSourceProfiles(profiles: SourceProfile[]): void {
     const filePath = getProfilesFilePath();
     try {
         fs.writeFileSync(filePath, JSON.stringify(profiles, null, 2), 'utf8');
+        // sources.json can hold bearer tokens; restrict to owner read/write where
+        // the OS supports it, matching the admin-auth/audit security-file posture
+        // (ADR-0029 Phase 3). Non-fatal on failure (e.g. Windows).
+        if (process.platform !== 'win32') {
+            try {
+                fs.chmodSync(filePath, 0o600);
+            } catch (permError) {
+                logger.warn(`Failed to set restrictive permissions on ${filePath}`, permError);
+            }
+        }
         _profilesCache = profiles;
         _profilesCache.sort((a, b) => a.priority - b.priority);
     } catch (error) {

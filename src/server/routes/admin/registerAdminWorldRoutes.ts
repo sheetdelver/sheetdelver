@@ -18,28 +18,40 @@ export interface RegisterAdminWorldRoutesOptions {
 export function registerAdminWorldRoutes(opts: RegisterAdminWorldRoutesOptions): void {
     const { adminRouter, adminService, requireAdminAccountExists } = opts;
 
-    // Apply auth middleware to mutation endpoints. Order: localhost (mounted
-    // on the router upstream) -> account exists -> admin auth -> csrf -> audit.
-    adminRouter.post('/world/launch', requireAdminAccountExists, requireAdminAuth, requireAdminCsrf, auditAdminAction);
-    adminRouter.post('/world/shutdown', requireAdminAccountExists, requireAdminAuth, requireAdminCsrf, auditAdminAction);
-
-    adminRouter.post('/world/launch', async (req, res) => {
-        try {
-            const payload = await adminService.launchWorld(req.body?.worldId);
-            res.json(payload);
-        } catch (error: unknown) {
-            res.status(500).json({ error: getErrorMessage(error) });
+    // Each mutation endpoint is registered once with its full middleware chain
+    // inline. Order: localhost (mounted on the router upstream) -> account exists
+    // -> admin auth -> csrf -> audit -> handler.
+    adminRouter.post(
+        '/world/launch',
+        requireAdminAccountExists,
+        requireAdminAuth,
+        requireAdminCsrf,
+        auditAdminAction,
+        async (req, res) => {
+            try {
+                const payload = await adminService.launchWorld(req.body?.worldId);
+                res.json(payload);
+            } catch (error: unknown) {
+                res.status(500).json({ error: getErrorMessage(error) });
+            }
         }
-    });
+    );
 
-    adminRouter.post('/world/shutdown', async (req, res) => {
-        try {
-            const payload = await adminService.shutdownWorld();
-            res.json(payload);
-        } catch (error: unknown) {
-            res.status(500).json({ error: getErrorMessage(error) });
+    adminRouter.post(
+        '/world/shutdown',
+        requireAdminAccountExists,
+        requireAdminAuth,
+        requireAdminCsrf,
+        auditAdminAction,
+        async (req, res) => {
+            try {
+                const payload = await adminService.shutdownWorld();
+                res.json(payload);
+            } catch (error: unknown) {
+                res.status(500).json({ error: getErrorMessage(error) });
+            }
         }
-    });
+    );
 
     // Manual retry endpoint for world connection/bootstrap (admin only)
     adminRouter.post('/world/retry', requireAdminAccountExists, requireAdminAuth, requireAdminCsrf, auditAdminAction, async (req, res) => {

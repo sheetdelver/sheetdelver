@@ -150,6 +150,36 @@ async function runAdminAuthMiddlewareTests(): Promise<void> {
     requireAdminAuth(req7, res7 as unknown as Response, next7);
     assert.equal(nextCalled7, true, 'Token via custom header should call next()');
 
+    // Test 8: Revoked session (revokeSession) rejected even though token is structurally valid
+    console.log('  Test 8: Revoked session rejected (ADR-0029 Phase 1)');
+    const revokeClaims = createAdminSessionClaims('revoke-admin', 15 * 60 * 1000);
+    const revokeToken = adminSessionManager.storeSession(revokeClaims);
+    // Sanity: it authenticates before revocation.
+    const reqPre = createRequestStub(`Bearer ${revokeToken}`);
+    let nextPre = false;
+    requireAdminAuth(reqPre, createResponseStub() as unknown as Response, () => { nextPre = true; });
+    assert.equal(nextPre, true, 'Stored session should authenticate before revocation');
+    // Revoke and re-check.
+    adminSessionManager.revokeSession(revokeToken);
+    const req8 = createRequestStub(`Bearer ${revokeToken}`);
+    const res8 = createResponseStub();
+    let nextCalled8 = false;
+    requireAdminAuth(req8, res8 as unknown as Response, () => { nextCalled8 = true; });
+    assert.equal(nextCalled8, false, 'Revoked session should not call next()');
+    assert.equal(res8.statusCode, 401, 'Should return 401 for a revoked session');
+
+    // Test 9: revokeAllForAdmin (password-reset path) invalidates issued tokens
+    console.log('  Test 9: revokeAllForAdmin rejects issued tokens (reset guarantee)');
+    const resetClaims = createAdminSessionClaims('reset-admin', 15 * 60 * 1000);
+    const resetToken = adminSessionManager.storeSession(resetClaims);
+    adminSessionManager.revokeAllForAdmin('reset-admin');
+    const req9 = createRequestStub(`Bearer ${resetToken}`);
+    const res9 = createResponseStub();
+    let nextCalled9 = false;
+    requireAdminAuth(req9, res9 as unknown as Response, () => { nextCalled9 = true; });
+    assert.equal(nextCalled9, false, 'Reset-revoked session should not call next()');
+    assert.equal(res9.statusCode, 401, 'Should return 401 after revokeAllForAdmin');
+
     adminSessionManager.shutdown();
     console.log('  All admin auth middleware tests passed!');
 }

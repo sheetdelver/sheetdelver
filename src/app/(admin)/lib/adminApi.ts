@@ -119,17 +119,23 @@ export interface CacheStateResponse {
     [key: string]: unknown;
 }
 
-/** Audit event from GET /admin/audit */
+/**
+ * Audit event from GET /admin/audit. Mirrors the server `AdminAuditEvent`
+ * (src/server/security/adminAuditLog.ts): `timestamp` is an ISO-8601 string and
+ * there is no separate `action`/`details` field — the action is derived from
+ * method + path by the viewer.
+ */
 export interface AdminAuditEvent {
     eventId: string;
-    timestamp: number;
+    timestamp: string;
     adminId: string;
-    action: string;
     method: string;
     path: string;
+    statusCode: number;
+    outcome: string;
     ip: string;
-    statusCode?: number;
-    details?: Record<string, unknown>;
+    userAgent?: string;
+    durationMs?: number;
 }
 
 /** Audit log response */
@@ -194,10 +200,27 @@ export interface SourceProfile {
     baseUrl: string;
     enabled: boolean;
     priority: number;
-    auth?: { type: 'bearer'; token: string };
+    /**
+     * Read shape only: the server redacts the bearer token, exposing only whether
+     * auth is configured (ADR-0029 Phase 3). The cleartext token is never returned.
+     */
+    auth?: { type: 'bearer'; configured: boolean };
     hostAllowlist?: string[];
     createdAt: number;
     updatedAt: number;
+}
+
+/**
+ * Write payload for create/update. The bearer token is write-only — supplied here
+ * but never echoed back in {@link SourceProfile}. Omit `auth` to leave it unchanged.
+ */
+export interface SourceProfileWrite {
+    name: string;
+    baseUrl: string;
+    kind: ModuleSourceKind;
+    enabled: boolean;
+    priority: number;
+    auth?: { type: 'bearer'; token: string };
 }
 
 export interface SourceProfileResponse {
@@ -430,14 +453,14 @@ export function fetchSourceProfiles() {
     return adminFetch<SourceProfileResponse>('/sources');
 }
 
-export function createSourceProfile(profile: Partial<SourceProfile>) {
+export function createSourceProfile(profile: Partial<SourceProfileWrite>) {
     return adminFetch<SourceProfileResponse>('/sources', {
         method: 'POST',
         body: JSON.stringify(profile),
     });
 }
 
-export function updateSourceProfile(id: string, updates: Partial<SourceProfile>) {
+export function updateSourceProfile(id: string, updates: Partial<SourceProfileWrite>) {
     return adminFetch<SourceProfileResponse>(`/sources/${id}`, {
         method: 'PUT',
         body: JSON.stringify(updates),
@@ -458,6 +481,13 @@ export function testSourceProfile(id: string) {
 
 export function fetchSourceModules(id: string) {
     return adminFetch<SourceModulesResponse>(`/sources/${id}/modules`);
+}
+
+/** Revokes the current admin session server-side. Call before clearing local auth state. */
+export function postLogout() {
+    return adminFetch<{ success: boolean; message?: string }>('/auth/logout', {
+        method: 'POST',
+    });
 }
 
 /** Triggers a graceful Core Service restart. The process supervisor (PM2, systemd, etc.) restarts it. */
