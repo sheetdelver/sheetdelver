@@ -173,8 +173,8 @@ Action taken: removed the obsolete, install-centric `RestartModal` — which was
 ## Non-Goals
 
 - No change to the localhost-only trust boundary or the single-account local admin model (ADR-0001 Option B stays).
-- No move to HttpOnly cookie sessions in this ADR. The token-and-CSRF-in-`localStorage` posture is acknowledged as an XSS exposure under the localhost/single-operator model and left as a documented future hardening step.
-- No external identity provider, multi-admin, or RBAC work.
+- No move to HttpOnly cookie sessions in this ADR. The token-and-CSRF-in-`localStorage` posture is acknowledged as an XSS exposure under the localhost/single-operator model. (Subsequently assessed and resolved as a deliberate won't-do — see Amendment 1.)
+- No external identity provider, multi-admin, or RBAC work. (Multi-admin/RBAC subsequently dropped as a tracked concern — see Amendment 2.)
 - No distribution/extraction scope beyond the source-profile auth UX gap.
 - No module SDK contract changes.
 
@@ -186,7 +186,7 @@ Rejected. The session store already exists and already tracks active sessions; r
 
 ### Move to HttpOnly Cookie Sessions Now
 
-Deferred, not rejected. It is the right long-term hardening for the `localStorage` XSS exposure, but it is a larger change to the client auth flow and CSRF model than the audit gaps require. Sequencing it here would delay the correctness fixes. Tracked as future work.
+Originally deferred (not rejected) to avoid delaying the correctness fixes. Subsequently assessed against the threat model and resolved as a deliberate **won't-do** — see Amendment 1. In short: `requireLocalhost` already confines a stolen token to local-host use, which removes the main payoff HttpOnly defends against, so the migration's marginal benefit does not justify reworking a security-critical auth path.
 
 ### Drop the Restart Prompt Immediately
 
@@ -238,4 +238,36 @@ Status board:
 - Phase 6: ✅ Completed (June 10, 2026)
 
 This ADR should be updated per-phase as work advances, mirroring the completion discipline used in ADR-0006 and ADR-0028.
+
+---
+
+## Amendments
+
+### Amendment 1 — Session storage (HttpOnly cookies) assessment and decision
+
+**Date:** June 10, 2026
+**Resolves:** the "Move to HttpOnly Cookie Sessions Now" item left as future work under Non-Goals and Alternatives Considered.
+
+The original ADR deferred moving the admin session token out of `localStorage` and into an HttpOnly cookie as a defense against token exfiltration via XSS. Revisiting that vector against the actual threat model:
+
+**Threat model facts**
+- Every admin route is mounted behind `requireLocalhost`; the Core Service rejects any admin request whose effective client address is not loopback. A token is therefore only usable *from the local host* regardless of where it is stored.
+- Sessions are short-lived (15 minutes), bound to the per-process `instanceId`, and — as of Phase 1 — revocable server-side via the session store.
+- The admin panel is a single-operator surface. It renders only React-escaped strings (module/world/source/audit text); it does **not** execute module UI code (that runs on the player actor pages via `/api/modules/:id/ui`, a different origin context). The admin page's XSS surface is correspondingly small.
+
+**Why HttpOnly's marginal benefit is low here**
+The primary thing an HttpOnly cookie buys is preventing a script from *reading* the bearer token and replaying it elsewhere/later. But under `requireLocalhost`, a stolen token cannot be replayed from anywhere except the local host — the same boundary an attacker would already need to cross. The CSRF token must remain JS-readable for the double-submit header, so an XSS that can run on the admin page can already drive same-origin mutations using the auto-sent cookie *and* read the CSRF token; HttpOnly does not stop that in-page abuse. So the realistic residual gain is small.
+
+**Cost and risk**
+The migration is invasive in the most security-sensitive path: server `Set-Cookie` on login/setup, cookie extraction in `requireAdminAuth`, cookie clearing on logout, dropping the `Authorization` header in `adminFetch` (and `credentials: 'include'`), and validating cookie forwarding through the Next.js `/api/admin` rewrite proxy — including `SameSite`/`Secure` behavior on plain-`http` localhost. The regression risk (silently breaking auth or locking out the operator) is non-trivial and hard to cover without a running stack.
+
+**Decision: do not migrate.** Given `requireLocalhost` already caps the blast radius of a stolen token to the local host, short-lived revocable sessions, and the admin page's minimal XSS surface, the defense-in-depth gain does not justify reworking the auth path. This is now a deliberate **won't-do**, not pending future work. It can be revisited if either invariant changes — e.g. if the admin surface is ever exposed beyond localhost, or if the admin page begins rendering untrusted HTML or executing module/third-party code. At that point HttpOnly session cookies + a double-submit CSRF cookie become the right model and this decision should be reopened.
+
+The general XSS hygiene that *does* matter regardless — keep the admin panel free of `dangerouslySetInnerHTML` over untrusted content and avoid executing module code in the admin origin — remains an ongoing convention rather than an ADR action item.
+
+### Amendment 2 — Multi-admin / RBAC removed as a tracked concern
+
+**Date:** June 10, 2026
+
+ADR-0001 left "multi-admin or role-based admin model" open as a future option. In practice the probability of multiple distinct administrators accessing this backend is effectively nil for the deployment model (local, single-operator, localhost-gated). Multi-admin and RBAC are therefore dropped as tracked future work for this control plane. The single app-admin principal (ADR-0001 Option B) stands as the intended end state, not a stepping stone. This can be reopened if a genuine multi-operator deployment requirement emerges.
 </content>

@@ -236,6 +236,16 @@ export function registerAdminAuthRoutes(opts: RegisterAdminAuthRoutesOptions): v
     );
 
     /**
+     * GET /admin/auth/me
+     * Returns the authenticated admin's identity. Lets the client recover the
+     * operator identity after a reload (the token alone no longer surfaces it
+     * client-side) for the top-bar identity display (ADR-0030 UX-2).
+     */
+    adminRouter.get('/auth/me', requireAdminAccountExists, requireAdminAuth, (req, res) => {
+        res.json({ success: true, adminId: req.adminSession?.adminId ?? null });
+    });
+
+    /**
      * GET /admin/auth/status
      * Check if admin account exists (used to determine setup vs login flow)
      * No auth required - public endpoint to determine app state

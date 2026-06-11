@@ -55,7 +55,7 @@ export function AdminToastProvider({ children }: { children: React.ReactNode }) 
                 {toasts.map(toast => (
                     <div
                         key={toast.id}
-                        className={`pointer-events-auto flex items-start gap-3 rounded-2xl border px-4 py-3 shadow-lg backdrop-blur-sm text-sm transition-all animate-in slide-in-from-right-4 ${
+                        className={`pointer-events-auto flex items-start gap-3 rounded-lg border px-4 py-3 shadow-lg backdrop-blur-sm text-sm transition-all animate-in slide-in-from-right-4 ${
                             toast.type === NotificationType.Success
                                 ? 'border-[var(--admin-success-border)] bg-[var(--admin-success-bg)] text-[var(--admin-success)]'
                                 : toast.type === NotificationType.Error
@@ -73,6 +73,7 @@ export function AdminToastProvider({ children }: { children: React.ReactNode }) 
                         <button
                             onClick={() => remove(toast.id)}
                             className="shrink-0 opacity-50 hover:opacity-100 leading-none text-lg"
+                            aria-label="Dismiss notification"
                         >
                             &times;
                         </button>

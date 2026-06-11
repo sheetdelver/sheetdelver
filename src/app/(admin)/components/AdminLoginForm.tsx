@@ -32,7 +32,7 @@ export default function AdminLoginForm({ accountExists = true }: AdminLoginFormP
 
   return (
     <div className="admin-screen min-h-screen flex items-center justify-center p-4">
-      <div className="admin-panel relative w-full max-w-md rounded-[28px] p-8 shadow-[0_24px_80px_rgba(15,23,42,0.18)]">
+      <div className="admin-panel relative w-full max-w-md rounded-xl p-8 shadow-sm">
         <div className="mb-6 flex justify-end">
           <AdminThemeToggle />
         </div>
@@ -40,7 +40,7 @@ export default function AdminLoginForm({ accountExists = true }: AdminLoginFormP
         <h1 className="mb-6 text-center text-3xl font-bold tracking-tight text-[var(--admin-text-primary)]">Admin Login</h1>
 
         {(error || submitError) && (
-          <div className="mb-4 rounded-2xl border border-[var(--admin-danger-border)] bg-[var(--admin-danger-bg)] p-3 text-[var(--admin-danger-text)]">
+          <div className="mb-4 rounded-lg border border-[var(--admin-danger-border)] bg-[var(--admin-danger-bg)] p-3 text-[var(--admin-danger-text)]">
             {error || submitError}
           </div>
         )}
@@ -57,7 +57,7 @@ export default function AdminLoginForm({ accountExists = true }: AdminLoginFormP
               onChange={(e) => setPassword(e.target.value)}
               disabled={loading}
               required
-              className="w-full rounded-2xl border border-[var(--admin-border-strong)] bg-[var(--admin-input-bg)] px-4 py-3 text-[var(--admin-text-primary)] placeholder:text-[var(--admin-text-muted)] focus:border-[var(--admin-accent)] focus:outline-none focus:ring-2 focus:ring-[var(--admin-accent-soft)] disabled:cursor-not-allowed disabled:opacity-60"
+              className="w-full rounded-lg border border-[var(--admin-border-strong)] bg-[var(--admin-input-bg)] px-4 py-3 text-[var(--admin-text-primary)] placeholder:text-[var(--admin-text-muted)] focus:border-[var(--admin-accent)] focus:outline-none focus:ring-2 focus:ring-[var(--admin-accent-soft)] disabled:cursor-not-allowed disabled:opacity-60"
               placeholder="Enter admin password"
             />
           </div>
@@ -65,7 +65,7 @@ export default function AdminLoginForm({ accountExists = true }: AdminLoginFormP
           <button
             type="submit"
             disabled={loading || !password}
-            className="w-full rounded-2xl bg-[var(--admin-accent)] px-4 py-3 font-semibold text-white transition hover:bg-[var(--admin-accent-strong)] disabled:cursor-not-allowed disabled:bg-[var(--admin-accent-soft)] disabled:text-white/80"
+            className="w-full rounded-lg bg-[var(--admin-accent)] px-4 py-3 font-semibold text-white transition hover:bg-[var(--admin-accent-strong)] disabled:cursor-not-allowed disabled:bg-[var(--admin-accent-soft)] disabled:text-white/80"
           >
             {loading ? 'Logging in...' : 'Login'}
           </button>
@@ -100,7 +100,7 @@ function AdminSetupForm() {
 
   return (
     <div className="admin-screen min-h-screen flex items-center justify-center p-4">
-      <div className="admin-panel relative w-full max-w-md rounded-[28px] p-8 shadow-[0_24px_80px_rgba(15,23,42,0.18)]">
+      <div className="admin-panel relative w-full max-w-md rounded-xl p-8 shadow-sm">
         <div className="mb-6 flex justify-end">
           <AdminThemeToggle />
         </div>
@@ -111,7 +111,7 @@ function AdminSetupForm() {
         </p>
 
         {(error || submitError) && (
-          <div className="mb-4 rounded-2xl border border-[var(--admin-danger-border)] bg-[var(--admin-danger-bg)] p-3 text-sm text-[var(--admin-danger-text)]">
+          <div className="mb-4 rounded-lg border border-[var(--admin-danger-border)] bg-[var(--admin-danger-bg)] p-3 text-sm text-[var(--admin-danger-text)]">
             {error || submitError}
           </div>
         )}
@@ -128,7 +128,7 @@ function AdminSetupForm() {
               onChange={(e) => setSetupToken(e.target.value)}
               disabled={setupInProgress}
               required
-              className="w-full rounded-2xl border border-[var(--admin-border-strong)] bg-[var(--admin-input-bg)] px-4 py-3 text-sm text-[var(--admin-text-primary)] placeholder:text-[var(--admin-text-muted)] focus:border-[var(--admin-accent)] focus:outline-none focus:ring-2 focus:ring-[var(--admin-accent-soft)] disabled:cursor-not-allowed disabled:opacity-60"
+              className="w-full rounded-lg border border-[var(--admin-border-strong)] bg-[var(--admin-input-bg)] px-4 py-3 text-sm text-[var(--admin-text-primary)] placeholder:text-[var(--admin-text-muted)] focus:border-[var(--admin-accent)] focus:outline-none focus:ring-2 focus:ring-[var(--admin-accent-soft)] disabled:cursor-not-allowed disabled:opacity-60"
               placeholder="Enter setup token from server admin"
             />
             <p className="mt-1 text-xs text-[var(--admin-text-muted)]">
@@ -147,7 +147,7 @@ function AdminSetupForm() {
               onChange={(e) => setPassword(e.target.value)}
               disabled={setupInProgress}
               required
-              className="w-full rounded-2xl border border-[var(--admin-border-strong)] bg-[var(--admin-input-bg)] px-4 py-3 text-[var(--admin-text-primary)] placeholder:text-[var(--admin-text-muted)] focus:border-[var(--admin-accent)] focus:outline-none focus:ring-2 focus:ring-[var(--admin-accent-soft)] disabled:cursor-not-allowed disabled:opacity-60"
+              className="w-full rounded-lg border border-[var(--admin-border-strong)] bg-[var(--admin-input-bg)] px-4 py-3 text-[var(--admin-text-primary)] placeholder:text-[var(--admin-text-muted)] focus:border-[var(--admin-accent)] focus:outline-none focus:ring-2 focus:ring-[var(--admin-accent-soft)] disabled:cursor-not-allowed disabled:opacity-60"
               placeholder="Create your admin password"
             />
             <p className="mt-1 text-xs text-[var(--admin-text-muted)]">
@@ -158,7 +158,7 @@ function AdminSetupForm() {
           <button
             type="submit"
             disabled={setupInProgress || !password || !setupToken}
-            className="w-full rounded-2xl bg-[var(--admin-success)] px-4 py-3 font-semibold text-white transition hover:bg-[var(--admin-success-strong)] disabled:cursor-not-allowed disabled:bg-[var(--admin-success-soft)] disabled:text-white/80"
+            className="w-full rounded-lg bg-[var(--admin-success)] px-4 py-3 font-semibold text-white transition hover:bg-[var(--admin-success-strong)] disabled:cursor-not-allowed disabled:bg-[var(--admin-success-soft)] disabled:text-white/80"
           >
             {setupInProgress ? 'Setting up...' : 'Create Account'}
           </button>

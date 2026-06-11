@@ -16,6 +16,9 @@ import {
     postWorldAction,
     type WorldEntry,
 } from '../lib/adminApi';
+import Button from './ui/Button';
+import EmptyState from './ui/EmptyState';
+import ErrorState from './ui/ErrorState';
 
 export default function WorldManagementPanel() {
     const { logout } = useAdminAuth();
@@ -88,8 +91,21 @@ export default function WorldManagementPanel() {
             }
 
             logger.info(`World ${action} completed:`, result.data?.message);
-            // Refresh data after a short delay (world needs time to transition)
-            setTimeout(loadData, 2000);
+            // Poll world state until it settles into the expected target rather than
+            // guessing a single fixed delay (ADR-0030 UX-5). Bounded to avoid hanging.
+            const settled = action === 'shutdown'
+                ? (s: string) => s === 'closed'
+                : (s: string) => s !== 'closed' && s !== 'unknown';
+            for (let i = 0; i < 12; i++) {
+                await new Promise(r => setTimeout(r, 1500));
+                const statusResult = await fetchAdminStatus();
+                const nextState = statusResult.ok && statusResult.data
+                    ? (statusResult.data.worldState || 'unknown')
+                    : 'unknown';
+                setWorldState(nextState);
+                if (settled(nextState)) break;
+            }
+            await loadData();
         } catch (err) {
             const message = err instanceof Error ? err.message : 'Unknown error';
             logger.error(`World ${action} failed:`, err);
@@ -104,7 +120,6 @@ export default function WorldManagementPanel() {
     if (loading && worlds.length === 0) {
         return (
             <div className="p-4">
-                <h2 className="mb-4 text-2xl font-bold tracking-tight text-[var(--admin-text-primary)]">World Management</h2>
                 <div className="space-y-3">
                     {[1, 2].map(i => (
                         <div key={i} className="h-16 animate-pulse rounded-xl bg-[var(--admin-surface)]" />
@@ -120,53 +135,36 @@ export default function WorldManagementPanel() {
 
     return (
         <div className="p-4">
-            <div className="mb-4 flex items-center justify-between">
-                <h2 className="text-2xl font-bold tracking-tight text-[var(--admin-text-primary)]">World Management</h2>
+            <div className="mb-4 flex items-center justify-end">
                 <div className="flex items-center gap-2">
                     {/* Shutdown button (only when a world is active) */}
                     {isConnected && (
-                        <button
-                            onClick={() => handleWorldAction('shutdown')}
-                            disabled={!!operationInProgress}
-                            className="rounded-xl bg-[var(--admin-danger-button)] px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-[var(--admin-danger-button-strong)] disabled:opacity-50"
-                        >
+                        <Button variant="danger" size="sm" onClick={() => handleWorldAction('shutdown')} disabled={!!operationInProgress}>
                             {operationInProgress === 'shutdown' ? 'Shutting down...' : 'Shutdown World'}
-                        </button>
+                        </Button>
                     )}
 
                     {/* Retry button (only when disconnected) */}
                     {!isConnected && (
-                        <button
-                            onClick={() => handleWorldAction('retry')}
-                            disabled={!!operationInProgress}
-                            className="rounded-xl bg-[var(--admin-accent)] px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-[var(--admin-accent-strong)] disabled:opacity-50"
-                        >
+                        <Button variant="primary" size="sm" onClick={() => handleWorldAction('retry')} disabled={!!operationInProgress}>
                             {operationInProgress === 'retry' ? 'Reconnecting...' : 'Re-Connect'}
-                        </button>
+                        </Button>
                     )}
 
                     {/* Refresh */}
-                    <button
-                        onClick={loadData}
-                        disabled={loading}
-                        className="rounded-xl border border-[var(--admin-border)] bg-[var(--admin-surface)] px-3 py-1.5 text-sm text-[var(--admin-text-secondary)] transition hover:bg-[var(--admin-surface-hover)] disabled:opacity-50"
-                    >
+                    <Button variant="secondary" size="sm" onClick={loadData} disabled={loading}>
                         Refresh
-                    </button>
+                    </Button>
                 </div>
             </div>
 
             {/* Error */}
-            {error && (
-                <div className="mb-4 rounded-xl border border-[var(--admin-danger-border)] bg-[var(--admin-danger-bg)] p-3 text-sm text-[var(--admin-danger-text)]">
-                    {error}
-                </div>
-            )}
+            {error && <ErrorState message={error} className="mb-4" />}
 
             {/* World list */}
             <div className="space-y-2">
                 {worlds.length === 0 ? (
-                    <p className="text-[var(--admin-text-muted)]">No worlds available. Connect to Foundry to discover worlds.</p>
+                    <EmptyState message="No worlds available. Connect to Foundry to discover worlds." />
                 ) : (
                     worlds.map((world, index) => (
                         <div
@@ -183,7 +181,7 @@ export default function WorldManagementPanel() {
                             <button
                                 onClick={() => handleWorldAction('launch', { worldId: world.id })}
                                 disabled={!!operationInProgress || isConnected}
-                                className="rounded-xl bg-[var(--admin-success)] px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-[var(--admin-success-strong)] disabled:opacity-50"
+                                className="rounded-md bg-[var(--admin-success)] px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-[var(--admin-success-strong)] disabled:opacity-50"
                             >
                                 {operationInProgress === 'launch' ? 'Launching...' : 'Launch'}
                             </button>

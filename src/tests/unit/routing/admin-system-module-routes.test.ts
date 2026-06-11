@@ -128,7 +128,12 @@ async function runAdminAuthRouteSmokeTests() {
     assert.equal(routeMap.post.has('/auth/login'), true);
     assert.equal(routeMap.post.has('/auth/reset'), true);
     assert.equal(routeMap.post.has('/auth/logout'), true);
+    assert.equal(routeMap.get.has('/auth/me'), true);
     assert.equal(routeMap.get.has('/auth/status'), true);
+
+    // /auth/me must require a valid admin session.
+    const meChain = routeMap.get.get('/auth/me')?.at(-1);
+    assert.ok(meChain?.some(h => h.name === 'requireAdminAuth'), '/auth/me must require admin auth');
 
     // Logout is an authenticated mutation; it must carry the full protection chain.
     assertMutationChain(routeMap, 'post', '/auth/logout');

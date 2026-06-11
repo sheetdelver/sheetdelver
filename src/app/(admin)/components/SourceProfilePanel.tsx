@@ -8,24 +8,33 @@ import {
     deleteSourceProfile,
     testSourceProfile,
     fetchSourceModules,
+    fetchModuleLifecycle,
     postManagerAction,
     type SourceProfile,
-    type SourceModuleEntry
+    type SourceModuleEntry,
+    type ModuleLifecycleInfo,
 } from '../lib/adminApi';
 import { ModuleSourceKind, SourceProfileId } from '@shared/types/modules';
 import { useAdminToast } from '../context/AdminToastContext';
 
 export default function SourceProfilePanel({
     onModuleInstalled,
-    installedModules = []
 }: {
     onModuleInstalled?: () => void;
-    installedModules?: any[];
-}) {
+} = {}) {
     const { addToast } = useAdminToast();
     const [profiles, setProfiles] = useState<SourceProfile[]>([]);
     const [loading, setLoading] = useState(true);
     const [loadError, setLoadError] = useState<string | null>(null);
+
+    // Installed-module lifecycle list — fetched here so the browse view can label
+    // Install / Update / Re-install. (Previously fed from a sibling panel; the
+    // routed layout makes this page self-sufficient — ADR-0030 UX-3.)
+    const [installedModules, setInstalledModules] = useState<ModuleLifecycleInfo[]>([]);
+    const loadInstalledModules = async () => {
+        const result = await fetchModuleLifecycle();
+        if (result.ok && result.data?.modules) setInstalledModules(result.data.modules);
+    };
 
     // Add source form state
     const [showAddForm, setShowAddForm] = useState(false);
@@ -62,7 +71,7 @@ export default function SourceProfilePanel({
         setLoading(false);
     };
 
-    useEffect(() => { loadProfiles(); }, []);
+    useEffect(() => { loadProfiles(); loadInstalledModules(); }, []);
 
     // ─── Handlers ────────────────────────────────────────────────
 
@@ -132,6 +141,21 @@ export default function SourceProfilePanel({
         else addToast(result.error || 'Failed to update source profile.', 'error');
     };
 
+    // Reorder by swapping priority with the adjacent profile (lower priority = higher
+    // in the list / earlier resolution). The protected default local source can't move.
+    const moveProfile = async (profile: SourceProfile, direction: 'up' | 'down') => {
+        const sorted = [...profiles].sort((a, b) => a.priority - b.priority);
+        const idx = sorted.findIndex(p => p.id === profile.id);
+        const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
+        const other = sorted[swapIdx];
+        if (!other || other.id === SourceProfileId.LocalDefault || profile.id === SourceProfileId.LocalDefault) return;
+
+        const a = await updateSourceProfile(profile.id, { priority: other.priority });
+        const b = await updateSourceProfile(other.id, { priority: profile.priority });
+        if (a.ok && b.ok) loadProfiles();
+        else addToast(a.error || b.error || 'Failed to reorder source profiles.', 'error');
+    };
+
     const handleDelete = async (id: string) => {
         const result = await deleteSourceProfile(id);
         if (result.ok) {
@@ -194,6 +218,7 @@ export default function SourceProfilePanel({
             const result = await postManagerAction(moduleId, 'install', { source: sourceRefForProfile(profile) });
             if (result.ok) {
                 addToast(`${moduleId} installed successfully.`, 'success');
+                loadInstalledModules();
                 if (onModuleInstalled) onModuleInstalled();
             } else {
                 addToast(result.error || `Failed to install ${moduleId}.`, 'error');
@@ -219,7 +244,7 @@ export default function SourceProfilePanel({
                 </p>
                 <button
                     onClick={() => { setShowAddForm(v => !v); setNewUrl(''); setNewName(''); }}
-                    className="rounded-2xl bg-[var(--admin-accent)] px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-[var(--admin-accent-strong)]"
+                    className="rounded-lg bg-[var(--admin-accent)] px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-[var(--admin-accent-strong)]"
                 >
                     {showAddForm ? 'Cancel' : '+ Add Source'}
                 </button>
@@ -227,7 +252,7 @@ export default function SourceProfilePanel({
 
             {/* Add source inline form */}
             {showAddForm && (
-                <div className="rounded-2xl border border-[var(--admin-border)] bg-[var(--admin-surface)] p-4 space-y-3">
+                <div className="rounded-lg border border-[var(--admin-border)] bg-[var(--admin-surface)] p-4 space-y-3">
                     <h4 className="text-xs font-bold uppercase tracking-wider text-[var(--admin-text-muted)]">New Source Profile</h4>
                     <div className="space-y-2">
                         <input
@@ -256,14 +281,14 @@ export default function SourceProfilePanel({
                     <div className="flex gap-2 justify-end">
                         <button
                             onClick={() => setShowAddForm(false)}
-                            className="rounded-2xl border border-[var(--admin-border)] bg-[var(--admin-surface)] px-4 py-1.5 text-sm text-[var(--admin-text-secondary)] transition hover:bg-[var(--admin-surface-hover)]"
+                            className="rounded-lg border border-[var(--admin-border)] bg-[var(--admin-surface)] px-4 py-1.5 text-sm text-[var(--admin-text-secondary)] transition hover:bg-[var(--admin-surface-hover)]"
                         >
                             Cancel
                         </button>
                         <button
                             onClick={handleCreate}
                             disabled={creating || !newUrl.trim()}
-                            className="rounded-2xl bg-[var(--admin-accent)] px-4 py-1.5 text-sm font-semibold text-white transition hover:bg-[var(--admin-accent-strong)] disabled:opacity-50"
+                            className="rounded-lg bg-[var(--admin-accent)] px-4 py-1.5 text-sm font-semibold text-white transition hover:bg-[var(--admin-accent-strong)] disabled:opacity-50"
                         >
                             {creating ? 'Creating…' : 'Create'}
                         </button>
@@ -273,8 +298,8 @@ export default function SourceProfilePanel({
 
             {/* Profile list */}
             <div className="grid gap-3">
-                {profiles.map(profile => (
-                    <div key={profile.id} className="rounded-2xl border border-[var(--admin-border)] bg-[var(--admin-surface)] overflow-hidden">
+                {profiles.map((profile, index) => (
+                    <div key={profile.id} className="rounded-lg border border-[var(--admin-border)] bg-[var(--admin-surface)] overflow-hidden">
                         <div className="p-4 flex flex-col md:flex-row md:items-start justify-between gap-4">
                             <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2 mb-1 flex-wrap">
@@ -368,18 +393,41 @@ export default function SourceProfilePanel({
                             </div>
 
                             <div className="flex flex-wrap items-center gap-2 shrink-0">
+                                {/* Priority reorder (non-default only; default local stays pinned at top) */}
+                                {profile.id !== SourceProfileId.LocalDefault && (
+                                    <div className="flex flex-col">
+                                        <button
+                                            onClick={() => moveProfile(profile, 'up')}
+                                            disabled={index <= 1}
+                                            aria-label={`Move ${profile.name} up`}
+                                            title="Move up (higher priority)"
+                                            className="px-1.5 text-xs text-[var(--admin-text-muted)] hover:text-[var(--admin-text-primary)] disabled:opacity-30"
+                                        >
+                                            ▲
+                                        </button>
+                                        <button
+                                            onClick={() => moveProfile(profile, 'down')}
+                                            disabled={index >= profiles.length - 1}
+                                            aria-label={`Move ${profile.name} down`}
+                                            title="Move down (lower priority)"
+                                            className="px-1.5 text-xs text-[var(--admin-text-muted)] hover:text-[var(--admin-text-primary)] disabled:opacity-30"
+                                        >
+                                            ▼
+                                        </button>
+                                    </div>
+                                )}
                                 {profile.kind === ModuleSourceKind.Indexed && profile.enabled && (
                                     <>
                                         <button
                                             onClick={() => handleBrowse(profile.id)}
-                                            className="rounded-2xl border border-[var(--admin-border)] bg-[var(--admin-surface)] px-3 py-1.5 text-sm text-[var(--admin-text-secondary)] transition hover:bg-[var(--admin-surface-hover)]"
+                                            className="rounded-lg border border-[var(--admin-border)] bg-[var(--admin-surface)] px-3 py-1.5 text-sm text-[var(--admin-text-secondary)] transition hover:bg-[var(--admin-surface-hover)]"
                                         >
                                             {browsingId === profile.id ? 'Close' : 'Browse'}
                                         </button>
                                         <button
                                             onClick={() => handleTest(profile.id)}
                                             disabled={testingId === profile.id}
-                                            className="rounded-2xl border border-[var(--admin-border)] bg-[var(--admin-surface)] px-3 py-1.5 text-sm text-[var(--admin-text-secondary)] transition hover:bg-[var(--admin-surface-hover)] disabled:opacity-50"
+                                            className="rounded-lg border border-[var(--admin-border)] bg-[var(--admin-surface)] px-3 py-1.5 text-sm text-[var(--admin-text-secondary)] transition hover:bg-[var(--admin-surface-hover)] disabled:opacity-50"
                                         >
                                             {testingId === profile.id ? 'Testing…' : 'Test'}
                                         </button>
@@ -389,13 +437,13 @@ export default function SourceProfilePanel({
                                     <>
                                         <button
                                             onClick={() => (editingId === profile.id ? cancelEdit() : startEdit(profile))}
-                                            className="rounded-2xl border border-[var(--admin-border)] bg-[var(--admin-surface)] px-3 py-1.5 text-sm text-[var(--admin-text-secondary)] transition hover:bg-[var(--admin-surface-hover)]"
+                                            className="rounded-lg border border-[var(--admin-border)] bg-[var(--admin-surface)] px-3 py-1.5 text-sm text-[var(--admin-text-secondary)] transition hover:bg-[var(--admin-surface-hover)]"
                                         >
                                             {editingId === profile.id ? 'Close' : 'Edit'}
                                         </button>
                                         <button
                                             onClick={() => handleToggleEnable(profile)}
-                                            className={`rounded-2xl px-3 py-1.5 text-sm font-medium transition border ${
+                                            className={`rounded-lg px-3 py-1.5 text-sm font-medium transition border ${
                                                 profile.enabled
                                                     ? 'border-[var(--admin-border)] bg-[var(--admin-surface)] text-[var(--admin-text-secondary)] hover:bg-[var(--admin-surface-hover)]'
                                                     : 'border-[var(--admin-success-border)] bg-[var(--admin-success-bg)] text-[var(--admin-success)] hover:opacity-80'
@@ -405,7 +453,7 @@ export default function SourceProfilePanel({
                                         </button>
                                         <button
                                             onClick={() => setDeleteConfirmId(deleteConfirmId === profile.id ? null : profile.id)}
-                                            className="rounded-2xl border border-[var(--admin-danger-border)] bg-[var(--admin-danger-bg)] px-3 py-1.5 text-sm text-[var(--admin-danger-text)] transition hover:opacity-80"
+                                            className="rounded-lg border border-[var(--admin-danger-border)] bg-[var(--admin-danger-bg)] px-3 py-1.5 text-sm text-[var(--admin-danger-text)] transition hover:opacity-80"
                                         >
                                             Delete
                                         </button>
@@ -438,7 +486,7 @@ export default function SourceProfilePanel({
                                                     : 'Re-install';
 
                                                 return (
-                                                    <div key={modId} className="flex items-center justify-between rounded-2xl border border-[var(--admin-border)] bg-[var(--admin-surface)] p-3">
+                                                    <div key={modId} className="flex items-center justify-between rounded-lg border border-[var(--admin-border)] bg-[var(--admin-surface)] p-3">
                                                         <div>
                                                             <div className="font-semibold text-[var(--admin-text-primary)] text-sm">{modInfo.title || modId}</div>
                                                             <div className="text-xs text-[var(--admin-text-muted)] font-mono">{modId} · v{modInfo.latestVersion}</div>
@@ -446,7 +494,7 @@ export default function SourceProfilePanel({
                                                         <button
                                                             onClick={() => handleInstall(modId, profile)}
                                                             disabled={installingId === modId}
-                                                            className={`rounded-2xl px-3 py-1.5 text-xs font-semibold transition disabled:opacity-50 ${btnClass}`}
+                                                            className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition disabled:opacity-50 ${btnClass}`}
                                                         >
                                                             {btnLabel}
                                                         </button>

@@ -107,10 +107,9 @@ body {
 }
 
 .admin-panel {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--admin-surface-strong) 94%, white 6%) 0%, var(--admin-surface) 100%);
+  background: var(--admin-surface);
   border: 1px solid var(--admin-border);
   color: var(--admin-text-primary);
-  backdrop-filter: blur(18px);
 }
 
 /* Chat Overrides for Visibility */

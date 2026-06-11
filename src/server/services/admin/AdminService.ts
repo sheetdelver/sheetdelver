@@ -19,7 +19,9 @@ export function createAdminService(deps: AdminServiceDeps): AdminServiceResult {
             worldState: worldLifecycleStore.getState(),
             userId: client.userId,
             isExplicit: client.isExplicitSession,
-            discoveredUserId: client.discoveredUserId
+            discoveredUserId: client.discoveredUserId,
+            // Surfaced for the admin top-bar environment badge (ADR-0030 UX-2).
+            environment: process.env.NODE_ENV === 'production' ? 'production' : 'development',
         };
     };
 

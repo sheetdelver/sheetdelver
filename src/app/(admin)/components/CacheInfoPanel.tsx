@@ -11,6 +11,9 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { logger } from '@shared/utils/logger';
 import { useAdminAuth } from '../context/AdminAuthContext';
 import { fetchCacheState, type CacheStateResponse } from '../lib/adminApi';
+import Button from './ui/Button';
+import EmptyState from './ui/EmptyState';
+import ErrorState from './ui/ErrorState';
 
 export default function CacheInfoPanel() {
     const { logout } = useAdminAuth();
@@ -55,7 +58,6 @@ export default function CacheInfoPanel() {
     if (loading && !cache) {
         return (
             <div className="p-4">
-                <h2 className="mb-4 text-2xl font-bold tracking-tight text-[var(--admin-text-primary)]">Cache Info</h2>
                 <div className="h-24 animate-pulse rounded-xl bg-[var(--admin-surface)]" />
             </div>
         );
@@ -67,26 +69,17 @@ export default function CacheInfoPanel() {
 
     return (
         <div className="p-4">
-            <div className="mb-4 flex items-center justify-between">
-                <h2 className="text-2xl font-bold tracking-tight text-[var(--admin-text-primary)]">Cache Info</h2>
-                <button
-                    onClick={loadCache}
-                    disabled={loading}
-                    className="rounded-xl border border-[var(--admin-border)] bg-[var(--admin-surface)] px-3 py-1.5 text-sm text-[var(--admin-text-secondary)] transition hover:bg-[var(--admin-surface-hover)] disabled:opacity-50"
-                >
+            <div className="mb-4 flex items-center justify-end">
+                <Button variant="secondary" size="sm" onClick={loadCache} disabled={loading}>
                     Refresh
-                </button>
+                </Button>
             </div>
 
             {/* Error */}
-            {error && (
-                <div className="mb-4 rounded-xl border border-[var(--admin-danger-border)] bg-[var(--admin-danger-bg)] p-3 text-sm text-[var(--admin-danger-text)]">
-                    {error}
-                </div>
-            )}
+            {error && <ErrorState message={error} className="mb-4" />}
 
             {!cache ? (
-                <p className="text-[var(--admin-text-muted)]">No cache data available.</p>
+                <EmptyState message="No cache data available." />
             ) : (
                 <div className="space-y-3">
                     {/* Current world */}

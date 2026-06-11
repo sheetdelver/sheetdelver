@@ -49,6 +49,8 @@ export interface ModuleLifecycleInfo {
     directory: string;
     activeSource?: ModuleSourceCategory;
     localDirectory?: string;
+    /** Fixed managed-install path (`<DATA_DIR>/modules/<id>`), independent of active source. */
+    managedDirectory?: string;
     localEnabled?: boolean;
     managedEnabled?: boolean;
     enabled: boolean;
@@ -101,6 +103,14 @@ export interface AdminStatusResponse {
     userId?: string;
     isExplicit?: boolean;
     discoveredUserId?: string;
+    /** Server runtime environment, for the admin top-bar badge. */
+    environment?: 'development' | 'production';
+}
+
+/** Response from GET /admin/auth/me — the authenticated operator identity. */
+export interface AdminMeResponse {
+    success: boolean;
+    adminId: string | null;
 }
 
 /** World entry from GET /admin/worlds */
@@ -342,6 +352,11 @@ export async function adminFetch<T>(
 /** Fetch admin system status (enriched with socket/world state). */
 export function fetchAdminStatus() {
     return adminFetch<AdminStatusResponse>('/status');
+}
+
+/** Fetch the authenticated admin's identity (used to restore identity after reload). */
+export function fetchAdminMe() {
+    return adminFetch<AdminMeResponse>('/auth/me');
 }
 
 /** Fetch module lifecycle list with full details. */

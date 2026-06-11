@@ -13,11 +13,13 @@
  *   - PUT    /sources/:id
  *   - DELETE /sources/:id
  */
+import path from 'node:path';
 import express from 'express';
 import { logger } from '@shared/utils/logger';
 import { requireAdminAuth, auditAdminAction } from '@server/middleware/requireAdminAuth';
 import { requireAdminCsrf } from '@server/middleware/requireAdminCsrf';
 import { ModuleSourceCategory } from '@shared/types/modules';
+import { getModulesDataDir } from '@core/paths';
 import { getConfig } from '@server/core/config';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
 import type { RegisteredModuleRuntimeInfo } from '@modules/registry/server';
@@ -137,6 +139,10 @@ export function registerAdminModuleRoutes(opts: RegisterAdminModuleRoutesOptions
                             artifact: m.artifact,
                             activeSource: m.lifecycle.activeSource,
                             localDirectory: m.lifecycle.localDirectory,
+                            // Explicit per-source managed path so each card shows its own fixed
+                            // location regardless of which source is active (ADR-0030 UX-6).
+                            // `directory` alone is mutated to the active source on switch.
+                            managedDirectory: path.join(getModulesDataDir(), m.info.id.toLowerCase()),
                             localEnabled: m.lifecycle.localEnabled,
                             managedEnabled: m.lifecycle.managedEnabled,
                         };

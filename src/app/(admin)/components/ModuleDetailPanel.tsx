@@ -125,10 +125,10 @@ export default function ModuleDetailPanel({ entry, onOperationComplete, onSessio
             {/* ── Managed / single-source card detail ───────────────────── */}
             {!isLocalCard && (
             <div className="space-y-4">
-                {/* Location */}
+                {/* Location — managed install path, fixed regardless of active source (ADR-0030 UX-6). */}
                 <DetailSection title="Location" action={<ReverifyButton verifying={verifying} onClick={handleReverify} />}>
                     <code className="block rounded-xl bg-[var(--admin-surface)] p-3 text-xs text-[var(--admin-text-secondary)] break-all font-mono">
-                        {module.directory}
+                        {module.managedDirectory ?? module.directory}
                     </code>
                 </DetailSection>
 

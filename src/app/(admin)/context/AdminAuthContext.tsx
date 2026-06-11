@@ -7,6 +7,7 @@ import { adminApiPath, postLogout } from '../lib/adminApi';
 interface AdminAuthContextType {
   token: string | null;
   csrfToken: string | null;
+  adminId: string | null;
   isAuthenticated: boolean;
   loading: boolean;
   error: string | null;
@@ -24,6 +25,7 @@ const AdminAuthContext = createContext<AdminAuthContextType | undefined>(undefin
 export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
   const [csrfToken, setCsrfToken] = useState<string | null>(null);
+  const [adminId, setAdminId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [accountExists, setAccountExists] = useState<boolean | null>(null);
@@ -43,6 +45,18 @@ export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
           });
           if (response.ok) {
             setToken(storedToken);
+            // Restore operator identity for the top bar (token alone no longer carries it client-side).
+            try {
+              const meRes = await fetch(adminApiPath('/auth/me'), {
+                headers: { Authorization: `Bearer ${storedToken}` },
+              });
+              if (meRes.ok) {
+                const me = await meRes.json();
+                setAdminId(me.adminId ?? null);
+              }
+            } catch (meErr) {
+              logger.warn('Could not restore admin identity', meErr);
+            }
           } else {
             localStorage.removeItem('admin-token');
             localStorage.removeItem('admin-csrf');
@@ -138,6 +152,7 @@ export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
           setCsrfToken(data.csrfToken);
           localStorage.setItem('admin-csrf', data.csrfToken);
         }
+        if (data.adminId) setAdminId(data.adminId);
         localStorage.setItem('admin-token', data.token);
         setAccountExists(true);
         logger.info('Admin account created successfully');
@@ -183,6 +198,7 @@ export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
           setCsrfToken(data.csrfToken);
           localStorage.setItem('admin-csrf', data.csrfToken);
         }
+        if (data.adminId) setAdminId(data.adminId);
         localStorage.setItem('admin-token', data.token);
         logger.info('Admin login successful');
       } catch (err) {
@@ -204,6 +220,7 @@ export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
     void postLogout().catch((err) => logger.warn('Server-side logout failed; clearing local state anyway', err));
     setToken(null);
     setCsrfToken(null);
+    setAdminId(null);
     localStorage.removeItem('admin-token');
     localStorage.removeItem('admin-csrf');
     logger.info('Admin logged out');
@@ -212,6 +229,7 @@ export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
   const value: AdminAuthContextType = {
     token,
     csrfToken,
+    adminId,
     isAuthenticated: !!token,
     loading,
     error,

@@ -16,11 +16,16 @@ import { ModuleSourceCategory, ModuleLifecycleStatus, ManagerAction } from '@sha
 import { useAdminAuth } from '../context/AdminAuthContext';
 import {
     fetchModuleLifecycle,
+    fetchAdminStatus,
     postLifecycleAction,
     type ModuleLifecycleInfo,
 } from '../lib/adminApi';
 import { invalidateModuleSourceCache } from '@modules/registry/client';
 import ModuleDetailPanel from './ModuleDetailPanel';
+import Button from './ui/Button';
+import EmptyState from './ui/EmptyState';
+import ErrorState from './ui/ErrorState';
+import Drawer from './ui/Drawer';
 
 // ─── Status styling ────────────────────────────────────────────────
 
@@ -126,7 +131,11 @@ export default function ModuleLifecycleControl({ onModulesLoaded }: {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [operationInProgress, setOperationInProgress] = useState<string | null>(null);
-    const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
+    // Selected card whose detail/operations are shown in the right drawer (ADR-0030 UX-5).
+    const [selectedKey, setSelectedKey] = useState<string | null>(null);
+    // The connected world's system id determines which module is actually operative
+    // (Foundry runs one world/system at a time) — used to mark the Active card (ADR-0030 UX-6).
+    const [activeSystemId, setActiveSystemId] = useState<string | null>(null);
 
     const loadModules = useCallback(async () => {
         if (!token) { setError('Not authenticated'); setLoading(false); return; }
@@ -146,6 +155,16 @@ export default function ModuleLifecycleControl({ onModulesLoaded }: {
     }, [token, logout]);
 
     useEffect(() => { loadModules(); }, [loadModules]);
+    // Resolve the connected world's system id so the operative module can be marked Active.
+    useEffect(() => {
+        let active = true;
+        fetchAdminStatus().then(result => {
+            if (active && result.ok && result.data) {
+                setActiveSystemId(result.data.system?.id ?? null);
+            }
+        });
+        return () => { active = false; };
+    }, []);
     useEffect(() => {
         if (modules.length > 0 && onModulesLoaded) onModulesLoaded(modules);
     }, [modules, onModulesLoaded]);
@@ -176,26 +195,14 @@ export default function ModuleLifecycleControl({ onModulesLoaded }: {
         }
     };
 
-    const toggleExpanded = (key: string) => {
-        setExpandedKeys(prev => {
-            const next = new Set(prev);
-            if (next.has(key)) {
-                next.delete(key);
-            } else {
-                next.add(key);
-            }
-            return next;
-        });
-    };
 
     // ─── Loading skeleton ──────────────────────────────────────────
 
     if (loading && modules.length === 0) {
         return (
             <div className="p-4">
-                <h2 className="mb-4 text-2xl font-bold tracking-tight text-[var(--admin-text-primary)]">Module Lifecycle</h2>
                 <div className="space-y-3">
-                    {[1, 2, 3].map(i => <div key={i} className="h-20 animate-pulse rounded-[24px] bg-[var(--admin-surface)]" />)}
+                    {[1, 2, 3].map(i => <div key={i} className="h-20 animate-pulse rounded-lg bg-[var(--admin-surface)]" />)}
                 </div>
             </div>
         );
@@ -207,41 +214,56 @@ export default function ModuleLifecycleControl({ onModulesLoaded }: {
 
     return (
         <div className="p-4">
-            <div className="mb-4 flex items-center justify-between">
-                <h2 className="text-2xl font-bold tracking-tight text-[var(--admin-text-primary)]">Module Lifecycle</h2>
-                <button
-                    onClick={loadModules}
-                    disabled={loading}
-                    className="rounded-2xl border border-[var(--admin-border)] bg-[var(--admin-surface)] px-3 py-1.5 text-sm text-[var(--admin-text-secondary)] transition hover:bg-[var(--admin-surface-hover)] disabled:opacity-50"
-                >
+            <div className="mb-4 flex items-center justify-end">
+                <Button variant="secondary" size="sm" onClick={loadModules} disabled={loading}>
                     {loading ? 'Refreshing...' : 'Refresh'}
-                </button>
+                </Button>
             </div>
 
-            {error && (
-                <div className="mb-4 rounded-2xl border border-[var(--admin-danger-border)] bg-[var(--admin-danger-bg)] p-3 text-[var(--admin-danger-text)]">
-                    {error}
-                </div>
-            )}
+            {error && <ErrorState message={error} className="mb-4" />}
+
+            {/* Single-active reality: only the module matching the connected world's system is live. */}
+            <p className="mb-3 text-xs text-[var(--admin-text-muted)]">
+                Foundry runs one world at a time, so only the module matching the connected system
+                {activeSystemId ? <> (<span className="font-mono text-[var(--admin-text-secondary)]">{activeSystemId}</span>)</> : null} is live. Others are inactive.
+            </p>
 
             <div className="space-y-3">
                 {entries.length === 0 ? (
-                    <p className="text-[var(--admin-text-muted)]">No modules found</p>
+                    <EmptyState message="No modules found." />
                 ) : (
                     entries.map((entry) => (
                         <ModuleCard
                             key={entry.key}
                             entry={entry}
-                            expanded={expandedKeys.has(entry.key)}
+                            activeSystemId={activeSystemId}
                             operationInProgress={operationInProgress === entry.key}
                             onToggle={() => handleToggle(entry)}
-                            onToggleExpand={() => toggleExpanded(entry.key)}
-                            onOperationComplete={loadModules}
-                            onSessionExpired={logout}
+                            onOpenDetail={() => setSelectedKey(entry.key)}
                         />
                     ))
                 )}
             </div>
+
+            {/* Detail/operations drawer — keeps the list scannable (ADR-0030 UX-5). */}
+            {(() => {
+                const selected = entries.find(e => e.key === selectedKey);
+                return (
+                    <Drawer
+                        open={!!selected}
+                        title={selected ? selected.mod.title : ''}
+                        onClose={() => setSelectedKey(null)}
+                    >
+                        {selected && (
+                            <ModuleDetailPanel
+                                entry={selected}
+                                onOperationComplete={() => { loadModules(); }}
+                                onSessionExpired={logout}
+                            />
+                        )}
+                    </Drawer>
+                );
+            })()}
         </div>
     );
 }
@@ -250,22 +272,34 @@ export default function ModuleLifecycleControl({ onModulesLoaded }: {
 
 interface ModuleCardProps {
     entry: CardEntry;
-    expanded: boolean;
+    activeSystemId: string | null;
     operationInProgress: boolean;
     onToggle: () => void;
-    onToggleExpand: () => void;
-    onOperationComplete: () => void;
-    onSessionExpired: () => void;
+    onOpenDetail: () => void;
 }
 
 function ModuleCard({
-    entry, expanded, operationInProgress,
-    onToggle, onToggleExpand, onOperationComplete, onSessionExpired,
+    entry, activeSystemId, operationInProgress,
+    onToggle, onOpenDetail,
 }: ModuleCardProps) {
     const { mod, cardSource, sourceEnabled, otherSourceEnabled, status, health } = entry;
     const isLocal = cardSource === ModuleSourceCategory.Local;
     const isManaged = cardSource === ModuleSourceCategory.Managed;
     const blockedByOther = !sourceEnabled && otherSourceEnabled;
+
+    // This card is "Active" (operative) when its module matches the connected world's
+    // system, this card's source is the active one, and it is enabled (ADR-0030 UX-6).
+    const isActive = !!activeSystemId
+        && mod.moduleId.toLowerCase() === activeSystemId.toLowerCase()
+        && sourceEnabled
+        && (cardSource === undefined || cardSource === mod.activeSource);
+
+    // Fixed per-source location, independent of which source is currently active.
+    const cardLocation = isLocal
+        ? mod.localDirectory
+        : isManaged
+            ? mod.managedDirectory
+            : (mod.activeSource === ModuleSourceCategory.Local ? mod.localDirectory : mod.managedDirectory) ?? mod.directory;
 
     // Card border/background reflects this source's enabled state.
     const cardClass = sourceEnabled
@@ -277,7 +311,7 @@ function ModuleCard({
                 : 'border-[var(--admin-border)] bg-[var(--admin-surface)]';
 
     return (
-        <div className={`rounded-[24px] border p-4 transition-colors ${cardClass}`}>
+        <div className={`rounded-lg border p-4 transition-colors ${cardClass}`}>
             <div className="flex items-start justify-between">
                 <div className="flex-1 min-w-0">
                     {/* Title + badges */}
@@ -285,6 +319,11 @@ function ModuleCard({
                         <h3 className="text-lg font-semibold text-[var(--admin-text-primary)]">
                             {mod.title}
                         </h3>
+                        {isActive && (
+                            <span className="rounded-full bg-[var(--admin-success)] px-2 py-0.5 text-xs font-bold uppercase tracking-wider text-white" title="Operative — matches the connected world's system">
+                                ★ Active
+                            </span>
+                        )}
                         {mod.experimental && (
                             <span className="rounded-full border border-[var(--admin-warning-border)] bg-[var(--admin-warning-bg)] px-2 py-0.5 text-xs font-medium text-[var(--admin-warning-text)]">
                                 Experimental
@@ -319,6 +358,13 @@ function ModuleCard({
                         </span>
                     </div>
 
+                    {/* Fixed per-source location — distinguishes local dev from managed install (ADR-0030 UX-6). */}
+                    {cardLocation && (
+                        <p className="mt-1 font-mono text-xs text-[var(--admin-text-muted)] break-all">
+                            {cardLocation}
+                        </p>
+                    )}
+
                     {/* Health */}
                     {health && health.errorCount > 0 && (
                         <div className="mt-1 flex items-center gap-1 text-xs text-[var(--admin-danger-text)]">
@@ -334,10 +380,10 @@ function ModuleCard({
                 <div className="ml-4 flex flex-col items-end gap-1">
                     <div className="flex items-center gap-2">
                         <button
-                            onClick={onToggleExpand}
-                            className="rounded-2xl border border-[var(--admin-border)] bg-[var(--admin-surface)] px-3 py-2 text-sm text-[var(--admin-text-secondary)] transition hover:bg-[var(--admin-surface-hover)]"
+                            onClick={onOpenDetail}
+                            className="rounded-lg border border-[var(--admin-border)] bg-[var(--admin-surface)] px-3 py-2 text-sm text-[var(--admin-text-secondary)] transition hover:bg-[var(--admin-surface-hover)]"
                         >
-                            {expanded ? 'Hide' : 'Details'}
+                            Details
                         </button>
 
                         <button
@@ -346,7 +392,7 @@ function ModuleCard({
                             title={blockedByOther
                                 ? `Disable the ${isLocal ? 'Managed' : 'Local Dev'} version first`
                                 : undefined}
-                            className={`whitespace-nowrap rounded-2xl px-4 py-2 font-semibold transition ${
+                            className={`whitespace-nowrap rounded-lg px-4 py-2 font-semibold transition ${
                                 sourceEnabled
                                     ? 'bg-[var(--admin-danger-button)] text-white hover:bg-[var(--admin-danger-button-strong)] disabled:bg-[var(--admin-danger-button-soft)]'
                                     : blockedByOther
@@ -366,17 +412,6 @@ function ModuleCard({
                     )}
                 </div>
             </div>
-
-            {/* Expandable detail panel */}
-            {expanded && (
-                <div className="mt-4 pt-4 border-t border-[var(--admin-border)]">
-                    <ModuleDetailPanel
-                        entry={entry}
-                        onOperationComplete={onOperationComplete}
-                        onSessionExpired={onSessionExpired}
-                    />
-                </div>
-            )}
         </div>
     );
 }
