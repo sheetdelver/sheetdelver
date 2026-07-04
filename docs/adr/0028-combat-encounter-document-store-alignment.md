@@ -1,6 +1,6 @@
 # ADR-0028: Combat Encounter Document Store Alignment
 
-**Status:** Accepted - In progress (decisions resolved July 4, 2026; Phases 1–2 underway).
+**Status:** Accepted - In progress. Decisions resolved July 4, 2026. Phases 1–4 and the Phase 6 read-side (HUD as projection consumer, incl. the pre-combat initiative amendment) are implemented and live-verified; remaining: Phase 5 (Foundry command bridge — turn math currently runs as the documented Sheet Delver command contract), Phase 6 client tests, Phase 7 (scene/token/settings). See also ADR-0031 (delete-broadcast fidelity, landed).
 **Date:** June 5, 2026
 **Phase:** Primary Documents / Combat
 **Supersedes:** None
