@@ -2,6 +2,7 @@ import { strict as assert } from 'node:assert';
 import {
     PrimaryDocumentStore,
     appendCreatedById,
+    getDeletionIds,
     type ModifyDocumentAction,
     type DocumentChangedEvent,
     type DocumentListInvalidatedEvent,
@@ -51,7 +52,44 @@ export async function run() {
     await runGenericPrimaryDocumentChangedEvent();
     await runApplyModifyDocumentRoutes();
     runAppendCreatedByIdIdempotency();
+    runGetDeletionIdsShapes();
+    await runBroadcastShapedSelfDelete();
     console.log('  - PrimaryDocumentStore<T> base: all checks passed');
+}
+
+// Foundry delete broadcasts carry deleted ids in `result` as plain strings;
+// `operation.ids` is only reliable on the initiator-mirror path. The union
+// helper must accept both shapes so no store's delete can silently no-op
+// (ADR-0031).
+function runGetDeletionIdsShapes() {
+    // Broadcast shape: string ids in result, no operation.ids.
+    assert.deepEqual(getDeletionIds({ modifiedTime: 1 }, ['a', 'b'], []), ['a', 'b']);
+    // Mirror shape: operation.ids present, result may hold documents.
+    assert.deepEqual(getDeletionIds({ ids: ['a'] }, [{ _id: 'a' }], [{ _id: 'a' }]), ['a']);
+    // Union without duplicates when both are present.
+    assert.deepEqual(getDeletionIds({ ids: ['a'] }, ['a', 'b'], []).sort(), ['a', 'b']);
+    // Document-array fallback when neither ids nor string results exist.
+    assert.deepEqual(getDeletionIds(undefined, null, [{ _id: 'c' }]), ['c']);
+    // Nothing resolvable → empty, never throws.
+    assert.deepEqual(getDeletionIds(undefined, null, []), []);
+}
+
+async function runBroadcastShapedSelfDelete() {
+    const store = new MockStore();
+    await store.seed(async () => [{ _id: 'a' }, { _id: 'b' }, { _id: 'c' }]);
+
+    const events: DocumentChangedEvent[] = [];
+    store.on('documentChanged', e => events.push(e as DocumentChangedEvent));
+
+    // Broadcast shape: result carries id strings, operation has no ids.
+    store.applyModifyDocument('Cards', 'delete', ['a'], { modifiedTime: Date.now() });
+    assert.equal(store.get('a'), null, 'broadcast-shaped delete applies from result ids');
+    assert.equal(events.filter(e => e.action === 'delete').length, 1);
+
+    // deleteAll with no resolvable ids wipes the remaining cached documents.
+    store.applyModifyDocument('Cards', 'delete', [], { deleteAll: true });
+    assert.equal(store.list().length, 0, 'deleteAll fallback clears the cache');
+    assert.equal(events.filter(e => e.action === 'delete').length, 3);
 }
 
 // The shared embedded-create helper every store routes through (items/effects/combatants/

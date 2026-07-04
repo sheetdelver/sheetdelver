@@ -1,11 +1,11 @@
 # ADR-0028: Combat Encounter Document Store Alignment
 
-**Status:** Proposed - Not implemented.
+**Status:** Accepted - In progress (decisions resolved July 4, 2026; Phases 1–2 underway).
 **Date:** June 5, 2026
 **Phase:** Primary Documents / Combat
 **Supersedes:** None
 **Revises:** ADR-0011 Phase 5 combat follow-up scope
-**Related:** ADR-0011 (primary document model), ADR-0012 (primary document realtime events), ADR-0013 (ownership and visibility), ADR-0016 (document resolution and UUID routing), ADR-0024 (client UI state decomposition), ADR-0025 (test truthfulness), ADR-0027 (module SDK standardization, parallel workstream).
+**Related:** ADR-0011 (primary document model), ADR-0012 (primary document realtime events), ADR-0013 (ownership and visibility), ADR-0016 (document resolution and UUID routing), ADR-0024 (client UI state decomposition), ADR-0025 (test truthfulness), ADR-0027 (module SDK standardization, parallel workstream), ADR-0031 (delete-broadcast fidelity — cross-cutting defect elucidated by this ADR's Phase 1–2 live testing).
 
 ---
 
@@ -34,6 +34,30 @@ This ADR runs in parallel with ADR-0027. It does not revise the SDK, expose SDK 
 Sheet Delver will align Combat with the primary document-store principles before changing CombatHUD behavior.
 
 The decision has eight parts.
+
+### Resolved Policy Decisions (July 4, 2026)
+
+The three open product decisions deferred by the original proposal are now resolved:
+
+1. **Fidelity target: Foundry command bridge.** Combat actions (start, next turn,
+   previous turn, initiative) cross a core command boundary that invokes Foundry's
+   public `Combat` encounter methods in the Foundry runtime (§6). Foundry owns
+   tracker settings, skip-defeated behavior, and system/module Combat subclass
+   workflows; resulting document events update `CombatStore` and the encounter
+   read model. Sheet Delver does not maintain a parallel progression
+   implementation once the bridge lands.
+2. **Active-encounter policy: active + started only.** The tracker projection and
+   CombatHUD surface only encounters with `active === true` and a started state
+   (`round >= 1`). Unstarted encounters are not rendered in the first contract;
+   a round-zero pre-combat view is deferred until a Start Encounter product
+   design exists. Scene presence must never be used as an activity signal.
+3. **Scene/token/setting dependencies: excluded now, first-class later.** The
+   first tracker contract is scene-agnostic, uses combatant/actor display
+   identity without token fallback, and does not react to combat-tracker
+   settings (moot for progression once the Foundry command bridge owns it).
+   This is a deliberate deferral, **not** a non-goal: Phase 7 below commits to
+   full first-class wiring of these dependencies after the core migration
+   completes.
 
 ### 1. Raw CombatStore Is a Faithful Foundry Document Mirror
 
@@ -144,7 +168,7 @@ The final contract can differ, but it must be explicit. The route must not sprea
 
 Document events are results, not commands. They are the correct way to update backend state after Foundry changes a document, but they are not a substitute for invoking Combat Encounter workflows.
 
-For Foundry-fidelity behavior, combat actions should cross a core command boundary that invokes Foundry's public encounter methods in the Foundry runtime where possible, such as:
+**Decided:** combat actions use the Foundry command bridge. Actions cross a core command boundary that invokes Foundry's public encounter methods in the Foundry runtime, such as:
 
 - `Combat#startCombat()`
 - `Combat#nextTurn()`
@@ -153,7 +177,7 @@ For Foundry-fidelity behavior, combat actions should cross a core command bounda
 
 The resulting Foundry document events then update `CombatStore` and the encounter read model.
 
-If a direct Foundry command bridge is not feasible for a given action, the divergence must be explicit, typed, and tested as Sheet Delver behavior. It must not be silently duplicated in CombatHUD.
+If a direct Foundry command bridge is not feasible for a given action, the divergence must be explicit, typed, and tested as Sheet Delver behavior. It must not be silently duplicated in CombatHUD. Any such per-action fallback is an exception to the decided bridge default and must be recorded in this ADR when introduced.
 
 ### 7. CombatHUD Is a Projection Consumer
 
@@ -220,7 +244,9 @@ CombatHUD action
 - Emit list invalidations when a Combat update changes the set of visibility-bearing combatants.
 - Bridge actor document changes to affected combats when actor data participates in tracker projection.
 - Identify scene/token/setting dependencies that affect tracker projection.
-- Either wire those dependencies or explicitly exclude them from the first supported tracker contract.
+- Decided: scene/token/setting dependencies are **excluded** from the first
+  supported tracker contract and wired first-class in Phase 7 after the core
+  migration completes.
 - Add tests for actor-change invalidation and visibility loss.
 
 ### Phase 3: Encounter Read Model
@@ -254,8 +280,39 @@ CombatHUD action
 - Replace raw `CombatDto` consumption with the tracker DTO.
 - Remove client sorting, ownership checks, hidden filtering, and progression prediction.
 - Select encounters by stable ID.
-- Render only from projected state.
-- Add focused client tests for projection rendering, invalidation refetch, failed actions, round-zero state, and reconnect/world-closed behavior.
+- Render only from projected state, applying the active + started policy.
+- Add focused client tests for projection rendering, invalidation refetch, failed actions, and reconnect/world-closed behavior.
+
+Two client staleness fixes were pulled forward ahead of this phase (July 4, 2026)
+because they are contract-free and directly address the stale-HUD reports:
+
+- The in-flight fetch coalescing fix (dirty-flag trailing refetch) from Phase 3.
+- A minimal render gate: CombatHUD renders only during the `dashboard`
+  connection step, and its encounter filter applies the decided
+  `active === true && round >= 1` policy instead of inferring activity from
+  scene presence. The full policy (server-computed `started`, capability flags)
+  still lands with the tracker DTO in Phase 4.
+
+### Phase 7: Scene, Token, and Setting Dependencies Become First-Class (committed follow-up)
+
+Deferred from the first tracker contract by the July 4, 2026 decision, and
+committed as required scope once Phases 1–6 are complete:
+
+- Add token-derived display identity to the encounter read model
+  (combatant → token → actor fallback chain) with token/scene change
+  invalidation bridges.
+- Define scene applicability for encounter selection (Foundry's
+  `CombatEncounters.combats` is relative to the current canvas scene) or
+  explicitly adopt a documented global tracker policy with scene metadata in
+  the DTO.
+- React to combat-tracker world settings that affect projected ordering or
+  display where they are not already owned by the Foundry command bridge.
+- Declare each wired dependency in the read model's dependency list and cover
+  it with rebuild/invalidation tests, matching the Phase 2 bridging patterns.
+- Update the tracker DTO and `docs/UI.md` for any new projected fields.
+
+This ADR is not considered fully complete until Phase 7 lands or a successor
+ADR explicitly re-scopes it.
 
 ## Non-Goals
 
@@ -310,8 +367,11 @@ This ADR is complete when:
 - Actor changes that affect tracker rows refresh affected encounters.
 - The encounter read model is event-maintained and has build, rebuild, reorder, update, and delete tests.
 - `/api/combats` returns a typed, whitelisted tracker DTO.
-- Combat commands either invoke Foundry encounter methods or conform to a documented Sheet Delver command contract.
+- Combat commands invoke Foundry encounter methods through the command bridge; any per-action fallback is documented in this ADR and tested as explicit Sheet Delver behavior.
 - CombatHUD no longer computes domain logic that belongs to the backend.
+- An encounter that ends, is deleted, or is deactivated disappears from every connected client's HUD without a page reload — including a client whose fetch was in flight when the invalidation arrived.
+- Unstarted encounters are absent from the HUD per the active + started policy, and scene presence is never used as an activity signal.
+- Phase 7 (scene/token/setting first-class wiring) has landed or been re-scoped by a successor ADR.
 
 Expected verification gates:
 

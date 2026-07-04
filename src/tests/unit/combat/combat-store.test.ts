@@ -30,6 +30,10 @@ export async function run() {
     await runHiddenCombatantsExcluded();
     await runFailClosedWithoutActorBinding();
     await runEmbeddedCombatantRouting();
+    await runEmbeddedCombatantGroupRouting();
+    await runFoundryShapedDeleteBroadcast();
+    await runDirectParentUpdateVisibilityDiff();
+    await runActorChangeBridgeEmitsCombatChanged();
     await runActorVisibilityBridgePropagates();
     await runRepositoryMirrorsWrites();
     console.log('  - CombatStore: all checks passed');
@@ -188,6 +192,207 @@ async function runEmbeddedCombatantRouting() {
         parentUuid: 'Combat.combat-emb',
     });
     assert.equal(store.get('combat-emb')?.combatants?.length, 1);
+}
+
+async function runEmbeddedCombatantGroupRouting() {
+    const actor = await seedActorsFor([
+        { _id: 'actor-a', ownership: { 'p-1': DocumentOwnershipLevel.OBSERVER } },
+    ]);
+    const store = new CombatStore();
+    store.bindActorVisibilityBridge(actor);
+    await store.seed(async () => [
+        {
+            _id: 'combat-groups',
+            combatants: [{ _id: 'c1', actorId: 'actor-a' }],
+            groups: [],
+        },
+    ] as CombatDocument[]);
+
+    const events: DocumentChangedEvent[] = [];
+    const invalidations: DocumentListInvalidatedEvent[] = [];
+    store.on('documentChanged', (e) => events.push(e as DocumentChangedEvent));
+    store.on('documentListInvalidated', (e) => invalidations.push(e as DocumentListInvalidatedEvent));
+
+    // Create group via embedded routing.
+    store.applyModifyDocument('CombatantGroup', 'create', [
+        { _id: 'grp-1', name: 'Goblins', initiative: null },
+    ], { parentUuid: 'Combat.combat-groups' });
+    assert.equal(store.get('combat-groups')?.groups?.length, 1);
+    assert.equal(events.filter((e) => e.id === 'combat-groups' && e.action === 'update').length, 1);
+
+    // Idempotent create: mirror + broadcast double-apply must not duplicate.
+    store.applyModifyDocument('CombatantGroup', 'create', [
+        { _id: 'grp-1', name: 'Goblins', initiative: null },
+    ], { parentUuid: 'Combat.combat-groups' });
+    assert.equal(store.get('combat-groups')?.groups?.length, 1, 'group create is idempotent by id');
+
+    // Update group in place.
+    store.applyModifyDocument('CombatantGroup', 'update', [
+        { _id: 'grp-1', initiative: 12 },
+    ], { parentUuid: 'Combat.combat-groups' });
+    assert.equal(store.get('combat-groups')?.groups?.find((g) => g._id === 'grp-1')?.initiative, 12);
+
+    // No-op update emits nothing.
+    const before = events.length;
+    store.applyModifyDocument('CombatantGroup', 'update', [
+        { _id: 'grp-1', initiative: 12 },
+    ], { parentUuid: 'Combat.combat-groups' });
+    assert.equal(events.length, before, 'no-op group update emits nothing');
+
+    // Delete group.
+    store.applyModifyDocument('CombatantGroup', 'delete', null, {
+        parentUuid: 'Combat.combat-groups',
+        ids: ['grp-1'],
+    });
+    assert.equal(store.get('combat-groups')?.groups?.length, 0);
+
+    // Group changes never alter the combatant-derived visibility source.
+    assert.equal(invalidations.length, 0, 'group mutations do not invalidate combat list visibility');
+}
+
+async function runFoundryShapedDeleteBroadcast() {
+    // Foundry delete broadcasts to non-initiating clients carry the deleted
+    // ids in `result` as plain strings; `operation.ids` is not reliable on
+    // this path (Foundry's own client re-records it from `result`). A combat
+    // ended in the Foundry UI arrives exactly like this — it must not
+    // silently no-op and leave the cache (and every HUD) stale.
+    const actor = await seedActorsFor([
+        { _id: 'actor-a', ownership: { 'p-1': DocumentOwnershipLevel.OBSERVER } },
+    ]);
+    const store = new CombatStore();
+    store.bindActorVisibilityBridge(actor);
+    await store.seed(async () => [
+        {
+            _id: 'combat-ended',
+            active: true,
+            round: 3,
+            combatants: [
+                { _id: 'c1', actorId: 'actor-a', initiative: 10 },
+                { _id: 'c2', actorId: 'actor-a', initiative: 5 },
+            ],
+        },
+    ] as CombatDocument[]);
+
+    const events: DocumentChangedEvent[] = [];
+    const invalidations: DocumentListInvalidatedEvent[] = [];
+    store.on('documentChanged', (e) => events.push(e as DocumentChangedEvent));
+    store.on('documentListInvalidated', (e) => invalidations.push(e as DocumentListInvalidatedEvent));
+
+    // Embedded combatant delete, broadcast shape: string ids in result, no
+    // operation.ids.
+    store.applyModifyDocument('Combatant', 'delete', ['c2'], {
+        parentUuid: 'Combat.combat-ended',
+    });
+    assert.equal(store.get('combat-ended')?.combatants?.length, 1,
+        'broadcast-shaped combatant delete applies from result ids');
+
+    // Parent combat delete, broadcast shape ("End Combat" in the Foundry UI):
+    // result holds the deleted id strings, operation has no ids.
+    store.applyModifyDocument('Combat', 'delete', ['combat-ended'], {
+        modifiedTime: Date.now(),
+    });
+    assert.equal(store.get('combat-ended'), null, 'broadcast-shaped combat delete removes the document');
+    assert.ok(
+        events.some((e) => e.id === 'combat-ended' && e.action === 'delete'),
+        'combat delete emits documentChanged so clients refetch',
+    );
+    assert.ok(
+        invalidations.some((e) => e.reason === 'delete' && e.documentId === 'combat-ended'),
+        'combat delete emits a list invalidation',
+    );
+
+    // Repeated broadcast (mirror + broadcast double-apply) stays a no-op.
+    const changedCount = events.length;
+    store.applyModifyDocument('Combat', 'delete', ['combat-ended'], {});
+    assert.equal(events.length, changedCount, 'second delete apply emits nothing');
+}
+
+async function runDirectParentUpdateVisibilityDiff() {
+    const actor = await seedActorsFor([
+        { _id: 'actor-readable', ownership: { 'p-1': DocumentOwnershipLevel.OBSERVER } },
+    ]);
+    const store = new CombatStore();
+    store.bindActorVisibilityBridge(actor);
+    await store.seed(async () => [
+        {
+            _id: 'combat-direct',
+            round: 1,
+            turn: 0,
+            combatants: [{ _id: 'c1', actorId: 'actor-readable' }],
+        },
+    ] as CombatDocument[]);
+
+    const invalidations: DocumentListInvalidatedEvent[] = [];
+    store.on('documentListInvalidated', (e) => invalidations.push(e as DocumentListInvalidatedEvent));
+
+    // Round/turn-only direct update: document changes, visibility source doesn't.
+    store.applyModifyDocument('Combat', 'update', [
+        { _id: 'combat-direct', round: 2, turn: 0 },
+    ]);
+    assert.equal(store.get('combat-direct')?.round, 2);
+    assert.equal(invalidations.length, 0, 'progression-only parent update does not invalidate the list');
+
+    // Direct parent update replaces `combatants` with a hidden-only roster —
+    // the player's last visibility source disappears and former viewers must
+    // be told (Foundry performs direct parent combatant updates like this).
+    store.applyModifyDocument('Combat', 'update', [
+        { _id: 'combat-direct', combatants: [{ _id: 'c1', actorId: 'actor-readable', hidden: true }] },
+    ]);
+    assert.equal(store.canReadDocument('combat-direct', player, DOCUMENT_VISIBILITY.LIST_VISIBLE), false,
+        'hidden-only roster removes non-GM visibility');
+    const visibilityInvalidations = invalidations.filter((e) => e.reason === 'combat-visibility-source-changed');
+    assert.equal(visibilityInvalidations.length, 1, 'visibility-source change on direct parent update invalidates the list');
+    assert.equal(visibilityInvalidations[0].documentId, 'combat-direct');
+
+    // Restoring visibility also invalidates, so the returning viewer refetches.
+    store.applyModifyDocument('Combat', 'update', [
+        { _id: 'combat-direct', combatants: [{ _id: 'c1', actorId: 'actor-readable', hidden: false }] },
+    ]);
+    assert.equal(store.canReadDocument('combat-direct', player, DOCUMENT_VISIBILITY.LIST_VISIBLE), true);
+    assert.equal(
+        invalidations.filter((e) => e.reason === 'combat-visibility-source-changed').length,
+        2,
+        'visibility restoration invalidates the list again',
+    );
+}
+
+async function runActorChangeBridgeEmitsCombatChanged() {
+    const actor = await seedActorsFor([
+        { _id: 'actor-enemy', name: 'Old Name', ownership: { default: DocumentOwnershipLevel.NONE } },
+        { _id: 'actor-unrelated', name: 'Bystander', ownership: { default: DocumentOwnershipLevel.NONE } },
+    ]);
+    const store = new CombatStore();
+    store.bindActorVisibilityBridge(actor);
+    await store.seed(async () => [
+        {
+            _id: 'combat-with-enemy',
+            combatants: [{ _id: 'c1', actorId: 'actor-enemy' }],
+        },
+        {
+            _id: 'combat-without-enemy',
+            combatants: [{ _id: 'c2', actorId: 'actor-someone-else' }],
+        },
+    ] as CombatDocument[]);
+
+    const events: DocumentChangedEvent[] = [];
+    store.on('documentChanged', (e) => events.push(e as DocumentChangedEvent));
+
+    // Ordinary actor update (display data feeding tracker rows). The player
+    // can't read this actor directly, but the combat projection renders its
+    // name/img — the combat must announce a change regardless.
+    actor.applyModifyDocument('Actor', 'update', [
+        { _id: 'actor-enemy', name: 'New Name' },
+    ]);
+
+    const combatUpdates = events.filter((e) => e.action === 'update');
+    assert.equal(combatUpdates.length, 1, 'actor update refreshes exactly the combats containing it');
+    assert.equal(combatUpdates[0].id, 'combat-with-enemy');
+
+    // Actors not present in any combat propagate nothing.
+    actor.applyModifyDocument('Actor', 'update', [
+        { _id: 'actor-unrelated', name: 'Renamed Bystander' },
+    ]);
+    assert.equal(events.filter((e) => e.action === 'update').length, 1, 'unrelated actor updates do not propagate');
 }
 
 async function runActorVisibilityBridgePropagates() {

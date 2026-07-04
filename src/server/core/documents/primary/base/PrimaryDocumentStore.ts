@@ -124,6 +124,30 @@ export function getOperationIds<TDocument extends DocumentLike>(
 }
 
 /**
+ * Resolve the ids removed by a delete event. Foundry delete broadcasts carry
+ * the authoritative deleted ids in `result` as plain id strings — Foundry's
+ * own client re-records `operation.ids = response.result` when handling the
+ * broadcast, because the request operation's explicit ids can be empty (e.g.
+ * `deleteAll: true`) or absent on the wire. Union the `result` string ids
+ * with `operation.ids`/document ids so a delete can never silently no-op on
+ * shape differences between initiator-mirrored and broadcast payloads.
+ */
+export function getDeletionIds<TDocument extends DocumentLike>(
+    operation: Record<string, unknown> | undefined,
+    result: unknown,
+    docs: TDocument[],
+): string[] {
+    const ids = new Set<string>();
+    if (Array.isArray(result)) {
+        for (const entry of result) {
+            if (typeof entry === 'string' && entry) ids.add(entry);
+        }
+    }
+    for (const id of getOperationIds(operation, docs)) ids.add(id);
+    return Array.from(ids);
+}
+
+/**
  * Append created embedded children to an array **idempotently by `_id`** (ADR-0012).
  *
  * A Sheet-Delver-initiated write applies the same create twice — once when the Repository
@@ -361,7 +385,13 @@ export abstract class PrimaryDocumentStore<TDocument extends DocumentLike> exten
         const docs = toDocumentArray<TDocument>(result);
 
         if (action === 'delete') {
-            const ids = getOperationIds(operation, docs);
+            const ids = getDeletionIds(operation, result, docs);
+            if (ids.length === 0 && operation?.deleteAll === true) {
+                // deleteAll with no resolvable ids: every cached document of
+                // this type is gone. Fall back to the full key set so the
+                // wipe still applies and emits.
+                ids.push(...this.documents.keys());
+            }
             for (const id of ids) {
                 const doc = this.documents.get(id);
                 const existed = this.documents.delete(id);

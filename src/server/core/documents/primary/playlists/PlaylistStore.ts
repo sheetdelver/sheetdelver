@@ -4,7 +4,7 @@ import {
     appendCreatedById,
     deepMerge,
     getDocumentId,
-    getOperationIds,
+    getDeletionIds,
     isRecord,
     PrimaryDocumentStore,
     stableJson,
@@ -90,7 +90,7 @@ export class PlaylistStore extends PrimaryDocumentStore<PlaylistDocument> {
         const sounds = [...(playlist.sounds || [])];
 
         if (action === 'delete') {
-            const ids = getOperationIds(operation, docs);
+            const ids = getDeletionIds(operation, result, docs);
             playlist.sounds = sounds.filter(s => {
                 const id = soundId(s);
                 return !id || !ids.includes(id);

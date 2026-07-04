@@ -231,6 +231,13 @@ async function runEmbeddedPageMutationRouting() {
         parentUuid: 'JournalEntry.j-entry',
     });
     assert.equal(store.get('j-entry')?.pages?.length, 1);
+
+    // Broadcast-shaped delete: id strings in result, no operation.ids
+    // (ADR-0031 — Foundry-side deletions arrive like this).
+    store.applyModifyDocument('JournalEntryPage', 'delete', ['page-existing'], {
+        parentUuid: 'JournalEntry.j-entry',
+    });
+    assert.equal(store.get('j-entry')?.pages?.length, 0, 'broadcast-shaped page delete applies');
 }
 
 async function runRepositoryMirrorsWrites() {

@@ -5,7 +5,7 @@ import {
     type DocumentLike,
     deepMerge,
     getDocumentId,
-    getOperationIds,
+    getDeletionIds,
     isRecord,
     PrimaryDocumentStore,
     stableJson,
@@ -103,7 +103,7 @@ export class ItemStore extends PrimaryDocumentStore<ItemDocument> {
         const effects = [...(item.effects || [])];
 
         if (action === 'delete') {
-            const ids = getOperationIds(operation, docs);
+            const ids = getDeletionIds(operation, result, docs);
             item.effects = effects.filter(effect => {
                 const id = effectId(effect);
                 return !id || !ids.includes(id);

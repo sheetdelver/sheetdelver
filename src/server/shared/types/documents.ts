@@ -81,15 +81,34 @@ export interface CombatantDocument {
     [key: string]: unknown;
 }
 
+/**
+ * Embedded CombatantGroup (Foundry v13). Combatants reference their group via
+ * `CombatantDocument.group`; the parent combat mirrors the group set in
+ * `groups[]` the same way `combatants[]` mirrors Combatant children.
+ */
+export interface CombatantGroupDocument {
+    id?: string;
+    _id?: string;
+    name?: string;
+    img?: string | null;
+    initiative?: number | null;
+    ownership?: Record<string, number>;
+    system?: Record<string, unknown>;
+    flags?: Record<string, unknown>;
+    _stats?: Record<string, unknown>;
+    [key: string]: unknown;
+}
+
 export interface CombatDocument {
     id?: string;
     _id?: string;
     active?: boolean;
     type?: string;
     scene?: string | null;
-    groups?: unknown[];
+    groups?: CombatantGroupDocument[];
     round?: number;
-    turn?: number;
+    // Foundry sends `null` for pre-start combats.
+    turn?: number | null;
     sort?: number;
     combatants?: CombatantDocument[];
     system?: Record<string, unknown>;

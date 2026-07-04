@@ -108,6 +108,13 @@ async function runEmbeddedCardRouting() {
         parentUuid: 'Cards.deck-with-cards',
     });
     assert.equal(store.get('deck-with-cards')?.cards?.length, 1);
+
+    // Broadcast-shaped delete: id strings in result, no operation.ids
+    // (ADR-0031 — Foundry-side deletions arrive like this).
+    store.applyModifyDocument('Card', 'delete', ['c-existing'], {
+        parentUuid: 'Cards.deck-with-cards',
+    });
+    assert.equal(store.get('deck-with-cards')?.cards?.length, 0, 'broadcast-shaped card delete applies');
 }
 
 async function runCrossDocTransferPairedEvents() {

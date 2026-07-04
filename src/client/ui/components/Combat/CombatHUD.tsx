@@ -63,11 +63,14 @@ export default function CombatHUD() {
         return () => { isMounted = false; };
     }, [combats, selectedCombatIndex, system?.id]);
 
-    // Hide if not fully in game
-    if (['init', 'setup', 'authenticating', 'login', 'startup', 'initializing'].includes(step)) return null;
+    // Render only during the dashboard step — reconnecting/world-closed and
+    // every pre-game step must not show (possibly stale) combat state (ADR-0028).
+    if (step !== 'dashboard') return null;
 
-    // Filter to active combats that have started (round > 0)
-    const activeCombats = combats?.filter(c => ((c as any).scene !== null || (c as any).active === true)) || [];
+    // Active + started encounters only (ADR-0028 resolved policy). Scene
+    // presence is not an activity signal; `round >= 1` stands in for Foundry's
+    // derived `started` until the tracker DTO projects it explicitly.
+    const activeCombats = combats?.filter(c => (c as any).active === true && (c.round ?? 0) >= 1) || [];
 
     if (activeCombats.length === 0) return null;
 

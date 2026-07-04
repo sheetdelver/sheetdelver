@@ -2,7 +2,7 @@ import type { FolderDocument } from '@server/shared/types/documents';
 import {
     cloneDocument,
     getDocumentId,
-    getOperationIds,
+    getDeletionIds,
     isRecord,
     PrimaryDocumentStore,
     stableJson,
@@ -197,7 +197,7 @@ export class FolderStore extends PrimaryDocumentStore<FolderDocument> {
         const normalizedResult = normalizeFolderResult(action, result);
         const docs = toDocumentArray<FolderDocument>(normalizedResult);
         const ids = action === 'delete'
-            ? getOperationIds(operation, docs)
+            ? getDeletionIds(operation, result, docs)
             : docs.map(folderId).filter((id): id is string => Boolean(id));
         const before = new Map(ids.map(id => [id, comparableFolderState(this.documents.get(id))]));
 

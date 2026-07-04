@@ -106,6 +106,13 @@ async function runEmbeddedSoundRouting() {
         parentUuid: 'Playlist.pl-with-sounds',
     });
     assert.equal(store.get('pl-with-sounds')?.sounds?.length, 1);
+
+    // Broadcast-shaped delete: id strings in result, no operation.ids
+    // (ADR-0031 — Foundry-side deletions arrive like this).
+    store.applyModifyDocument('PlaylistSound', 'delete', ['s-existing'], {
+        parentUuid: 'Playlist.pl-with-sounds',
+    });
+    assert.equal(store.get('pl-with-sounds')?.sounds?.length, 0, 'broadcast-shaped sound delete applies');
 }
 
 async function runRepositoryMirrorsWrites() {

@@ -1,0 +1,41 @@
+/**
+ * In-flight fetch coalescing with a trailing-refetch guarantee
+ * (ADR-0028 / audit finding CMB-05).
+ *
+ * A refetch requested while a fetch is in flight cannot simply be dropped
+ * into the in-flight promise: that request may have captured a snapshot from
+ * before the change that triggered the refetch, so the stale response would
+ * become the final state. Instead, calls made while a fetch is in flight
+ * return the in-flight promise but mark the fetcher dirty; when the current
+ * fetch settles, one trailing fetch runs (repeating while further requests
+ * arrive) so the last observed state always reflects a fetch started after
+ * the last invalidation.
+ */
+export function createCoalescedFetch<TResult>(
+    fetchOnce: () => Promise<TResult | void>,
+): () => Promise<TResult | void> {
+    let inFlight: Promise<TResult | void> | null = null;
+    let refetchQueued = false;
+
+    return () => {
+        if (inFlight) {
+            refetchQueued = true;
+            return inFlight;
+        }
+
+        const request = (async () => {
+            let result = await fetchOnce();
+            while (refetchQueued) {
+                refetchQueued = false;
+                result = await fetchOnce();
+            }
+            return result;
+        })();
+
+        inFlight = request;
+        void request.finally(() => {
+            if (inFlight === request) inFlight = null;
+        });
+        return request;
+    };
+}

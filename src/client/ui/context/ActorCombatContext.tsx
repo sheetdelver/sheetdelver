@@ -4,6 +4,7 @@ import React, { createContext, useCallback, useContext, useMemo, useRef, useStat
 import { logger } from '@shared/utils/logger';
 import { useSession } from '@client/ui/context/SessionContext';
 import { UnauthorizedApiError } from '@client/ui/api/http';
+import { createCoalescedFetch } from '@client/ui/context/coalescedFetch';
 import * as foundryApi from '@client/ui/api/foundryApi';
 import type { ActorDto, ActorListPayload, ActorCardsPayload } from '@shared/contracts/actors';
 import type { CombatDto, CombatListPayload } from '@shared/contracts/combats';
@@ -30,7 +31,10 @@ export function ActorCombatProvider({ children }: { children: React.ReactNode })
     const [actorCards, setActorCards] = useState<Record<string, ActorCardData>>({});
     const [combats, setCombats] = useState<CombatDto[]>([]);
     const lastActorFetchTimeRef = useRef<number>(0);
-    const combatFetchInFlightRef = useRef<Promise<CombatListPayload | void> | null>(null);
+    const combatFetcherRef = useRef<{
+        token: string;
+        fetch: () => Promise<CombatListPayload | void>;
+    } | null>(null);
     const FETCH_THROTTLE_MS = 2000;
 
     const fetchActorCards = useCallback(async () => {
@@ -83,35 +87,35 @@ export function ActorCombatProvider({ children }: { children: React.ReactNode })
         }
     }, [fetchActorCards, token, setToken]);
 
+    // Coalesced with a trailing-refetch guarantee: an invalidation arriving
+    // while a request is in flight always causes one more fetch after it
+    // settles (ADR-0028 / CMB-05), so a pre-change snapshot can't become the
+    // final combat state. The fetcher is rebuilt when the session token
+    // changes, discarding any in-flight state from the previous session.
     const fetchCombats = useCallback(async () => {
         if (!token) return;
-        if (combatFetchInFlightRef.current) return combatFetchInFlightRef.current;
-
-        const request = (async () => {
-            try {
-                const data = await foundryApi.fetchCombats(token);
-                if (data.combats) {
-                    setCombats(data.combats as CombatDto[]);
-                }
-                return data;
-            } catch (error: any) {
-                if (error instanceof UnauthorizedApiError) {
-                    setToken(null);
-                    return;
-                }
-                logger.error('ActorCombatContext | Fetch combat failed:', error.message);
-                return;
-            }
-        })();
-
-        combatFetchInFlightRef.current = request;
-        request.finally(() => {
-            if (combatFetchInFlightRef.current === request) {
-                combatFetchInFlightRef.current = null;
-            }
-        });
-
-        return request;
+        if (combatFetcherRef.current?.token !== token) {
+            combatFetcherRef.current = {
+                token,
+                fetch: createCoalescedFetch<CombatListPayload>(async () => {
+                    try {
+                        const data = await foundryApi.fetchCombats(token);
+                        if (data.combats) {
+                            setCombats(data.combats as CombatDto[]);
+                        }
+                        return data;
+                    } catch (error: any) {
+                        if (error instanceof UnauthorizedApiError) {
+                            setToken(null);
+                            return;
+                        }
+                        logger.error('ActorCombatContext | Fetch combat failed:', error.message);
+                        return;
+                    }
+                }),
+            };
+        }
+        return combatFetcherRef.current.fetch();
     }, [token, setToken]);
 
     const patchActorCard = useCallback((actorId: string, card: ActorCardData) => {

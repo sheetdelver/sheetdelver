@@ -149,6 +149,13 @@ async function runEmbeddedActiveEffectRouting() {
         parentUuid: 'Item.i-with-effects',
     });
     assert.equal(store.get('i-with-effects')?.effects?.length, 1);
+
+    // Broadcast-shaped delete: id strings in result, no operation.ids
+    // (ADR-0031 — Foundry-side deletions arrive like this).
+    store.applyModifyDocument('ActiveEffect', 'delete', ['fx-existing'], {
+        parentUuid: 'Item.i-with-effects',
+    });
+    assert.equal(store.get('i-with-effects')?.effects?.length, 0, 'broadcast-shaped effect delete applies');
 }
 
 async function runRepositoryMirrorsWrites() {

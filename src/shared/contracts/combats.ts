@@ -14,7 +14,8 @@ export interface CombatDto {
     id?: string;
     _id?: string;
     round?: number;
-    turn?: number;
+    // Foundry sends `null` for pre-start combats.
+    turn?: number | null;
     combatants?: CombatantDto[];
     [key: string]: unknown;
 }

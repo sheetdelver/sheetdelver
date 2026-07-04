@@ -4,7 +4,7 @@ import {
     appendCreatedById,
     deepMerge,
     getDocumentId,
-    getOperationIds,
+    getDeletionIds,
     isRecord,
     PrimaryDocumentStore,
     stableJson,
@@ -148,7 +148,7 @@ export class ActorStore extends PrimaryDocumentStore<ActorDocument> {
         actor.items = actor.items || [];
 
         if (action === 'delete') {
-            const ids = getOperationIds(operation, docs);
+            const ids = getDeletionIds(operation, result, docs);
             actor.items = actor.items.filter(item => {
                 const id = getDocumentId(item);
                 return !id || !ids.includes(id);
@@ -209,7 +209,7 @@ export class ActorStore extends PrimaryDocumentStore<ActorDocument> {
         const docs = toDocumentArray<Record<string, unknown>>(result);
 
         if (action === 'delete') {
-            const ids = getOperationIds(operation, docs);
+            const ids = getDeletionIds(operation, result, docs);
             return effects.filter(effect => {
                 const id = isRecord(effect) ? getDocumentId(effect) : null;
                 return !id || !ids.includes(id);

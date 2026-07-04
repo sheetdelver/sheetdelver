@@ -3,6 +3,7 @@ import { run as runRuntimeSurface } from './runtime-surface.test';
 import { run as runSharedContentRealtime } from './shared-content-realtime.test';
 import { run as runDocumentSource } from './document-source.test';
 import { run as runSdkEventBus } from './sdk-event-bus.test';
+import { run as runCoalescedFetch } from './coalesced-fetch.test';
 
 export async function run() {
     runFoundryStateHelpers();
@@ -10,6 +11,7 @@ export async function run() {
     runSharedContentRealtime();
     await runDocumentSource();
     runSdkEventBus();
+    await runCoalescedFetch();
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

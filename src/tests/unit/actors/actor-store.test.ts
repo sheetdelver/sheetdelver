@@ -104,6 +104,13 @@ async function runActorStoreMutations() {
     // Applying the same visible state twice should not create duplicate realtime work.
     store.applyModifyDocument('Actor', 'update', [{ _id: 'actor-1', 'system.attributes.hp.value': 5 }]);
     assert.deepEqual(events, ['actor-1:update', 'actor-1:update', 'actor-1:update']);
+
+    // Broadcast-shaped embedded delete: id strings in result, no operation.ids
+    // (ADR-0031 — Foundry-side deletions arrive like this).
+    store.applyModifyDocument('Item', 'delete', ['item-1'], {
+        parentUuid: 'Actor.actor-1',
+    });
+    assert.equal(store.get('actor-1')?.items?.length, 0, 'broadcast-shaped item delete applies');
 }
 
 // Regression: a Sheet-Delver-initiated write applies the same embedded create twice — once

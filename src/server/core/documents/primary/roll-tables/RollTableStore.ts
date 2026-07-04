@@ -4,7 +4,7 @@ import {
     appendCreatedById,
     deepMerge,
     getDocumentId,
-    getOperationIds,
+    getDeletionIds,
     isRecord,
     PrimaryDocumentStore,
     stableJson,
@@ -89,7 +89,7 @@ export class RollTableStore extends PrimaryDocumentStore<RollTableDocument> {
         const results = [...(table.results || [])];
 
         if (action === 'delete') {
-            const ids = getOperationIds(operation, docs);
+            const ids = getDeletionIds(operation, result, docs);
             table.results = results.filter(r => {
                 const id = resultId(r);
                 return !id || !ids.includes(id);

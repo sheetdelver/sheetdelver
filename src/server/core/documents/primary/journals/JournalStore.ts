@@ -4,7 +4,7 @@ import {
     appendCreatedById,
     deepMerge,
     getDocumentId,
-    getOperationIds,
+    getDeletionIds,
     PrimaryDocumentStore,
     stableJson,
     toDocumentArray,
@@ -164,7 +164,7 @@ export class JournalStore extends PrimaryDocumentStore<JournalEntryDocument> {
         entry.pages = entry.pages || [];
 
         if (action === 'delete') {
-            const ids = getOperationIds(operation, docs);
+            const ids = getDeletionIds(operation, result, docs);
             entry.pages = entry.pages.filter(page => {
                 const id = pageId(page);
                 return !id || !ids.includes(id);

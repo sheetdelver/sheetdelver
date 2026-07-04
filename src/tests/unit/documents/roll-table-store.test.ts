@@ -145,6 +145,13 @@ async function runEmbeddedResultRouting() {
         parentUuid: 'RollTable.t-with-results',
     });
     assert.equal(store.get('t-with-results')?.results?.length, 1);
+
+    // Broadcast-shaped delete: id strings in result, no operation.ids
+    // (ADR-0031 — Foundry-side deletions arrive like this).
+    store.applyModifyDocument('RollTableResult', 'delete', ['r-1'], {
+        parentUuid: 'RollTable.t-with-results',
+    });
+    assert.equal(store.get('t-with-results')?.results?.length, 0, 'broadcast-shaped result delete applies');
 }
 
 async function runRepositoryMirrorsWrites() {

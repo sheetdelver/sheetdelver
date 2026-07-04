@@ -4,7 +4,7 @@ import {
     appendCreatedById,
     deepMerge,
     getDocumentId,
-    getOperationIds,
+    getDeletionIds,
     isRecord,
     PrimaryDocumentStore,
     stableJson,
@@ -90,7 +90,7 @@ export class CardsStore extends PrimaryDocumentStore<CardsDocument> {
         const cards = [...(parent.cards || [])];
 
         if (action === 'delete') {
-            const ids = getOperationIds(operation, docs);
+            const ids = getDeletionIds(operation, result, docs);
             parent.cards = cards.filter(c => {
                 const id = cardId(c);
                 return !id || !ids.includes(id);

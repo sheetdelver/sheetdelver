@@ -1,13 +1,15 @@
-import type { CombatDocument, CombatantDocument } from '@server/shared/types/documents';
+import type { CombatDocument, CombatantGroupDocument } from '@server/shared/types/documents';
 import {
     cloneDocument,
     appendCreatedById,
     deepMerge,
+    getDeletionIds,
     getDocumentId,
-    getOperationIds,
     PrimaryDocumentStore,
     stableJson,
     toDocumentArray,
+    type DocumentChangedEvent,
+    type DocumentLike,
     type DocumentListInvalidatedEvent,
     type ModifyDocumentAction,
     type PrimaryDocumentType,
@@ -20,10 +22,6 @@ import {
     type ResolvedDocumentOwnershipLevel,
 } from '../base/ownership';
 import type { ActorStore } from '../actors/ActorStore';
-
-function combatantId(combatant: CombatantDocument | null | undefined): string | null {
-    return getDocumentId(combatant);
-}
 
 function combatVisibilitySourceState(combat: CombatDocument): string {
     const actorIds = new Set<string>();
@@ -46,17 +44,22 @@ function combatVisibilitySourceState(combat: CombatDocument): string {
  *     `LIST_VISIBLE` via {@link ActorStore.canReadActor}.
  *   - Missing actors fail closed.
  *
- * Embedded children: `Combatant` arrives with `parentUuid: Combat.<id>`. The
-     * parent combat's `combatants[]` array is mutated in place. Changes to the
-     * non-hidden combatant actor-id source set emit a list invalidation because
-     * they can add or remove combat visibility for non-GM subjects.
+ * Embedded children: `Combatant` and `CombatantGroup` arrive with
+ * `parentUuid: Combat.<id>`. The parent combat's `combatants[]` / `groups[]`
+ * array is mutated in place. Changes to the non-hidden combatant actor-id
+ * source set emit a list invalidation because they can add or remove combat
+ * visibility for non-GM subjects. Direct parent Combat updates that replace
+ * `combatants` wholesale are diffed the same way (ADR-0028 Phase 2).
  *
  * Cross-store dependency: CombatStore consumes ActorStore for visibility
- * resolution. The dependency is declared explicitly via
+ * resolution and for projected tracker rows (actor name/img/system data flow
+ * into the combat REST projection). The dependency is declared explicitly via
  * {@link bindActorVisibilityBridge}: the coordinator wires it at module-init
- * alongside the standard Store registrations, and CombatStore subscribes to
-     * `actorStore.documentListInvalidated` to re-emit its own list invalidation
-     * for combats containing the affected actor.
+ * alongside the standard Store registrations. CombatStore subscribes to
+ * `actorStore.documentListInvalidated` to re-emit its own list invalidation
+ * for combats containing the affected actor, and to
+ * `actorStore.documentChanged` to re-emit a combat `update` change so
+ * already-open trackers refetch rows whose actor display data changed.
  */
 export class CombatStore extends PrimaryDocumentStore<CombatDocument> {
     public readonly documentType: PrimaryDocumentType = 'Combat';
@@ -80,6 +83,21 @@ export class CombatStore extends PrimaryDocumentStore<CombatDocument> {
                     documentId: combatId,
                     targetUserIds: event.targetUserIds,
                 });
+            }
+        });
+        // Actor document changes (name/img/system) feed projected tracker rows,
+        // so an ordinary actor update must refresh combats that contain the
+        // actor even though the Combat document itself did not change. This is
+        // a declared projection-dependency invalidation: the gateway's normal
+        // combat visibility gating decides which clients receive it, which
+        // also covers players who can see the combat but cannot read the actor
+        // (ADR-0028 Phase 2). Creates and deletes already cross through the
+        // actor list-invalidation bridge above.
+        actorStore.on('documentChanged', (event: DocumentChangedEvent) => {
+            if (event.action !== 'update') return;
+            const affected = this.findCombatsContainingActor(event.id);
+            for (const combatId of affected) {
+                this.emitChanged(combatId, 'update');
             }
         });
     }
@@ -123,8 +141,9 @@ export class CombatStore extends PrimaryDocumentStore<CombatDocument> {
 
     /**
      * Embedded JournalEntryPage parallel for Combat. `parentUuid: Combat.<id>`
-     * routes here; mutations apply to the parent combat's `combatants[]` array
-     * and emit a `combatChanged` (update) on the parent.
+     * routes here; `Combatant` mutations apply to the parent combat's
+     * `combatants[]` array and `CombatantGroup` mutations to `groups[]`, each
+     * emitting a `combatChanged` (update) on the parent.
      */
     protected applyEmbeddedChange(
         type: string,
@@ -132,7 +151,7 @@ export class CombatStore extends PrimaryDocumentStore<CombatDocument> {
         result: unknown,
         operation?: Record<string, unknown>,
     ): void {
-        if (type !== 'Combatant') return;
+        if (type !== 'Combatant' && type !== 'CombatantGroup') return;
         const combatId = this.getCombatIdFromOperation(operation);
         if (!combatId) return;
         const combat = this.documents.get(combatId);
@@ -140,27 +159,11 @@ export class CombatStore extends PrimaryDocumentStore<CombatDocument> {
 
         const before = stableJson(combat);
         const beforeVisibilitySource = combatVisibilitySourceState(combat);
-        const docs = toDocumentArray<CombatantDocument>(result);
-        combat.combatants = combat.combatants || [];
 
-        if (action === 'delete') {
-            const ids = getOperationIds(operation, docs);
-            combat.combatants = combat.combatants.filter(c => {
-                const id = combatantId(c);
-                return !id || !ids.includes(id);
-            });
-        } else if (action === 'update') {
-            for (const incoming of docs) {
-                const id = combatantId(incoming);
-                if (!id) continue;
-                const index = combat.combatants.findIndex(existing => combatantId(existing) === id);
-                if (index >= 0) {
-                    deepMerge(combat.combatants[index] as Record<string, unknown>, incoming as Record<string, unknown>);
-                }
-            }
-        } else if (action === 'create') {
-            // Idempotent create (mirror + broadcast both apply — ADR-0012 / ADR-0028).
-            combat.combatants = appendCreatedById(combat.combatants, docs);
+        if (type === 'Combatant') {
+            combat.combatants = this.applyEmbeddedArrayChange(combat.combatants, action, result, operation);
+        } else {
+            combat.groups = this.applyEmbeddedArrayChange<CombatantGroupDocument>(combat.groups, action, result, operation);
         }
 
         this.documents.set(combatId, combat);
@@ -169,6 +172,81 @@ export class CombatStore extends PrimaryDocumentStore<CombatDocument> {
             if (combatVisibilitySourceState(combat) !== beforeVisibilitySource) {
                 this.emitListInvalidated('combatant-visibility-changed', {
                     documentId: combatId,
+                });
+            }
+        }
+    }
+
+    /**
+     * Shared embedded-array mutation for Combatant and CombatantGroup children.
+     * Creates are idempotent by id (mirror + broadcast both apply — ADR-0012 /
+     * ADR-0028); updates deep-merge in place; deletes filter by operation ids.
+     */
+    private applyEmbeddedArrayChange<TChild extends DocumentLike>(
+        existing: TChild[] | undefined,
+        action: ModifyDocumentAction,
+        result: unknown,
+        operation?: Record<string, unknown>,
+    ): TChild[] {
+        const docs = toDocumentArray<TChild>(result);
+        const children = existing || [];
+
+        if (action === 'delete') {
+            // Broadcast deletes carry id strings in `result`, not documents.
+            const ids = getDeletionIds(operation, result, docs);
+            return children.filter(child => {
+                const id = getDocumentId(child);
+                return !id || !ids.includes(id);
+            });
+        }
+        if (action === 'update') {
+            for (const incoming of docs) {
+                const id = getDocumentId(incoming);
+                if (!id) continue;
+                const index = children.findIndex(child => getDocumentId(child) === id);
+                if (index >= 0) {
+                    deepMerge(children[index] as Record<string, unknown>, incoming as Record<string, unknown>);
+                }
+            }
+            return children;
+        }
+        if (action === 'create') {
+            return appendCreatedById(children, docs);
+        }
+        return children;
+    }
+
+    /**
+     * Direct parent Combat updates can replace `combatants` (or `groups`)
+     * wholesale — Foundry performs such updates for combatant state — which
+     * changes derived visibility without touching an ownership map, so the
+     * generic base diffing never fires. Diff the visibility source across the
+     * base apply and emit a list invalidation on change so former viewers
+     * drop the combat and new viewers pick it up (ADR-0028 Phase 2).
+     */
+    protected applySelfChange(
+        action: ModifyDocumentAction,
+        result: unknown,
+        operation?: Record<string, unknown>,
+    ): void {
+        const beforeSources = new Map<string, string>();
+        if (action === 'update') {
+            for (const doc of toDocumentArray<CombatDocument>(result)) {
+                const id = getDocumentId(doc);
+                if (!id) continue;
+                const existing = this.documents.get(id);
+                if (existing) beforeSources.set(id, combatVisibilitySourceState(existing));
+            }
+        }
+
+        super.applySelfChange(action, result, operation);
+
+        for (const [id, beforeSource] of beforeSources) {
+            const updated = this.documents.get(id);
+            if (!updated) continue;
+            if (combatVisibilitySourceState(updated) !== beforeSource) {
+                this.emitListInvalidated('combat-visibility-source-changed', {
+                    documentId: id,
                 });
             }
         }
