@@ -13,6 +13,7 @@ import { macroStore } from './macros/MacroStore';
 import { playlistStore } from './playlists/PlaylistStore';
 import { rollTableStore } from './roll-tables/RollTableStore';
 import { userStore } from './users/UserStore';
+import { combatEncounterReadModel } from '../encounters/CombatEncounterReadModel';
 
 /**
  * One bootstrap-seed contributor. Registered with the coordinator so the
@@ -199,9 +200,14 @@ primaryDocumentCacheCoordinator.register({
             const response: any = await client.dispatchDocumentSocket('Combat', 'get', { broadcast: false });
             return response?.result || [];
         });
+        // Prepared encounter state is derived from the raw store; bulk-build
+        // it once the raw seed lands (silent, like store seeding). Runtime
+        // maintenance is event-driven via the binding below (ADR-0028 §4).
+        combatEncounterReadModel.rebuildAll();
         logger.info(`PrimaryDocumentCacheCoordinator | Seeded ${combatStore.list().length} combats.`);
     },
     clear(reason) {
+        combatEncounterReadModel.clear(reason);
         combatStore.clear(reason);
     },
     isReady() {
@@ -321,4 +327,12 @@ modifyDocumentRouter.registerEmbeddedHandler('Cards', cardsStore);
 // ActorStore for `resolveOwnership` lookups and re-emits its own list
 // invalidation when actor ownership crossings affect combat visibility.
 combatStore.bindActorVisibilityBridge(actorStore);
+
+// Derived encounter read model (ADR-0028 §4, Phase 3): event-maintained
+// prepared tracker state beside — not inside — the raw CombatStore. Combat
+// document events drive rebuild/remove; actor-driven changes arrive through
+// CombatStore's bridge above, so no direct ActorStore subscription exists.
+// The singleton self-binds at module load (idempotent); this call documents
+// the dependency in the same place as the other cross-store wiring.
+combatEncounterReadModel.bind(combatStore, actorStore);
 

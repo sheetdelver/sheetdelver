@@ -1,52 +1,53 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useFoundry } from '@client/ui/context/FoundryContext';
 import { useActorCombat } from '@client/ui/context/ActorCombatContext';
 import { useSession } from '@client/ui/context/SessionContext';
-import type { CombatDto } from '@shared/contracts/combats';
-import { resolveImage, getUIModule } from '@modules/registry/client';
+import { useNotifications } from '@client/ui/components/NotificationSystem';
+import type { CombatTrackerDto, CombatTrackerCombatantDto } from '@shared/contracts/combats';
+import * as foundryApi from '@client/ui/api/foundryApi';
+import { getUIModule } from '@modules/registry/client';
 import { SurfaceHost } from '@client/ui/components/SurfaceHost';
 import { logger } from '@shared/utils/logger';
-import { Swords, Skull, Shield, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, SkipForward, SkipBack } from 'lucide-react';
+import { Skull, Shield, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, SkipForward, SkipBack } from 'lucide-react';
 import RollDialog from '../RollDialog';
 
-export default function CombatHUD() {
-    const { step, currentUser, system } = useFoundry();
-    const { combats } = useActorCombat();
-    const { token } = useSession();
-    const [selectedCombatIndex, setSelectedCombatIndex] = useState(0);
-    const [isMinimized, setIsMinimized] = useState(false);
+type PendingAction = 'next-turn' | 'previous-turn' | 'initiative' | null;
 
-    // Optimistic State
-    const [optimisticCombat, setOptimisticCombat] = useState<CombatDto | null>(null);
+interface RollCommand {
+    combatId: string;
+    combatantId: string;
+    actor: CombatTrackerCombatantDto['actor'];
+    title: string;
+}
+
+/**
+ * Combat tracker HUD — a render-only consumer of the server tracker
+ * projection (ADR-0028 §7 / Phase 6). Ordering, current-turn identity,
+ * hidden-row redaction, and action capabilities all arrive server-computed
+ * in `CombatTrackerDto`; this component owns only presentation state
+ * (selected encounter id, minimized state, dialog state, pending mutations).
+ */
+export default function CombatHUD() {
+    const { step, system } = useFoundry();
+    const { combats, fetchCombats } = useActorCombat();
+    const { token } = useSession();
+    const { addNotification } = useNotifications();
+    const [selectedCombatId, setSelectedCombatId] = useState<string | null>(null);
+    const [isMinimized, setIsMinimized] = useState(false);
+    const [pendingAction, setPendingAction] = useState<PendingAction>(null);
 
     // Roll Dialog State
     const [isRollDialogOpen, setIsRollDialogOpen] = useState(false);
-    const [rollCommand, setRollCommand] = useState<any>(null); // Type, title, actor, etc.
-
-    // Sync optimistic state with actual state when it arrives
-    useEffect(() => {
-        setOptimisticCombat(null);
-    }, [combats]);
+    const [rollCommand, setRollCommand] = useState<RollCommand | null>(null);
 
     const [DynamicRollModal, setDynamicRollModal] = useState<React.ComponentType<any> | null>(null);
 
     useEffect(() => {
         let isMounted = true;
         async function resolveRollModal() {
-            // Determine system ID: best source is a combatant's stats, then global system object, then active adapter
-            let sId = 'generic';
-            if (combats && combats.length > 0 && (combats[selectedCombatIndex] as any)?.combatants?.length > 0) {
-                const activeC = combats[selectedCombatIndex];
-                const combatantStats = activeC.combatants?.[0]?._stats as Record<string, unknown> | undefined;
-                sId = (combatantStats?.systemId as string | undefined) || sId;
-            }
-            if (sId === 'generic') {
-                sId = system?.id || 'generic';
-            }
-
-            const manifest = await getUIModule(sId);
+            const manifest = await getUIModule(system?.id || 'generic');
             if (!isMounted) return;
 
             if (manifest?.rollModal) {
@@ -61,29 +62,56 @@ export default function CombatHUD() {
         }
         resolveRollModal();
         return () => { isMounted = false; };
-    }, [combats, selectedCombatIndex, system?.id]);
+    }, [system?.id]);
 
     // Render only during the dashboard step — reconnecting/world-closed and
     // every pre-game step must not show (possibly stale) combat state (ADR-0028).
     if (step !== 'dashboard') return null;
 
-    // Active + started encounters only (ADR-0028 resolved policy). Scene
-    // presence is not an activity signal; `round >= 1` stands in for Foundry's
-    // derived `started` until the tracker DTO projects it explicitly.
-    const activeCombats = combats?.filter(c => (c as any).active === true && (c.round ?? 0) >= 1) || [];
+    // Started encounters render the full tracker. Unstarted active encounters
+    // surface only when the server projection returned rows for this viewer —
+    // for players that's exactly their own rollable combatants (pre-combat
+    // initiative), for GMs the forming roster (ADR-0028 QoL addendum).
+    const activeCombats = combats?.filter(c => c.active && (c.started || c.combatants.length > 0)) || [];
 
     if (activeCombats.length === 0) return null;
 
-    // Safety bounds for selected index
-    const activeCombat = activeCombats[Math.min(selectedCombatIndex, activeCombats.length - 1)];
-    const displayCombat = optimisticCombat || activeCombat;
+    // Stable-id selection: keep the chosen encounter when the list reorders;
+    // fall back to the first active encounter when it disappears.
+    const selectedIndex = selectedCombatId
+        ? activeCombats.findIndex(c => c.id === selectedCombatId)
+        : -1;
+    const activeCombat: CombatTrackerDto = selectedIndex >= 0 ? activeCombats[selectedIndex] : activeCombats[0];
+    const displayIndex = selectedIndex >= 0 ? selectedIndex : 0;
 
-    const handleInitiativeClick = (combatant: any) => {
+    const selectByOffset = (offset: number) => {
+        const next = activeCombats[Math.min(Math.max(displayIndex + offset, 0), activeCombats.length - 1)];
+        if (next) setSelectedCombatId(next.id);
+    };
+
+    const runAction = async (action: Exclude<PendingAction, null>, request: () => Promise<unknown>) => {
+        if (pendingAction) return;
+        setPendingAction(action);
+        try {
+            await request();
+            // Refresh promptly; the realtime invalidation will also land, and
+            // the trailing-refetch guarantee dedupes the burst.
+            void fetchCombats();
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Request failed';
+            logger.error(`CombatHUD | ${action} failed:`, error);
+            addNotification(`Combat action failed: ${message}`, 'error');
+        } finally {
+            setPendingAction(null);
+        }
+    };
+
+    const handleInitiativeClick = (combatant: CombatTrackerCombatantDto) => {
         setRollCommand({
-            combatId: activeCombat._id || activeCombat.id,
-            combatantId: combatant._id || combatant.id,
+            combatId: activeCombat.id,
+            combatantId: combatant.id,
             actor: combatant.actor,
-            title: `Roll Initiative: ${combatant.actor?.name}`
+            title: `Roll Initiative: ${combatant.name ?? 'Combatant'}`,
         });
         setIsRollDialogOpen(true);
     };
@@ -91,137 +119,42 @@ export default function CombatHUD() {
     const handleConfirmRoll = async (options: any) => {
         setIsRollDialogOpen(false);
         if (!rollCommand) return;
+        const { combatId, combatantId } = rollCommand;
+        setRollCommand(null);
 
-        try {
-            if (!token) throw new Error('No session token');
+        // Manual-value rolls carry edited bonuses; formula-less rolls defer
+        // to the server's adapter initiative formula.
+        const totalBonus = (options.abilityBonus || 0) + (options.itemBonus || 0) + (options.talentBonus || 0);
+        const suffix = totalBonus > 0 ? `+${totalBonus}` : totalBonus < 0 ? `${totalBonus}` : '';
+        const formula = options.manualValue !== undefined
+            ? `${options.manualValue}${suffix}`
+            : undefined;
 
-            const headers: Record<string, string> = {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-            };
-
-            // Calculate formula modification
-            let formulaSuffix = '';
-            const totalBonus = (options.abilityBonus || 0) + (options.itemBonus || 0) + (options.talentBonus || 0);
-            if (totalBonus > 0) formulaSuffix = `+${totalBonus}`;
-            else if (totalBonus < 0) formulaSuffix = `${totalBonus}`;
-
-            const formula = options.manualValue !== undefined ? `${options.manualValue}` : undefined;
-
-            await fetch(`/api/combats/${rollCommand.combatId}/combatants/${rollCommand.combatantId}/roll-initiative`, {
-                method: 'POST',
-                headers,
-                body: JSON.stringify({
-                    formula: formula ? `${formula}${formulaSuffix}` : undefined,
-                    advantageMode: options.advantageMode
-                })
-            });
-            setRollCommand(null);
-        } catch (error) {
-            logger.error('Failed to roll initiative:', error);
-        }
+        await runAction('initiative', () => foundryApi.postCombatRollInitiative(token, combatId, combatantId, {
+            formula,
+            advantageMode: options.advantageMode,
+        }));
     };
 
-    const handleNextTurn = async () => {
-        try {
-            if (!token || !activeCombat) return;
+    const handleNextTurn = () => runAction('next-turn', () => foundryApi.postCombatNextTurn(token, activeCombat.id));
+    const handlePreviousTurn = () => runAction('previous-turn', () => foundryApi.postCombatPreviousTurn(token, activeCombat.id));
 
-            // Optimistic Update
-            const sorted = [...(activeCombat.combatants || [])].sort((a: any, b: any) => {
-                const ia = typeof a.initiative === 'number' && !isNaN(a.initiative) ? a.initiative : -Infinity;
-                const ib = typeof b.initiative === 'number' && !isNaN(b.initiative) ? b.initiative : -Infinity;
-                return (ib - ia) || ((a._id || a.id) > (b._id || b.id) ? 1 : -1);
-            });
+    // Server-ordered rows; the current row splits acted from upcoming.
+    const rows = activeCombat.combatants;
+    const currentIndex = rows.findIndex(r => r.isCurrent);
+    const splitIndex = currentIndex >= 0 ? currentIndex : 0;
+    const unacted = rows.slice(splitIndex);
+    const acted = rows.slice(0, splitIndex);
 
-            let nextRound = activeCombat.round || 0;
-            let nextTurn = (activeCombat.turn ?? -1);
+    const currentName = currentIndex >= 0
+        ? rows[currentIndex].name ?? 'Unknown'
+        : activeCombat.hasHiddenCurrentCombatant ? 'Hidden combatant' : 'Unknown';
 
-            if (nextRound === 0) {
-                nextRound = 1;
-                nextTurn = 0;
-            } else {
-                nextTurn += 1;
-                if (nextTurn >= sorted.length) {
-                    nextRound += 1;
-                    nextTurn = 0;
-                }
-            }
-
-            setOptimisticCombat({ ...activeCombat, round: nextRound, turn: nextTurn });
-
-            const headers: Record<string, string> = {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-            };
-            await fetch(`/api/combats/${activeCombat._id || activeCombat.id}/next-turn`, {
-                method: 'POST',
-                headers
-            });
-        } catch (error) {
-            setOptimisticCombat(null);
-            logger.error('Failed to advance turn:', error);
-        }
-    };
-
-    const handlePreviousTurn = async () => {
-        try {
-            if (!token || !activeCombat) return;
-
-            // Optimistic Update
-            let prevRound = activeCombat.round || 0;
-            let prevTurn = activeCombat.turn ?? 0;
-
-            if (prevRound === 0) {
-                // do nothing
-            } else if (prevTurn === 0) {
-                if (prevRound > 1) {
-                    prevRound -= 1;
-                    prevTurn = (activeCombat.combatants?.length || 1) - 1;
-                } else {
-                    prevRound = 0;
-                    prevTurn = 0;
-                }
-            } else {
-                prevTurn -= 1;
-            }
-
-            setOptimisticCombat({ ...activeCombat, round: prevRound, turn: prevTurn });
-
-            const headers: Record<string, string> = {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-            };
-            await fetch(`/api/combats/${activeCombat._id || activeCombat.id}/previous-turn`, {
-                method: 'POST',
-                headers
-            });
-        } catch (error) {
-            setOptimisticCombat(null);
-            logger.error('Failed to rewind turn:', error);
-        }
-    };
-
-    // Derive sorted combatants for the queue
-    const sortedCombatants = [...(displayCombat?.combatants || [])].sort((a: any, b: any) => {
-        const ia = typeof a.initiative === 'number' && !isNaN(a.initiative) ? a.initiative : -Infinity;
-        const ib = typeof b.initiative === 'number' && !isNaN(b.initiative) ? b.initiative : -Infinity;
-        return (ib - ia) || ((a._id || a.id) > (b._id || b.id) ? 1 : -1);
-    });
-
-    const currentTurnIndex = displayCombat?.turn ?? 0;
-
-    // Get the name of current actor
-    const currentActorName = sortedCombatants[currentTurnIndex]?.actor?.name || 'Unknown';
-
-    const unacted = sortedCombatants.slice(currentTurnIndex);
-    const acted = sortedCombatants.slice(0, currentTurnIndex);
-
-    const carouselItems = [
+    const carouselItems: Array<CombatTrackerCombatantDto | { isDivider: true; id: string }> = [
         ...unacted,
         { isDivider: true, id: 'round-divider' },
-        ...acted
+        ...acted,
     ];
-
 
     return (
         <>
@@ -231,16 +164,16 @@ export default function CombatHUD() {
                 {activeCombats.length > 1 && !isMinimized && (
                     <div className="flex items-center gap-2 bg-black/80 backdrop-blur-md px-3 py-1 rounded-full border border-white/10 shadow-lg text-xs font-medium text-white/70">
                         <button
-                            onClick={() => setSelectedCombatIndex(prev => Math.max(0, prev - 1))}
-                            disabled={selectedCombatIndex === 0}
+                            onClick={() => selectByOffset(-1)}
+                            disabled={displayIndex === 0}
                             className="p-1 hover:text-white disabled:opacity-30 disabled:hover:text-white/70 transition-colors"
                         >
                             <ChevronLeft className="w-4 h-4" />
                         </button>
-                        <span>Encounter {selectedCombatIndex + 1} of {activeCombats.length}</span>
+                        <span>Encounter {displayIndex + 1} of {activeCombats.length}</span>
                         <button
-                            onClick={() => setSelectedCombatIndex(prev => Math.min(activeCombats.length - 1, prev + 1))}
-                            disabled={selectedCombatIndex === activeCombats.length - 1}
+                            onClick={() => selectByOffset(1)}
+                            disabled={displayIndex === activeCombats.length - 1}
                             className="p-1 hover:text-white disabled:opacity-30 disabled:hover:text-white/70 transition-colors"
                         >
                             <ChevronRight className="w-4 h-4" />
@@ -248,14 +181,72 @@ export default function CombatHUD() {
                     </div>
                 )}
 
-                {/* Minimized Bubble */}
-                {isMinimized ? (
+                {/* Pre-combat: encounter is forming — initiative pre-roll only.
+                    The server projection already redacted the roster down to
+                    this viewer's rollable rows (full roster for GMs). */}
+                {!activeCombat.started ? (
+                    <div className="flex flex-col items-center gap-3 bg-black/80 backdrop-blur-2xl px-5 py-3 rounded-3xl border border-white/20 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.8)]">
+                        <div className="text-xs font-semibold uppercase tracking-widest text-rose-400/90">
+                            Encounter Forming
+                        </div>
+                        <div className="flex items-center gap-3 overflow-x-auto scrollbar-hide max-w-[85vw] px-1">
+                            {rows.map(combatant => {
+                                const showImage = !combatant.hidden
+                                    && combatant.img
+                                    && !combatant.img.endsWith('icons/svg/mystery-man.svg');
+                                return (
+                                    <div key={combatant.id} className="flex flex-col items-center gap-1 flex-shrink-0 w-16">
+                                        <div className="relative w-14 h-14 rounded-full overflow-hidden border-2 border-neutral-700 bg-neutral-900 flex items-center justify-center">
+                                            {showImage ? (
+                                                <img src={combatant.img!} alt={combatant.name || 'Combatant'} className="w-full h-full object-cover" />
+                                            ) : (
+                                                <Shield className="w-6 h-6 text-neutral-600" />
+                                            )}
+                                            {combatant.canRollInitiative && combatant.initiative == null && (
+                                                <button
+                                                    onClick={() => handleInitiativeClick(combatant)}
+                                                    disabled={pendingAction !== null}
+                                                    className="absolute inset-0 bg-black/60 flex items-center justify-center hover:bg-rose-950/70 transition-colors disabled:opacity-50"
+                                                    title="Roll Initiative"
+                                                >
+                                                    <img src="/icons/dice-d20.svg" alt="Roll Initiative" className="w-7 h-7 invert" />
+                                                </button>
+                                            )}
+                                            {combatant.initiative != null && (
+                                                <div className="absolute bottom-0 inset-x-0 bg-rose-900/90 text-center">
+                                                    <span className="text-[11px] font-black font-mono text-white">{combatant.initiative}</span>
+                                                </div>
+                                            )}
+                                        </div>
+                                        <span className="text-[10px] font-medium text-white/70 truncate max-w-full">
+                                            {combatant.hidden ? 'Hidden' : combatant.name?.split(' ')[0] || 'Unknown'}
+                                        </span>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                        {activeCombat.canAdvanceTurn ? (
+                            /* Round-0 advance starts the encounter — GM-only per projection. */
+                            <button
+                                onClick={handleNextTurn}
+                                disabled={pendingAction !== null}
+                                className="text-xs font-semibold bg-rose-950/80 border border-rose-800/50 rounded-full px-4 py-1.5 text-rose-300 hover:text-rose-100 hover:bg-rose-900 hover:border-rose-600 shadow-lg transition-all disabled:opacity-40"
+                            >
+                                Begin Encounter
+                            </button>
+                        ) : (
+                            <div className="text-[10px] text-white/40">
+                                Waiting for the encounter to begin…
+                            </div>
+                        )}
+                    </div>
+                ) : isMinimized ? (
                     <button
                         onClick={() => setIsMinimized(false)}
                         className="flex flex-col items-center gap-1 bg-black/90 backdrop-blur-2xl px-4 py-2 rounded-2xl border border-white/20 shadow-2xl hover:bg-neutral-900 transition-all duration-300 group"
                     >
                         <div className="text-xs font-medium text-white/80">
-                            <span className="text-maroon-400 font-bold">Round {activeCombat?.round || 1}</span> - {currentActorName}
+                            <span className="text-maroon-400 font-bold">Round {activeCombat.round}</span> - {currentName}
                         </div>
                         <ChevronDown className="w-6 h-6 text-white group-hover:text-white transition-transform" />
                     </button>
@@ -272,15 +263,15 @@ export default function CombatHUD() {
 
                             {/* Queue Container */}
                             <div className="flex items-center gap-x-2 overflow-x-auto scrollbar-hide max-w-[85vw] pt-3 px-1">
-                                {carouselItems.map((item: any, visualIdx: number) => {
+                                {carouselItems.map((item) => {
                                     // Render the Round Divider
-                                    if (item.isDivider) {
+                                    if ('isDivider' in item) {
                                         return (
                                             <div key={item.id} className="flex flex-col items-center justify-center mx-1 px-1 h-20 sm:h-24 relative">
                                                 <div className="w-[2px] h-full bg-white/20 rounded-full"></div>
                                                 <div className="absolute top-1/2 left-1 -translate-y-1/2 -translate-x-1/2 w-6 h-6 rounded-full bg-black/90 border border-white/20 flex items-center justify-center shadow-md">
                                                     <span className="text-[10px] font-bold text-white/40">
-                                                        {activeCombat ? (activeCombat.round ?? 0) + 1 : 2}
+                                                        {activeCombat.round + 1}
                                                     </span>
                                                 </div>
                                             </div>
@@ -288,36 +279,34 @@ export default function CombatHUD() {
                                     }
 
                                     const combatant = item;
-                                    const originalIndex = sortedCombatants.findIndex(c => c._id === combatant._id);
-                                    const isCurrentTurn = originalIndex === currentTurnIndex;
-                                    const hasActed = originalIndex < currentTurnIndex;
+                                    const isCurrentTurn = combatant.isCurrent;
+                                    const hasActed = currentIndex >= 0 && rows.indexOf(combatant) < currentIndex;
                                     const isDefeated = combatant.defeated;
+                                    const displayName = combatant.hidden
+                                        ? 'Hidden'
+                                        : combatant.name?.split(' ')[0] || 'Unknown';
+                                    const showImage = !combatant.hidden
+                                        && combatant.img
+                                        && !combatant.img.endsWith('icons/svg/mystery-man.svg');
 
                                     return (
                                         <div
-                                            key={combatant._id || visualIdx}
+                                            key={combatant.id}
                                             className={`relative flex flex-col items-center flex-shrink-0 transition-all duration-500 origin-bottom
                                             ${isCurrentTurn ? 'scale-110 z-10 mx-2 w-20 sm:w-24' : 'scale-95 opacity-80 hover:opacity-100 w-14 sm:w-16'}
                                             ${hasActed ? 'opacity-40 grayscale-[70%]' : ''}
                                         `}
                                         >
-                                            {/* Current Turn Indicator Arrow */}
-                                            {isCurrentTurn && (
-                                                <div className="absolute animate-bounce flex flex-col items-center z-20 hidden">
-                                                    <div className="w-3 h-3 bg-rose-800 rotate-45 transform origin-bottom border-t border-l border-rose-600 shadow-[0_-5px_15px_rgba(159,18,57,0.5)]"></div>
-                                                </div>
-                                            )}
-
                                             {/* Portrait Container */}
                                             <div className={`
                                             w-full h-20 sm:h-24 rounded-t-full overflow-hidden border-[3px] shadow-lg relative bg-neutral-900 flex items-center justify-center transition-all duration-300
                                             ${isCurrentTurn ? 'border-rose-800 shadow-[0_0_20px_rgba(159,18,57,0.7)] ring-2 ring-rose-900/50' : 'border-neutral-700 hover:border-neutral-500'}
                                             ${isDefeated ? 'border-red-950/50 grayscale opacity-60' : ''}
                                         `}>
-                                                {!combatant.hidden && combatant.actor?.img && combatant.actor.img !== 'icons/svg/mystery-man.svg' ? (
+                                                {showImage ? (
                                                     <img
-                                                        src={combatant.actor?.img}
-                                                        alt={combatant.actor?.name || 'Combatant'}
+                                                        src={combatant.img!}
+                                                        alt={combatant.name || 'Combatant'}
                                                         className="w-full h-full object-cover"
                                                     />
                                                 ) : (
@@ -338,27 +327,27 @@ export default function CombatHUD() {
                                                     `absolute bottom-0 flex items-center justify-center w-full h-auto
                                                 ${isCurrentTurn ? 'bg-rose-800 text-white border-rose-600' : 'bg-neutral-800 text-white border-neutral-600'}
                                             `}>
-                                                    <span className={`text-[11px] font-black font-mono shadow-md ${combatant.defeated ? 'line-through decoration-red-600 decoration-2' : ''}`}>
-                                                        {!combatant.hidden ? combatant.actor?.name?.split(' ')[0] || 'Unknown' : 'Hidden'}
+                                                    <span className={`text-[11px] font-black font-mono shadow-md ${isDefeated ? 'line-through decoration-red-600 decoration-2' : ''}`}>
+                                                        {displayName}
                                                     </span>
                                                 </div>
 
-                                                {/* Initiative Overlay */}
-                                                {combatant.actor && combatant.initiative == null &&
-                                                    (currentUser?.isGM || combatant.actor.ownership?.[currentUser?._id || currentUser?.id || ''] === 3 || combatant.actor.ownership?.default === 3) && (
-                                                        <div className="absolute inset-0 bg-black/60 flex items-center justify-center z-30">
-                                                            <button
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    handleInitiativeClick(combatant);
-                                                                }}
-                                                                className="bg-rose-800 text-white p-2 rounded-full hover:bg-rose-600 transition-colors shadow-lg flex items-center justify-center w-12 h-12"
-                                                                title="Roll Initiative"
-                                                            >
-                                                                <img src="/icons/dice-d20.svg" alt="Roll Initiative" className="w-8 h-8 invert" />
-                                                            </button>
-                                                        </div>
-                                                    )}
+                                                {/* Initiative Overlay — server-computed capability */}
+                                                {combatant.canRollInitiative && combatant.initiative == null && (
+                                                    <div className="absolute inset-0 bg-black/60 flex items-center justify-center z-30">
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                handleInitiativeClick(combatant);
+                                                            }}
+                                                            disabled={pendingAction !== null}
+                                                            className="bg-rose-800 text-white p-2 rounded-full hover:bg-rose-600 transition-colors shadow-lg flex items-center justify-center w-12 h-12 disabled:opacity-50"
+                                                            title="Roll Initiative"
+                                                        >
+                                                            <img src="/icons/dice-d20.svg" alt="Roll Initiative" className="w-8 h-8 invert" />
+                                                        </button>
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
                                     );
@@ -371,10 +360,11 @@ export default function CombatHUD() {
                         <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-3 z-[160] w-max">
                             {/* Previous Turn Button Slot */}
                             <div className="w-8 h-8 flex items-center justify-center">
-                                {currentUser?.isGM && activeCombat && ((activeCombat.round ?? 0) > 1 || ((activeCombat.round ?? 0) === 1 && (activeCombat.turn ?? 0) > 0)) && (
+                                {activeCombat.canRewindTurn && (
                                     <button
                                         onClick={handlePreviousTurn}
-                                        className="bg-black/90 border border-white/20 rounded-full w-8 h-8 flex items-center justify-center text-white/40 hover:text-white hover:border-white/40 shadow-lg transition-all"
+                                        disabled={pendingAction !== null}
+                                        className="bg-black/90 border border-white/20 rounded-full w-8 h-8 flex items-center justify-center text-white/40 hover:text-white hover:border-white/40 shadow-lg transition-all disabled:opacity-40"
                                         title="Previous Turn"
                                     >
                                         <SkipBack className="w-4 h-4" />
@@ -386,35 +376,22 @@ export default function CombatHUD() {
                             <div className="bg-black/95 border border-white/20 rounded-full w-12 h-12 flex items-center justify-center shadow-2xl relative overflow-hidden group/round">
                                 <div className="absolute inset-0 bg-gradient-to-b from-rose-900/20 to-transparent"></div>
                                 <span className="text-3xl font-serif text-rose-600 drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)] -translate-y-1 z-10">
-                                    {activeCombat?.round || `0`}
+                                    {activeCombat.round}
                                 </span>
                             </div>
 
                             {/* Next Turn Button Slot */}
                             <div className="w-8 h-8 flex items-center justify-center">
-                                {(() => {
-                                    if (!activeCombat || activeCombat.round === 0) return null;
-
-                                    const currentCombatant = sortedCombatants[currentTurnIndex];
-                                    const isOwner = currentCombatant?.actor && (
-                                        currentUser?.isGM ||
-                                        currentCombatant.actor.ownership?.[currentUser?._id || currentUser?.id || ''] === 3 ||
-                                        currentCombatant.actor.ownership?.default === 3
-                                    );
-
-                                    if (isOwner || currentUser?.isGM) {
-                                        return (
-                                            <button
-                                                onClick={handleNextTurn}
-                                                className="bg-rose-950/80 border border-rose-800/50 rounded-full w-8 h-8 flex items-center justify-center text-rose-400 hover:text-rose-100 hover:bg-rose-900 hover:border-rose-600 shadow-lg transition-all"
-                                                title={isOwner ? "End Turn" : "Force Next Turn"}
-                                            >
-                                                <SkipForward className="w-4 h-4" />
-                                            </button>
-                                        );
-                                    }
-                                    return null;
-                                })()}
+                                {activeCombat.canAdvanceTurn && (
+                                    <button
+                                        onClick={handleNextTurn}
+                                        disabled={pendingAction !== null}
+                                        className="bg-rose-950/80 border border-rose-800/50 rounded-full w-8 h-8 flex items-center justify-center text-rose-400 hover:text-rose-100 hover:bg-rose-900 hover:border-rose-600 shadow-lg transition-all disabled:opacity-40"
+                                        title="Next Turn"
+                                    >
+                                        <SkipForward className="w-4 h-4" />
+                                    </button>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -429,7 +406,7 @@ export default function CombatHUD() {
                         type="ability"
                         actor={rollCommand?.actor}
                         defaults={{
-                            abilityBonus: rollCommand?.actor?.system?.abilities?.dex?.mod || 0,
+                            abilityBonus: (rollCommand?.actor?.system as any)?.abilities?.dex?.mod || 0,
                             showItemBonus: false
                         }}
                         theme={system?.config?.componentStyles?.rollDialog}

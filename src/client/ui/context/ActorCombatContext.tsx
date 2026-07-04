@@ -7,14 +7,14 @@ import { UnauthorizedApiError } from '@client/ui/api/http';
 import { createCoalescedFetch } from '@client/ui/context/coalescedFetch';
 import * as foundryApi from '@client/ui/api/foundryApi';
 import type { ActorDto, ActorListPayload, ActorCardsPayload } from '@shared/contracts/actors';
-import type { CombatDto, CombatListPayload } from '@shared/contracts/combats';
+import type { CombatTrackerDto, CombatListPayload } from '@shared/contracts/combats';
 import type { ActorCardData } from '@shared/sdk';
 
 interface ActorCombatContextType {
     ownedActors: ActorDto[];
     readOnlyActors: ActorDto[];
     actorCards: Record<string, ActorCardData>;
-    combats: CombatDto[];
+    combats: CombatTrackerDto[];
     fetchActorCards: () => Promise<ActorCardsPayload | void>;
     fetchActors: () => Promise<ActorListPayload | void>;
     fetchCombats: () => Promise<CombatListPayload | void>;
@@ -29,7 +29,7 @@ export function ActorCombatProvider({ children }: { children: React.ReactNode })
     const [ownedActors, setOwnedActors] = useState<ActorDto[]>([]);
     const [readOnlyActors, setReadOnlyActors] = useState<ActorDto[]>([]);
     const [actorCards, setActorCards] = useState<Record<string, ActorCardData>>({});
-    const [combats, setCombats] = useState<CombatDto[]>([]);
+    const [combats, setCombats] = useState<CombatTrackerDto[]>([]);
     const lastActorFetchTimeRef = useRef<number>(0);
     const combatFetcherRef = useRef<{
         token: string;
@@ -101,7 +101,7 @@ export function ActorCombatProvider({ children }: { children: React.ReactNode })
                     try {
                         const data = await foundryApi.fetchCombats(token);
                         if (data.combats) {
-                            setCombats(data.combats as CombatDto[]);
+                            setCombats(data.combats);
                         }
                         return data;
                     } catch (error: any) {

@@ -1,7 +1,7 @@
 import { logger } from '@shared/utils/logger';
 import { getAdapter } from '@modules/registry/server';
 import type { ActorDocument } from '@server/shared/types/actors';
-import type { CombatClientLike, CombatDocument, CombatantDocument } from '@server/shared/types/documents';
+import type { CombatClientLike } from '@server/shared/types/documents';
 import {
     DOCUMENT_VISIBILITY,
     isAssistantGM,
@@ -9,25 +9,21 @@ import {
 } from '@server/core/documents/primary/base/ownership';
 import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
 import { combatStore } from '@server/core/documents/primary/combats/CombatStore';
+import { combatEncounterReadModel, type PreparedEncounter } from '@server/core/documents/encounters/CombatEncounterReadModel';
 import { PrimaryDocumentCacheNotReadyError } from '@server/core/documents/primary/errors';
 import { CombatRepository } from '@server/core/documents/primary/combats/CombatRepository';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
+import { getDocumentId } from '@server/core/documents/primary/base/PrimaryDocumentStore';
+import { buildCombatTrackerDto } from './CombatTrackerProjection';
 import type {
-    CombatDto,
+    CombatTrackerDto,
+    CombatTrackerActorDto,
     CombatListPayload,
     CombatTurnSuccessPayload,
     CombatInitiativeSuccessPayload,
+    CombatInitiativeRequestBody,
     CombatErrorPayload,
 } from '@shared/contracts/combats';
-
-interface InitiativeBody {
-    formula?: string;
-    advantageMode?: 'advantage' | 'disadvantage' | 'normal' | string;
-}
-
-interface CombatProjection extends CombatDto {
-    combatants?: Array<CombatantDocument & { actor: ActorDocument | null }>;
-}
 
 interface AdapterWithInitiativeFormula {
     getInitiativeFormula?: (actor: ActorDocument) => string;
@@ -37,19 +33,14 @@ interface CombatServiceDeps {
     normalizeActors: (actorList: ActorDocument[], client: CombatClientLike) => Promise<ActorDocument[]>;
 }
 
-export function sortCombatants(combatants: CombatantDocument[] = []): CombatantDocument[] {
-    return [...combatants].sort((a, b) => {
-        const ia = typeof a.initiative === 'number' && !isNaN(a.initiative) ? a.initiative : -Infinity;
-        const ib = typeof b.initiative === 'number' && !isNaN(b.initiative) ? b.initiative : -Infinity;
-        const aid = String(a._id || a.id || '');
-        const bid = String(b._id || b.id || '');
-        return (ib - ia) || (aid > bid ? 1 : -1);
-    });
-}
-
 function resolveSubject(userId: string | null | undefined): DocumentAccessSubject | null {
     return userStore.createAccessSubject(userId);
 }
+
+const projectionDeps = {
+    canWriteActor: (actorId: string, subject: DocumentAccessSubject) =>
+        actorStore.canReadActor(actorId, subject, DOCUMENT_VISIBILITY.WRITEABLE),
+};
 
 export function createCombatService(deps: CombatServiceDeps) {
     const createCombatRepository = (client: CombatClientLike): CombatRepository => new CombatRepository({
@@ -65,154 +56,147 @@ export function createCombatService(deps: CombatServiceDeps) {
         if (!combatStore.isReady()) throw new PrimaryDocumentCacheNotReadyError('Combat');
     };
 
-    // Combat list projection with enriched/normalized combatant actor payloads.
-    // Non-GM subjects see only combats they can read; hidden combatants are
-    // pruned from non-GM views at the DTO boundary. Non-hidden combatants in a
-    // visible combat surface the actor's name + img even when the player can't
-    // read the actor doc itself — matches Foundry's tracker, which uses the
-    // token/actor displayed name for tracker rows regardless of actor ownership.
-    // Sensitive fields (`system`, `items`, `ownership`, etc.) stay stripped for
-    // non-readable actors.
+    /**
+     * Attach the minimal actor roll payload to rows the subject may roll for,
+     * and resolve display image paths against the Foundry URL prefix. Actor
+     * data is fetched through the subject-scoped `client.getActor`, so a row
+     * only carries an actor the caller could read in full anyway; it is then
+     * whitelisted to id/name/img/system (no ownership, no raw spread).
+     */
+    const enrichTrackerDto = async (dto: CombatTrackerDto, client: CombatClientLike): Promise<CombatTrackerDto> => {
+        const rollableActorIds = [...new Set(
+            dto.combatants
+                .filter(row => row.canRollInitiative && row.actorId)
+                .map(row => row.actorId as string),
+        )];
+
+        const actorsById = new Map<string, CombatTrackerActorDto>();
+        const fetched: ActorDocument[] = [];
+        await Promise.all(rollableActorIds.map(async (actorId) => {
+            try {
+                const actor = await client.getActor(actorId);
+                if (actor) fetched.push(actor);
+            } catch {
+                logger.error(`Failed to fetch actor ${actorId} for combat ${dto.id}`);
+            }
+        }));
+        const normalized = await deps.normalizeActors(fetched, client);
+        for (const actor of normalized) {
+            const id = actor._id || actor.id;
+            if (!id) continue;
+            actorsById.set(id, {
+                id,
+                name: typeof actor.name === 'string' ? actor.name : null,
+                img: typeof actor.img === 'string' ? actor.img : null,
+                system: actor.system as Record<string, unknown> | undefined,
+            });
+        }
+
+        return {
+            ...dto,
+            combatants: dto.combatants.map(row => ({
+                ...row,
+                img: typeof row.img === 'string' ? client.resolveUrl(row.img) : row.img,
+                actor: row.actorId ? actorsById.get(row.actorId) ?? null : null,
+            })),
+        };
+    };
+
+    // Tracker projection list (ADR-0028 Phases 4): prepared encounters from
+    // the read model, redacted + capability-annotated per subject, then
+    // enriched with roll actors. No raw documents are spread to the client.
     const listCombats = async (client: CombatClientLike): Promise<CombatListPayload> => {
         ensureReady();
-        const subject = userStore.createAccessSubject(client.userId);
-        // ASSISTANT-GM and above see hidden combatants; players see only the
-        // non-hidden roster. (Combat visibility itself is enforced by the
-        // CombatStore subject filter on the line below.)
-        const userIsGm = !!subject && isAssistantGM(subject);
+        const subject = resolveSubject(client.userId);
+        if (!subject) return { success: true, combats: [] };
 
-        const visible = subject ? combatStore.list({ subject }) : [];
-
-        const enrichedCombats = await Promise.all(visible.map(async (combat): Promise<CombatProjection> => {
-            const combatants = userIsGm
-                ? (combat.combatants || [])
-                : (combat.combatants || []).filter(c => !c.hidden);
-
-            const actorIds = [...new Set(combatants.map((c) => c.actorId).filter(Boolean) as string[])];
-            // Two-track collection: readable actors flow through normalize as
-            // before; non-readable actors yield a stripped name/img fallback so
-            // the tracker has something to render.
-            const readableActors: Record<string, ActorDocument> = {};
-            const strippedActors: Record<string, ActorDocument> = {};
-
-            await Promise.all(actorIds.map(async (id) => {
-                try {
-                    const actor = await client.getActor(id);
-                    if (actor) {
-                        readableActors[id] = actor;
-                        return;
-                    }
-                    const raw = await client.getActorRaw(id);
-                    if (raw) {
-                        // Resolve `img` against the Foundry URL prefix so browser
-                        // requests don't 404 on the raw relative path. The
-                        // readable path picks this up through `normalizeActors`;
-                        // the stripped path does it inline because the system
-                        // adapter doesn't see these projections.
-                        const resolvedImg = typeof raw.img === 'string'
-                            ? client.resolveUrl(raw.img)
-                            : raw.img;
-                        strippedActors[id] = {
-                            _id: raw._id,
-                            id: raw.id,
-                            name: raw.name,
-                            img: resolvedImg,
-                        } as ActorDocument;
-                    }
-                } catch {
-                    logger.error(`Failed to fetch actor ${id} for combat ${combat._id}`);
-                }
-            }));
-
-            const actorsToNormalize = Object.values(readableActors).filter(Boolean);
-            const normalizedActors = await deps.normalizeActors(actorsToNormalize, client);
-            const displayMap: Record<string, ActorDocument> = { ...strippedActors };
-            normalizedActors.forEach((a) => {
-                const id = a._id || a.id;
-                if (id) displayMap[id] = a;
-            });
-
-            const enrichedCombatants = combatants.map((c) => ({
-                ...c,
-                actor: c.actorId ? (displayMap[c.actorId] || null) : null
-            }));
-
-            return { ...combat, combatants: enrichedCombatants };
+        const visible = combatStore.list({ subject });
+        const combats = await Promise.all(visible.map(async (combat) => {
+            const combatId = getDocumentId(combat);
+            if (!combatId) return null;
+            const prepared = combatEncounterReadModel.getOrRebuild(combatId);
+            if (!prepared) return null;
+            const dto = buildCombatTrackerDto(prepared, subject, projectionDeps);
+            return enrichTrackerDto(dto, client);
         }));
 
-        return { success: true, combats: enrichedCombats };
+        return { success: true, combats: combats.filter((c): c is CombatTrackerDto => c !== null) };
     };
 
-    // Authorization helper for turn advancement rules.
-    //
-    // ASSISTANT-GM and above can advance turns unconditionally. Otherwise the
-    // caller must be OWNER of the active combatant's actor. The OWNER check
-    // routes through `ActorStore.canReadActor(..., WRITEABLE)` so the same
-    // GM short-circuit and INHERIT-resolution rules that govern actor reads
-    // apply to turn-advancement authorization (ADR-0013 Phase 1).
-    const isAuthorizedForCombatTurn = async (
-        _client: CombatClientLike,
-        combat: CombatDocument,
+    /**
+     * Load the prepared encounter for a combat action. Falls back to a silent
+     * rebuild for cold read models; null means the combat doesn't exist.
+     */
+    const getPreparedEncounter = (combatId: string): PreparedEncounter | null => {
+        if (!combatStore.get(combatId)) return null;
+        return combatEncounterReadModel.getOrRebuild(combatId);
+    };
+
+    // Authorization for turn advancement: ASSISTANT-GM and above always; a
+    // player only when the current combatant resolves (started, in range,
+    // visible to them) and they OWN its actor via
+    // `actorStore.canReadActor(..., WRITEABLE)` (ADR-0013 Phase 1). Starting
+    // an unstarted encounter therefore requires a GM.
+    const isAuthorizedForCombatTurn = (
+        prepared: PreparedEncounter,
         subject: DocumentAccessSubject,
-    ): Promise<boolean> => {
+    ): boolean => {
         if (isAssistantGM(subject)) return true;
-
-        const currentTurn = combat.turn ?? 0;
-        const sortedCombatants = sortCombatants(combat.combatants || []);
-
-        const activeCombatant = sortedCombatants[currentTurn];
-        if (!activeCombatant || !activeCombatant.actorId) return false;
-
-        return actorStore.canReadActor(activeCombatant.actorId, subject, DOCUMENT_VISIBILITY.WRITEABLE);
+        if (!prepared.currentCombatantId) return false;
+        const current = prepared.rows.find(row => row.id === prepared.currentCombatantId);
+        if (!current || current.hidden || !current.actorId) return false;
+        return projectionDeps.canWriteActor(current.actorId, subject);
     };
 
-    // Turn advancement logic mirroring Foundry round/turn progression.
+    // Turn progression over the prepared encounter order.
+    //
+    // Sheet Delver command contract (ADR-0028 §6 fallback, explicit until the
+    // Foundry command bridge lands): round 0 starts at round 1 turn 0; the
+    // last turn wraps to the next round; no skip-defeated or tracker-setting
+    // behavior is applied.
     const advanceTurn = async (
         client: CombatClientLike,
         combatId: string
     ): Promise<CombatTurnSuccessPayload | CombatErrorPayload> => {
         ensureReady();
-        const combat = combatStore.get(combatId);
-
-        if (!combat) {
+        const prepared = getPreparedEncounter(combatId);
+        if (!prepared) {
             return { error: 'Combat not found', status: 404 };
         }
 
         const subject = resolveSubject(client.userId);
-        if (!subject || !(await isAuthorizedForCombatTurn(client, combat, subject))) {
+        if (!subject || !isAuthorizedForCombatTurn(prepared, subject)) {
             return { error: 'Unauthorized: You do not own the current combatant and are not a GM', status: 403 };
         }
 
-        const sortedCombatants = sortCombatants(combat.combatants || []);
+        let round = prepared.round;
+        let turn = prepared.turn ?? -1;
 
-        let currentRound = combat.round || 0;
-        let currentTurn = combat.turn ?? -1;
-
-        if (currentRound === 0) {
-            currentRound = 1;
-            currentTurn = 0;
+        if (round === 0) {
+            round = 1;
+            turn = 0;
         } else {
-            currentTurn += 1;
-            if (currentTurn >= sortedCombatants.length) {
-                currentRound += 1;
-                currentTurn = 0;
+            turn += 1;
+            if (turn >= prepared.rows.length) {
+                round += 1;
+                turn = 0;
             }
         }
 
-        await createCombatRepository(client).update(combatId, { round: currentRound, turn: currentTurn });
+        await createCombatRepository(client).update(combatId, { round, turn });
 
-        return { success: true, round: currentRound, turn: currentTurn };
+        return { success: true, round, turn };
     };
 
-    // Turn rewind logic gated to GM access only.
+    // Turn rewind, GM-only. Rewinding past round 1 turn 0 returns the
+    // encounter to its unstarted round-zero state.
     const previousTurn = async (
         client: CombatClientLike,
         combatId: string
     ): Promise<CombatTurnSuccessPayload | CombatErrorPayload> => {
         ensureReady();
-        const combat = combatStore.get(combatId);
-
-        if (!combat) {
+        const prepared = getPreparedEncounter(combatId);
+        if (!prepared) {
             return { error: 'Combat not found', status: 404 };
         }
 
@@ -221,50 +205,61 @@ export function createCombatService(deps: CombatServiceDeps) {
             return { error: 'Unauthorized: Only GMs can move to previous turns', status: 403 };
         }
 
-        const sortedCombatants = sortCombatants(combat.combatants || []);
+        let round = prepared.round;
+        let turn = prepared.turn ?? 0;
 
-        let currentRound = combat.round || 0;
-        let currentTurn = combat.turn ?? 0;
-
-        if (currentRound === 0) {
-            // Do nothing if not started.
-        } else if (currentTurn === 0) {
-            if (currentRound > 1) {
-                currentRound -= 1;
-                currentTurn = Math.max(0, sortedCombatants.length - 1);
+        if (round === 0) {
+            // Not started — nothing to rewind.
+        } else if (turn === 0) {
+            if (round > 1) {
+                round -= 1;
+                turn = Math.max(0, prepared.rows.length - 1);
             } else {
-                currentRound = 0;
-                currentTurn = 0;
+                round = 0;
+                turn = 0;
             }
         } else {
-            currentTurn -= 1;
+            turn -= 1;
         }
 
-        await createCombatRepository(client).update(combatId, { round: currentRound, turn: currentTurn });
+        await createCombatRepository(client).update(combatId, { round, turn });
 
-        return { success: true, round: currentRound, turn: currentTurn };
+        return { success: true, round, turn };
     };
 
     // Initiative roll orchestration with adapter initiative formula fallback.
+    // Authorization runs BEFORE any side effect (ADR-0028 Phase 5 preflight /
+    // audit CMB-04): an unauthorized caller triggers no roll, no chat
+    // message, and no document dispatch. Hidden combatants return the same
+    // 404 as missing ones for non-GMs so their existence doesn't leak.
     const rollInitiative = async (
         client: CombatClientLike,
         combatId: string,
         combatantId: string,
-        body: InitiativeBody
+        body: CombatInitiativeRequestBody
     ): Promise<CombatInitiativeSuccessPayload | CombatErrorPayload> => {
         ensureReady();
         const { formula, advantageMode } = body;
 
-        const systemInfo = await client.getSystem();
-        const adapter = await getAdapter(systemInfo.id.toLowerCase());
-        if (!adapter) throw new Error(`Adapter ${systemInfo.id} not found`);
-
         const combat = combatStore.get(combatId);
         if (!combat) return { error: 'Combat not found', status: 404 };
 
+        const subject = resolveSubject(client.userId);
+        if (!subject) return { error: 'Unauthorized', status: 403 };
+        const gm = isAssistantGM(subject);
+
         const combatant = combat.combatants?.find((c) => (c._id || c.id) === combatantId);
-        if (!combatant) return { error: 'Combatant not found', status: 404 };
+        if (!combatant || (combatant.hidden && !gm)) {
+            return { error: 'Combatant not found', status: 404 };
+        }
         if (!combatant.actorId) return { error: 'Actor not found', status: 404 };
+        if (!gm && !projectionDeps.canWriteActor(combatant.actorId, subject)) {
+            return { error: 'Unauthorized: You do not own this combatant', status: 403 };
+        }
+
+        const systemInfo = await client.getSystem();
+        const adapter = await getAdapter(systemInfo.id.toLowerCase());
+        if (!adapter) throw new Error(`Adapter ${systemInfo.id} not found`);
 
         const actor = await client.getActor(combatant.actorId);
         if (!actor) return { error: 'Actor not found', status: 404 };

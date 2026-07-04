@@ -48,9 +48,14 @@ The three open product decisions deferred by the original proposal are now resol
    implementation once the bridge lands.
 2. **Active-encounter policy: active + started only.** The tracker projection and
    CombatHUD surface only encounters with `active === true` and a started state
-   (`round >= 1`). Unstarted encounters are not rendered in the first contract;
-   a round-zero pre-combat view is deferred until a Start Encounter product
-   design exists. Scene presence must never be used as an activity signal.
+   (`round >= 1`). Scene presence must never be used as an activity signal.
+   *Amended (July 4, 2026, pre-combat initiative QoL):* an unstarted active
+   encounter is additionally projected in a **pre-combat state** — non-GM
+   subjects receive only the rows they can roll initiative for (server-side
+   redaction; the forming roster is never revealed), while GMs receive the
+   full roster and a Start Encounter capability (the existing round-0
+   advance). CombatHUD renders this state as a compact initiative pre-roll
+   banner, not the full tracker, which appears only once the encounter starts.
 3. **Scene/token/setting dependencies: excluded now, first-class later.** The
    first tracker contract is scene-agnostic, uses combatant/actor display
    identity without token fallback, and does not react to combat-tracker

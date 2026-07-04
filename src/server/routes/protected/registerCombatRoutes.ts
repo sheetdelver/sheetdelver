@@ -18,7 +18,9 @@ interface CombatRouteDeps {
  *   POST /combats/:id/previous-turn                  → isAssistantGM only
  *                                                       (rewind is GM-only)
  *   POST /combats/:id/combatants/:combatantId/roll-initiative
- *                                                    → no courtesy gate; Foundry enforces on dispatch
+ *                                                    → isAssistantGM OR actorStore.canReadActor(combatant, WRITEABLE),
+ *                                                       checked BEFORE any roll/chat side effect (ADR-0028 preflight);
+ *                                                       hidden combatants 404 for non-GMs
  *
  * Verified by `runCombatListVisibilityCrossesActorStore` in
  * `src/tests/unit/routing/route-ownership-thresholds.test.ts`, and the existing

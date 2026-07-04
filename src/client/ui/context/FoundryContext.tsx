@@ -18,7 +18,7 @@ import { useSharedContentRealtime } from '@client/ui/hooks/useSharedContentRealt
 import { useSystemStatusRealtime } from '@client/ui/hooks/useSystemStatusRealtime';
 import { useUserRosterRealtime } from '@client/ui/hooks/useUserRosterRealtime';
 import type { ActorDto, ActorListPayload, ActorCardsPayload } from '@shared/contracts/actors';
-import type { CombatDto, CombatListPayload } from '@shared/contracts/combats';
+import type { CombatTrackerDto, CombatListPayload } from '@shared/contracts/combats';
 import type { ChatMessageDto } from '@shared/contracts/chat';
 import type {
     RealtimeSharedContentPayload,
@@ -53,7 +53,7 @@ interface FoundryContextType {
     sharedContent: RealtimeSharedContentPayload | null;
 
     // Combats
-    combats: CombatDto[];
+    combats: CombatTrackerDto[];
     fetchCombats: () => Promise<CombatListPayload | void>;
 
     // Real-time

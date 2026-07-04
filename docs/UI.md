@@ -35,7 +35,7 @@ The UI state is split into focused providers and hooks:
 | Documents | Host-owned document cache consumed by SDK hooks such as `useDocument()` and `useActorSheet()`. |
 | Journals | Journal/folder browsing, pagination, and shared journal content. |
 | Chat | Chat message cache, dice tray state, and message submission. |
-| Combat | Active combat visibility, turn/round refresh, and combat HUD data. |
+| Combat | Combat tracker projections (`CombatTrackerDto`), realtime refresh, and combat HUD state. |
 | Module SDK | `SDKProvider`, injected SDK context, module event bus, and host component context. |
 
 Module UI should prefer SDK hooks over direct REST calls when a hook exists. The
@@ -117,6 +117,30 @@ Module UI receives the stable SDK signals instead:
 | `document:listInvalidated` | `{ type, reason }` |
 | `content:shared` | `{ kind, data }` |
 | `connection:changed` | `{ connected, worldId }` |
+
+---
+
+## Combat Tracker (ADR-0028)
+
+`GET /api/combats` returns typed `CombatTrackerDto` projections built from the
+backend encounter read model — never raw Combat/Combatant/Actor documents.
+
+- Rows arrive server-ordered (Foundry initiative order); the current turn is
+  identified by `currentCombatantId` / per-row `isCurrent`, never a positional
+  index.
+- Hidden combatants are pruned for players and flagged for GMs. A hidden
+  current combatant surfaces as `hasHiddenCurrentCombatant: true` with a null
+  `currentCombatantId`.
+- Action capabilities (`canAdvanceTurn`, `canRewindTurn`, per-row
+  `canRollInitiative`) are server-computed; the HUD renders them without
+  reconstructing ownership.
+- CombatHUD shows `active && started` encounters as the full tracker and
+  renders only during the `dashboard` connection step. Unstarted active
+  encounters appear as a compact pre-combat banner: players see only their own
+  rollable combatants (server-redacted) for initiative pre-rolls; GMs see the
+  forming roster with a Begin Encounter action.
+- `combatChanged` / `combatListInvalidated` are skinny invalidations — the
+  client refetches the projection; payloads never carry document data.
 | `world:ready` / `world:teardown` | `{ worldId }` |
 | `module:initialized` / `module:disposed` | `{ moduleId }` |
 

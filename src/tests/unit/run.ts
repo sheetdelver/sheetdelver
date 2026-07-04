@@ -34,8 +34,9 @@ import { run as runActorStore } from './actors/actor-store.test';
 import { run as runActorNormalization } from './actors/actor-normalization.test';
 
 // ── combat ────────────────────────────────────────────────────────────────────
-import { run as runCombatSort } from './combat/combat-sort.test';
 import { run as runCombatStore } from './combat/combat-store.test';
+import { run as runCombatEncounterReadModel } from './combat/combat-encounter-read-model.test';
+import { run as runCombatTrackerProjection } from './combat/combat-tracker-projection.test';
 
 // ── documents ─────────────────────────────────────────────────────────────────
 import { run as runPrimaryDocumentBase } from './documents/primary-document-base.test';
@@ -141,7 +142,6 @@ async function runAllUnitTests() {
     await runChatService();
     await runModifyDocumentRouter();
     await runUserStore();
-    runCombatSort();
     await runModuleProxyMatcher();
     runModuleLifecycleState();
     runModuleManifestValidation();
@@ -153,6 +153,8 @@ async function runAllUnitTests() {
     await runJournalStore();
     await runJournalSmoke();
     await runCombatStore();
+    await runCombatEncounterReadModel();
+    await runCombatTrackerProjection();
     await runItemStore();
     await runOwnershipHelpers();
     await runRouteOwnershipThresholds();

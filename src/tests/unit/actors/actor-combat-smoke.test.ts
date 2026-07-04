@@ -178,7 +178,16 @@ async function runCombatReadActionSmoke() {
     const listPayload = await combatService.listCombats(initial.client);
     assert.equal(listPayload.success, true);
     assert.equal(listPayload.combats.length, 1);
-    assert.equal(listPayload.combats[0].combatants?.[0].actor?.name, 'Actor actor-a');
+    // Tracker DTO shape (ADR-0028 Phase 4): server-ordered rows, explicit
+    // started state, GM capabilities, roll-actor payload on rollable rows.
+    const listedCombat = listPayload.combats[0];
+    assert.equal(listedCombat.id, 'combat-1');
+    assert.equal(listedCombat.started, false, 'round 0 is explicit unstarted state');
+    assert.equal(listedCombat.currentCombatantId, null, 'turn -1 resolves to no current combatant');
+    assert.equal(listedCombat.canAdvanceTurn, true, 'GM can start the encounter');
+    assert.deepEqual(listedCombat.combatants.map((c) => c.id), ['c1', 'c2'], 'server-ordered by initiative');
+    assert.equal(listedCombat.combatants[0].name, 'Actor actor-a', 'display identity from actor fallback');
+    assert.equal(listedCombat.combatants[0].actor?.name, 'Actor actor-a', 'GM rows carry the roll-actor payload');
     assert.equal(normalizeCalls.length, 1);
 
     const turnResult = await combatService.advanceTurn(initial.client, 'combat-1');
@@ -485,9 +494,16 @@ async function runCombatReadActionSmoke() {
     // Seed ActorStore so combat visibility resolves (CombatStore.bindActorVisibilityBridge
     // is already wired by the coordinator; we just need the actor docs present).
     // `actorStore` binding was dynamic-imported at the top of this function.
+    // Raw ActorStore docs carry the display identity the read model projects
+    // (name/img); ownership drives visibility + capabilities.
     const strippedActors: ActorDocument[] = [
-        { _id: 'pc-actor', ownership: { 'player-strip': 3 } },
-        { _id: 'npc-actor', ownership: { default: 0 } },
+        { _id: 'pc-actor', name: 'Hero', img: '/pc.webp', ownership: { 'player-strip': 3 } },
+        {
+            _id: 'npc-actor',
+            name: 'Goblin Warlord',
+            img: 'icons/creatures/abominations/goblin.webp',
+            ownership: { default: 0 },
+        },
     ];
     await actorStore.seed(async () => strippedActors);
 
@@ -495,21 +511,77 @@ async function runCombatReadActionSmoke() {
     if (!strippedPayload.success) {
         assert.fail('Expected stripped-actor combat list to succeed');
     }
-    const strippedCombat = strippedPayload.combats.find((c) => c._id === 'combat-stripped');
+    const strippedCombat = strippedPayload.combats.find((c) => c.id === 'combat-stripped');
     assert.ok(strippedCombat, 'player-strip can see the combat (owns one combatant\'s actor)');
-    const pcRow = strippedCombat!.combatants?.find((c) => c._id === 'c-pc');
-    const npcRow = strippedCombat!.combatants?.find((c) => c._id === 'c-npc');
-    assert.ok(pcRow?.actor, 'PC combatant has actor data');
+    const pcRow = strippedCombat!.combatants.find((c) => c.id === 'c-pc');
+    const npcRow = strippedCombat!.combatants.find((c) => c.id === 'c-npc');
+    assert.ok(pcRow, 'PC row present');
+    assert.equal(pcRow!.canRollInitiative, true, 'player can roll for their own actor');
+    assert.ok(pcRow!.actor, 'rollable row carries the roll-actor payload');
     assert.equal(pcRow!.actor!.name, 'Hero');
-    assert.ok(npcRow?.actor, 'NPC combatant has stripped actor data (name + img)');
-    assert.equal(npcRow!.actor!.name, 'Goblin Warlord');
+    assert.ok(npcRow, 'non-readable enemy row still renders (Foundry tracker parity)');
+    assert.equal(npcRow!.name, 'Goblin Warlord', 'enemy display name comes from the projection');
     assert.equal(
-        npcRow!.actor!.img,
+        npcRow!.img,
         'http://foundry.test/icons/creatures/abominations/goblin.webp',
-        'stripped img is resolved against the Foundry URL prefix so the browser can fetch it',
+        'enemy img is resolved against the Foundry URL prefix so the browser can fetch it',
     );
-    assert.equal((npcRow!.actor as any).system, undefined, 'stripped projection does not leak system data');
-    assert.equal((npcRow!.actor as any).ownership, undefined, 'stripped projection does not leak ownership');
+    assert.equal(npcRow!.canRollInitiative, false);
+    assert.equal(npcRow!.actor, null, 'non-rollable rows carry no actor payload — nothing to leak');
+    assert.equal(pcRow!.isCurrent, true, 'turn 0 resolves to the PC row');
+
+    // ---- initiative preflight: no side effects before authorization (CMB-04) ----
+    await combatStore.seed(async () => [
+        {
+            _id: 'combat-init-auth',
+            id: 'combat-init-auth',
+            round: 1,
+            turn: 0,
+            combatants: [
+                { _id: 'c-mine', id: 'c-mine', actorId: 'init-owned', initiative: null },
+                { _id: 'c-enemy', id: 'c-enemy', actorId: 'init-enemy', initiative: null },
+                { _id: 'c-hidden', id: 'c-hidden', actorId: 'init-enemy', initiative: null, hidden: true },
+            ],
+        },
+    ]);
+    await actorStore.seed(async () => [
+        { _id: 'init-owned', name: 'Mine', ownership: { 'player-strip': 3 } },
+        { _id: 'init-enemy', name: 'Enemy', ownership: { default: 0 } },
+    ] as ActorDocument[]);
+
+    const sideEffects: string[] = [];
+    const initiativeClient = {
+        userId: 'player-strip',
+        getSystem: async () => {
+            sideEffects.push('getSystem');
+            return { id: 'generic' };
+        },
+        getActor: async () => {
+            sideEffects.push('getActor');
+            return null;
+        },
+        roll: async () => {
+            sideEffects.push('roll');
+            return { content: '10' };
+        },
+        resolveUrl: (url?: string) => url || '',
+        dispatchDocument: async () => {
+            sideEffects.push('dispatch');
+            return { result: [], operation: {} };
+        },
+    } as any;
+
+    // Unauthorized: enemy combatant → 403 with zero side effects.
+    const deniedInitiative = await combatService.rollInitiative(initiativeClient, 'combat-init-auth', 'c-enemy', {});
+    if (!('error' in deniedInitiative)) assert.fail('Expected unauthorized initiative to be rejected');
+    assert.equal(deniedInitiative.status, 403);
+    assert.deepEqual(sideEffects, [], 'no roll, chat, or dispatch occurs before authorization');
+
+    // Hidden combatant: same 404 as a missing one so existence does not leak.
+    const hiddenInitiative = await combatService.rollInitiative(initiativeClient, 'combat-init-auth', 'c-hidden', {});
+    if (!('error' in hiddenInitiative)) assert.fail('Expected hidden-combatant initiative to be rejected');
+    assert.equal(hiddenInitiative.status, 404);
+    assert.deepEqual(sideEffects, [], 'hidden combatant preflight has no side effects either');
 
     actorStore.clear('combat-stripped-test');
 }
