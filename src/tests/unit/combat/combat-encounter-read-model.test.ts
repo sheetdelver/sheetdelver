@@ -46,6 +46,7 @@ export async function run() {
     await runGroupEvents();
     await runDeleteRemovesEncounter();
     await runActorFallbackIdentityAndBridge();
+    await runDefeatedStatusDerivation();
     console.log('  - CombatEncounterReadModel: all checks passed');
 }
 
@@ -261,6 +262,58 @@ async function runActorFallbackIdentityAndBridge() {
         'actor rename rebuilds fallback identity via the store bridge');
     assert.equal(encounter.rows.find((r) => r.id === 'c-named')?.name, 'Disguised',
         'explicit combatant identity is unaffected by actor changes');
+}
+
+async function runDefeatedStatusDerivation() {
+    const { actorStore, readModel } = await createHarness(
+        [
+            {
+                _id: 'combat-death',
+                active: true,
+                round: 1,
+                turn: 0,
+                combatants: [
+                    { _id: 'c-flagged', actorId: 'actor-npc', initiative: 15, defeated: true },
+                    { _id: 'c-dying-pc', actorId: 'actor-dying', initiative: 10 },
+                    { _id: 'c-dead-status', actorId: 'actor-dead', initiative: 5 },
+                ],
+            },
+        ],
+        [
+            { _id: 'actor-npc', name: 'Goblin' },
+            // Dying PC: unconscious (death saves) — must NOT read as defeated.
+            {
+                _id: 'actor-dying',
+                name: 'Downed Hero',
+                effects: [{ _id: 'fx-unc', statuses: ['unconscious'] }],
+            },
+            // Dead status is Foundry's defeated special status.
+            {
+                _id: 'actor-dead',
+                name: 'Slain Bandit',
+                effects: [{ _id: 'fx-dead', statuses: ['dead'] }],
+            },
+        ] as ActorDocument[],
+    );
+
+    const encounter = readModel.get('combat-death')!;
+    const byId = (id: string) => encounter.rows.find((r) => r.id === id)!;
+    assert.equal(byId('c-flagged').defeated, true, 'combatant flag marks defeated');
+    assert.equal(byId('c-dying-pc').defeated, false, 'unconscious (death saves) is not defeated');
+    assert.equal(byId('c-dead-status').defeated, true, 'actor dead status derives defeated');
+
+    // Live transition: the dying PC fails their saves — the dead status lands
+    // as an embedded ActiveEffect on the actor, and the actor bridge rebuilds
+    // the encounter without any combatant write.
+    actorStore.applyModifyDocument('ActiveEffect', 'update', [
+        { _id: 'fx-unc', statuses: ['dead'] },
+    ], { parentUuid: 'Actor.actor-dying' });
+
+    assert.equal(
+        readModel.get('combat-death')!.rows.find((r) => r.id === 'c-dying-pc')?.defeated,
+        true,
+        'dead status applied to the actor flips the prepared row via the store bridge',
+    );
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

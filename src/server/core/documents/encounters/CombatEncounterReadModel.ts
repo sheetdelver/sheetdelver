@@ -71,6 +71,33 @@ function isNumericInitiative(value: unknown): value is number {
 }
 
 /**
+ * Core-default defeated status id (Foundry `CONFIG.specialStatusEffects.DEFEATED`).
+ * Deliberately NOT `unconscious`: a dying PC rolling death saves keeps their
+ * turn and must never read as defeated. Systems can reconfigure this in
+ * Foundry CONFIG; a system-adapter override is future module-work scope
+ * (ADR-0028 Phase 5 contract note).
+ */
+const DEFEATED_STATUS_ID = 'dead';
+
+/**
+ * Foundry `Combatant#isDefeated` parity for linked actors: defeated when the
+ * combatant flag is set OR the actor carries the defeated status effect.
+ * Status data lives on raw ActiveEffects (`effects[].statuses`), which the
+ * ActorStore mirrors; unlinked token actors (ActorDelta) are outside the
+ * stores until ADR-0028 Phase 7.
+ */
+function actorHasDefeatedStatus(actor: unknown): boolean {
+    if (typeof actor !== 'object' || actor === null) return false;
+    const effects = (actor as Record<string, unknown>).effects;
+    if (!Array.isArray(effects)) return false;
+    return effects.some(effect => {
+        if (typeof effect !== 'object' || effect === null) return false;
+        const statuses = (effect as Record<string, unknown>).statuses;
+        return Array.isArray(statuses) && statuses.includes(DEFEATED_STATUS_ID);
+    });
+}
+
+/**
  * Foundry v13 `Combat#_sortCombatants`: descending initiative, non-numeric
  * initiative sorts last, ties broken by ascending combatant id.
  */
@@ -244,7 +271,7 @@ export class CombatEncounterReadModel extends EventEmitter {
             img: combatant.img ?? actorImg,
             initiative: isNumericInitiative(combatant.initiative) ? combatant.initiative : null,
             hidden: combatant.hidden === true,
-            defeated: combatant.defeated === true,
+            defeated: combatant.defeated === true || actorHasDefeatedStatus(actor),
             groupId: combatant.group ?? null,
         };
     }

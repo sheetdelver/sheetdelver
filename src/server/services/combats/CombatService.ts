@@ -150,10 +150,20 @@ export function createCombatService(deps: CombatServiceDeps) {
 
     // Turn progression over the prepared encounter order.
     //
-    // Sheet Delver command contract (ADR-0028 §6 fallback, explicit until the
-    // Foundry command bridge lands): round 0 starts at round 1 turn 0; the
-    // last turn wraps to the next round; no skip-defeated or tracker-setting
-    // behavior is applied.
+    // Sheet Delver command contract (ADR-0028 §6 fallback, explicit until/
+    // unless a Foundry command bridge lands): round 0 starts at round 1 on
+    // the first non-defeated combatant; advancing skips defeated rows the
+    // way Foundry's skip-defeated tracker behavior does, wrapping to the
+    // next round's first non-defeated row. Defeated means the combatant flag
+    // or the actor's `dead` status — never unconscious/dying, so death-save
+    // turns are preserved. Skipping is always on (the Setting store needed
+    // to honor the world toggle is Phase 7 scope). If every row is defeated,
+    // progression falls back to index 0 rather than looping.
+    const firstUndefeatedIndex = (prepared: PreparedEncounter): number => {
+        const index = prepared.rows.findIndex(row => !row.defeated);
+        return index >= 0 ? index : 0;
+    };
+
     const advanceTurn = async (
         client: CombatClientLike,
         combatId: string
@@ -174,12 +184,14 @@ export function createCombatService(deps: CombatServiceDeps) {
 
         if (round === 0) {
             round = 1;
-            turn = 0;
+            turn = firstUndefeatedIndex(prepared);
         } else {
-            turn += 1;
-            if (turn >= prepared.rows.length) {
+            const next = prepared.rows.findIndex((row, index) => index > turn && !row.defeated);
+            if (next >= 0) {
+                turn = next;
+            } else {
                 round += 1;
-                turn = 0;
+                turn = firstUndefeatedIndex(prepared);
             }
         }
 
@@ -208,18 +220,36 @@ export function createCombatService(deps: CombatServiceDeps) {
         let round = prepared.round;
         let turn = prepared.turn ?? 0;
 
+        // Rewind mirrors the advance contract: defeated rows are skipped in
+        // reverse; crossing the round boundary lands on the previous round's
+        // last non-defeated row, and rewinding past round 1 turn 0 returns
+        // the encounter to its unstarted round-zero state.
+        const previousUndefeated = (before: number): number => {
+            for (let i = Math.min(before, prepared.rows.length) - 1; i >= 0; i -= 1) {
+                if (!prepared.rows[i].defeated) return i;
+            }
+            return -1;
+        };
+        const lastUndefeated = (): number => {
+            for (let i = prepared.rows.length - 1; i >= 0; i -= 1) {
+                if (!prepared.rows[i].defeated) return i;
+            }
+            return Math.max(0, prepared.rows.length - 1);
+        };
+
         if (round === 0) {
             // Not started — nothing to rewind.
-        } else if (turn === 0) {
-            if (round > 1) {
+        } else {
+            const previous = previousUndefeated(turn);
+            if (previous >= 0) {
+                turn = previous;
+            } else if (round > 1) {
                 round -= 1;
-                turn = Math.max(0, prepared.rows.length - 1);
+                turn = lastUndefeated();
             } else {
                 round = 0;
                 turn = 0;
             }
-        } else {
-            turn -= 1;
         }
 
         await createCombatRepository(client).update(combatId, { round, turn });

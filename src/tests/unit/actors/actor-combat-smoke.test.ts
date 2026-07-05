@@ -322,6 +322,69 @@ async function runCombatReadActionSmoke() {
         updates: [{ _id: 'combat-wrap', round: 2, turn: 0 }],
     });
 
+    // ---- advance skips defeated combatants (ADR-0028 Phase 5 SD contract) ----
+    const skipCase = await buildCase({
+        userId: 'gm-wrap',
+        combat: {
+            _id: 'combat-skip',
+            id: 'combat-skip',
+            round: 1,
+            turn: 0,
+            combatants: [
+                { _id: 'c1', id: 'c1', actorId: 'actor-a', initiative: 15 },
+                { _id: 'c2', id: 'c2', actorId: 'actor-b', initiative: 12, defeated: true },
+                { _id: 'c3', id: 'c3', actorId: 'actor-c', initiative: 10 },
+            ],
+        },
+    });
+
+    const skipResult = await combatService.advanceTurn(skipCase.client, 'combat-skip');
+    if ('error' in skipResult) assert.fail(`Expected skip advance success, got: ${skipResult.error}`);
+    assert.equal(skipResult.round, 1);
+    assert.equal(skipResult.turn, 2, 'defeated combatant is skipped on advance');
+
+    // Round wrap lands on the first non-defeated row of the next round.
+    const skipWrapCase = await buildCase({
+        userId: 'gm-wrap',
+        combat: {
+            _id: 'combat-skip-wrap',
+            id: 'combat-skip-wrap',
+            round: 1,
+            turn: 2,
+            combatants: [
+                { _id: 'c1', id: 'c1', actorId: 'actor-a', initiative: 15, defeated: true },
+                { _id: 'c2', id: 'c2', actorId: 'actor-b', initiative: 12 },
+                { _id: 'c3', id: 'c3', actorId: 'actor-c', initiative: 10 },
+            ],
+        },
+    });
+
+    const skipWrapResult = await combatService.advanceTurn(skipWrapCase.client, 'combat-skip-wrap');
+    if ('error' in skipWrapResult) assert.fail(`Expected skip wrap success, got: ${skipWrapResult.error}`);
+    assert.equal(skipWrapResult.round, 2);
+    assert.equal(skipWrapResult.turn, 1, 'next round starts on the first non-defeated combatant');
+
+    // Rewind skips defeated rows in reverse.
+    const skipRewindCase = await buildCase({
+        userId: 'gm-wrap',
+        combat: {
+            _id: 'combat-skip-rewind',
+            id: 'combat-skip-rewind',
+            round: 2,
+            turn: 2,
+            combatants: [
+                { _id: 'c1', id: 'c1', actorId: 'actor-a', initiative: 15 },
+                { _id: 'c2', id: 'c2', actorId: 'actor-b', initiative: 12, defeated: true },
+                { _id: 'c3', id: 'c3', actorId: 'actor-c', initiative: 10 },
+            ],
+        },
+    });
+
+    const skipRewindResult = await combatService.previousTurn(skipRewindCase.client, 'combat-skip-rewind');
+    if ('error' in skipRewindResult) assert.fail(`Expected skip rewind success, got: ${skipRewindResult.error}`);
+    assert.equal(skipRewindResult.round, 2);
+    assert.equal(skipRewindResult.turn, 0, 'defeated combatant is skipped on rewind');
+
     // ---- combat not found ----
     const notFoundCase = await buildCase({
         userId: 'gm-not-found',
