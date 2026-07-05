@@ -74,6 +74,8 @@ function runStubsNotRegisteredWithRouter() {
     // already covered by the router unit test for unknown types — here we
     // just confirm `route()` accepts these types without throwing, which
     // matches the silent-drop contract.
+    // Setting is no longer a stub — it was wired to the coordinator + router
+    // by ADR-0028 Phase 7 (settings slice) and has its own test file.
     let threw = false;
     try {
         modifyDocumentRouter.route({
@@ -91,11 +93,6 @@ function runStubsNotRegisteredWithRouter() {
             action: 'create',
             result: [{ _id: 'never-applied' }],
         });
-        modifyDocumentRouter.route({
-            type: 'Setting',
-            action: 'update',
-            result: [{ _id: 'never-applied' }],
-        });
     } catch {
         threw = true;
     }
@@ -104,7 +101,6 @@ function runStubsNotRegisteredWithRouter() {
     assert.equal(sceneStore.get('never-applied'), null);
     assert.equal(fogExplorationStore.get('never-applied'), null);
     assert.equal(adventureStore.get('never-applied'), null);
-    assert.equal(settingStore.get('never-applied'), null);
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

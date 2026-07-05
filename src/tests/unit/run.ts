@@ -51,6 +51,7 @@ import { run as runMacroStore } from './documents/macro-store.test';
 import { run as runPlaylistStore } from './documents/playlist-store.test';
 import { run as runCardsStore } from './documents/cards-store.test';
 import { run as runStubStores } from './documents/stub-stores.test';
+import { run as runSettingStore } from './documents/setting-store.test';
 import { run as runSharedContentStore } from './documents/shared-content-store.test';
 import { run as runDocumentResolver } from './documents/document-resolver.test';
 
@@ -165,6 +166,7 @@ async function runAllUnitTests() {
     await runPlaylistStore();
     await runCardsStore();
     await runStubStores();
+    await runSettingStore();
     await runWorldStateStore();
     await runWorldLifecycleStore();
     runFoundryVersionCompatibility();

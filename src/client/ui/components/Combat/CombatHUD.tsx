@@ -5,8 +5,16 @@ import { useFoundry } from '@client/ui/context/FoundryContext';
 import { useActorCombat } from '@client/ui/context/ActorCombatContext';
 import { useSession } from '@client/ui/context/SessionContext';
 import { useNotifications } from '@client/ui/components/NotificationSystem';
-import type { CombatTrackerDto, CombatTrackerCombatantDto } from '@shared/contracts/combats';
+import type { CombatTrackerCombatantDto } from '@shared/contracts/combats';
 import * as foundryApi from '@client/ui/api/foundryApi';
+import {
+    buildCombatCarousel,
+    composeInitiativeFormula,
+    currentTurnName,
+    isCarouselDivider,
+    resolveSelectedCombat,
+    selectActiveCombats,
+} from './combatHudState';
 import { getUIModule } from '@modules/registry/client';
 import { SurfaceHost } from '@client/ui/components/SurfaceHost';
 import { logger } from '@shared/utils/logger';
@@ -68,21 +76,10 @@ export default function CombatHUD() {
     // every pre-game step must not show (possibly stale) combat state (ADR-0028).
     if (step !== 'dashboard') return null;
 
-    // Started encounters render the full tracker. Unstarted active encounters
-    // surface only when the server projection returned rows for this viewer —
-    // for players that's exactly their own rollable combatants (pre-combat
-    // initiative), for GMs the forming roster (ADR-0028 QoL addendum).
-    const activeCombats = combats?.filter(c => c.active && (c.started || c.combatants.length > 0)) || [];
-
-    if (activeCombats.length === 0) return null;
-
-    // Stable-id selection: keep the chosen encounter when the list reorders;
-    // fall back to the first active encounter when it disappears.
-    const selectedIndex = selectedCombatId
-        ? activeCombats.findIndex(c => c.id === selectedCombatId)
-        : -1;
-    const activeCombat: CombatTrackerDto = selectedIndex >= 0 ? activeCombats[selectedIndex] : activeCombats[0];
-    const displayIndex = selectedIndex >= 0 ? selectedIndex : 0;
+    const activeCombats = selectActiveCombats(combats);
+    const selection = resolveSelectedCombat(activeCombats, selectedCombatId);
+    if (!selection) return null;
+    const { combat: activeCombat, index: displayIndex } = selection;
 
     const selectByOffset = (offset: number) => {
         const next = activeCombats[Math.min(Math.max(displayIndex + offset, 0), activeCombats.length - 1)];
@@ -122,16 +119,8 @@ export default function CombatHUD() {
         const { combatId, combatantId } = rollCommand;
         setRollCommand(null);
 
-        // Manual-value rolls carry edited bonuses; formula-less rolls defer
-        // to the server's adapter initiative formula.
-        const totalBonus = (options.abilityBonus || 0) + (options.itemBonus || 0) + (options.talentBonus || 0);
-        const suffix = totalBonus > 0 ? `+${totalBonus}` : totalBonus < 0 ? `${totalBonus}` : '';
-        const formula = options.manualValue !== undefined
-            ? `${options.manualValue}${suffix}`
-            : undefined;
-
         await runAction('initiative', () => foundryApi.postCombatRollInitiative(token, combatId, combatantId, {
-            formula,
+            formula: composeInitiativeFormula(options),
             advantageMode: options.advantageMode,
         }));
     };
@@ -141,20 +130,8 @@ export default function CombatHUD() {
 
     // Server-ordered rows; the current row splits acted from upcoming.
     const rows = activeCombat.combatants;
-    const currentIndex = rows.findIndex(r => r.isCurrent);
-    const splitIndex = currentIndex >= 0 ? currentIndex : 0;
-    const unacted = rows.slice(splitIndex);
-    const acted = rows.slice(0, splitIndex);
-
-    const currentName = currentIndex >= 0
-        ? rows[currentIndex].name ?? 'Unknown'
-        : activeCombat.hasHiddenCurrentCombatant ? 'Hidden combatant' : 'Unknown';
-
-    const carouselItems: Array<CombatTrackerCombatantDto | { isDivider: true; id: string }> = [
-        ...unacted,
-        { isDivider: true, id: 'round-divider' },
-        ...acted,
-    ];
+    const { items: carouselItems, currentIndex } = buildCombatCarousel(activeCombat);
+    const currentName = currentTurnName(activeCombat);
 
     return (
         <>
@@ -265,7 +242,7 @@ export default function CombatHUD() {
                             <div className="flex items-center gap-x-2 overflow-x-auto scrollbar-hide max-w-[85vw] pt-3 px-1">
                                 {carouselItems.map((item) => {
                                     // Render the Round Divider
-                                    if ('isDivider' in item) {
+                                    if (isCarouselDivider(item)) {
                                         return (
                                             <div key={item.id} className="flex flex-col items-center justify-center mx-1 px-1 h-20 sm:h-24 relative">
                                                 <div className="w-[2px] h-full bg-white/20 rounded-full"></div>

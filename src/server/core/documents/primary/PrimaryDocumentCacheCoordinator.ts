@@ -12,6 +12,7 @@ import { journalStore } from './journals/JournalStore';
 import { macroStore } from './macros/MacroStore';
 import { playlistStore } from './playlists/PlaylistStore';
 import { rollTableStore } from './roll-tables/RollTableStore';
+import { settingStore } from './settings/SettingStore';
 import { userStore } from './users/UserStore';
 import { combatEncounterReadModel } from '../encounters/CombatEncounterReadModel';
 
@@ -292,6 +293,26 @@ primaryDocumentCacheCoordinator.register({
     },
 });
 
+// SettingStore — world key/value configuration (ADR-0028 Phase 7 settings
+// slice). GM-only visibility, no route exposure; internal consumers read
+// world config (e.g. combat tracker skip-defeated) via `getValueByKey`.
+primaryDocumentCacheCoordinator.register({
+    type: 'Setting',
+    async seed(client) {
+        await settingStore.seed(async () => {
+            const response: any = await client.dispatchDocumentSocket('Setting', 'get', { broadcast: false });
+            return response?.result || [];
+        });
+        logger.info(`PrimaryDocumentCacheCoordinator | Seeded ${settingStore.list().length} settings.`);
+    },
+    clear(reason) {
+        settingStore.clear(reason);
+    },
+    isReady() {
+        return settingStore.isReady();
+    },
+});
+
 // modifyDocument router bindings
 modifyDocumentRouter.register(actorStore);
 modifyDocumentRouter.register(chatMessageStore);
@@ -304,6 +325,7 @@ modifyDocumentRouter.register(rollTableStore);
 modifyDocumentRouter.register(macroStore);
 modifyDocumentRouter.register(playlistStore);
 modifyDocumentRouter.register(cardsStore);
+modifyDocumentRouter.register(settingStore);
 // Embedded children: Actor owns Item + ActiveEffect with parentUuid 'Actor.xxx...'.
 // The router's parentUuid-first priority (ADR-0011 Phase 6) keeps these on
 // ActorStore even though ItemStore is now registered for direct-type `Item`.

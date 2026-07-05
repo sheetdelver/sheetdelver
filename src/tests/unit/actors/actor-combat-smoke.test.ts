@@ -2,6 +2,7 @@ import { strict as assert } from 'node:assert';
 import { createActorService } from '@server/services/actors/ActorService';
 import { createCombatService } from '@server/services/combats/CombatService';
 import { combatStore } from '@server/core/documents/primary/combats/CombatStore';
+import { settingStore } from '@server/core/documents/primary/settings/SettingStore';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
 import type { CombatDocument } from '@server/shared/types/documents';
 import type { ActorDocument } from '@server/shared/types/actors';
@@ -322,7 +323,37 @@ async function runCombatReadActionSmoke() {
         updates: [{ _id: 'combat-wrap', round: 2, turn: 0 }],
     });
 
-    // ---- advance skips defeated combatants (ADR-0028 Phase 5 SD contract) ----
+    // ---- skip-defeated honors the world tracker toggle (ADR-0028 Phase 5/7) ----
+    // Toggle absent (Foundry default: off): defeated combatants keep their slot.
+    const noSkipCase = await buildCase({
+        userId: 'gm-wrap',
+        combat: {
+            _id: 'combat-no-skip',
+            id: 'combat-no-skip',
+            round: 1,
+            turn: 0,
+            combatants: [
+                { _id: 'c1', id: 'c1', actorId: 'actor-a', initiative: 15 },
+                { _id: 'c2', id: 'c2', actorId: 'actor-b', initiative: 12, defeated: true },
+                { _id: 'c3', id: 'c3', actorId: 'actor-c', initiative: 10 },
+            ],
+        },
+    });
+
+    settingStore.clear('combat-skip-setup');
+    const noSkipResult = await combatService.advanceTurn(noSkipCase.client, 'combat-no-skip');
+    if ('error' in noSkipResult) assert.fail(`Expected no-skip advance success, got: ${noSkipResult.error}`);
+    assert.equal(noSkipResult.turn, 1, 'toggle off (Foundry default): defeated combatant is not skipped');
+
+    // Toggle enabled: the JSON-string world setting drives skipping.
+    await settingStore.seed(async () => [
+        {
+            _id: 'setting-ctc',
+            key: 'core.combatTrackerConfig',
+            value: JSON.stringify({ resource: '', skipDefeated: true }),
+        },
+    ]);
+
     const skipCase = await buildCase({
         userId: 'gm-wrap',
         combat: {
@@ -384,6 +415,9 @@ async function runCombatReadActionSmoke() {
     if ('error' in skipRewindResult) assert.fail(`Expected skip rewind success, got: ${skipRewindResult.error}`);
     assert.equal(skipRewindResult.round, 2);
     assert.equal(skipRewindResult.turn, 0, 'defeated combatant is skipped on rewind');
+
+    // Later cases assume Foundry-default progression — drop the toggle.
+    settingStore.clear('combat-skip-teardown');
 
     // ---- combat not found ----
     const notFoundCase = await buildCase({
@@ -655,6 +689,7 @@ export async function run() {
         await runCombatReadActionSmoke();
     } finally {
         combatStore.clear('actor-combat-smoke-test');
+        settingStore.clear('actor-combat-smoke-test');
         userStore.clear('actor-combat-smoke-test');
     }
 }

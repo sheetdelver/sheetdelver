@@ -1,6 +1,6 @@
 # ADR-0028: Combat Encounter Document Store Alignment
 
-**Status:** Accepted - In progress. Decisions resolved July 4, 2026. Phases 1–5 and the Phase 6 read-side (HUD as projection consumer, incl. the pre-combat initiative amendment) are implemented and live-verified. Phase 5 resolved as the documented Sheet Delver command contract (skip-defeated progression, dead-status derivation, authorization preflights) rather than a Foundry command bridge — encounter management stays Foundry-side per product direction. Remaining: Phase 6 client tests, Phase 7 (scene/token/settings). See also ADR-0031 (delete-broadcast fidelity, landed).
+**Status:** Accepted - In progress. Decisions resolved July 4, 2026. Phases 1–6 are implemented and live-verified (HUD as projection consumer incl. the pre-combat initiative amendment; client view-model extracted to `combatHudState.ts` with focused node tests per the ADR-0024/0025 pattern). Phase 5 resolved as the documented Sheet Delver command contract (skip-defeated progression, dead-status derivation, authorization preflights) rather than a Foundry command bridge — encounter management stays Foundry-side per product direction. Remaining: Phase 7 scene/token wiring (the settings slice landed July 5, 2026 — SettingStore wired, skip-defeated honors the world toggle). See also ADR-0031 (delete-broadcast fidelity, landed).
 **Date:** June 5, 2026
 **Phase:** Primary Documents / Combat
 **Supersedes:** None
@@ -288,10 +288,11 @@ Foundry-side per the product workflow. Contract specifics:
 
 - Authorization preflights run before any side effect (initiative rolls
   included; hidden combatants 404 for non-GMs).
-- Progression skips defeated rows in both directions, matching Foundry's
-  skip-defeated behavior; round boundaries land on the first/last
-  non-defeated row. Skipping is always on until the Setting store lands
-  (Phase 7) to honor the world toggle.
+- Progression honors the world's skip-defeated tracker toggle
+  (`core.combatTrackerConfig.skipDefeated`, read from the wired SettingStore;
+  default off, matching Foundry). When enabled, defeated rows are skipped in
+  both directions and round boundaries land on the first/last non-defeated
+  row — identical to what Foundry's own tracker would do in that world.
 - A row is defeated when the combatant flag is set **or** its linked actor
   carries the core-default defeated status (`dead` —
   `CONFIG.specialStatusEffects.DEFEATED`). Unconscious/dying combatants are
@@ -334,6 +335,12 @@ committed as required scope once Phases 1–6 are complete:
   the DTO.
 - React to combat-tracker world settings that affect projected ordering or
   display where they are not already owned by the Foundry command bridge.
+  - Done (July 5, 2026, settings slice): `SettingStore` is wired into the
+    coordinator and modifyDocument router as a real primary store (GM-only
+    visibility, no route exposure, privileged `getValueByKey` accessor), and
+    combat progression reads `core.combatTrackerConfig.skipDefeated` live.
+    Remaining settings scope is limited to ordering/display settings if the
+    projection ever consumes them (would need a rebuild bridge).
 - Declare each wired dependency in the read model's dependency list and cover
   it with rebuild/invalidation tests, matching the Phase 2 bridging patterns.
 - Update the tracker DTO and `docs/UI.md` for any new projected fields.

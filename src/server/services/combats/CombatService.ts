@@ -9,6 +9,7 @@ import {
 } from '@server/core/documents/primary/base/ownership';
 import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
 import { combatStore } from '@server/core/documents/primary/combats/CombatStore';
+import { settingStore } from '@server/core/documents/primary/settings/SettingStore';
 import { combatEncounterReadModel, type PreparedEncounter } from '@server/core/documents/encounters/CombatEncounterReadModel';
 import { PrimaryDocumentCacheNotReadyError } from '@server/core/documents/primary/errors';
 import { CombatRepository } from '@server/core/documents/primary/combats/CombatRepository';
@@ -152,16 +153,17 @@ export function createCombatService(deps: CombatServiceDeps) {
     //
     // Sheet Delver command contract (ADR-0028 §6 fallback, explicit until/
     // unless a Foundry command bridge lands): round 0 starts at round 1 on
-    // the first non-defeated combatant; advancing skips defeated rows the
-    // way Foundry's skip-defeated tracker behavior does, wrapping to the
-    // next round's first non-defeated row. Defeated means the combatant flag
-    // or the actor's `dead` status — never unconscious/dying, so death-save
-    // turns are preserved. Skipping is always on (the Setting store needed
-    // to honor the world toggle is Phase 7 scope). If every row is defeated,
-    // progression falls back to index 0 rather than looping.
-    const firstUndefeatedIndex = (prepared: PreparedEncounter): number => {
-        const index = prepared.rows.findIndex(row => !row.defeated);
-        return index >= 0 ? index : 0;
+    // the first eligible combatant; the last eligible turn wraps to the next
+    // round. When the world's skip-defeated tracker toggle
+    // (`core.combatTrackerConfig.skipDefeated`, default off — Foundry
+    // parity) is enabled, defeated rows are skipped in both directions.
+    // Defeated means the combatant flag or the actor's `dead` status — never
+    // unconscious/dying, so death-save turns are preserved. If every row is
+    // ineligible, progression falls back to index 0 rather than looping.
+    const isSkipDefeatedEnabled = (): boolean => {
+        const config = settingStore.getValueByKey('core.combatTrackerConfig');
+        return typeof config === 'object' && config !== null
+            && (config as Record<string, unknown>).skipDefeated === true;
     };
 
     const advanceTurn = async (
@@ -179,19 +181,27 @@ export function createCombatService(deps: CombatServiceDeps) {
             return { error: 'Unauthorized: You do not own the current combatant and are not a GM', status: 403 };
         }
 
+        const skipDefeated = isSkipDefeatedEnabled();
+        const eligible = (row: PreparedEncounter['rows'][number]): boolean =>
+            !skipDefeated || !row.defeated;
+        const firstEligibleIndex = (): number => {
+            const index = prepared.rows.findIndex(eligible);
+            return index >= 0 ? index : 0;
+        };
+
         let round = prepared.round;
         let turn = prepared.turn ?? -1;
 
         if (round === 0) {
             round = 1;
-            turn = firstUndefeatedIndex(prepared);
+            turn = firstEligibleIndex();
         } else {
-            const next = prepared.rows.findIndex((row, index) => index > turn && !row.defeated);
+            const next = prepared.rows.findIndex((row, index) => index > turn && eligible(row));
             if (next >= 0) {
                 turn = next;
             } else {
                 round += 1;
-                turn = firstUndefeatedIndex(prepared);
+                turn = firstEligibleIndex();
             }
         }
 
@@ -220,19 +230,23 @@ export function createCombatService(deps: CombatServiceDeps) {
         let round = prepared.round;
         let turn = prepared.turn ?? 0;
 
-        // Rewind mirrors the advance contract: defeated rows are skipped in
-        // reverse; crossing the round boundary lands on the previous round's
-        // last non-defeated row, and rewinding past round 1 turn 0 returns
-        // the encounter to its unstarted round-zero state.
-        const previousUndefeated = (before: number): number => {
+        // Rewind mirrors the advance contract: with the world skip-defeated
+        // toggle enabled, defeated rows are skipped in reverse; crossing the
+        // round boundary lands on the previous round's last eligible row, and
+        // rewinding past round 1 turn 0 returns the encounter to its
+        // unstarted round-zero state.
+        const skipDefeated = isSkipDefeatedEnabled();
+        const eligible = (row: PreparedEncounter['rows'][number]): boolean =>
+            !skipDefeated || !row.defeated;
+        const previousEligible = (before: number): number => {
             for (let i = Math.min(before, prepared.rows.length) - 1; i >= 0; i -= 1) {
-                if (!prepared.rows[i].defeated) return i;
+                if (eligible(prepared.rows[i])) return i;
             }
             return -1;
         };
-        const lastUndefeated = (): number => {
+        const lastEligible = (): number => {
             for (let i = prepared.rows.length - 1; i >= 0; i -= 1) {
-                if (!prepared.rows[i].defeated) return i;
+                if (eligible(prepared.rows[i])) return i;
             }
             return Math.max(0, prepared.rows.length - 1);
         };
@@ -240,12 +254,12 @@ export function createCombatService(deps: CombatServiceDeps) {
         if (round === 0) {
             // Not started — nothing to rewind.
         } else {
-            const previous = previousUndefeated(turn);
+            const previous = previousEligible(turn);
             if (previous >= 0) {
                 turn = previous;
             } else if (round > 1) {
                 round -= 1;
-                turn = lastUndefeated();
+                turn = lastEligible();
             } else {
                 round = 0;
                 turn = 0;
