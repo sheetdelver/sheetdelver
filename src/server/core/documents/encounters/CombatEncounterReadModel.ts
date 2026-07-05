@@ -12,6 +12,7 @@ import {
 } from '../primary/base/PrimaryDocumentStore';
 import { combatStore, type CombatStore } from '../primary/combats/CombatStore';
 import { actorStore, type ActorStore } from '../primary/actors/ActorStore';
+import { sceneStore, type SceneStore } from '../primary/scenes/SceneStore';
 
 /**
  * One prepared tracker row. User-invariant: hidden rows are present with
@@ -125,10 +126,11 @@ function sortPreparedRows(a: PreparedEncounterRow, b: PreparedEncounterRow): num
  *     CombatStore (actor deletes arrive only on this path).
  *
  * Actor document *updates* already surface as Combat `documentChanged` via
- * `CombatStore.bindActorVisibilityBridge`, so no direct ActorStore
- * subscription is needed; ActorStore is consulted only for display-identity
- * fallback at build time. Token-derived identity and tracker settings are
- * deliberately absent until ADR-0028 Phase 7.
+ * `CombatStore.bindActorVisibilityBridge`, and scene/token changes via
+ * `CombatStore.bindSceneBridge`, so no direct ActorStore/SceneStore
+ * subscription is needed; both stores are consulted only at build time for
+ * display identity (combatant → token → actor, Foundry order) and defeated
+ * derivation (combatant flag, actor dead status, token-delta dead status).
  *
  * Emission rule: `encounterChanged` fires only after the prepared state is
  * current, and never during bulk seeding (mirrors ADR-0012's seeding rule).
@@ -137,13 +139,18 @@ export class CombatEncounterReadModel extends EventEmitter {
     private encounters = new Map<string, PreparedEncounter>();
     private combatStore: CombatStore | null = null;
     private actorStore: ActorStore | null = null;
+    private sceneStore: SceneStore | null = null;
 
-    public bind(combatStore: CombatStore, actorStore: ActorStore): void {
+    public bind(combatStore: CombatStore, actorStore: ActorStore, sceneStore?: SceneStore): void {
         // Idempotent for the same store pair so module-scope self-binding and
         // coordinator wiring can't stack duplicate subscriptions.
-        if (this.combatStore === combatStore && this.actorStore === actorStore) return;
+        if (this.combatStore === combatStore && this.actorStore === actorStore) {
+            if (sceneStore) this.sceneStore = sceneStore;
+            return;
+        }
         this.combatStore = combatStore;
         this.actorStore = actorStore;
+        this.sceneStore = sceneStore ?? null;
         combatStore.on('documentChanged', (event: DocumentChangedEvent) => {
             if (event.action === 'delete') this.remove(event.id);
             else this.rebuild(event.id);
@@ -256,22 +263,35 @@ export class CombatEncounterReadModel extends EventEmitter {
         const id = getDocumentId(combatant);
         if (!id) return null;
 
-        // Display identity: combatant fields first, raw actor fallback
-        // (token fallback is Phase 7). ActorStore access is privileged here —
-        // the prepared row is user-invariant and redaction happens later.
+        // Display identity: Foundry `Combatant#prepareDerivedData` order —
+        // explicit combatant fields, then token name / texture, then actor
+        // fallback. Store access is privileged here — the prepared row is
+        // user-invariant and redaction happens later.
         const actor = combatant.actorId ? this.actorStore?.get(combatant.actorId) ?? null : null;
+        const token = combatant.sceneId && combatant.tokenId
+            ? this.sceneStore?.getToken(combatant.sceneId, combatant.tokenId) ?? null
+            : null;
         const actorName = typeof actor?.name === 'string' ? actor.name : null;
         const actorImg = typeof actor?.img === 'string' ? actor.img : null;
+        const tokenName = typeof token?.name === 'string' ? token.name : null;
+        const tokenImg = typeof token?.texture?.src === 'string' ? token.texture.src : null;
+
+        // Foundry `Combatant#isDefeated` parity: the combatant flag, the base
+        // actor's dead status (linked actors), or — for unlinked tokens — a
+        // dead status carried on the token's ActorDelta.
+        const defeated = combatant.defeated === true
+            || actorHasDefeatedStatus(actor)
+            || actorHasDefeatedStatus(token?.delta ?? null);
 
         return {
             id,
             actorId: combatant.actorId ?? null,
             tokenId: combatant.tokenId ?? null,
-            name: combatant.name ?? actorName,
-            img: combatant.img ?? actorImg,
+            name: combatant.name ?? tokenName ?? actorName,
+            img: combatant.img ?? tokenImg ?? actorImg,
             initiative: isNumericInitiative(combatant.initiative) ? combatant.initiative : null,
             hidden: combatant.hidden === true,
-            defeated: combatant.defeated === true || actorHasDefeatedStatus(actor),
+            defeated,
             groupId: combatant.group ?? null,
         };
     }
@@ -293,4 +313,4 @@ export const combatEncounterReadModel = new CombatEncounterReadModel();
 // Self-bind the singleton to the singleton stores at module load so every
 // import path (coordinator bootstrap, route services, standalone tests) sees
 // a bound model; `bind` is idempotent for this pair.
-combatEncounterReadModel.bind(combatStore, actorStore);
+combatEncounterReadModel.bind(combatStore, actorStore, sceneStore);

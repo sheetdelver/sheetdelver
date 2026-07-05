@@ -271,11 +271,46 @@ export interface MacroDocument {
  * these subsystems aren't actively modeled. A future phase that wires any of
  * them up should expand the shape against real Foundry payloads.
  */
+/**
+ * Embedded ActorDelta on a Token (Foundry v13). For unlinked tokens the
+ * synthetic token actor is the base actor merged with this delta; status
+ * effects applied to the token land in `effects[]` here, not on the base
+ * actor document.
+ */
+export interface ActorDeltaDocument {
+    id?: string;
+    _id?: string;
+    name?: string | null;
+    img?: string | null;
+    system?: Record<string, unknown> | null;
+    items?: unknown[];
+    effects?: unknown[];
+    [key: string]: unknown;
+}
+
+/** Embedded Token document on a Scene (Foundry v13). */
+export interface TokenDocument {
+    id?: string;
+    _id?: string;
+    name?: string;
+    actorId?: string | null;
+    actorLink?: boolean;
+    hidden?: boolean;
+    texture?: {
+        src?: string | null;
+        [key: string]: unknown;
+    };
+    delta?: ActorDeltaDocument | null;
+    [key: string]: unknown;
+}
+
 export interface SceneDocument {
     id?: string;
     _id?: string;
     name?: string;
+    active?: boolean;
     ownership?: Record<string, number>;
+    tokens?: TokenDocument[];
     [key: string]: unknown;
 }
 export interface FogExplorationDocument {

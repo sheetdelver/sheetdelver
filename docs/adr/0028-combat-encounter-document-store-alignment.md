@@ -1,6 +1,19 @@
 # ADR-0028: Combat Encounter Document Store Alignment
 
-**Status:** Accepted - In progress. Decisions resolved July 4, 2026. Phases 1–6 are implemented and live-verified (HUD as projection consumer incl. the pre-combat initiative amendment; client view-model extracted to `combatHudState.ts` with focused node tests per the ADR-0024/0025 pattern). Phase 5 resolved as the documented Sheet Delver command contract (skip-defeated progression, dead-status derivation, authorization preflights) rather than a Foundry command bridge — encounter management stays Foundry-side per product direction. Remaining: Phase 7 scene/token wiring (the settings slice landed July 5, 2026 — SettingStore wired, skip-defeated honors the world toggle). See also ADR-0031 (delete-broadcast fidelity, landed).
+**Status:** Implemented - Complete (all phases live-verified July 5, 2026).
+Decisions resolved July 4, 2026. Phases 1–4 and 6: raw store fidelity,
+invalidation completeness, encounter read model, tracker projection, and the
+HUD as a render-only projection consumer (incl. the pre-combat initiative
+amendment; client view-model extracted to `combatHudState.ts` with focused
+node tests per the ADR-0024/0025 pattern). Phase 5 resolved as the documented
+Sheet Delver command contract (world-toggle-honoring skip-defeated
+progression, dead-status derivation, authorization preflights) rather than a
+Foundry command bridge — encounter management stays Foundry-side per product
+direction. Phase 7 landed as two slices (July 5, 2026): SettingStore wired
+(skip-defeated honors `core.combatTrackerConfig`) and SceneStore wired
+(token-derived display identity, unlinked-token ActorDelta defeated status,
+scene bridge, global tracker policy). See also ADR-0031 (delete-broadcast
+fidelity, landed).
 **Date:** June 5, 2026
 **Phase:** Primary Documents / Combat
 **Supersedes:** None
@@ -329,10 +342,26 @@ committed as required scope once Phases 1–6 are complete:
 - Add token-derived display identity to the encounter read model
   (combatant → token → actor fallback chain) with token/scene change
   invalidation bridges.
+  - Done (July 5, 2026, scene/token slice): `SceneStore` wired as a real
+    primary store (coordinator seed, direct + `Scene` embedded routing). It
+    mirrors embedded Tokens and Foundry's ActorDelta translation — unlinked
+    token-actor mutations (ActorDelta merges, delta ActiveEffect/Item events)
+    all arrive rooted at `Scene.<id>`. Row identity now follows Foundry's
+    `Combatant#prepareDerivedData` order (combatant → token → actor); a row
+    is defeated per `Combatant#isDefeated` parity including a dead status on
+    the token's ActorDelta (unlinked NPCs). `CombatStore.bindSceneBridge`
+    refreshes combats whose combatants sit on a changed scene. Scene
+    documents have no route/SDK exposure — canvas/scene visibility semantics
+    still need their own design pass before any external surface.
 - Define scene applicability for encounter selection (Foundry's
   `CombatEncounters.combats` is relative to the current canvas scene) or
   explicitly adopt a documented global tracker policy with scene metadata in
   the DTO.
+  - Decided (July 5, 2026): Sheet Delver adopts the **global tracker
+    policy** — every visible `active` encounter is projected regardless of
+    the viewer's canvas scene (Sheet Delver clients have no canvas). Foundry's
+    per-scene `CombatEncounters.combats` filtering is deliberately not
+    emulated; `Combat.active` is the selection signal.
 - React to combat-tracker world settings that affect projected ordering or
   display where they are not already owned by the Foundry command bridge.
   - Done (July 5, 2026, settings slice): `SettingStore` is wired into the

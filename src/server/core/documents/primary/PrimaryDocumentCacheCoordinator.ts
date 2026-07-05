@@ -12,6 +12,7 @@ import { journalStore } from './journals/JournalStore';
 import { macroStore } from './macros/MacroStore';
 import { playlistStore } from './playlists/PlaylistStore';
 import { rollTableStore } from './roll-tables/RollTableStore';
+import { sceneStore } from './scenes/SceneStore';
 import { settingStore } from './settings/SettingStore';
 import { userStore } from './users/UserStore';
 import { combatEncounterReadModel } from '../encounters/CombatEncounterReadModel';
@@ -293,6 +294,26 @@ primaryDocumentCacheCoordinator.register({
     },
 });
 
+// SceneStore — raw Scene + embedded Token/ActorDelta mirror (ADR-0028 Phase 7
+// scene/token slice). Internal-only consumer surface (combat encounter
+// identity + unlinked-token defeated state); no route/SDK exposure.
+primaryDocumentCacheCoordinator.register({
+    type: 'Scene',
+    async seed(client) {
+        await sceneStore.seed(async () => {
+            const response: any = await client.dispatchDocumentSocket('Scene', 'get', { broadcast: false });
+            return response?.result || [];
+        });
+        logger.info(`PrimaryDocumentCacheCoordinator | Seeded ${sceneStore.list().length} scenes.`);
+    },
+    clear(reason) {
+        sceneStore.clear(reason);
+    },
+    isReady() {
+        return sceneStore.isReady();
+    },
+});
+
 // SettingStore — world key/value configuration (ADR-0028 Phase 7 settings
 // slice). GM-only visibility, no route exposure; internal consumers read
 // world config (e.g. combat tracker skip-defeated) via `getValueByKey`.
@@ -326,6 +347,7 @@ modifyDocumentRouter.register(macroStore);
 modifyDocumentRouter.register(playlistStore);
 modifyDocumentRouter.register(cardsStore);
 modifyDocumentRouter.register(settingStore);
+modifyDocumentRouter.register(sceneStore);
 // Embedded children: Actor owns Item + ActiveEffect with parentUuid 'Actor.xxx...'.
 // The router's parentUuid-first priority (ADR-0011 Phase 6) keeps these on
 // ActorStore even though ItemStore is now registered for direct-type `Item`.
@@ -344,11 +366,20 @@ modifyDocumentRouter.registerEmbeddedHandler('Playlist', playlistStore);
 // Cards owns Card with parentUuid 'Cards.<id>'. Cross-Cards-doc transfers
 // arrive as paired events on two parents; each leg lands here for its parent.
 modifyDocumentRouter.registerEmbeddedHandler('Cards', cardsStore);
+// Scene owns Token — and via Foundry's ActorDelta translation, every
+// unlinked-token-actor mutation (ActorDelta updates, delta ActiveEffect/Item
+// events) also arrives with parentUuid rooted at 'Scene.<id>'.
+modifyDocumentRouter.registerEmbeddedHandler('Scene', sceneStore);
 
 // Cross-store visibility dependency (ADR-0011 Phase 5): CombatStore consumes
 // ActorStore for `resolveOwnership` lookups and re-emits its own list
 // invalidation when actor ownership crossings affect combat visibility.
 combatStore.bindActorVisibilityBridge(actorStore);
+
+// Scene/token dependency (ADR-0028 Phase 7): token display identity and
+// unlinked-token defeated state feed combat projections, so scene changes
+// (embedded Token/ActorDelta mutations) refresh combats on that scene.
+combatStore.bindSceneBridge(sceneStore);
 
 // Derived encounter read model (ADR-0028 §4, Phase 3): event-maintained
 // prepared tracker state beside — not inside — the raw CombatStore. Combat
@@ -356,5 +387,5 @@ combatStore.bindActorVisibilityBridge(actorStore);
 // CombatStore's bridge above, so no direct ActorStore subscription exists.
 // The singleton self-binds at module load (idempotent); this call documents
 // the dependency in the same place as the other cross-store wiring.
-combatEncounterReadModel.bind(combatStore, actorStore);
+combatEncounterReadModel.bind(combatStore, actorStore, sceneStore);
 

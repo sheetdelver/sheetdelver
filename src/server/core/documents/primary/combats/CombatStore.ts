@@ -1,15 +1,11 @@
 import type { CombatDocument, CombatantGroupDocument } from '@server/shared/types/documents';
 import {
-    cloneDocument,
-    appendCreatedById,
-    deepMerge,
-    getDeletionIds,
+    applyEmbeddedCollectionChange,
     getDocumentId,
     PrimaryDocumentStore,
     stableJson,
     toDocumentArray,
     type DocumentChangedEvent,
-    type DocumentLike,
     type DocumentListInvalidatedEvent,
     type ModifyDocumentAction,
     type PrimaryDocumentType,
@@ -103,6 +99,41 @@ export class CombatStore extends PrimaryDocumentStore<CombatDocument> {
     }
 
     /**
+     * Declare and wire CombatStore's SceneStore dependency (ADR-0028 Phase 7).
+     * Token documents feed combatant display identity and unlinked-token
+     * defeated state, so a scene change (embedded Token/ActorDelta mutations
+     * emit an `update` on the parent scene) must refresh combats whose
+     * combatants sit on that scene. Scene deletes flow the same way — the
+     * identity falls back to the base actor on rebuild.
+     */
+    public bindSceneBridge(sceneStore: PrimaryDocumentStore<{ _id?: string; id?: string }>): void {
+        sceneStore.on('documentChanged', (event: DocumentChangedEvent) => {
+            const affected = this.findCombatsOnScene(event.id);
+            for (const combatId of affected) {
+                this.emitChanged(combatId, 'update');
+            }
+        });
+    }
+
+    /**
+     * Return the ids of combats that contain a combatant on the given scene.
+     * Combatants carry `sceneId`; the parent combat's own `scene` field also
+     * counts so scene-linked encounters refresh even before combatants land.
+     */
+    public findCombatsOnScene(sceneId: string): string[] {
+        const ids: string[] = [];
+        for (const combat of this.documents.values()) {
+            const matches = combat.scene === sceneId
+                || (combat.combatants || []).some(c => c.sceneId === sceneId);
+            if (matches) {
+                const id = getDocumentId(combat);
+                if (id) ids.push(id);
+            }
+        }
+        return ids;
+    }
+
+    /**
      * Return the ids of combats that contain a combatant whose `actorId` matches
      * the given actor. Used by the actor-visibility bridge to scope
      * `combatListInvalidated` to the combats whose subject set may have changed.
@@ -161,9 +192,9 @@ export class CombatStore extends PrimaryDocumentStore<CombatDocument> {
         const beforeVisibilitySource = combatVisibilitySourceState(combat);
 
         if (type === 'Combatant') {
-            combat.combatants = this.applyEmbeddedArrayChange(combat.combatants, action, result, operation);
+            combat.combatants = applyEmbeddedCollectionChange(combat.combatants, action, result, operation);
         } else {
-            combat.groups = this.applyEmbeddedArrayChange<CombatantGroupDocument>(combat.groups, action, result, operation);
+            combat.groups = applyEmbeddedCollectionChange<CombatantGroupDocument>(combat.groups, action, result, operation);
         }
 
         this.documents.set(combatId, combat);
@@ -175,45 +206,6 @@ export class CombatStore extends PrimaryDocumentStore<CombatDocument> {
                 });
             }
         }
-    }
-
-    /**
-     * Shared embedded-array mutation for Combatant and CombatantGroup children.
-     * Creates are idempotent by id (mirror + broadcast both apply — ADR-0012 /
-     * ADR-0028); updates deep-merge in place; deletes filter by operation ids.
-     */
-    private applyEmbeddedArrayChange<TChild extends DocumentLike>(
-        existing: TChild[] | undefined,
-        action: ModifyDocumentAction,
-        result: unknown,
-        operation?: Record<string, unknown>,
-    ): TChild[] {
-        const docs = toDocumentArray<TChild>(result);
-        const children = existing || [];
-
-        if (action === 'delete') {
-            // Broadcast deletes carry id strings in `result`, not documents.
-            const ids = getDeletionIds(operation, result, docs);
-            return children.filter(child => {
-                const id = getDocumentId(child);
-                return !id || !ids.includes(id);
-            });
-        }
-        if (action === 'update') {
-            for (const incoming of docs) {
-                const id = getDocumentId(incoming);
-                if (!id) continue;
-                const index = children.findIndex(child => getDocumentId(child) === id);
-                if (index >= 0) {
-                    deepMerge(children[index] as Record<string, unknown>, incoming as Record<string, unknown>);
-                }
-            }
-            return children;
-        }
-        if (action === 'create') {
-            return appendCreatedById(children, docs);
-        }
-        return children;
     }
 
     /**

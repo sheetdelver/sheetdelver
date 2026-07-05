@@ -5,8 +5,9 @@ import {
 } from '@server/core/documents/encounters/CombatEncounterReadModel';
 import { CombatStore } from '@server/core/documents/primary/combats/CombatStore';
 import { ActorStore } from '@server/core/documents/primary/actors/ActorStore';
+import { SceneStore } from '@server/core/documents/primary/scenes/SceneStore';
 import { DocumentOwnershipLevel } from '@server/core/documents/primary/base/ownership';
-import type { CombatDocument } from '@server/shared/types/documents';
+import type { CombatDocument, SceneDocument } from '@server/shared/types/documents';
 import type { ActorDocument } from '@server/shared/types/actors';
 
 /**
@@ -19,24 +20,32 @@ import type { ActorDocument } from '@server/shared/types/actors';
 interface Harness {
     actorStore: ActorStore;
     combatStore: CombatStore;
+    sceneStore: SceneStore;
     readModel: CombatEncounterReadModel;
     events: EncounterChangedEvent[];
 }
 
-async function createHarness(combats: CombatDocument[], actors: ActorDocument[] = []): Promise<Harness> {
+async function createHarness(
+    combats: CombatDocument[],
+    actors: ActorDocument[] = [],
+    scenes: SceneDocument[] = [],
+): Promise<Harness> {
     const actorStore = new ActorStore();
     await actorStore.seed(async () => actors);
+    const sceneStore = new SceneStore();
+    await sceneStore.seed(async () => scenes);
     const combatStore = new CombatStore();
     combatStore.bindActorVisibilityBridge(actorStore);
+    combatStore.bindSceneBridge(sceneStore);
     await combatStore.seed(async () => combats);
 
     const readModel = new CombatEncounterReadModel();
-    readModel.bind(combatStore, actorStore);
+    readModel.bind(combatStore, actorStore, sceneStore);
     readModel.rebuildAll();
 
     const events: EncounterChangedEvent[] = [];
     readModel.on('encounterChanged', (e) => events.push(e as EncounterChangedEvent));
-    return { actorStore, combatStore, readModel, events };
+    return { actorStore, combatStore, sceneStore, readModel, events };
 }
 
 export async function run() {
@@ -47,6 +56,7 @@ export async function run() {
     await runDeleteRemovesEncounter();
     await runActorFallbackIdentityAndBridge();
     await runDefeatedStatusDerivation();
+    await runTokenIdentityAndDeltaDefeated();
     console.log('  - CombatEncounterReadModel: all checks passed');
 }
 
@@ -313,6 +323,81 @@ async function runDefeatedStatusDerivation() {
         readModel.get('combat-death')!.rows.find((r) => r.id === 'c-dying-pc')?.defeated,
         true,
         'dead status applied to the actor flips the prepared row via the store bridge',
+    );
+}
+
+async function runTokenIdentityAndDeltaDefeated() {
+    const { sceneStore, readModel } = await createHarness(
+        [
+            {
+                _id: 'combat-tokens',
+                active: true,
+                round: 1,
+                turn: 0,
+                combatants: [
+                    // Unlinked NPC: identity should come from the TOKEN
+                    // (Goblin 3, numbered token art), not the base actor.
+                    { _id: 'c-unlinked', actorId: 'actor-goblin', tokenId: 'tok-3', sceneId: 'scene-1', initiative: 15 },
+                    // No token resolvable → actor fallback (previous behavior).
+                    { _id: 'c-no-token', actorId: 'actor-goblin', initiative: 10 },
+                ],
+            },
+        ],
+        [
+            { _id: 'actor-goblin', name: 'Goblin', img: 'actors/goblin.webp' },
+        ] as ActorDocument[],
+        [
+            {
+                _id: 'scene-1',
+                name: 'Cave',
+                tokens: [
+                    {
+                        _id: 'tok-3',
+                        name: 'Goblin 3',
+                        actorId: 'actor-goblin',
+                        actorLink: false,
+                        texture: { src: 'tokens/goblin-3.webp' },
+                        delta: { _id: 'delta-3', effects: [] },
+                    },
+                ],
+            },
+        ] as SceneDocument[],
+    );
+
+    let encounter = readModel.get('combat-tokens')!;
+    const unlinked = encounter.rows.find((r) => r.id === 'c-unlinked')!;
+    assert.equal(unlinked.name, 'Goblin 3', 'token name beats actor fallback (Foundry order)');
+    assert.equal(unlinked.img, 'tokens/goblin-3.webp', 'token texture beats actor img');
+    assert.equal(unlinked.defeated, false);
+    const noToken = encounter.rows.find((r) => r.id === 'c-no-token')!;
+    assert.equal(noToken.name, 'Goblin', 'actor fallback without a resolvable token');
+
+    // Dead status applied to the unlinked token lands on the ActorDelta —
+    // the scene bridge must rebuild the encounter and derive defeated.
+    sceneStore.applyModifyDocument('ActiveEffect', 'create', [
+        { _id: 'fx-dead', statuses: ['dead'] },
+    ], { parentUuid: 'Scene.scene-1.Token.tok-3.ActorDelta.delta-3' });
+
+    encounter = readModel.get('combat-tokens')!;
+    assert.equal(
+        encounter.rows.find((r) => r.id === 'c-unlinked')?.defeated,
+        true,
+        'unlinked-token dead status flips the prepared row via the scene bridge',
+    );
+    assert.equal(
+        encounter.rows.find((r) => r.id === 'c-no-token')?.defeated,
+        false,
+        'base actor stays unaffected by a single token\'s delta',
+    );
+
+    // Token rename propagates the same way.
+    sceneStore.applyModifyDocument('Token', 'update', [
+        { _id: 'tok-3', name: 'Goblin Chief' },
+    ], { parentUuid: 'Scene.scene-1' });
+    assert.equal(
+        readModel.get('combat-tokens')!.rows.find((r) => r.id === 'c-unlinked')?.name,
+        'Goblin Chief',
+        'token rename rebuilds display identity via the scene bridge',
     );
 }
 

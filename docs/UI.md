@@ -127,7 +127,10 @@ backend encounter read model — never raw Combat/Combatant/Actor documents.
 
 - Rows arrive server-ordered (Foundry initiative order); the current turn is
   identified by `currentCombatantId` / per-row `isCurrent`, never a positional
-  index.
+  index. Display identity follows Foundry's combatant → token → actor
+  fallback, so unlinked NPC tokens show their token name/art; defeated state
+  covers the tracker flag, linked-actor dead status, and unlinked-token
+  (ActorDelta) dead status.
 - Hidden combatants are pruned for players and flagged for GMs. A hidden
   current combatant surfaces as `hasHiddenCurrentCombatant: true` with a null
   `currentCombatantId`.

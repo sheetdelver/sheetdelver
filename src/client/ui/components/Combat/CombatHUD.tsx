@@ -271,31 +271,33 @@ export default function CombatHUD() {
                                             key={combatant.id}
                                             className={`relative flex flex-col items-center flex-shrink-0 transition-all duration-500 origin-bottom
                                             ${isCurrentTurn ? 'scale-110 z-10 mx-2 w-20 sm:w-24' : 'scale-95 opacity-80 hover:opacity-100 w-14 sm:w-16'}
-                                            ${hasActed ? 'opacity-40 grayscale-[70%]' : ''}
+                                            ${hasActed && !isDefeated ? 'opacity-40 grayscale-[70%]' : ''}
                                         `}
                                         >
                                             {/* Portrait Container */}
                                             <div className={`
                                             w-full h-20 sm:h-24 rounded-t-full overflow-hidden border-[3px] shadow-lg relative bg-neutral-900 flex items-center justify-center transition-all duration-300
                                             ${isCurrentTurn ? 'border-rose-800 shadow-[0_0_20px_rgba(159,18,57,0.7)] ring-2 ring-rose-900/50' : 'border-neutral-700 hover:border-neutral-500'}
-                                            ${isDefeated ? 'border-red-950/50 grayscale opacity-60' : ''}
+                                            ${isDefeated ? 'border-red-950/50' : ''}
                                         `}>
+                                                {/* Mute only the portrait when defeated so the
+                                                    skull badge above stays at full strength. */}
                                                 {showImage ? (
                                                     <img
                                                         src={combatant.img!}
                                                         alt={combatant.name || 'Combatant'}
-                                                        className="w-full h-full object-cover"
+                                                        className={`w-full h-full object-cover ${isDefeated ? 'grayscale opacity-60' : ''}`}
                                                     />
                                                 ) : (
-                                                    <Shield className="w-10 h-10 text-neutral-600" />
+                                                    <Shield className={`w-10 h-10 text-neutral-600 ${isDefeated ? 'opacity-60' : ''}`} />
                                                 )}
 
                                                 {/* Defeated Overlay */}
                                                 {isDefeated && (
                                                     <>
                                                         <div className="absolute inset-0 bg-red-950/40 backdrop-blur-[1px]"></div>
-                                                        <div className="absolute bottom-1 right-1 z-10 bg-black/60 rounded-full p-0.5 border border-red-900/50">
-                                                            <Skull className="w-3 h-3 sm:w-4 sm:h-4 text-red-700 drop-shadow-[0_0_5px_rgba(0,0,0,1)]" />
+                                                        <div className="absolute bottom-1 right-1 z-10 bg-black/80 rounded-full p-1 border border-red-800/70 shadow-[0_0_8px_rgba(0,0,0,0.9)]">
+                                                            <Skull className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-red-500 drop-shadow-[0_0_5px_rgba(0,0,0,1)]" />
                                                         </div>
                                                     </>
                                                 )}

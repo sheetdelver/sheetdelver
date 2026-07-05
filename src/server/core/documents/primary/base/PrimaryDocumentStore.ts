@@ -171,6 +171,46 @@ export function appendCreatedById<TDocument extends DocumentLike>(
 }
 
 /**
+ * Shared embedded-collection mutation for child-document events (Combatants,
+ * CombatantGroups, Tokens, delta effects/items, …). Creates are idempotent by
+ * id via {@link appendCreatedById} (mirror + broadcast both apply, ADR-0012);
+ * updates deep-merge in place; deletes resolve ids via {@link getDeletionIds}
+ * so broadcast-shaped payloads (string ids in `result`) apply (ADR-0031).
+ */
+export function applyEmbeddedCollectionChange<TChild extends DocumentLike>(
+    existing: TChild[] | undefined,
+    action: ModifyDocumentAction,
+    result: unknown,
+    operation?: Record<string, unknown>,
+): TChild[] {
+    const docs = toDocumentArray<TChild>(result);
+    const children = existing || [];
+
+    if (action === 'delete') {
+        const ids = getDeletionIds(operation, result, docs);
+        return children.filter(child => {
+            const id = getDocumentId(child);
+            return !id || !ids.includes(id);
+        });
+    }
+    if (action === 'update') {
+        for (const incoming of docs) {
+            const id = getDocumentId(incoming);
+            if (!id) continue;
+            const index = children.findIndex(child => getDocumentId(child) === id);
+            if (index >= 0) {
+                deepMerge(children[index] as Record<string, unknown>, incoming as Record<string, unknown>);
+            }
+        }
+        return children;
+    }
+    if (action === 'create') {
+        return appendCreatedById(children, docs);
+    }
+    return children;
+}
+
+/**
  * Abstract base for every Foundry primary-document Store.
  *
  * Subclasses implement `resolveOwnership` (the policy hook per ADR-0013).
