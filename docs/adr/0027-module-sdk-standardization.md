@@ -1,6 +1,6 @@
 # ADR-0027: Module SDK Standardization
 
-**Status:** Proposed — Not implemented.
+**Status:** Implemented — Complete (see the closing status note: SDK standardized across server/client/compendium/datastore/logging; all three shipped systems conform).
 **Date:** May 31, 2026
 **Phase:** SDK Standardization
 **Supersedes:** None

@@ -1,6 +1,6 @@
 # ADR-0010: External Module SDK and Operational Maturity
 
-**Status:** Active — SDK complete. dnd5e migration complete. morkborg and shadowdark pending.
+**Status:** Superseded by ADR-0027 (module SDK standardization) — SDK complete; dnd5e, morkborg, and shadowdark migrations all complete per ADR-0027's closing status.
 **Date:** May 3, 2026 / Updated May 7, 2026
 **Supersedes:** None
 **Related:** ADR-0004, ADR-0007, ADR-0008, ADR-0009
