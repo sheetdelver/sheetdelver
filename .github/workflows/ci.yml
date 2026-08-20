@@ -10,6 +10,11 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    # Keep CI-generated runtime state outside the checkout while exercising the
+    # same configurable data-directory contract used by deployed instances.
+    env:
+      SHEET_DELVER_DATA: ${{ runner.temp }}/sheet-delver-data
+
     strategy:
       matrix:
         node-version: [22.x]
@@ -31,7 +36,8 @@ jobs:
     
     - name: Generate config
       run: |
-          cat > settings.yaml << EOF
+          mkdir -p "$SHEET_DELVER_DATA/config"
+          cat > "$SHEET_DELVER_DATA/config/settings.yaml" << EOF
           app:
               host: localhost
               port: 3000
