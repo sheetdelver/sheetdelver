@@ -27,6 +27,7 @@ import { run as runRealtimeBroadcaster } from './sockets/realtime-broadcaster.te
 import { run as runAppSocketGateway } from './sockets/app-socket-gateway.test';
 import { run as runClientSocketTransport } from './sockets/client-socket-transport.test';
 import { run as runCoreSocketPackScope } from './sockets/core-socket-pack-scope.test';
+import { run as runSocketImportBoundary } from './sockets/socket-import-boundary.test';
 
 // ── actors ────────────────────────────────────────────────────────────────────
 import { run as runActorCombatSmoke } from './actors/actor-combat-smoke.test';
@@ -60,6 +61,7 @@ import { run as runDocumentResolver } from './documents/document-resolver.test';
 import { run as runModifyDocumentRouter } from './routing/modify-document-router.test';
 import { run as runOwnershipHelpers } from './routing/ownership.test';
 import { run as runRouteOwnershipThresholds } from './routing/route-ownership-thresholds.test';
+import { run as runActorMutationOutcomes } from './routing/actor-mutation-outcomes.test';
 import { run as runDebugUtilityRoutes } from './routing/debug-utility-routes.test';
 import { run as runAdminSystemModuleRoutes } from './routing/admin-system-module-routes.test';
 
@@ -160,6 +162,7 @@ async function runAllUnitTests() {
     await runItemStore();
     await runOwnershipHelpers();
     await runRouteOwnershipThresholds();
+    await runActorMutationOutcomes();
     await runDebugUtilityRoutes();
     await runAdminSystemModuleRoutes();
     await runRollTableStore();
@@ -182,6 +185,7 @@ async function runAllUnitTests() {
     await runModuleContextCompendiumPacks();
     await runClientSocketTransport();
     await runCoreSocketPackScope();
+    runSocketImportBoundary();
     await runRealtimeBroadcaster();
     await runAppSocketGateway();
     await runAdminCredentialStore();

@@ -1,10 +1,11 @@
 import type { Request, RequestHandler, Response } from 'express';
 
-export type RouteMethod = 'get' | 'post' | 'put' | 'delete' | 'all';
+export type RouteMethod = 'get' | 'post' | 'patch' | 'put' | 'delete' | 'all';
 
 export interface RouteMap {
     get: Map<string | RegExp, RequestHandler[][]>;
     post: Map<string | RegExp, RequestHandler[][]>;
+    patch: Map<string | RegExp, RequestHandler[][]>;
     put: Map<string | RegExp, RequestHandler[][]>;
     delete: Map<string | RegExp, RequestHandler[][]>;
     all: Map<string | RegExp, RequestHandler[][]>;
@@ -23,6 +24,7 @@ export function createRouteMap(): RouteMap {
     return {
         get: new Map(),
         post: new Map(),
+        patch: new Map(),
         put: new Map(),
         delete: new Map(),
         all: new Map(),
@@ -48,6 +50,12 @@ export function createRouterStub(routeMap: RouteMap = createRouteMap()) {
         },
         post(path: string | RegExp, ...handlers: RequestHandler[]) {
             addRoute(routeMap.post, path, handlers);
+            return this;
+        },
+        // Mirror Express registration so full route registrars can be audited
+        // even when a focused test invokes only one of their handlers.
+        patch(path: string | RegExp, ...handlers: RequestHandler[]) {
+            addRoute(routeMap.patch, path, handlers);
             return this;
         },
         put(path: string | RegExp, ...handlers: RequestHandler[]) {
