@@ -120,11 +120,12 @@ export function registerActorRoutes(appRouter: express.Router, deps: ActorRouteD
             const payload = await actorService.deleteActor(client, req.params.id);
             res.json(payload);
         } catch (error: unknown) {
-            const msg = getErrorMessage(error);
-            if (msg.toLowerCase().includes('permission')) {
-                return res.json({ success: true, warning: 'Permission denied, actor may remain' });
-            }
-            res.status(500).json({ error: msg });
+            const message = getErrorMessage(error);
+            const status = message.toLowerCase().includes('permission') ? 403 : getErrorStatus(error);
+
+            // Foundry authorizes this user-scoped write; preserve its rejection
+            // as a failure instead of reporting that the Actor was deleted.
+            res.status(status).json({ success: false, error: message });
         }
     });
 

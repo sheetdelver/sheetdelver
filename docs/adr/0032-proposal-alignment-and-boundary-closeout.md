@@ -206,25 +206,29 @@ dependency disposition, and current verification gates are complete.
 
 ### Phase 0 - Characterization tests
 
-- [ ] Add route-level actor-delete tests for success, Foundry permission
+- [x] Add route-level actor-delete tests for success, Foundry permission
   rejection, and generic transport failure.
-- [ ] Assert that no rejection case returns 2xx or `success: true`.
-- [ ] Add a parsed-import socket-boundary test and demonstrate that the
+- [x] Assert that no rejection case returns 2xx or `success: true`.
+- [x] Add a parsed-import socket-boundary test and demonstrate that the
   coordinator side-effect import is the current violation.
-- [ ] Keep all pre-existing tests green apart from the new assertions that
+- [x] Keep all pre-existing tests green apart from the new assertions that
   characterize the two defects.
 
 ### Phase 1 - Actor-delete result correction
 
-- [ ] Replace the successful permission warning with HTTP 403 and
+- [x] Replace the successful permission warning with HTTP 403 and
   `success: false`.
-- [ ] Preserve successful deletion as HTTP 200 and `success: true`.
-- [ ] Preserve generic or structured transport failures as non-2xx responses.
-- [ ] Verify the Repository is invoked once through `req.foundryClient` and no
+- [x] Preserve successful deletion as HTTP 200 and `success: true`.
+- [x] Preserve generic or structured transport failures as non-2xx responses.
+- [x] Verify the Repository is invoked once through `req.foundryClient` and no
   system transport is invoked.
-- [ ] Audit other mutation routes for successful error conversions and record
+- [x] Audit other mutation routes for successful error conversions and record
   any additional instance before broadening this phase. The acceptance audit
   found only actor deletion.
+
+**Phase 0-1 completed August 20, 2026.** Focused success, permission-denial,
+and transport-failure tests pass. The full unit suite advances through the
+actor contract and stops only at the intentionally open Phase 2 socket import.
 
 ### Phase 2 - Socket import-boundary completion
 
