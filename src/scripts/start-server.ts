@@ -206,20 +206,15 @@ async function start() {
 
 /**
  * Scans the local-dev and managed-install module directories and emits
- * `<dataDir>/module-ui-registry.ts` with one explicit `import()` per discovered
+ * `.managed/module-ui-registry.ts` with one explicit `import()` per discovered
  * module UI file.
- *
- * The file lives in the data directory (not .managed/) because its contents
- * depend on what modules are installed in the current environment, making it
- * environment-specific runtime state rather than a project-structure artifact.
- * It is referenced via the @data-registry webpack/Turbopack alias.
  *
  * Using explicit string literals instead of template-literal dynamic imports
  * lets webpack statically analyse the file during `next build` and include the
  * correct chunks in the production bundle. Template-literal imports with alias
  * arrays are not reliably resolved by webpack's require-context scanner.
  */
-function generateModuleUIRegistry(_managedDir: string, localModulesDir: string, dataDir: string) {
+function generateModuleUIRegistry(managedDir: string, localModulesDir: string, dataDir: string) {
     const dataModulesDir = path.join(dataDir, 'modules');
 
     // Candidate UI entry filenames, checked in priority order.
@@ -254,13 +249,14 @@ function generateModuleUIRegistry(_managedDir: string, localModulesDir: string, 
     // (which must be compiled) is bundled here.
     const dataModules = scanModules(dataModulesDir);
 
-    // Import paths are relative to the data directory (where the registry lives).
+    // Import paths are relative to .managed (where the registry lives).
     // Strip the file extension — TypeScript and webpack both resolve extensionless
     // imports via their normal module resolution (trying .ts, .tsx, .js, etc.).
     // Including the extension requires allowImportingTsExtensions which is not set.
     const toRelative = (baseDir: string, moduleId: string, entry: string) => {
-        const rel = path.relative(dataDir, path.join(baseDir, moduleId, entry)).replace(/\\/g, '/');
-        return './' + rel.replace(/\.(tsx?|jsx?)$/, '');
+        const rel = path.relative(managedDir, path.join(baseDir, moduleId, entry)).replace(/\\/g, '/');
+        const importPath = rel.startsWith('.') ? rel : `./${rel}`;
+        return importPath.replace(/\.(tsx?|jsx?)$/, '');
     };
 
     const localEntries = localModules
@@ -290,9 +286,9 @@ function generateModuleUIRegistry(_managedDir: string, localModulesDir: string, 
         '',
     ].join('\n');
 
-    fs.writeFileSync(path.join(dataDir, 'module-ui-registry.ts'), content, 'utf8');
+    fs.writeFileSync(path.join(managedDir, 'module-ui-registry.ts'), content, 'utf8');
 
-    logger.info(`[Manager] Generated module UI registry in data/ — bundled local: [${localModules.map(m => m.id).join(', ')}]; runtime-loaded installed: [${dataModules.map(m => m.id).join(', ')}]`);
+    logger.info(`[Manager] Generated module UI registry — bundled local: [${localModules.map(m => m.id).join(', ')}]; runtime-loaded installed: [${dataModules.map(m => m.id).join(', ')}]`);
 }
 
 function ensureManagedConfigs() {
@@ -326,10 +322,10 @@ function ensureManagedConfigs() {
                 "@local-modules/*": [
                     rel(localModulesDir) + "/*"
                 ],
-                // Relative path from .managed/ to the data dir so Turbopack can
-                // resolve @data-registry/module-ui-registry without absolute paths.
+                // Registry source is generated beside this paths file so it remains
+                // inside the Turbopack project when <DATA_DIR> is external.
                 "@data-registry/*": [
-                    rel(getDataDir()) + "/*"
+                    "./*"
                 ],
                 "@sheet-delver/sdk": ["../src/shared/sdk"],
                 // SDK subpath entry points (ADR-0027 decision 2).

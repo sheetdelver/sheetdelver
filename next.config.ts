@@ -9,6 +9,7 @@ const API_PORT = process.env.API_PORT || '3001';
 
 // Data directory for modules
 const DATA_DIR = process.env.SHEET_DELVER_DATA || path.join(process.cwd(), 'data');
+const MANAGED_DIR = path.join(process.cwd(), '.managed');
 const modulesDir = path.join(DATA_DIR, 'modules');
 // Local dev modules — same default as getLocalModulesDir() on the server side.
 // Overridable via SHEET_DELVER_LOCAL_MODULES so dev and managed installs stay separate.
@@ -34,10 +35,9 @@ const nextConfig: NextConfig = {
         modulesDir,
       ],
       '@local-modules': localModulesDir,
-      // Prefix alias (used as @data-registry/module-ui-registry) — absolute path
-      // works fine for prefix aliases; the "server relative" restriction only
-      // applies to exact (no sub-path) aliases like @sheet-delver/sdk below.
-      '@data-registry': DATA_DIR,
+      // The generated registry is build input, so keep it project-local even
+      // when runtime data is configured outside the Turbopack project root.
+      '@data-registry': turboRelative(MANAGED_DIR),
       '@client': path.join(process.cwd(), 'src', 'client'),
       '@shared': path.join(process.cwd(), 'src', 'shared'),
       '@server': path.join(process.cwd(), 'src', 'server'),
@@ -58,7 +58,7 @@ const nextConfig: NextConfig = {
       modulesDir,
     ];
     config.resolve.alias['@local-modules'] = localModulesDir;
-    config.resolve.alias['@data-registry'] = DATA_DIR;
+    config.resolve.alias['@data-registry'] = MANAGED_DIR;
     config.resolve.alias['@sheet-delver/sdk'] = path.join(process.cwd(), 'src', 'shared', 'sdk');
     // SDK subpath entry points (ADR-0027 decision 2). Exact (`$`) keys win over the bare
     // prefix alias above so `/react` resolves to the entry barrel, not the context file.
