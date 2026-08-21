@@ -12,6 +12,7 @@ export abstract class SocketBase extends EventEmitter {
     protected socket: Socket | null = null;
     protected cookieMap = new Map<string, string>();
     protected sessionCookie: string | null = null;
+    protected foundryVersion: string | null = null;
     public isSocketConnected: boolean = false;
     protected config: FoundryConfig;
 
@@ -89,6 +90,10 @@ export abstract class SocketBase extends EventEmitter {
 
         const status = await statusRes.json();
 
+        // The world-login request changed in Foundry 14.366. Retain the version
+        // discovered by this handshake so authentication can use its wire contract.
+        this.foundryVersion = typeof status.version === 'string' ? status.version : null;
+
         // If the backend returned a set-cookie (less likely on /api/status, but just in case)
         const setCookie = this.getSetCookieHeader(statusRes.headers);
 
@@ -109,12 +114,25 @@ export abstract class SocketBase extends EventEmitter {
     protected async performLogin(baseUrl: string, userId: string, csrfToken: string | null): Promise<void> {
         logger.info(`[${this.constructor.name}] Performing POST Login (User: ${userId})...`);
 
-        // V13 allows programmatic login to /join via application/json without a CSRF token
-        const payload: any = {
-            userid: userId,
+        const [foundryGeneration = 0, foundryBuild = 0] = (this.foundryVersion || '')
+            .split('.')
+            .map((part) => Number.parseInt(part, 10));
+        const usesUsernameLogin = foundryGeneration > 14
+            || (foundryGeneration === 14 && foundryBuild >= 366);
+        const payload: Record<string, string> = {
             password: this.config.password || '',
             action: 'join'
         };
+
+        if (usesUsernameLogin) {
+            // V14 build 366 replaced the user selector with username autocomplete;
+            // its /join contract submits both the visible name and resolved ID.
+            payload.username = this.config.username || '';
+            payload.userId = userId;
+        } else {
+            // Builds before 14.366 submit the selected ID under lowercase `userid`.
+            payload.userid = userId;
+        }
 
         // If the server explicitly required one from an older caching flow, pass it (usually ignored in v13)
         if (csrfToken) {
