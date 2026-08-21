@@ -275,7 +275,6 @@ function generateModuleUIRegistry(managedDir: string, localModulesDir: string, d
         '// build graph, so a stale/incompatible installed module cannot fail the build.',
         '',
         '// @ts-nocheck',
-        '/* eslint-disable */',
         '// prettier-ignore',
         `export const localModuleUIs: Record<string, () => Promise<any>> = {`,
         localEntries,

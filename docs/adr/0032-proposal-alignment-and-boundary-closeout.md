@@ -1,6 +1,6 @@
 # ADR-0032: Proposal Alignment, Authorization Truthfulness, and Transport Boundary Closeout
 
-**Status:** Accepted - Implementation in progress; Phases 0-4 complete.
+**Status:** Accepted - Implemented.
 **Date:** August 20, 2026
 **Phase:** Corrective alignment / pre-main closeout
 **Supersedes:** None
@@ -312,19 +312,34 @@ merge baseline complete.
 
 ### Phase 5 - Verification and merge baseline
 
-- [ ] Run `git diff --check`.
-- [ ] Run `npm run lint`.
-- [ ] Run `npx tsc --noEmit`.
-- [ ] Run `npm run test:unit`.
-- [ ] Run `npm run test:integration`.
-- [ ] Run an isolated production build with `<DATA_DIR>` outside the checkout.
-- [ ] Run the ADR metadata and socket import-boundary checks.
-- [ ] Audit mutation routes for false-success error responses.
-- [ ] Run `npm audit --omit=dev` and fix or explicitly disposition each
+- [x] Run `git diff --check`.
+- [x] Run `npm run lint`.
+- [x] Run `npx tsc --noEmit`.
+- [x] Run `npm run test:unit`.
+- [x] Run `npm run test:integration`.
+- [x] Run an isolated production build with `<DATA_DIR>` outside the checkout.
+- [x] Run the ADR metadata and socket import-boundary checks.
+- [x] Audit mutation routes for false-success error responses.
+- [x] Run `npm audit --omit=dev` and fix or explicitly disposition each
   remaining vulnerability in the new merge report.
-- [ ] Produce a new dated pre-main sweep with exact branch divergence,
+- [x] Produce a new dated pre-main sweep with exact branch divergence,
   worktree state, Node version, data-directory location, quality gates, and
   dependency counts.
+
+**Phase 5 completed August 21, 2026.** All source, lint, type, unit,
+integration, architecture, and isolated-build gates pass. The isolated build
+used `/tmp/sheet-delver-phase5-build.DxxMtO` and did not read or write the
+checkout's configured data directory. Lint initially exposed an unnecessary
+blanket ESLint-disable directive in the generated module UI registry; the
+generator was corrected and a regenerated registry now lints cleanly.
+
+The production audit still reports 20 dependency findings (1 critical, 14
+high, 4 moderate, and 1 low). Dependency upgrades remain outside this
+corrective ADR, as stated in its non-goals. The August 21 merge sweep records
+each dependency path and its remediation, accepts the findings only as
+temporary branch-local risk while that separate operational change is made,
+and does not accept them for merge to `main`. ADR-0032's corrective behavior,
+boundary, documentation, and verification work is nevertheless complete.
 
 ## Non-Goals
 
@@ -365,8 +380,8 @@ This ADR can be marked implemented only when:
 - [x] The primary-document tracker accurately distinguishes completed,
   partial, deferred, and conditional work.
 - [x] The July 5 pre-main report is labeled historical/superseded.
-- [ ] All Phase 5 verification gates pass in an isolated environment.
-- [ ] A new dated pre-main sweep records current dependency and branch state.
+- [x] All Phase 5 verification gates pass in an isolated environment.
+- [x] A new dated pre-main sweep records current dependency and branch state.
 
 ## Implementation Order
 
