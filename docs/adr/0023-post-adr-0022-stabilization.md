@@ -494,7 +494,11 @@ Fill or remove admin launch/shutdown behavior after the transport controller exi
 
 - [x] Verify the supported Foundry world launch/shutdown payloads for the service-account transport.
   Files: implementation notes in this ADR or nearby code comments.
-  Note: verified against the local Foundry v13 source in `temp/foundry.mjs`: setup launch posts `{ action: "launchWorld", world }` to `/setup`; active-world shutdown posts `{ shutdown: true }` to `/setup`.
+  Note: Foundry v13 setup request handling was inspected directly. The launch
+  form posts `{ action: "launchWorld", world }` to `/setup`; active-world
+  shutdown posts `{ shutdown: true }` to `/setup`. These observed request
+  contracts are stated here so the decision does not depend on the untracked
+  vendor-source reference used during verification.
 
 - [x] Implement `launchWorld(worldId)` / `shutdownWorld()` on the service/controller layer, using `CoreSocket` only for raw transport dispatch.
   Files: `src/server/services/world/WorldTransportController.ts`, `src/server/core/foundry/sockets/CoreSocket.ts` only if a raw helper is needed.

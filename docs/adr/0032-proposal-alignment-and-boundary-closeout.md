@@ -169,8 +169,9 @@ local and managed sources, and uses configurable `<DATA_DIR>` paths.
 ### 7. Temporary audit reports are not permanent decision authorities
 
 Any still-relevant constraint from a temporary tracker must be copied into a
-tracked ADR before the tracker is retired. Once copied, the tracker moves to
-`temp/audit-reports/completed/` and is retained only as historical evidence.
+tracked ADR before the tracker is retired. Once copied, the tracker may be
+archived outside the tracked decision set and is retained only as historical
+working evidence; the tracked ADR contains the complete operative rule.
 
 The July 5 pre-main report will be labeled historical/superseded rather than
 having its original measurements rewritten. A new dated pre-main report will
@@ -302,13 +303,13 @@ top-level status in the normal unit suite. The focused metadata test,
   append final implementation results and move it to `completed/` only after
   this ADR closes.
 
-**Phase 4 completed August 21, 2026.** The primary-document tracker now
-distinguishes completed, partial, deferred, and workflow-conditional work. Its
-surviving boundary rules are retained in Decision 8 above, and the tracker has
-been moved intact to `temp/audit-reports/completed/`. The July 5 merge sweep
-retains its original snapshot beneath a prominent superseded notice. The
-alignment audit remains active by design until final verification and the new
-merge baseline complete.
+**Phase 4 completed August 21, 2026.** The primary-document tracker distinguished
+completed, partial, deferred, and workflow-conditional work before archival.
+Its surviving boundary rules are stated in full in Decision 8 above; no tracked
+decision depends on the archived working copy. The July 5 merge sweep retains
+its original snapshot beneath a prominent superseded notice. The alignment
+audit remained active through final verification and creation of the new merge
+baseline.
 
 ### Phase 5 - Verification and merge baseline
 

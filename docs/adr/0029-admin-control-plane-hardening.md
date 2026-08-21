@@ -265,6 +265,38 @@ The migration is invasive in the most security-sensitive path: server `Set-Cooki
 
 The general XSS hygiene that *does* matter regardless — keep the admin panel free of `dangerouslySetInnerHTML` over untrusted content and avoid executing module code in the admin origin — remains an ongoing convention rather than an ADR action item.
 
+#### Amendment 1A - Browser-origin assumption corrected and decision reopened
+
+**Date:** August 21, 2026
+**Proposed by:** ADR-0033
+
+The preceding assessment is retained as the historical basis for the June 10
+decision, but one of its material facts is incorrect. The `(admin)` and
+`(player)` Next.js route groups are code-organization boundaries, not browser
+origins. Both are served by the same scheme, host, and port. Managed module UI
+loaded from `/api/modules/:id/ui` therefore executes in the same origin that
+stores `admin-token` and `admin-csrf` in `localStorage`.
+
+The August 21 audit also found raw HTML rendering in player/login surfaces:
+`ChatTab.tsx`, `JournalModal.tsx`, `NotificationSystem.tsx`, and
+`LoginView.tsx`. The shared `processHtmlContent` helper rewrites image URLs but
+does not sanitize HTML. Consequently, module code or a successful HTML
+injection on the player surface can read an active admin bearer token and CSRF
+token from the shared origin. `requireLocalhost` does not prevent abuse by
+script already executing in the operator's local browser.
+
+ADR-0033 therefore reopens the won't-do conclusion. Its proposed target is a
+dedicated loopback origin for the admin shell/API proxy, no module/player assets
+on that origin, an opaque revocable HttpOnly admin cookie with CSRF protection,
+and a centralized rich-HTML sanitizer. HttpOnly storage alone is insufficient
+while origins are shared because same-origin script can still issue
+credentialed requests.
+
+This amendment records the corrected threat model; it does not claim that the
+origin split, cookie migration, or sanitizer is already implemented. The June
+10 implementation remains current until ADR-0033 is accepted and its browser
+security phases complete.
+
 ### Amendment 2 — Multi-admin / RBAC removed as a tracked concern
 
 **Date:** June 10, 2026
