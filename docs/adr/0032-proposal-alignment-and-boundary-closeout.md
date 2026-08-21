@@ -1,6 +1,6 @@
 # ADR-0032: Proposal Alignment, Authorization Truthfulness, and Transport Boundary Closeout
 
-**Status:** Accepted - Implementation in progress; Phases 0-3 complete.
+**Status:** Accepted - Implementation in progress; Phases 0-4 complete.
 **Date:** August 20, 2026
 **Phase:** Corrective alignment / pre-main closeout
 **Supersedes:** None
@@ -177,6 +177,28 @@ having its original measurements rewritten. A new dated pre-main report will
 be produced only after this ADR's corrections, record reconciliation,
 dependency disposition, and current verification gates are complete.
 
+### 8. Retained primary-document constraints
+
+Retiring the temporary primary-document tracker does not retire its boundary
+rules. The following constraints remain authoritative through this ADR and the
+ADRs it revises:
+
+- primary-document CRUD must not be exposed as type-shaped methods on
+  `CoreSocket` or `ClientSocket`; generic Foundry dispatch remains internal
+  transport plumbing behind Store, Repository, service, and request-scoped
+  route-client boundaries
+- user-scoped writes fail closed when their authenticated Foundry transport is
+  unavailable and never fall back to the service-account transport
+- transport implementation details are not part of the public SDK or
+  module-facing request shape
+- feature state uses canonical per-type realtime signals; removed update-event
+  aliases are not restored, and the generic cross-cutting event does not become
+  a hidden global state router
+- Repositories own transport rather than authorization, and folder hierarchy
+  is not treated as inherited document permission
+- remaining stub document types are activated only after their hydration,
+  ownership, route/SDK, and realtime behavior is deliberately designed
+
 ## Consequences
 
 ### Positive
@@ -268,16 +290,25 @@ top-level status in the normal unit suite. The focused metadata test,
 
 ### Phase 4 - Temporary report reconciliation
 
-- [ ] Reclassify the primary-document tracker's items as completed, partial,
+- [x] Reclassify the primary-document tracker's items as completed, partial,
   deliberately deferred, or conditional on a future workflow.
-- [ ] Preserve its non-fallback, non-socket-CRUD, and canonical realtime
+- [x] Preserve its non-fallback, non-socket-CRUD, and canonical realtime
   constraints in tracked ADRs.
-- [ ] Move the tracker to `completed/` after it contains no unique live
+- [x] Move the tracker to `completed/` after it contains no unique live
   decision.
-- [ ] Mark the July 5 pre-main report historical/superseded without changing
+- [x] Mark the July 5 pre-main report historical/superseded without changing
   its original measurements.
-- [ ] Append implementation results to the alignment audit and move it to
-  `completed/` after this ADR closes.
+- [x] Keep the alignment audit active through the remaining corrective work;
+  append final implementation results and move it to `completed/` only after
+  this ADR closes.
+
+**Phase 4 completed August 21, 2026.** The primary-document tracker now
+distinguishes completed, partial, deferred, and workflow-conditional work. Its
+surviving boundary rules are retained in Decision 8 above, and the tracker has
+been moved intact to `temp/audit-reports/completed/`. The July 5 merge sweep
+retains its original snapshot beneath a prominent superseded notice. The
+alignment audit remains active by design until final verification and the new
+merge baseline complete.
 
 ### Phase 5 - Verification and merge baseline
 
@@ -331,9 +362,9 @@ This ADR can be marked implemented only when:
 - [x] ADR-0027 clearly records that runtime UI failure reporting supersedes the
   earlier gap statement.
 - [x] ADR-0013 and ADR-0023 contain the corrective amendments adopted here.
-- [ ] The primary-document tracker accurately distinguishes completed,
+- [x] The primary-document tracker accurately distinguishes completed,
   partial, deferred, and conditional work.
-- [ ] The July 5 pre-main report is labeled historical/superseded.
+- [x] The July 5 pre-main report is labeled historical/superseded.
 - [ ] All Phase 5 verification gates pass in an isolated environment.
 - [ ] A new dated pre-main sweep records current dependency and branch state.
 
