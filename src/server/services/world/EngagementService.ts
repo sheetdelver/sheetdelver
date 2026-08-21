@@ -70,7 +70,10 @@ export class EngagementService extends EventEmitter {
     }
 
     public shouldRunHeartbeat(input: HeartbeatPolicyInput): boolean {
-        const canProbe = input.lifecycleState === 'setup' || input.lifecycleState === 'offline';
+        const canProbe =
+            input.lifecycleState === 'setup' ||
+            input.lifecycleState === 'offline' ||
+            input.lifecycleState === 'closed';
         if (this.pauseDepth > 0) return false;
         if (input.isConnecting) return false;
         if (input.lifecycleState === 'startup') return false;
@@ -108,9 +111,9 @@ export class EngagementService extends EventEmitter {
     }
 
     // Per ADR-0021, browser return-to-engagement is a monitoring wakeup signal,
-    // not a client control path for CoreSocket. Reconnect attempts (= early
-    // monitoring polls for whether Foundry is reachable) are only valid when
-    // the platform is actually monitoring — i.e. `offline` or `setup`. During
+    // not a client control path for CoreSocket. Direct reconnect attempts are
+    // valid in `offline` or `setup`; `closed` performs a passive heartbeat
+    // first so the known missing-account world is not repeatedly retried. During
     // `startup` and `active`, CoreSocket is already connected/connecting and
     // WorldBootstrapper owns the in-flight bootstrap; a browser tab opening
     // must not restart the system transport.

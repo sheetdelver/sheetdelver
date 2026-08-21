@@ -97,8 +97,23 @@ export function useSystemStatusRealtime({
 
                 const latest = latestRef.current;
                 const currentWorldId = data.worldId || null;
+                const enteredSetup =
+                    data.system.status === 'setup' &&
+                    latest.system?.status !== 'setup';
 
-                if (data.connected && latest.lastWorldId && currentWorldId && latest.lastWorldId !== currentWorldId) {
+                if (enteredSetup) {
+                    logger.info('FoundryProvider | World entered setup. Purging world-bound client state.');
+                    if (latest.token) setToken(null);
+                    resetActorCombatState();
+                    setUsers([]);
+                    setSharedContent(null);
+                    setLastWorldId(null);
+                } else if (
+                    data.connected &&
+                    latest.lastWorldId &&
+                    currentWorldId &&
+                    latest.lastWorldId !== currentWorldId
+                ) {
                     logger.warn(`FoundryProvider | World changed from "${latest.lastWorldId}" to "${currentWorldId}". Purging state.`);
 
                     if (latest.token) setToken(null);

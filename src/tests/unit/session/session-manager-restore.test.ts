@@ -198,6 +198,51 @@ async function runCachedSessionWithoutWorldIdPurgesWhenWorldIsKnown() {
     await resetState();
 }
 
+async function runSetupInvalidatesCachedSessions() {
+    await resetState();
+    await writeCachedSession();
+
+    const manager = createManager();
+    await manager.handleWorldEnteredSetup();
+
+    const cached = await persistentCache.get<Record<string, unknown>>(CACHE_NS, CACHE_KEY);
+    assert.equal(
+        cached?.[SESSION_TOKEN],
+        undefined,
+        'entering setup must invalidate the previous world session cache',
+    );
+
+    await resetState();
+}
+
+async function runClosedWorldDoesNotAttemptCachedRestore() {
+    await resetState();
+    worldLifecycleStore.setState('closed', 'foundry-user-connection-service-test');
+    await writeCachedSession();
+
+    let connectCalls = 0;
+    await withPatchedClientSocket({
+        connectWithRestoredCredential: async function (this: ClientSocket) {
+            connectCalls += 1;
+            throw new Error('closed lifecycle must not restore a user transport');
+        },
+    }, async () => {
+        const manager = createManager();
+        const session = await manager.getOrRestoreSession(SESSION_TOKEN);
+
+        assert.equal(session, undefined);
+        assert.equal(connectCalls, 0, 'closed lifecycle must not attempt cached transport restoration');
+
+        const cached = await persistentCache.get<Record<string, unknown>>(CACHE_NS, CACHE_KEY);
+        assert.ok(
+            cached?.[SESSION_TOKEN],
+            'closed lifecycle preserves cache until a definitive setup transition invalidates it',
+        );
+    });
+
+    await resetState();
+}
+
 async function runStartupRestoreDefersUntilWorldIdExists() {
     await resetState();
     worldLifecycleStore.setState('startup', 'foundry-user-connection-service-test');
@@ -321,6 +366,8 @@ export async function run() {
     await runWorldMismatchPurgesWithoutTransportConnect();
     await runExpiredCachedSessionPurgesWithoutTransportConnect();
     await runCachedSessionWithoutWorldIdPurgesWhenWorldIsKnown();
+    await runSetupInvalidatesCachedSessions();
+    await runClosedWorldDoesNotAttemptCachedRestore();
     await runStartupRestoreDefersUntilWorldIdExists();
     await runStartupReturnsUndefinedWithoutSpawningClient();
     await runFailedRestoreDisconnectsAndClearsInFlight();

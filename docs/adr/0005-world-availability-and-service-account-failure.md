@@ -20,6 +20,15 @@ Previously, if the configured service account was missing from the active Foundr
 - Admins and logs will surface the specific service account error and available users, with remediation steps.
 - A manual retry mechanism will be added to the admin backend and admin UI, allowing administrators to trigger a new connection/bootstrap attempt after resolving the issue (e.g., after adding the service account in Foundry).
 
+**Amendment (2026-08-20 - closed-state lifecycle monitoring).** Halting
+automatic retries means Sheet Delver does not repeatedly attempt login/bootstrap
+against the same known world with a missing service account. Core still performs
+passive status heartbeats while `closed` so it can detect Foundry returning to
+setup or a different world starting, then resume the normal discovery flow.
+Each detected lifecycle transition continues through the existing global
+`systemStatus` broadcast so guest/status-only clients are notified even while
+Foundry user-session restoration and same-world login retries remain blocked.
+
 ---
 
 ## Consequences
@@ -49,6 +58,13 @@ Implementation completed in two commits on the `lifecycle-improvements` branch.
 - `CoreSocket.ts`: When the configured service account username is not found in the probed world user list, `worldState` is set to `'closed'` and the method returns immediately — no `setTimeout` retry is scheduled.
 - `CoreSocket.ts`: Added `probeWorldData` field to cache world metadata (title, description) discovered during the guest probe step, making it available to the status API even when the full socket connection cannot be established.
 - Error logging includes the missing username, discovered world title, and a formatted list of all available users with their roles, plus explicit admin remediation instructions.
+
+**Amendment (2026-08-20).** `WorldTransportController` stops reconnecting to
+the known missing-account world but keeps an engagement-aware passive heartbeat.
+The heartbeat reports and handles `closed -> setup`, after which setup monitoring
+detects the next launched world. A directly observed different world also resumes
+the connection flow. The resulting `closed -> setup -> startup -> active`
+transitions are broadcast to all app sockets, including unauthenticated clients.
 
 ### Step 2: Status Payload and Client UI
 

@@ -3,6 +3,7 @@ import { EventEmitter } from 'node:events';
 import { SystemService } from '@server/services/world';
 import type { CoreSocket } from '@server/core/foundry/sockets/CoreSocket';
 import type { WorldTransportController } from '@server/services/world';
+import { worldLifecycleStore } from '@server/core/world/WorldLifecycleStore';
 import { worldStateStore } from '@server/core/world/WorldStateStore';
 
 function createFakeTransport(): CoreSocket {
@@ -28,6 +29,7 @@ function createFakeController(state: { connectCalls: number; disposeCalls: numbe
 }
 
 async function runInitializeWiringTest() {
+    worldLifecycleStore.reset('system-service-test');
     worldStateStore.clear('system-service-test');
 
     const fakeTransport = createFakeTransport();
@@ -89,6 +91,15 @@ async function runInitializeWiringTest() {
     emitStatusUpdate();
     assert.equal(statusEvents, 1);
 
+    // Every lifecycle transition must reach the status broadcaster, including
+    // transitions observed while no authenticated Foundry user session exists.
+    for (const lifecycleState of ['closed', 'setup', 'startup', 'active'] as const) {
+        const previousStatusEvents: number = statusEvents;
+        worldLifecycleStore.setState(lifecycleState, 'system-service-test');
+        assert.equal(statusEvents, previousStatusEvents + 1);
+    }
+
+    worldLifecycleStore.reset('system-service-test');
     worldStateStore.clear('system-service-test');
 }
 

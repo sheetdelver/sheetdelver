@@ -59,8 +59,10 @@ export class FoundryUserConnectionService {
         this.cacheReadyProbe = probe;
     }
 
-    public handleWorldEnteredSetup(): void {
-        void this.clearAllSessions();
+    // Foundry sessions are world-bound; setup means the prior world's live and
+    // persisted credentials must be invalidated before another world launches.
+    public handleWorldEnteredSetup(): Promise<void> {
+        return this.clearAllSessions();
     }
 
     public isCacheReady(): boolean {
@@ -121,16 +123,21 @@ export class FoundryUserConnectionService {
         const connection = this.connections.get(sessionId);
         const lifecycleState = worldLifecycleStore.getState();
 
-        if (lifecycleState === 'setup' || lifecycleState === 'offline' || lifecycleState === 'startup') {
+        // Setup/closed have no active world against which a world-bound session
+        // can be validated. The setup transition owns cache invalidation.
+        if (lifecycleState === 'setup' || lifecycleState === 'closed') {
+            return undefined;
+        }
+
+        // Offline/startup can be transient. Preserve live sessions, but do not
+        // create a cached transport until the active world identity is known.
+        if (lifecycleState === 'offline' || lifecycleState === 'startup') {
             if (connection) {
                 connection.lastActive = Date.now();
                 return connection;
             }
-            if (lifecycleState === 'startup') {
-                logger.debug(`FoundryUserConnectionService | Deferring restore for ${sessionId} (lifecycle=startup); caller is status-only until ready.`);
-                return undefined;
-            }
-            return this.restoreSessionFromCache(sessionId, 1);
+            logger.debug(`FoundryUserConnectionService | Deferring restore for ${sessionId} (lifecycle=${lifecycleState}); caller is status-only until ready.`);
+            return undefined;
         }
 
         if (connection) {

@@ -27,6 +27,7 @@ export class WorldTransportController {
     private retryCount = 0;
     private heartbeatTimer: ReturnType<typeof setTimeout> | null = null;
     private retryTimer: ReturnType<typeof setTimeout> | null = null;
+    private closedWorldStatusTitle: string | null = null;
     private detachCallbacks: Array<() => void> = [];
 
     public constructor(deps: WorldTransportControllerDeps) {
@@ -122,11 +123,13 @@ export class WorldTransportController {
     }
 
     private handleSetupDetected(): void {
+        this.closedWorldStatusTitle = null;
         worldLifecycleStore.setState('setup', 'handshake-setup-or-gray');
         this.scheduleSetupRetry();
     }
 
     private handleWorldTitleDetected(event: FoundryWorldTitleDetectedEvent): void {
+        this.closedWorldStatusTitle = event.pageTitle;
         if (!worldLifecycleStore.isState('active')) {
             worldLifecycleStore.setState('startup', 'handshake-world-title-detected');
             logger.info(`WorldTransportController | World detected (${event.pageTitle}). Transitioning to startup.`);
@@ -147,6 +150,10 @@ export class WorldTransportController {
         this.clearRetryTimer();
         worldLifecycleStore.setState('closed', 'service-account-missing');
         logger.error(`WorldTransportController | Service account "${event.username}" not found in world "${event.worldTitle || 'unknown'}". Available users: [${event.availableUsers.join(', ') || 'none'}].`);
+        // Halt login/bootstrap retries for this known-bad world, but keep a
+        // passive heartbeat so setup or a different world can be discovered.
+        logger.info('WorldTransportController | Closed-state monitoring remains active for Foundry lifecycle changes.');
+        this.startHeartbeat();
     }
 
     private handleWorldInactive(): void {
@@ -215,7 +222,8 @@ export class WorldTransportController {
 
     private async runHeartbeat(): Promise<void> {
         const lifecycleState = worldLifecycleStore.getState();
-        const canProbe = lifecycleState === 'setup' || lifecycleState === 'offline';
+        const canDiscoverWorld = lifecycleState === 'setup' || lifecycleState === 'offline';
+        const isClosed = lifecycleState === 'closed';
 
         if (!this.engagement.shouldRunHeartbeat({
             isConnected: this.transport.isConnected,
@@ -229,8 +237,13 @@ export class WorldTransportController {
         try {
             const { isSetupMatch, csrfToken, pageTitle } = await this.transport.checkStatus();
             const isGenericOrErrorTitle = !pageTitle || pageTitle === 'Foundry Virtual Tabletop' || pageTitle.includes('Critical Failure');
+            const closedWorldChanged =
+                isClosed &&
+                !isSetupMatch &&
+                !!this.closedWorldStatusTitle &&
+                pageTitle !== this.closedWorldStatusTitle;
 
-            if (canProbe && pageTitle && !isGenericOrErrorTitle) {
+            if ((canDiscoverWorld || closedWorldChanged) && pageTitle && !isGenericOrErrorTitle) {
                 logger.info(`WorldTransportController | Heartbeat detected world lifecycle change (Title="${pageTitle}").`);
                 this.resetRetryBackoff();
                 this.heartbeatTimer = null;

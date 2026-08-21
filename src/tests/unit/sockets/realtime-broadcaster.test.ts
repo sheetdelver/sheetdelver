@@ -14,16 +14,17 @@ async function runBroadcasterTests() {
     };
 
     let payloadCounter = 0;
+    let lifecycleStatus: SystemStatusPayload['system']['status'] = 'active';
     const broadcaster = createSystemStatusBroadcaster({
         io: io as any,
         getSystemStatusPayload: async () => ({
-            connected: true,
+            connected: lifecycleStatus === 'active',
             worldId: 'w1',
-            initialized: true,
+            initialized: lifecycleStatus === 'active',
             isConfigured: true,
             foundryCompatibility: null,
             users: [],
-            system: { id: 'shadowdark', worldTitle: 'Test', status: 'active', actorSyncToken: String(++payloadCounter) },
+            system: { id: 'shadowdark', worldTitle: 'Test', status: lifecycleStatus, actorSyncToken: String(++payloadCounter) },
             url: 'http://localhost:30000',
             appVersion: '0.0.0-test',
             debug: { enabled: false, level: 1 },
@@ -57,9 +58,25 @@ async function runBroadcasterTests() {
         assert.ok(listeners['system:status-update']?.length === 1);
 
         listeners['world:connected'][0]({ state: 'active' });
-        listeners['system:status-update'][0]();
         await new Promise((resolve) => setTimeout(resolve, 0));
-        assert.ok(emitted.length >= 3);
+
+        // `io.emit` is intentionally global: guest/status-only app sockets must
+        // see the same lifecycle progression as authenticated client sockets.
+        const lifecycleEmissions: SystemStatusPayload[] = [];
+        for (const status of ['closed', 'setup', 'startup', 'active'] as const) {
+            lifecycleStatus = status;
+            const previousEmissionCount: number = emitted.length;
+            listeners['system:status-update'][0]();
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            assert.equal(emitted.length, previousEmissionCount + 1);
+            assert.equal(emitted.at(-1)?.event, 'systemStatus');
+            lifecycleEmissions.push(emitted.at(-1)?.payload as SystemStatusPayload);
+        }
+        assert.deepEqual(
+            lifecycleEmissions.map((payload) => payload.system.status),
+            ['closed', 'setup', 'startup', 'active'],
+        );
+        assert.equal(lifecycleEmissions.at(-1)?.connected, true);
 
         registration.dispose();
         assert.equal(offCalls.length, 4);

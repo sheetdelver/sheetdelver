@@ -13,6 +13,11 @@ class FakeTransport extends EventEmitter {
     public setupPayloads: Record<string, unknown>[] = [];
     public setupResponse: unknown = { ok: true };
     public setupError: Error | null = null;
+    public statusResponse = {
+        csrfToken: null as string | null,
+        isSetupMatch: true,
+        pageTitle: 'Setup',
+    };
 
     public async connect(): Promise<void> {
         this.connectCalls += 1;
@@ -24,7 +29,7 @@ class FakeTransport extends EventEmitter {
     }
 
     public async checkStatus() {
-        return { csrfToken: null, isSetupMatch: true, pageTitle: 'Setup' };
+        return this.statusResponse;
     }
 
     public async postSetupAction(payload: Record<string, unknown>): Promise<unknown> {
@@ -111,9 +116,65 @@ async function runTransportFactTests() {
     }
 }
 
+async function runClosedWorldMonitoringTests() {
+    resetWorldState();
+    const { controller, transport } = createController();
+
+    try {
+        transport.emit('foundry:worldTitleDetected', { pageTitle: 'world-old' });
+        transport.emit('foundry:worldDiscovered', {
+            world: { id: 'world-old', title: 'Old World' },
+            userCount: 1,
+        });
+        transport.emit('foundry:serviceAccountMissing', {
+            username: 'service-user',
+            worldTitle: 'Old World',
+            availableUsers: ['Gamemaster (role: 4)'],
+        });
+
+        assert.equal(worldLifecycleStore.getState(), 'closed');
+        assert.ok((controller as any).heartbeatTimer, 'closed state keeps passive monitoring active');
+
+        // Returning the known-bad world must not retry its login/bootstrap loop.
+        controller.stopHeartbeat();
+        transport.statusResponse = {
+            csrfToken: null,
+            isSetupMatch: false,
+            pageTitle: 'world-old',
+        };
+        await (controller as any).runHeartbeat();
+        assert.equal(transport.connectCalls, 0);
+
+        // Foundry returning to setup is detected even though user sessions remain blocked.
+        controller.stopHeartbeat();
+        transport.statusResponse = {
+            csrfToken: null,
+            isSetupMatch: true,
+            pageTitle: 'Setup',
+        };
+        await (controller as any).runHeartbeat();
+        assert.equal(worldLifecycleStore.getState(), 'setup');
+        assert.equal(transport.connectCalls, 1);
+
+        // Setup monitoring then detects and probes a newly started world.
+        controller.stopHeartbeat();
+        transport.statusResponse = {
+            csrfToken: null,
+            isSetupMatch: false,
+            pageTitle: 'world-new',
+        };
+        await (controller as any).runHeartbeat();
+        assert.equal(transport.connectCalls, 2);
+    } finally {
+        controller.dispose();
+        resetWorldState();
+    }
+}
+
 export async function run() {
     await runWorldControlTests();
     await runTransportFactTests();
+    await runClosedWorldMonitoringTests();
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

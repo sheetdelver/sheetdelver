@@ -87,8 +87,10 @@ async function runPauseAndRunPolicyTest() {
     assert.equal(service.shouldRunHeartbeat(activePolicy), true);
     assert.equal(service.shouldRunHeartbeat({ ...activePolicy, isConnected: false }), false);
     assert.equal(service.shouldRunHeartbeat({ ...activePolicy, lifecycleState: 'offline', isConnected: false }), true);
+    assert.equal(service.shouldRunHeartbeat({ ...activePolicy, lifecycleState: 'closed', isConnected: false }), true);
     assert.equal(service.shouldRunHeartbeat({ ...activePolicy, lifecycleState: 'startup' }), false);
     assert.equal(service.shouldRunHeartbeat({ ...activePolicy, isConnecting: true }), false);
+    assert.equal(service.shouldReconnectOnEngagement({ lifecycleState: 'closed', isConnecting: false }), false);
 
     const result = await service.withHeartbeatPaused(async () => {
         assert.equal(service.isHeartbeatSuspended(), true);

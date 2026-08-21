@@ -10,6 +10,11 @@ import { useActorCombat } from '@client/ui/context/ActorCombatContext';
 import { useRealtime } from '@client/ui/context/RealtimeContext';
 import { useChat } from '@client/ui/context/ChatContext';
 import { UnauthorizedApiError } from '@client/ui/api/http';
+import {
+    getStatusBootstrapRetryDelayMs,
+    isStatusBootstrapUnavailable,
+    shouldDiscardWorldSession,
+} from '@client/ui/context/foundryStatusBootstrap';
 import * as foundryApi from '@client/ui/api/foundryApi';
 import { useActorRealtime } from '@client/ui/hooks/useActorRealtime';
 import { useCombatRealtime } from '@client/ui/hooks/useCombatRealtime';
@@ -115,27 +120,88 @@ export function FoundryProvider({ children }: { children: ReactNode }) {
     // --- Initial Status Bootstrap ---
     useEffect(() => {
         let isMounted = true;
+        let retryTimeout: ReturnType<typeof setTimeout> | null = null;
+        let resolveRetryWait: (() => void) | null = null;
+
+        const waitForRetry = (attempt: number) => new Promise<void>((resolve) => {
+            resolveRetryWait = resolve;
+            retryTimeout = setTimeout(() => {
+                retryTimeout = null;
+                resolveRetryWait = null;
+                resolve();
+            }, getStatusBootstrapRetryDelayMs(attempt));
+        });
+
+        const fetchInitialStatus = async () => {
+            let retryAttempt = 0;
+
+            while (isMounted) {
+                try {
+                    const data = await foundryApi.fetchStatus(token);
+                    if (!isMounted) return;
+
+                    if (retryAttempt > 0) {
+                        logger.info('FoundryProvider | Initial status fetch recovered');
+                    }
+                    return data;
+                } catch (e) {
+                    if (!isMounted) return;
+
+                    if (e instanceof UnauthorizedApiError) {
+                        setToken(null);
+                        return undefined;
+                    }
+
+                    // Retry only the public status read across a temporary Core
+                    // start/reload boundary; protected reads are handled later.
+                    if (isStatusBootstrapUnavailable(e)) {
+                        if (retryAttempt === 0) {
+                            logger.warn('FoundryProvider | Core service unavailable; retrying initial status fetch');
+                        }
+                        await waitForRetry(retryAttempt);
+                        retryAttempt += 1;
+                        continue;
+                    }
+
+                    logger.error('FoundryProvider | Initial status fetch failed', e);
+                    return undefined;
+                }
+            }
+        };
 
         const initStatus = async () => {
-            try {
-                // Fetch initial status to seed specific user data like currentUserId
-                const data = await foundryApi.fetchStatus(token);
-                if (!isMounted) return;
+            // Seed identity/configuration only after the retryable public read succeeds.
+            const data = await fetchInitialStatus();
+            if (!isMounted || !data) return;
 
-                if (data.currentUserId) setCurrentUserId(data.currentUserId);
-                if (data.isConfigured !== undefined) setIsConfigured(data.isConfigured);
+            if (token && shouldDiscardWorldSession(data)) {
+                logger.info('FoundryProvider | Discarding stale world session in terminal lifecycle state');
+                setCurrentUserId(null);
+                setSharedContent(null);
+                setToken(null);
+                return;
+            }
 
-                // Fetch initial shared content
-                if (token) {
+            if (data.currentUserId) setCurrentUserId(data.currentUserId);
+            if (data.isConfigured !== undefined) setIsConfigured(data.isConfigured);
+
+            // A protected bootstrap read is valid only after status confirms that
+            // this token restored. Its readiness failure must not restart status.
+            if (token && data.isAuthenticated === true) {
+                try {
                     const scData = await foundryApi.fetchSharedContent(token);
+                    if (!isMounted) return;
                     setSharedContent(scData);
+                } catch (e) {
+                    if (!isMounted) return;
+                    if (e instanceof UnauthorizedApiError) {
+                        setToken(null);
+                    } else if (isStatusBootstrapUnavailable(e)) {
+                        logger.warn('FoundryProvider | Initial shared content unavailable while world is not ready');
+                    } else {
+                        logger.error('FoundryProvider | Initial shared content fetch failed', e);
+                    }
                 }
-            } catch (e) {
-                if (e instanceof UnauthorizedApiError) {
-                    setToken(null);
-                    return;
-                }
-                logger.error('FoundryProvider | Initial status fetch failed', e);
             }
         };
 
@@ -143,6 +209,11 @@ export function FoundryProvider({ children }: { children: ReactNode }) {
 
         return () => {
             isMounted = false;
+            if (retryTimeout) clearTimeout(retryTimeout);
+            retryTimeout = null;
+            // Release a pending wait so the retired effect can observe isMounted.
+            resolveRetryWait?.();
+            resolveRetryWait = null;
         };
     }, [token, setCurrentUserId, setIsConfigured, setToken]);
 

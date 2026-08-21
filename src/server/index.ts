@@ -10,6 +10,8 @@ import { registerMiddleware } from '@server/app/registerMiddleware';
 import { registerSockets } from '@server/app/registerSockets';
 import { registerRoutes } from '@server/app/registerRoutes';
 import { FoundryUserConnectionService } from '@server/services/foundry';
+import { worldLifecycleStore } from '@server/core/world/WorldLifecycleStore';
+import type { WorldLifecycleTransition } from '@server/core/world/WorldLifecycleStore';
 
 async function startServer() {
     // Resolve and initialize the data directory before anything else.
@@ -73,9 +75,20 @@ async function startServer() {
 
     // Wire readiness and world lifecycle policy from the composition root.
     foundryUserConnections.setSystemReadinessProbe(() => systemService.isReady());
-    systemService.on('world:connected', (data: { state: string }) => {
-        if (data?.state === 'setup') foundryUserConnections.handleWorldEnteredSetup();
+    const invalidateSetupSessions = () => {
+        void foundryUserConnections.handleWorldEnteredSetup().catch((error: unknown) => {
+            logger.error('Core Service | Failed to invalidate sessions after entering setup:', error);
+        });
+    };
+    worldLifecycleStore.on('transition', (transition: WorldLifecycleTransition) => {
+        if (transition.to === 'setup') invalidateSetupSessions();
     });
+
+    // initialize() may already have detected setup before this listener was
+    // attached, so reconcile the current lifecycle snapshot once after wiring.
+    if (worldLifecycleStore.isState('setup')) {
+        invalidateSetupSessions();
+    }
 
     // Register realtime pipelines before route mounts so lifecycle events are ready at startup.
     const { getSystemStatusPayload } = registerSockets({ io, foundryUserConnections, config });
