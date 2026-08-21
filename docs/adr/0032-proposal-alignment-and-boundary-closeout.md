@@ -1,6 +1,6 @@
 # ADR-0032: Proposal Alignment, Authorization Truthfulness, and Transport Boundary Closeout
 
-**Status:** Accepted - Implementation planned.
+**Status:** Accepted - Implementation in progress; Phases 0-3 complete.
 **Date:** August 20, 2026
 **Phase:** Corrective alignment / pre-main closeout
 **Supersedes:** None
@@ -252,12 +252,19 @@ transport, and SystemService composition tests pass.
 
 ### Phase 3 - Tracked ADR reconciliation
 
-- [ ] Amend ADR-0004, ADR-0008, ADR-0009, and ADR-0011 status metadata.
-- [ ] Add corrective amendments to ADR-0013 and ADR-0023.
-- [ ] Add the ADR-0027 superseding runtime-health amendment.
-- [ ] Add concise current-state notes for historical module/path terminology
+- [x] Amend ADR-0004, ADR-0008, ADR-0009, and ADR-0011 status metadata.
+- [x] Add corrective amendments to ADR-0013 and ADR-0023.
+- [x] Add the ADR-0027 superseding runtime-health amendment.
+- [x] Add concise current-state notes for historical module/path terminology
   where needed without deleting original text.
-- [ ] Add and run the ADR metadata check.
+- [x] Add and run the ADR metadata check.
+
+**Phase 3 completed August 21, 2026.** Historical decision text remains in
+place with adjacent current-state or superseding amendments. ADR-0004 and
+ADR-0011 now report completed implementation, ADR-0008 and ADR-0009 use the
+canonical status field, and the metadata guard parses every tracked ADR's
+top-level status in the normal unit suite. The focused metadata test,
+`npx tsc --noEmit`, `npm run test:unit`, and `git diff --check` pass.
 
 ### Phase 4 - Temporary report reconciliation
 
@@ -309,21 +316,21 @@ transport, and SystemService composition tests pass.
 
 This ADR can be marked implemented only when:
 
-- [ ] Actor deletion never reports `success: true` after Foundry rejects the
+- [x] Actor deletion never reports `success: true` after Foundry rejects the
   write.
-- [ ] Successful, permission-denied, and generic-failure actor-delete route
+- [x] Successful, permission-denied, and generic-failure actor-delete route
   tests pass.
-- [ ] User-originated actor deletion remains bound to the requesting user's
+- [x] User-originated actor deletion remains bound to the requesting user's
   transport.
-- [ ] `CoreSocket`, `ClientSocket`, and `SocketBase` contain no application
+- [x] `CoreSocket`, `ClientSocket`, and `SocketBase` contain no application
   Store/coordinator/router/service registration imports.
-- [ ] Parsed-import socket-boundary coverage runs in the normal unit suite.
-- [ ] World bootstrap seeding and document mutation routing remain green after
+- [x] Parsed-import socket-boundary coverage runs in the normal unit suite.
+- [x] World bootstrap seeding and document mutation routing remain green after
   removing the side-effect import.
-- [ ] ADR-0004 and ADR-0011 status metadata reflects completed work.
-- [ ] ADR-0027 clearly records that runtime UI failure reporting supersedes the
+- [x] ADR-0004 and ADR-0011 status metadata reflects completed work.
+- [x] ADR-0027 clearly records that runtime UI failure reporting supersedes the
   earlier gap statement.
-- [ ] ADR-0013 and ADR-0023 contain the corrective amendments adopted here.
+- [x] ADR-0013 and ADR-0023 contain the corrective amendments adopted here.
 - [ ] The primary-document tracker accurately distinguishes completed,
   partial, deferred, and conditional work.
 - [ ] The July 5 pre-main report is labeled historical/superseded.
@@ -333,3 +340,10 @@ This ADR can be marked implemented only when:
 ## Implementation Order
 
 1. Accept this ADR.
+2. Land characterization tests for the actor-delete and socket-import gaps.
+3. Correct actor-delete failure propagation without changing transport identity.
+4. Remove the CoreSocket coordinator import and enforce the socket boundary.
+5. Amend affected ADRs without overwriting historical text.
+6. Reconcile and retire stale temporary trackers.
+7. Resolve or explicitly disposition dependency findings separately.
+8. Run the complete verification matrix and produce a new pre-main sweep.

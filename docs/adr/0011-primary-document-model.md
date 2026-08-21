@@ -1,6 +1,6 @@
 # ADR-0011: Primary Document Model — Per-Type Store + Repository via Shared Base
 
-**Status:** Accepted — Phases 1-7 shipped. Phase 8 tracks a post-acceptance boundary-enforcement amendment. Round 01 (`ActorStore`) was the reference implementation; this ADR generalized its pattern across every primary document type.
+**Status:** Accepted - Implemented; Phases 1-8 shipped. Round 01 (`ActorStore`) was the reference implementation; this ADR generalized its pattern across every primary document type, and Phase 8 completed the post-acceptance boundary-enforcement amendment.
 **Date:** May 15, 2026 (Accepted: May 17, 2026)
 **Phase:** Primary Documents (Phases 1–7)
 **Supersedes:** None. Builds on Round 01's actor lifecycle work.

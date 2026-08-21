@@ -421,6 +421,15 @@ Phases are sequenced so each slice is independently verifiable. Checkpoints are 
 
   **Amendment (2026-06-08 — runtime UI failure reporting).** Client-only `console.warn` fallback was not an operational signal: a browser could fail to import/evaluate a module UI, degrade to the generic manifest, and leave lifecycle/admin state unchanged. The managed UI route now records server-detected UI artifact failures into lifecycle health, and the browser loader reports import/evaluation failures to `POST /api/modules/:id/ui-error`; the server records those as runtime failures so admin lifecycle health can show the module as errored with the last failure message. Module-loading and host-surface call sites now route warnings/errors through the platform `logger` instead of direct `console.*` calls.
 
+  **Superseding clarification (August 21, 2026 - ADR-0032).** The runtime UI
+  failure-reporting amendment immediately above supersedes both the earlier
+  "not yet implemented" statement and the installed-drift amendment's claim
+  that actual runtime import-failure reporting remained absent. Static managed
+  artifact diagnostics still report pre-load errors and warnings; runtime
+  route/import/evaluation failures update lifecycle health through the server
+  route and `/api/modules/:id/ui-error` path. Both signals are admin-visible,
+  but they are produced at different stages.
+
   **Amendment (2026-06-08 — cleanup drift closeout).** The closeout audit found stale public docs and source labels that still described the pre-ADR module model: concrete system-module examples, `src/modules` as a module home, literal `data/modules` paths, `"data"` as a managed source value, `"built-in"` as a module source, actor-only realtime wording, and `foundryClient`-named module proxy plumbing. Public docs were rewritten to describe modules abstractly and use configurable `<DATA_DIR>` paths. Runtime source categories now expose `"local"` and `"managed"` only; persisted `"data"` lifecycle state migrates to `"managed"` on load, and the old `"built-in"` module source is dropped as legacy state. The registry no longer scans `src/modules` for system modules, generated client config no longer aliases managed artifacts into the build graph, and the module proxy dispatch input now names its internal user-bound transport `transportClient` so the removed broad client is not implied as a module-facing surface. The unused `getModuleFoundryClient` helper was deleted after a source-wide audit found no call sites.
 
 ### Phase 5 — Tooling conformance

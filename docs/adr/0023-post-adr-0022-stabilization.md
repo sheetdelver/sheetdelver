@@ -640,3 +640,23 @@ Considered. The registry work is mechanically independent, but it came from the 
 - [x] `npx tsc --noEmit` is clean.
 - [x] `npm run test:unit` is clean.
 - [x] `docs/architecture.md` reflects the transport/controller/ingress split.
+
+---
+
+## Corrective Amendment: Import-Time Transport Boundary (August 21, 2026)
+
+The Phase 7 source audit missed one residual dependency:
+`CoreSocket.ts` still side-effect imported
+`PrimaryDocumentCacheCoordinator`, whose evaluation registered application
+Stores and `modifyDocumentRouter` handlers. The socket did not call a Store
+directly, but importing the transport class still initialized application
+document infrastructure, so the original transport-only verification was
+incomplete.
+
+ADR-0032 removed that import. `WorldBootstrapper` remains the application
+owner for coordinator seeding, and `SystemService` loads application
+composition before attaching document ingress. The active unit suite now
+parses import declarations in `SocketBase.ts`, `CoreSocket.ts`, and
+`ClientSocket.ts` and rejects Store, coordinator, router, service, or registry
+registration dependencies. Bootstrap seeding, mutation routing, and direct
+transport tests remained green after the correction.

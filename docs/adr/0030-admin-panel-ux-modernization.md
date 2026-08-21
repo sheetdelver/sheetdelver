@@ -9,6 +9,12 @@
 
 ---
 
+**Current-state clarification (August 21, 2026).** Concrete system identifiers
+in the interface sketches below are historical test fixtures, not required or
+preferred modules. The operational rule is abstract: local development and
+managed installation are distinct sources with distinct configurable
+`<DATA_DIR>` paths, and the admin UI reports each source independently.
+
 ## Context
 
 ADR-0006 Phase 27 delivered the admin operations UX: typed API client, module lifecycle dashboard, world controls, source profiles, audit log, cache view, system overview, and a light/dark theme system. The functionality is complete and the implementation is cohesive — there is a real `--admin-*` design-token system, skeleton loaders, a toast system with `aria-live`, confirmation flows for destructive actions, and dry-run previews.

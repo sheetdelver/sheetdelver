@@ -7,6 +7,13 @@
 
 ---
 
+**Current-state amendment (August 21, 2026).** References below to the
+protected `built-in` source profile describe the implementation at the time of
+this ADR. Persisted `built-in` profiles now migrate to the protected
+`local-default` profile, and runtime module source categories are `local` and
+`managed`. Paths remain rooted in configurable `<DATA_DIR>`. See ADR-0027's
+cleanup-drift amendment for the current source terminology.
+
 ## Context
 
 ADR-0006 Phase 27 delivered a complete admin operations UX, closing the admin frontend gap. Administrators can now manage module lifecycle, perform manager operations (install/upgrade/uninstall/validate with dry-run previews), manage worlds, and view audit logs — all from the browser.

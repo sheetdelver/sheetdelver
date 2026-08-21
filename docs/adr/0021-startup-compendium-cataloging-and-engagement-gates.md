@@ -9,6 +9,12 @@
 
 ---
 
+**Current-state amendment (August 21, 2026).** Concrete system and pack names
+below are historical schema examples only. Module-facing guidance is abstract,
+and the authoritative manifest reference now lives at
+`docs/MODULE_MANIFEST.md`. All data-root paths are expressed relative to
+configurable `<DATA_DIR>`.
+
 ## Context
 
 ADR-0015 split compendium behavior into Pathway A (platform-wide UUID/name index warmup) and Pathway B (module-declared pack rows). The split moved compendium readers out of sockets, but Pathway A still performs live `getCompendiumIndex` / `getDocuments` / `modifyDocument` traffic for every pack in `game.packs ∪ world.packs ∪ system.packs ∪ module.packs` on every cold start, regardless of whether any module declares those packs.

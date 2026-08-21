@@ -1,7 +1,14 @@
 # ADR-0008: Pilot Extraction Readiness (Phase 29)
 
 **Date**: 2026-05-02
-**Status**: Accepted
+**Status:** Accepted
+
+**Current-state amendment (August 21, 2026).** The pilot names and literal or
+version-tagged `data/modules` examples below are historical verification
+evidence. Current local development uses
+`<DATA_DIR>/local/modules/<moduleId>`, while manager-owned installations use
+`<DATA_DIR>/modules/<moduleId>`. Current module guidance is abstract and lives
+under `docs/`; this amendment does not rewrite the original pilot record.
 
 ## Context
 With the core network infrastructure built in Phase 28, the platform can fetch module indices from remote sources. However, the system had not yet been verified to handle the actual extraction, packaging, and isolated installation of a module artifact (a tarball/zip archive). We required a "pilot" module to test this extraction pipeline.

@@ -1,8 +1,14 @@
 # ADR-0009: Source Browser UX (Phase 28.5)
 
 **Date**: 2026-05-02
-**Status**: Accepted
+**Status:** Accepted
 **Related**: ADR-0007, ADR-0008
+
+**Current-state amendment (August 21, 2026).** The version-tagged
+`data/modules/[moduleId]-[version]` layout below is historical. Managed
+artifacts now occupy `<DATA_DIR>/modules/<moduleId>`, local development uses
+the separate `<DATA_DIR>/local/modules/<moduleId>` root, and the registry
+exposes those origins as `managed` and `local` respectively.
 
 ## Context
 In ADR-0007 (Distribution Infrastructure), we introduced Source Profiles and remote index retrieval. However, we explicitly scoped out a "Public marketplace or submission workflow," operating under the assumption that backend API tests or manual HTTP requests would suffice to test the distribution pipeline for the pilot extraction (ADR-0008). 

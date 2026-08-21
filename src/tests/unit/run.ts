@@ -4,6 +4,9 @@ import { resolveDataDir, initDataDir } from '../../server/core/paths';
 // ── utils ────────────────────────────────────────────────────────────────────
 import { run as runFoundryUrl } from './utils/foundry-url.test';
 
+// ── documentation ─────────────────────────────────────────────────────────────
+import { run as runAdrMetadata } from './docs/adr-metadata.test';
+
 // ── services ──────────────────────────────────────────────────────────────────
 import { run as runStatusSanitize } from './services/status-sanitize.test';
 import { run as runLocalhostPolicy } from './services/localhost-policy.test';
@@ -127,6 +130,7 @@ async function runAllUnitTests() {
     initDataDir(resolveDataDir(['--data-dir', testDataDir]));
 
     runFoundryUrl();
+    runAdrMetadata();
     runStatusSanitize();
     runLocalhostPolicy();
     runSyncTokenService();

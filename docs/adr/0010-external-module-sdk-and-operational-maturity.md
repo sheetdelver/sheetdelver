@@ -7,6 +7,13 @@
 
 ---
 
+**Current-state amendment (August 21, 2026).** ADR-0027 supersedes this ADR's
+module locations, SDK entry points, and source labels. Concrete system names,
+`src/modules` as a module home, and literal `data/modules` references below are
+historical implementation evidence, not current authoring guidance. Current
+guidance describes modules abstractly, uses configurable `<DATA_DIR>`, and
+distinguishes local development from managed installations.
+
 ## Audit Findings: What the Prior Draft Got Wrong
 
 The prior draft described the SDK as entirely future work and overstated architectural coupling. A code audit reveals the following:

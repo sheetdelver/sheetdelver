@@ -473,6 +473,16 @@ Per-type Store unit tests already exercise `resolveOwnership` (covered by `actor
 1. **Actor detail / per-actor card endpoints** still use `LIST_VISIBLE` instead of `DETAIL_VISIBLE`. The `runActorDetailUsesListVisibleAsShipped` test pins the as-shipped behavior and includes a forward-contract assertion that would flip when the route-client `getActor` splits off to a dedicated detail threshold. The route-client comment at `createRouteFoundryClient.getActor` flags this for the future split.
 2. **Write endpoints lack a Sheet Delver-side WRITEABLE courtesy gate.** Foundry is the authoritative permission check on writes; the ADR text describes the WRITEABLE check as a "courtesy reject" that has never been wired. Adding it would be a follow-up product decision (worth doing for better error messages on the user-facing side, not strictly required for correctness).
 
+**Corrective amendment (August 21, 2026 - ADR-0032).** Deferring a broad
+`WRITEABLE` courtesy-gate policy never permits Sheet Delver to misreport
+Foundry's authoritative result. The actor-delete route previously converted a
+Foundry permission rejection into HTTP 200 with `success: true`; ADR-0032
+corrected that defect so permission denial returns HTTP 403 with
+`success: false`, while unknown transport failures also remain non-2xx. The
+write still travels exactly once through `req.foundryClient` and the
+requesting user's Repository/transport. No system-service fallback or new
+Repository authorization layer was introduced.
+
 ---
 
 ## Exit Criteria

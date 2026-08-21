@@ -1,6 +1,6 @@
 # ADR-0004: Module Platform Governance and Distribution
 
-**Status:** Proposed
+**Status:** Accepted - Implemented.
 **Date:** April 22, 2026
 **Supersedes:** None
 **Related:** ADR-0001, ADR-0002, ADR-0003
