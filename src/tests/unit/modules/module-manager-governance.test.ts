@@ -8,6 +8,10 @@ import {
     upgradeManagedModule,
     uninstallManagedModule,
 } from '@modules/registry/server';
+import {
+    REMOTE_MODULE_DISTRIBUTION_ERROR_CODE,
+    REMOTE_MODULE_DISTRIBUTION_ERROR_MESSAGE,
+} from '@modules/registry/security/remoteDistributionPolicy';
 
 const STATE_ENV = 'SHEET_DELVER_MODULE_STATE_FILE';
 const ARTIFACT_ENV = 'SHEET_DELVER_MODULE_ARTIFACT_FILE';
@@ -179,7 +183,8 @@ export async function run(): Promise<void> {
         const postInstallArtifacts = readJson<StoredArtifacts>(artifactFilePath);
         assert.equal(postInstallArtifacts.artifacts.badmod?.version, '1.0.1');
 
-        // Non-local artifact with invalid digest/signature metadata should be blocked and persisted.
+        // Direct remote input must be rejected before artifact verification or
+        // persistence, regardless of the metadata supplied by the caller.
         __resetRegistryForTests();
         const verificationFail = await upgradeManagedModule({
             moduleId: 'shadowdark',
@@ -188,15 +193,12 @@ export async function run(): Promise<void> {
             integrity: 'invalid-digest',
         });
         assert.equal(verificationFail.success, false);
-        assert.equal(verificationFail.errorCode, 'artifact-verification-failed');
+        assert.equal(verificationFail.errorCode, REMOTE_MODULE_DISTRIBUTION_ERROR_CODE);
+        assert.equal(verificationFail.error, REMOTE_MODULE_DISTRIBUTION_ERROR_MESSAGE);
 
         const postVerificationArtifacts = readJson<StoredArtifacts>(artifactFilePath);
-        assert.equal(postVerificationArtifacts.verifications?.shadowdark?.status, 'failed');
-        assert.equal(postVerificationArtifacts.verifications?.shadowdark?.verified, false);
-        assert.equal(
-            postVerificationArtifacts.verifications?.shadowdark?.reason?.includes('sha256:<64 hex>'),
-            true,
-        );
+        assert.equal(postVerificationArtifacts.verifications?.shadowdark, undefined);
+        assert.equal(postVerificationArtifacts.artifacts.shadowdark?.version, '1.0.0');
 
         // Indexed source should fail when index context is not configured.
         delete process.env[INDEX_ENV];
@@ -207,7 +209,8 @@ export async function run(): Promise<void> {
             targetVersion: '3.0.0',
         });
         assert.equal(missingIndexConfig.success, false);
-        assert.equal(missingIndexConfig.errorCode, 'source-resolution-failed');
+        assert.equal(missingIndexConfig.errorCode, REMOTE_MODULE_DISTRIBUTION_ERROR_CODE);
+        assert.equal(missingIndexConfig.error, REMOTE_MODULE_DISTRIBUTION_ERROR_MESSAGE);
 
         // Invalid index file should fail deterministically without mutating persisted artifacts.
         fs.writeFileSync(indexFilePath, '{ invalid-json', 'utf8');
@@ -219,13 +222,15 @@ export async function run(): Promise<void> {
             targetVersion: '3.0.0',
         });
         assert.equal(invalidIndexConfig.success, false);
-        assert.equal(invalidIndexConfig.errorCode, 'source-resolution-failed');
+        assert.equal(invalidIndexConfig.errorCode, REMOTE_MODULE_DISTRIBUTION_ERROR_CODE);
+        assert.equal(invalidIndexConfig.error, REMOTE_MODULE_DISTRIBUTION_ERROR_MESSAGE);
 
         const postInvalidIndexArtifacts = readJson<StoredArtifacts>(artifactFilePath);
         assert.equal(postInvalidIndexArtifacts.artifacts.shadowdark?.version, '1.0.0');
         assert.equal(postInvalidIndexArtifacts.artifacts.shadowdark?.source, 'local://shadowdark');
 
-        // Configure an index and verify indexed metadata feeds permission and artifact checks.
+        // A valid configured index and an approval flag cannot activate dormant
+        // distribution or advance into declared-access/artifact handling.
         writeJson(indexFilePath, {
             schemaVersion: 'module-index.v1',
             generatedAt: Date.now(),
@@ -258,7 +263,8 @@ export async function run(): Promise<void> {
             targetVersion: '3.0.0',
         });
         assert.equal(indexedPermissionBlocked.success, false);
-        assert.equal(indexedPermissionBlocked.errorCode, 'permission-escalation-requires-approval');
+        assert.equal(indexedPermissionBlocked.errorCode, REMOTE_MODULE_DISTRIBUTION_ERROR_CODE);
+        assert.equal(indexedPermissionBlocked.error, REMOTE_MODULE_DISTRIBUTION_ERROR_MESSAGE);
 
         __resetRegistryForTests();
         const indexedApproved = await upgradeManagedModule({
@@ -267,28 +273,13 @@ export async function run(): Promise<void> {
             targetVersion: '3.0.0',
             approvePermissionEscalation: true,
         });
-        assert.equal(indexedApproved.success, true);
+        assert.equal(indexedApproved.success, false);
+        assert.equal(indexedApproved.errorCode, REMOTE_MODULE_DISTRIBUTION_ERROR_CODE);
+        assert.equal(indexedApproved.error, REMOTE_MODULE_DISTRIBUTION_ERROR_MESSAGE);
 
         const postIndexedUpgradeArtifacts = readJson<StoredArtifacts>(artifactFilePath);
-        assert.equal(postIndexedUpgradeArtifacts.artifacts.shadowdark?.version, '3.0.0');
-        assert.equal(postIndexedUpgradeArtifacts.artifacts.shadowdark?.source, 'https://example.com/modules/shadowdark-3.0.0.tgz');
-
-        // Reset baseline artifact permissions so local escalation assertions remain independent.
-        writeJson(artifactFilePath, {
-            version: 1,
-            artifacts: {
-                shadowdark: {
-                    moduleId: 'shadowdark',
-                    source: 'local://shadowdark',
-                    version: '1.0.0',
-                    installedAt: 1,
-                    permissions: {
-                        sensitiveData: ['actor'],
-                    },
-                },
-            },
-            verifications: postIndexedUpgradeArtifacts.verifications || {},
-        });
+        assert.equal(postIndexedUpgradeArtifacts.artifacts.shadowdark?.version, '1.0.0');
+        assert.equal(postIndexedUpgradeArtifacts.artifacts.shadowdark?.source, 'local://shadowdark');
 
         // Permission escalation requires explicit approval on upgrade.
         __resetRegistryForTests();

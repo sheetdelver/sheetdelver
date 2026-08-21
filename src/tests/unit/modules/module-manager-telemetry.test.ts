@@ -9,6 +9,7 @@ import {
     dryRunUpgradeManagedModule,
     upgradeManagedModule,
 } from '@modules/registry/server';
+import { REMOTE_MODULE_DISTRIBUTION_ERROR_CODE } from '@modules/registry/security/remoteDistributionPolicy';
 
 const STATE_ENV = 'SHEET_DELVER_MODULE_STATE_FILE';
 const ARTIFACT_ENV = 'SHEET_DELVER_MODULE_ARTIFACT_FILE';
@@ -92,13 +93,13 @@ export async function run(): Promise<void> {
             targetVersion: '3.0.0',
         });
         assert.equal(sourceFailure.success, false);
-        assert.equal(sourceFailure.errorCode, 'source-resolution-failed');
+        assert.equal(sourceFailure.errorCode, REMOTE_MODULE_DISTRIBUTION_ERROR_CODE);
         assert.equal(
             warnMessages.some((entry) => (
                 entry.includes('[ModuleManagerTelemetry]')
                 && entry.includes('"stage":"source-resolution"')
                 && entry.includes('"operation":"upgrade"')
-                && entry.includes('"errorCode":"source-resolution-failed"')
+                && entry.includes(`"errorCode":"${REMOTE_MODULE_DISTRIBUTION_ERROR_CODE}"`)
             )),
             true,
         );

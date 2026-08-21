@@ -16,6 +16,10 @@ import {
     getArtifact,
 } from '@modules/registry/artifactStore';
 import { __resetDataDirForTests, initDataDir, resolveDataDir } from '@server/core/paths';
+import {
+    REMOTE_MODULE_DISTRIBUTION_ERROR_CODE,
+    REMOTE_MODULE_DISTRIBUTION_ERROR_MESSAGE,
+} from '@modules/registry/security/remoteDistributionPolicy';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -112,7 +116,7 @@ export async function run(): Promise<void> {
     }
 
     {
-        // Success path: module not in store is auto-created for remote installs
+        // Success path: a new owner-controlled managed module is auto-created.
         const lifecycle: ModuleLifecycleStore = { version: 1, modules: {} };
         const artifacts = makeArtifactStore();
         const input: InstallModuleInput = { moduleId: 'ghost', source: 'local://ghost', version: '1.0.0' };
@@ -132,6 +136,25 @@ export async function run(): Promise<void> {
             process.chdir(origCwd);
             rmSync(tmpDir, { recursive: true, force: true });
         }
+    }
+
+    {
+        // A direct internal call cannot bypass the managed facade and create a
+        // lifecycle/artifact record for a remote source.
+        const lifecycle: ModuleLifecycleStore = { version: 1, modules: {} };
+        const artifacts = makeArtifactStore();
+        const input: InstallModuleInput = {
+            moduleId: 'remote-install',
+            source: 'https://example.invalid/remote-install.tgz',
+            version: '1.0.0',
+        };
+
+        const result = await installModule('remote-install', input, lifecycle, artifacts, NOW);
+        assert.equal(result.success, false);
+        assert.equal(result.errorCode, REMOTE_MODULE_DISTRIBUTION_ERROR_CODE);
+        assert.equal(result.error, REMOTE_MODULE_DISTRIBUTION_ERROR_MESSAGE);
+        assert.equal(lifecycle.modules['remote-install'], undefined);
+        assert.equal(getArtifact(artifacts, 'remote-install'), undefined);
     }
 
     {
@@ -295,6 +318,27 @@ export async function run(): Promise<void> {
             process.chdir(origCwd);
             rmSync(tmpDir, { recursive: true, force: true });
         }
+    }
+
+    {
+        // The low-level upgrade transaction also denies remote input before it
+        // can enter the upgrading state or replace artifact metadata.
+        const lifecycle = makeLifecycleStore(baseRecord({ status: 'disabled' }));
+        const artifacts = makeArtifactStore();
+        artifacts.artifacts['test-module'] = {
+            moduleId: 'test-module', source: 'local://test', version: '1.0.0', installedAt: NOW,
+        };
+        const input: UpgradeModuleInput = {
+            source: 'https://example.invalid/test-module.tgz',
+            targetVersion: '2.0.0',
+        };
+
+        const result = await upgradeModule('test-module', input, lifecycle, artifacts, NOW + 1);
+        assert.equal(result.success, false);
+        assert.equal(result.errorCode, REMOTE_MODULE_DISTRIBUTION_ERROR_CODE);
+        assert.equal(result.error, REMOTE_MODULE_DISTRIBUTION_ERROR_MESSAGE);
+        assert.equal(lifecycle.modules['test-module']?.status, 'disabled');
+        assert.equal(getArtifact(artifacts, 'test-module')?.version, '1.0.0');
     }
 
     // ── ManagerOperationError ────────────────────────────────────────────────

@@ -7,6 +7,10 @@ import {
     resolveModuleSource,
 } from '@modules/registry/sourceAdapters';
 import type { ModuleIndexDocument } from '@modules/registry/moduleIndex';
+import {
+    REMOTE_MODULE_DISTRIBUTION_ERROR_CODE,
+    REMOTE_MODULE_DISTRIBUTION_ERROR_MESSAGE,
+} from '@modules/registry/security/remoteDistributionPolicy';
 
 function buildIndex(): ModuleIndexDocument {
     return {
@@ -53,21 +57,24 @@ export function run() {
     assert.equal(directModuleSourceAdapter.canHandle('http://example.invalid/module.tgz'), true);
     assert.equal(directModuleSourceAdapter.canHandle('ftp://example.invalid/module.tgz'), false);
 
+    // Remote adapters remain identifiable as dormant scaffolding, but direct
+    // invocation must fail closed until a future ADR activates distribution.
     const directResolved = directModuleSourceAdapter.resolve({
         moduleId: 'generic',
         sourceRef: 'https://example.invalid/generic-2.0.0.tgz',
         targetVersion: '2.0.0',
     });
-    assert.equal(directResolved.ok, true);
-    assert.equal(directResolved.value?.kind, 'direct');
-    assert.equal(directResolved.value?.source, 'https://example.invalid/generic-2.0.0.tgz');
+    assert.equal(directResolved.ok, false);
+    assert.equal(directResolved.errorCode, REMOTE_MODULE_DISTRIBUTION_ERROR_CODE);
+    assert.equal(directResolved.error, REMOTE_MODULE_DISTRIBUTION_ERROR_MESSAGE);
 
     const noContext = indexedModuleSourceAdapter.resolve({
         moduleId: 'generic',
         sourceRef: 'index://official',
     });
     assert.equal(noContext.ok, false);
-    assert.equal(noContext.error?.includes('not available in resolution context'), true);
+    assert.equal(noContext.errorCode, REMOTE_MODULE_DISTRIBUTION_ERROR_CODE);
+    assert.equal(noContext.error, REMOTE_MODULE_DISTRIBUTION_ERROR_MESSAGE);
 
     const indexResolved = indexedModuleSourceAdapter.resolve(
         {
@@ -80,12 +87,15 @@ export function run() {
             },
         }
     );
-    assert.equal(indexResolved.ok, true);
-    assert.equal(indexResolved.value?.kind, 'indexed');
-    assert.equal(indexResolved.value?.version, '1.0.1');
-    assert.equal(indexResolved.value?.publisher, 'sheetdelver');
+    assert.equal(indexResolved.ok, false);
+    assert.equal(indexResolved.errorCode, REMOTE_MODULE_DISTRIBUTION_ERROR_CODE);
+    assert.equal(indexResolved.error, REMOTE_MODULE_DISTRIBUTION_ERROR_MESSAGE);
 
     const adapters = getDefaultModuleSourceAdapters();
+    assert.deepEqual(adapters.map(adapter => adapter.kind), ['local']);
+
+    // Supplying an otherwise valid index context cannot bypass the active
+    // adapter set or re-enable remote resolution through configuration.
     const resolvedWithSelection = resolveModuleSource(
         adapters,
         {
@@ -99,8 +109,9 @@ export function run() {
             },
         }
     );
-    assert.equal(resolvedWithSelection.ok, true);
-    assert.equal(resolvedWithSelection.value?.version, '1.0.0');
+    assert.equal(resolvedWithSelection.ok, false);
+    assert.equal(resolvedWithSelection.errorCode, REMOTE_MODULE_DISTRIBUTION_ERROR_CODE);
+    assert.equal(resolvedWithSelection.error, REMOTE_MODULE_DISTRIBUTION_ERROR_MESSAGE);
 
     const missingAdapter = resolveModuleSource(adapters, {
         moduleId: 'generic',

@@ -143,7 +143,8 @@ export default function ManagerActionBar({ module, cardSource, onOperationComple
 
             const body: Record<string, unknown> = {};
 
-            // For upgrade, include escalation approval if the dry-run requested it
+            // The legacy API field records owner acknowledgement of a declared-
+            // access change; it does not grant the module runtime capabilities.
             if (confirmAction === ManagerAction.Upgrade && escalationApproved) {
                 body.approvePermissionEscalation = true;
             }

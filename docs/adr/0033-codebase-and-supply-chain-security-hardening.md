@@ -1,6 +1,6 @@
 # ADR-0033: Codebase Security Hardening and Dormant Distribution Boundaries
 
-**Status:** Proposed.
+**Status:** Accepted - Phase 0 implemented; Phases 1-5 proposed.
 **Date:** August 21, 2026
 **Phase:** Pre-main security remediation
 **Supersedes:** None
@@ -256,19 +256,61 @@ are documented rather than disabled blindly.
 
 ### Phase 0 - Operating-model correction and dormant-path guard
 
-- [ ] Add one release-mode guard that rejects indexed/direct remote sources
+- [x] Add one release-mode guard that rejects indexed/direct remote sources
   before network or artifact handling.
-- [ ] Hide or disable remote source creation, browse, connection-test, and
+- [x] Hide or disable remote source creation, browse, connection-test, and
   remote install actions while preserving local and managed module controls.
-- [ ] Add tests proving local development and existing managed packages still
+- [x] Add tests proving local development and existing managed packages still
   load, validate, switch, upgrade by the supported local process, and report
   health independently.
-- [ ] Add tests proving config/admin input cannot activate remote fetch.
-- [ ] Correct module permission labels to describe fully trusted code and
+- [x] Add tests proving config/admin input cannot activate remote fetch.
+- [x] Correct module permission labels to describe fully trusted code and
   declared access.
 
 **Exit:** Current module workflows remain intact and remote distribution is
 provably unavailable rather than merely unconfigured.
+
+#### Phase 0 Implementation Amendment - August 21, 2026
+
+The original Phase 0 wording called for a "release-mode" guard. The
+implementation is deliberately stronger and has no environment, configuration,
+or development-mode bypass. This branch is pre-main rather than a deployed
+production release, but indexed and direct remote distribution remain dormant
+in every runtime mode until a later ADR explicitly enables and secures them.
+
+The implementation made these concrete changes:
+
+- `remoteDistributionPolicy.ts` owns the non-configurable capability decision,
+  stable `remote-module-distribution-disabled` code, and operator-facing reason.
+- `index://`, `http://`, and `https://` source references fail before the old
+  index-file environment setting, source profiles, dynamic imports, remote
+  fetchers, artifact verification, extraction, or lifecycle mutation.
+- The active adapter set contains only the local adapter. The dormant indexed
+  and direct adapter exports also deny direct invocation so an internal caller
+  cannot bypass the default set.
+- The low-level install and upgrade transaction functions repeat the denial
+  before state mutation, and the active manager no longer imports the dormant
+  artifact fetch/extraction implementation.
+- All authenticated `/sources` endpoints remain registered but return HTTP 501
+  with the stable capability code. Their existing CSRF and audit middleware is
+  retained for mutation routes. Remote manager install/upgrade responses and
+  dry-run/telemetry results preserve the same code instead of collapsing it
+  into a generic source-resolution error.
+- The Sources navigation item is removed, and the former Sources page redirects
+  old bookmarks to the installed-module view. Local-development and managed
+  package controls remain available.
+- Dry-run UI copy now describes manifest fields as declared access and asks the
+  owner to acknowledge declaration changes. It no longer claims that these
+  fields grant, escalate, or sandbox runtime permissions.
+
+Characterization coverage now proves denial for direct URLs, missing indexes,
+malformed configured indexes, valid configured indexes, explicit approval
+flags, source-profile API requests, and manager API installs. Existing registry,
+lifecycle, artifact-health, local permission-review, managed upgrade, source
+state, and uninstall tests remain active and passing. Removal of dormant archive
+dependencies and deeper dependency remediation remain Phase 1 work; Phase 0 did
+not alter those files or the supported `<DATA_DIR>/local/modules` and
+`<DATA_DIR>/modules` directory contracts.
 
 ### Phase 1 - Reachable dependency and filesystem remediation
 

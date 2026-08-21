@@ -1,5 +1,5 @@
 /**
- * Admin module-lifecycle + source-profile endpoints. Carved out of the
+ * Admin module-lifecycle + dormant source-profile endpoints. Carved out of the
  * monolithic createAdminRouter.ts per ADR-0022 Phase 4.
  *
  * Owns:
@@ -20,10 +20,10 @@ import { requireAdminAuth, auditAdminAction } from '@server/middleware/requireAd
 import { requireAdminCsrf } from '@server/middleware/requireAdminCsrf';
 import { ModuleSourceCategory } from '@shared/types/modules';
 import { getModulesDataDir } from '@core/paths';
-import { getConfig } from '@server/core/config';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
 import type { RegisteredModuleRuntimeInfo } from '@modules/registry/server';
 import type { ModuleLifecycleValidation, ModuleSourceState } from '@modules/registry/lifecycle/lifecycle';
+import { getRemoteModuleDistributionDenial } from '@modules/registry/security/remoteDistributionPolicy';
 
 export interface RegisterAdminModuleRoutesOptions {
     adminRouter: express.Router;
@@ -36,6 +36,19 @@ export function registerAdminModuleRoutes(opts: RegisterAdminModuleRoutesOptions
     // Inline alias keeps the extracted handlers unchanged from their original
     // shape — they reference `deps.broadcastToClients` literally.
     const deps = { broadcastToClients: opts.broadcastToClients };
+
+    /**
+     * Preserve the authenticated API shape while making dormant remote
+     * distribution impossible to activate through an admin request.
+     */
+    function rejectRemoteModuleDistribution(_req: express.Request, res: express.Response) {
+        const denial = getRemoteModuleDistributionDenial();
+        return res.status(501).json({
+            success: false,
+            error: denial.message,
+            errorCode: denial.code,
+        });
+    }
 
     /**
      * Convert internal lifecycle validation into the flat diagnostic rows rendered
@@ -306,6 +319,7 @@ export function registerAdminModuleRoutes(opts: RegisterAdminModuleRoutesOptions
     function managerErrorStatusCode(errorCode?: string): number {
         if (!errorCode) return 400;
         if (errorCode === 'module-not-found') return 404;
+        if (errorCode === 'remote-module-distribution-disabled') return 501;
         if (errorCode === 'source-resolution-failed') return 422;
         if (errorCode === 'trust-policy-blocked') return 403;
         if (errorCode === 'artifact-verification-failed') return 422;
@@ -597,167 +611,17 @@ export function registerAdminModuleRoutes(opts: RegisterAdminModuleRoutesOptions
     );
 
     // ============
-    // Source Profiles
+    // Dormant Remote Source Profiles
     // ============
 
-    adminRouter.get('/sources', requireAdminAccountExists, requireAdminAuth, async (req, res) => {
-        try {
-            const { loadSourceProfiles, redactSourceProfile } = await import('@modules/registry/distribution/sourceProfiles');
-            res.json({ success: true, profiles: loadSourceProfiles().map(redactSourceProfile) });
-        } catch (error: unknown) {
-            res.status(500).json({ error: getErrorMessage(error) });
-        }
-    });
-
-    adminRouter.post('/sources', requireAdminAccountExists, requireAdminAuth, requireAdminCsrf, auditAdminAction, async (req, res) => {
-        try {
-            const { createSourceProfile, redactSourceProfile } = await import('@modules/registry/distribution/sourceProfiles');
-            const { isHostAllowed } = await import('@modules/registry/security/sourceGovernance');
-
-            const profile = req.body;
-            if (!profile || !profile.baseUrl) {
-                return res.status(400).json({ error: 'baseUrl is required' });
-            }
-
-            const allowlist = getConfig().security.sourceGovernance?.hostAllowlist;
-            const mode = process.env.NODE_ENV === 'production' ? 'production' : 'development';
-            if (!isHostAllowed(String(profile.baseUrl), allowlist, mode)) {
-                return res.status(403).json({ error: 'Host is not in the configured allowlist' });
-            }
-
-            const created = createSourceProfile(profile);
-            res.json({ success: true, profile: redactSourceProfile(created) });
-        } catch (error: unknown) {
-            res.status(500).json({ error: getErrorMessage(error) });
-        }
-    });
-
-    adminRouter.put('/sources/:id', requireAdminAccountExists, requireAdminAuth, requireAdminCsrf, auditAdminAction, async (req, res) => {
-        try {
-            const { updateSourceProfile, redactSourceProfile } = await import('@modules/registry/distribution/sourceProfiles');
-            const { isHostAllowed } = await import('@modules/registry/security/sourceGovernance');
-
-            const id = req.params.id as string;
-            const updates = req.body;
-
-            if (updates.baseUrl) {
-                const allowlist = getConfig().security.sourceGovernance?.hostAllowlist;
-                const mode = process.env.NODE_ENV === 'production' ? 'production' : 'development';
-                if (!isHostAllowed(String(updates.baseUrl), allowlist, mode)) {
-                    return res.status(403).json({ error: 'Host is not in the configured allowlist' });
-                }
-            }
-
-            const updated = updateSourceProfile(id, updates);
-            if (!updated) {
-                return res.status(404).json({ error: 'Source profile not found' });
-            }
-
-            res.json({ success: true, profile: redactSourceProfile(updated) });
-        } catch (error: unknown) {
-            res.status(500).json({ error: getErrorMessage(error) });
-        }
-    });
-
-    adminRouter.delete('/sources/:id', requireAdminAccountExists, requireAdminAuth, requireAdminCsrf, auditAdminAction, async (req, res) => {
-        try {
-            const { deleteSourceProfile } = await import('@modules/registry/distribution/sourceProfiles');
-            const id = req.params.id as string;
-            const deleted = deleteSourceProfile(id);
-            if (!deleted) {
-                return res.status(400).json({ error: 'Source profile not found or cannot be deleted' });
-            }
-            res.json({ success: true });
-        } catch (error: unknown) {
-            res.status(500).json({ error: getErrorMessage(error) });
-        }
-    });
-
-    adminRouter.post('/sources/:id/test', requireAdminAccountExists, requireAdminAuth, requireAdminCsrf, auditAdminAction, async (req, res) => {
-        try {
-            const { getSourceProfile } = await import('@modules/registry/distribution/sourceProfiles');
-            const { fetchRemoteIndex } = await import('@modules/registry/distribution/remoteIndexFetcher');
-            const { isHostAllowed } = await import('@modules/registry/security/sourceGovernance');
-
-            const id = req.params.id as string;
-            const profile = getSourceProfile(id);
-            if (!profile) {
-                return res.status(404).json({ error: 'Source profile not found' });
-            }
-
-            if (profile.kind !== 'indexed') {
-                return res.status(400).json({ error: 'Can only test connection for "indexed" source profiles' });
-            }
-
-            const allowlist = getConfig().security.sourceGovernance?.hostAllowlist;
-            const mode = process.env.NODE_ENV === 'production' ? 'production' : 'development';
-            if (!isHostAllowed(String(profile.baseUrl), allowlist, mode)) {
-                return res.status(403).json({ error: 'Host is not in the configured allowlist' });
-            }
-
-            const result = await fetchRemoteIndex(profile.baseUrl, { auth: profile.auth });
-            
-            if (!result.ok) {
-                return res.status(400).json({ 
-                    success: false, 
-                    error: result.error, 
-                    errorCode: result.errorCode 
-                });
-            }
-
-            const moduleCount = result.index?.modules ? Object.keys(result.index.modules).length : 0;
-            res.json({ 
-                success: true, 
-                message: 'Connection successful',
-                schemaVersion: result.index?.schemaVersion,
-                publisher: result.index?.publisher,
-                moduleCount
-            });
-        } catch (error: unknown) {
-            res.status(500).json({ error: getErrorMessage(error) });
-        }
-    });
-
-    adminRouter.get('/sources/:id/modules', requireAdminAccountExists, requireAdminAuth, async (req, res) => {
-        try {
-            const { getSourceProfile } = await import('@modules/registry/distribution/sourceProfiles');
-            const { fetchRemoteIndex } = await import('@modules/registry/distribution/remoteIndexFetcher');
-            const { isHostAllowed } = await import('@modules/registry/security/sourceGovernance');
-
-            const id = req.params.id as string;
-            const profile = getSourceProfile(id);
-            if (!profile) {
-                return res.status(404).json({ error: 'Source profile not found' });
-            }
-
-            if (profile.kind !== 'indexed') {
-                return res.status(400).json({ error: 'Can only browse modules for "indexed" source profiles' });
-            }
-
-            const allowlist = getConfig().security.sourceGovernance?.hostAllowlist;
-            const mode = process.env.NODE_ENV === 'production' ? 'production' : 'development';
-            if (!isHostAllowed(String(profile.baseUrl), allowlist, mode)) {
-                return res.status(403).json({ error: 'Host is not in the configured allowlist' });
-            }
-
-            const result = await fetchRemoteIndex(profile.baseUrl, { auth: profile.auth });
-            
-            if (!result.ok) {
-                return res.status(400).json({ 
-                    success: false, 
-                    error: result.error, 
-                    errorCode: result.errorCode 
-                });
-            }
-
-            res.json({ 
-                success: true, 
-                modules: result.index?.modules || {}
-            });
-        } catch (error: unknown) {
-            res.status(500).json({ error: getErrorMessage(error) });
-        }
-    });
+    // These routes remain registered so callers receive one stable capability
+    // response instead of silently falling through to a 404.
+    adminRouter.get('/sources', requireAdminAccountExists, requireAdminAuth, rejectRemoteModuleDistribution);
+    adminRouter.post('/sources', requireAdminAccountExists, requireAdminAuth, requireAdminCsrf, auditAdminAction, rejectRemoteModuleDistribution);
+    adminRouter.put('/sources/:id', requireAdminAccountExists, requireAdminAuth, requireAdminCsrf, auditAdminAction, rejectRemoteModuleDistribution);
+    adminRouter.delete('/sources/:id', requireAdminAccountExists, requireAdminAuth, requireAdminCsrf, auditAdminAction, rejectRemoteModuleDistribution);
+    adminRouter.post('/sources/:id/test', requireAdminAccountExists, requireAdminAuth, requireAdminCsrf, auditAdminAction, rejectRemoteModuleDistribution);
+    adminRouter.get('/sources/:id/modules', requireAdminAccountExists, requireAdminAuth, rejectRemoteModuleDistribution);
 
     /**
      * POST /admin/api/server/restart

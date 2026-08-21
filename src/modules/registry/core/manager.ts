@@ -14,7 +14,10 @@ import {
     removeArtifact,
     getArtifact,
 } from '../distribution/artifactStore';
-import { fetchAndExtractArtifact } from '../distribution/artifactFetcher';
+import {
+    getRemoteModuleDistributionDenial,
+    isRemoteModuleSourceRef,
+} from '../security/remoteDistributionPolicy';
 
 /**
  * Minimal artifact metadata stored separately from runtime lifecycle state.
@@ -151,6 +154,7 @@ export function operationFailure(
 
 export type ManagerErrorCode =
     | 'module-not-found'
+    | 'remote-module-distribution-disabled'
     | 'source-resolution-failed'
     | 'precondition-failed'
     | 'transition-rejected'
@@ -210,6 +214,14 @@ export async function installModule(
     artifactStoreFilePath?: string
 ): Promise<ManagerOperationResult> {
     const id = moduleId.toLowerCase();
+
+    // Defense in depth for internal callers: the managed facade normally
+    // rejects this source before reaching the transaction boundary.
+    if (isRemoteModuleSourceRef(input.source)) {
+        const denial = getRemoteModuleDistributionDenial();
+        return operationFailure(id, 'install', denial.message, undefined, denial.code);
+    }
+
     let record = lifecycleStore.modules[id];
 
     if (!record) {
@@ -234,16 +246,6 @@ export async function installModule(
         // discovered → installed
         const installed = applyManagerTransition(record, 'installed', 'Install initiated', now);
         lifecycleStore.modules[id] = installed;
-
-        // Download and extract artifact
-        // Bypass extraction for purely local module tests, 'local://', or dummy test URLs
-        if (
-            input.source &&
-            !input.source.startsWith('local://') &&
-            !input.source.includes('example.com')
-        ) {
-            await fetchAndExtractArtifact(id, input.version, input.source, input.integrity);
-        }
 
         upsertArtifact(artifactStore, {
             moduleId: id,
@@ -355,6 +357,13 @@ export async function upgradeModule(
     artifactStoreFilePath?: string
 ): Promise<ManagerOperationResult> {
     const id = moduleId.toLowerCase();
+
+    // Keep direct internal imports from reactivating the dormant fetch path.
+    if (isRemoteModuleSourceRef(input.source)) {
+        const denial = getRemoteModuleDistributionDenial();
+        return operationFailure(id, 'upgrade', denial.message, undefined, denial.code);
+    }
+
     const record = lifecycleStore.modules[id];
 
     if (!record) {
@@ -372,16 +381,6 @@ export async function upgradeModule(
     try {
         const upgrading = applyManagerTransition(record, 'upgrading', `Upgrading to v${input.targetVersion}`, now);
         lifecycleStore.modules[id] = upgrading;
-
-        // Download and extract artifact
-        // Bypass extraction for purely local module tests, 'local://', or dummy test URLs
-        if (
-            input.source &&
-            !input.source.startsWith('local://') &&
-            !input.source.includes('example.com')
-        ) {
-            await fetchAndExtractArtifact(id, input.targetVersion, input.source, input.integrity);
-        }
 
         // Write new artifact speculatively
         upsertArtifact(artifactStore, {
@@ -419,4 +418,3 @@ export async function upgradeModule(
         return operationFailure(id, 'upgrade', `Upgrade failed (rolled back): ${message}`, previousStatus, 'rollback-applied');
     }
 }
-

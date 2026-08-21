@@ -7,6 +7,10 @@ import {
     dryRunInstallManagedModule,
     dryRunUpgradeManagedModule,
 } from '@modules/registry/server';
+import {
+    REMOTE_MODULE_DISTRIBUTION_ERROR_CODE,
+    REMOTE_MODULE_DISTRIBUTION_ERROR_MESSAGE,
+} from '@modules/registry/security/remoteDistributionPolicy';
 
 const STATE_ENV = 'SHEET_DELVER_MODULE_STATE_FILE';
 const ARTIFACT_ENV = 'SHEET_DELVER_MODULE_ARTIFACT_FILE';
@@ -105,6 +109,8 @@ export async function run(): Promise<void> {
         });
         assert.equal(failedInstallPreview.wouldProceed, false);
         assert.equal(failedInstallPreview.artifactVerification.verified, false);
+        assert.equal(failedInstallPreview.sourceResolution.errorCode, REMOTE_MODULE_DISTRIBUTION_ERROR_CODE);
+        assert.equal(failedInstallPreview.blockingReasons.includes(REMOTE_MODULE_DISTRIBUTION_ERROR_MESSAGE), true);
 
         delete process.env[INDEX_ENV];
         __resetRegistryForTests();
@@ -114,7 +120,8 @@ export async function run(): Promise<void> {
             targetVersion: '3.0.0',
         });
         assert.equal(missingIndexPreview.wouldProceed, false);
-        assert.equal(missingIndexPreview.blockingReasons.some((entry) => entry.includes('Failed to fetch remote indexes')), true);
+        assert.equal(missingIndexPreview.sourceResolution.errorCode, REMOTE_MODULE_DISTRIBUTION_ERROR_CODE);
+        assert.equal(missingIndexPreview.blockingReasons.includes(REMOTE_MODULE_DISTRIBUTION_ERROR_MESSAGE), true);
 
         writeJson(indexFilePath, {
             schemaVersion: 'module-index.v1',
@@ -142,14 +149,16 @@ export async function run(): Promise<void> {
         process.env[INDEX_ENV] = indexFilePath;
 
         __resetRegistryForTests();
-        const escalationPreview = await dryRunUpgradeManagedModule({
+        // A valid index cannot advance into metadata or declared-access analysis.
+        const configuredIndexPreview = await dryRunUpgradeManagedModule({
             moduleId: 'shadowdark',
             source: 'index://official',
             targetVersion: '3.0.0',
         });
-        assert.equal(escalationPreview.wouldProceed, false);
-        assert.equal(escalationPreview.permissionDelta?.escalated, true);
-        assert.equal(escalationPreview.blockingReasons.some((entry) => entry.includes('Permission escalation requires explicit approval')), true);
+        assert.equal(configuredIndexPreview.wouldProceed, false);
+        assert.equal(configuredIndexPreview.sourceResolution.errorCode, REMOTE_MODULE_DISTRIBUTION_ERROR_CODE);
+        assert.equal(configuredIndexPreview.permissionDelta, undefined);
+        assert.equal(configuredIndexPreview.blockingReasons.includes(REMOTE_MODULE_DISTRIBUTION_ERROR_MESSAGE), true);
 
         __resetRegistryForTests();
         const approvedPreview = await dryRunUpgradeManagedModule({
@@ -158,7 +167,10 @@ export async function run(): Promise<void> {
             targetVersion: '3.0.0',
             approvePermissionEscalation: true,
         });
-        assert.equal(approvedPreview.wouldProceed, true);
+        assert.equal(approvedPreview.wouldProceed, false);
+        assert.equal(approvedPreview.sourceResolution.errorCode, REMOTE_MODULE_DISTRIBUTION_ERROR_CODE);
+        assert.equal(approvedPreview.permissionDelta, undefined);
+        assert.equal(approvedPreview.blockingReasons.includes(REMOTE_MODULE_DISTRIBUTION_ERROR_MESSAGE), true);
 
         // Dry-run must not mutate persisted artifacts.
         const afterDryRunArtifacts = readJson<StoredArtifacts>(artifactFilePath);

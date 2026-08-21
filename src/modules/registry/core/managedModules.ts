@@ -36,6 +36,7 @@ import {
     operationSuccess,
     type InstallModuleInput,
     type UpgradeModuleInput,
+    type ManagerErrorCode,
     type ManagerOperationResult,
 } from './manager';
 import { getArtifact, loadArtifactStore, saveArtifactStore, upsertArtifactVerification } from '../distribution/artifactStore';
@@ -61,6 +62,7 @@ import {
     resolveManagedSource,
 } from './internals';
 import { initializeRegistry, refreshRegistry } from './bootstrap';
+import { REMOTE_MODULE_DISTRIBUTION_ERROR_CODE } from '../security/remoteDistributionPolicy';
 
 interface ManifestGateResult {
     allowed: boolean;
@@ -211,6 +213,7 @@ interface DryRunSourceResolution {
     version?: string;
     sourceRef?: string;
     error?: string;
+    errorCode?: ManagerErrorCode;
 }
 
 interface DryRunManifestGate {
@@ -265,6 +268,13 @@ function emitManagerTelemetry(event: ManagerTelemetryEvent): void {
         return;
     }
     logger.info(line);
+}
+
+/** Preserve capability denials while keeping ordinary adapter failures generic. */
+function getSourceResolutionErrorCode(errorCode?: string): ManagerErrorCode {
+    return errorCode === REMOTE_MODULE_DISTRIBUTION_ERROR_CODE
+        ? REMOTE_MODULE_DISTRIBUTION_ERROR_CODE
+        : 'source-resolution-failed';
 }
 
 function buildEffectiveModuleInfo(
@@ -381,13 +391,14 @@ export async function dryRunInstallManagedModule(input: InstallManagedModuleInpu
     const id = input.moduleId.toLowerCase();
     const resolvedSource = await resolveManagedSource(id, input.source, input.version);
     if (!resolvedSource.ok) {
+        const errorCode = getSourceResolutionErrorCode(resolvedSource.errorCode);
         emitManagerTelemetry({
             operation: 'dry-run-install',
             moduleId: id,
             stage: 'source-resolution',
             outcome: 'error',
             sourceRef: input.source,
-            errorCode: 'source-resolution-failed',
+            errorCode,
             reason: resolvedSource.error,
         });
         return {
@@ -400,6 +411,7 @@ export async function dryRunInstallManagedModule(input: InstallManagedModuleInpu
                 ok: false,
                 sourceRef: input.source,
                 error: resolvedSource.error,
+                errorCode,
             },
             manifestGate: {
                 allowed: false,
@@ -492,13 +504,14 @@ export async function dryRunUpgradeManagedModule(input: UpgradeManagedModuleInpu
     const id = input.moduleId.toLowerCase();
     const resolvedSource = await resolveManagedSource(id, input.source, input.targetVersion);
     if (!resolvedSource.ok) {
+        const errorCode = getSourceResolutionErrorCode(resolvedSource.errorCode);
         emitManagerTelemetry({
             operation: 'dry-run-upgrade',
             moduleId: id,
             stage: 'source-resolution',
             outcome: 'error',
             sourceRef: input.source,
-            errorCode: 'source-resolution-failed',
+            errorCode,
             reason: resolvedSource.error,
         });
         return {
@@ -511,6 +524,7 @@ export async function dryRunUpgradeManagedModule(input: UpgradeManagedModuleInpu
                 ok: false,
                 sourceRef: input.source,
                 error: resolvedSource.error,
+                errorCode,
             },
             manifestGate: {
                 allowed: false,
@@ -628,13 +642,14 @@ export async function installManagedModule(input: InstallManagedModuleInput): Pr
     const id = input.moduleId.toLowerCase();
     const resolvedSource = await resolveManagedSource(id, input.source, input.version);
     if (!resolvedSource.ok) {
+        const errorCode = getSourceResolutionErrorCode(resolvedSource.errorCode);
         emitManagerTelemetry({
             operation: 'install',
             moduleId: id,
             stage: 'source-resolution',
             outcome: 'error',
             sourceRef: input.source,
-            errorCode: 'source-resolution-failed',
+            errorCode,
             reason: resolvedSource.error,
         });
         return operationFailure(
@@ -642,7 +657,7 @@ export async function installManagedModule(input: InstallManagedModuleInput): Pr
             'install',
             resolvedSource.error,
             undefined,
-            'source-resolution-failed'
+            errorCode
         );
     }
 
@@ -800,13 +815,14 @@ export async function upgradeManagedModule(input: UpgradeManagedModuleInput): Pr
     const id = input.moduleId.toLowerCase();
     const resolvedSource = await resolveManagedSource(id, input.source, input.targetVersion);
     if (!resolvedSource.ok) {
+        const errorCode = getSourceResolutionErrorCode(resolvedSource.errorCode);
         emitManagerTelemetry({
             operation: 'upgrade',
             moduleId: id,
             stage: 'source-resolution',
             outcome: 'error',
             sourceRef: input.source,
-            errorCode: 'source-resolution-failed',
+            errorCode,
             reason: resolvedSource.error,
         });
         return operationFailure(
@@ -814,7 +830,7 @@ export async function upgradeManagedModule(input: UpgradeManagedModuleInput): Pr
             'upgrade',
             resolvedSource.error,
             undefined,
-            'source-resolution-failed'
+            errorCode
         );
     }
 

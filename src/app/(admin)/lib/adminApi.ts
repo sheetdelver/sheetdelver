@@ -180,6 +180,7 @@ export interface DryRunPreviewResult {
     permissions?: {
         current: Record<string, unknown>;
         requested: Record<string, unknown>;
+        /** Legacy field name: true means declared access changed, not that a sandbox grants access. */
         escalationRequired: boolean;
     };
     compatibility?: {

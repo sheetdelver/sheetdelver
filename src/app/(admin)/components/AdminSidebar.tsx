@@ -5,7 +5,7 @@
  *
  * Persistent left-hand navigation for the admin control plane (ADR-0030 UX-3).
  * Rendered once in the authenticated layout shell; shows active-route state and
- * groups related areas (Modules → Installed / Sources).
+ * groups related areas while remote module distribution remains disabled.
  */
 
 import React from 'react';
@@ -32,7 +32,6 @@ const NAV: NavItem[] = [
         label: 'Modules',
         children: [
             { label: 'Installed', href: '/admin/modules', exact: true },
-            { label: 'Sources', href: '/admin/modules/sources', exact: true },
         ],
     },
     { label: 'World', href: '/admin/world' },

@@ -1,10 +1,10 @@
 import type { ModulePermissionDeclaration, ModuleTrustTier } from '../core/types';
 import { ModuleSourceKind } from '@shared/types/modules';
+import type { ModuleIndexDocument } from './moduleIndex';
 import {
-    resolveIndexedModuleVersion,
-    type ModuleIndexDocument,
-    type ModuleIndexVersionEntry,
-} from './moduleIndex';
+    getRemoteModuleDistributionDenial,
+    isRemoteModuleSourceRef,
+} from '../security/remoteDistributionPolicy';
 
 export type { ModuleSourceKind };
 
@@ -43,31 +43,13 @@ export interface SourceResolveResult {
     ok: boolean;
     value?: ModuleSourceResolution;
     error?: string;
+    errorCode?: string;
 }
 
 export interface ModuleSourceAdapter {
     kind: ModuleSourceKind;
     canHandle(sourceRef: string): boolean;
     resolve(input: SourceResolveInput, context?: SourceResolutionContext): SourceResolveResult;
-}
-
-function mapVersionMetadata(
-    metadata: ModuleIndexVersionEntry,
-    base: Pick<ModuleSourceResolution, 'kind' | 'moduleId' | 'version' | 'publisher' | 'sourceRef'>
-): ModuleSourceResolution {
-    return {
-        ...base,
-        source: metadata.source,
-        integrity: metadata.integrity,
-        signature: metadata.signature,
-        trustTier: metadata.trustTier,
-        compatibility: metadata.compatibility,
-        permissions: metadata.permissions,
-        dependencies: metadata.dependencies,
-        conflicts: metadata.conflicts,
-        changelog: metadata.changelog,
-        publishedAt: metadata.publishedAt,
-    };
 }
 
 export const localModuleSourceAdapter: ModuleSourceAdapter = {
@@ -101,7 +83,7 @@ export const indexedModuleSourceAdapter: ModuleSourceAdapter = {
     canHandle(sourceRef: string): boolean {
         return sourceRef.startsWith('index://');
     },
-    resolve(input: SourceResolveInput, context?: SourceResolutionContext): SourceResolveResult {
+    resolve(input: SourceResolveInput): SourceResolveResult {
         if (!this.canHandle(input.sourceRef)) {
             return {
                 ok: false,
@@ -109,32 +91,10 @@ export const indexedModuleSourceAdapter: ModuleSourceAdapter = {
             };
         }
 
-        const index = context?.indexes?.[input.sourceRef];
-        if (!index) {
-            return {
-                ok: false,
-                error: `Index source ref "${input.sourceRef}" is not available in resolution context`,
-            };
-        }
-
-        const resolved = resolveIndexedModuleVersion(index, input.moduleId, input.targetVersion);
-        if (!resolved.ok || !resolved.value) {
-            return {
-                ok: false,
-                error: resolved.error || 'Failed to resolve indexed module version',
-            };
-        }
-
-        return {
-            ok: true,
-            value: mapVersionMetadata(resolved.value.artifact, {
-                kind: 'indexed',
-                moduleId: resolved.value.moduleId,
-                version: resolved.value.version,
-                publisher: index.publisher,
-                sourceRef: input.sourceRef,
-            }),
-        };
+        // The adapter remains parseable as dormant scaffolding, but no direct
+        // caller may bypass the active adapter set and resolve an index.
+        const denial = getRemoteModuleDistributionDenial();
+        return { ok: false, error: denial.message, errorCode: denial.code };
     },
 };
 
@@ -151,21 +111,16 @@ export const directModuleSourceAdapter: ModuleSourceAdapter = {
             };
         }
 
-        return {
-            ok: true,
-            value: {
-                kind: 'direct',
-                moduleId: input.moduleId.trim().toLowerCase(),
-                version: input.targetVersion?.trim() || '0.0.0',
-                source: input.sourceRef,
-                sourceRef: input.sourceRef,
-            },
-        };
+        // Direct URLs are the second dormant network entry point and share the
+        // same non-configurable denial as indexed sources.
+        const denial = getRemoteModuleDistributionDenial();
+        return { ok: false, error: denial.message, errorCode: denial.code };
     },
 };
 
 export function getDefaultModuleSourceAdapters(): ModuleSourceAdapter[] {
-    return [localModuleSourceAdapter, indexedModuleSourceAdapter, directModuleSourceAdapter];
+    // Only owner-controlled local sources participate in active resolution.
+    return [localModuleSourceAdapter];
 }
 
 export function resolveModuleSource(
@@ -173,6 +128,11 @@ export function resolveModuleSource(
     input: SourceResolveInput,
     context?: SourceResolutionContext
 ): SourceResolveResult {
+    if (isRemoteModuleSourceRef(input.sourceRef)) {
+        const denial = getRemoteModuleDistributionDenial();
+        return { ok: false, error: denial.message, errorCode: denial.code };
+    }
+
     const adapter = adapters.find((candidate) => candidate.canHandle(input.sourceRef));
     if (!adapter) {
         return {

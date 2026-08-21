@@ -4,8 +4,8 @@
  * DryRunPreview
  *
  * Displays a structured preview of a dry-run install/upgrade impact analysis.
- * Shows trust policy, permission analysis, compatibility, and dependency results
- * with color-coded outcomes (green/safe, yellow/approval needed, red/blocked).
+ * Shows trust policy, declared-access analysis, compatibility, and dependency
+ * results with color-coded outcomes.
  */
 
 import React from 'react';
@@ -13,9 +13,9 @@ import type { DryRunPreviewResult } from '../lib/adminApi';
 
 interface DryRunPreviewProps {
     preview: DryRunPreviewResult;
-    /** Callback when the admin approves permission escalation. */
+    /** Callback when the admin acknowledges a declared-access change. */
     onApproveEscalation?: (approved: boolean) => void;
-    /** Whether permission escalation has been approved. */
+    /** Whether the declared-access change has been acknowledged. */
     escalationApproved?: boolean;
 }
 
@@ -37,7 +37,7 @@ export default function DryRunPreview({ preview, onApproveEscalation, escalation
                 {isBlocked
                     ? '⛔ Operation blocked by policy'
                     : preview.permissions?.escalationRequired
-                        ? '⚠️ Requires permission escalation approval'
+                        ? '⚠️ Requires declared-access change acknowledgement'
                         : '✓ Operation is safe to proceed'}
             </div>
 
@@ -58,15 +58,15 @@ export default function DryRunPreview({ preview, onApproveEscalation, escalation
                 </PreviewSection>
             )}
 
-            {/* Permissions */}
+            {/* Manifest declarations provide review visibility, not a runtime sandbox. */}
             {preview.permissions && (
-                <PreviewSection title="Permissions">
+                <PreviewSection title="Declared Access">
                     <div className="flex items-center gap-2 text-sm">
                         <StatusDot ok={!preview.permissions.escalationRequired} warn={preview.permissions.escalationRequired} />
                         <span className="text-[var(--admin-text-secondary)]">
                             {preview.permissions.escalationRequired
-                                ? 'Permission escalation required'
-                                : 'No permission changes needed'}
+                                ? 'Declared access has changed'
+                                : 'No declared-access changes'}
                         </span>
                     </div>
                     {preview.permissions.escalationRequired && onApproveEscalation && (
@@ -78,7 +78,7 @@ export default function DryRunPreview({ preview, onApproveEscalation, escalation
                                 className="rounded border-[var(--admin-border)]"
                             />
                             <span className="text-[var(--admin-text-primary)]">
-                                I approve the permission escalation
+                                I acknowledge the declared-access changes
                             </span>
                         </label>
                     )}

@@ -20,15 +20,18 @@ import {
     type ModuleSourceResolution,
     type SourceResolutionContext,
 } from '../distribution/sourceAdapters';
-import { validateModuleIndexDocument, type ModuleIndexDocument } from '../distribution/moduleIndex';
 import type { SystemPlugin } from './types';
 import type { ModuleLifecycleRecord } from '../lifecycle/lifecycle';
 import { lifecycleStore } from './state';
-import { logger } from '@shared/utils/logger';
+import {
+    getRemoteModuleDistributionDenial,
+    isRemoteModuleSourceRef,
+} from '../security/remoteDistributionPolicy';
 
 export const LIFECYCLE_STATE_FILE_ENV = 'SHEET_DELVER_MODULE_STATE_FILE';
 export const ARTIFACT_STATE_FILE_ENV = 'SHEET_DELVER_MODULE_ARTIFACT_FILE';
 export const MANIFEST_FAIL_OPEN_ENV = 'SHEET_DELVER_MANIFEST_FAIL_OPEN';
+/** Historical test/config name retained so old settings fail closed, not open. */
 export const MODULE_INDEX_FILE_ENV = 'SHEET_DELVER_MODULE_INDEX_FILE';
 
 /** Resolve the actual file path for a module logic entry (adds extension if needed). */
@@ -59,84 +62,18 @@ export function getArtifactStateFilePathOverride(): string | undefined {
     return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
-export async function buildSourceResolutionContext(sourceRef: string): Promise<{ ok: true; context?: SourceResolutionContext } | { ok: false; error: string }> {
-    if (!sourceRef.startsWith('index://')) {
-        return { ok: true };
+export async function buildSourceResolutionContext(sourceRef: string): Promise<{ ok: true; context?: SourceResolutionContext } | { ok: false; error: string; errorCode?: string }> {
+    if (isRemoteModuleSourceRef(sourceRef)) {
+        // Reject before consulting the historical index-file environment value,
+        // source profiles, configuration, dynamic imports, or network fetchers.
+        const denial = getRemoteModuleDistributionDenial();
+        return { ok: false, error: denial.message, errorCode: denial.code };
     }
 
-    const indexFilePath = process.env[MODULE_INDEX_FILE_ENV];
-    if (indexFilePath && indexFilePath.trim()) {
-        try {
-            const raw = fs.readFileSync(indexFilePath, 'utf8');
-            const parsed = JSON.parse(raw) as ModuleIndexDocument;
-            const validation = validateModuleIndexDocument(parsed);
-            if (!validation.valid) {
-                return {
-                    ok: false,
-                    error: `Index document is invalid: ${validation.errors.join('; ')}`,
-                };
-            }
-
-            return {
-                ok: true,
-                context: {
-                    indexes: {
-                        [sourceRef]: parsed,
-                    },
-                },
-            };
-        } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            return {
-                ok: false,
-                error: `Failed to load module index from ${indexFilePath}: ${message}`,
-            };
-        }
-    }
-
-    try {
-        const { loadSourceProfiles } = await import('../distribution/sourceProfiles');
-        const { fetchRemoteIndex } = await import('../distribution/remoteIndexFetcher');
-        const { isHostAllowed } = await import('../security/sourceGovernance');
-        const { getConfig: loadConfig } = await import('../../../server/core/config');
-
-        const config = loadConfig();
-        const allowlist = config?.security?.sourceGovernance?.hostAllowlist ?? [];
-        const mode = process.env.NODE_ENV === 'production' ? 'production' : 'development';
-
-        const profiles = loadSourceProfiles().filter(p => p.enabled && p.kind === 'indexed');
-
-        const indexes: Record<string, ModuleIndexDocument> = {};
-        for (const profile of profiles) {
-            if (!isHostAllowed(profile.baseUrl, allowlist, mode)) {
-                logger.error(`[Registry] Skipping source profile "${profile.name}" due to governance violation (host not allowed)`);
-                continue;
-            }
-
-            const result = await fetchRemoteIndex(profile.baseUrl, { auth: profile.auth });
-            if (result.ok && result.index) {
-                indexes[profile.baseUrl] = result.index;
-                if (sourceRef === 'index://' || sourceRef === profile.baseUrl || profile.baseUrl.includes(sourceRef.replace('index://', ''))) {
-                    if (sourceRef === 'index://') {
-                        if (!indexes[sourceRef]) {
-                            indexes[sourceRef] = { ...result.index, modules: { ...result.index.modules } };
-                        } else {
-                            Object.assign(indexes[sourceRef].modules, result.index.modules);
-                        }
-                    } else {
-                        indexes[sourceRef] = result.index;
-                    }
-                }
-            }
-        }
-
-        return { ok: true, context: { indexes } };
-    } catch {
-        return { ok: false, error: 'Failed to fetch remote indexes' };
-    }
+    return { ok: true };
 }
 
-export async function resolveManagedSource(moduleId: string, sourceRef: string, targetVersion?: string): Promise<{ ok: true; value: ModuleSourceResolution } | { ok: false; error: string }> {
+export async function resolveManagedSource(moduleId: string, sourceRef: string, targetVersion?: string): Promise<{ ok: true; value: ModuleSourceResolution } | { ok: false; error: string; errorCode?: string }> {
     const contextResult = await buildSourceResolutionContext(sourceRef);
     if (!contextResult.ok) {
         return contextResult;
@@ -156,6 +93,7 @@ export async function resolveManagedSource(moduleId: string, sourceRef: string, 
         return {
             ok: false,
             error: resolved.error || 'Failed to resolve module source',
+            errorCode: resolved.errorCode,
         };
     }
 

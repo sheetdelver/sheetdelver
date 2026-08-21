@@ -11,6 +11,10 @@ import { worldStateStore } from '@server/core/world/WorldStateStore';
 import { getDataDir, initDataDir, resolveDataDir } from '@server/core/paths';
 import { ModuleSourceCategory } from '@shared/types/modules';
 import {
+    REMOTE_MODULE_DISTRIBUTION_ERROR_CODE,
+    REMOTE_MODULE_DISTRIBUTION_ERROR_MESSAGE,
+} from '@modules/registry/security/remoteDistributionPolicy';
+import {
     createResponseStub,
     createRouteMap,
     createRouterStub,
@@ -196,6 +200,9 @@ async function runAdminWorldRouteSmokeTests() {
 }
 
 async function runAdminModuleRouteSmokeTests() {
+    // The remote-install assertion enters the manager facade, which initializes
+    // registry state even though policy denial occurs before artifact handling.
+    ensureDataDirInitialized();
     const routeMap = createRouteMap();
     const broadcasts: Array<{ event: string; data: unknown }> = [];
     registerAdminModuleRoutes({
@@ -214,6 +221,8 @@ async function runAdminModuleRouteSmokeTests() {
     assert.equal(routeMap.post.has('/sources'), true);
     assert.equal(routeMap.put.has('/sources/:id'), true);
     assert.equal(routeMap.delete.has('/sources/:id'), true);
+    assert.equal(routeMap.post.has('/sources/:id/test'), true);
+    assert.equal(routeMap.get.has('/sources/:id/modules'), true);
     assert.equal(routeMap.post.has('/server/restart'), true);
 
     // Every module-lifecycle / source / restart mutation must carry the full
@@ -229,6 +238,47 @@ async function runAdminModuleRouteSmokeTests() {
     assertMutationChain(routeMap, 'put', '/sources/:id');
     assertMutationChain(routeMap, 'delete', '/sources/:id');
     assertMutationChain(routeMap, 'post', '/server/restart');
+
+    // Remote source administration remains registered for stable API behavior,
+    // but every entry point fails before profile lookup, config, or network I/O.
+    for (const [method, path] of [
+        ['get', '/sources'],
+        ['post', '/sources'],
+        ['put', '/sources/:id'],
+        ['delete', '/sources/:id'],
+        ['post', '/sources/:id/test'],
+        ['get', '/sources/:id/modules'],
+    ] as const) {
+        const disabled = await invokeHandler(
+            getLastHandler(routeMap, method, path),
+            { params: { id: 'remote-source' }, body: { baseUrl: 'https://example.invalid/index.json' } } as any,
+        );
+        assert.equal(disabled.statusCode, 501, `${method.toUpperCase()} ${path} must be disabled`);
+        assert.deepEqual(disabled.payload, {
+            success: false,
+            error: REMOTE_MODULE_DISTRIBUTION_ERROR_MESSAGE,
+            errorCode: REMOTE_MODULE_DISTRIBUTION_ERROR_CODE,
+        });
+    }
+
+    // Remote install attempts expose the same stable code and HTTP capability
+    // status as the dedicated source-profile endpoints.
+    const remoteInstall = await invokeHandler(
+        getLastHandler(routeMap, 'post', '/manager/:moduleId/install'),
+        {
+            params: { moduleId: 'remote-module' },
+            body: { source: 'https://example.invalid/remote-module.tgz', version: '1.0.0' },
+        } as any,
+    );
+    assert.equal(remoteInstall.statusCode, 501);
+    assert.deepEqual(remoteInstall.payload, {
+        success: false,
+        moduleId: 'remote-module',
+        operation: 'install',
+        errorCode: REMOTE_MODULE_DISTRIBUTION_ERROR_CODE,
+        error: REMOTE_MODULE_DISTRIBUTION_ERROR_MESSAGE,
+        previousStatus: undefined,
+    });
 
     const invalidSourceRes = await invokeHandler(
         getLastHandler(routeMap, 'post', '/lifecycle/:moduleId/switch-source'),
