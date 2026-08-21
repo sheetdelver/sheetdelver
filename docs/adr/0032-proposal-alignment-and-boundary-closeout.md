@@ -232,15 +232,23 @@ actor contract and stops only at the intentionally open Phase 2 socket import.
 
 ### Phase 2 - Socket import-boundary completion
 
-- [ ] Remove the coordinator side-effect import from `CoreSocket.ts`.
-- [ ] Verify `WorldBootstrapper` and application composition own coordinator
+- [x] Remove the coordinator side-effect import from `CoreSocket.ts`.
+- [x] Verify `WorldBootstrapper` and application composition own coordinator
   initialization before document seeding or mutation ingress.
-- [ ] Add the parsed-import architecture test to the active unit runner.
-- [ ] Verify world bootstrap seeding, modify-document routing, and direct
+- [x] Add the parsed-import architecture test to the active unit runner.
+- [x] Verify world bootstrap seeding, modify-document routing, and direct
   socket transport tests remain green.
-- [ ] Verify
+- [x] Verify
   `rg "PrimaryDocumentCacheCoordinator" src/server/core/foundry/sockets`
   returns no hits.
+
+**Phase 2 completed August 20, 2026.** `CoreSocket` no longer imports the
+primary-document coordinator. `WorldBootstrapper` remains the application
+bootstrap owner for coordinator seeding, while `SystemService` loads
+application composition before attaching `FoundryEventIngress`. The parsed
+socket-boundary check is active in the normal unit runner. Focused bootstrap,
+singleton mutation-routing, CoreSocket dispatch-ingress, ClientSocket
+transport, and SystemService composition tests pass.
 
 ### Phase 3 - Tracked ADR reconciliation
 

@@ -4,8 +4,6 @@ import { SocketBase } from './SocketBase';
 import { logger } from '@shared/utils/logger';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
 import type { FoundryBootstrapSnapshot } from './FoundrySocketEvents';
-// Side-effect import: registers Stores with the coordinator and router.
-import '@server/core/documents/primary/PrimaryDocumentCacheCoordinator';
 
 export class CoreSocket extends SocketBase {
     // Service-account identity is still a transport concern: the socket needs
