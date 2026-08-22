@@ -11,6 +11,8 @@ import { run as runAdrMetadata } from './docs/adr-metadata.test';
 import { run as runSensitiveFilePermissions } from './security/sensitive-file-permissions.test';
 import { run as runSafeHtml } from './security/safe-html.test';
 import { run as runBrowserSecurity } from './security/browser-security.test';
+import { run as runFoundrySessionStore } from './security/foundry-session-store.test';
+import { run as runExternalSecret } from './security/external-secret.test';
 
 // ── services ──────────────────────────────────────────────────────────────────
 import { run as runStatusSanitize } from './services/status-sanitize.test';
@@ -94,6 +96,7 @@ import { run as runAdminCsrfMiddleware } from './admin/admin-csrf-middleware.tes
 import { run as runAdminRateLimiter } from './admin/admin-rate-limiter.test';
 import { run as runAdminAuditLog } from './admin/admin-audit-log.test';
 import { run as runSourceProfileRedaction } from './admin/source-profile-redaction.test';
+import { run as runAdminOneTimeCredentialStore } from './admin/admin-one-time-credential-store.test';
 
 // ── modules ───────────────────────────────────────────────────────────────────
 import { run as runModuleProxyMatcher } from './modules/module-proxy-matcher.test';
@@ -139,6 +142,8 @@ async function runAllUnitTests() {
     await runSensitiveFilePermissions();
     runSafeHtml();
     runBrowserSecurity();
+    await runFoundrySessionStore();
+    runExternalSecret();
     runStatusSanitize();
     runLocalhostPolicy();
     runSyncTokenService();
@@ -207,6 +212,7 @@ async function runAllUnitTests() {
     await runAdminRateLimiter();
     await runAdminAuditLog();
     await runSourceProfileRedaction();
+    runAdminOneTimeCredentialStore();
     runModuleLifecycleTransitions();
     await runModuleManagerOperations();
     await runModuleManagerGovernance();

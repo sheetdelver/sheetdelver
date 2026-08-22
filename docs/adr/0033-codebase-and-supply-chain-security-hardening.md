@@ -1,6 +1,6 @@
 # ADR-0033: Codebase Security Hardening and Dormant Distribution Boundaries
 
-**Status:** Accepted - Phases 0-1 implemented; Phase 2 implemented with CSP observation pending; Phases 3-5 proposed.
+**Status:** Accepted - Phases 0-3 implemented with CSP observation pending; Phases 4-5 proposed.
 **Date:** August 21, 2026
 **Phase:** Pre-main security remediation
 **Supersedes:** None
@@ -525,19 +525,171 @@ enforcement.
 
 ### Phase 3 - Admin origin and credential/recovery hardening
 
-- [ ] Serve the admin shell/API proxy on its dedicated loopback origin and deny
+- [x] Serve the admin shell/API proxy on its dedicated loopback origin and deny
   player/module resources there.
-- [ ] Move admin authentication to an opaque HttpOnly cookie while preserving
+- [x] Move admin authentication to an opaque HttpOnly cookie while preserving
   revocation and CSRF.
-- [ ] Prove with browser tests that player/module code cannot reach the control
+- [x] Prove with browser tests that player/module code cannot reach the control
   plane.
-- [ ] Encrypt persisted Foundry sessions or disable persistence when no external
+- [x] Encrypt persisted Foundry sessions or disable persistence when no external
   key exists.
-- [ ] Add external secret references and replace reusable setup/reset behavior.
-- [ ] Document and test migration, rollback, and credential rotation.
+- [x] Add external secret references and replace reusable setup/reset behavior.
+- [x] Document and test migration, rollback, and credential rotation.
 
 **Exit:** Browser/module code cannot read or invoke an admin session, persisted
 Foundry cookies are not plaintext, and reusable recovery secrets are gone.
+
+#### Phase 3 Implementation Amendment - August 21, 2026
+
+Phase 3 is implemented without changing the Foundry world transport lifecycle,
+retry policy, or requesting-user mutation path. It changes control-plane
+hosting and local credential persistence only.
+
+Admin origin and browser authentication:
+
+- The admin route tree moved into a separately built and separately started
+  Next.js shell under `src/admin-shell`. Its host is restricted to
+  `localhost`, `127.0.0.1`, or `::1`; its port must differ from the player and
+  Core ports and defaults to `api-port + 1`. The process manager starts,
+  restarts, and stops the admin shell with the existing Core/player group.
+- The player proxy explicitly denies `/admin` and `/api/admin`. The admin proxy
+  serves only its route tree, static assets, CSP collector, and `/api/admin`;
+  player API, actor, Socket.IO, and module paths return `404`. Core adds an
+  exact-admin-origin check after its loopback check. Origin-less loopback CLI
+  requests remain permitted only after normal admin authentication.
+- Admin sessions are random 32-byte base64url lookup identifiers with no
+  serialized claims. Browser setup/login puts the identifier in a 15-minute,
+  HttpOnly, SameSite=Strict cookie scoped to `/api/admin`; JSON contains the
+  admin ID, CSRF token, and expiry only. The admin client uses same-origin cookie
+  credentials, holds CSRF only in module memory, and removes only the two exact
+  legacy local-storage keys. Logout expires the cookie before auth handling and
+  revokes a valid session server-side. Standard bearer presentation remains for
+  trusted loopback CLI use; the unused custom admin-token header was removed.
+- The cookie uses `Secure: false` because the hard-coded deployment contract is
+  plain HTTP on loopback. Exposing or HTTPS-proxying this shell is outside this
+  ADR and requires revisiting the complete origin/proxy/cookie design.
+
+Session persistence and secret handling:
+
+- `FoundryUserConnectionService` now persists through a dedicated store rather
+  than generic `PersistentCache`. With an externally resolved key it writes an
+  owner-only, atomic AES-256-GCM envelope to
+  `<DATA_DIR>/security/foundry-sessions.enc.json`. The envelope authenticates a
+  versioned payload and stores no plaintext Foundry cookies.
+- Keys require an explicit `base64:` or `hex:` encoding that decodes to exactly
+  32 bytes. A current/previous pair supports rotation; a successful previous-key
+  load immediately rewrites with the current key. A mismatched or modified
+  envelope fails authentication. Without a current key, cross-restart
+  persistence is disabled and legacy plaintext cache data is removed; an
+  existing encrypted envelope is retained for key restoration.
+- Startup migrates the old `<DATA_DIR>/cache/core/sessions.json` once when a key
+  exists, then deletes the plaintext file. Configuration supports strict
+  `{ env: NAME }` and `{ file: /absolute/path }` references for Foundry password,
+  service token, admin pepper, and session keys. Secret files are bounded,
+  regular non-symlinks with no group/other access; encryption-key files must be
+  outside `<DATA_DIR>`. Inline strings remain warning-producing migration
+  compatibility rather than the generated/default form.
+
+Bootstrap, recovery, and operator documentation:
+
+- Reusable `admin-setup-token` configuration is ignored with an operator
+  warning, and the dead `SetupToken` helper was removed. `admin:bootstrap`
+  issues a purpose-bound 60-minute credential only before account creation;
+  `admin:recover` issues a purpose-bound 10-minute credential only after an
+  account exists. Only salted digests are written owner-only. Success or expiry
+  consumes the credential, and a password recovery revokes all admin sessions.
+- The setup wizard writes external secret references and prints the one-time
+  bootstrap credential when needed; it no longer collects or stores reusable
+  Foundry, service, session-key, or admin-setup secrets in settings.
+- `docs/SECURITY_OPERATIONS.md`, the README, API reference, and architecture
+  guide now document dedicated-origin access, migration, key rotation, loss of
+  key, rollback, bootstrap/recovery, credential rotation, and the deliberate
+  no-key loss of cross-restart restoration.
+
+Verification completed:
+
+- Full unit coverage includes encrypted-envelope confidentiality, file mode,
+  tamper/wrong-key rejection, plaintext migration, disabled persistence,
+  current/previous rotation, external env/file validation, one-time credential
+  purpose/expiry/consumption, admin cookie/auth/CSRF/revocation, exact-origin
+  policy, and existing Foundry session restoration behavior.
+- TypeScript, lint, and an isolated dual-shell Turbopack production build pass.
+  The build manifests contain player routes only in the player shell and admin
+  routes only in the admin shell.
+- An isolated live stack confirmed setup and authenticated identity without a
+  JSON session token, expected cookie attributes, consumed bootstrap state,
+  exact-origin `403` denial, authoritative logout, cookie expiration, and `401`
+  on replay of the revoked identifier.
+- Installed headless Chrome confirmed the player origin receives `404` for
+  `/admin`, cannot read a credentialed cross-origin admin request, and the admin
+  origin receives `404` for player status, actor, Socket.IO, and module UI paths
+  while loading no foreign-origin scripts.
+
+All dynamic verification used an isolated operating-system temporary data
+directory and disposable local ports. No configured world, module installation,
+or `<DATA_DIR>/config/settings.yaml` was modified.
+
+#### Phase 3 Remediation Amendment - August 22, 2026
+
+The preceding implementation amendment is retained as history, but its
+third-service topology is superseded. "Dedicated loopback origin" was treated
+as permission to add a separately built and started Next.js application on a
+new port. That interpretation changed deployment, access, proxy, and process
+operations without presenting those consequences for explicit owner approval.
+It also established a poor scaling precedent in which application boundaries
+could become operating-system services without a demonstrated need.
+
+The remediation is deliberately narrower than a Phase 3 rollback:
+
+- The admin pages and providers return to the existing `(admin)` route group in
+  the application Next.js shell. `(player)` remains a separate composition
+  boundary, so player sockets, HUDs, and runtime providers do not mount on
+  `/admin`. The `src/admin-shell` project, second build, third listener, and
+  matching start/stop/restart lifecycle are removed.
+- `app.admin-origin` (or `APP_ADMIN_ORIGIN`) identifies the one local browser
+  origin permitted to expose `/admin` and proxy `/api/admin`. Requests through
+  any other hostname receive `404`. Core repeats the browser-origin check.
+- `security.admin.allowed-networks` (or
+  `APP_ADMIN_ALLOWED_NETWORKS`) is a validated CIDR allowlist. It defaults to
+  IPv4/IPv6 loopback for compatibility and can explicitly admit the owner's
+  LAN/VPN subnet. The reverse proxy must preserve `Host`, overwrite forwarded
+  client addresses, and avoid publishing the local admin hostname externally.
+- Admin cookie `Secure` derives from the configured origin protocol. All
+  opaque-session, CSRF, revocation, one-time credential, external-secret, and
+  encrypted Foundry-session work remains intact.
+- Audit testing found `ModuleLifecycleControl` statically importing the player
+  module registry solely to clear its own tab's module-level cache. That could
+  not invalidate a different player tab and made the earlier no-module-import
+  claim inaccurate. The import is removed; existing Core realtime lifecycle
+  broadcasts continue to invalidate each player tab at the actual cache owner.
+
+This amendment replaces the original Phase 3 origin-isolation exit claim with
+a deployment-proportionate acceptance statement: reusable admin credentials
+remain non-script-readable; the admin route/API is absent on non-admin
+hostnames and blocked outside configured networks; admin and player provider
+graphs remain composition-isolated; and same-local-origin script authority is
+an explicitly accepted residual risk under the owner-controlled module model.
+It does not change Foundry transport lifecycle, requesting-user mutation
+authority, credential persistence, or recovery behavior.
+
+Remediation verification completed entirely with operating-system temporary
+data and synthetic hostnames/networks:
+
+- focused origin/CIDR, route-composition, and HTTP/HTTPS cookie tests pass
+- the full unit suite, TypeScript, and lint pass; lint retains only the existing
+  `ShutdownWatcher.tsx` navigation warning
+- the manager-driven production build runs once and emits one manifest
+  containing player and admin routes; no `src/admin-shell` project remains
+- a live production stack listens only on the configured application and Core
+  ports; the local admin host returns `200`, the external host returns `404`
+  for admin UI/API while retaining the player UI, allowed LAN CIDR returns
+  `200`, and disallowed network/wrong origin return `403`
+- live login returns no JSON session credential, identity restoration succeeds,
+  the external host cannot use the cookie, logout expires and revokes it, and
+  replay returns `401`
+
+No configured world, module installation, or real
+`<DATA_DIR>/config/settings.yaml` was read for mutation or modified.
 
 ### Phase 4 - Public/realtime/path/request hardening
 

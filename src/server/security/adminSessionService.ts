@@ -4,11 +4,7 @@ import type { AdminSessionClaims } from './types/admin-auth.types';
 
 const SERVER_INSTANCE_ID = randomBytes(16).toString('hex');
 
-/**
- * Create a JWT-like admin session token claims object.
- * In a real deployment, this would be signed. For now, we store in memory/session.
- * This is the contract that other slices will validate.
- */
+/** Create server-only claims for one short-lived admin session. */
 export function createAdminSessionClaims(adminId: string, durationMs: number): AdminSessionClaims {
     const now = Date.now();
     return {
@@ -16,7 +12,7 @@ export function createAdminSessionClaims(adminId: string, durationMs: number): A
         adminId,
         issuedAt: now,
         expiresAt: now + durationMs,
-        csrfToken: randomBytes(24).toString('hex'),
+        csrfToken: randomBytes(24).toString('base64url'),
         instanceId: SERVER_INSTANCE_ID,
     };
 }
@@ -25,7 +21,9 @@ export function createAdminSessionClaims(adminId: string, durationMs: number): A
  * Check if a session claims object is still valid.
  */
 export function isSessionValid(claims: AdminSessionClaims): boolean {
-    return claims.expiresAt > Date.now() && claims.instanceId === SERVER_INSTANCE_ID;
+    return claims.principalType === 'app-admin'
+        && claims.expiresAt > Date.now()
+        && claims.instanceId === SERVER_INSTANCE_ID;
 }
 
 /**
@@ -37,49 +35,7 @@ export function getSessionRemainingMs(claims: AdminSessionClaims): number {
     return remaining > 0 ? remaining : 0;
 }
 
-/**
- * In a real implementation, tokens would be signed and verified cryptographically.
- * For now, we return claims as a serializable token and verify on re-parse.
- * Slice 4 will add CSRF and hardening.
- */
-export function serializeSessionClaims(claims: AdminSessionClaims): string {
-    return JSON.stringify(claims);
-}
-
-/**
- * Parse and validate a serialized admin session token.
- * Returns null if invalid or expired.
- */
-export function parseAndValidateToken(token: string): AdminSessionClaims | null {
-    try {
-        const claims = JSON.parse(token) as AdminSessionClaims;
-        if (!claims.principalType || claims.principalType !== 'app-admin') {
-            return null;
-        }
-        if (!claims.adminId || !Number.isInteger(claims.issuedAt) || !Number.isInteger(claims.expiresAt)) {
-            return null;
-        }
-        if (claims.csrfToken !== undefined && (typeof claims.csrfToken !== 'string' || claims.csrfToken.length < 16)) {
-            return null;
-        }
-        if (claims.instanceId !== SERVER_INSTANCE_ID) {
-            logger.debug(`[AdminAuth] Token instance ID mismatch. Token: ${claims.instanceId}, Server: ${SERVER_INSTANCE_ID}`);
-            return null;
-        }
-        if (!isSessionValid(claims)) {
-            return null;
-        }
-        return claims;
-    } catch (error) {
-        logger.debug('Failed to parse admin session token', error);
-        return null;
-    }
-}
-
-/**
- * Manage active admin sessions in memory.
- * In production, sessions would be persisted to Redis/database with automatic cleanup.
- */
+/** In-memory, revocable admin sessions keyed by opaque random credentials. */
 class AdminSessionManager {
     private sessions: Map<string, AdminSessionClaims> = new Map();
     private cleanupInterval: NodeJS.Timeout | null = null;
@@ -101,10 +57,14 @@ class AdminSessionManager {
     }
 
     /**
-     * Store a session token and return the serialized token.
+     * Store server-only claims and return an opaque credential. Claims and CSRF
+     * state never become part of the browser credential itself.
      */
     public storeSession(claims: AdminSessionClaims): string {
-        const tokenStr = serializeSessionClaims(claims);
+        let tokenStr: string;
+        do {
+            tokenStr = randomBytes(32).toString('base64url');
+        } while (this.sessions.has(tokenStr));
         this.sessions.set(tokenStr, claims);
         return tokenStr;
     }

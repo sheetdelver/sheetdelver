@@ -4,18 +4,36 @@ import {
   applyBrowserSecurityHeaders,
   createContentSecurityPolicy,
 } from '@shared/security/browserSecurityHeaders';
+import { isAdminRequestHostAllowed } from '@shared/security/adminOrigin';
 
-const LOCAL_HOSTNAMES = new Set(['localhost', '127.0.0.1', '::1']);
-
-function isLocalHostname(hostname: string): boolean {
-  return LOCAL_HOSTNAMES.has(hostname.toLowerCase());
+function normalizeOrigin(value: string): string | undefined {
+  try {
+    return new URL(value).origin;
+  } catch {
+    return undefined;
+  }
 }
 
 export function proxy(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
-  if ((pathname.startsWith('/admin') || pathname.startsWith('/api/admin'))
-    && !isLocalHostname(request.nextUrl.hostname)) {
-    return NextResponse.json({ error: 'Admin access restricted to localhost' }, { status: 403 });
+  const isAdminPage = pathname === '/admin' || pathname.startsWith('/admin/');
+  const isAdminApi = pathname === '/api/admin' || pathname.startsWith('/api/admin/');
+  if (isAdminPage || isAdminApi) {
+    const expectedOrigin = process.env.APP_ADMIN_ORIGIN || 'http://localhost:3000';
+    if (!isAdminRequestHostAllowed(request.headers.get('host'), expectedOrigin)) {
+      // The external player hostname must not advertise or proxy the local
+      // control plane, even though both route graphs share one Next process.
+      return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    }
+
+    if (isAdminApi) {
+      const requestOrigin = request.headers.get('origin');
+      const fetchSite = request.headers.get('sec-fetch-site')?.toLowerCase();
+      if ((requestOrigin !== null && normalizeOrigin(requestOrigin) !== expectedOrigin)
+        || (fetchSite !== undefined && fetchSite !== 'same-origin' && fetchSite !== 'none')) {
+        return NextResponse.json({ error: 'Admin API requires the configured local origin' }, { status: 403 });
+      }
+    }
   }
 
   const nonce = Buffer.from(crypto.randomUUID()).toString('base64');
@@ -31,14 +49,16 @@ export function proxy(request: NextRequest) {
   applyBrowserSecurityHeaders(response.headers, {
     nonce,
     isDevelopment: process.env.NODE_ENV === 'development',
-    secureTransport: request.nextUrl.protocol === 'https:',
+    // HAProxy terminates local TLS, so prefer its protocol assertion when set.
+    secureTransport: request.headers.get('x-forwarded-proto')?.split(',')[0].trim() === 'https'
+      || request.nextUrl.protocol === 'https:',
   });
   return response;
 }
 
 export const config = {
-  // API/socket responses do not render executable HTML. The explicit admin API
-  // matcher preserves its loopback guard without adding nonce work to all APIs.
+  // API/socket responses do not render executable HTML. Admin API requests are
+  // matched so host/origin policy runs before the Core rewrite.
   matcher: [
     '/api/admin/:path*',
     '/((?!api|socket.io|_next/static|_next/image|favicon.ico).*)',

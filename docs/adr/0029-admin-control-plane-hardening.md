@@ -297,6 +297,82 @@ origin split, cookie migration, or sanitizer is already implemented. The June
 10 implementation remains current until ADR-0033 is accepted and its browser
 security phases complete.
 
+#### Amendment 1B - Dedicated origin and HttpOnly session implemented
+
+**Date:** August 21, 2026
+**Implemented by:** ADR-0033 Phase 3
+
+The implementation described as proposed in Amendment 1A is now complete. The
+historical June 10 won't-do decision remains above as decision history, but it
+no longer describes the active control plane.
+
+The admin route tree now builds and runs as its own loopback-only Next.js shell,
+defaulting to `127.0.0.1` on the Core API port plus one. The player shell
+returns `404` for `/admin` and `/api/admin`; the admin shell proxies only the
+admin API and rejects player routes, Socket.IO, and module resources. Core
+requires both loopback access and the exact configured admin origin for browser
+requests. Origin-less loopback automation remains possible with explicit
+admin authentication.
+
+Admin login/setup now stores a random opaque session identifier in an
+HttpOnly, SameSite=Strict cookie scoped to `/api/admin`. The response no longer
+returns that identifier. The browser keeps the CSRF token only in module
+memory, removes the two exact legacy local-storage entries without reading
+them, and uses same-origin cookie credentials. Logout expires the cookie and
+revokes the authoritative in-memory session. Standard bearer auth is retained
+only as the explicit loopback CLI contract; the redundant custom token header
+was removed.
+
+The cookie intentionally omits `Secure` because this shell is constrained to a
+plain-HTTP loopback origin. A future decision to proxy or expose the admin shell
+through HTTPS must revisit its listener, origin, proxy-trust, and cookie policy
+together rather than changing one attribute in isolation.
+
+Unit coverage verifies opaque session lookup, cookie attributes, revocation,
+CSRF, and legacy-storage cleanup. An isolated production-stack Chrome pass
+confirmed that player script cannot read the cross-origin admin response and
+that the admin shell serves no player/module resources. A live isolated setup,
+authenticated identity, origin denial, logout, and replay test confirmed that
+the cookie is never returned in JSON, is explicitly expired, and cannot be
+reused after revocation.
+
+#### Amendment 1C - Separate admin service remediated
+
+**Date:** August 22, 2026
+**Implemented by:** ADR-0033 Phase 3 remediation
+
+Amendment 1B implemented origin separation as a third loopback-only Next.js
+service and thereby changed the deployment contract: an additional listener,
+port, build, process lifecycle, and SSH/reverse-proxy access path became
+mandatory. Approval of the security phase did not explicitly approve those
+operational consequences. The phrase "dedicated loopback origin" did not make
+them sufficiently clear. That topology is therefore retired rather than
+becoming an accidental platform convention.
+
+`/admin` is restored to the existing `(admin)` route group in the application
+shell, which remains provider-isolated from `(player)`. The shell exposes
+`/admin` and `/api/admin` only when `Host` matches the configured local
+`app.admin-origin`; Core independently checks that browser origin and the
+configured `security.admin.allowed-networks` CIDRs. This allows an existing
+local reverse-proxy hostname to serve the control panel while external
+hostnames receive `404`, without creating another service or DNS identity.
+
+The opaque HttpOnly session, in-memory CSRF value, revocation, logout,
+single-use bootstrap/recovery, rate limiting, and audit behavior from Amendment
+1B remain unchanged. Cookie `Secure` now follows the configured admin origin's
+HTTPS scheme. The admin lifecycle screen also dropped an ineffective static
+import of the player module registry: browser module caches are per tab, and
+Core's existing realtime lifecycle event remains the owner of player-tab cache
+invalidation.
+
+This correction explicitly accepts the residual risk that player/module code
+executing on the same configured local hostname can issue requests during an
+active admin session. HttpOnly prevents credential extraction, but CSRF does
+not stop same-origin script. The accepted controls are the single-owner,
+owner-controlled module model, sanitized rich HTML boundary, CSP observation,
+short-lived revocable sessions, exact local-host routing, network allowlisting,
+and not publishing the local admin hostname externally.
+
 ### Amendment 2 — Multi-admin / RBAC removed as a tracked concern
 
 **Date:** June 10, 2026

@@ -5,7 +5,13 @@ const getYaml = async () => (typeof window === 'undefined' ? await import('js-ya
 
 import { AppConfig } from '@shared/interfaces';
 import { logger } from '@shared/utils/logger';
-import { getConfigFilePath } from '@core/paths';
+import { getConfigFilePath, getDataDir } from '@core/paths';
+import { resolveAdminOrigin } from '@shared/security/adminOrigin';
+import { resolveExternalSecret } from '@server/security/externalSecret';
+import {
+    DEFAULT_ADMIN_ALLOWED_NETWORKS,
+    validateAdminAllowedNetworks,
+} from '@server/security/adminNetwork';
 
 let _cachedConfig: AppConfig | null = null;
 
@@ -119,7 +125,6 @@ export async function loadConfig(): Promise<AppConfig | null> {
             const envUsername = process.env.FOUNDRY_USERNAME;
             const envPassword = process.env.FOUNDRY_PASSWORD;
             const envServiceToken = process.env.APP_SERVICE_TOKEN;
-            const envAdminSetupToken = process.env.APP_ADMIN_SETUP_TOKEN;
             const envAdminPepper = process.env.APP_ADMIN_PEPPER;
             const envAllowLiveCompendiumUuidFallback = parseBoolean(process.env.APP_ALLOW_LIVE_COMPENDIUM_UUID_FALLBACK);
             const envCorsAllowAllOrigins = parseBoolean(process.env.APP_CORS_ALLOW_ALL_ORIGINS);
@@ -148,10 +153,71 @@ export async function loadConfig(): Promise<AppConfig | null> {
 
             const isStandardAppPort = (appProtocol === 'http' && appPort === 80) || (appProtocol === 'https' && appPort === 443);
             const appUrl = `${appProtocol}://${appHost}${isStandardAppPort ? '' : `:${appPort}`}`;
+            // Admin settings are optional for existing installations. Resolution
+            // still fails closed if an operator attempts a non-loopback host.
+            const adminOrigin = resolveAdminOrigin({
+                appOrigin: appUrl,
+                configuredOrigin: app['admin-origin'],
+            });
 
             const security = doc.security || {};
+            if (security['admin-setup-token'] !== undefined || process.env.APP_ADMIN_SETUP_TOKEN) {
+                logger.warn('[Config] Legacy admin setup/reset token is ignored; use npm run admin:bootstrap or npm run admin:recover.');
+            }
+            const resolveConfiguredSecret = (
+                envValue: string | undefined,
+                configuredValue: unknown,
+                label: string,
+                requireOutsideDataDir = false,
+            ): string | undefined => {
+                if (envValue) return envValue;
+                const resolved = resolveExternalSecret(configuredValue, label, {
+                    dataDir: getDataDir(),
+                    requireOutsideDataDir,
+                });
+                if (resolved?.source === 'legacy-inline') {
+                    logger.warn(`[Config] ${label} uses a legacy inline value; migrate it to an external env/file reference.`);
+                }
+                return resolved?.value;
+            };
+            const resolvedFoundryPassword = resolveConfiguredSecret(
+                envPassword,
+                foundry.password,
+                'foundry.password',
+            );
+            const resolvedServiceToken = resolveConfiguredSecret(
+                envServiceToken,
+                security['service-token'],
+                'security.service-token',
+            );
+            const resolvedAdminPepper = resolveConfiguredSecret(
+                envAdminPepper,
+                security['admin-pepper'],
+                'security.admin-pepper',
+            );
+            const resolvedSessionKey = resolveConfiguredSecret(
+                process.env.APP_FOUNDRY_SESSION_KEY,
+                security['foundry-session-key'],
+                'security.foundry-session-key',
+                true,
+            );
+            const resolvedPreviousSessionKey = resolveConfiguredSecret(
+                process.env.APP_FOUNDRY_SESSION_PREVIOUS_KEY,
+                security['foundry-session-previous-key'],
+                'security.foundry-session-previous-key',
+                true,
+            );
             const rateLimit = security['rate-limit'] || {};
             const corsConfig = security.cors || {};
+            const adminSecurity = security.admin || {};
+            const configuredAdminNetworks = Array.isArray(adminSecurity['allowed-networks'])
+                ? adminSecurity['allowed-networks'].map((network: unknown) => String(network).trim()).filter(Boolean)
+                : undefined;
+            const adminAllowedNetworks = validateAdminAllowedNetworks(
+                parseCsv(process.env.APP_ADMIN_ALLOWED_NETWORKS)
+                ?? configuredAdminNetworks
+                ?? [...DEFAULT_ADMIN_ALLOWED_NETWORKS],
+            );
             const configuredAllowedOrigins = Array.isArray(corsConfig['allowed-origins'])
                 ? corsConfig['allowed-origins'].map((origin: unknown) => String(origin).trim()).filter(Boolean)
                 : undefined;
@@ -167,6 +233,7 @@ export async function loadConfig(): Promise<AppConfig | null> {
                     host: appHost,
                     port: appPort,
                     apiPort: app['api-port'],
+                    adminOrigin: adminOrigin.origin,
                     protocol: appProtocol,
                     chatHistory: app['chat-history'],
                     version: version,
@@ -178,7 +245,7 @@ export async function loadConfig(): Promise<AppConfig | null> {
                     protocol: protocol,
                     url: foundryUrl,
                     username: envUsername || foundry.username,
-                    password: envPassword || foundry.password,
+                    password: resolvedFoundryPassword,
                     userId: foundry.userId,
                     connector: foundry.connector,
                     foundryDataDirectory: foundry.foundryDataDirectory,
@@ -199,9 +266,11 @@ export async function loadConfig(): Promise<AppConfig | null> {
                         maxAttempts: rateLimit['max-attempts'] ?? 5,
                     },
                     bodyLimit: security['body-limit'] ?? '10mb',
-                    serviceToken: envServiceToken || security['service-token'],
-                    adminSetupToken: envAdminSetupToken || security['admin-setup-token'],
-                    adminPepper: envAdminPepper || security['admin-pepper'],
+                    serviceToken: resolvedServiceToken,
+                    adminPepper: resolvedAdminPepper,
+                    foundrySessionKey: resolvedSessionKey,
+                    foundrySessionPreviousKey: resolvedPreviousSessionKey,
+                    adminAllowedNetworks,
                     modulePolicy,
                     sourceGovernance: {
                         hostAllowlist

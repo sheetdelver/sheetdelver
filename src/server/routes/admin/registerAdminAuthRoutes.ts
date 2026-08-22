@@ -19,11 +19,18 @@ import {
     createAdminSessionClaims,
     adminSessionManager,
 } from '@server/security/adminSessionService';
-import { getConfig } from '@server/core/config';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
 import { requireAdminAuth, auditAdminAction } from '@server/middleware/requireAdminAuth';
 import { requireAdminCsrf } from '@server/middleware/requireAdminCsrf';
 import type { AdminLoginRequest } from '@server/security/types/admin-auth.types';
+import {
+    clearAdminSessionCookie,
+    setAdminSessionCookie,
+} from '@server/security/adminSessionCookie';
+import {
+    consumeAdminBootstrapCredential,
+    consumeAdminRecoveryCredential,
+} from '@server/security/adminOneTimeCredentialStore';
 
 export interface RegisterAdminAuthRoutesOptions {
     adminRouter: express.Router;
@@ -41,7 +48,7 @@ export function registerAdminAuthRoutes(opts: RegisterAdminAuthRoutesOptions): v
     /**
      * Bootstrap setup endpoint - creates the initial admin account.
      * Only available on first run when no account exists.
-     * Requires one-time setup token from config/env.
+     * Requires a short-lived bootstrap credential issued by the local CLI.
      * Localhost-only.
      */
     adminRouter.post('/auth/setup', adminLoginLimiter, async (req, res) => {
@@ -51,45 +58,36 @@ export function registerAdminAuthRoutes(opts: RegisterAdminAuthRoutesOptions): v
                 return res.status(403).json({ error: 'Admin account already exists' });
             }
 
-            const config = getConfig();
-            const setupToken = config.security.adminSetupToken;
-            if (!setupToken) {
-                return res.status(503).json({
-                    error: 'Bootstrap not configured. Set APP_ADMIN_SETUP_TOKEN environment variable.',
-                });
-            }
-
-            const { setupToken: clientToken, password } = req.body as {
-                setupToken?: string;
+            const { bootstrapToken, password } = req.body as {
+                bootstrapToken?: string;
                 password?: string;
             };
-
-            // Verify setup token
-            if (clientToken !== setupToken) {
-                logger.warn('Admin setup attempted with invalid setup token');
-                return res.status(401).json({ error: 'Invalid setup token' });
-            }
 
             // Validate password
             if (!password || typeof password !== 'string' || password.length < 8) {
                 return res.status(400).json({ error: 'Password must be at least 8 characters' });
+            }
+            if (!bootstrapToken || !consumeAdminBootstrapCredential(bootstrapToken)) {
+                logger.warn('Admin setup attempted with an invalid or expired bootstrap credential');
+                return res.status(401).json({ error: 'Invalid or expired bootstrap credential' });
             }
 
             // Create the account
             const account = await createAdminAccount(password);
             logger.info(`Admin account created with ID: ${account.adminId}`);
 
-            // Issue admin session token (same as login)
+            // Issue the same short-lived opaque cookie used by normal login.
             const sessionDurationMs = 15 * 60 * 1000; // 15 minutes
             const claims = createAdminSessionClaims(account.adminId, sessionDurationMs);
             const token = adminSessionManager.storeSession(claims);
+            setAdminSessionCookie(res, token);
 
-            // Return token so user is immediately authenticated
+            // CSRF remains script-readable by design; the reusable session ID
+            // exists only in the HttpOnly response cookie.
             res.json({
                 success: true,
                 message: 'Admin account created successfully',
                 adminId: account.adminId,
-                token,
                 csrfToken: claims.csrfToken,
                 expiresIn: sessionDurationMs,
             });
@@ -100,7 +98,7 @@ export function registerAdminAuthRoutes(opts: RegisterAdminAuthRoutesOptions): v
     });
 
     /**
-     * Admin login endpoint - issues admin session token.
+     * Admin login endpoint - issues an opaque admin session cookie.
      * Only available if admin account exists.
         * Localhost-only and rate-limited by dedicated admin middleware.
      */
@@ -138,13 +136,14 @@ export function registerAdminAuthRoutes(opts: RegisterAdminAuthRoutesOptions): v
                 return res.status(401).json({ error: 'Invalid password' });
             }
 
-            // Success: reset failed count and issue token
+            // Success: reset failed count and issue the browser cookie.
             await recordSuccessfulLogin(account);
 
-            // Issue short-lived admin session token (15 minutes)
+            // The opaque lookup credential remains inaccessible to browser JS.
             const sessionDurationMs = 15 * 60 * 1000; // 15 minutes
             const claims = createAdminSessionClaims(account.adminId, sessionDurationMs);
             const token = adminSessionManager.storeSession(claims);
+            setAdminSessionCookie(res, token);
 
             logger.info(`Admin ${account.adminId} logged in successfully`);
 
@@ -152,7 +151,6 @@ export function registerAdminAuthRoutes(opts: RegisterAdminAuthRoutesOptions): v
                 success: true,
                 message: 'Login successful',
                 adminId: account.adminId,
-                token,
                 csrfToken: claims.csrfToken,
                 expiresIn: sessionDurationMs,
             });
@@ -164,30 +162,21 @@ export function registerAdminAuthRoutes(opts: RegisterAdminAuthRoutesOptions): v
 
     /**
      * Local recovery endpoint to reset admin password and revoke all active sessions.
-     * Requires the configured bootstrap/reset token and a new password.
+     * Requires a short-lived nonce issued by the loopback recovery CLI.
      */
     adminRouter.post('/auth/reset', adminLoginLimiter, requireAdminAccountExists, async (req, res) => {
         try {
-            const config = getConfig();
-            const setupToken = config.security.adminSetupToken;
-            if (!setupToken) {
-                return res.status(503).json({
-                    error: 'Reset not configured. Set APP_ADMIN_SETUP_TOKEN environment variable.',
-                });
-            }
-
-            const { setupToken: clientToken, newPassword } = req.body as {
-                setupToken?: string;
+            const { recoveryToken, newPassword } = req.body as {
+                recoveryToken?: string;
                 newPassword?: string;
             };
 
-            if (clientToken !== setupToken) {
-                logger.warn('Admin password reset attempted with invalid setup token');
-                return res.status(401).json({ error: 'Invalid setup token' });
-            }
-
             if (!newPassword || typeof newPassword !== 'string' || newPassword.length < 8) {
                 return res.status(400).json({ error: 'New password must be at least 8 characters' });
+            }
+            if (!recoveryToken || !consumeAdminRecoveryCredential(recoveryToken)) {
+                logger.warn('Admin password reset attempted with an invalid or expired recovery nonce');
+                return res.status(401).json({ error: 'Invalid or expired recovery nonce' });
             }
 
             const updatedAccount = await resetAdminPassword(newPassword);
@@ -217,6 +206,12 @@ export function registerAdminAuthRoutes(opts: RegisterAdminAuthRoutesOptions): v
      */
     adminRouter.post(
         '/auth/logout',
+        // Clear the browser cookie even when the session has just expired. The
+        // request header remains available to auth/revocation for this request.
+        (_req, res, next) => {
+            clearAdminSessionCookie(res);
+            next();
+        },
         requireAdminAccountExists,
         requireAdminAuth,
         requireAdminCsrf,
@@ -242,7 +237,11 @@ export function registerAdminAuthRoutes(opts: RegisterAdminAuthRoutesOptions): v
      * client-side) for the top-bar identity display (ADR-0030 UX-2).
      */
     adminRouter.get('/auth/me', requireAdminAccountExists, requireAdminAuth, (req, res) => {
-        res.json({ success: true, adminId: req.adminSession?.adminId ?? null });
+        res.json({
+            success: true,
+            adminId: req.adminSession?.adminId ?? null,
+            csrfToken: req.adminSession?.csrfToken ?? null,
+        });
     });
 
     /**

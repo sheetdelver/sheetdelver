@@ -150,11 +150,11 @@ See `docs/MODULE_MANIFEST.md` for the full module authoring reference.
 ### 6.1 World Discovery & Status
 1.  Frontend polls `/api/status`.
 2.  Backend projects status from world Stores maintained by `WorldTransportController`, `WorldBootstrapper`, and `FoundryEventIngress`.
-3.  If a valid `Authorization` header is present, the backend restores the matching Foundry user connection through `FoundryUserConnectionService`.
+3.  If the request carries the player HttpOnly session cookie, the backend restores the matching Foundry user connection through `FoundryUserConnectionService`. Explicit bearer credentials remain for trusted server-side callers.
 
 ### 6.2 Authentication & Handshake
 1.  Frontend POST `/api/login`.
-2.  Backend resolves the Foundry user id, creates a `ClientSocket` transport through `FoundryUserConnectionService`, performs the Foundry login handshake, and returns a token.
+2.  Backend resolves the Foundry user id, creates a `ClientSocket` transport through `FoundryUserConnectionService`, performs the Foundry login handshake, and sets an opaque HttpOnly player-session cookie.
 3.  `FoundryContext` transitions to `'authenticating'` until the next status poll confirms the specific socket session is ready.
 
 ### 6.3 Data Normalization & Computation
@@ -168,9 +168,10 @@ All data returned by the API passes through a **System Adapter**.
 
 ## 7. Security & Isolation
 - **Per-User Sockets**: Every user has their own dedicated socket. Foundry's native permission model is enforced at the transport layer.
-- **Local Admin Surface**: `/admin` is a separate app-admin control plane. Admin routes require localhost access, dedicated admin authentication, and CSRF protection for browser mutations.
+- **Local Admin Surface**: `/admin` is a provider-isolated route group in the application shell. The shell exposes it and `/api/admin` only on the configured local hostname; other hostnames return `404`. Browser sessions use a path-scoped opaque HttpOnly cookie plus CSRF protection. Core independently enforces the configured browser origin and client CIDR allowlist.
+- **Foundry Session Persistence**: Reusable Foundry cookies are stored only in an authenticated-encryption envelope when an external 32-byte key is configured. Cross-restart restoration is disabled when no key is available.
 
 ## 8. Ports & Config
 - **Frontend**: 3000
 - **Backend (API)**: 3001
-- **Foundry**: Configurable via `DATA_DIR/config/settings.yaml`
+- **Foundry**: Configurable via `<DATA_DIR>/config/settings.yaml`

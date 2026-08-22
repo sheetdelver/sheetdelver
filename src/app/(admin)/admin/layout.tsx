@@ -3,9 +3,8 @@
 /**
  * Authenticated admin shell (ADR-0030 UX-3).
  *
- * Wraps every /admin/* route: gates on auth (loading → login → shell) once for
- * all sub-pages, and provides the persistent chrome — sticky top bar plus the
- * left sidebar — with the routed page content rendered in the main area.
+ * Wraps every /admin/* route: gates on auth (loading -> login -> shell) once
+ * for all sub-pages and keeps player runtime providers outside this graph.
  */
 
 import { useAdminAuth } from '../context/AdminAuthContext';

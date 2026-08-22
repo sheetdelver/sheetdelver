@@ -1,115 +1,116 @@
 import { strict as assert } from 'node:assert';
+import type { Response } from 'express';
 import {
     createAdminSessionClaims,
     isSessionValid,
     getSessionRemainingMs,
-    serializeSessionClaims,
-    parseAndValidateToken,
     adminSessionManager,
 } from '@server/security/adminSessionService';
+import {
+    ADMIN_SESSION_COOKIE_NAME,
+    ADMIN_SESSION_COOKIE_PATH,
+    clearAdminSessionCookie,
+    readAdminSessionCredential,
+    setAdminSessionCookie,
+} from '@server/security/adminSessionCookie';
+
+interface CookieCall {
+    kind: 'set' | 'clear';
+    name: string;
+    value?: string;
+    options: Record<string, unknown>;
+}
+
+function createCookieResponseStub(): { response: Response; calls: CookieCall[] } {
+    const calls: CookieCall[] = [];
+    const response = {
+        cookie(name: string, value: string, options: Record<string, unknown>) {
+            calls.push({ kind: 'set', name, value, options });
+            return response;
+        },
+        clearCookie(name: string, options: Record<string, unknown>) {
+            calls.push({ kind: 'clear', name, options });
+            return response;
+        },
+    } as unknown as Response;
+    return { response, calls };
+}
 
 async function runAdminSessionServiceTests(): Promise<void> {
     console.log('Running admin session service tests...');
-
-    // Test 1: Create session claims with correct principal type
-    console.log('  Test 1: Create and validate session claims');
-    const adminId = 'test-admin-1';
-    const durationMs = 15 * 60 * 1000; // 15 minutes
-    const claims = createAdminSessionClaims(adminId, durationMs);
-
-    assert.equal(claims.principalType, 'app-admin', 'Claims should have principalType "app-admin"');
-    assert.equal(claims.adminId, adminId, 'Claims should include adminId');
-    assert(Number.isInteger(claims.issuedAt), 'issuedAt should be a timestamp');
-    assert(Number.isInteger(claims.expiresAt), 'expiresAt should be a timestamp');
-    assert(claims.expiresAt > claims.issuedAt, 'expiresAt should be after issuedAt');
-    assert(typeof claims.csrfToken === 'string' && claims.csrfToken.length >= 16, 'Claims should include CSRF token');
-
-    // Test 2: Check session validity
-    console.log('  Test 2: Check session validity');
-    assert.equal(isSessionValid(claims), true, 'Fresh session should be valid');
-
-    const pastClaims = {
-        principalType: 'app-admin' as const,
-        adminId: 'test',
-        issuedAt: Date.now() - 2000,
-        expiresAt: Date.now() - 1000, // Expired 1 second ago
-    };
-    assert.equal(isSessionValid(pastClaims), false, 'Expired session should not be valid');
-
-    // Test 3: Get remaining time
-    console.log('  Test 3: Get remaining session time');
-    const remainingMs = getSessionRemainingMs(claims);
-    assert(remainingMs > 0, 'Fresh session should have remaining time');
-    assert(remainingMs <= durationMs, 'Remaining time should not exceed duration');
-
-    const expiredRemaining = getSessionRemainingMs(pastClaims);
-    assert.equal(expiredRemaining, 0, 'Expired session should have 0 remaining time');
-
-    // Test 4: Serialize and parse token
-    console.log('  Test 4: Serialize and parse token');
-    const tokenStr = serializeSessionClaims(claims);
-    assert(typeof tokenStr === 'string', 'Serialized token should be a string');
-    assert(tokenStr.length > 0, 'Serialized token should not be empty');
-
-    const parsedClaims = parseAndValidateToken(tokenStr);
-    assert(parsedClaims !== null, 'Valid token should parse successfully');
-    assert.equal(parsedClaims?.principalType, 'app-admin', 'Parsed token should have correct principal type');
-    assert.equal(parsedClaims?.adminId, adminId, 'Parsed token should have correct adminId');
-    assert.equal(parsedClaims?.csrfToken, claims.csrfToken, 'Parsed token should preserve CSRF token');
-
-    const invalidToken = parseAndValidateToken('invalid-json');
-    assert.equal(invalidToken, null, 'Invalid JSON should return null');
-
-    const wrongPrincipalToken = serializeSessionClaims({
-        principalType: 'user' as any,
-        adminId: 'test',
-        issuedAt: Date.now(),
-        expiresAt: Date.now() + 1000,
-    });
-    const wrongPrincipal = parseAndValidateToken(wrongPrincipalToken);
-    assert.equal(wrongPrincipal, null, 'Token with wrong principal type should return null');
-
-    // Test 5: Session manager store and retrieve
-    console.log('  Test 5: Session manager store and retrieve');
     adminSessionManager.initialize();
 
-    const testClaims = createAdminSessionClaims('admin-123', 15 * 60 * 1000);
-    const storedToken = adminSessionManager.storeSession(testClaims);
-    assert(typeof storedToken === 'string', 'Stored token should be a string');
+    const durationMs = 15 * 60 * 1000;
+    const claims = createAdminSessionClaims('test-admin-1', durationMs);
+    assert.equal(claims.principalType, 'app-admin');
+    assert.equal(claims.adminId, 'test-admin-1');
+    assert.ok(claims.csrfToken.length >= 16);
+    assert.equal(isSessionValid(claims), true);
+    assert.ok(getSessionRemainingMs(claims) > 0);
 
-    const retrieved = adminSessionManager.getSession(storedToken);
-    assert(retrieved !== null, 'Stored session should be retrievable');
-    assert.equal(retrieved?.adminId, 'admin-123', 'Retrieved session should have correct adminId');
+    const expiredClaims = createAdminSessionClaims('expired-admin', durationMs);
+    expiredClaims.expiresAt = Date.now() - 1;
+    assert.equal(isSessionValid(expiredClaims), false);
+    assert.equal(getSessionRemainingMs(expiredClaims), 0);
 
-    const nonExisting = adminSessionManager.getSession('non-existing-token');
-    assert.equal(nonExisting, null, 'Non-existing session should return null');
+    // The browser credential is random lookup material, not serialized claims.
+    const opaqueToken = adminSessionManager.storeSession(claims);
+    assert.match(opaqueToken, /^[A-Za-z0-9_-]{43}$/);
+    assert.doesNotMatch(opaqueToken, /test-admin-1|app-admin/);
+    assert.throws(() => JSON.parse(opaqueToken));
+    assert.equal(adminSessionManager.getSession(opaqueToken)?.adminId, 'test-admin-1');
+    assert.equal(adminSessionManager.getSession('unknown-session'), null);
 
-    // Test 6: Revoke session
-    console.log('  Test 6: Revoke session');
-    adminSessionManager.revokeSession(storedToken);
-    const afterRevoke = adminSessionManager.getSession(storedToken);
-    assert.equal(afterRevoke, null, 'Revoked session should return null');
+    assert.equal(
+        readAdminSessionCredential({ headers: { cookie: `${ADMIN_SESSION_COOKIE_NAME}=${opaqueToken}` } } as any),
+        opaqueToken,
+    );
+    assert.equal(
+        readAdminSessionCredential({ headers: { authorization: `Bearer ${opaqueToken}` } } as any),
+        opaqueToken,
+    );
 
-    // Test 7: Revoke all for admin
-    console.log('  Test 7: Revoke all sessions for admin');
-    const admin2Sessions = [];
-    for (let i = 0; i < 3; i++) {
-        const claims = createAdminSessionClaims('admin-456', 15 * 60 * 1000);
-        const token = adminSessionManager.storeSession(claims);
-        admin2Sessions.push(token);
-    }
+    const cookieStub = createCookieResponseStub();
+    setAdminSessionCookie(cookieStub.response, opaqueToken, false);
+    clearAdminSessionCookie(cookieStub.response, false);
+    assert.deepEqual(cookieStub.calls[0], {
+        kind: 'set',
+        name: ADMIN_SESSION_COOKIE_NAME,
+        value: opaqueToken,
+        options: {
+            httpOnly: true,
+            sameSite: 'strict',
+            secure: false,
+            path: ADMIN_SESSION_COOKIE_PATH,
+            maxAge: durationMs,
+        },
+    });
+    assert.deepEqual(cookieStub.calls[1], {
+        kind: 'clear',
+        name: ADMIN_SESSION_COOKIE_NAME,
+        options: {
+            httpOnly: true,
+            sameSite: 'strict',
+            secure: false,
+            path: ADMIN_SESSION_COOKIE_PATH,
+        },
+    });
 
-    // Verify all 3 are stored
-    for (const token of admin2Sessions) {
-        assert(adminSessionManager.getSession(token) !== null, 'Session should exist before revoke');
-    }
+    const secureCookieStub = createCookieResponseStub();
+    setAdminSessionCookie(secureCookieStub.response, opaqueToken, true);
+    clearAdminSessionCookie(secureCookieStub.response, true);
+    assert.equal(secureCookieStub.calls[0].options.secure, true);
+    assert.equal(secureCookieStub.calls[1].options.secure, true);
 
-    // Revoke all for admin-456
+    adminSessionManager.revokeSession(opaqueToken);
+    assert.equal(adminSessionManager.getSession(opaqueToken), null);
+
+    const adminTokens = Array.from({ length: 3 }, () => (
+        adminSessionManager.storeSession(createAdminSessionClaims('admin-456', durationMs))
+    ));
     adminSessionManager.revokeAllForAdmin('admin-456');
-
-    // Verify all 3 are revoked
-    for (const token of admin2Sessions) {
-        assert.equal(adminSessionManager.getSession(token), null, 'Session should be null after revoke all');
+    for (const token of adminTokens) {
+        assert.equal(adminSessionManager.getSession(token), null);
     }
 
     adminSessionManager.shutdown();

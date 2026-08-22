@@ -4,6 +4,7 @@ import path from 'path';
 import yaml from 'js-yaml';
 import { spawn, ChildProcess } from 'child_process';
 import { resolveDataDir, initDataDir, getConfigFilePath, getCacheDir, getDataDir } from '../server/core/paths';
+import { resolveAdminOrigin } from '../shared/security/adminOrigin';
 
 // Resolve and initialize data directory before anything else
 const dataDir = resolveDataDir(process.argv);
@@ -15,6 +16,8 @@ const SETTINGS_PATH = getConfigFilePath();
 let host = 'localhost';
 let port = 3000;
 let apiPort = 3001;
+let appProtocol = 'http';
+let configuredAdminOrigin: unknown;
 
 // Read settings.yaml from the data directory
 try {
@@ -30,15 +33,27 @@ try {
             if (settings.app.host) host = settings.app.host;
             if (settings.app.port) port = settings.app.port;
             if (settings.app['api-port']) apiPort = settings.app['api-port'];
+            if (settings.app.protocol) appProtocol = settings.app.protocol;
+            configuredAdminOrigin = settings.app['admin-origin'];
         }
-
-        logger.info(`[Manager] Loading configuration: App=${host}:${port}, API=${apiPort}`);
     } else {
         logger.info(`[Manager] No settings.yaml found at ${SETTINGS_PATH}, using defaults.`);
     }
 } catch (e) {
     logger.error('[Manager] Error reading settings.yaml:', e);
 }
+
+let adminOrigin;
+try {
+    adminOrigin = resolveAdminOrigin({
+        appOrigin: `${appProtocol}://${host}:${port}`,
+        configuredOrigin: configuredAdminOrigin,
+    });
+} catch (error) {
+    logger.error('[Manager] Invalid admin origin configuration:', error);
+    process.exit(1);
+}
+logger.info(`[Manager] Loading configuration: App=${host}:${port}, API=${apiPort}, Admin Origin=${adminOrigin.origin}`);
 
 // Determine command (dev or start)
 const args = process.argv.slice(2).filter(a => !a.startsWith('--data-dir'));
@@ -59,6 +74,7 @@ if (command !== 'build') {
 
 let coreProcess: ChildProcess | null = null;
 let shellProcess: ChildProcess | null = null;
+const expectedShellStops = new WeakSet<ChildProcess>();
 
 // Exit code 75 means the Core Service is requesting a full stack restart
 // (e.g. triggered by the admin "Restart Now" button after a module install).
@@ -77,7 +93,7 @@ function cleanup(skipChildSignals = false) {
             coreProcess.kill('SIGINT');
         }
         if (shellProcess) {
-            logger.info('[Manager] Stopping Shell Service...');
+            logger.info('[Manager] Stopping Application Shell Service...');
             shellProcess.kill('SIGINT');
         }
     }
@@ -103,16 +119,22 @@ async function start() {
         ensureManagedConfigs();
 
         const nextCmd = path.join(process.cwd(), 'node_modules', '.bin', 'next');
-        const env = { ...process.env, API_PORT: apiPort.toString(), SHEET_DELVER_DATA: getDataDir() };
+        const env = {
+            ...process.env,
+            API_PORT: apiPort.toString(),
+            APP_ADMIN_ORIGIN: adminOrigin.origin,
+            SHEET_DELVER_DATA: getDataDir(),
+        };
 
-        const buildProcess = spawn(nextCmd, ['build'], {
-            stdio: 'inherit',
-            env
+        const runBuild = (label: string, buildArgs: string[]) => new Promise<number>((resolve, reject) => {
+            logger.info(`[Manager] Building ${label}...`);
+            const buildProcess = spawn(nextCmd, buildArgs, { stdio: 'inherit', env });
+            buildProcess.once('error', reject);
+            buildProcess.once('close', (code) => resolve(code || 0));
         });
 
-        buildProcess.on('close', (code) => {
-            process.exit(code || 0);
-        });
+        const buildCode = await runBuild('Application Shell', ['build']);
+        process.exit(buildCode);
         return;
     }
 
@@ -150,9 +172,11 @@ async function start() {
 
     coreProcess.on('close', (code) => {
         if (code === RESTART_EXIT_CODE) {
-            // Admin-requested restart — bring down Next.js and relaunch both.
-            logger.info('[Manager] Core Service requested restart — cycling both services...');
+            // Admin-requested restart: Core and the application shell reload so
+            // API and module code cannot drift across generations.
+            logger.info('[Manager] Core Service requested restart — cycling all services...');
             if (shellProcess) {
+                expectedShellStops.add(shellProcess);
                 shellProcess.kill('SIGINT');
                 shellProcess = null;
             }
@@ -171,13 +195,21 @@ async function start() {
         process.exit(code || 0);
     });
 
-    // 2. Start Shell Service
-    logger.info(`[Manager] Launching Shell Service (Next.js ${command}) on ${host}:${port}...`);
-    logger.info(`[Manager] Shell Service proxying API requests to Core Service on port ${apiPort}`);
+    // 2. Start the application shell. Route groups keep player/admin providers
+    // isolated while one Next service proxies both API surfaces and Socket.IO.
+    logger.info(`[Manager] Launching Application Shell (Next.js ${command}) on ${host}:${port}...`);
+    logger.info(`[Manager] Application Shell proxying API requests to Core Service on port ${apiPort}`);
     const nextCmd = path.join(process.cwd(), 'node_modules', '.bin', 'next');
 
     // Pass API_PORT and SHEET_DELVER_DATA to Next.js so it knows where to proxy and find data
-    const env = { ...process.env, PORT: port.toString(), HOSTNAME: host, API_PORT: apiPort.toString(), SHEET_DELVER_DATA: getDataDir() };
+    const env = {
+        ...process.env,
+        PORT: port.toString(),
+        HOSTNAME: host,
+        API_PORT: apiPort.toString(),
+        APP_ADMIN_ORIGIN: adminOrigin.origin,
+        SHEET_DELVER_DATA: getDataDir(),
+    };
 
 
     const nextArgs = [command];
@@ -197,8 +229,10 @@ async function start() {
         process.exit(1);
     });
 
+    const applicationChild = shellProcess;
     shellProcess.on('close', (code) => {
-        logger.info(`[Manager] Shell Service exited with code ${code}`);
+        if (expectedShellStops.delete(applicationChild)) return;
+        logger.info(`[Manager] Application Shell exited with code ${code}`);
         cleanup();
         process.exit(code || 0);
     });

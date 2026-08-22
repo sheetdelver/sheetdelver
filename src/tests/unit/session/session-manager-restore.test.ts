@@ -1,19 +1,41 @@
 import { strict as assert } from 'node:assert';
 import { FoundryUserConnectionService } from '@server/services/foundry';
-import { persistentCache } from '@core/cache/PersistentCache';
 import { ClientSocket } from '@core/foundry/sockets/ClientSocket';
 import { worldStateStore } from '@server/core/world/WorldStateStore';
 import { worldLifecycleStore } from '@server/core/world/WorldLifecycleStore';
+import type {
+    FoundrySessionStore,
+    PersistedFoundrySessions,
+} from '@server/security/foundrySessionStore';
 
-const CACHE_NS = 'core';
-const CACHE_KEY = 'sessions';
 const SESSION_TOKEN = 'session-token';
 const WORLD_ID = 'world-1';
 
 type ConnectWithRestoredCredential = ClientSocket['connectWithRestoredCredential'];
 
+class MemoryFoundrySessionStore implements FoundrySessionStore {
+    public readonly enabled = true;
+    private sessions: PersistedFoundrySessions = {};
+
+    public async initialize(): Promise<void> {}
+    public async load(): Promise<PersistedFoundrySessions> {
+        return structuredClone(this.sessions);
+    }
+    public async save(sessions: PersistedFoundrySessions): Promise<void> {
+        this.sessions = structuredClone(sessions);
+    }
+    public async clear(): Promise<void> {
+        this.sessions = {};
+    }
+}
+
+const sessionStore = new MemoryFoundrySessionStore();
+
 function createManager(): FoundryUserConnectionService {
-    const manager = new FoundryUserConnectionService({ url: 'http://foundry.test' });
+    const manager = new FoundryUserConnectionService(
+        { url: 'http://foundry.test' },
+        { sessionStore },
+    );
     (manager as any).waitForRestoreBackoff = async () => undefined;
     return manager;
 }
@@ -28,7 +50,7 @@ function seedActiveWorld(worldId = WORLD_ID): void {
 }
 
 async function writeCachedSession(worldId = WORLD_ID, overrides: Record<string, unknown> = {}): Promise<void> {
-    await persistentCache.set(CACHE_NS, CACHE_KEY, {
+    await sessionStore.save({
         [SESSION_TOKEN]: {
             username: 'ptest',
             userId: 'user-1',
@@ -41,7 +63,7 @@ async function writeCachedSession(worldId = WORLD_ID, overrides: Record<string, 
 }
 
 async function resetState(): Promise<void> {
-    await persistentCache.delete(CACHE_NS, CACHE_KEY);
+    await sessionStore.clear();
     worldStateStore.clear('foundry-user-connection-service-test');
     worldLifecycleStore.reset('foundry-user-connection-service-test');
 }
@@ -137,7 +159,7 @@ async function runWorldMismatchPurgesWithoutTransportConnect() {
         assert.equal(session, undefined);
         assert.equal(connectCalls, 0);
 
-        const cached = await persistentCache.get<Record<string, unknown>>(CACHE_NS, CACHE_KEY);
+        const cached = await sessionStore.load();
         assert.equal(cached?.[SESSION_TOKEN], undefined, 'mismatched cached session should be purged');
     });
 
@@ -165,7 +187,7 @@ async function runExpiredCachedSessionPurgesWithoutTransportConnect() {
         assert.equal(session, undefined);
         assert.equal(connectCalls, 0);
 
-        const cached = await persistentCache.get<Record<string, unknown>>(CACHE_NS, CACHE_KEY);
+        const cached = await sessionStore.load();
         assert.equal(cached?.[SESSION_TOKEN], undefined, 'expired cached session should be purged');
     });
 
@@ -191,7 +213,7 @@ async function runCachedSessionWithoutWorldIdPurgesWhenWorldIsKnown() {
         assert.equal(session, undefined);
         assert.equal(connectCalls, 0);
 
-        const cached = await persistentCache.get<Record<string, unknown>>(CACHE_NS, CACHE_KEY);
+        const cached = await sessionStore.load();
         assert.equal(cached?.[SESSION_TOKEN], undefined, 'cached session without a world id should be purged once the active world is known');
     });
 
@@ -205,7 +227,7 @@ async function runSetupInvalidatesCachedSessions() {
     const manager = createManager();
     await manager.handleWorldEnteredSetup();
 
-    const cached = await persistentCache.get<Record<string, unknown>>(CACHE_NS, CACHE_KEY);
+    const cached = await sessionStore.load();
     assert.equal(
         cached?.[SESSION_TOKEN],
         undefined,
@@ -233,7 +255,7 @@ async function runClosedWorldDoesNotAttemptCachedRestore() {
         assert.equal(session, undefined);
         assert.equal(connectCalls, 0, 'closed lifecycle must not attempt cached transport restoration');
 
-        const cached = await persistentCache.get<Record<string, unknown>>(CACHE_NS, CACHE_KEY);
+        const cached = await sessionStore.load();
         assert.ok(
             cached?.[SESSION_TOKEN],
             'closed lifecycle preserves cache until a definitive setup transition invalidates it',
@@ -262,7 +284,7 @@ async function runStartupRestoreDefersUntilWorldIdExists() {
         assert.equal(session, undefined);
         assert.equal(connectCalls, 0);
 
-        const cached = await persistentCache.get<Record<string, unknown>>(CACHE_NS, CACHE_KEY);
+        const cached = await sessionStore.load();
         assert.ok(cached?.[SESSION_TOKEN], 'startup deferral should keep the cached session for a later retry');
     });
 
@@ -301,7 +323,7 @@ async function runStartupReturnsUndefinedWithoutSpawningClient() {
         assert.equal(constructed, 0);
 
         // Cache must remain untouched — the cache-driven restore path was never entered.
-        const cached = await persistentCache.get<Record<string, unknown>>(CACHE_NS, CACHE_KEY);
+        const cached = await sessionStore.load();
         assert.ok(cached?.[SESSION_TOKEN], 'startup defer must not purge cache entries');
 
         // In-memory sessions still flow through: seed one, request it, and

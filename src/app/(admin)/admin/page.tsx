@@ -3,9 +3,8 @@
 /**
  * Admin Overview (route: /admin)
  *
- * Landing page of the admin control plane — system and world status at a glance.
- * Navigation, auth gating, and global chrome live in the shell layout
- * (`(admin)/admin/layout.tsx`); this page renders only its content (ADR-0030 UX-3).
+ * Navigation, authentication gating, and persistent chrome live in the admin
+ * layout; this page renders only system/world overview content.
  */
 
 import PageHeading from '../components/PageHeading';

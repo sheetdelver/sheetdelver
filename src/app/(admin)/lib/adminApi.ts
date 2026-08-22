@@ -2,7 +2,7 @@
  * Admin API Client
  *
  * Typed API client for the admin panel. Centralizes all admin API access,
- * handles authentication headers, CSRF tokens, and 401 session expiry.
+ * handles cookie authentication, CSRF tokens, and 401 session expiry.
  *
  * Usage:
  *   import { fetchModuleLifecycle, postWorldAction } from '../lib/adminApi';
@@ -12,6 +12,13 @@
 
 // ─── Types ─────────────────────────────────────────────────────────
 import { ModuleSourceCategory, ModuleSourceKind, ManagerAction } from '@shared/types/modules';
+
+let activeAdminCsrfToken: string | null = null;
+
+/** Keep the non-secret anti-CSRF value in memory; never persist auth state. */
+export function setAdminCsrfToken(token: string | null): void {
+    activeAdminCsrfToken = token;
+}
 
 /** Standard result wrapper for all admin API calls. */
 export interface AdminApiResult<T> {
@@ -111,6 +118,7 @@ export interface AdminStatusResponse {
 export interface AdminMeResponse {
     success: boolean;
     adminId: string | null;
+    csrfToken: string | null;
 }
 
 /** World entry from GET /admin/worlds */
@@ -273,7 +281,8 @@ export function adminApiPath(path: string): string {
 
 /**
  * Typed fetch wrapper for admin API calls.
- * Automatically attaches auth token and CSRF headers from localStorage.
+ * Uses the HttpOnly same-origin session cookie and attaches the in-memory CSRF
+ * token to privileged mutations.
  * Handles 401 (session expired) responses.
  *
  * @param path - Relative admin API path (e.g., '/lifecycle')
@@ -284,25 +293,20 @@ export async function adminFetch<T>(
     path: string,
     options: RequestInit = {}
 ): Promise<AdminApiResult<T>> {
-    const token = localStorage.getItem('admin-token');
-    const csrf = localStorage.getItem('admin-csrf');
-
-    // Build headers with auth credentials
+    // Build headers without exposing or reconstructing the session credential.
     const headers: Record<string, string> = {
         'Content-Type': 'application/json',
         ...(options.headers as Record<string, string> || {}),
     };
 
-    if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-    }
-    if (csrf) {
-        headers['X-Admin-CSRF-Token'] = csrf;
+    if (activeAdminCsrfToken) {
+        headers['X-Admin-CSRF-Token'] = activeAdminCsrfToken;
     }
 
     try {
         const response = await fetch(adminApiPath(path), {
             ...options,
+            credentials: 'same-origin',
             headers,
         });
 

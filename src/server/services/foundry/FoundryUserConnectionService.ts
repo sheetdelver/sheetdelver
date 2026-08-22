@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { ClientSocket } from '@server/core/foundry/sockets/ClientSocket';
 import type { FoundryConfig } from '@server/core/foundry/types';
-import { persistentCache } from '@server/core/cache/PersistentCache';
 import { worldStateStore } from '@server/core/world/WorldStateStore';
 import { worldLifecycleStore } from '@server/core/world/WorldLifecycleStore';
 import { logger } from '@shared/utils/logger';
@@ -10,6 +9,11 @@ import type { RestoredFoundrySessionCredential } from '@server/shared/types/foun
 import { foundryEventIngress } from '@server/services/world/FoundryEventIngress';
 import { FoundryUserIdentityResolver } from './FoundryUserIdentityResolver';
 import { FoundryUserDiscoveryProbe } from './FoundryUserDiscoveryProbe';
+import {
+    createFoundrySessionStoreFromEnvironment,
+    type FoundrySessionStore,
+    type PersistedFoundrySessionRecord,
+} from '@server/security/foundrySessionStore';
 
 export interface FoundryUserConnection {
     id: string;
@@ -22,14 +26,6 @@ export interface FoundryUserConnection {
     detachFoundryEventIngress?: () => void;
 }
 
-interface CachedFoundryConnectionRecord {
-    username?: string;
-    userId?: string;
-    cookie?: string;
-    worldId?: string;
-    lastSaved?: number;
-}
-
 type RestoreAttemptResult =
     | { status: 'restored'; client: ClientSocket; userId: string; connectionId: string }
     | { status: 'retryable' }
@@ -40,19 +36,20 @@ export class FoundryUserConnectionService {
     private readonly connections = new Map<string, FoundryUserConnection>();
     private readonly restorePromises = new Map<string, Promise<FoundryUserConnection | undefined>>();
     private readonly SESSION_TIMEOUT_MS = 1000 * 60 * 60 * 24;
-    private readonly CACHE_NS = 'core';
-    private readonly CACHE_KEY = 'sessions';
     private readonly RESTORE_RETRY_BASE_DELAY_MS = 300;
     private readonly RESTORE_RETRY_MAX_DELAY_MS = 2000;
     private isSaving = false;
     private cacheReadyProbe: () => boolean = () => true;
+    private readonly sessionStore: FoundrySessionStore;
 
-    public constructor(config: FoundryConfig) {
+    public constructor(config: FoundryConfig, options: { sessionStore?: FoundrySessionStore } = {}) {
         this.config = config;
+        this.sessionStore = options.sessionStore ?? createFoundrySessionStoreFromEnvironment();
     }
 
     public async initialize(): Promise<void> {
         logger.info('FoundryUserConnectionService | Initializing connection storage...');
+        await this.sessionStore.initialize();
     }
 
     public setSystemReadinessProbe(probe: () => boolean): void {
@@ -180,7 +177,7 @@ export class FoundryUserConnectionService {
             await this.destroySession(sessionId);
         }
         this.connections.clear();
-        await persistentCache.delete(this.CACHE_NS, this.CACHE_KEY);
+        await this.sessionStore.clear();
     }
 
     public isValidSession(sessionId: string): boolean {
@@ -291,14 +288,14 @@ export class FoundryUserConnectionService {
         }
     }
 
-    private isCachedSessionFresh(sessionData: CachedFoundryConnectionRecord): boolean {
+    private isCachedSessionFresh(sessionData: PersistedFoundrySessionRecord): boolean {
         if (!sessionData.cookie || !sessionData.userId || typeof sessionData.lastSaved !== 'number') {
             return false;
         }
         return Date.now() - sessionData.lastSaved <= this.SESSION_TIMEOUT_MS;
     }
 
-    private toRestoredCredential(sessionData: CachedFoundryConnectionRecord): RestoredFoundrySessionCredential | null {
+    private toRestoredCredential(sessionData: PersistedFoundrySessionRecord): RestoredFoundrySessionCredential | null {
         if (!sessionData.cookie || !sessionData.userId) return null;
         return {
             cookie: sessionData.cookie,
@@ -320,8 +317,10 @@ export class FoundryUserConnectionService {
                 lastSaved: Date.now(),
             };
 
-            await persistentCache.set(this.CACHE_NS, this.CACHE_KEY, sessions);
-            logger.info(`FoundryUserConnectionService | Saved session for ${foundryUsername || key} (Key: ${key}) to disk. Total: ${Object.keys(sessions).length}`);
+            await this.sessionStore.save(sessions);
+            if (this.sessionStore.enabled) {
+                logger.info(`FoundryUserConnectionService | Saved protected session for ${foundryUsername || key} (Key: ${key}). Total: ${Object.keys(sessions).length}`);
+            }
         } catch (e) {
             logger.warn(`FoundryUserConnectionService | Failed to save session: ${e}`);
         } finally {
@@ -329,9 +328,9 @@ export class FoundryUserConnectionService {
         }
     }
 
-    private async loadSessions(): Promise<Record<string, CachedFoundryConnectionRecord> | null> {
+    private async loadSessions(): Promise<Record<string, PersistedFoundrySessionRecord> | null> {
         try {
-            return await persistentCache.get<Record<string, CachedFoundryConnectionRecord>>(this.CACHE_NS, this.CACHE_KEY) || {};
+            return await this.sessionStore.load();
         } catch (e) {
             logger.error(`FoundryUserConnectionService | CRITICAL: Failed to load sessions: ${e}`);
             return null;
@@ -345,8 +344,10 @@ export class FoundryUserConnectionService {
             const sessions = await this.loadSessions();
             if (sessions && sessions[key]) {
                 delete sessions[key];
-                await persistentCache.set(this.CACHE_NS, this.CACHE_KEY, sessions);
-                logger.info(`FoundryUserConnectionService | Cleared key ${key} from disk.`);
+                await this.sessionStore.save(sessions);
+                if (this.sessionStore.enabled) {
+                    logger.info(`FoundryUserConnectionService | Cleared protected session key ${key}.`);
+                }
             }
         } finally {
             this.isSaving = false;

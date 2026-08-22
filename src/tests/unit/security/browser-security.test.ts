@@ -13,6 +13,8 @@ export function run(): void {
     runHeaderAssertions();
     runReportSanitizationAssertions();
     runProxyArchitectureAssertions();
+    runAdminIsolationArchitectureAssertions();
+    runAdminCredentialArchitectureAssertions();
     runPlayerCredentialArchitectureAssertions();
     console.log('  - browser security headers and CSP reporting: all checks passed');
 }
@@ -78,6 +80,84 @@ function runProxyArchitectureAssertions(): void {
     // header so a refactor cannot silently enforce an unobserved policy.
     assert.match(proxySource, /requestHeaders\.set\('Content-Security-Policy', policy\)/);
     assert.match(proxySource, /applyBrowserSecurityHeaders\(response\.headers/);
+}
+
+function runAdminIsolationArchitectureAssertions(): void {
+    const root = process.cwd();
+    const appConfig = fs.readFileSync(path.join(root, 'next.config.ts'), 'utf8');
+    const appProxy = fs.readFileSync(path.join(root, 'src/proxy.ts'), 'utf8');
+
+    assert.match(appConfig, /source:\s*['"]\/api\/admin\/:path\*['"]/);
+    assert.match(appProxy, /isAdminRequestHostAllowed/);
+    assert.match(appProxy, /APP_ADMIN_ORIGIN/);
+    assert.match(appProxy, /Admin API requires the configured local origin/);
+    assert.equal(fs.existsSync(path.join(root, 'src/admin-shell')), false);
+
+    const adminRouteFiles = walkSourceFiles(path.join(root, 'src/app/(admin)'))
+        .filter((file) => /\/(?:page|layout)\.tsx$/.test(file));
+    assert.ok(adminRouteFiles.length >= 8, 'Admin route graph must remain mounted in the main shell');
+
+    const forbiddenAdminImports: string[] = [];
+    for (const file of walkSourceFiles(path.join(root, 'src/app/(admin)'))) {
+        const source = fs.readFileSync(file, 'utf8');
+        if (/from\s+['"]@(?:client|modules|local-modules)\//.test(source)
+            || /from\s+['"]@\/app\/\(player\)/.test(source)) {
+            forbiddenAdminImports.push(path.relative(root, file));
+        }
+    }
+    assert.deepEqual(forbiddenAdminImports, [], 'Admin route graph imports player/module runtime source');
+
+    const playerLayout = fs.readFileSync(path.join(root, 'src/app/(player)/layout.tsx'), 'utf8');
+    const adminLayout = fs.readFileSync(path.join(root, 'src/app/(admin)/layout.tsx'), 'utf8');
+    assert.match(playerLayout, /PlayerProviders/);
+    assert.doesNotMatch(adminLayout, /PlayerProviders|GlobalChat|FloatingHUD/);
+}
+
+function runAdminCredentialArchitectureAssertions(): void {
+    const root = process.cwd();
+    const browserRoots = [
+        path.join(root, 'src/app/(admin)'),
+    ];
+    const violations: string[] = [];
+
+    for (const browserRoot of browserRoots) {
+        for (const file of walkSourceFiles(browserRoot)) {
+            const source = fs.readFileSync(file, 'utf8');
+            const relativeFile = path.relative(root, file).split(path.sep).join('/');
+            if (/localStorage\.(?:getItem|setItem)\(\s*['"`]admin-(?:token|csrf)['"`]/.test(source)) {
+                violations.push(`${relativeFile}: persisted admin credential`);
+            }
+            if (/Authorization\s*[:=].*Bearer|Bearer\s+\$\{/s.test(source)) {
+                violations.push(`${relativeFile}: browser admin bearer`);
+            }
+        }
+    }
+    assert.deepEqual(violations, [], `Script-readable admin credentials found: ${violations.join(', ')}`);
+
+    const authContext = fs.readFileSync(
+        path.join(root, 'src/app/(admin)/context/AdminAuthContext.tsx'),
+        'utf8',
+    );
+    const removedLegacyKeys = [...authContext.matchAll(
+        /localStorage\.removeItem\(\s*['"`]([^'"`]+)['"`]\s*\)/g,
+    )].map((match) => match[1]);
+    assert.deepEqual(removedLegacyKeys, ['admin-token', 'admin-csrf']);
+
+    const authRoutes = fs.readFileSync(
+        path.join(root, 'src/server/routes/admin/registerAdminAuthRoutes.ts'),
+        'utf8',
+    );
+    assert.match(authRoutes, /setAdminSessionCookie\(res, token\)/);
+    assert.doesNotMatch(authRoutes, /^\s+token,\s*$/m);
+    assert.match(authRoutes, /csrfToken: req\.adminSession\?\.csrfToken/);
+
+    const cookieSource = fs.readFileSync(
+        path.join(root, 'src/server/security/adminSessionCookie.ts'),
+        'utf8',
+    );
+    assert.match(cookieSource, /httpOnly: true/);
+    assert.match(cookieSource, /sameSite: 'strict'/);
+    assert.match(cookieSource, /ADMIN_SESSION_COOKIE_PATH = '\/api\/admin'/);
 }
 
 function runPlayerCredentialArchitectureAssertions(): void {

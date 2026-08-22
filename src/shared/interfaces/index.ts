@@ -104,6 +104,7 @@ export interface AppConfig {
         host: string;
         port: number;
         apiPort: number;
+        adminOrigin: string;
         protocol: string;
         chatHistory: number;
         version: string;
@@ -133,8 +134,10 @@ export interface AppConfig {
         };
         bodyLimit: string;
         serviceToken?: string;
-        adminSetupToken?: string;
         adminPepper?: string;
+        foundrySessionKey?: string;
+        foundrySessionPreviousKey?: string;
+        adminAllowedNetworks: string[];
         modulePolicy: {
             minimumTrustTier: 'first-party' | 'verified-third-party' | 'unverified';
             allowUnverifiedInDevelopment: boolean;

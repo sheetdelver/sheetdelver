@@ -7,6 +7,7 @@ const testConfig: AppConfig = {
         host: '127.0.0.1',
         port: 3000,
         apiPort: 3000,
+        adminOrigin: 'http://127.0.0.1:3000',
         protocol: 'http',
         chatHistory: 50,
         version: 'test',
@@ -29,6 +30,7 @@ const testConfig: AppConfig = {
             maxAttempts: 6,
         },
         bodyLimit: '10mb',
+        adminAllowedNetworks: ['127.0.0.0/8', '::1/128'],
         modulePolicy: {
             minimumTrustTier: 'unverified',
             allowUnverifiedInDevelopment: true,

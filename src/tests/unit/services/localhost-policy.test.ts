@@ -1,76 +1,75 @@
 import { strict as assert } from 'node:assert';
-import type { NextFunction, Request, Response } from 'express';
-import { requireLocalhost } from '@server/security/policies';
+import { isAdminOriginRequestAllowed } from '@server/security/policies';
+import {
+    isAdminRequestHostAllowed,
+    resolveAdminOrigin,
+} from '@shared/security/adminOrigin';
+import {
+    DEFAULT_ADMIN_ALLOWED_NETWORKS,
+    isAdminClientAddressAllowed,
+    validateAdminAllowedNetworks,
+} from '@server/security/adminNetwork';
 
-type ResponseStub = {
-    statusCode: number;
-    payload: unknown;
-    status: (code: number) => Response;
-    json: (body: unknown) => Response;
-};
-
-function createResponseStub(): ResponseStub {
-    const state: ResponseStub = {
-        statusCode: 200,
-        payload: undefined,
-        status(code: number) {
-            state.statusCode = code;
-            return state as unknown as Response;
-        },
-        json(body: unknown) {
-            state.payload = body;
-            return state as unknown as Response;
-        },
-    };
-
-    return state;
+function runAdminNetworkTests(): void {
+    assert.equal(isAdminClientAddressAllowed('127.0.0.1', DEFAULT_ADMIN_ALLOWED_NETWORKS), true);
+    assert.equal(isAdminClientAddressAllowed('::1', DEFAULT_ADMIN_ALLOWED_NETWORKS), true);
+    assert.equal(isAdminClientAddressAllowed('::ffff:127.0.0.1', DEFAULT_ADMIN_ALLOWED_NETWORKS), true);
+    assert.equal(isAdminClientAddressAllowed('192.168.50.42', ['192.168.50.0/24']), true);
+    assert.equal(isAdminClientAddressAllowed('192.168.51.42', ['192.168.50.0/24']), false);
+    assert.equal(isAdminClientAddressAllowed('10.20.30.40', ['10.0.0.0/8']), true);
+    assert.throws(() => validateAdminAllowedNetworks([]), /At least one/);
+    assert.throws(() => validateAdminAllowedNetworks(['example.test/24']), /IP address/);
+    assert.throws(() => validateAdminAllowedNetworks(['192.168.1.0/99']), /prefix/);
 }
 
-function runPolicyTests() {
-    const runCase = (remoteAddress: string | undefined, forwardedFor?: string) => {
-        const req = {
-            socket: { remoteAddress },
-            headers: forwardedFor ? { 'x-forwarded-for': forwardedFor } : {},
-        } as Request;
-        const res = createResponseStub();
+function runAdminOriginTests(): void {
+    const defaults = resolveAdminOrigin({ appOrigin: 'http://localhost:3000', env: {} });
+    assert.deepEqual(defaults, {
+        origin: 'http://localhost:3000',
+        host: 'localhost:3000',
+        secure: false,
+    });
 
-        let nextCalled = false;
-        const next: NextFunction = () => {
-            nextCalled = true;
-        };
+    const configured = resolveAdminOrigin({
+        appOrigin: 'http://localhost:8000',
+        configuredOrigin: 'https://sheetdelver.juvi.dev',
+        env: {},
+    });
+    assert.deepEqual(configured, {
+        origin: 'https://sheetdelver.juvi.dev',
+        host: 'sheetdelver.juvi.dev',
+        secure: true,
+    });
+    assert.throws(
+        () => resolveAdminOrigin({ appOrigin: 'http://localhost:3000', configuredOrigin: 'ftp://admin.test', env: {} }),
+        /http or https/,
+    );
+    assert.throws(
+        () => resolveAdminOrigin({ appOrigin: 'http://localhost:3000', configuredOrigin: 'https://admin.test/path', env: {} }),
+        /only scheme/,
+    );
 
-        requireLocalhost(req, res as unknown as Response, next);
-        return { nextCalled, statusCode: res.statusCode, payload: res.payload };
-    };
+    assert.equal(isAdminRequestHostAllowed('sheetdelver.juvi.dev', configured.origin), true);
+    assert.equal(isAdminRequestHostAllowed('sheetdelver.forthelute.com', configured.origin), false);
+    assert.equal(isAdminRequestHostAllowed(null, configured.origin), false);
 
-    const loopbackV4 = runCase('127.0.0.1');
-    assert.equal(loopbackV4.nextCalled, true);
-    assert.equal(loopbackV4.statusCode, 200);
-
-    const loopbackV6 = runCase('::1');
-    assert.equal(loopbackV6.nextCalled, true);
-    assert.equal(loopbackV6.statusCode, 200);
-
-    const loopbackMapped = runCase('::ffff:127.0.0.1');
-    assert.equal(loopbackMapped.nextCalled, true);
-    assert.equal(loopbackMapped.statusCode, 200);
-
-    const proxiedLocal = runCase('127.0.0.1', '127.0.0.1');
-    assert.equal(proxiedLocal.nextCalled, true);
-    assert.equal(proxiedLocal.statusCode, 200);
-
-    const proxiedRemote = runCase('127.0.0.1', '10.0.0.42');
-    assert.equal(proxiedRemote.nextCalled, false);
-    assert.equal(proxiedRemote.statusCode, 403);
-
-    const blocked = runCase('10.0.0.42');
-    assert.equal(blocked.nextCalled, false);
-    assert.equal(blocked.statusCode, 403);
-    assert.deepEqual(blocked.payload, { error: 'Admin access restricted to localhost' });
+    assert.equal(isAdminOriginRequestAllowed({ origin: configured.origin }, configured.origin), true);
+    assert.equal(isAdminOriginRequestAllowed({ origin: 'https://sheetdelver.forthelute.com' }, configured.origin), false);
+    assert.equal(isAdminOriginRequestAllowed({
+        referer: `${configured.origin}/admin`,
+        fetchSite: 'same-origin',
+    }, configured.origin), true);
+    assert.equal(isAdminOriginRequestAllowed({
+        referer: 'https://sheetdelver.forthelute.com/actors/abc',
+        fetchSite: 'same-site',
+    }, configured.origin), false);
+    // Origin-less tools still require an allowed network and normal admin auth.
+    assert.equal(isAdminOriginRequestAllowed({}, configured.origin), true);
 }
 
-export function run() {
-    runPolicyTests();
+export function run(): void {
+    runAdminNetworkTests();
+    runAdminOriginTests();
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

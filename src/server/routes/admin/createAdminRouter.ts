@@ -4,14 +4,14 @@
  * This file owns:
  *
  *  - the router instance
- *  - the `requireLocalhost` mount + `requireAdminAccountExists` middleware
+ *  - the network/origin mounts plus `requireAdminAccountExists` middleware
  *  - the AdminService construction
  *  - the per-section register() calls (auth / status / world / module)
  */
 import express from 'express';
 import { logger } from '@shared/utils/logger';
 import { createAdminService } from '@server/services/admin/AdminService';
-import { requireLocalhost } from '@server/security/policies';
+import { requireAdminNetwork, requireAdminOrigin } from '@server/security/policies';
 import { createAdminLoginLimiter } from '@server/middleware/rateLimiters';
 import { loadAdminAccount } from '@server/security/adminCredentialStore';
 import { getConfig } from '@server/core/config';
@@ -40,7 +40,8 @@ export function createAdminRouter(deps: AdminRouterDeps) {
     const adminLoginLimiter = createAdminLoginLimiter(getConfig());
 
     // Verify local request
-    adminRouter.use(requireLocalhost);
+    adminRouter.use(requireAdminNetwork);
+    adminRouter.use(requireAdminOrigin);
 
     const requireAdminAccountExists: express.RequestHandler = async (req, res, next) => {
         try {

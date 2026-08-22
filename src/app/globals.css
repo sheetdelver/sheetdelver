@@ -37,6 +37,9 @@ body {
   overscroll-behavior-y: none;
 }
 
+/* Admin variables are scoped to the admin provider root. Keeping them in the
+ * Tailwind entry stylesheet avoids applying the dynamic module-source plugin
+ * to a second plain-CSS entrypoint. */
 .admin-shell {
   --admin-bg: #f2e7d8;
   --admin-bg-accent: #dcc5a6;

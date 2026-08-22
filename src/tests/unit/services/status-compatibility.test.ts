@@ -31,6 +31,7 @@ function createConfig() {
             host: 'localhost',
             port: 3000,
             apiPort: 3000,
+            adminOrigin: 'http://localhost:3000',
             protocol: 'http',
             chatHistory: 100,
             version: '0.0.0-test',

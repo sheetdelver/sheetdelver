@@ -20,7 +20,6 @@ import {
     postLifecycleAction,
     type ModuleLifecycleInfo,
 } from '../lib/adminApi';
-import { invalidateModuleSourceCache } from '@modules/registry/client';
 import ModuleDetailPanel from './ModuleDetailPanel';
 import Button from './ui/Button';
 import EmptyState from './ui/EmptyState';
@@ -126,7 +125,7 @@ function buildCardEntries(modules: ModuleLifecycleInfo[]): CardEntry[] {
 export default function ModuleLifecycleControl({ onModulesLoaded }: {
     onModulesLoaded?: (modules: ModuleLifecycleInfo[]) => void;
 }) {
-    const { token, csrfToken, logout } = useAdminAuth();
+    const { isAuthenticated, csrfToken, logout } = useAdminAuth();
     const [modules, setModules] = useState<ModuleLifecycleInfo[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -138,7 +137,7 @@ export default function ModuleLifecycleControl({ onModulesLoaded }: {
     const [activeSystemId, setActiveSystemId] = useState<string | null>(null);
 
     const loadModules = useCallback(async () => {
-        if (!token) { setError('Not authenticated'); setLoading(false); return; }
+        if (!isAuthenticated) { setError('Not authenticated'); setLoading(false); return; }
         try {
             setLoading(true);
             setError(null);
@@ -152,7 +151,7 @@ export default function ModuleLifecycleControl({ onModulesLoaded }: {
         } finally {
             setLoading(false);
         }
-    }, [token, logout]);
+    }, [isAuthenticated, logout]);
 
     useEffect(() => { loadModules(); }, [loadModules]);
     // Resolve the connected world's system id so the operative module can be marked Active.
@@ -170,7 +169,7 @@ export default function ModuleLifecycleControl({ onModulesLoaded }: {
     }, [modules, onModulesLoaded]);
 
     const handleToggle = async (entry: CardEntry) => {
-        if (!token || !csrfToken) { setError('Authentication context missing.'); return; }
+        if (!isAuthenticated || !csrfToken) { setError('Authentication context missing.'); return; }
         try {
             setOperationInProgress(entry.key);
             setError(null);
@@ -182,10 +181,9 @@ export default function ModuleLifecycleControl({ onModulesLoaded }: {
             if (result.sessionExpired) { setError('Session expired. Please log in again.'); logout(); return; }
             if (!result.ok) throw new Error(result.error || `Failed to ${action} module`);
 
-            // Switching source implicitly when enabling a non-active source — bust UI cache.
-            if (action === ManagerAction.Enable && entry.cardSource && entry.cardSource !== entry.mod.activeSource) {
-                invalidateModuleSourceCache();
-            }
+            // Core broadcasts the lifecycle/source change to each player tab,
+            // where that tab invalidates its own module cache. An admin tab
+            // cannot invalidate another browsing context's module-level cache.
             await loadModules();
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Unknown error');

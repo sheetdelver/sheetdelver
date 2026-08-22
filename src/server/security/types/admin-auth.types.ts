@@ -21,13 +21,14 @@ export interface AdminLoginRequest {
 }
 
 /**
- * Admin session token claims.
+ * Server-only admin session claims. The browser credential is an opaque random
+ * lookup key and never serializes this structure.
  */
 export interface AdminSessionClaims {
   principalType: 'app-admin'; // Explicit principal type for admin routes
   adminId: string;
   issuedAt: number; // Unix timestamp
   expiresAt: number; // Unix timestamp
-  csrfToken?: string; // Per-session CSRF token for browser-origin admin mutations
-  instanceId?: string; // Unique ID of the server instance that issued the token
+  csrfToken: string; // Per-session CSRF token for browser-origin admin mutations
+  instanceId: string; // Unique ID of the server instance that issued the token
 }

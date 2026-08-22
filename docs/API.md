@@ -319,8 +319,16 @@ and `req.runtime.tables` are bound to the requesting Foundry user.
 
 ## Admin API
 
-The browser-facing admin UI calls these through the Next.js proxy path
-`/api/admin/...`. The backend Core Service mounts them at `/admin/...`.
+The browser-facing admin UI calls these through the application shell's
+`/api/admin/...` proxy. The shell exposes `/admin` and `/api/admin` only when the
+request host matches `app.admin-origin`; other hostnames receive `404`. The
+backend Core Service mounts the routes at `/admin/...` and independently
+requires the configured browser origin and an allowed client network.
+
+Browser login/setup sets the opaque `sheet-delver-admin-session` HttpOnly,
+SameSite=Strict cookie scoped to `/api/admin`. Response JSON contains the CSRF
+token but never the session credential. Trusted allowed-network CLI clients may
+present an opaque active session through `Authorization: Bearer`.
 
 ### `GET /admin/auth/status`
 
@@ -328,17 +336,30 @@ Returns whether an admin account exists.
 
 ### `POST /admin/auth/setup`
 
-Creates the first admin account.
+Creates the first admin account using `{ bootstrapToken, password }`. Generate
+the single-use, 60-minute bootstrap credential locally with
+`npm run admin:bootstrap -- --data-dir=<DATA_DIR>`.
 
 ### `POST /admin/auth/login`
 
-Authenticates the admin account and returns an admin session token plus CSRF
-token.
+Authenticates with `{ password }`, sets the opaque session cookie, and returns
+the admin identity, CSRF token, and expiration interval.
 
 ### `POST /admin/auth/reset`
 
-Resets the admin password using the setup token and revokes active admin
-sessions.
+Resets the admin password using `{ recoveryToken, newPassword }` and revokes all
+active admin sessions. Generate the single-use, 10-minute recovery credential
+locally with `npm run admin:recover -- --data-dir=<DATA_DIR>`.
+
+### `POST /admin/auth/logout`
+
+Requires the active cookie and CSRF header, revokes the server-side session,
+and expires the browser cookie.
+
+### `GET /admin/auth/me`
+
+Returns the authenticated admin identity and the current CSRF token. It never
+returns the opaque session credential.
 
 ### `GET /admin/status`
 

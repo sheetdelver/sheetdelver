@@ -12,6 +12,7 @@ import { registerRoutes } from '@server/app/registerRoutes';
 import { FoundryUserConnectionService } from '@server/services/foundry';
 import { worldLifecycleStore } from '@server/core/world/WorldLifecycleStore';
 import type { WorldLifecycleTransition } from '@server/core/world/WorldLifecycleStore';
+import { createFoundrySessionStoreFromEnvironment } from '@server/security/foundrySessionStore';
 
 async function startServer() {
     // Resolve and initialize the data directory before anything else.
@@ -66,9 +67,17 @@ async function startServer() {
     registerMiddleware(app);
 
     // Initialize Foundry user connection orchestration outside core transports.
-    const foundryUserConnections = new FoundryUserConnectionService({
-        ...config.foundry
-    });
+    const foundryUserConnections = new FoundryUserConnectionService(
+        { ...config.foundry },
+        {
+            sessionStore: createFoundrySessionStoreFromEnvironment({
+                env: {
+                    APP_FOUNDRY_SESSION_KEY: config.security.foundrySessionKey,
+                    APP_FOUNDRY_SESSION_PREVIOUS_KEY: config.security.foundrySessionPreviousKey,
+                },
+            }),
+        },
+    );
 
     // Start System Provider
     await systemService.initialize(config.foundry);
@@ -111,7 +120,7 @@ async function startServer() {
     httpServer.listen(corePort, coreHost, () => {
         logger.info(`Core Service | Silent Daemon running on http://${coreHost}:${corePort}`);
         logger.info(`Core Service | App API: http://${coreHost}:${corePort}/api`);
-        logger.info(`Core Service | Admin API: http://${coreHost}:${corePort}/admin (Localhost Only)`);
+        logger.info(`Core Service | Admin API: http://${coreHost}:${corePort}/admin (Origin + Network Restricted)`);
     });
 }
 

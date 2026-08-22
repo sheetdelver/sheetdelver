@@ -77,8 +77,8 @@ If none exist, `./data/` is created automatically.
 data/
 ├── config/
 │   └── settings.yaml          # Application configuration
-├── cache/                      # Persistent cache (worlds, sessions)
-├── security/                   # Admin credentials and audit log
+├── cache/                      # Non-secret persistent cache (for example worlds)
+├── security/                   # Admin state, audit log, encrypted sessions
 ├── modules/                    # Module lifecycle state and artifacts
 └── logs/                       # Application logs (future use)
 ```
@@ -92,6 +92,9 @@ The main configuration file lives at `<DATA_DIR>/config/settings.yaml`.
 app:
     host: localhost      # Hostname for the SheetDelver application
     port: 3000           # Port for SheetDelver to listen on
+    api-port: 3001       # Loopback Core Service port
+    # Browser origin allowed to serve /admin and proxy /api/admin.
+    admin-origin: https://sheetdelver.internal.example
     protocol: http       # Protocol for SheetDelver (http/https)
     chat-history: 100    # Max number of chat messages to retain/display
 
@@ -101,7 +104,7 @@ foundry:
     protocol: http            # Protocol (http/https)
     connector: socket         # 'socket' (Headless Sockets)
     username: "gamemaster"    # Required for Headless connection
-    password: "password"      # Required for Headless connection
+    password: { env: FOUNDRY_PASSWORD }
     # Optional diagnostic escape hatch. Keep false for normal module/SDK reads:
     # compendium UUIDs should resolve from declared hydrated compendium pack rows.
     allow-live-compendium-uuid-fallback: false
@@ -113,6 +116,11 @@ debug:
     level: 3             # Log level (0=None, 1=Error, 2=Warn, 3=Info, 4=Debug)
 
 security:
+    admin:
+        allowed-networks:
+            - 127.0.0.0/8
+            - ::1/128
+            - 192.168.1.0/24 # Replace with the operator LAN/VPN subnet
     rate-limit:
         enabled: true           # Enable/disable login rate limiting
         window-minutes: 15      # Time window in minutes
@@ -122,20 +130,22 @@ security:
         allow-all-origins: false
         allowed-origins:
             - http://localhost:3000
-    service-token: "replace-with-strong-random-token"  # Internal privileged bearer token (not a Foundry password)
-    admin-setup-token: "replace-with-strong-random-bootstrap-token"  # One-time token for creating the initial /admin account
-    source-governance:
-        host-allowlist:      # Optional: List of allowed remote source hostnames
-            - github.com
-            - raw.githubusercontent.com
+    service-token: { env: APP_SERVICE_TOKEN }
+    # Optional. Without this key, Foundry sessions are not restored after restart.
+    foundry-session-key: { env: APP_FOUNDRY_SESSION_KEY }
+    # Optional extra input to the stored admin password hash.
+    admin-pepper: { env: APP_ADMIN_PEPPER }
 ```
 
-The `security.source-governance.host-allowlist` is **optional**. If empty or omitted, the system defaults to "Allow All" (Fail-Open). In production mode, requests to hosts not in this list will be blocked. In development mode, a warning will be logged instead. Wildcards are supported (e.g., `*.github.com`).
+Secret-bearing fields accept `{ env: VARIABLE_NAME }` or
+`{ file: /absolute/path }`. Secret files must be regular, non-symlink files,
+must not grant group/other permissions, and are limited to 16 KiB. Encryption
+key files must also live outside `<DATA_DIR>`. Inline string values remain a
+migration-only compatibility form and produce a startup warning.
 
-
-The `security.service-token` value is used only for internal privileged API bearer flows. Do not reuse your Foundry account password.
-
-The `security.admin-setup-token` value is used only for first-time admin bootstrap at `/admin`. It is not the admin password. You choose this token, then enter it once in the admin setup form along with the password you want to create.
+The service token is used only for internal privileged API bearer flows. Do
+not reuse a Foundry or admin password. Foundry session keys must be exactly 32
+bytes encoded with an explicit `base64:` or `hex:` prefix.
 
 You can generate a strong token with either command:
 
@@ -147,9 +157,15 @@ openssl rand -hex 32
 node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
 ```
 
-Environment override is supported via `APP_SERVICE_TOKEN`.
+Direct environment overrides include `FOUNDRY_PASSWORD`, `APP_SERVICE_TOKEN`,
+`APP_ADMIN_PEPPER`, `APP_FOUNDRY_SESSION_KEY`, and
+`APP_FOUNDRY_SESSION_PREVIOUS_KEY`. `APP_ADMIN_ORIGIN` overrides the local
+browser origin, and `APP_ADMIN_ALLOWED_NETWORKS` accepts a comma-separated CIDR
+list. Generate a session key with:
 
-Environment override is also supported via `APP_ADMIN_SETUP_TOKEN`.
+```bash
+printf 'base64:'; openssl rand -base64 32 | tr -d '\n'; printf '\n'
+```
 
 Live compendium UUID fallback is disabled by default. Module and SDK `fetchByUuid` calls resolve compendium documents from declared hydrated compendium pack rows; a miss logs a warning and returns `null` so module authors can fix their `info.json` pack declarations. For diagnostics only, set `foundry.allow-live-compendium-uuid-fallback: true`, `foundry.allowLiveCompendiumUuidFallback: true`, or `APP_ALLOW_LIVE_COMPENDIUM_UUID_FALLBACK=true` to allow a live Foundry pack-document fetch.
 
@@ -174,7 +190,10 @@ Debug API surface follows the existing debug switch:
     npm run setup                         # Uses default ./data/
     npm run setup -- --data-dir=/custom   # Custom data directory
     ```
-    *Follow the prompts to configure your Foundry connection. The setup wizard auto-generates both `security.service-token` and `security.admin-setup-token` in `settings.yaml`, stored at `<DATA_DIR>/config/settings.yaml`.*
+    *The wizard writes external secret references, never the corresponding
+    secret values. Export the named environment variables before startup. When
+    no admin account exists, it also prints a one-time bootstrap credential
+    valid for 60 minutes.*
 
 3.  **Start the Application**:
     -   **Development**:
@@ -189,10 +208,20 @@ Debug API surface follows the existing debug switch:
         ```
 
 4.  **Create the Admin Account**:
-    Open `/admin` after the app starts. On first run you will see the setup form instead of the login form.
-    Enter:
-    - the value from `security.admin-setup-token` (or `APP_ADMIN_SETUP_TOKEN`)
-    - the admin password you want to create
+    Open `<admin-origin>/admin`. The application serves this route only when the
+    request host matches the configured local origin and the effective client
+    address belongs to `security.admin.allowed-networks`. Other hostnames return
+    `404` for `/admin` and `/api/admin`.
+
+    Use the bootstrap credential printed by setup. For an existing
+    installation with no admin account, issue a replacement locally:
+
+    ```bash
+    npm run admin:bootstrap -- --data-dir=/custom
+    ```
+
+    The credential is stored only as a digest, expires after 60 minutes, and is
+    consumed when the account is created.
 
 5.  **Deployment (PM2)**:
     For production environments, use [PM2](https://pm2.keymetrics.io/) with the provided ecosystem file to ensure the application runs from the correct directory.
@@ -211,9 +240,12 @@ Debug API surface follows the existing debug switch:
 
     Configure the data directory in `ecosystem.config.cjs` via the `SHEET_DELVER_DATA` environment variable.
 
-6.  **Open**: Navigate to the URL shown in the setup output (typically [http://localhost:3000](http://localhost:3000)).
+6.  **Open**: Navigate to the player URL shown in the startup output (typically [http://localhost:3000](http://localhost:3000)). Use the separately printed loopback URL for administration.
 
-*Note: The startup process automatically manages both the backend service and the frontend web server.*
+*Note: The startup process manages two services: the application shell and the Core Service. Player and admin route groups remain provider-isolated inside the application shell.*
+
+See [Security Operations](docs/SECURITY_OPERATIONS.md) for recovery, session-key
+rotation, migration, and rollback procedures.
 
 ### Testing
 
