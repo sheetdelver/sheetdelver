@@ -12,7 +12,7 @@ import type { RealtimeSharedContentPayload } from '@shared/contracts/realtime';
 
 interface LoginPayload {
     success: boolean;
-    token?: string;
+    userId?: string;
     error?: string;
 }
 

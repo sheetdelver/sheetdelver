@@ -2,6 +2,8 @@ import { useState, useRef, useEffect } from 'react';
 import { RollMode } from '@shared/sdk';
 import DiceTray from './DiceTray';
 import type { ChatMessageDto } from '@shared/contracts/chat';
+import { sanitizeRichHtml } from '@shared/security/safeHtml';
+import { SafeHtmlContent } from './SafeHtmlContent';
 
 interface ChatTabProps {
     messages: ChatMessageDto[];
@@ -88,32 +90,14 @@ export default function ChatTab({ messages, onSend, foundryUrl, onRoll, hideDice
 
     // Helper to format content content with fixed image URLs AND parsing inline checks
     const formatContent = (html: string) => {
-        if (!html) return '';
+        if (!html) return sanitizeRichHtml('');
 
         let fixed = html;
 
-        // 1. Fix Image URLs
-        if (foundryUrl) {
-            fixed = fixed.replace(/src="([^"]+)"/g, (match, p1) => {
-                if (p1.startsWith('http') || p1.startsWith('data:')) return match;
-                const cleanUrl = foundryUrl.endsWith('/') ? foundryUrl : `${foundryUrl}/`;
-                const cleanPath = p1.startsWith('/') ? p1.slice(1) : p1;
-                return `src="${cleanUrl}${cleanPath}"`;
-            });
-
-            fixed = fixed.replace(/url\(([^)]+)\)/g, (match, p1) => {
-                const path = p1.replace(/['"]/g, '');
-                if (path.startsWith('http') || path.startsWith('data:')) return match;
-                const cleanUrl = foundryUrl.endsWith('/') ? foundryUrl : `${foundryUrl}/`;
-                const cleanPath = path.startsWith('/') ? path.slice(1) : path;
-                return `url('${cleanUrl}${cleanPath}')`;
-            });
-        }
-
-        // 2. UUID Links: @UUID[...]{Label} -> Label
+        // UUID Links: @UUID[...]{Label} -> Label
         fixed = fixed.replace(/@UUID\[[^\]]+\]\{([^}]+)\}/g, '$1');
 
-        // 3. Parse Inline Checks: [[check 15 cha]] OR [[/r 1d20]]
+        // Parse Inline Checks: [[check 15 cha]] OR [[/r 1d20]]
         fixed = fixed.replace(/\[\[(.*?)\]\]/gi, (match, content) => {
             const clean = content.replace(/&nbsp;/g, ' ').trim();
             const lower = clean.toLowerCase();
@@ -148,10 +132,9 @@ export default function ChatTab({ messages, onSend, foundryUrl, onRoll, hideDice
             return match;
         });
 
-        // 4. Strip inline styles from HTML to allow full CSS control
-        fixed = fixed.replace(/\s+style="[^"]*"/gi, '');
-
-        return fixed;
+        // Generated controls and Foundry content cross the same final parser;
+        // module-provided classes cannot bypass the sanitizer allowlist.
+        return sanitizeRichHtml(fixed, { foundryBaseUrl: foundryUrl });
     };
 
     const handleChatClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -192,8 +175,13 @@ export default function ChatTab({ messages, onSend, foundryUrl, onRoll, hideDice
                                 <span className={s.user}>{msg.user}</span>
                                 <span className={s.time}>{getTimeAgo(msg.timestamp ?? now, now)}</span>
                             </div>
-                            {msg.flavor && <div className={s.flavor} dangerouslySetInnerHTML={{ __html: msg.flavor }} />}
-                            <div className={s.content} dangerouslySetInnerHTML={{ __html: formatContent(msg.content || '') }} />
+                            {msg.flavor && (
+                                <SafeHtmlContent
+                                    className={s.flavor}
+                                    html={sanitizeRichHtml(msg.flavor, { foundryBaseUrl: foundryUrl })}
+                                />
+                            )}
+                            <SafeHtmlContent className={s.content} html={formatContent(msg.content || '')} />
                             {msg.rollTotal !== undefined && (
                                 <div className="mt-2 space-y-1">
                                     <div className={s.rollResult}>

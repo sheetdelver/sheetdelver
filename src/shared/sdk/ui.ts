@@ -60,6 +60,7 @@ export interface RichTextEditorProps {
  * appSocket and activeUIModule are excluded — these are platform-shell concerns.
  */
 export interface UseFoundry {
+    /** @deprecated Non-secret session-readiness marker; use fetchWithAuth for requests. */
     token: string | null;
     currentUser: UserSession | null;
     system: {

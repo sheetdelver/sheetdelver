@@ -15,29 +15,8 @@ export const resolveImage = (path: string, foundryUrl?: string) => {
     return path;
 };
 
-/**
- * Generic utility to process HTML content (e.g. from Foundry enrichers).
- * Fixes relative image sources.
- */
-export const processHtmlContent = (html: string, foundryUrl?: string) => {
-    if (!html) return '';
-    let processed = html;
-
-    // Fix relative image src
-    if (foundryUrl) {
-        processed = processed.replace(/src="([^"]+)"/g, (match, src) => {
-            // Skip absolute URLs or data URIs
-            if (src.startsWith('http') || src.startsWith('data:')) return match;
-
-            // Clean paths
-            const cleanPath = src.startsWith('/') ? src.slice(1) : src;
-            const cleanBase = foundryUrl.endsWith('/') ? foundryUrl : `${foundryUrl}/`;
-            return `src="${cleanBase}${cleanPath}"`;
-        });
-    }
-
-    return processed;
-};
+// Registry consumers share the SDK sanitizer so there is one HTML trust boundary.
+export { processHtmlContent } from '@shared/sdk/utils';
 
 /**
  * extract a safe description string from a system object field.

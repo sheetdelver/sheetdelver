@@ -6,7 +6,7 @@ import { SetupManager } from '@core/world/SetupManager';
 import { createAuthenticateSession } from '@server/middleware/authenticateSession';
 import { createTryAuthenticateSession } from '@server/middleware/tryAuthenticateSession';
 import { createEnsureInitialized } from '@server/middleware/ensureInitialized';
-import { createLoginLimiter } from '@server/middleware/rateLimiters';
+import { createCspReportLimiter, createLoginLimiter } from '@server/middleware/rateLimiters';
 import { registerPublicRoutes } from '@server/routes/public/registerPublicRoutes';
 import { registerSystemRoutes } from '@server/routes/protected/registerSystemRoutes';
 import { registerActorRoutes } from '@server/routes/protected/registerActorRoutes';
@@ -20,6 +20,7 @@ import { createAdminRouter } from '@server/routes/admin/createAdminRouter';
 import { createActorNormalizationService } from '@server/services/actors/ActorNormalizationService';
 import { createSystemRouteFoundryClient } from '@server/shared/utils/createRouteFoundryClient';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
+import { readRequestSessionCredential } from '@server/security/playerSessionCookie';
 import { logger } from '@shared/utils/logger';
 import { SystemStatusPayload } from '@/shared/contracts/status';
 import type { FoundryUserConnectionServiceLike } from '@server/shared/types/foundry';
@@ -40,6 +41,7 @@ export function registerRoutes(deps: RegisterRoutesDeps): void {
     const tryAuthenticateSession = createTryAuthenticateSession(deps.foundryUserConnections, deps.config);
     const ensureInitialized = createEnsureInitialized(deps.foundryUserConnections);
     const loginLimiter = createLoginLimiter(deps.config);
+    const cspReportLimiter = createCspReportLimiter(deps.config);
 
     const appRouter = express.Router();
 
@@ -52,9 +54,8 @@ export function registerRoutes(deps: RegisterRoutesDeps): void {
 
             let isAuthenticated = false;
             let userSession = null;
-            const authHeader = req.headers.authorization;
-            if (authHeader && authHeader.startsWith('Bearer ')) {
-                const token = authHeader.split(' ')[1];
+            const token = readRequestSessionCredential(req);
+            if (token) {
                 userSession = await deps.foundryUserConnections.getOrRestoreSession(token);
                 if (userSession && userSession.client.userId) {
                     isAuthenticated = true;
@@ -91,9 +92,11 @@ export function registerRoutes(deps: RegisterRoutesDeps): void {
             const cache = await SetupManager.loadCache();
             return { isConfigured: !!(cache.currentWorldId && cache.worlds[cache.currentWorldId]) };
         },
+        cspReportLimiter,
         loginLimiter,
         createSession: (username, password) => deps.foundryUserConnections.createSession(username, password),
-        destroySession: (token) => deps.foundryUserConnections.destroySession(token)
+        destroySession: (token) => deps.foundryUserConnections.destroySession(token),
+        securePlayerCookie: deps.config.app.protocol === 'https',
     });
 
     // Preserve existing guard and auth order: init gate first, then protected route auth.

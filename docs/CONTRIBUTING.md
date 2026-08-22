@@ -5,7 +5,7 @@ Welcome to **SheetDelver**! We appreciate your interest in contributing to this 
 ## Getting Started
 
 ### Prerequisites
-- Node.js 18+
+- Node.js 22.12+
 - A running instance of Foundry VTT (v13+)
 - Access to the target Foundry world with a user account.
 

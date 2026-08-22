@@ -19,13 +19,14 @@ export function createApp(config: AppConfig): AppRuntime {
     // Trust loopback proxy (e.g. NGINX/Caddy on same host) to securely handle X-Forwarded-For headers
     app.set('trust proxy', 'loopback');
     app.use(express.json({ limit: config.security.bodyLimit }));
-    app.use(cors({ origin: corsOriginPolicy }));
+    app.use(cors({ origin: corsOriginPolicy, credentials: true }));
 
     const httpServer = createServer(app);
     const io = new SocketIOServer(httpServer, {
         cors: {
             origin: corsOriginPolicy,
-            methods: ['GET', 'POST']
+            methods: ['GET', 'POST'],
+            credentials: true,
         }
     });
 

@@ -8,6 +8,8 @@ import RichTextEditor from './RichTextEditor';
 import { useConfig } from '@client/ui/context/ConfigContext';
 import { useSession } from '@client/ui/context/SessionContext';
 import { logger } from '@shared/utils/logger';
+import { sanitizeRichHtml } from '@shared/security/safeHtml';
+import { SafeHtmlContent } from './SafeHtmlContent';
 
 export default function JournalModal() {
     const { activeJournalId, setActiveJournalId, sharedJournalId, setSharedJournalId } = useUI();
@@ -76,27 +78,10 @@ export default function JournalModal() {
     const currentPage = journal?.pages?.[activePageIndex];
     const rawContent = currentPage?.text?.content || journal?.content || '';
 
-    // Sanitize content: Prefix relative Foundry URLs with foundryUrl
-    const content = React.useMemo(() => {
-        if (!rawContent || !foundryUrl) return rawContent;
-        // Prefix relative image/media/link paths
-        return rawContent.replace(
-            /(src|href)="([^"]+)"/g,
-            (match: string, attr: string, path: string) => {
-                if (path.startsWith('http') || path.startsWith('data:') || path.startsWith('/') || path.startsWith('#')) {
-                    return match;
-                }
-                return `${attr}="${foundryUrl}/${path}"`;
-            }
-        ).replace(
-            /(src|href)='([^']+)'/g,
-            (match: string, attr: string, path: string) => {
-                if (path.startsWith('http') || path.startsWith('data:') || path.startsWith('/') || path.startsWith('#')) {
-                    return match;
-                }
-                return `${attr}='${foundryUrl}/${path}'`;
-            }
-        );
+    // Keep editor input raw for round-tripping; only display content receives
+    // the SafeHtml brand and Foundry-relative URL transformation.
+    const displayContent = React.useMemo(() => {
+        return sanitizeRichHtml(rawContent, { foundryBaseUrl: foundryUrl ?? undefined });
     }, [rawContent, foundryUrl]);
 
     if (!activeJournalId) return null;
@@ -155,7 +140,7 @@ export default function JournalModal() {
                             {isEditing ? (
                                 <div className="flex-1 overflow-hidden h-full">
                                     <RichTextEditor
-                                        content={content}
+                                        content={rawContent}
                                         onSave={handleSave}
                                     />
                                 </div>
@@ -166,10 +151,10 @@ export default function JournalModal() {
                                             <h2 className="text-xl sm:text-3xl m-0 text-white font-cinzel leading-relaxed">{currentPage.name}</h2>
                                         </div>
                                     )}
-                                    {content ? (
-                                        <div
+                                    {rawContent ? (
+                                        <SafeHtmlContent
                                             className="journal-content-render"
-                                            dangerouslySetInnerHTML={{ __html: content }}
+                                            html={displayContent}
                                         />
                                     ) : (
                                         <div className="flex flex-col items-center justify-center h-full opacity-20 py-20">

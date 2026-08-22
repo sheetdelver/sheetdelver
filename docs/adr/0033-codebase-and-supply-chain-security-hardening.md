@@ -1,6 +1,6 @@
 # ADR-0033: Codebase Security Hardening and Dormant Distribution Boundaries
 
-**Status:** Accepted - Phases 0-1 implemented; Phases 2-5 proposed.
+**Status:** Accepted - Phases 0-1 implemented; Phase 2 implemented with CSP observation pending; Phases 3-5 proposed.
 **Date:** August 21, 2026
 **Phase:** Pre-main security remediation
 **Supersedes:** None
@@ -404,16 +404,124 @@ Verification and surfaced drift:
 
 ### Phase 2 - HTML and browser security
 
-- [ ] Introduce the sanitizer, `SafeHtml`, one rendering boundary, and XSS plus
+- [x] Introduce the sanitizer, `SafeHtml`, one rendering boundary, and XSS plus
   Foundry-markup fixtures.
-- [ ] Migrate every raw HTML sink and reject new sinks in the active suite.
+- [x] Migrate every raw HTML sink and reject new sinks in the active suite.
 - [ ] Add security headers and complete CSP report-only observation before
   enforcement.
-- [ ] Remove player bearer credentials from `localStorage` and update Socket.IO
+- [x] Remove player bearer credentials from `localStorage` and update Socket.IO
   authentication.
 
 **Exit:** XSS fixtures are inert, expected Foundry markup works, and player
 credentials are not script-readable.
+
+#### Phase 2 Implementation Amendment - August 21, 2026
+
+Phase 2 implementation is complete, while the original CSP item deliberately
+remains unchecked until the owner has exercised representative live worlds and
+module UI during the report-only observation period. The policy is not enforced
+by this amendment. An isolated production-shell browser pass found no CSP
+violations, but it did not load world-backed chat, journals, actor pages, or
+module tools and therefore is not treated as sufficient operational evidence
+for enforcement.
+
+Rich HTML boundary:
+
+- `sanitize-html` `2.17.7` now parses and sanitizes untrusted rich content.
+  `safeHtml.ts` owns the explicit element/attribute/scheme allowlist,
+  Foundry-relative link and image resolution, raster-only data images, and the
+  branded `SafeHtml` result. The allowlist includes the concrete content-link,
+  content-embed, inline-roll, semantic text, and table markup found in the saved
+  Foundry generation 14 reference while excluding forms, executable SVG/MathML,
+  embedded browsing contexts, event attributes, inline CSS, and dangerous URL
+  schemes.
+- `SafeHtmlContent.tsx` is the only reviewed React component allowed to use
+  `dangerouslySetInnerHTML`. Chat content and flavor, journal display,
+  notification HTML, and the login world description now cross that boundary.
+  Journal editor input remains raw for lossless editing and is sanitized only
+  for display. The registry utility delegates to the SDK sanitizer rather than
+  retaining a second regex-based implementation.
+- The security suite walks TypeScript/TSX source and rejects any additional raw
+  React sink. Positive Foundry fixtures verify content links, embeds, inline
+  rolls, images, and tables. Adversarial fixtures cover scripts, event handlers,
+  mixed-case and entity-encoded schemes, malformed attributes, executable data
+  images, SVG/MathML, iframes, and unsafe CSS.
+
+Player browser authentication:
+
+- `POST /api/login` now returns identity/status only and sets the reusable
+  Foundry user-session UUID in the `sheet-delver-session` HttpOnly,
+  SameSite=Strict cookie. Its lifetime remains 24 hours and `Secure` follows
+  the configured HTTPS application protocol. Logout clears the browser cookie
+  even if server-side session teardown fails.
+- REST status and protected middleware accept the player cookie. Trusted
+  server-side bearer callers remain compatible, but the service credential is
+  recognized only from an explicit bearer header and cannot be promoted from a
+  browser cookie. Socket.IO restores the same player session from the handshake
+  cookie and no longer accepts a browser `handshake.auth.token`.
+- Player fetch helpers use same-origin cookie credentials and no longer create
+  Authorization headers. Browser state retains only a non-secret
+  `cookie-session-active` readiness marker for existing hooks and module SDK
+  compatibility. Startup removes the legacy `sheet-delver-token`
+  `localStorage` value without reading it. An architecture check rejects new
+  player token storage, browser bearer construction, or Socket.IO auth tokens.
+  It also rejects broad `localStorage.clear()` calls and proves that session
+  migration removes only that exact legacy key. Non-secret roll-mode,
+  module-setting, and theme namespaces remain intact; for example, the dnd5e
+  theme continues to use the authoritative `flags._sheet_delver.theme` actor
+  flag with `_sheet_delver.theme` as its browser fallback.
+  Admin credential migration and browser-origin separation remain Phase 3 and
+  were not changed here.
+
+Browser response policy:
+
+- Next Proxy creates a fresh nonce for every HTML request, supplies the
+  nonce-bearing CSP request header required for Next framework scripts, and
+  emits only `Content-Security-Policy-Report-Only` to the browser. Root layout
+  rendering is request-bound so generated scripts and styles receive that
+  nonce. API, Socket.IO, and static assets avoid unnecessary nonce processing;
+  the explicit admin API matcher preserves the existing loopback guard.
+- The centralized policy denies objects and framing, constrains scripts,
+  connections, workers, forms, base URLs, images, media, and fonts, and emits
+  `nosniff`, `DENY` framing compatibility, same-origin referrer policy, and
+  a minimal Permissions-Policy. HSTS is emitted only when Next observes HTTPS,
+  so local HTTP development is not pinned accidentally.
+- Reports post to the public `/api/csp-report` collector with a 16 KiB body
+  bound, ten-report summary bound, and 60-request-per-minute limiter when rate
+  limiting is enabled. Only bounded directive and query-free location summaries
+  reach `logger.warn`; raw attacker-controlled reports are not logged.
+
+Implementation review also surfaced stale Node prerequisites. Next.js
+`16.3.2` requires Node `20.9+`, and `sanitize-html` `2.17.7` requires
+Node `22.12+`. The package engine and owner documentation now state Node
+`22.12+`, matching the existing Node 22 CI line; the implementation workstation
+used Node `24.19.0`.
+
+Verification completed:
+
+- the owner confirmed against the configured application that player login,
+  refresh, and session restoration persist correctly through the HttpOnly
+  cookie migration
+- full unit suite, focused auth/socket/security cases, TypeScript, and
+  `git diff --check` pass
+- lint passes with the one pre-existing `ShutdownWatcher.tsx` internal
+  navigation warning recorded in Phase 1
+- an isolated Turbopack production build under operating-system temporary
+  storage passes and reports every application route as dynamically rendered
+- an installed headless Chrome production-shell pass confirmed matching CSP and
+  generated-script nonces, a report-only response, and no shell CSP violation;
+  the expected status error occurred because Core/world data was intentionally
+  not started for that isolated check
+- full and production-only npm audits both report zero vulnerabilities across
+  682 total and 239 production dependencies
+
+No configured world, module installation, or
+`<DATA_DIR>/config/settings.yaml` was modified. Before the CSP checklist item
+can close, the owner should run normal player, chat, journal, actor, and module
+workflows and review `Browser CSP violation` warnings. Any legitimate
+violations update the centralized policy with a focused fixture; only a clean
+observation period can justify a later amendment switching from report-only to
+enforcement.
 
 ### Phase 3 - Admin origin and credential/recovery hardening
 

@@ -33,10 +33,8 @@ export default function GenericActorPage({ actorId }: GenericActorPageProps) {
     const [showDeleteModal, setShowDeleteModal] = useState(false);
 
     const fetchWithAuth = useCallback(async (input: string, init?: RequestInit) => {
-        const headers = new Headers(init?.headers);
-        if (token) headers.set('Authorization', `Bearer ${token}`);
-        return fetch(input, { ...init, headers });
-    }, [token]);
+        return fetch(input, { ...init, credentials: 'same-origin' });
+    }, []);
 
     const foundryUrlRef = useRef(foundryUrl);
     useEffect(() => { foundryUrlRef.current = foundryUrl; }, [foundryUrl]);

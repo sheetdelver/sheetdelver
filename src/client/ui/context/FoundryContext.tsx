@@ -5,7 +5,7 @@ import { logger } from '@shared/utils/logger';
 import { AppSystemInfo, User, ConnectionStep } from '@shared/interfaces';
 import type { ActorCardData, UIModuleManifest } from '@shared/sdk';
 import { Socket } from 'socket.io-client';
-import { useSession } from '@client/ui/context/SessionContext';
+import { COOKIE_SESSION_MARKER, useSession } from '@client/ui/context/SessionContext';
 import { useActorCombat } from '@client/ui/context/ActorCombatContext';
 import { useRealtime } from '@client/ui/context/RealtimeContext';
 import { useChat } from '@client/ui/context/ChatContext';
@@ -174,6 +174,14 @@ export function FoundryProvider({ children }: { children: ReactNode }) {
             const data = await fetchInitialStatus();
             if (!isMounted || !data) return;
 
+            // A valid HttpOnly cookie is discovered through status; JavaScript
+            // retains only a non-secret readiness marker for existing hooks.
+            if (data.isAuthenticated === true && !token) {
+                setToken(COOKIE_SESSION_MARKER);
+            } else if (data.isAuthenticated === false && token) {
+                setToken(null);
+            }
+
             if (token && shouldDiscardWorldSession(data)) {
                 logger.info('FoundryProvider | Discarding stale world session in terminal lifecycle state');
                 setCurrentUserId(null);
@@ -187,9 +195,9 @@ export function FoundryProvider({ children }: { children: ReactNode }) {
 
             // A protected bootstrap read is valid only after status confirms that
             // this token restored. Its readiness failure must not restart status.
-            if (token && data.isAuthenticated === true) {
+            if (data.isAuthenticated === true) {
                 try {
-                    const scData = await foundryApi.fetchSharedContent(token);
+                    const scData = await foundryApi.fetchSharedContent(COOKIE_SESSION_MARKER);
                     if (!isMounted) return;
                     setSharedContent(scData);
                 } catch (e) {

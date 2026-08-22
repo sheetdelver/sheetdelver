@@ -6,21 +6,18 @@ import {
     createSessionRouteFoundryClient,
     createSystemRouteFoundryClient,
 } from '@server/shared/utils/createRouteFoundryClient';
+import { readBearerToken, readRequestSessionCredential } from '@server/security/playerSessionCookie';
 
 export function createTryAuthenticateSession(
     foundryUserConnections: Pick<FoundryUserConnectionServiceLike, 'getOrRestoreSession'>,
     config: AppConfig,
 ): express.RequestHandler {
     return (req: express.Request, res: express.Response, next: express.NextFunction) => {
-        const authHeader = req.headers.authorization;
-        if (!authHeader || !authHeader.startsWith('Bearer ')) {
-            return next();
-        }
-
-        const token = authHeader.split(' ')[1];
+        const token = readRequestSessionCredential(req);
+        if (!token) return next();
 
         // 1. Check for System Service Account using dedicated app service token
-        if (config.security.serviceToken && token === config.security.serviceToken) {
+        if (readBearerToken(req) && config.security.serviceToken && token === config.security.serviceToken) {
             req.foundryClient = createSystemRouteFoundryClient(systemService.getSystemClient());
             req.isSystem = true;
             return next();

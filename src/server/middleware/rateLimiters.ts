@@ -29,6 +29,18 @@ export function createAdminLoginLimiter(config: AppConfig) {
     });
 }
 
+export function createCspReportLimiter(config: AppConfig) {
+    return rateLimit({
+        windowMs: 60 * 1000,
+        max: 60,
+        message: { error: 'Too many CSP reports.' },
+        standardHeaders: true,
+        legacyHeaders: false,
+        // Keep the project-wide rate-limit switch authoritative in development.
+        skip: () => !config.security.rateLimit.enabled,
+    });
+}
+
 export function getAdminLoginRateLimitSettings(config: AppConfig): { windowMinutes: number; maxAttempts: number } {
     const windowMinutes = Math.max(1, Math.floor(config.security.rateLimit.windowMinutes));
     const maxAttempts = Math.max(1, Math.floor(config.security.rateLimit.maxAttempts / 2));

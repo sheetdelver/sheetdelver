@@ -9,6 +9,8 @@ import { run as runAdrMetadata } from './docs/adr-metadata.test';
 
 // ── security ──────────────────────────────────────────────────────────────────
 import { run as runSensitiveFilePermissions } from './security/sensitive-file-permissions.test';
+import { run as runSafeHtml } from './security/safe-html.test';
+import { run as runBrowserSecurity } from './security/browser-security.test';
 
 // ── services ──────────────────────────────────────────────────────────────────
 import { run as runStatusSanitize } from './services/status-sanitize.test';
@@ -135,6 +137,8 @@ async function runAllUnitTests() {
     runFoundryUrl();
     runAdrMetadata();
     await runSensitiveFilePermissions();
+    runSafeHtml();
+    runBrowserSecurity();
     runStatusSanitize();
     runLocalhostPolicy();
     runSyncTokenService();

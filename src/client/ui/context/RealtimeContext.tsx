@@ -17,7 +17,9 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
 
     useEffect(() => {
         const socket = io({
-            auth: token ? { token } : {},
+            // Socket.IO sends the HttpOnly session cookie during polling and
+            // websocket upgrade; no reusable token enters handshake.auth.
+            withCredentials: true,
             reconnectionAttempts: 10,
             reconnectionDelay: 2000,
             reconnectionDelayMax: 5000,

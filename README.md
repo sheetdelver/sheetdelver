@@ -54,7 +54,7 @@ SheetDelver follows a **Hardened 4-Folder Root** architecture with a strict **Lo
 ## Usage
 
 ### Requirements
-- **Node.js**: 18+
+- **Node.js**: 22.12+
 - **Foundry VTT**: Valid instance (v13+ recommended)
 
 ### Configuration

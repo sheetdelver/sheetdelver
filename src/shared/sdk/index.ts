@@ -91,6 +91,7 @@ export type {
     DrawResult,
     DrawResultRow,
 } from './utils';
+export type { SafeHtml } from '@shared/security/safeHtml';
 
 // ---------------------------------------------------------------------------
 // Capability detection

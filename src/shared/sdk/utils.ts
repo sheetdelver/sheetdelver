@@ -1,3 +1,5 @@
+import { sanitizeRichHtml, type SafeHtml } from '@shared/security/safeHtml';
+
 // ---------------------------------------------------------------------------
 // Error handling
 // ---------------------------------------------------------------------------
@@ -43,19 +45,10 @@ export function buildModuleAssetUrl(moduleId: string, assetPath: string): string
 }
 
 /**
- * Fix relative `src=` attributes in Foundry-enriched HTML.
- * Prepends the Foundry base URL to relative image paths.
+ * Sanitize Foundry-enriched HTML and resolve relative link/image URLs.
  */
-export function processHtmlContent(html: string, baseUrl?: string): string {
-    if (!html) return '';
-    if (!baseUrl) return html;
-
-    return html.replace(/src="([^"]+)"/g, (match, src) => {
-        if (src.startsWith('http') || src.startsWith('data:')) return match;
-        const cleanPath = src.startsWith('/') ? src.slice(1) : src;
-        const cleanBase = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
-        return `src="${cleanBase}${cleanPath}"`;
-    });
+export function processHtmlContent(html: string, baseUrl?: string): SafeHtml {
+    return sanitizeRichHtml(html, { foundryBaseUrl: baseUrl });
 }
 
 /**

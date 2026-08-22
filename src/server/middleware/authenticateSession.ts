@@ -7,6 +7,7 @@ import {
     createSessionRouteFoundryClient,
     createSystemRouteFoundryClient,
 } from '@server/shared/utils/createRouteFoundryClient';
+import { readBearerToken, readRequestSessionCredential } from '@server/security/playerSessionCookie';
 
 export function createAuthenticateSession(
     foundryUserConnections: Pick<FoundryUserConnectionServiceLike, 'getOrRestoreSession'>,
@@ -16,15 +17,13 @@ export function createAuthenticateSession(
         // Exempt Socket.io handshake from REST middleware
         if (req.url.includes('socket.io')) return next();
 
-        const authHeader = req.headers.authorization;
-        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        const token = readRequestSessionCredential(req);
+        if (!token) {
             return res.status(401).json({ error: 'Unauthorized: Missing Session Token' });
         }
 
-        const token = authHeader.split(' ')[1];
-
         // 1. Check for System Service Account using dedicated app service token
-        if (config.security.serviceToken && token === config.security.serviceToken) {
+        if (readBearerToken(req) && config.security.serviceToken && token === config.security.serviceToken) {
             req.foundryClient = createSystemRouteFoundryClient(systemService.getSystemClient());
             req.isSystem = true;
             return next();

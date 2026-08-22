@@ -5,12 +5,13 @@ import { engagementService } from '@server/services/world';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
 import { FoundryUserRole } from '@server/core/documents/primary/base/ownership';
 import type { SystemStatusPayload } from '@shared/contracts/status';
+import { PLAYER_SESSION_COOKIE_NAME } from '@server/security/playerSessionCookie';
 
 type EventHandler = (...args: unknown[]) => void;
 
 interface MockSocket {
     id: string;
-    handshake: { auth?: { token?: string } };
+    handshake: { headers: { cookie?: string } };
     rooms: Set<string>;
     join: (room: string) => void;
     emit: (event: string, payload?: unknown) => void;
@@ -94,7 +95,7 @@ async function runGatewayTests() {
 
         const socket: MockSocket = {
             id: 'socket-1',
-            handshake: { auth: { token: 'valid-token' } },
+            handshake: { headers: { cookie: `${PLAYER_SESSION_COOKIE_NAME}=valid-token` } },
             rooms: new Set(),
             join(room: string) {
                 this.rooms.add(room);
@@ -176,10 +177,10 @@ async function runGatewayTests() {
         assert.equal(systemDetachedHandlers.length, 21);
         assert.ok(browserCounts.includes(0));
 
-        // Guest degradation path (no token): middleware should still call next.
+        // Guest degradation path (no cookie): middleware should still call next.
         const guestSocket: MockSocket = {
             id: 'socket-guest',
-            handshake: { auth: {} },
+            handshake: { headers: {} },
             rooms: new Set(),
             join(room: string) {
                 this.rooms.add(room);
@@ -259,7 +260,7 @@ async function runDeferredAttachWhenNotReady() {
 
         const socket: MockSocket = {
             id: 'socket-deferred',
-            handshake: { auth: { token: 'valid-token' } },
+            handshake: { headers: { cookie: `${PLAYER_SESSION_COOKIE_NAME}=valid-token` } },
             rooms: new Set(),
             connected: true,
             join(room: string) { this.rooms.add(room); },

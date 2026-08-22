@@ -27,6 +27,10 @@ interface SessionContextType {
     registerLogoutCleanup: (cleanup: () => void) => () => void;
 }
 
+// Compatibility marker for hooks and module UI that currently gate work on
+// `token`. It is not a credential and is never sent to the server.
+export const COOKIE_SESSION_MARKER = 'cookie-session-active';
+
 const SessionContext = createContext<SessionContextType | undefined>(undefined);
 
 export function SessionProvider({ children }: { children: React.ReactNode }) {
@@ -34,12 +38,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     const { resetUI } = useUI();
 
     const [step, setStepState] = useState<ConnectionStep>('init');
-    const [token, setTokenState] = useState<string | null>(() => {
-        if (typeof window !== 'undefined') {
-            return localStorage.getItem('sheet-delver-token');
-        }
-        return null;
-    });
+    const [token, setTokenState] = useState<string | null>(null);
 
     const [users, setUsers] = useState<User[]>([]);
     const [currentUserId, setCurrentUserId] = useState<string | null>(null);
@@ -52,17 +51,13 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     // Defensive guard: warn if SessionProvider mounts on non-player surface
     useEffect(() => {
         assertPlayerSurface();
+        // Remove credentials persisted by releases before ADR-0033 Phase 2.
+        // Cookie restoration happens through /api/status instead.
+        window.localStorage.removeItem('sheet-delver-token');
     }, []);
 
     const setToken = useCallback((newToken: string | null) => {
         setTokenState(newToken);
-        if (typeof window !== 'undefined') {
-            if (newToken) {
-                localStorage.setItem('sheet-delver-token', newToken);
-            } else {
-                localStorage.removeItem('sheet-delver-token');
-            }
-        }
     }, []);
 
     const setStep = useCallback((newStep: ConnectionStep, origin: string = 'unknown', reason?: string) => {
@@ -83,11 +78,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
                 throw new Error(data.error);
             }
 
-            if (!data.token) {
-                throw new Error('Login succeeded without token');
-            }
-
-            setToken(data.token);
+            // Login success means the server issued the HttpOnly session cookie.
+            setToken(COOKIE_SESSION_MARKER);
             setStep('authenticating', 'handleLogin', 'Login success');
         } catch (error: unknown) {
             const message = error instanceof Error ? error.message : 'Unknown login error';

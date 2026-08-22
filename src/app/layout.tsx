@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { connection } from "next/server";
 import { Geist, Geist_Mono, Cinzel, Inter, IM_Fell_Double_Pica, Crimson_Pro } from "next/font/google";
 import "./globals.css";
 
@@ -56,11 +57,15 @@ export const metadata: Metadata = {
   description: "Modern Foundry VTT Actor Sheet",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // A request-bound render lets Proxy supply the fresh CSP nonce that Next
+  // attaches to framework scripts; static HTML cannot carry a per-request nonce.
+  await connection();
+
   return (
     <html lang="en" suppressHydrationWarning>
       <body

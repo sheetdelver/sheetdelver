@@ -43,10 +43,10 @@ export function SDKProvider({ children, moduleId }: { children: React.ReactNode;
         input: string,
         init?: RequestInit,
     ): Promise<Response> => {
-        const headers = new Headers(init?.headers);
-        if (token) headers.set('Authorization', `Bearer ${token}`);
-        return fetch(input, { ...init, headers });
-    }, [token]);
+        // Module UI receives the same cookie-authenticated fetch boundary as the
+        // host; the compatibility token is never converted into a bearer value.
+        return fetch(input, { ...init, credentials: 'same-origin' });
+    }, []);
 
     // Host-owned realtime signal bus (ADR-0027 decision 20). Created once (pure — no socket
     // side effects in render, so React re-renders can't desync the binding from subscribers);

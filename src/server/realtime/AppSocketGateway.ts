@@ -19,6 +19,7 @@ import {
 import { userStore } from '@server/core/documents/primary/users/UserStore';
 import { sharedContentStore, type SharedContentChangedEvent } from '@server/core/world/SharedContentStore';
 import type { RealtimeActorChangedPayload } from '@shared/contracts/realtime';
+import { readPlayerSessionCookie } from '@server/security/playerSessionCookie';
 
 type AppSocket = Socket & {
     userSession?: FoundryUserConnectionLike;
@@ -39,10 +40,11 @@ export function registerAppSocketGateway({
     broadcastSystemStatus,
 }: AppSocketGatewayDeps): void {
 
-    // Auth middleware: validate token, restore session, join authenticated room
+    // Auth middleware: the browser sends its HttpOnly cookie automatically;
+    // no reusable credential is exposed through socket.handshake.auth.
     io.use(async (rawSocket, next) => {
         const socket = rawSocket as AppSocket;
-        const token = typeof socket.handshake.auth?.token === 'string' ? socket.handshake.auth.token : undefined;
+        const token = readPlayerSessionCookie(socket.handshake.headers.cookie);
         if (!token) {
             // Unauthenticated connection (Guest) - only receives global system status
             return next();

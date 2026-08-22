@@ -2,6 +2,10 @@ import { strict as assert } from 'node:assert';
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import { registerPublicRoutes } from '@server/routes/public/registerPublicRoutes';
 import { createAuthenticateSession } from '@server/middleware/authenticateSession';
+import {
+    PLAYER_SESSION_COOKIE_NAME,
+    PLAYER_SESSION_MAX_AGE_MS,
+} from '@server/security/playerSessionCookie';
 
 interface RouteMap {
     get: Map<string, RequestHandler[]>;
@@ -11,20 +15,32 @@ interface RouteMap {
 type ResponseStub = {
     statusCode: number;
     payload: unknown;
+    cookies: Array<{ name: string; value?: string; options?: Record<string, unknown>; cleared?: boolean }>;
     status: (code: number) => Response;
     json: (body: unknown) => Response;
+    cookie: (name: string, value: string, options?: Record<string, unknown>) => Response;
+    clearCookie: (name: string, options?: Record<string, unknown>) => Response;
 };
 
 function createResponseStub(): ResponseStub {
     const state: ResponseStub = {
         statusCode: 200,
         payload: undefined,
+        cookies: [],
         status(code: number) {
             state.statusCode = code;
             return state as unknown as Response;
         },
         json(body: unknown) {
             state.payload = body;
+            return state as unknown as Response;
+        },
+        cookie(name, value, options) {
+            state.cookies.push({ name, value, options });
+            return state as unknown as Response;
+        },
+        clearCookie(name, options) {
+            state.cookies.push({ name, options, cleared: true });
             return state as unknown as Response;
         },
     };
@@ -81,6 +97,7 @@ async function runPublicRouteSmokeTests() {
     };
 
     const loginLimiter: RequestHandler = (_req, _res, next) => next();
+    const cspReportLimiter: RequestHandler = (_req, _res, next) => next();
 
     let destroyedToken: string | null = null;
 
@@ -88,6 +105,7 @@ async function runPublicRouteSmokeTests() {
         statusHandler,
         getSanitizedConfig: () => ({ app: { version: '0.0.0-test' } }),
         getSetupStatus: async () => ({ isConfigured: true }),
+        cspReportLimiter,
         loginLimiter,
         createSession: async (username: string) => ({
             sessionId: `token-${username}`,
@@ -96,6 +114,7 @@ async function runPublicRouteSmokeTests() {
         destroySession: async (token: string) => {
             destroyedToken = token;
         },
+        securePlayerCookie: false,
     };
 
     registerPublicRoutes(createRouterStub(routeMap) as any, deps);
@@ -104,6 +123,10 @@ async function runPublicRouteSmokeTests() {
     assert.equal(routeMap.get.has('/session/connect'), true);
     assert.equal(routeMap.get.get('/status')?.[0], statusHandler);
     assert.equal(routeMap.get.get('/session/connect')?.[0], statusHandler);
+
+    const cspReportHandlers = routeMap.post.get('/csp-report');
+    assert.ok(cspReportHandlers && cspReportHandlers.length === 3);
+    assert.equal(cspReportHandlers![0], cspReportLimiter);
 
     const setupStatusHandlers = routeMap.get.get('/config/setup-status');
     assert.ok(setupStatusHandlers && setupStatusHandlers.length === 1);
@@ -118,7 +141,18 @@ async function runPublicRouteSmokeTests() {
     const loginReq = { body: { username: 'tester', password: 'secret' } } as Request;
     const loginRes = createResponseStub();
     await loginHandlers![1](loginReq, loginRes as unknown as Response, (() => undefined) as NextFunction);
-    assert.deepEqual(loginRes.payload, { success: true, token: 'token-tester', userId: 'user-123' });
+    assert.deepEqual(loginRes.payload, { success: true, userId: 'user-123' });
+    assert.deepEqual(loginRes.cookies, [{
+        name: PLAYER_SESSION_COOKIE_NAME,
+        value: 'token-tester',
+        options: {
+            httpOnly: true,
+            sameSite: 'strict',
+            secure: false,
+            path: '/',
+            maxAge: PLAYER_SESSION_MAX_AGE_MS,
+        },
+    }]);
 
     const failingDeps = {
         ...deps,
@@ -142,12 +176,14 @@ async function runPublicRouteSmokeTests() {
     const logoutHandlers = routeMap.post.get('/logout');
     assert.ok(logoutHandlers && logoutHandlers.length === 1);
     const logoutReq = {
-        headers: { authorization: 'Bearer abc123' },
+        headers: { cookie: `${PLAYER_SESSION_COOKIE_NAME}=abc123` },
     } as unknown as Request;
     const logoutRes = createResponseStub();
     await logoutHandlers![0](logoutReq, logoutRes as unknown as Response, (() => undefined) as NextFunction);
     assert.equal(destroyedToken, 'abc123');
     assert.deepEqual(logoutRes.payload, { success: true });
+    assert.equal(logoutRes.cookies[0]?.name, PLAYER_SESSION_COOKIE_NAME);
+    assert.equal(logoutRes.cookies[0]?.cleared, true);
 }
 
 async function runProtectedRouteAuthAssertion() {
@@ -192,7 +228,7 @@ async function runProtectedRouteAuthAssertion() {
 
     const validReq = {
         url: '/actors',
-        headers: { authorization: 'Bearer valid-token' },
+        headers: { cookie: `${PLAYER_SESSION_COOKIE_NAME}=valid-token` },
     } as unknown as Request;
     const validRes = createResponseStub();
 

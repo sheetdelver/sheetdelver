@@ -67,10 +67,7 @@ export default function ActorPageRouter({ params }: { params: Promise<{ id: stri
 
         async function resolveActorPage() {
             try {
-                const headers: HeadersInit = {};
-                if (token) headers['Authorization'] = `Bearer ${token}`;
-
-                const res = await fetch(`/api/actors/${id}`, { headers });
+                const res = await fetch(`/api/actors/${id}`, { credentials: 'same-origin' });
                 if (!res.ok) {
                     if (res.status === 401 || res.status === 503) {
                         router.push('/');

@@ -21,6 +21,7 @@ export interface ModuleClientLogger {
 
 export interface SDKContextValue {
     // Auth / identity
+    /** @deprecated Non-secret session-readiness marker; use fetchWithAuth for requests. */
     token: string | null;
     currentUser: { id: string; name: string; isGM: boolean; role: number } | null;
     system: { id: string | null; title?: string; version?: string } | null;

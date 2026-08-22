@@ -24,7 +24,9 @@ interface RequestJsonOptions {
 
 export async function requestJson<T>(path: string, options: RequestJsonOptions = {}): Promise<T> {
     const headers: Record<string, string> = {};
-    if (options.token) headers.Authorization = `Bearer ${options.token}`;
+    // `token` remains a temporary caller-compatibility argument. Authentication
+    // is carried only by the same-origin HttpOnly player-session cookie.
+    void options.token;
     if (options.body !== undefined) headers['Content-Type'] = 'application/json';
 
     const res = await fetch(path, {
@@ -32,6 +34,7 @@ export async function requestJson<T>(path: string, options: RequestJsonOptions =
         headers,
         body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
         cache: options.cache,
+        credentials: 'same-origin',
     });
 
     if (res.status === 401) {
