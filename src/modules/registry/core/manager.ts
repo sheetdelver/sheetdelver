@@ -18,6 +18,7 @@ import {
     getRemoteModuleDistributionDenial,
     isRemoteModuleSourceRef,
 } from '../security/remoteDistributionPolicy';
+import { parseModuleId } from '@shared/security/moduleId';
 
 /**
  * Minimal artifact metadata stored separately from runtime lifecycle state.
@@ -153,6 +154,7 @@ export function operationFailure(
 // ---------------------------------------------------------------------------
 
 export type ManagerErrorCode =
+    | 'invalid-module-id'
     | 'module-not-found'
     | 'remote-module-distribution-disabled'
     | 'source-resolution-failed'
@@ -213,7 +215,8 @@ export async function installModule(
     lifecycleStateFilePath?: string,
     artifactStoreFilePath?: string
 ): Promise<ManagerOperationResult> {
-    const id = moduleId.toLowerCase();
+    const id = parseModuleId(moduleId);
+    if (!id) return operationFailure('invalid', 'install', 'Invalid module ID', undefined, 'invalid-module-id');
 
     // Defense in depth for internal callers: the managed facade normally
     // rejects this source before reaching the transaction boundary.
@@ -293,7 +296,8 @@ export function uninstallModule(
     lifecycleStateFilePath?: string,
     artifactStoreFilePath?: string
 ): ManagerOperationResult {
-    const id = moduleId.toLowerCase();
+    const id = parseModuleId(moduleId);
+    if (!id) return operationFailure('invalid', 'uninstall', 'Invalid module ID', undefined, 'invalid-module-id');
     const record = lifecycleStore.modules[id];
 
     if (!record) {
@@ -356,7 +360,8 @@ export async function upgradeModule(
     lifecycleStateFilePath?: string,
     artifactStoreFilePath?: string
 ): Promise<ManagerOperationResult> {
-    const id = moduleId.toLowerCase();
+    const id = parseModuleId(moduleId);
+    if (!id) return operationFailure('invalid', 'upgrade', 'Invalid module ID', undefined, 'invalid-module-id');
 
     // Keep direct internal imports from reactivating the dormant fetch path.
     if (isRemoteModuleSourceRef(input.source)) {

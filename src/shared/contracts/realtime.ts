@@ -1,6 +1,6 @@
-import type { SystemStatusPayload } from '@shared/contracts/status';
+import type { RealtimeStatusPayload } from '@shared/contracts/status';
 
-export type RealtimeSystemStatusPayload = SystemStatusPayload;
+export type RealtimeSystemStatusPayload = RealtimeStatusPayload;
 
 // Actor socket events are invalidation hints; clients refetch instead of applying diffs.
 export interface RealtimeActorChangedPayload {

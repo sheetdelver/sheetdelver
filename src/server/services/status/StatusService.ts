@@ -8,6 +8,7 @@ import { syncTokenService } from '@server/services/status/SyncTokenService';
 import { worldBootstrapper } from '@server/services/world';
 import type {
     FoundryCompatibilityStatusPayload,
+    PublicStatusPayload,
     SystemStatusPayload,
 } from '@shared/contracts/status';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
@@ -35,6 +36,35 @@ export const sanitizeStatusUser = (user: Partial<UserWithPresence>, foundryBaseU
     characterId: user.character,
     img: resolveFoundryUrl(user.avatar || user.img || '', foundryBaseUrl)
 });
+
+/**
+ * Remove authenticated world and user metadata at the single status boundary.
+ * Login still receives a display name and an explicit eligibility decision,
+ * but never Foundry IDs, roles, actor links, avatars, URLs, or debug settings.
+ */
+export function projectPublicStatus(payload: SystemStatusPayload): PublicStatusPayload {
+    return {
+        connected: payload.connected,
+        initialized: payload.initialized,
+        isConfigured: payload.isConfigured,
+        foundryCompatibility: payload.foundryCompatibility,
+        users: payload.users
+            .filter((user): user is typeof user & { name: string } => typeof user.name === 'string' && user.name.length > 0)
+            .map((user) => ({
+                name: user.name,
+                active: user.active === true,
+                // Preserve the existing login policy without disclosing the role.
+                canLogin: user.active !== true && user.name !== 'Gamemaster',
+            })),
+        system: {
+            id: null,
+            worldTitle: payload.system.worldTitle,
+            status: payload.system.status,
+            users: payload.system.users,
+        },
+        appVersion: payload.appVersion,
+    };
+}
 
 export function createStatusService(deps: StatusServiceDeps) {
     // Shared user projection used by status payload consumers.
@@ -140,6 +170,7 @@ export function createStatusService(deps: StatusServiceDeps) {
     };
 
     return {
-        getSystemStatusPayload
+        getSystemStatusPayload,
+        getPublicStatusPayload: async () => projectPublicStatus(await getSystemStatusPayload()),
     };
 }

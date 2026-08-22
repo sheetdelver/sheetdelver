@@ -2,6 +2,12 @@ import type { Server } from 'socket.io';
 import { systemService } from '@server/services/world';
 import { logger } from '@shared/utils/logger';
 import type { SystemStatusPayload } from '@shared/contracts/status';
+import { projectPublicStatus } from '@server/services/status/StatusService';
+
+export const STATUS_ROOMS = {
+    public: 'status:public',
+    authenticated: 'authenticated',
+} as const;
 
 interface SystemStatusBroadcasterDeps {
     io: Server;
@@ -10,13 +16,12 @@ interface SystemStatusBroadcasterDeps {
 
 export function createSystemStatusBroadcaster(deps: SystemStatusBroadcasterDeps) {
     // Shared broadcaster used by lifecycle hooks, polling, and socket relays.
-    // All socket-connected clients receive the full payload including user data.
-    // The login form requires user list for the player dropdown, and the dashboard
-    // needs it for current user resolution. The REST /api/status endpoint handles
-    // auth-gating separately to prevent unauthenticated API scraping.
+    // Room-specific projections prevent lifecycle polling from widening guest data.
     const broadcastSystemStatus = async () => {
-        const payload = await deps.getSystemStatusPayload();
-        deps.io.emit('systemStatus', payload);
+        const authenticatedPayload = await deps.getSystemStatusPayload();
+        const publicPayload = projectPublicStatus(authenticatedPayload);
+        deps.io.to(STATUS_ROOMS.authenticated).emit('systemStatus', authenticatedPayload);
+        deps.io.to(STATUS_ROOMS.public).emit('systemStatus', publicPayload);
     };
 
     // World lifecycle hooks trigger a fresh status push to all connected app clients.
@@ -58,8 +63,7 @@ export function createSystemStatusBroadcaster(deps: SystemStatusBroadcasterDeps)
     // Polling acts as a fallback to keep dashboard status aligned when no explicit event fires.
     const startPolling = (intervalMs: number): ReturnType<typeof setInterval> => {
         return setInterval(async () => {
-            const payload = await deps.getSystemStatusPayload();
-            deps.io.emit('systemStatus', payload);
+            await broadcastSystemStatus();
         }, intervalMs);
     };
 

@@ -1,4 +1,5 @@
 import type { ModulePermissionDeclaration, ModuleTrustTier } from '../core/types';
+import { parseModuleId } from '@shared/security/moduleId';
 
 export interface ModuleIndexVersionEntry {
     source: string;
@@ -100,11 +101,11 @@ function validateVersionEntry(moduleId: string, version: string, value: unknown)
         }
     }
 
-    if (candidate.dependencies !== undefined && !isStringArray(candidate.dependencies)) {
-        errors.push(`Index field "modules.${moduleId}.versions.${version}.dependencies" must be an array of non-empty strings when provided`);
+    if (candidate.dependencies !== undefined && (!isStringArray(candidate.dependencies) || candidate.dependencies.some((id) => !parseModuleId(id)))) {
+        errors.push(`Index field "modules.${moduleId}.versions.${version}.dependencies" must be an array of valid module IDs when provided`);
     }
-    if (candidate.conflicts !== undefined && !isStringArray(candidate.conflicts)) {
-        errors.push(`Index field "modules.${moduleId}.versions.${version}.conflicts" must be an array of non-empty strings when provided`);
+    if (candidate.conflicts !== undefined && (!isStringArray(candidate.conflicts) || candidate.conflicts.some((id) => !parseModuleId(id)))) {
+        errors.push(`Index field "modules.${moduleId}.versions.${version}.conflicts" must be an array of valid module IDs when provided`);
     }
     if (candidate.changelog !== undefined && !isNonEmptyString(candidate.changelog)) {
         errors.push(`Index field "modules.${moduleId}.versions.${version}.changelog" must be a non-empty string when provided`);
@@ -138,14 +139,19 @@ export function validateModuleIndexDocument(value: unknown): ModuleIndexValidati
         errors.push('Index field "modules" must be an object');
     } else {
         for (const [moduleId, moduleEntry] of Object.entries(candidate.modules)) {
+            const canonicalKey = parseModuleId(moduleId);
+            if (!canonicalKey || canonicalKey !== moduleId) {
+                errors.push(`Index field "modules.${moduleId}" must use a canonical module ID key`);
+            }
             if (!moduleEntry || typeof moduleEntry !== 'object') {
                 errors.push(`Index field "modules.${moduleId}" must be an object`);
                 continue;
             }
 
             const moduleCandidate = moduleEntry as Partial<ModuleIndexEntry>;
-            if (!isNonEmptyString(moduleCandidate.moduleId)) {
-                errors.push(`Index field "modules.${moduleId}.moduleId" must be a non-empty string`);
+            const canonicalEntryId = parseModuleId(moduleCandidate.moduleId);
+            if (!canonicalEntryId || canonicalEntryId !== canonicalKey) {
+                errors.push(`Index field "modules.${moduleId}.moduleId" must match its canonical module key`);
             }
             if (!isNonEmptyString(moduleCandidate.title)) {
                 errors.push(`Index field "modules.${moduleId}.title" must be a non-empty string`);
@@ -188,7 +194,10 @@ export function resolveIndexedModuleVersion(
     moduleId: string,
     requestedVersion?: string
 ): ResolveIndexedModuleVersionResult {
-    const id = moduleId.trim().toLowerCase();
+    const id = parseModuleId(moduleId);
+    if (!id) {
+        return { ok: false, error: 'Invalid module ID' };
+    }
     const moduleEntry = index.modules[id];
     if (!moduleEntry) {
         return {

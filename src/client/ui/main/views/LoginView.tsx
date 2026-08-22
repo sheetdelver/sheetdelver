@@ -73,8 +73,7 @@ export const LoginView = ({ users, system, theme, onLogin, loading }: LoginViewP
                             >
                                 <option value="" disabled>-- Select Player --</option>
                                 {users.map((u: User, idx: number) => {
-                                    const isGamemaster = u.name === 'Gamemaster';
-                                    const isDisabled = u.active || isGamemaster;
+                                    const isDisabled = u.canLogin === false || u.active === true;
                                     return (
                                         <option
                                             key={u.name || idx}
@@ -82,7 +81,7 @@ export const LoginView = ({ users, system, theme, onLogin, loading }: LoginViewP
                                             disabled={isDisabled}
                                             className={`bg-neutral-900 text-white ${isDisabled ? 'text-white/30 bg-neutral-800' : ''}`}
                                         >
-                                            {u.name} {u.active ? ' (Logged In)' : (isGamemaster ? ' (Restricted)' : '')}
+                                            {u.name} {u.active ? ' (Logged In)' : (u.canLogin === false ? ' (Restricted)' : '')}
                                         </option>
                                     );
                                 })}

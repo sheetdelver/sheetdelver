@@ -17,12 +17,12 @@ export function registerSockets(deps: RegisterSocketsDeps) {
         config: deps.config,
         foundryUserConnections: deps.foundryUserConnections
     });
-    const { getSystemStatusPayload } = statusService;
+    const { getSystemStatusPayload, getPublicStatusPayload } = statusService;
 
     // Broadcaster centralizes event-driven and interval-based status emissions.
     const systemStatusBroadcaster = createSystemStatusBroadcaster({
         io: deps.io,
-        getSystemStatusPayload
+        getSystemStatusPayload,
     });
     const { broadcastSystemStatus } = systemStatusBroadcaster;
 
@@ -31,6 +31,7 @@ export function registerSockets(deps: RegisterSocketsDeps) {
         io: deps.io,
         foundryUserConnections: deps.foundryUserConnections,
         getSystemStatusPayload,
+        getPublicStatusPayload,
         broadcastSystemStatus
     });
 

@@ -64,10 +64,11 @@ export function registerAdminAuthRoutes(opts: RegisterAdminAuthRoutesOptions): v
             };
 
             // Validate password
-            if (!password || typeof password !== 'string' || password.length < 8) {
-                return res.status(400).json({ error: 'Password must be at least 8 characters' });
+            if (!password || typeof password !== 'string' || password.length < 8 || password.length > 1024) {
+                return res.status(400).json({ error: 'Password must be between 8 and 1024 characters' });
             }
-            if (!bootstrapToken || !consumeAdminBootstrapCredential(bootstrapToken)) {
+            if (typeof bootstrapToken !== 'string' || bootstrapToken.length > 256
+                || !consumeAdminBootstrapCredential(bootstrapToken)) {
                 logger.warn('Admin setup attempted with an invalid or expired bootstrap credential');
                 return res.status(401).json({ error: 'Invalid or expired bootstrap credential' });
             }
@@ -123,9 +124,9 @@ export function registerAdminAuthRoutes(opts: RegisterAdminAuthRoutesOptions): v
             }
 
             const { password } = req.body as AdminLoginRequest;
-            if (!password) {
+            if (typeof password !== 'string' || password.length < 1 || password.length > 1024) {
                 await recordFailedLogin(account);
-                return res.status(400).json({ error: 'Password required' });
+                return res.status(400).json({ error: 'Password must be between 1 and 1024 characters' });
             }
 
             // Verify password
@@ -171,10 +172,11 @@ export function registerAdminAuthRoutes(opts: RegisterAdminAuthRoutesOptions): v
                 newPassword?: string;
             };
 
-            if (!newPassword || typeof newPassword !== 'string' || newPassword.length < 8) {
-                return res.status(400).json({ error: 'New password must be at least 8 characters' });
+            if (!newPassword || typeof newPassword !== 'string' || newPassword.length < 8 || newPassword.length > 1024) {
+                return res.status(400).json({ error: 'New password must be between 8 and 1024 characters' });
             }
-            if (!recoveryToken || !consumeAdminRecoveryCredential(recoveryToken)) {
+            if (typeof recoveryToken !== 'string' || recoveryToken.length > 256
+                || !consumeAdminRecoveryCredential(recoveryToken)) {
                 logger.warn('Admin password reset attempted with an invalid or expired recovery nonce');
                 return res.status(401).json({ error: 'Invalid or expired recovery nonce' });
             }

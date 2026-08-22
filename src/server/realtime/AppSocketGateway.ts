@@ -3,7 +3,7 @@ import { systemService } from '@server/services/world';
 import { logger } from '@shared/utils/logger';
 import { engagementService } from '@server/services/world';
 import type { FoundryUserConnectionServiceLike, FoundryUserConnectionLike, FoundryDocumentClientLike } from '@server/shared/types/foundry';
-import type { SystemStatusPayload } from '@shared/contracts/status';
+import type { PublicStatusPayload, SystemStatusPayload } from '@shared/contracts/status';
 import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
 import { chatMessageStore } from '@server/core/documents/primary/chat-messages/ChatMessageStore';
 import { combatStore } from '@server/core/documents/primary/combats/CombatStore';
@@ -20,6 +20,7 @@ import { userStore } from '@server/core/documents/primary/users/UserStore';
 import { sharedContentStore, type SharedContentChangedEvent } from '@server/core/world/SharedContentStore';
 import type { RealtimeActorChangedPayload } from '@shared/contracts/realtime';
 import { readPlayerSessionCookie } from '@server/security/playerSessionCookie';
+import { STATUS_ROOMS } from './SystemStatusBroadcaster';
 
 type AppSocket = Socket & {
     userSession?: FoundryUserConnectionLike;
@@ -30,6 +31,7 @@ interface AppSocketGatewayDeps {
     io: Server;
     foundryUserConnections: FoundryUserConnectionServiceLike;
     getSystemStatusPayload: () => Promise<SystemStatusPayload>;
+    getPublicStatusPayload: () => Promise<PublicStatusPayload>;
     broadcastSystemStatus: () => void | Promise<void>;
 }
 
@@ -37,6 +39,7 @@ export function registerAppSocketGateway({
     io,
     foundryUserConnections,
     getSystemStatusPayload,
+    getPublicStatusPayload,
     broadcastSystemStatus,
 }: AppSocketGatewayDeps): void {
 
@@ -46,7 +49,8 @@ export function registerAppSocketGateway({
         const socket = rawSocket as AppSocket;
         const token = readPlayerSessionCookie(socket.handshake.headers.cookie);
         if (!token) {
-            // Unauthenticated connection (Guest) - only receives global system status
+            // Guests receive lifecycle availability through the public projection.
+            socket.join(STATUS_ROOMS.public);
             return next();
         }
 
@@ -54,7 +58,7 @@ export function registerAppSocketGateway({
             const session = await foundryUserConnections.getOrRestoreSession(token);
             const sessionUserId = session?.userId || session?.client.userId;
             if (!session || !sessionUserId) {
-                // Invalid token, but still allow guest connection
+                socket.join(STATUS_ROOMS.public);
                 return next();
             }
             // Attach session/client to socket for later use
@@ -62,9 +66,10 @@ export function registerAppSocketGateway({
             socket.foundryClient = session.client;
 
             // Join authenticated room for sensitive updates (actors, chat, combat, shared content)
-            socket.join('authenticated');
+            socket.join(STATUS_ROOMS.authenticated);
             next();
         } catch (err) {
+            socket.join(STATUS_ROOMS.public);
             next(); // Degrade to guest
         }
     });
@@ -81,11 +86,10 @@ export function registerAppSocketGateway({
         // return-to-engagement signal consumed by WorldTransportController.
         engagementService.setActiveBrowserCount(clientCount);
 
-        // Initial setup for this specific socket connection.
-        // Socket clients receive the full payload including users — the login form
-        // requires the user list for the player dropdown. The REST /api/status endpoint
-        // handles auth-gating separately to prevent unauthenticated API scraping.
-        const payload = await getSystemStatusPayload();
+        // Initial status uses the same audience split as subsequent broadcasts.
+        const payload = socket.rooms.has(STATUS_ROOMS.authenticated)
+            ? await getSystemStatusPayload()
+            : await getPublicStatusPayload();
         socket.emit('systemStatus', payload);
 
         // Per ADR-0021, authenticated world-backed listener attachment must wait

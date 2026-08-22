@@ -53,6 +53,8 @@ export interface User {
     _id?: string;
     name: string;
     active?: boolean;
+    /** Guest-safe server decision used by the pre-authentication selector. */
+    canLogin?: boolean;
     isGM?: boolean;
     role?: number;
     color?: string;

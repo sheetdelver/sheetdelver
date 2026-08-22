@@ -19,6 +19,7 @@ import {
     SDK_THEME_SPECIFIER,
 } from './build-config';
 import { compileModuleTailwind, probeTailwindUtilityCount } from './tailwind-compile';
+import { requireModuleId } from '../../../shared/security/moduleId';
 
 // Build configuration is shared with package-module.ts via ./build-config so
 // validation and packaging can never drift (ADR-0027 decision 29).
@@ -602,9 +603,10 @@ function checkCompatibility(ctx: CheckContext): void {
 function loadModuleContext(moduleId: string, options: ModuleCheckOptions = {}): CheckContext {
     initDataDir(resolveDataDir(options.dataDir ? ['--data-dir', options.dataDir] : undefined));
 
-    const modulePath = path.join(getLocalModulesDataDir(), moduleId);
+    const canonicalId = requireModuleId(moduleId);
+    const modulePath = path.join(getLocalModulesDataDir(), canonicalId);
     if (!fs.existsSync(modulePath)) {
-        throw new Error(`Module "${moduleId}" not found in ${getLocalModulesDataDir()}`);
+        throw new Error(`Module "${canonicalId}" not found in ${getLocalModulesDataDir()}`);
     }
 
     const infoPath = path.join(modulePath, 'info.json');

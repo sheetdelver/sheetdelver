@@ -12,6 +12,7 @@ import type {
     DataStore,
     CompendiumPackReader,
 } from '@shared/sdk/runtime';
+import { requireModuleId } from '@shared/security/moduleId';
 
 /**
  * Sub-namespace under the module's cache dir for DataStore-owned data, kept separate
@@ -90,11 +91,12 @@ async function createScopedDataStore(moduleId: string): Promise<DataStore> {
  * `runtime.compendium`. No scope means pack reads fail closed.
  */
 async function resolveCompendiumPackScope(moduleId: string): Promise<CompendiumPackScope | null> {
+    const canonicalId = requireModuleId(moduleId);
     const { getModuleCompendiumPackConfig } = await import('@modules/registry/server');
-    const config = getModuleCompendiumPackConfig(moduleId) as CompendiumPackConfig | undefined;
+    const config = getModuleCompendiumPackConfig(canonicalId) as CompendiumPackConfig | undefined;
     if (!config?.packs?.length) return null;
     return {
-        systemId: moduleId.toLowerCase(),
+        systemId: canonicalId,
         packs: config.packs,
     };
 }
@@ -126,12 +128,13 @@ export async function createScopedCompendiumPacks(
     moduleId: string,
     deps: ScopedCompendiumPackDeps = {},
 ): Promise<CompendiumPackReader> {
+    const canonicalId = requireModuleId(moduleId);
     const packStore = deps.packStore || compendiumStore;
     const scope = deps.getCompendiumPackScope
-        ? await deps.getCompendiumPackScope(moduleId)
-        : await resolveCompendiumPackScope(moduleId);
+        ? await deps.getCompendiumPackScope(canonicalId)
+        : await resolveCompendiumPackScope(canonicalId);
 
-    const systemId = scope?.systemId ?? moduleId.toLowerCase();
+    const systemId = scope?.systemId ?? canonicalId;
 
     return {
         findOne: async (type: string, query: Record<string, unknown>) => {
@@ -163,9 +166,10 @@ export async function createScopedCompendiumPacks(
  * Called by the registry when initializing an adapter.
  */
 export async function createModuleRuntime(moduleId: string): Promise<ModuleRuntime> {
+    const canonicalId = requireModuleId(moduleId);
     const [dataStore, compendium] = await Promise.all([
-        createScopedDataStore(moduleId),
-        createScopedCompendiumPacks(moduleId),
+        createScopedDataStore(canonicalId),
+        createScopedCompendiumPacks(canonicalId),
     ]);
 
     let foundryUrl = '';
@@ -182,7 +186,7 @@ export async function createModuleRuntime(moduleId: string): Promise<ModuleRunti
     const documentResolver = new DocumentResolver({ allowLiveCompendiumUuidFallback: false });
 
     return {
-        moduleId,
+        moduleId: canonicalId,
         logger: createModuleLogger(moduleId),
         foundryUrl,
         dataStore,

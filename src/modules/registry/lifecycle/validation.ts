@@ -5,6 +5,7 @@ import {
     type ModuleContractDiagnostic,
     type ModuleCoreConstraintDiagnostic,
 } from './compatibilityResolver';
+import { isSafeModuleRelativePath, parseModuleId } from '@shared/security/moduleId';
 
 export interface ModuleValidationResult {
     valid: boolean;
@@ -48,8 +49,8 @@ export function validateModuleInfoShape(info: unknown): ModuleValidationResult {
 
     const candidate = info as Partial<SystemModuleInfo>;
 
-    if (!isNonEmptyString(candidate.id)) {
-        errors.push('Manifest field "id" must be a non-empty string');
+    if (!parseModuleId(candidate.id)) {
+        errors.push('Manifest field "id" must be a valid module ID');
     }
 
     if (!isNonEmptyString(candidate.title)) {
@@ -59,20 +60,27 @@ export function validateModuleInfoShape(info: unknown): ModuleValidationResult {
     if (!candidate.manifest || typeof candidate.manifest !== 'object') {
         errors.push('Manifest field "manifest" must be an object');
     } else {
-        if (!isNonEmptyString(candidate.manifest.ui)) {
-            errors.push('Manifest field "manifest.ui" must be a non-empty string');
+        if (!isSafeModuleRelativePath(candidate.manifest.ui)) {
+            errors.push('Manifest field "manifest.ui" must be a confined relative path');
         }
-        if (!isNonEmptyString(candidate.manifest.logic)) {
-            errors.push('Manifest field "manifest.logic" must be a non-empty string');
+        if (!isSafeModuleRelativePath(candidate.manifest.logic)) {
+            errors.push('Manifest field "manifest.logic" must be a confined relative path');
         }
-        if (candidate.manifest.server !== undefined && !isNonEmptyString(candidate.manifest.server)) {
-            errors.push('Manifest field "manifest.server" must be a non-empty string when provided');
+        if (candidate.manifest.server !== undefined && !isSafeModuleRelativePath(candidate.manifest.server)) {
+            errors.push('Manifest field "manifest.server" must be a confined relative path when provided');
         }
     }
 
     if (candidate.aliases !== undefined) {
-        if (!Array.isArray(candidate.aliases) || candidate.aliases.some((alias) => !isNonEmptyString(alias))) {
-            errors.push('Manifest field "aliases" must be an array of non-empty strings when provided');
+        if (!Array.isArray(candidate.aliases) || candidate.aliases.some((alias) => !parseModuleId(alias))) {
+            errors.push('Manifest field "aliases" must be an array of valid module IDs when provided');
+        }
+    }
+
+    for (const field of ['dependencies', 'conflicts'] as const) {
+        const values = candidate[field];
+        if (values !== undefined && (!Array.isArray(values) || values.some((value) => !parseModuleId(value)))) {
+            errors.push(`Manifest field "${field}" must be an array of valid module IDs when provided`);
         }
     }
 

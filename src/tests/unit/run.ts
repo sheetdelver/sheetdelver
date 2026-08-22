@@ -13,6 +13,9 @@ import { run as runSafeHtml } from './security/safe-html.test';
 import { run as runBrowserSecurity } from './security/browser-security.test';
 import { run as runFoundrySessionStore } from './security/foundry-session-store.test';
 import { run as runExternalSecret } from './security/external-secret.test';
+import { run as runModulePathSecurity } from './security/module-path-security.test';
+import { run as runRequestSecurity } from './security/request-security.test';
+import { run as runSocketConnectionPolicy } from './security/socket-connection-policy.test';
 
 // ── services ──────────────────────────────────────────────────────────────────
 import { run as runStatusSanitize } from './services/status-sanitize.test';
@@ -144,6 +147,9 @@ async function runAllUnitTests() {
     runBrowserSecurity();
     await runFoundrySessionStore();
     runExternalSecret();
+    runModulePathSecurity();
+    await runRequestSecurity();
+    runSocketConnectionPolicy();
     runStatusSanitize();
     runLocalhostPolicy();
     runSyncTokenService();

@@ -8,7 +8,6 @@
  * `./state`; cross-cutting private helpers in `./internals`; ensure-discovery
  * imports registry scanning from `./bootstrap`.
  */
-import path from 'node:path';
 import fs from 'node:fs';
 import { logger } from '@shared/utils/logger';
 import {
@@ -63,6 +62,8 @@ import {
 } from './internals';
 import { initializeRegistry, refreshRegistry } from './bootstrap';
 import { REMOTE_MODULE_DISTRIBUTION_ERROR_CODE } from '../security/remoteDistributionPolicy';
+import { parseModuleId } from '@shared/security/moduleId';
+import { resolveModuleDirectory } from '@server/security/modulePath';
 
 interface ManifestGateResult {
     allowed: boolean;
@@ -73,7 +74,10 @@ interface ManifestGateResult {
 }
 
 function checkManifestGate(moduleId: string, effectiveInfo?: SystemModuleInfo): ManifestGateResult {
-    const id = moduleId.toLowerCase();
+    const id = parseModuleId(moduleId);
+    if (!id) {
+        return { allowed: false, mode: 'strict', errorCode: 'validation-failed', reason: 'Invalid module ID' };
+    }
     const plugin = pluginMap.get(id);
     const record = getLifecycleRecord(id);
 
@@ -272,6 +276,7 @@ function emitManagerTelemetry(event: ManagerTelemetryEvent): void {
 
 /** Preserve capability denials while keeping ordinary adapter failures generic. */
 function getSourceResolutionErrorCode(errorCode?: string): ManagerErrorCode {
+    if (errorCode === 'invalid-module-id') return 'invalid-module-id';
     return errorCode === REMOTE_MODULE_DISTRIBUTION_ERROR_CODE
         ? REMOTE_MODULE_DISTRIBUTION_ERROR_CODE
         : 'source-resolution-failed';
@@ -313,19 +318,20 @@ function evaluateDependencyConflictImpact(
 ): DryRunDependencyImpact | undefined {
     if (!info) return undefined;
 
-    const id = moduleId.toLowerCase();
+    const id = parseModuleId(moduleId);
+    if (!id) return undefined;
     const violations: DryRunDependencyViolation[] = [];
     const enabledModules = new Set<string>();
 
     for (const record of Object.values(lifecycleStore.modules)) {
         if (record.enabled && record.status !== 'incompatible' && record.status !== 'errored') {
-            enabledModules.add(record.moduleId.toLowerCase());
+            enabledModules.add(record.moduleId);
         }
     }
 
     if (info.dependencies && info.dependencies.length > 0) {
         for (const depId of info.dependencies) {
-            const depIdLower = depId.toLowerCase();
+            const depIdLower = parseModuleId(depId)!;
             const depPlugin = pluginMap.get(depIdLower);
 
             if (!depPlugin) {
@@ -348,7 +354,7 @@ function evaluateDependencyConflictImpact(
 
     if (info.conflicts && info.conflicts.length > 0) {
         for (const conflictId of info.conflicts) {
-            const conflictIdLower = conflictId.toLowerCase();
+            const conflictIdLower = parseModuleId(conflictId)!;
             if (enabledModules.has(conflictIdLower)) {
                 const conflictPlugin = pluginMap.get(conflictIdLower);
                 const conflictTitle = conflictPlugin?.info.title || conflictId;
@@ -388,7 +394,7 @@ function buildFailedVerificationOutcome(
 export async function dryRunInstallManagedModule(input: InstallManagedModuleInput): Promise<DryRunManagedModuleResult> {
     if (!isInitialized()) initializeRegistry();
 
-    const id = input.moduleId.toLowerCase();
+    const id = parseModuleId(input.moduleId) ?? input.moduleId;
     const resolvedSource = await resolveManagedSource(id, input.source, input.version);
     if (!resolvedSource.ok) {
         const errorCode = getSourceResolutionErrorCode(resolvedSource.errorCode);
@@ -501,7 +507,7 @@ export async function dryRunInstallManagedModule(input: InstallManagedModuleInpu
 export async function dryRunUpgradeManagedModule(input: UpgradeManagedModuleInput): Promise<DryRunManagedModuleResult> {
     if (!isInitialized()) initializeRegistry();
 
-    const id = input.moduleId.toLowerCase();
+    const id = parseModuleId(input.moduleId) ?? input.moduleId;
     const resolvedSource = await resolveManagedSource(id, input.source, input.targetVersion);
     if (!resolvedSource.ok) {
         const errorCode = getSourceResolutionErrorCode(resolvedSource.errorCode);
@@ -639,7 +645,8 @@ export async function dryRunUpgradeManagedModule(input: UpgradeManagedModuleInpu
 export async function installManagedModule(input: InstallManagedModuleInput): Promise<ManagerOperationResult> {
     if (!isInitialized()) initializeRegistry();
 
-    const id = input.moduleId.toLowerCase();
+    const id = parseModuleId(input.moduleId);
+    if (!id) return operationFailure('invalid', 'install', 'Invalid module ID', undefined, 'invalid-module-id');
     const resolvedSource = await resolveManagedSource(id, input.source, input.version);
     if (!resolvedSource.ok) {
         const errorCode = getSourceResolutionErrorCode(resolvedSource.errorCode);
@@ -812,7 +819,8 @@ export interface UpgradeManagedModuleInput {
 export async function upgradeManagedModule(input: UpgradeManagedModuleInput): Promise<ManagerOperationResult> {
     if (!isInitialized()) initializeRegistry();
 
-    const id = input.moduleId.toLowerCase();
+    const id = parseModuleId(input.moduleId);
+    if (!id) return operationFailure('invalid', 'upgrade', 'Invalid module ID', undefined, 'invalid-module-id');
     const resolvedSource = await resolveManagedSource(id, input.source, input.targetVersion);
     if (!resolvedSource.ok) {
         const errorCode = getSourceResolutionErrorCode(resolvedSource.errorCode);
@@ -996,7 +1004,8 @@ export async function upgradeManagedModule(input: UpgradeManagedModuleInput): Pr
 export function uninstallManagedModule(moduleId: string): ManagerOperationResult {
     if (!isInitialized()) initializeRegistry();
 
-    const id = moduleId.toLowerCase();
+    const id = parseModuleId(moduleId);
+    if (!id) return operationFailure('invalid', 'uninstall', 'Invalid module ID', undefined, 'invalid-module-id');
     const plugin = pluginMap.get(id);
     const artifactStorePath = getArtifactStateFilePathOverride();
     const artifactStore = loadArtifactStore(artifactStorePath);
@@ -1023,19 +1032,9 @@ export function uninstallManagedModule(moduleId: string): ManagerOperationResult
     );
 
     if (result.success) {
-        // Physical file cleanup for managed modules in the data directory
-        let dataDir = getModulesDataDir();
-        let pluginDir = plugin?.directory;
-
-        try {
-            dataDir = fs.realpathSync(dataDir);
-            if (pluginDir) pluginDir = fs.realpathSync(pluginDir);
-        } catch {
-            dataDir = path.resolve(dataDir);
-            if (pluginDir) pluginDir = path.resolve(pluginDir);
-        }
-
-        if (pluginDir && pluginDir.startsWith(dataDir)) {
+        // Resolve the managed source directly; the active plugin may be local.
+        const pluginDir = resolveModuleDirectory(getModulesDataDir(), id);
+        if (pluginDir) {
             try {
                 if (fs.existsSync(pluginDir)) {
                     fs.rmSync(pluginDir, { recursive: true, force: true });
@@ -1055,7 +1054,8 @@ export function uninstallManagedModule(moduleId: string): ManagerOperationResult
 export function validateManagedModule(moduleId: string, source?: ModuleSourceCategory): ManagerOperationResult {
     if (!isInitialized()) initializeRegistry();
 
-    const id = moduleId.toLowerCase();
+    const id = parseModuleId(moduleId);
+    if (!id) return operationFailure('invalid', 'validate', 'Invalid module ID', undefined, 'invalid-module-id');
     const record = getLifecycleRecord(id);
     if (!record) {
         return operationFailure(id, 'validate', 'Module record not found in lifecycle store', undefined, 'module-not-found');

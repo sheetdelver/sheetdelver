@@ -5,7 +5,7 @@ import type { Dispatch, SetStateAction } from 'react';
 import { logger } from '@shared/utils/logger';
 import type { Socket } from 'socket.io-client';
 import type { ActorListPayload } from '@shared/contracts/actors';
-import type { SystemStatusPayload } from '@shared/contracts/status';
+import type { RealtimeStatusPayload } from '@shared/contracts/status';
 import type { RealtimeSharedContentPayload } from '@shared/contracts/realtime';
 import type { AppSystemInfo, ConnectionStep, User } from '@shared/interfaces';
 import { determineConnectionStep } from '@client/ui/context/foundryConnectionStep';
@@ -82,7 +82,7 @@ export function useSystemStatusRealtime({
     useEffect(() => {
         if (!appSocket) return;
 
-        const handleSystemStatus = (data: SystemStatusPayload) => {
+        const handleSystemStatus = (data: RealtimeStatusPayload) => {
             try {
                 if (data.debug?.level !== undefined) {
                     logger.setLevel(data.debug.level);

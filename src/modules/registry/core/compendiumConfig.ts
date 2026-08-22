@@ -8,9 +8,11 @@
 import type { CompendiumPackConfig } from '@shared/sdk';
 import { hasCompendiumPackConfig } from './types';
 import { pluginMap, adapterInstances } from './state';
+import { parseModuleId } from '@shared/security/moduleId';
 
 export function getModuleCompendiumPackConfig(moduleId: string): CompendiumPackConfig | null {
-    const id = moduleId.toLowerCase();
+    const id = parseModuleId(moduleId);
+    if (!id) return null;
     const plugin = pluginMap.get(id);
     const manifestConfig = plugin?.info.compendiumPacks;
     if (manifestConfig?.packs?.length) return manifestConfig;

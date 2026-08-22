@@ -1,5 +1,6 @@
 import { UIModuleManifest } from './types';
 import { ModuleSourceCategory } from '@shared/types/modules';
+import { parseModuleId } from '@shared/security/moduleId';
 import { logger } from '@shared/utils/logger';
 export * from './utils';
 import React from 'react';
@@ -76,6 +77,7 @@ function reportUIModuleLoadFailure(
     if (typeof fetch === 'undefined') return;
     void fetch(`/api/modules/${encodeURIComponent(moduleId)}/ui-error`, {
         method: 'POST',
+        credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ source, message: errorMessage }),
         keepalive: true,
@@ -128,7 +130,8 @@ export function invalidateModuleSourceCache() {
  * crashes the platform.
  */
 export async function getUIModule(systemId: string): Promise<UIModuleManifest> {
-    const id = systemId.toLowerCase();
+    const id = parseModuleId(systemId);
+    if (!id) return PLATFORM_DEFAULT_MANIFEST;
 
     if (id === 'generic') return PLATFORM_DEFAULT_MANIFEST;
 

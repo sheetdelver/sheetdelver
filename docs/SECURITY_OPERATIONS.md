@@ -1,6 +1,7 @@
 # Security Operations
 
-This runbook covers the local operator actions introduced by ADR-0033 Phase 3.
+This runbook covers the local operator actions introduced by ADR-0033 Phases 3
+and 4.
 All paths are relative to the configured `<DATA_DIR>` unless stated otherwise.
 
 ## External Secrets
@@ -154,3 +155,26 @@ fresh Foundry logins. Never convert the encrypted envelope back to plaintext.
 After migration or rotation, verify player login/restoration, admin login and
 logout, host/origin/network denial outside the local admin policy, and absence of reusable
 secrets in `<DATA_DIR>/config/settings.yaml` and plaintext session caches.
+
+## Request And Realtime Diagnostics
+
+Every Core HTTP request receives a server-generated UUID returned through
+`X-Request-ID`. When the browser reports a stable `internal-error`,
+`invalid-json`, or `request-body-too-large` code, use that ID to find the
+corresponding Core log entry. HTTP 500 logs contain a bounded response type/code
+summary and query-free path; raw exception response bodies, credentials, and
+upstream payloads are not echoed to the client.
+
+Credential and telemetry requests use smaller JSON limits than document
+mutation routes: player login is 8 KiB, admin setup/login/recovery is 16 KiB,
+and module UI-health is 4 KiB. A rejection at these boundaries occurs before
+the route invokes Foundry session creation, admin credential verification, or
+module lifecycle mutation.
+
+Guest Socket.IO clients receive only the public status projection. Authenticated
+clients receive the private projection after server-side session restoration.
+Socket payloads are limited to 256 KiB and connection attempts to 30 per
+effective client address per minute. Core trusts a forwarded socket address
+only when the immediate peer is the loopback shell proxy. Repeated
+`App Socket | Connection rate limit exceeded` warnings therefore identify the
+effective client address selected by that policy.

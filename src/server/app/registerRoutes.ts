@@ -23,6 +23,7 @@ import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
 import { readRequestSessionCredential } from '@server/security/playerSessionCookie';
 import { logger } from '@shared/utils/logger';
 import { SystemStatusPayload } from '@/shared/contracts/status';
+import { projectPublicStatus } from '@server/services/status/StatusService';
 import type { FoundryUserConnectionServiceLike } from '@server/shared/types/foundry';
 
 type GetSystemStatusPayload = () => Promise<SystemStatusPayload>;
@@ -64,13 +65,18 @@ export function registerRoutes(deps: RegisterRoutesDeps): void {
 
             const basePayload = await deps.getSystemStatusPayload();
 
-            // Strip user identity data from public (unauthenticated) responses.
-            // User IDs, names, roles, and online status should not be exposed without a valid session.
+            if (!isAuthenticated) {
+                return res.json({
+                    ...projectPublicStatus(basePayload),
+                    isAuthenticated: false,
+                    currentUserId: null,
+                });
+            }
+
             res.json({
                 ...basePayload,
-                users: isAuthenticated ? basePayload.users : [],
-                isAuthenticated,
-                currentUserId: userSession?.userId || null
+                isAuthenticated: true,
+                currentUserId: userSession?.userId || null,
             });
         } catch (error: unknown) {
             logger.error(`Status Handler Error: ${getErrorMessage(error)}`);

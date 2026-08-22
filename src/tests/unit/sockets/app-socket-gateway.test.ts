@@ -123,6 +123,15 @@ async function runGatewayTests() {
                 appVersion: '0.0.0-test',
                 debug: { enabled: false, level: 1 },
             } as SystemStatusPayload),
+            getPublicStatusPayload: async () => ({
+                connected: true,
+                initialized: true,
+                isConfigured: true,
+                foundryCompatibility: null,
+                users: [{ name: 'Gateway User', active: false, canLogin: true }],
+                system: { id: null, worldTitle: 'Test', status: 'active' },
+                appVersion: '0.0.0-test',
+            }),
             broadcastSystemStatus: () => undefined,
         });
 
@@ -178,6 +187,7 @@ async function runGatewayTests() {
         assert.ok(browserCounts.includes(0));
 
         // Guest degradation path (no cookie): middleware should still call next.
+        const guestEmitted: Array<{ event: string; payload: unknown }> = [];
         const guestSocket: MockSocket = {
             id: 'socket-guest',
             handshake: { headers: {} },
@@ -185,7 +195,7 @@ async function runGatewayTests() {
             join(room: string) {
                 this.rooms.add(room);
             },
-            emit: () => undefined,
+            emit: (event, payload) => guestEmitted.push({ event, payload }),
             on: () => undefined,
         };
 
@@ -195,6 +205,11 @@ async function runGatewayTests() {
         });
         assert.equal(guestNext, true);
         assert.equal(guestSocket.rooms.has('authenticated'), false);
+        assert.equal(guestSocket.rooms.has('status:public'), true);
+        await connectionHandler!(guestSocket);
+        const guestStatus = guestEmitted.find((entry) => entry.event === 'systemStatus')?.payload as Record<string, unknown>;
+        assert.equal(Object.hasOwn(guestStatus, 'debug'), false);
+        assert.equal(JSON.stringify(guestStatus).includes('user-1'), false);
     } finally {
         (systemService as any).getSystemClient = originalGetSystemClient;
         (systemService as any).isReady = originalIsReady;
@@ -279,6 +294,12 @@ async function runDeferredAttachWhenNotReady() {
                 url: 'http://localhost:30000', appVersion: '0.0.0-test',
                 debug: { enabled: false, level: 1 },
             } as SystemStatusPayload),
+            getPublicStatusPayload: async () => ({
+                connected: true, initialized: true, isConfigured: true,
+                foundryCompatibility: null, users: [],
+                system: { id: null, worldTitle: 'Test', status: 'startup' },
+                appVersion: '0.0.0-test',
+            }),
             broadcastSystemStatus: () => undefined,
         });
 

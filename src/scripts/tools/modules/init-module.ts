@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { resolveDataDir, getDataDir, getLocalModulesDataDir } from '../../../server/core/paths';
+import { requireModuleId } from '../../../shared/security/moduleId';
 
 const TEMPLATE_SUFFIX = '.tmpl';
 const TEMPLATE_TOKEN_PATTERN = /%[A-Z][A-Z0-9_]*%/g;
@@ -98,21 +99,22 @@ function renderTemplateTree(modulePath: string, tokens: TemplateTokens): void {
  * @throws Error if the module directory already exists
  */
 export function initModule(moduleId: string, systemName: string): void {
-  const modulePath = path.join(getLocalModulesDataDir(), moduleId);
+  const canonicalId = requireModuleId(moduleId);
+  const modulePath = path.join(getLocalModulesDataDir(), canonicalId);
   if (fs.existsSync(modulePath)) {
     throw new Error(`Module path ${modulePath} already exists. Choose a different name or remove the existing module.`);
   }
 
-  console.log(`Initializing module "${moduleId}" for system "${systemName}" at ${modulePath}...`);
+  console.log(`Initializing module "${canonicalId}" for system "${systemName}" at ${modulePath}...`);
 
   renderTemplateTree(modulePath, {
-    SYSTEM_ID: moduleId,
+    SYSTEM_ID: canonicalId,
     SYSTEM_NAME: systemName,
-    CLASS_PREFIX: toTypeScriptIdentifier(moduleId),
+    CLASS_PREFIX: toTypeScriptIdentifier(canonicalId),
     MANAGED_TSCONFIG: managedTsconfigPath(modulePath),
   });
 
-  console.log(`Module "${moduleId}" initialized successfully at ${modulePath}.`);
+  console.log(`Module "${canonicalId}" initialized successfully at ${modulePath}.`);
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
@@ -129,9 +131,10 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   console.log(`Using data directory: ${dataDir}`);
 
   try {
-    initModule(moduleId, systemName);
+    const canonicalId = requireModuleId(moduleId);
+    initModule(canonicalId, systemName);
     console.log('Next steps:');
-    const modulePath = path.join(dataDir, 'local', 'modules', moduleId);
+    const modulePath = path.join(dataDir, 'local', 'modules', canonicalId);
     console.log(`1. Implement your module's logic in ${path.join(modulePath, 'src', 'logic')}/`);
     console.log(`2. Build your UI components in ${path.join(modulePath, 'src', 'ui')}/`);
     console.log('3. Refer to the README.md for API usage and examples.');

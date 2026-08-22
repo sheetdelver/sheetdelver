@@ -1,13 +1,24 @@
 import express from 'express';
 import fs from 'node:fs';
-import path from 'node:path';
 import { createModuleProxyService } from '@server/services/modules/ModuleProxyService';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
 import { logger } from '@shared/utils/logger';
 import { getModulesDataDir, getLocalModulesDataDir } from '@core/paths';
 import { isSdkError } from '@shared/sdk/errors';
 import { rewriteImportsForBrowser } from './rewriteModuleImports';
-import { recordModuleRuntimeFailure } from '@modules/registry/server';
+import { getModuleLifecycleState, recordModuleRuntimeFailure } from '@modules/registry/server';
+import { parseModuleId } from '@shared/security/moduleId';
+import {
+    ModuleUiHealthRateLimiter,
+    parseModuleUiHealthSource,
+    sanitizeModuleUiHealthText,
+} from '@server/security/moduleUiHealthPolicy';
+import {
+    readWildcardPath,
+    resolveConfinedDirectory,
+    resolveConfinedFile,
+    resolveModuleDirectory,
+} from '@server/security/modulePath';
 
 interface ModuleRouterDeps {
     tryAuthenticateSession: express.RequestHandler;
@@ -20,17 +31,10 @@ interface ModuleRouterDeps {
  */
 function resolveModuleBaseDir(moduleId: string): string | null {
     for (const root of [getModulesDataDir(), getLocalModulesDataDir()]) {
-        const candidate = path.join(root, moduleId);
-        if (fs.existsSync(candidate)) return candidate;
+        const candidate = resolveModuleDirectory(root, moduleId);
+        if (candidate) return candidate;
     }
     return null;
-}
-
-function toShortString(value: unknown, fallback: string): string {
-    if (typeof value !== 'string') return fallback;
-    const trimmed = value.trim();
-    if (!trimmed) return fallback;
-    return trimmed.length > 500 ? `${trimmed.slice(0, 500)}...` : trimmed;
 }
 
 function recordModuleUiFailure(moduleId: string, message: string, source?: string): void {
@@ -44,6 +48,7 @@ export function createModuleRouter(deps: ModuleRouterDeps) {
     // --- Module Router (Permissive Auth) ---
     // Mounted before the global auth middleware to allow module-specific permissive routes
     const moduleRouter = express.Router();
+    const uiHealthLimiter = new ModuleUiHealthRateLimiter();
     moduleRouter.use(deps.tryAuthenticateSession);
 
     /**
@@ -62,10 +67,13 @@ export function createModuleRouter(deps: ModuleRouterDeps) {
      * falling back to dist/ui.js / module/ui.js conventions.
      */
     moduleRouter.get('/:id/ui', async (req, res) => {
-        const moduleId = String(req.params.id).toLowerCase();
-        const baseDir = path.join(getModulesDataDir(), moduleId);
+        const moduleId = parseModuleId(req.params.id);
+        if (!moduleId) {
+            return res.status(400).json({ error: 'Invalid module ID', code: 'invalid-module-id' });
+        }
+        const baseDir = resolveModuleDirectory(getModulesDataDir(), moduleId);
 
-        if (!fs.existsSync(baseDir)) {
+        if (!baseDir) {
             return res.status(404).json({ error: `Module "${moduleId}" not found` });
         }
 
@@ -75,14 +83,13 @@ export function createModuleRouter(deps: ModuleRouterDeps) {
         // client can't read it from `manifest.info`. We re-export it from the served module.
         let uiFile: string | null = null;
         let compiledStyles: string | undefined;
-        const infoPath = path.join(baseDir, 'info.json');
-        if (fs.existsSync(infoPath)) {
+        const infoPath = resolveConfinedFile(baseDir, 'info.json');
+        if (infoPath) {
             try {
                 const info = JSON.parse(fs.readFileSync(infoPath, 'utf8'));
                 const manifestUi = info?.manifest?.ui;
-                if (manifestUi) {
-                    const candidate = path.join(baseDir, manifestUi);
-                    if (fs.existsSync(candidate)) uiFile = candidate;
+                if (typeof manifestUi === 'string') {
+                    uiFile = resolveConfinedFile(baseDir, manifestUi);
                 }
                 if (typeof info?.compiledStyles === 'string') compiledStyles = info.compiledStyles;
             } catch { /* ignore malformed info.json */ }
@@ -90,8 +97,8 @@ export function createModuleRouter(deps: ModuleRouterDeps) {
 
         if (!uiFile) {
             for (const candidate of ['dist/ui.js', 'module/ui.js']) {
-                const p = path.join(baseDir, candidate);
-                if (fs.existsSync(p)) { uiFile = p; break; }
+                const confined = resolveConfinedFile(baseDir, candidate);
+                if (confined) { uiFile = confined; break; }
             }
         }
 
@@ -128,10 +135,39 @@ export function createModuleRouter(deps: ModuleRouterDeps) {
      * not a generic telemetry endpoint.
      */
     moduleRouter.post('/:id/ui-error', async (req, res) => {
-        const moduleId = String(req.params.id).toLowerCase();
+        // Only a restored Foundry user session may mutate operator-visible health.
+        const sessionId = req.userSession?.id;
+        if (!sessionId || !req.userSession?.userId || req.isSystem === true) {
+            return res.status(401).json({ error: 'Authentication required', code: 'authentication-required' });
+        }
+
+        const moduleId = parseModuleId(req.params.id);
+        if (!moduleId) {
+            return res.status(400).json({ error: 'Invalid module ID', code: 'invalid-module-id' });
+        }
+
         const body = req.body as { message?: unknown; source?: unknown } | undefined;
-        const message = toShortString(body?.message, 'Client failed to import module UI');
-        const source = typeof body?.source === 'string' ? toShortString(body.source, 'unknown') : undefined;
+        const source = parseModuleUiHealthSource(body?.source);
+        if (!source) {
+            return res.status(400).json({ error: 'Invalid module source', code: 'invalid-module-source' });
+        }
+
+        const lifecycle = getModuleLifecycleState().find((record) => record.moduleId === moduleId);
+        if (!lifecycle) {
+            return res.status(404).json({ error: 'Module not found', code: 'module-not-found' });
+        }
+        if (!lifecycle.enabled || lifecycle.activeSource !== source) {
+            return res.status(409).json({ error: 'Module source is not active', code: 'module-source-inactive' });
+        }
+        if (!uiHealthLimiter.consume(sessionId, moduleId)) {
+            return res.status(429).json({ error: 'Too many module UI health reports', code: 'rate-limit-exceeded' });
+        }
+
+        const message = sanitizeModuleUiHealthText(
+            body?.message,
+            'Client failed to import module UI',
+            500,
+        );
 
         recordModuleUiFailure(moduleId, message, source);
         res.json({ success: true });
@@ -146,11 +182,14 @@ export function createModuleRouter(deps: ModuleRouterDeps) {
      * decision 27). Includes path traversal protection.
      */
     moduleRouter.get('/:id/assets/{*assetPath}', async (req, res) => {
-        const moduleId = String(req.params.id).toLowerCase();
-
-        // Extract the trailing path accurately without relying on Express 0-index wildcard parameters
-        const prefix = `/${moduleId}/assets/`;
-        const assetPath = req.path.slice(prefix.length);
+        const moduleId = parseModuleId(req.params.id);
+        if (!moduleId) {
+            return res.status(400).json({ error: 'Invalid module ID', code: 'invalid-module-id' });
+        }
+        const assetPath = readWildcardPath(req.params.assetPath);
+        if (!assetPath) {
+            return res.status(400).json({ error: 'Invalid asset path', code: 'invalid-asset-path' });
+        }
 
         const baseDir = resolveModuleBaseDir(moduleId);
 
@@ -158,19 +197,13 @@ export function createModuleRouter(deps: ModuleRouterDeps) {
             return res.status(404).json({ error: `Module "${moduleId}" not found` });
         }
 
-        const assetsDir = path.join(baseDir, 'assets');
-        if (!fs.existsSync(assetsDir)) {
+        const assetsDir = resolveConfinedDirectory(baseDir, 'assets');
+        if (!assetsDir) {
             return res.status(404).json({ error: `No assets directory found for module "${moduleId}"` });
         }
 
-        const fullPath = path.resolve(assetsDir, assetPath);
-
-        // Path traversal protection
-        if (!fullPath.startsWith(path.resolve(assetsDir))) {
-            return res.status(403).json({ error: 'Access denied' });
-        }
-
-        if (!fs.existsSync(fullPath)) {
+        const fullPath = resolveConfinedFile(assetsDir, assetPath);
+        if (!fullPath) {
             return res.status(404).json({ error: 'Asset not found' });
         }
 

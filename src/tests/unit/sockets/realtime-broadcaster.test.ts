@@ -6,11 +6,13 @@ import type { SystemStatusPayload } from '@shared/contracts/status';
 type ListenerMap = Record<string, Array<(...args: unknown[]) => void>>;
 
 async function runBroadcasterTests() {
-    const emitted: Array<{ event: string; payload: unknown }> = [];
+    const emitted: Array<{ room: string; event: string; payload: unknown }> = [];
     const io = {
-        emit: (event: string, payload: unknown) => {
-            emitted.push({ event, payload });
-        },
+        to: (room: string) => ({
+            emit: (event: string, payload: unknown) => {
+                emitted.push({ room, event, payload });
+            },
+        }),
     };
 
     let payloadCounter = 0;
@@ -23,8 +25,14 @@ async function runBroadcasterTests() {
             initialized: lifecycleStatus === 'active',
             isConfigured: true,
             foundryCompatibility: null,
-            users: [],
-            system: { id: 'shadowdark', worldTitle: 'Test', status: lifecycleStatus, actorSyncToken: String(++payloadCounter) },
+            users: [{ _id: 'private-id', name: 'Player', role: 1, active: false }],
+            system: {
+                id: 'shadowdark',
+                worldTitle: 'Test',
+                worldDescription: 'private',
+                status: lifecycleStatus,
+                actorSyncToken: String(++payloadCounter),
+            },
             url: 'http://localhost:30000',
             appVersion: '0.0.0-test',
             debug: { enabled: false, level: 1 },
@@ -32,8 +40,11 @@ async function runBroadcasterTests() {
     });
 
     await broadcaster.broadcastSystemStatus();
-    assert.equal(emitted.length, 1);
-    assert.equal(emitted[0].event, 'systemStatus');
+    assert.equal(emitted.length, 2);
+    assert.deepEqual(emitted.map((entry) => entry.room), ['authenticated', 'status:public']);
+    const guestInitial = emitted.find((entry) => entry.room === 'status:public')?.payload as Record<string, unknown>;
+    assert.equal(Object.hasOwn(guestInitial, 'debug'), false);
+    assert.equal(JSON.stringify(guestInitial).includes('private-id'), false);
 
     const originalOn = (systemService as any).on;
     const originalOff = (systemService as any).off;
@@ -60,17 +71,19 @@ async function runBroadcasterTests() {
         listeners['world:connected'][0]({ state: 'active' });
         await new Promise((resolve) => setTimeout(resolve, 0));
 
-        // `io.emit` is intentionally global: guest/status-only app sockets must
-        // see the same lifecycle progression as authenticated client sockets.
+        // Both audiences receive lifecycle progression, but through distinct DTOs.
         const lifecycleEmissions: SystemStatusPayload[] = [];
         for (const status of ['closed', 'setup', 'startup', 'active'] as const) {
             lifecycleStatus = status;
             const previousEmissionCount: number = emitted.length;
             listeners['system:status-update'][0]();
             await new Promise((resolve) => setTimeout(resolve, 0));
-            assert.equal(emitted.length, previousEmissionCount + 1);
-            assert.equal(emitted.at(-1)?.event, 'systemStatus');
-            lifecycleEmissions.push(emitted.at(-1)?.payload as SystemStatusPayload);
+            assert.equal(emitted.length, previousEmissionCount + 2);
+            const authenticated = emitted
+                .slice(previousEmissionCount)
+                .find((entry) => entry.room === 'authenticated');
+            assert.equal(authenticated?.event, 'systemStatus');
+            lifecycleEmissions.push(authenticated?.payload as SystemStatusPayload);
         }
         assert.deepEqual(
             lifecycleEmissions.map((payload) => payload.system.status),

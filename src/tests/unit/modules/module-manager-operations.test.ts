@@ -66,6 +66,10 @@ function stubSaveArtifact(_store: ModuleArtifactStore): void { /* no-op in tests
 
 export async function run(): Promise<void> {
 
+    const invalidIdResult = uninstallModule('../secret', makeLifecycleStore(baseRecord()), makeArtifactStore());
+    assert.equal(invalidIdResult.success, false);
+    assert.equal(invalidIdResult.errorCode, 'invalid-module-id');
+
     // ── installModule ────────────────────────────────────────────────────────
 
     {

@@ -1,5 +1,6 @@
 import { strict as assert } from 'node:assert';
-import { sanitizeStatusUser } from '@server/services/status/StatusService';
+import { projectPublicStatus, sanitizeStatusUser } from '@server/services/status/StatusService';
+import type { SystemStatusPayload } from '@shared/contracts/status';
 
 function runStatusSanitizeTests() {
     const foundryBaseUrl = 'http://foundry.test/';
@@ -41,6 +42,43 @@ function runStatusSanitizeTests() {
 
     const sanitizedNoRole = sanitizeStatusUser(userMissingRole, foundryBaseUrl);
     assert.equal(sanitizedNoRole.isGM, false);
+
+    const publicStatus = projectPublicStatus({
+        connected: true,
+        worldId: 'secret-world-id',
+        initialized: true,
+        isConfigured: true,
+        foundryCompatibility: null,
+        users: [sanitizedAvatar, sanitizedImg],
+        system: {
+            id: 'private-system',
+            worldTitle: 'Public World Title',
+            worldDescription: 'private description',
+            worldBackground: '/private-background.png',
+            actorSyncToken: 'private-sync-token',
+            status: 'active',
+            users: { active: 1, total: 2 },
+            config: { private: true },
+        },
+        url: foundryBaseUrl,
+        appVersion: 'test',
+        debug: { enabled: true, level: 4 },
+    } as SystemStatusPayload);
+
+    assert.deepEqual(publicStatus.users, [
+        { name: 'GM User', active: true, canLogin: false },
+        { name: 'Player User', active: false, canLogin: true },
+    ]);
+    assert.deepEqual(publicStatus.system, {
+        id: null,
+        worldTitle: 'Public World Title',
+        status: 'active',
+        users: { active: 1, total: 2 },
+    });
+    for (const privateKey of ['worldId', 'url', 'debug']) {
+        assert.equal(Object.hasOwn(publicStatus, privateKey), false, `${privateKey} must not enter the public projection`);
+    }
+    assert.equal(JSON.stringify(publicStatus).includes('private'), false);
 }
 
 export function run() {

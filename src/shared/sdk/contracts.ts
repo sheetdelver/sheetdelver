@@ -13,6 +13,13 @@ export interface StatusUser {
     img?: string;
 }
 
+/** Minimum roster entry exposed before Foundry authentication. */
+export interface PublicStatusUser {
+    name: string;
+    active: boolean;
+    canLogin: boolean;
+}
+
 export type FoundryCompatibilityStatus =
     | 'supported'
     | 'newer-untested'
@@ -62,6 +69,25 @@ export interface SystemStatusPayload {
     };
 }
 
+/** Guest-safe availability projection used by REST and realtime status. */
+export interface PublicStatusPayload {
+    connected: boolean;
+    initialized: boolean;
+    isConfigured: boolean;
+    foundryCompatibility: FoundryCompatibilityStatusPayload | null;
+    users: PublicStatusUser[];
+    system: {
+        id: null;
+        worldTitle?: string;
+        status?: string;
+        users?: { active: number; total: number };
+    };
+    appVersion: string;
+    worldId?: never;
+    url?: never;
+    debug?: never;
+}
+
 /**
  * Authenticated status payload, including session-specific info.
  */
@@ -69,6 +95,12 @@ export interface AuthenticatedStatusPayload extends SystemStatusPayload {
     isAuthenticated: boolean;
     currentUserId: string | null;
 }
+
+export type StatusResponsePayload =
+    | (PublicStatusPayload & { isAuthenticated: false; currentUserId: null })
+    | AuthenticatedStatusPayload;
+
+export type RealtimeStatusPayload = PublicStatusPayload | SystemStatusPayload;
 
 /**
  * Payload for realtime actor updates. Consumers should refetch the affected actor/card.
@@ -243,4 +275,3 @@ export interface UserSession {
     /** The numerical role of the user (1=Player, 3=GM, etc.). */
     role: number;
 }
-

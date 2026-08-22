@@ -11,6 +11,13 @@ export interface StatusUser {
     img?: string;
 }
 
+/** Minimum roster entry exposed before Foundry authentication. */
+export interface PublicStatusUser {
+    name: string;
+    active: boolean;
+    canLogin: boolean;
+}
+
 export type FoundryCompatibilityStatus =
     | 'supported'
     | 'newer-untested'
@@ -54,7 +61,36 @@ export interface SystemStatusPayload {
     debug: AppConfig['debug'];
 }
 
+/**
+ * Availability projection safe for unauthenticated REST and Socket.IO clients.
+ * Optional `never` fields document sensitive members intentionally omitted from
+ * the wire while keeping client-side narrowing straightforward.
+ */
+export interface PublicStatusPayload {
+    connected: boolean;
+    initialized: boolean;
+    isConfigured: boolean;
+    foundryCompatibility: FoundryCompatibilityStatusPayload | null;
+    users: PublicStatusUser[];
+    system: {
+        id: null;
+        worldTitle?: string;
+        status?: string;
+        users?: { active: number; total: number };
+    };
+    appVersion: AppConfig['app']['version'];
+    worldId?: never;
+    url?: never;
+    debug?: never;
+}
+
 export interface AuthenticatedStatusPayload extends SystemStatusPayload {
     isAuthenticated: boolean;
     currentUserId: string | null;
 }
+
+export type StatusResponsePayload =
+    | (PublicStatusPayload & { isAuthenticated: false; currentUserId: null })
+    | AuthenticatedStatusPayload;
+
+export type RealtimeStatusPayload = PublicStatusPayload | SystemStatusPayload;

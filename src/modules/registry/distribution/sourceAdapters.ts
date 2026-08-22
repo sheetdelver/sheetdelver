@@ -5,6 +5,7 @@ import {
     getRemoteModuleDistributionDenial,
     isRemoteModuleSourceRef,
 } from '../security/remoteDistributionPolicy';
+import { parseModuleId } from '@shared/security/moduleId';
 
 export type { ModuleSourceKind };
 
@@ -65,11 +66,16 @@ export const localModuleSourceAdapter: ModuleSourceAdapter = {
             };
         }
 
+        const moduleId = parseModuleId(input.moduleId);
+        if (!moduleId) {
+            return { ok: false, error: 'Invalid module ID', errorCode: 'invalid-module-id' };
+        }
+
         return {
             ok: true,
             value: {
                 kind: ModuleSourceKind.Local,
-                moduleId: input.moduleId.trim().toLowerCase(),
+                moduleId,
                 version: input.targetVersion?.trim() || '0.0.0-local',
                 source: input.sourceRef,
                 sourceRef: input.sourceRef,

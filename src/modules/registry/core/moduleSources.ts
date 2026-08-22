@@ -8,6 +8,7 @@
  * comes from `./adapterResolution`. Registry scanning comes from `./bootstrap`.
  */
 import path from 'node:path';
+import { parseModuleId } from '@shared/security/moduleId';
 import fs from 'node:fs';
 import { logger } from '@shared/utils/logger';
 import { ModuleLifecycleStatus, ModuleSourceCategory } from '@shared/types/modules';
@@ -112,7 +113,8 @@ function markActiveSourceBlocked(record: ModuleLifecycleRecord, block: SourceBlo
  */
 export function switchModuleSource(moduleId: string, source: ModuleSourceCategory): { success: boolean; error?: string } {
     if (!isInitialized()) initializeRegistry();
-    const id = moduleId.toLowerCase();
+    const id = parseModuleId(moduleId);
+    if (!id) return { success: false, error: 'Invalid module ID' };
     const record = getLifecycleRecord(id);
     if (!record) return { success: false, error: 'Module not found' };
 
@@ -178,7 +180,8 @@ export function switchModuleSource(moduleId: string, source: ModuleSourceCategor
  */
 export function disableModule(moduleId: string, reason = 'Module disabled by operator', source?: ModuleSourceCategory): boolean {
     if (!isInitialized()) initializeRegistry();
-    const id = moduleId.toLowerCase();
+    const id = parseModuleId(moduleId);
+    if (!id) return false;
 
     const record = getLifecycleRecord(id);
     if (!record) return false;
@@ -225,7 +228,8 @@ export function disableModule(moduleId: string, reason = 'Module disabled by ope
  */
 export function enableModule(moduleId: string, source?: ModuleSourceCategory): boolean {
     if (!isInitialized()) initializeRegistry();
-    const id = moduleId.toLowerCase();
+    const id = parseModuleId(moduleId);
+    if (!id) return false;
     const record = getLifecycleRecord(id);
     if (!record) return false;
 

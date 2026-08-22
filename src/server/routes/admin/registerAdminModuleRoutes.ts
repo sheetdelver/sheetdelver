@@ -24,6 +24,7 @@ import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
 import type { RegisteredModuleRuntimeInfo } from '@modules/registry/server';
 import type { ModuleLifecycleValidation, ModuleSourceState } from '@modules/registry/lifecycle/lifecycle';
 import { getRemoteModuleDistributionDenial } from '@modules/registry/security/remoteDistributionPolicy';
+import { parseModuleId } from '@shared/security/moduleId';
 
 export interface RegisterAdminModuleRoutesOptions {
     adminRouter: express.Router;
@@ -36,6 +37,17 @@ export function registerAdminModuleRoutes(opts: RegisterAdminModuleRoutesOptions
     // Inline alias keeps the extracted handlers unchanged from their original
     // shape — they reference `deps.broadcastToClients` literally.
     const deps = { broadcastToClients: opts.broadcastToClients };
+
+    /** Reject decoded separators and other non-slug IDs before registry mutation. */
+    function readRequestModuleId(req: express.Request, res: express.Response): string | null {
+        const raw = Array.isArray(req.params.moduleId) ? req.params.moduleId[0] : req.params.moduleId;
+        const moduleId = parseModuleId(raw);
+        if (!moduleId) {
+            res.status(400).json({ success: false, error: 'Invalid module ID', errorCode: 'invalid-module-id' });
+            return null;
+        }
+        return moduleId;
+    }
 
     /**
      * Preserve the authenticated API shape while making dormant remote
@@ -114,7 +126,8 @@ export function registerAdminModuleRoutes(opts: RegisterAdminModuleRoutesOptions
         moduleId: string,
         source?: ModuleSourceCategory,
     ): string | undefined {
-        const entry = modules.find(m => m.info.id.toLowerCase() === moduleId.toLowerCase());
+        const canonicalId = parseModuleId(moduleId);
+        const entry = canonicalId ? modules.find(m => parseModuleId(m.info.id) === canonicalId) : undefined;
         if (!entry) return undefined;
         return (source ? entry.lifecycle.sourceStates?.[source]?.reason : undefined)
             || entry.lifecycle.reason;
@@ -155,7 +168,7 @@ export function registerAdminModuleRoutes(opts: RegisterAdminModuleRoutesOptions
                             // Explicit per-source managed path so each card shows its own fixed
                             // location regardless of which source is active (ADR-0030 UX-6).
                             // `directory` alone is mutated to the active source on switch.
-                            managedDirectory: path.join(getModulesDataDir(), m.info.id.toLowerCase()),
+                            managedDirectory: path.join(getModulesDataDir(), parseModuleId(m.info.id)!),
                             localEnabled: m.lifecycle.localEnabled,
                             managedEnabled: m.lifecycle.managedEnabled,
                         };
@@ -181,9 +194,8 @@ export function registerAdminModuleRoutes(opts: RegisterAdminModuleRoutesOptions
         auditAdminAction,
         async (req, res) => {
             try {
-                const moduleId = Array.isArray(req.params.moduleId)
-                    ? req.params.moduleId[0]
-                    : req.params.moduleId;
+                const moduleId = readRequestModuleId(req, res);
+                if (!moduleId) return;
                 const { enableModule, checkCanEnableModule, listModules } = await import('@modules/registry/server');
 
                 // Check dependencies and conflicts
@@ -236,9 +248,8 @@ export function registerAdminModuleRoutes(opts: RegisterAdminModuleRoutesOptions
         auditAdminAction,
         async (req, res) => {
             try {
-                const moduleId = Array.isArray(req.params.moduleId)
-                    ? req.params.moduleId[0]
-                    : req.params.moduleId;
+                const moduleId = readRequestModuleId(req, res);
+                if (!moduleId) return;
                 const { disableModule, checkCanDisableModule } = await import('@modules/registry/server');
                 const reason = req.body?.reason || 'Module disabled by admin';
 
@@ -295,7 +306,8 @@ export function registerAdminModuleRoutes(opts: RegisterAdminModuleRoutesOptions
         auditAdminAction,
         async (req, res) => {
             try {
-                const moduleId = String(req.params.moduleId);
+                const moduleId = readRequestModuleId(req, res);
+                if (!moduleId) return;
                 const { source } = req.body as { source?: string };
                 if (source !== ModuleSourceCategory.Local && source !== ModuleSourceCategory.Managed) {
                     return res.status(400).json({ success: false, error: `source must be "${ModuleSourceCategory.Local}" or "${ModuleSourceCategory.Managed}"` });
@@ -341,9 +353,8 @@ export function registerAdminModuleRoutes(opts: RegisterAdminModuleRoutesOptions
         auditAdminAction,
         async (req, res) => {
             try {
-                const moduleId = Array.isArray(req.params.moduleId)
-                    ? req.params.moduleId[0]
-                    : req.params.moduleId;
+                const moduleId = readRequestModuleId(req, res);
+                if (!moduleId) return;
                 const source = typeof req.body?.source === 'string' ? req.body.source : `local://${moduleId}`;
                 const version = typeof req.body?.version === 'string' ? req.body.version : undefined;
                 const integrity = typeof req.body?.integrity === 'string' ? req.body.integrity : undefined;
@@ -380,9 +391,8 @@ export function registerAdminModuleRoutes(opts: RegisterAdminModuleRoutesOptions
         auditAdminAction,
         async (req, res) => {
             try {
-                const moduleId = Array.isArray(req.params.moduleId)
-                    ? req.params.moduleId[0]
-                    : req.params.moduleId;
+                const moduleId = readRequestModuleId(req, res);
+                if (!moduleId) return;
                 const source = typeof req.body?.source === 'string' ? req.body.source : `local://${moduleId}`;
                 const targetVersion = typeof req.body?.targetVersion === 'string'
                     ? req.body.targetVersion
@@ -423,9 +433,8 @@ export function registerAdminModuleRoutes(opts: RegisterAdminModuleRoutesOptions
         auditAdminAction,
         async (req, res) => {
             try {
-                const moduleId = Array.isArray(req.params.moduleId)
-                    ? req.params.moduleId[0]
-                    : req.params.moduleId;
+                const moduleId = readRequestModuleId(req, res);
+                if (!moduleId) return;
                 const source = typeof req.body?.source === 'string' ? req.body.source : `local://${moduleId}`;
                 const version = typeof req.body?.version === 'string' ? req.body.version : undefined;
                 const integrity = typeof req.body?.integrity === 'string' ? req.body.integrity : undefined;
@@ -473,9 +482,8 @@ export function registerAdminModuleRoutes(opts: RegisterAdminModuleRoutesOptions
         auditAdminAction,
         async (req, res) => {
             try {
-                const moduleId = Array.isArray(req.params.moduleId)
-                    ? req.params.moduleId[0]
-                    : req.params.moduleId;
+                const moduleId = readRequestModuleId(req, res);
+                if (!moduleId) return;
 
                 const { uninstallManagedModule } = await import('@modules/registry/server');
                 const result = uninstallManagedModule(moduleId);
@@ -517,9 +525,8 @@ export function registerAdminModuleRoutes(opts: RegisterAdminModuleRoutesOptions
         auditAdminAction,
         async (req, res) => {
             try {
-                const moduleId = Array.isArray(req.params.moduleId)
-                    ? req.params.moduleId[0]
-                    : req.params.moduleId;
+                const moduleId = readRequestModuleId(req, res);
+                if (!moduleId) return;
                 const source = typeof req.body?.source === 'string' ? req.body.source : `local://${moduleId}`;
                 const targetVersion = typeof req.body?.targetVersion === 'string'
                     ? req.body.targetVersion
@@ -577,9 +584,8 @@ export function registerAdminModuleRoutes(opts: RegisterAdminModuleRoutesOptions
         auditAdminAction,
         async (req, res) => {
             try {
-                const moduleId = Array.isArray(req.params.moduleId)
-                    ? req.params.moduleId[0]
-                    : req.params.moduleId;
+                const moduleId = readRequestModuleId(req, res);
+                if (!moduleId) return;
 
                 const source = req.body?.source as ModuleSourceCategory | undefined;
 

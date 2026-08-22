@@ -3,6 +3,7 @@ import path from 'node:path';
 import { getModulesDataDir } from '@core/paths';
 import { LegacyModuleSourceCategory, ModuleLifecycleStatus, ModuleSourceCategory } from '@shared/types/modules';
 import type { ModuleContractDiagnostic, ModuleCoreConstraintDiagnostic } from './compatibilityResolver';
+import { parseModuleId, requireModuleId } from '@shared/security/moduleId';
 
 export type { ModuleLifecycleStatus };
 
@@ -109,7 +110,7 @@ function isValidRecord(value: unknown): value is ModuleLifecycleRecord {
     if (!value || typeof value !== 'object') return false;
 
     const record = value as Partial<ModuleLifecycleRecord>;
-    return typeof record.moduleId === 'string'
+    return parseModuleId(record.moduleId) !== null
         && typeof record.title === 'string'
         && typeof record.directory === 'string'
         && isValidStatus(record.status)
@@ -196,8 +197,10 @@ export function loadLifecycleStore(stateFilePath = getDefaultLifecycleStateFileP
 
         const modules: Record<string, ModuleLifecycleRecord> = {};
         for (const [id, record] of Object.entries(parsed.modules)) {
-            if (isValidRecord(record)) {
-                modules[id] = normalizeLifecycleRecord(record);
+            const canonicalKey = parseModuleId(id);
+            const canonicalRecordId = isValidRecord(record) ? parseModuleId(record.moduleId) : null;
+            if (canonicalKey && canonicalRecordId && canonicalKey === canonicalRecordId) {
+                modules[canonicalKey] = normalizeLifecycleRecord({ ...record, moduleId: canonicalRecordId });
             }
         }
 
@@ -227,7 +230,8 @@ export function upsertDiscoveredModule(
     discovered: DiscoveredModuleInput,
     now = Date.now()
 ): ModuleLifecycleRecord {
-    const existing = store.modules[discovered.moduleId];
+    const moduleId = requireModuleId(discovered.moduleId);
+    const existing = store.modules[moduleId];
 
     if (existing) {
         const next: ModuleLifecycleRecord = {
@@ -237,12 +241,12 @@ export function upsertDiscoveredModule(
             lastSeenAt: now,
             updatedAt: now
         };
-        store.modules[discovered.moduleId] = next;
+        store.modules[moduleId] = next;
         return next;
     }
 
     const created: ModuleLifecycleRecord = {
-        moduleId: discovered.moduleId,
+        moduleId,
         title: discovered.title,
         directory: discovered.directory,
         status: ModuleLifecycleStatus.Discovered,
@@ -252,7 +256,7 @@ export function upsertDiscoveredModule(
         updatedAt: now
     };
 
-    store.modules[discovered.moduleId] = created;
+    store.modules[moduleId] = created;
     return created;
 }
 
@@ -265,7 +269,9 @@ export function applyLifecycleClassification(
     classification: ModuleLifecycleClassificationInput,
     now = Date.now()
 ): ModuleLifecycleRecord | null {
-    const existing = store.modules[moduleId];
+    const id = parseModuleId(moduleId);
+    if (!id) return null;
+    const existing = store.modules[id];
     if (!existing) return null;
 
     const sourceStates = existing.sourceStates || {};
@@ -314,7 +320,7 @@ export function applyLifecycleClassification(
         }
     }
 
-    store.modules[moduleId] = next;
+    store.modules[id] = next;
     return next;
 }
 
@@ -328,7 +334,8 @@ export function recordLifecycleRuntimeFailure(
     errorMessage: string,
     now = Date.now()
 ): ModuleLifecycleRecord | null {
-    const id = moduleId.toLowerCase();
+    const id = parseModuleId(moduleId);
+    if (!id) return null;
     const existing = store.modules[id];
     if (!existing) return null;
 

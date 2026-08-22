@@ -10,6 +10,8 @@ import {
     upsertDiscoveredModule,
 } from '../lifecycle/lifecycle';
 import { validatePackagedModuleArtifact, type ModuleArtifactHealthResult } from '../lifecycle/artifactHealth';
+import { parseModuleId } from '@shared/security/moduleId';
+import { resolveConfinedFile } from '@server/security/modulePath';
 import { evaluateModuleCompatibility, validateModuleInfoShape } from '../lifecycle/validation';
 import { getModulesDataDir, getLocalModulesDir } from '@/server/core/paths';
 import {
@@ -59,10 +61,15 @@ export function initializeRegistry() {
         // each source is classified. Keeping it per source prevents local-dev state
         // from inheriting warnings/errors from an old installed package.
         const artifactHealthBySource = new Map<string, Map<SourceTag, ModuleArtifactHealthResult>>();
+        const entryPathErrors = new Map<string, Map<SourceTag, string>>();
 
         const setArtifactHealth = (moduleId: string, source: SourceTag, result: ModuleArtifactHealthResult): void => {
             if (!artifactHealthBySource.has(moduleId)) artifactHealthBySource.set(moduleId, new Map());
             artifactHealthBySource.get(moduleId)!.set(source, result);
+        };
+        const setEntryPathError = (moduleId: string, source: SourceTag, message: string): void => {
+            if (!entryPathErrors.has(moduleId)) entryPathErrors.set(moduleId, new Map());
+            entryPathErrors.get(moduleId)!.set(source, message);
         };
 
         for (const scanDir of scanDirs) {
@@ -77,12 +84,18 @@ export function initializeRegistry() {
             for (const entry of entries) {
                 if (!entry.isDirectory() || entry.name === 'registry') continue;
 
+                const directoryId = parseModuleId(entry.name);
+                if (!directoryId) {
+                    logger.warn(`Registry | Skipping folder "${entry.name}": Invalid module directory ID.`);
+                    continue;
+                }
+
                 const modulePath = path.join(modulesDir, entry.name);
                 const infoPath = path.join(modulePath, 'info.json');
 
                 if (!fs.existsSync(infoPath)) {
                     logger.warn(`Registry | Skipping folder "${entry.name}": Missing info.json manifest.`);
-                    const moduleId = entry.name.toLowerCase();
+                    const moduleId = directoryId;
                     upsertDiscoveredModule(lifecycleStore, {
                         moduleId,
                         title: entry.name,
@@ -104,7 +117,7 @@ export function initializeRegistry() {
                     const rawInfo = JSON.parse(fs.readFileSync(infoPath, 'utf8')) as unknown;
                     const shapeValidation = validateModuleInfoShape(rawInfo);
 
-                    const fallbackId = entry.name.toLowerCase();
+                    const fallbackId = directoryId;
                     const fallbackTitle = entry.name;
                     const inferredId = (
                         typeof rawInfo === 'object'
@@ -144,6 +157,34 @@ export function initializeRegistry() {
                     }
 
                     const info = rawInfo as SystemPlugin['info'];
+                    const primaryId = parseModuleId(info.id)!;
+                    if (primaryId !== directoryId) {
+                        applyLifecycleClassification(lifecycleStore, fallbackId, scanDir.source, {
+                            status: ModuleLifecycleStatus.Errored,
+                            enabled: false,
+                            reason: `Manifest ID "${primaryId}" does not match directory "${directoryId}"`,
+                            manifestValid: false,
+                            validationErrors: ['Manifest ID must match its module directory'],
+                            compatible: false,
+                            coreVersion,
+                        });
+                        logger.error(`Registry | Manifest ID "${primaryId}" does not match directory "${directoryId}".`);
+                        continue;
+                    }
+
+                    const logicPath = resolveConfinedFile(modulePath, info.manifest.logic);
+                    const uiPath = resolveConfinedFile(modulePath, info.manifest.ui);
+                    const serverPath = info.manifest.server
+                        ? resolveConfinedFile(modulePath, info.manifest.server)
+                        : undefined;
+                    const configuredServerExists = info.manifest.server
+                        ? fs.existsSync(path.resolve(modulePath, info.manifest.server))
+                        : false;
+                    if (!logicPath || !uiPath || (configuredServerExists && !serverPath)) {
+                        const entryError = 'Manifest entry path is missing or escapes the module directory';
+                        setEntryPathError(primaryId, scanDir.source, entryError);
+                        logger.error(`Registry | ${entryError} for "${primaryId}".`);
+                    }
                     const compatibility = evaluateModuleCompatibility(info, coreVersion);
                     // Do not run full module:check here. Installed modules may be old
                     // but still usable; this lightweight audit only blocks load-breaking
@@ -152,7 +193,7 @@ export function initializeRegistry() {
                         ? validatePackagedModuleArtifact(modulePath, info)
                         : undefined;
                     if (artifactHealth) {
-                        setArtifactHealth(info.id.toLowerCase(), scanDir.source, artifactHealth);
+                        setArtifactHealth(primaryId, scanDir.source, artifactHealth);
                         for (const diagnostic of artifactHealth.diagnostics) {
                             const message = `Registry | Packaged module health (${info.id}/${scanDir.source}): ${diagnostic.message}`;
                             if (diagnostic.severity === 'error') logger.error(message);
@@ -182,12 +223,17 @@ export function initializeRegistry() {
                         info,
                         directory: modulePath,
                         source: scanDir.source,
-                        getLogic: () => import(path.join(modulePath, info.manifest.logic)),
-                        getUI: () => import(path.join(modulePath, info.manifest.ui)),
-                        getServer: info.manifest.server ? () => import(path.join(modulePath, info.manifest.server ?? '')) : undefined,
+                        // Keep blocked modules visible to admin without retaining an
+                        // executable reference to an unconfined or missing entry.
+                        getLogic: logicPath
+                            ? () => import(logicPath)
+                            : async () => { throw new Error('Module logic entry is unavailable'); },
+                        getUI: uiPath
+                            ? () => import(uiPath)
+                            : async () => { throw new Error('Module UI entry is unavailable'); },
+                        getServer: serverPath ? () => import(serverPath) : undefined,
                     };
 
-                    const primaryId = info.id.toLowerCase();
                     if (!candidates.has(primaryId)) candidates.set(primaryId, new Map());
                     candidates.get(primaryId)!.set(scanDir.source, plugin);
 
@@ -243,7 +289,8 @@ export function initializeRegistry() {
                     ) ?? true;
                 const compat = evaluateModuleCompatibility(plugin.info, coreVersion);
                 const artifactHealth = artifactHealthBySource.get(id)?.get(source);
-                const blockingArtifactError = artifactHealth?.hasErrors === true;
+                const entryPathError = entryPathErrors.get(id)?.get(source);
+                const blockingArtifactError = artifactHealth?.hasErrors === true || Boolean(entryPathError);
                 const firstArtifactError = artifactHealth?.diagnostics.find(diagnostic => diagnostic.severity === 'error')?.message;
                 // Warnings remain loadable; only health errors convert the source to
                 // `errored` and force enabled=false.
@@ -253,11 +300,12 @@ export function initializeRegistry() {
                         : enabled ? ModuleLifecycleStatus.Validated : ModuleLifecycleStatus.Disabled,
                     enabled: blockingArtifactError ? false : enabled,
                     reason: blockingArtifactError
-                        ? firstArtifactError || 'Packaged module artifact failed health checks'
+                        ? entryPathError || firstArtifactError || 'Packaged module artifact failed health checks'
                         : enabled ? undefined : 'Module disabled in persisted lifecycle state',
                     activeSource,
-                    manifestValid: true,
-                    compatible: true,
+                    manifestValid: !entryPathError,
+                    validationErrors: entryPathError ? [entryPathError] : undefined,
+                    compatible: !entryPathError,
                     coreVersion,
                     requiredCoreVersion: compat.requiredCoreVersion,
                     requiredApiContracts: compat.requiredApiContracts,

@@ -1,6 +1,6 @@
 # ADR-0033: Codebase Security Hardening and Dormant Distribution Boundaries
 
-**Status:** Accepted - Phases 0-3 implemented with CSP observation pending; Phases 4-5 proposed.
+**Status:** Accepted - Phases 0-4 implemented with CSP observation pending; Phase 5 proposed.
 **Date:** August 21, 2026
 **Phase:** Pre-main security remediation
 **Supersedes:** None
@@ -693,14 +693,92 @@ No configured world, module installation, or real
 
 ### Phase 4 - Public/realtime/path/request hardening
 
-- [ ] Split guest/authenticated status DTOs and socket rooms.
-- [ ] Authenticate, validate, and rate-limit module UI-health reports.
-- [ ] Apply canonical module IDs and realpath confinement everywhere.
-- [ ] Add route and Socket.IO limits, public error envelopes, and correlation
+- [x] Split guest/authenticated status DTOs and socket rooms.
+- [x] Authenticate, validate, and rate-limit module UI-health reports.
+- [x] Apply canonical module IDs and realpath confinement everywhere.
+- [x] Add route and Socket.IO limits, public error envelopes, and correlation
   IDs.
 
 **Exit:** Negative route/socket/path tests pass and guests receive only the
 documented public projection.
+
+#### Phase 4 Implementation Amendment - August 22, 2026
+
+Phase 4 is implemented in the existing application and Core processes. It adds
+no listener, service, deployment hostname, data migration, or module-directory
+topology. It does not change Foundry world discovery/retry state, startup
+orchestration, requesting-user document authority, or the service account's
+role.
+
+Public and authenticated status:
+
+- `PublicStatusPayload` is now a separate contract shared by REST and
+  Socket.IO. It exposes availability, initialization/configuration state,
+  compatibility, application version, world title/status, aggregate user
+  counts, and a minimum login roster containing only display name, active
+  state, and server-decided login eligibility.
+- The public projection omits world and user identifiers, Foundry URL, roles,
+  actor links, avatars, debug configuration, private world descriptions and
+  backgrounds, module configuration, and synchronization values.
+- Guest and invalid-session sockets join `status:public`; restored user
+  sessions join `authenticated`. Initial emits and recurring lifecycle/status
+  broadcasts use the same two projections, derived from one status snapshot.
+  Existing world-ready listener attachment and reconnect behavior are
+  unchanged.
+
+Module diagnostics and confinement:
+
+- `POST /api/modules/:id/ui-error` now requires a restored requesting-user
+  session. It rejects service-only, guest, unknown, disabled, inactive-source,
+  and malformed requests with stable 4xx responses. Source and message fields
+  are bounded, client text is flattened and stripped of control characters,
+  and reports are limited per server-side session and module.
+- One ASCII slug parser now owns module identity across manifests, indexes,
+  lifecycle state, admin requests, registry/runtime lookup, CLI tools, UI
+  serving, assets, compendium configuration, dependencies, and managed
+  operations. Existing uppercase lifecycle keys can migrate only when their
+  stored record is otherwise valid; mismatched or path-like identifiers fail
+  closed.
+- Module and asset files resolve as exact descendants of the configured local
+  or managed module root. Lexical containment uses `path.relative`, physical
+  containment uses `realpath`, and missing files, non-files, sibling-prefix
+  paths, encoded/path separators, and directory or asset symlink escapes are
+  rejected. Optional missing server artifacts remain warning-only; missing
+  required logic/UI artifacts keep their prior admin-visible inert-error
+  behavior instead of making the module disappear.
+- Managed uninstall resolves the exact managed directory independently of the
+  active source, so an active local-development source cannot redirect or
+  remove the managed/local counterpart.
+
+Request and Socket.IO boundary:
+
+- Every Core HTTP request receives a server-generated UUID in
+  `X-Request-ID`. JSON HTTP 500 responses are replaced with the stable
+  `internal-error` envelope and correlation ID. The corresponding server log
+  records method, query-free path, ID, and a bounded type/code summary rather
+  than the original exception body. Intentional 4xx, 501, and 503 contracts are
+  preserved.
+- JSON parsers now apply 8 KiB to player login, 16 KiB to admin setup/login/
+  recovery, and 4 KiB to module UI-health reports. Other document routes retain
+  the configured application body limit. Malformed JSON and oversized bodies
+  return stable `invalid-json` and `request-body-too-large` envelopes before
+  business handlers. Usernames, passwords, and one-time admin credentials have
+  explicit type and length bounds.
+- Socket.IO now caps a message/attachment payload at 256 KiB, disables
+  per-message compression, and sets explicit connection and heartbeat
+  timeouts. A process-local first-stage middleware permits 30 handshakes per
+  effective client address per minute before existing session restoration.
+  Forwarded client addresses are trusted only from the loopback shell proxy,
+  matching the Core admin-network rule.
+
+Focused negative coverage includes public initial and recurring broadcasts,
+invalid-session guest degradation, unauthenticated/unknown/rate-limited UI
+health, encoded and platform-specific module paths, sibling-prefix and symlink
+escapes, oversized and malformed live HTTP requests, server-owned correlation
+IDs, 500-body redaction, forwarded-address spoof resistance, isolated socket
+rate buckets, and window reset. Full project gate results are recorded after
+the implementation verification run; Phase 5 remains the committed
+merge-candidate and CI closeout phase.
 
 ### Phase 5 - CI and merge closeout
 

@@ -8,6 +8,7 @@
  * Not exported from `@modules/registry/server` — these are internals.
  */
 import path from 'node:path';
+import { parseModuleId } from '@shared/security/moduleId';
 import fs from 'node:fs';
 import { getConfig } from '@server/core/config';
 import {
@@ -74,6 +75,10 @@ export async function buildSourceResolutionContext(sourceRef: string): Promise<{
 }
 
 export async function resolveManagedSource(moduleId: string, sourceRef: string, targetVersion?: string): Promise<{ ok: true; value: ModuleSourceResolution } | { ok: false; error: string; errorCode?: string }> {
+    const canonicalId = parseModuleId(moduleId);
+    if (!canonicalId) {
+        return { ok: false, error: 'Invalid module ID', errorCode: 'invalid-module-id' };
+    }
     const contextResult = await buildSourceResolutionContext(sourceRef);
     if (!contextResult.ok) {
         return contextResult;
@@ -82,7 +87,7 @@ export async function resolveManagedSource(moduleId: string, sourceRef: string, 
     const resolved = resolveModuleSource(
         getDefaultModuleSourceAdapters(),
         {
-            moduleId,
+            moduleId: canonicalId,
             sourceRef,
             targetVersion,
         },
@@ -118,10 +123,12 @@ export function getTrustPolicyConfig(): ModuleTrustPolicyConfig {
 }
 
 export function getLifecycleRecord(moduleId: string): ModuleLifecycleRecord | undefined {
-    return lifecycleStore.modules[moduleId.toLowerCase()];
+    const id = parseModuleId(moduleId);
+    return id ? lifecycleStore.modules[id] : undefined;
 }
 
 export function isModuleEnabledForRuntime(moduleId: string): boolean {
+    if (!parseModuleId(moduleId)) return false;
     const record = getLifecycleRecord(moduleId);
     if (!record) return true;
     if (!record.enabled) return false;

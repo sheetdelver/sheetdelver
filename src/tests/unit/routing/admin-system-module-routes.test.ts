@@ -290,6 +290,18 @@ async function runAdminModuleRouteSmokeTests() {
         error: `source must be "${ModuleSourceCategory.Local}" or "${ModuleSourceCategory.Managed}"`,
     });
     assert.deepEqual(broadcasts, []);
+
+    const invalidIdRes = await invokeHandler(
+        getLastHandler(routeMap, 'post', '/lifecycle/:moduleId/switch-source'),
+        { params: { moduleId: '../secret' }, body: { source: ModuleSourceCategory.Local } } as any,
+    );
+    assert.equal(invalidIdRes.statusCode, 400);
+    assert.deepEqual(invalidIdRes.payload, {
+        success: false,
+        error: 'Invalid module ID',
+        errorCode: 'invalid-module-id',
+    });
+    assert.deepEqual(broadcasts, []);
 }
 
 function getExpressRouteHandler(router: any, path: string, method: string): RequestHandler {
@@ -324,8 +336,11 @@ async function runModuleRouterSmokeTests() {
         params: { id: 'missing-module' },
         body: { message: 'Client failed to import module UI', source: 'managed' },
     } as any, uiErrorRes, (() => undefined) as any);
-    assert.equal(uiErrorRes.statusCode, 200);
-    assert.deepEqual(uiErrorRes.payload, { success: true });
+    assert.equal(uiErrorRes.statusCode, 401);
+    assert.deepEqual(uiErrorRes.payload, {
+        error: 'Authentication required',
+        code: 'authentication-required',
+    });
 }
 
 export async function run() {

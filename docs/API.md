@@ -1,8 +1,9 @@
 # API Documentation
 
-The Sheet Delver API exposes Foundry-backed data through the Core Service. User
-routes are authenticated with a bearer token. Admin routes are protected by the
-admin session and CSRF flow.
+The Sheet Delver API exposes Foundry-backed data through the Core Service.
+Browser user routes use an HttpOnly player-session cookie. Trusted server-side
+callers may use an explicit bearer session credential. Admin routes are
+protected by the opaque admin session cookie and CSRF flow.
 
 Examples use abstract ids such as `<moduleId>`, `<actorId>`, and
 `example-system`; do not treat them as bundled systems.
@@ -11,16 +12,31 @@ Examples use abstract ids such as `<moduleId>`, `<actorId>`, and
 
 ## Authentication
 
-Protected user routes require:
+Browser login sets the `sheet-delver-session` HttpOnly, SameSite=Strict cookie;
+the reusable session credential is never returned to browser JavaScript.
+Trusted non-browser callers can instead present:
 
 ```http
 Authorization: Bearer <token>
 ```
 
-Tokens are returned by `POST /api/login`.
-
 Admin mutation routes require the admin session plus CSRF token handled by the
 admin UI client.
+
+Every Core response includes a server-generated `X-Request-ID`. Production
+JSON 500 responses use:
+
+```json
+{
+  "error": "Internal server error",
+  "code": "internal-error",
+  "requestId": "correlation-uuid"
+}
+```
+
+Malformed JSON uses `invalid-json`; an oversized request uses
+`request-body-too-large`. Intentional 4xx, 501, and 503 endpoint contracts are
+not converted to internal errors.
 
 ---
 
@@ -30,9 +46,15 @@ admin UI client.
 
 Auth: try-auth.
 
-Returns connection, world, current user, and readiness status. `initialized:
-true` means world bootstrap has completed, including module discovery,
-compendium indexing/hydration, and primary document cache seeding.
+Unauthenticated callers receive the public availability projection and a
+minimum login roster: display name, active state, and server-decided login
+eligibility only. It omits user/world identifiers, roles, actor links, avatars,
+Foundry URL, private world content, and debug configuration.
+
+Authenticated callers receive connection, world, current-user, and readiness
+status. `initialized: true` means world bootstrap has completed, including
+module discovery, compendium indexing/hydration, and primary document cache
+seeding.
 
 ```json
 {
@@ -71,8 +93,11 @@ Body:
 Response:
 
 ```json
-{ "success": true, "token": "session-token", "userId": "user-id" }
+{ "success": true, "userId": "user-id" }
 ```
+
+The request body is limited to 8 KiB. Usernames are trimmed and bounded to
+1-128 characters; passwords are bounded to 1024 characters.
 
 ### `POST /api/logout`
 
@@ -220,9 +245,14 @@ This route is for managed artifacts. Local dev UI source under
 
 Returns `404` when the module or UI artifact is missing.
 
+Module IDs use one canonical lowercase ASCII slug grammar throughout routing,
+registry state, runtime lookup, and admin operations. Module and asset files
+must be regular files whose lexical and physical paths remain beneath the exact
+configured module directory; path-like IDs and symlink escapes are rejected.
+
 ### `POST /api/modules/:id/ui-error`
 
-Auth: try-auth.
+Auth: valid player session.
 
 Records a browser-side module UI import/evaluation failure into lifecycle health.
 This is an operational health signal so the admin can see why a module fell back
@@ -234,6 +264,11 @@ to the generic UI.
   "message": "Failed to load runtime UI manifest"
 }
 ```
+
+The body is limited to 4 KiB. The module must be known, enabled, and active for
+the reported `local` or `managed` source. Messages are flattened, stripped of
+control characters, bounded to 500 characters, and limited to five reports per
+server-side session/module each minute.
 
 ### `GET /api/modules/:id/assets/*`
 
@@ -339,6 +374,10 @@ Returns whether an admin account exists.
 Creates the first admin account using `{ bootstrapToken, password }`. Generate
 the single-use, 60-minute bootstrap credential locally with
 `npm run admin:bootstrap -- --data-dir=<DATA_DIR>`.
+
+Admin setup, login, and recovery request bodies are limited to 16 KiB.
+Passwords are bounded to 1024 characters and one-time credentials to 256
+characters.
 
 ### `POST /admin/auth/login`
 

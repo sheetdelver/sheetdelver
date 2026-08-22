@@ -32,13 +32,15 @@ import {
 
 import { initializeRegistry } from './bootstrap';
 import { FALLBACK_ADAPTER } from './fallbackAdapter';
+import { parseModuleId } from '@shared/security/moduleId';
 
 /**
  * JIT Logic Adapter Loader
  * Loads and instantiates the Logic Adapter for a given systemId.
  */
 export async function getAdapter(systemId: string): Promise<SystemAdapter | null> {
-    const id = systemId.toLowerCase();
+    const id = parseModuleId(systemId);
+    if (!id) return FALLBACK_ADAPTER;
 
     if (!isModuleEnabledForRuntime(id) && pluginMap.has(id)) {
         logger.warn(`Registry | Module ${id} is disabled or unavailable due to lifecycle state`);
@@ -70,7 +72,7 @@ export async function getAdapter(systemId: string): Promise<SystemAdapter | null
         return adapterInstances.get(id)!;
     }
 
-    const pluginId = plugin.info.id.toLowerCase();
+    const pluginId = parseModuleId(plugin.info.id)!;
     if (!isModuleEnabledForRuntime(pluginId)) {
         logger.warn(`Registry | Refusing to instantiate disabled/incompatible module ${pluginId}`);
         return null;
@@ -128,9 +130,11 @@ export async function getAdapter(systemId: string): Promise<SystemAdapter | null
 export async function getServerModule(systemId: string) {
     if (!isInitialized()) initializeRegistry();
 
-    const plugin = pluginMap.get(systemId.toLowerCase());
+    const id = parseModuleId(systemId);
+    if (!id) return null;
+    const plugin = pluginMap.get(id);
     if (!plugin || !plugin.getServer) return null;
-    if (!isModuleEnabledForRuntime(systemId.toLowerCase())) {
+    if (!isModuleEnabledForRuntime(id)) {
         logger.warn(`Registry | Refusing to load server module for disabled/incompatible system ${systemId}`);
         return null;
     }
@@ -149,7 +153,8 @@ export async function getServerModule(systemId: string) {
  */
 export function unloadSystemModules(systemId?: string) {
     if (systemId) {
-        const id = systemId.toLowerCase();
+        const id = parseModuleId(systemId);
+        if (!id) return;
         logger.info(`Registry | Unloading modules for ${id}`);
         adapterInstances.delete(id);
         adapterMtimes.delete(id);

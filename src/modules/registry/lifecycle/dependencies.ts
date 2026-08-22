@@ -1,6 +1,7 @@
 import { logger } from '@shared/utils/logger';
 import { DependencyViolationType } from '@shared/types/modules';
 import type { SystemModuleInfo } from '../core/types';
+import { parseModuleId } from '@shared/security/moduleId';
 
 /**
  * Result of a dependency check operation.
@@ -33,7 +34,18 @@ export function checkEnableDependencies(
     moduleInfoMap: Map<string, SystemModuleInfo>,
     enabledModules: Set<string>
 ): DependencyCheckResult {
-    const lowerModuleId = moduleId.toLowerCase();
+    const lowerModuleId = parseModuleId(moduleId);
+    if (!lowerModuleId) {
+        return {
+            canProceed: false,
+            violations: [{
+                type: DependencyViolationType.MissingDependency,
+                moduleId: 'invalid',
+                affectedModule: 'invalid',
+                reason: 'Invalid module ID',
+            }],
+        };
+    }
     const violations: DependencyViolation[] = [];
 
     const info = moduleInfoMap.get(lowerModuleId);
@@ -54,7 +66,7 @@ export function checkEnableDependencies(
     // Check if all required dependencies are enabled
     if (info.dependencies && info.dependencies.length > 0) {
         for (const depId of info.dependencies) {
-            const depIdLower = depId.toLowerCase();
+            const depIdLower = parseModuleId(depId)!;
             if (!moduleInfoMap.has(depIdLower)) {
                 violations.push({
                     type: DependencyViolationType.MissingDependency,
@@ -76,7 +88,7 @@ export function checkEnableDependencies(
     // Check if any conflicting modules are enabled
     if (info.conflicts && info.conflicts.length > 0) {
         for (const conflictId of info.conflicts) {
-            const conflictIdLower = conflictId.toLowerCase();
+            const conflictIdLower = parseModuleId(conflictId)!;
             if (enabledModules.has(conflictIdLower)) {
                 violations.push({
                     type: DependencyViolationType.ConflictingModule,
@@ -107,7 +119,18 @@ export function checkDisableDependents(
     moduleInfoMap: Map<string, SystemModuleInfo>,
     enabledModules: Set<string>
 ): DependencyCheckResult {
-    const lowerModuleId = moduleId.toLowerCase();
+    const lowerModuleId = parseModuleId(moduleId);
+    if (!lowerModuleId) {
+        return {
+            canProceed: false,
+            violations: [{
+                type: DependencyViolationType.MissingDependency,
+                moduleId: 'invalid',
+                affectedModule: 'invalid',
+                reason: 'Invalid module ID',
+            }],
+        };
+    }
     const violations: DependencyViolation[] = [];
 
     // Find all enabled modules that depend on this one
@@ -115,7 +138,7 @@ export function checkDisableDependents(
         if (otherModuleId === lowerModuleId) continue;
         if (!enabledModules.has(otherModuleId)) continue;
 
-        if (info.dependencies && info.dependencies.some(d => d.toLowerCase() === lowerModuleId)) {
+        if (info.dependencies && info.dependencies.some(d => parseModuleId(d) === lowerModuleId)) {
             violations.push({
                 type: DependencyViolationType.HasDependents,
                 moduleId: lowerModuleId,

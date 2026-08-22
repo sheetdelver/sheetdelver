@@ -9,6 +9,7 @@ import { createApp } from '@server/app/createApp';
 import { registerMiddleware } from '@server/app/registerMiddleware';
 import { registerSockets } from '@server/app/registerSockets';
 import { registerRoutes } from '@server/app/registerRoutes';
+import { registerHttpErrorHandlers } from '@server/security/httpRequestSecurity';
 import { FoundryUserConnectionService } from '@server/services/foundry';
 import { worldLifecycleStore } from '@server/core/world/WorldLifecycleStore';
 import type { WorldLifecycleTransition } from '@server/core/world/WorldLifecycleStore';
@@ -115,6 +116,8 @@ async function startServer() {
         getSystemStatusPayload,
         io,
     });
+    // Parser failures and uncaught route errors receive the same public envelope.
+    registerHttpErrorHandlers(app);
 
     const coreHost = '127.0.0.1';
     httpServer.listen(corePort, coreHost, () => {

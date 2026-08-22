@@ -69,9 +69,16 @@ export function registerPublicRoutes(appRouter: express.Router, deps: PublicRout
     });
 
     appRouter.post('/login', deps.loginLimiter, async (req, res) => {
-        const { username, password } = req.body;
+        const { username, password } = (req.body ?? {}) as { username?: unknown; password?: unknown };
+        // Reject malformed credentials before invoking Foundry session creation.
+        if (typeof username !== 'string' || username.trim().length < 1 || username.trim().length > 128) {
+            return res.status(400).json({ success: false, error: 'Username must be between 1 and 128 characters' });
+        }
+        if (password !== undefined && (typeof password !== 'string' || password.length > 1024)) {
+            return res.status(400).json({ success: false, error: 'Password must be no more than 1024 characters' });
+        }
         try {
-            const session = await deps.createSession(username, password);
+            const session = await deps.createSession(username.trim(), password);
             // The browser receives only an HttpOnly cookie; the reusable session
             // UUID never enters JavaScript or the JSON response body.
             setPlayerSessionCookie(res, session.sessionId, deps.securePlayerCookie);

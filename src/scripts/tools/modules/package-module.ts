@@ -8,6 +8,7 @@ import { resolveDataDir, initDataDir, getModulesDataDir, getDistModulesDir, getL
 import { ENTRIES, BUILD_TARGET, BUILD_LOADER, compiledStylesRel } from './build-config';
 import { compileModuleTailwind } from './tailwind-compile';
 import { checkModule, printModuleCheckSummary } from './check-module';
+import { requireModuleId } from '../../../shared/security/moduleId';
 
 // Build configuration (ENTRIES, externals, target, loaders) is shared with
 // check-module.ts via ./build-config so packaging and validation never drift
@@ -89,6 +90,7 @@ async function packageModule() {
         console.error('Usage: npm run module:package <moduleId> [-- --data-dir <path> --sourcemap]');
         process.exit(1);
     }
+    moduleId = requireModuleId(moduleId);
 
     const sourceMap = process.argv.includes('--sourcemap');
 

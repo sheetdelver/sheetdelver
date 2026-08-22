@@ -7,6 +7,7 @@
  */
 import { pluginMap, lifecycleStore, isInitialized } from './state';
 import { initializeRegistry } from './bootstrap';
+import { parseModuleId } from '@shared/security/moduleId';
 
 /**
  * Check if a module can be enabled based on dependency constraints.
@@ -18,7 +19,18 @@ export function checkCanEnableModule(moduleId: string): {
 } {
     if (!isInitialized()) initializeRegistry();
 
-    const id = moduleId.toLowerCase();
+    const id = parseModuleId(moduleId);
+    if (!id) {
+        return {
+            canEnable: false,
+            violations: [{
+                type: 'invalid-module-id',
+                moduleId: 'invalid',
+                affectedModule: 'invalid',
+                reason: 'Invalid module ID',
+            }],
+        };
+    }
     const modulePlugin = pluginMap.get(id);
 
     if (!modulePlugin) {
@@ -42,14 +54,14 @@ export function checkCanEnableModule(moduleId: string): {
     // Build set of enabled modules
     for (const record of Object.values(lifecycleStore.modules)) {
         if (record.enabled && record.status !== 'incompatible' && record.status !== 'errored') {
-            enabledModules.add(record.moduleId.toLowerCase());
+            enabledModules.add(record.moduleId);
         }
     }
 
     // Check dependencies
     if (moduleInfo.dependencies && moduleInfo.dependencies.length > 0) {
         for (const depId of moduleInfo.dependencies) {
-            const depIdLower = depId.toLowerCase();
+            const depIdLower = parseModuleId(depId)!;
             const depPlugin = pluginMap.get(depIdLower);
 
             if (!depPlugin) {
@@ -73,7 +85,7 @@ export function checkCanEnableModule(moduleId: string): {
     // Check conflicts
     if (moduleInfo.conflicts && moduleInfo.conflicts.length > 0) {
         for (const conflictId of moduleInfo.conflicts) {
-            const conflictIdLower = conflictId.toLowerCase();
+            const conflictIdLower = parseModuleId(conflictId)!;
             if (enabledModules.has(conflictIdLower)) {
                 const conflictPlugin = pluginMap.get(conflictIdLower);
                 const conflictTitle = conflictPlugin?.info.title || conflictId;
@@ -103,7 +115,18 @@ export function checkCanDisableModule(moduleId: string): {
 } {
     if (!isInitialized()) initializeRegistry();
 
-    const id = moduleId.toLowerCase();
+    const id = parseModuleId(moduleId);
+    if (!id) {
+        return {
+            canDisable: false,
+            violations: [{
+                type: 'invalid-module-id',
+                moduleId: 'invalid',
+                affectedModule: 'invalid',
+                reason: 'Invalid module ID',
+            }],
+        };
+    }
     const modulePlugin = pluginMap.get(id);
     const moduleInfo = modulePlugin?.info;
     const moduleTitle = moduleInfo?.title || moduleId;
@@ -113,7 +136,7 @@ export function checkCanDisableModule(moduleId: string): {
     // Build set of enabled modules
     for (const record of Object.values(lifecycleStore.modules)) {
         if (record.enabled && record.status !== 'incompatible' && record.status !== 'errored') {
-            enabledModules.add(record.moduleId.toLowerCase());
+            enabledModules.add(record.moduleId);
         }
     }
 
@@ -123,7 +146,7 @@ export function checkCanDisableModule(moduleId: string): {
         if (!enabledModules.has(otherModuleId)) continue;
 
         const otherInfo = plugin.info;
-        if (otherInfo.dependencies && otherInfo.dependencies.some(d => d.toLowerCase() === id)) {
+        if (otherInfo.dependencies && otherInfo.dependencies.some(d => parseModuleId(d) === id)) {
             violations.push({
                 type: 'has-dependents',
                 moduleId: id,

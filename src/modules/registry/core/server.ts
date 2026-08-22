@@ -8,6 +8,7 @@ import {
     saveLifecycleStore,
 } from '../lifecycle/lifecycle';
 import { type ModuleArtifactMetadata } from './manager';
+import { parseModuleId } from '@shared/security/moduleId';
 import { getArtifact, loadArtifactStore } from '../distribution/artifactStore';
 import {
     pluginMap,
@@ -61,7 +62,7 @@ export function listModules(options?: { includeExperimental?: boolean; includeDi
     return getUniquePlugins()
         .filter((plugin) => options?.includeExperimental || !plugin.info.experimental)
         .map((plugin) => {
-            const moduleId = plugin.info.id.toLowerCase();
+            const moduleId = parseModuleId(plugin.info.id)!;
             const fallbackLifecycle: ModuleLifecycleRecord = {
                 moduleId,
                 title: plugin.info.title,
