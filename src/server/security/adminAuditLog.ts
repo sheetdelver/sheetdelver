@@ -2,7 +2,12 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { logger } from '@shared/utils/logger';
-import { getSecurityDir } from '@core/paths';
+import {
+    ensureOwnerOnlyDirectorySync,
+    ensureOwnerOnlyFileSync,
+    getSecurityDir,
+    OWNER_ONLY_FILE_MODE,
+} from '@core/paths';
 
 /** Returns the admin audit file path within the resolved security directory. */
 const getAuditFile = () => path.join(getSecurityDir(), 'admin-audit.ndjson');
@@ -22,20 +27,6 @@ export interface AdminAuditEvent {
     durationMs?: number;
 }
 
-async function ensureSecurityDir(): Promise<void> {
-    await fs.mkdir(getSecurityDir(), { recursive: true });
-}
-
-async function setRestrictivePermissions(filePath: string): Promise<void> {
-    try {
-        if (process.platform !== 'win32') {
-            await fs.chmod(filePath, 0o600);
-        }
-    } catch (error) {
-        logger.warn(`Failed to set restrictive permissions on ${filePath}`, error);
-    }
-}
-
 export async function appendAdminAuditEvent(input: Omit<AdminAuditEvent, 'eventId' | 'timestamp'>): Promise<void> {
     const event: AdminAuditEvent = {
         eventId: randomUUID(),
@@ -44,10 +35,17 @@ export async function appendAdminAuditEvent(input: Omit<AdminAuditEvent, 'eventI
     };
 
     try {
-        await ensureSecurityDir();
+        ensureOwnerOnlyDirectorySync(getSecurityDir());
         const auditFile = getAuditFile();
-        await fs.appendFile(auditFile, JSON.stringify(event) + '\n', 'utf8');
-        await setRestrictivePermissions(auditFile);
+        // Open with a private creation mode; startup migration and the explicit
+        // post-append check also correct an existing permissive file.
+        const handle = await fs.open(auditFile, 'a', OWNER_ONLY_FILE_MODE);
+        try {
+            await handle.appendFile(JSON.stringify(event) + '\n', 'utf8');
+        } finally {
+            await handle.close();
+        }
+        ensureOwnerOnlyFileSync(auditFile);
     } catch (error) {
         logger.error('Failed to append admin audit event', error);
     }

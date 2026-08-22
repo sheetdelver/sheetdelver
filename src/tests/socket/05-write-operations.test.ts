@@ -1,7 +1,11 @@
 import { CoreSocket } from '@core/foundry/sockets/CoreSocket';
-import { loadConfig } from '@core/config';
 import { createSystemRouteFoundryClient } from '@server/shared/utils/createRouteFoundryClient';
 import { worldStateStore } from '@core/world/WorldStateStore';
+import {
+    bootstrapSocketTestWorld,
+    loadSocketTestConfig,
+    resetSocketTestWorld,
+} from './socket-test-runtime';
 
 /**
  * Test 5: Write Operations (Safe CRUD)
@@ -10,10 +14,7 @@ import { worldStateStore } from '@core/world/WorldStateStore';
 export async function testWriteOperations() {
     logger.info('🧪 Test 5: Write Operations (Safe CRUD)\n');
 
-    const config = await loadConfig();
-    if (!config) {
-        throw new Error('Failed to load configuration');
-    }
+    const config = await loadSocketTestConfig();
 
     const client = new CoreSocket(config.foundry);
     const results: any = { tests: [] };
@@ -42,6 +43,7 @@ export async function testWriteOperations() {
 
     try {
         await client.connect();
+        await bootstrapSocketTestWorld(client);
         routeClient = createSystemRouteFoundryClient(client);
         logger.info('✅ Connected\n');
 
@@ -150,6 +152,7 @@ export async function testWriteOperations() {
                 logger.error(`   ⚠️ Cleanup failed: ${cleanupError.message}. Please manually delete actor ${tempActorId}`);
             }
         }
+        resetSocketTestWorld();
         await client.disconnect();
         logger.info('📡 Disconnected\n');
     }

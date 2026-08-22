@@ -3,11 +3,16 @@
 
 import inquirer from 'inquirer';
 import fs from 'node:fs';
-import path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import yaml from 'js-yaml';
 import { logger } from '../shared/utils/logger';
-import { resolveDataDir, initDataDir, getConfigFilePath, getDataDir } from '../server/core/paths';
+import {
+    resolveDataDir,
+    initDataDir,
+    getConfigFilePath,
+    getDataDir,
+    writeOwnerOnlyFileAtomicSync,
+} from '../server/core/paths';
 
 // Resolve and initialize data directory before anything else
 const dataDir = resolveDataDir(process.argv);
@@ -178,13 +183,9 @@ async function main() {
 
     const yamlStr = yaml.dump(config);
 
-    // Ensure config directory exists before writing
-    const configDir = path.dirname(SETTINGS_PATH);
-    if (!fs.existsSync(configDir)) {
-        fs.mkdirSync(configDir, { recursive: true });
-    }
-
-    fs.writeFileSync(SETTINGS_PATH, yamlStr, 'utf8');
+    // The settings file contains reusable credentials and bootstrap tokens, so
+    // replace it atomically with owner-only permissions from first creation.
+    writeOwnerOnlyFileAtomicSync(SETTINGS_PATH, yamlStr);
 
     logger.info(`\n\x1b[32mConfiguration saved to ${SETTINGS_PATH}\x1b[0m`);
     logger.info(`Data directory: ${getDataDir()}`);

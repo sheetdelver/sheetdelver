@@ -3,7 +3,7 @@ import path from 'node:path';
 import { hash, verify } from 'argon2';
 import { logger } from '@shared/utils/logger';
 import type { AdminAccount } from './types/admin-auth.types';
-import { getSecurityDir } from '@core/paths';
+import { getSecurityDir, writeOwnerOnlyFileAtomicSync } from '@core/paths';
 
 /** Returns the admin auth file path within the resolved security directory. */
 const getAdminAuthFile = () => path.join(getSecurityDir(), 'admin-auth.json');
@@ -16,34 +16,6 @@ let _adminPepper: string | undefined;
  */
 export function initAdminCredentialStore(pepper?: string): void {
     _adminPepper = pepper;
-}
-
-/**
- * Ensures the security directory exists within the data directory.
- */
-async function ensureSecurityDir(): Promise<void> {
-    const securityDir = getSecurityDir();
-    try {
-        await fs.mkdir(securityDir, { recursive: true });
-    } catch (error) {
-        logger.error(`Failed to create security directory at ${securityDir}`, error);
-        throw error;
-    }
-}
-
-/**
- * Set restrictive file permissions (owner read/write only: 0o600).
- * Only works on Unix-like systems; on Windows, this is a no-op.
- */
-async function setRestrictivePermissions(filePath: string): Promise<void> {
-    try {
-        if (process.platform !== 'win32') {
-            await fs.chmod(filePath, 0o600);
-        }
-    } catch (error) {
-        logger.warn(`Failed to set restrictive permissions on ${filePath}`, error);
-        // Non-fatal; log but continue
-    }
 }
 
 /**
@@ -72,10 +44,10 @@ export async function loadAdminAccount(): Promise<AdminAccount | null> {
 export async function saveAdminAccount(account: AdminAccount): Promise<void> {
     const adminAuthFile = getAdminAuthFile();
     try {
-        await ensureSecurityDir();
         const fileContents = JSON.stringify(account, null, 2);
-        await fs.writeFile(adminAuthFile, fileContents, 'utf8');
-        await setRestrictivePermissions(adminAuthFile);
+        // Atomic replacement prevents partial credential records and guarantees
+        // owner-only mode before the new inode becomes visible.
+        writeOwnerOnlyFileAtomicSync(adminAuthFile, fileContents);
     } catch (error) {
         logger.error(`Failed to save admin account to ${adminAuthFile}`, error);
         throw error;

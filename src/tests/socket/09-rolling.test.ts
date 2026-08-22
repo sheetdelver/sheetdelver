@@ -1,27 +1,25 @@
 
 import { CoreSocket } from '@core/foundry/sockets/CoreSocket';
-import { loadConfig } from '@core/config';
 import { createSystemRouteFoundryClient } from '@server/shared/utils/createRouteFoundryClient';
 import { fileURLToPath } from 'url';
 import { logger } from '@shared/utils/logger';
+import {
+    bootstrapSocketTestWorld,
+    loadSocketTestConfig,
+    resetSocketTestWorld,
+} from './socket-test-runtime';
 
 export async function testRolling() {
     logger.info('🧪 Test 9: Rolling Functionality\n');
 
-    // Setup - mimics behavior in 01-connection.test.ts
-    const configLine = await loadConfig(); // Note: loadConfig likely returns { foundry: ... } or similar based on usage
-    // loadConfig implementation check needed? 01-connection uses it directly.
-    // Let's assume standard behavior:
-    if (!configLine) {
-        throw new Error('Failed to load configuration');
-    }
-    const config = configLine.foundry || configLine; // Robustness
+    const config = (await loadSocketTestConfig()).foundry;
 
     const client = new CoreSocket(config);
 
     try {
         logger.info('📡 Connecting...');
         await client.connect();
+        await bootstrapSocketTestWorld(client);
 
         // Wait for ready state if needed, though connect() usually handles it
         if (!client.isConnected) throw new Error('Failed to connect');
@@ -60,6 +58,7 @@ export async function testRolling() {
         logger.error('❌ Test failed:', error.message);
         return { success: false, error: error.message };
     } finally {
+        resetSocketTestWorld();
         if (client.isConnected) {
             await client.disconnect();
             logger.info('📡 Disconnected\n');

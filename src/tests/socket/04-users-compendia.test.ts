@@ -1,9 +1,13 @@
 import { CoreSocket } from '@core/foundry/sockets/CoreSocket';
-import { loadConfig } from '@core/config';
 import { compendiumStore } from '@core/compendium';
 import { CompendiumService } from '@server/services/compendium';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
 import { worldStateStore } from '@core/world/WorldStateStore';
+import {
+    bootstrapSocketTestWorld,
+    loadSocketTestConfig,
+    resetSocketTestWorld,
+} from './socket-test-runtime';
 
 /**
  * Test 4: User and Compendium Data
@@ -12,16 +16,14 @@ import { worldStateStore } from '@core/world/WorldStateStore';
 export async function testUsersAndCompendia() {
     logger.info('🧪 Test 4: Users & Compendium Data\n');
 
-    const config = await loadConfig();
-    if (!config) {
-        throw new Error('Failed to load configuration');
-    }
+    const config = await loadSocketTestConfig();
 
     const client = new CoreSocket(config.foundry);
     const results: any = { tests: [] };
 
     try {
         await client.connect();
+        await bootstrapSocketTestWorld(client);
         logger.info('✅ Connected\n');
         // Compendium service is no longer needed for this user-roster test path,
         // but instantiating it confirms its constructor still works.
@@ -80,6 +82,7 @@ export async function testUsersAndCompendia() {
         logger.error('❌ Test suite failed:', error.message);
         return { success: false, error: error.message };
     } finally {
+        resetSocketTestWorld();
         await client.disconnect();
         logger.info('📡 Disconnected\n');
     }

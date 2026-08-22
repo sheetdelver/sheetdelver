@@ -1,6 +1,10 @@
 import { CoreSocket } from '@core/foundry/sockets/CoreSocket';
-import { loadConfig } from '@core/config';
 import { createSystemRouteFoundryClient } from '@server/shared/utils/createRouteFoundryClient';
+import {
+    bootstrapSocketTestWorld,
+    loadSocketTestConfig,
+    resetSocketTestWorld,
+} from './socket-test-runtime';
 
 /**
  * Test 3: Actor Data Access
@@ -9,16 +13,14 @@ import { createSystemRouteFoundryClient } from '@server/shared/utils/createRoute
 export async function testActorAccess() {
     logger.info('🧪 Test 3: Actor Data Access\n');
 
-    const config = await loadConfig();
-    if (!config) {
-        throw new Error('Failed to load configuration');
-    }
+    const config = await loadSocketTestConfig();
 
     const client = new CoreSocket(config.foundry);
     const results: any = { tests: [] };
 
     try {
         await client.connect();
+        await bootstrapSocketTestWorld(client);
         const routeClient = createSystemRouteFoundryClient(client);
         logger.info('✅ Connected\n');
 
@@ -66,6 +68,7 @@ export async function testActorAccess() {
         logger.error('❌ Test suite failed:', error.message);
         return { success: false, error: error.message };
     } finally {
+        resetSocketTestWorld();
         await client.disconnect();
         logger.info('📡 Disconnected\n');
     }

@@ -27,6 +27,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
+import { randomUUID } from 'node:crypto';
 
 // ─── Internal State ────────────────────────────────────────────────
 
@@ -60,6 +61,109 @@ const HOME_DIR_NAME = '.sheet-delver';
 
 /** Local directory name for project-level data storage (development default). */
 const LOCAL_DIR_NAME = 'data';
+
+/** Owner-only modes used for directories and files that can contain secrets. */
+export const OWNER_ONLY_DIRECTORY_MODE = 0o700;
+export const OWNER_ONLY_FILE_MODE = 0o600;
+
+/** Whether POSIX permission enforcement is meaningful on this platform. */
+function supportsPosixModes(): boolean {
+    return process.platform !== 'win32';
+}
+
+/** Create or migrate a sensitive directory to owner-only access. */
+export function ensureOwnerOnlyDirectorySync(directoryPath: string): void {
+    try {
+        if (fs.existsSync(directoryPath) && fs.lstatSync(directoryPath).isSymbolicLink()) {
+            throw new Error('symbolic links are not allowed for sensitive directories');
+        }
+        fs.mkdirSync(directoryPath, { recursive: true, mode: OWNER_ONLY_DIRECTORY_MODE });
+        if (supportsPosixModes()) fs.chmodSync(directoryPath, OWNER_ONLY_DIRECTORY_MODE);
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`Unable to enforce owner-only directory permissions at ${directoryPath}: ${message}`);
+    }
+}
+
+/** Migrate an existing sensitive file to owner read/write access. */
+export function ensureOwnerOnlyFileSync(filePath: string): void {
+    if (!fs.existsSync(filePath)) return;
+
+    try {
+        const stat = fs.lstatSync(filePath);
+        if (stat.isSymbolicLink()) {
+            throw new Error('symbolic links are not allowed for sensitive files');
+        }
+        if (!stat.isFile()) throw new Error('path is not a regular file');
+        if (supportsPosixModes()) fs.chmodSync(filePath, OWNER_ONLY_FILE_MODE);
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`Unable to enforce owner-only file permissions at ${filePath}: ${message}`);
+    }
+}
+
+/**
+ * Atomically replace a sensitive text file with owner-only permissions.
+ * The temporary file is private from creation and is removed on failure.
+ */
+export function writeOwnerOnlyFileAtomicSync(filePath: string, content: string): void {
+    const directoryPath = path.dirname(filePath);
+    ensureOwnerOnlyDirectorySync(directoryPath);
+    const tempPath = path.join(
+        directoryPath,
+        `.${path.basename(filePath)}.${process.pid}.${randomUUID()}.tmp`,
+    );
+    let descriptor: number | undefined;
+
+    try {
+        descriptor = fs.openSync(tempPath, 'wx', OWNER_ONLY_FILE_MODE);
+        fs.writeFileSync(descriptor, content, 'utf8');
+        fs.fsyncSync(descriptor);
+        fs.closeSync(descriptor);
+        descriptor = undefined;
+        fs.renameSync(tempPath, filePath);
+        ensureOwnerOnlyFileSync(filePath);
+    } catch (error) {
+        // Cleanup must not hide the original write failure reported to startup.
+        if (descriptor !== undefined) {
+            try { fs.closeSync(descriptor); } catch { /* already closed or unusable */ }
+        }
+        if (fs.existsSync(tempPath)) {
+            try { fs.unlinkSync(tempPath); } catch { /* original error remains authoritative */ }
+        }
+        throw error;
+    }
+}
+
+/** Harden existing secret-bearing paths before configuration or sessions load. */
+function migrateSensitiveDataPermissions(dataDir: string): void {
+    const configDir = path.join(dataDir, 'config');
+    const securityDir = path.join(dataDir, 'security');
+    const cacheDir = path.join(dataDir, 'cache');
+
+    ensureOwnerOnlyDirectorySync(configDir);
+    ensureOwnerOnlyDirectorySync(securityDir);
+    ensureOwnerOnlyDirectorySync(cacheDir);
+
+    // Security records are intentionally flat today; migrate every regular
+    // file so new security records inherit the same startup guarantee.
+    for (const entry of fs.readdirSync(securityDir, { withFileTypes: true })) {
+        if (entry.isFile() || entry.isSymbolicLink()) {
+            ensureOwnerOnlyFileSync(path.join(securityDir, entry.name));
+        }
+    }
+
+    const coreCacheDir = path.join(cacheDir, 'core');
+    if (fs.existsSync(coreCacheDir)) ensureOwnerOnlyDirectorySync(coreCacheDir);
+
+    for (const sensitiveFile of [
+        path.join(configDir, SETTINGS_FILENAME),
+        path.join(dataDir, 'modules', 'sources.json'),
+        path.join(coreCacheDir, 'sessions.json'),
+    ]) {
+        ensureOwnerOnlyFileSync(sensitiveFile);
+    }
+}
 
 // ─── Resolution ────────────────────────────────────────────────────
 
@@ -153,6 +257,10 @@ export function initDataDir(dir: string): void {
             fs.mkdirSync(subdirPath, { recursive: true });
         }
     }
+
+    // Fail startup with a path-specific error when the host cannot enforce the
+    // owner-only posture required for configuration, credentials, and sessions.
+    migrateSensitiveDataPermissions(dir);
 }
 
 /**

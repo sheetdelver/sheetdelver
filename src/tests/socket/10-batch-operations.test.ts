@@ -1,6 +1,10 @@
 import { CoreSocket } from '@core/foundry/sockets/CoreSocket';
-import { loadConfig } from '@core/config';
 import { createSystemRouteFoundryClient } from '@server/shared/utils/createRouteFoundryClient';
+import {
+    bootstrapSocketTestWorld,
+    loadSocketTestConfig,
+    resetSocketTestWorld,
+} from './socket-test-runtime';
 
 /**
  * Test 10: Batch Operations
@@ -9,14 +13,14 @@ import { createSystemRouteFoundryClient } from '@server/shared/utils/createRoute
 export async function testBatchOperations() {
     logger.info('🧪 Test 10: Batch Operations\n');
 
-    const config = await loadConfig();
-    if (!config) throw new Error("Config not loaded");
+    const config = await loadSocketTestConfig();
     const client = new CoreSocket(config.foundry);
     let tempActorId: string | null = null;
     let tempActorIds: string[] = [];
 
     try {
         await client.connect();
+        await bootstrapSocketTestWorld(client);
         const routeClient = createSystemRouteFoundryClient(client);
 
         // 1. Single Actor Creation
@@ -76,6 +80,7 @@ export async function testBatchOperations() {
         for (const id of tempActorIds) {
             if (id) await routeClient.deleteActor(id).catch(() => { });
         }
+        resetSocketTestWorld();
         await client.disconnect();
     }
 }

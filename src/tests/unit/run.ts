@@ -7,6 +7,9 @@ import { run as runFoundryUrl } from './utils/foundry-url.test';
 // ── documentation ─────────────────────────────────────────────────────────────
 import { run as runAdrMetadata } from './docs/adr-metadata.test';
 
+// ── security ──────────────────────────────────────────────────────────────────
+import { run as runSensitiveFilePermissions } from './security/sensitive-file-permissions.test';
+
 // ── services ──────────────────────────────────────────────────────────────────
 import { run as runStatusSanitize } from './services/status-sanitize.test';
 import { run as runLocalhostPolicy } from './services/localhost-policy.test';
@@ -131,6 +134,7 @@ async function runAllUnitTests() {
 
     runFoundryUrl();
     runAdrMetadata();
+    await runSensitiveFilePermissions();
     runStatusSanitize();
     runLocalhostPolicy();
     runSyncTokenService();

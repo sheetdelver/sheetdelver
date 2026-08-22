@@ -23,6 +23,16 @@ Instead of `shadowdark` (which is large and complex), we elected to use `dnd5e` 
    - We explicitly decided **against** supporting proprietary formats like `.rar`, matching the standard open-source conventions used by platforms like Foundry VTT.
    - The Module Manager now correctly downloads the archive, enforces the SHA-256 integrity hash, and unpacks the contents into the active `${DATA_DIR}/modules/<moduleId>` folder prior to completing the `install` or `upgrade` state transitions.
 
+   **ADR-0033 security amendment (August 21, 2026).** The preceding extraction
+   decision is retained as historical implementation evidence but is no longer
+   an active capability. Indexed and direct remote distribution now fail closed
+   before network or artifact handling in every runtime mode. The dormant
+   fetch/extraction implementation and `extract-zip` dependency were removed.
+   Fixed-version `tar` remains only for the owner-controlled `module:package`
+   workflow; existing managed packages under `<DATA_DIR>/modules` remain
+   supported. Remote artifact installation requires a new enabling ADR and
+   security review under ADR-0033's activation gate.
+
 2. **Decentralized Local Development**
    By ensuring that boot-time discovery checks `${DATA_DIR}/modules/` recursively for `info.json` manifests, developers do not need to repeatedly package their modules for local development. A module repository can be cloned directly into the data directory, and the system will automatically discover and integrate it.
 

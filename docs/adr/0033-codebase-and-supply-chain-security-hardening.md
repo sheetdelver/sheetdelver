@@ -1,6 +1,6 @@
 # ADR-0033: Codebase Security Hardening and Dormant Distribution Boundaries
 
-**Status:** Accepted - Phase 0 implemented; Phases 1-5 proposed.
+**Status:** Accepted - Phases 0-1 implemented; Phases 2-5 proposed.
 **Date:** August 21, 2026
 **Phase:** Pre-main security remediation
 **Supersedes:** None
@@ -325,6 +325,82 @@ not alter those files or the supported `<DATA_DIR>/local/modules` and
 **Exit:** The dormant ZIP extractor is absent, the supported packager uses a
 fixed `tar`, reachable Critical/High advisories are closed, and secret-file mode
 tests pass.
+
+#### Phase 1 Implementation Amendment - August 21, 2026
+
+Phase 1 was implemented without enabling remote distribution or changing the
+application startup/world lifecycle state machine. The original dependency and
+filesystem plan was refined as follows.
+
+Dependency remediation:
+
+- The unreferenced `artifactFetcher.ts` scaffolding was removed together with
+  `extract-zip` and `@types/extract-zip`. No active source or package-lock entry
+  retains the ZIP extractor.
+- The supported `module:package` path remains tar-only. `tar` was upgraded to
+  `7.5.22`; a copied owner-controlled development module was validated,
+  compiled, archived, listed, and hashed entirely under operating-system
+  temporary storage. The source and installed module directories were not
+  modified.
+- Next.js and its ESLint config moved from `16.1.1` to `16.3.2`; React and
+  React DOM moved to `19.2.8`; the Tiptap set moved to `3.30.2`; `js-yaml`
+  moved to `4.3.1`; and patched lockfile resolutions now cover the Socket.IO,
+  `ws`, Express parser/router, PostCSS, Markdown, and URL/link parsing paths.
+- Argon2 moved to `0.45.1`, removing its obsolete archive-tool chain while
+  preserving the existing Argon2 authentication contract. The unused and
+  deprecated `@next/font` package was removed because the application already
+  imports the built-in `next/font` implementation.
+- The final full and production-only npm audits both report zero advisories.
+  The full graph decreased from 733 to 662 dependencies and the production
+  graph from 296 to 226 dependencies.
+- Required install scripts are now explicitly approved at exact reviewed
+  versions: Argon2 builds password-hashing bindings, Classic Level builds the
+  direct Foundry-data reader, esbuild installs the module build binary, and
+  `unrs-resolver` installs the Next.js resolver binding. The installed graph has
+  no pending unreviewed scripts. Optional platform-only scripts require review
+  on a platform where they are actually installed.
+
+Filesystem remediation:
+
+- Startup now migrates `<DATA_DIR>/config`, `<DATA_DIR>/security`, and
+  `<DATA_DIR>/cache` to owner-only directory mode `0700` on POSIX hosts before
+  configuration or sessions are loaded. It rejects sensitive directory/file
+  symlinks and fails with the affected path when enforcement is impossible.
+- `settings.yaml`, every current flat security record, managed source-profile
+  credentials, and persisted Core sessions are migrated to file mode `0600`.
+  Windows retains the same path and atomic-write checks but does not claim POSIX
+  mode enforcement.
+- Setup settings and admin credentials use private temporary inodes, fsync, and
+  atomic rename. Audit events retain append-only behavior but create and
+  re-check the audit file at `0600`. `PersistentCache` now creates every cache
+  directory at `0700` and every record at `0600`, with exclusive,
+  collision-resistant temporary files and atomic replacement.
+- The original Phase 1 wording mentioned config and security files but omitted
+  generic cache output and source-profile credentials. They were included
+  because the current cache persists reusable Foundry sessions and source
+  profiles can contain bearer credentials. Authenticated encryption or disabled
+  cross-restart session persistence remains Phase 3 work; mode hardening does
+  not represent plaintext-session closeout.
+
+Verification and surfaced drift:
+
+- Focused mode tests cover permissive legacy migration, atomic replacement,
+  cache creation, cleanup, and sensitive symlink rejection using only
+  operating-system temporary directories.
+- Lint, TypeScript, unit, integration, production build, module validation, and
+  package-output checks pass. Lint retains one pre-existing warning for internal
+  navigation in `ShutdownWatcher.tsx`; it is not introduced by this phase.
+- The socket harness had drifted after WorldBootstrapper became the owner of
+  application-state seeding: direct tests connected a `CoreSocket` and queried
+  unseeded Stores. Test-only setup now initializes its data resolver and invokes
+  WorldBootstrapper explicitly. Connection, system snapshot, actor-read, and
+  user/compendium-read cases pass against Foundry generation 14 build 367.
+- The mutation, rolling, and batch socket cases were not run against the
+  configured owner world because they create documents or chat records. They
+  remain wired through the corrected bootstrap helper and require an explicitly
+  disposable Foundry world for the full mutation gate. This is a safety-bounded
+  change from the original unqualified "socket" gate, not a claim that those
+  stateful cases executed.
 
 ### Phase 2 - HTML and browser security
 

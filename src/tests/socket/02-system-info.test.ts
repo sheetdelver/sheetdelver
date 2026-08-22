@@ -1,6 +1,10 @@
 import { CoreSocket } from '@core/foundry/sockets/CoreSocket';
-import { loadConfig } from '@core/config';
 import { worldStateStore } from '@core/world/WorldStateStore';
+import {
+    bootstrapSocketTestWorld,
+    loadSocketTestConfig,
+    resetSocketTestWorld,
+} from './socket-test-runtime';
 
 /**
  * Test 2: System Information Retrieval
@@ -9,16 +13,14 @@ import { worldStateStore } from '@core/world/WorldStateStore';
 export async function testSystemInfo() {
     logger.info('🧪 Test 2: System Information\n');
 
-    const config = await loadConfig();
-    if (!config) {
-        throw new Error('Failed to load configuration');
-    }
+    const config = await loadSocketTestConfig();
 
     const client = new CoreSocket(config.foundry);
     const results: any = { tests: [] };
 
     try {
         await client.connect();
+        await bootstrapSocketTestWorld(client);
         logger.info('✅ Connected\n');
 
         // Test 2a: system metadata from WorldStateStore
@@ -55,6 +57,7 @@ export async function testSystemInfo() {
         logger.error('❌ Test suite failed:', error.message);
         return { success: false, error: error.message };
     } finally {
+        resetSocketTestWorld();
         await client.disconnect();
         logger.info('📡 Disconnected\n');
     }

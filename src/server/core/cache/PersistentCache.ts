@@ -5,6 +5,8 @@ import { getCacheDir } from '@core/paths';
 let fs: any = null;
 let path: any = null;
 const isBrowser = typeof window !== 'undefined';
+const OWNER_ONLY_DIRECTORY_MODE = 0o700;
+const OWNER_ONLY_FILE_MODE = 0o600;
 
 async function loadDeps() {
     if (isBrowser) return false;
@@ -36,6 +38,15 @@ export class PersistentCache {
         return PersistentCache.instance;
     }
 
+    /** Create or migrate a cache directory without exposing session data. */
+    private ensureOwnerOnlyDirectory(directoryPath: string): void {
+        if (fs.existsSync(directoryPath) && fs.lstatSync(directoryPath).isSymbolicLink()) {
+            throw new Error(`PersistentCache refuses symbolic-link directory: ${directoryPath}`);
+        }
+        fs.mkdirSync(directoryPath, { recursive: true, mode: OWNER_ONLY_DIRECTORY_MODE });
+        if (process.platform !== 'win32') fs.chmodSync(directoryPath, OWNER_ONLY_DIRECTORY_MODE);
+    }
+
     private async ensureInitialized() {
         if (isBrowser) return;
         if (this.baseDir) return;
@@ -51,9 +62,7 @@ export class PersistentCache {
                         logger.info(`PersistentCache | Initialized with base directory: ${this.baseDir}`);
                     }
 
-                    if (!fs.existsSync(this.baseDir)) {
-                        fs.mkdirSync(this.baseDir, { recursive: true });
-                    }
+                    this.ensureOwnerOnlyDirectory(this.baseDir);
                 } catch (e) {
                     logger.error('PersistentCache | Failed to initialize base directory:', e);
                 }
@@ -68,12 +77,11 @@ export class PersistentCache {
         if (isBrowser || !this.baseDir || !fs || !path) return null;
 
         const nsDir = path.join(this.baseDir, namespace);
-        if (!fs.existsSync(nsDir)) {
-            try {
-                fs.mkdirSync(nsDir, { recursive: true });
-            } catch (e) {
-                return null;
-            }
+        try {
+            this.ensureOwnerOnlyDirectory(nsDir);
+        } catch (e) {
+            logger.error(`PersistentCache | Failed to secure namespace directory ${nsDir}:`, e);
+            return null;
         }
         return path.join(nsDir, `${key}.json`);
     }
@@ -83,12 +91,23 @@ export class PersistentCache {
         const filePath = await this.getFilePath(namespace, key);
         if (!filePath || !fs) return;
 
-        const tempPath = `${filePath}.${Date.now()}.tmp`;
+        // Include process and random entropy so concurrent writes cannot claim
+        // the same exclusive temporary path within one clock tick.
+        const tempPath = `${filePath}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`;
 
         try {
             const content = JSON.stringify(data, null, 2);
-            await fs.promises.writeFile(tempPath, content, 'utf-8');
+            // The temporary inode is private before content is written; rename
+            // keeps replacement atomic and chmod migrates an existing target.
+            await fs.promises.writeFile(tempPath, content, {
+                encoding: 'utf8',
+                flag: 'wx',
+                mode: OWNER_ONLY_FILE_MODE,
+            });
             await fs.promises.rename(tempPath, filePath);
+            if (process.platform !== 'win32') {
+                await fs.promises.chmod(filePath, OWNER_ONLY_FILE_MODE);
+            }
             logger.debug(`PersistentCache | Saved ${namespace}/${key}`);
         } catch (error) {
             logger.error(`PersistentCache | Failed to save ${namespace}/${key}:`, error);
