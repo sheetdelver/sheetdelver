@@ -542,40 +542,21 @@ Manager policy errors use structured `errorCode` values, including:
 
 ## Source Profiles
 
-### `GET /admin/sources`
-
-Returns configured source profiles. The default local source profile is
-protected and cannot be modified or deleted.
-
-### `POST /admin/sources`
-
-Creates a source profile.
+Remote module distribution is dormant under ADR-0033. The authenticated source
+profile endpoints remain registered so old clients receive a stable response,
+but create, update, delete, test, browse, indexed install, and direct-URL
+operations return HTTP 501:
 
 ```json
 {
-  "name": "Example Registry",
-  "baseUrl": "https://registry.example",
-  "kind": "indexed",
-  "enabled": true,
-  "priority": 10
+  "error": "Remote module distribution is not supported by the current operating model",
+  "code": "remote-module-distribution-disabled"
 }
 ```
 
-### `PUT /admin/sources/:id`
-
-Updates a source profile.
-
-### `DELETE /admin/sources/:id`
-
-Deletes a source profile unless it is the protected default local source.
-
-### `POST /admin/sources/:id/test`
-
-Tests an indexed source profile.
-
-### `GET /admin/sources/:id/modules`
-
-Returns modules available from an indexed source profile.
+Owner-controlled module development and packages already present beneath the
+configured `<DATA_DIR>` remain supported. No HTTP(S) repository or external
+publisher workflow is implemented or implied by these endpoint stubs.
 
 ---
 

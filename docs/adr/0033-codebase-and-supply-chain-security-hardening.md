@@ -780,6 +780,31 @@ rate buckets, and window reset. Full project gate results are recorded after
 the implementation verification run; Phase 5 remains the committed
 merge-candidate and CI closeout phase.
 
+#### Phase 4 Verification Addendum - August 27, 2026
+
+The deferred full verification run completed against commit `b2fed3b` after
+the focused Phase 4 checks:
+
+- the full unit suite passed, including world lifecycle/retry, Foundry session
+  restoration, guest/authenticated realtime, admin auth/CSRF, module registry,
+  lifecycle/manager, path confinement, SDK, and request security coverage
+- the integration suite passed its module lifecycle dependency cases
+- TypeScript and `git diff --check` passed
+- lint completed with zero errors and the one pre-existing
+  `ShutdownWatcher.tsx` internal-navigation warning already recorded in Phase 1
+- the manager-driven Next.js 16.3.2 production build passed using
+  `/tmp/sheet-delver-phase4-build` as `SHEET_DELVER_DATA`; the fixture contained
+  no local-development or managed modules and the generated route manifest
+  retained player and admin routes in the one application shell
+- a source inventory found no Core `status(500).send/end`, `sendStatus(500)`,
+  or direct `statusCode = 500` response paths outside the centralized JSON
+  shaping boundary
+
+The run did not execute stateful Foundry mutation/socket tests against the
+owner's configured world; Phase 4 changes no Foundry mutation authority and its
+negative transport cases use isolated HTTP and Socket.IO fixtures. No configured
+world, installed module, or real `<DATA_DIR>/config/settings.yaml` was modified.
+
 ### Phase 5 - CI and merge closeout
 
 - [ ] Pin actions and add dependency review/audit/SBOM plus current test gates.
