@@ -30,6 +30,7 @@
     "test:unit": "npx tsx src/tests/unit/run.ts",
     "test:client": "npx tsx src/tests/unit/client/run.ts",
     "coverage:unit": "npx tsx src/scripts/tools/testing/coverage-unit.ts",
+    "ci:fixture": "npx tsx src/scripts/tools/testing/create-ci-data.ts",
     "module:init": "npx tsx src/scripts/tools/modules/init-module.ts",
     "module:check": "npx tsx src/scripts/tools/modules/check-module.ts",
     "module:package": "npx tsx src/scripts/tools/modules/package-module.ts",

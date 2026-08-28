@@ -16,6 +16,8 @@ import { run as runExternalSecret } from './security/external-secret.test';
 import { run as runModulePathSecurity } from './security/module-path-security.test';
 import { run as runRequestSecurity } from './security/request-security.test';
 import { run as runSocketConnectionPolicy } from './security/socket-connection-policy.test';
+import { run as runCiWorkflowSecurity } from './security/ci-workflow-security.test';
+import { run as runCiDataFixture } from './security/ci-data-fixture.test';
 
 // ── services ──────────────────────────────────────────────────────────────────
 import { run as runStatusSanitize } from './services/status-sanitize.test';
@@ -150,6 +152,8 @@ async function runAllUnitTests() {
     runModulePathSecurity();
     await runRequestSecurity();
     runSocketConnectionPolicy();
+    runCiWorkflowSecurity();
+    runCiDataFixture();
     runStatusSanitize();
     runLocalhostPolicy();
     runSyncTokenService();
