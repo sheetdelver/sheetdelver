@@ -522,3 +522,27 @@ The SDK is considered standardized when all of the following hold:
 - [x] Contract test suite green locally (`npm run test:unit` — SDK Integrity + contract fixture); CI parity assumed to follow the same suite.
 
 **Status: ADR-0027 is complete.** The module SDK is standardized across server (`req.runtime`), client (`useSDK` / `useSDKComponents`), compendium, datastore, logging, embedded-document writes, structured errors, and styling; `check-module` enforces the boundary; and all three shipped systems (`dnd5e`, `morkborg`, `shadowdark`) fully conform with no open items.
+
+**Pre-merge caller-scoped read amendment (September 2, 2026).** The public
+SDK shape is unchanged, but its read projections are tightened to preserve the
+authorization contract when Core Stores were hydrated through the service
+account:
+
+- Route `runtime.documents.get` defaults to `OBSERVER`. A caller explicitly
+  requesting `LIMITED` receives only stable identity/directory metadata, never
+  raw `system`, embedded collections, flags, or other full-document fields.
+  List reads apply the same per-row projection before filtering or pagination.
+- `JournalEntry` lists have an `OBSERVER` floor and omit page bodies.
+  Journal detail includes only pages independently readable at `OBSERVER`.
+- World UUID reads use the same scoped Store projection. Embedded world UUIDs
+  require `OBSERVER` on the root, and embedded journal pages also pass their
+  page-level check. Roll-table draws and result-document hydration now consume
+  that scoped UUID reader instead of the route client's privileged resolver.
+- The adapter bootstrap `ReadonlyDocumentStore` remains privileged and
+  read-only because it runs without an acting request during world bootstrap.
+  Compendium resolution remains subject-present and read-only under the
+  existing ADR-0021 hydration policy.
+
+Regression coverage in `module-document-store.test.ts` now exercises LIMITED
+redaction, journal list/detail projection, embedded UUID denial, and scoped
+table hydration. No separately managed module source was changed.

@@ -46,9 +46,25 @@ async function runActorReadWriteSmoke() {
                 ownership: { default: 2 },
             },
             {
+                _id: 'actor-limited',
+                id: 'actor-limited',
+                name: 'Limited Contact',
+                type: 'character',
+                system: { secret: 'must-not-enter-full-dto' },
+                ownership: { default: 1 },
+            },
+            {
+                _id: 'actor-hidden',
+                id: 'actor-hidden',
+                name: 'Hidden Contact',
+                type: 'character',
+                system: { secret: 'must-not-enter-any-projection' },
+                ownership: { default: 0 },
+            },
+            {
                 _id: 'actor-npc',
                 id: 'actor-npc',
-                name: 'Hidden Goblin',
+                name: 'Observed NPC',
                 type: 'npc',
                 ownership: { default: 2 },
             },
@@ -68,7 +84,11 @@ async function runActorReadWriteSmoke() {
     // The list endpoint should now carry dashboard cards for the same visible set.
     assert.equal(listPayload.actorCards?.['actor-owned']?.name, 'Owned Hero');
     assert.equal(listPayload.actorCards?.['actor-readonly']?.name, 'Observed Ally');
+    assert.equal(listPayload.actorCards?.['actor-limited']?.name, 'Limited Contact');
+    assert.equal(listPayload.actorCards?.['actor-hidden'], undefined);
     assert.equal(listPayload.actorCards?.['actor-npc'], undefined);
+    // LIMITED actors are card-only and must never reach the full DTO normalizer.
+    assert.equal(normalizeCalls.flatMap((call) => call.ids).includes('actor-limited'), false);
     assert.equal(normalizeCalls.length, 3);
 
     const createPayload = {
@@ -100,6 +120,9 @@ async function runActorReadWriteSmoke() {
 async function runCombatReadActionSmoke() {
     const normalizeCalls: Array<{ ids: string[] }> = [];
     const { actorStore } = await import('@server/core/documents/primary/actors/ActorStore');
+    // Standalone execution does not import the document coordinator, so bind
+    // the same production visibility dependency explicitly for this fixture.
+    combatStore.bindActorVisibilityBridge(actorStore);
 
     const combatService = createCombatService({
         normalizeActors: async (actorList) => {

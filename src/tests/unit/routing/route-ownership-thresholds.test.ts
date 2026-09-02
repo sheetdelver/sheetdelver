@@ -9,11 +9,11 @@
  * chain end-to-end with subjects spanning the threshold bands and assert
  * which docs are returned per band.
  *
- * Known divergence (documented, not a Phase 2 regression):
- *   - Actor detail endpoints (`/api/actors/:id`, `/api/actors/:id/card`) and
- *     bulk-card reads currently use LIST_VISIBLE for the per-actor lookup
- *     instead of DETAIL_VISIBLE. The route-client comment at `getActor` flags
- *     this for a future split. Phase 2's test reflects what's shipped.
+ * Authorization notes:
+ *   - Full actor detail requires OBSERVER; LIMITED only permits the restricted
+ *     card source used by adapter-owned projections.
+ *   - Journal directory and detail reads require OBSERVER, and the directory
+ *     projection omits embedded page content.
  *   - Write endpoints (POST/PATCH/DELETE on actors, journals, combats, etc.)
  *     do NOT apply a Sheet Delver-side WRITEABLE courtesy gate before
  *     dispatching to Foundry. Foundry is the authoritative permission check
@@ -22,9 +22,9 @@
  *     follow-up — not a regression introduced by Phase 1.
  */
 import { strict as assert } from 'node:assert';
-import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
+import { ActorStore, actorStore } from '@server/core/documents/primary/actors/ActorStore';
 import { chatMessageStore } from '@server/core/documents/primary/chat-messages/ChatMessageStore';
-import { combatStore } from '@server/core/documents/primary/combats/CombatStore';
+import { CombatStore } from '@server/core/documents/primary/combats/CombatStore';
 import { folderStore } from '@server/core/documents/primary/folders/FolderStore';
 import { journalStore } from '@server/core/documents/primary/journals/JournalStore';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
@@ -41,14 +41,15 @@ import type {
     JournalEntryDocument,
 } from '@server/shared/types/documents';
 import type { ActorDocument } from '@server/shared/types/actors';
+import { createSessionRouteFoundryClient } from '@server/shared/utils/createRouteFoundryClient';
 
 const config = { app: { chatHistory: 100 } } as any;
 
 export async function run() {
     await runChatLogListThresholdIsListVisible();
-    await runJournalListVsDetailThresholdsDiverge();
+    await runJournalDirectoryAndDetailRequireObserver();
     await runCombatListVisibilityCrossesActorStore();
-    await runActorDetailUsesListVisibleAsShipped();
+    await runActorDetailRequiresObserverAndCardAllowsLimited();
     console.log('  - Route ownership thresholds: all checks passed');
 }
 
@@ -111,30 +112,38 @@ async function runChatLogListThresholdIsListVisible() {
 }
 
 /**
- * Journal endpoints distinguish LIST_VISIBLE from DETAIL_VISIBLE — this is the
- * one type where the split is fully realized today, so the test pins the
- * divergence explicitly.
+ * Foundry requires OBSERVER for a JournalEntry directory row or full detail.
+ * The list projection carries metadata only; the detail projection additionally
+ * filters embedded pages by their own OBSERVER ownership.
  *
  * Threshold chain:
  *   registerJournalRoutes GET /journals
  *     → JournalService.listJournals
- *     → journalStore.list({ subject, minOwnership: LIST_VISIBLE })
+ *     → journalStore.list({ subject, minOwnership: DETAIL_VISIBLE })
  *   registerJournalRoutes GET /journals/:id
  *     → JournalService.getJournalById
  *     → journalStore.get(id, { subject, minOwnership: DETAIL_VISIBLE })
  *     → journalStore.visiblePages(id, subject, DETAIL_VISIBLE)
  */
-async function runJournalListVsDetailThresholdsDiverge() {
+async function runJournalDirectoryAndDetailRequireObserver() {
     await userStore.seed(async () => [
         { _id: 'gm-1', name: 'GM', role: FoundryUserRole.GAMEMASTER },
         { _id: 'p-1', name: 'Player', role: FoundryUserRole.PLAYER },
     ]);
     await folderStore.seed(async () => []);
     const journals: JournalEntryDocument[] = [
-        // LIMITED: shows in list but NOT in detail.
+        // LIMITED: may support a map-note/image hint, but not a directory row or detail.
         { _id: 'j-limited', name: 'Limited', folder: null, ownership: { default: 0, 'p-1': DocumentOwnershipLevel.LIMITED } },
-        // OBSERVER: shows in list AND in detail.
-        { _id: 'j-observer', name: 'Observer', folder: null, ownership: { default: 0, 'p-1': DocumentOwnershipLevel.OBSERVER } },
+        // OBSERVER: metadata appears in the directory and readable pages appear in detail.
+        {
+            _id: 'j-observer',
+            name: 'Observer',
+            folder: null,
+            ownership: { default: 0, 'p-1': DocumentOwnershipLevel.OBSERVER },
+            pages: [
+                { _id: 'page-observer', text: { content: 'Visible detail' }, ownership: { 'p-1': DocumentOwnershipLevel.OBSERVER } },
+            ],
+        },
         // NONE: never visible.
         { _id: 'j-hidden', name: 'Hidden', folder: null, ownership: { default: 0 } },
     ];
@@ -151,9 +160,10 @@ async function runJournalListVsDetailThresholdsDiverge() {
         const listIds = (listPayload.journals as any[]).map(j => j._id).sort();
         assert.deepEqual(
             listIds,
-            ['j-limited', 'j-observer'],
-            'LIST endpoint returns LIMITED + OBSERVER (LIST_VISIBLE threshold)',
+            ['j-observer'],
+            'Journal directory requires OBSERVER',
         );
+        assert.equal(listPayload.journals[0].pages, undefined, 'Journal list never includes page bodies');
 
         // Detail at LIMITED → denied (DETAIL_VISIBLE requires OBSERVER).
         const limitedDetail = await service.getJournalById(playerClient, 'j-limited');
@@ -169,6 +179,7 @@ async function runJournalListVsDetailThresholdsDiverge() {
             'DETAIL endpoint grants OBSERVER journal',
         );
         assert.equal((observerDetail as any)._id, 'j-observer');
+        assert.equal((observerDetail as any).pages[0].text.content, 'Visible detail');
     } finally {
         journalStore.clear('threshold-test');
         folderStore.clear('threshold-test');
@@ -190,6 +201,11 @@ async function runJournalListVsDetailThresholdsDiverge() {
  * ownership change propagates into combat visibility.
  */
 async function runCombatListVisibilityCrossesActorStore() {
+    // Construct and bind this cross-store fixture locally so the test does not
+    // inherit coordinator wiring from whichever unit happened to run first.
+    const localActorStore = new ActorStore();
+    const localCombatStore = new CombatStore();
+    localCombatStore.bindActorVisibilityBridge(localActorStore);
     await userStore.seed(async () => [
         { _id: 'p-1', name: 'Player', role: FoundryUserRole.PLAYER },
     ]);
@@ -197,8 +213,8 @@ async function runCombatListVisibilityCrossesActorStore() {
         { _id: 'actor-hidden', name: 'Hidden', ownership: { default: 0 } },
         { _id: 'actor-visible', name: 'Visible', ownership: { default: 0, 'p-1': DocumentOwnershipLevel.LIMITED } },
     ];
-    await actorStore.seed(async () => combatActors);
-    await combatStore.seed(async () => [
+    await localActorStore.seed(async () => combatActors);
+    await localCombatStore.seed(async () => [
         {
             _id: 'combat-only-hidden',
             id: 'combat-only-hidden',
@@ -216,7 +232,7 @@ async function runCombatListVisibilityCrossesActorStore() {
         assert.ok(subject);
 
         // LIST_VISIBLE: only combats with at least one visible non-hidden combatant.
-        const visible = combatStore.list({ subject });
+        const visible = localCombatStore.list({ subject });
         const visibleIds = visible.map(c => c._id).sort();
         assert.deepEqual(
             visibleIds,
@@ -225,32 +241,27 @@ async function runCombatListVisibilityCrossesActorStore() {
         );
 
         // canReadDocument with LIST_VISIBLE matches.
-        assert.equal(combatStore.canReadDocument('combat-with-visible', subject, DOCUMENT_VISIBILITY.LIST_VISIBLE), true);
-        assert.equal(combatStore.canReadDocument('combat-only-hidden', subject, DOCUMENT_VISIBILITY.LIST_VISIBLE), false);
+        assert.equal(localCombatStore.canReadDocument('combat-with-visible', subject, DOCUMENT_VISIBILITY.LIST_VISIBLE), true);
+        assert.equal(localCombatStore.canReadDocument('combat-only-hidden', subject, DOCUMENT_VISIBILITY.LIST_VISIBLE), false);
     } finally {
-        combatStore.clear('threshold-test');
-        actorStore.clear('threshold-test');
+        localCombatStore.clear('threshold-test');
+        localActorStore.clear('threshold-test');
         userStore.clear('threshold-test');
     }
 }
 
 /**
- * Actor detail currently applies LIST_VISIBLE instead of DETAIL_VISIBLE
- * (per the comment at `createRouteFoundryClient.getActor`). Phase 2 pins this
- * as-shipped so future test runs catch any silent regression. The Journal
- * detail test above proves the DETAIL_VISIBLE threshold works correctly
- * where it IS applied.
+ * Actor detail requires OBSERVER while the explicitly restricted card source
+ * remains available at LIMITED. This prevents full Actor cache rows from being
+ * returned through the detail, roll, or item-use paths.
  *
- * Threshold chain (current):
+ * Threshold chain:
  *   registerActorRoutes GET /actors/:id
  *     → ActorService.getActorById
  *     → routeClient.getActor(id)
- *     → actorStore.getActor(id, { subject, minOwnership: LIST_VISIBLE })  // <- LIMITED, not OBSERVER
- *
- * If/when the actor detail path is split off to DETAIL_VISIBLE, this test
- * should flip from "LIMITED returns the doc" to "LIMITED is denied."
+ *     → actorStore.getActor(id, { subject, minOwnership: DETAIL_VISIBLE })
  */
-async function runActorDetailUsesListVisibleAsShipped() {
+async function runActorDetailRequiresObserverAndCardAllowsLimited() {
     await userStore.seed(async () => [
         { _id: 'p-1', name: 'Player', role: FoundryUserRole.PLAYER },
     ]);
@@ -265,7 +276,18 @@ async function runActorDetailUsesListVisibleAsShipped() {
         const subject = userStore.createAccessSubject('p-1');
         assert.ok(subject);
 
-        // List view at LIST_VISIBLE — both LIMITED and OBSERVER show up; hidden does not.
+        const routeClient = createSessionRouteFoundryClient({
+            isConnected: true,
+            url: 'http://foundry.test',
+            userId: 'p-1',
+            on: () => undefined,
+            off: () => undefined,
+            dispatchDocument: async () => ({}),
+            dispatchDocumentSocket: async () => ({}),
+        } as any);
+
+        // The backing store still supports LIST_VISIBLE for deliberately
+        // restricted projections; it must not be mistaken for full detail.
         const listed = actorStore.listActors({ subject, minOwnership: DOCUMENT_VISIBILITY.LIST_VISIBLE });
         const listIds = listed.map(a => a._id).sort();
         assert.deepEqual(
@@ -274,26 +296,24 @@ async function runActorDetailUsesListVisibleAsShipped() {
             'LIST endpoint returns LIMITED + OBSERVER',
         );
 
-        // Detail read at LIST_VISIBLE (the as-shipped behavior) — LIMITED still returns the doc.
-        const limitedAsDetail = actorStore.getActor('actor-limited', { subject, minOwnership: DOCUMENT_VISIBILITY.LIST_VISIBLE });
-        assert.ok(
-            limitedAsDetail !== null,
-            'Actor detail currently uses LIST_VISIBLE; LIMITED ownership returns the doc',
-        );
-
-        // What would happen at the documented DETAIL_VISIBLE threshold (for the future split):
-        const limitedAtDetailVisible = actorStore.getActor('actor-limited', { subject, minOwnership: DOCUMENT_VISIBILITY.DETAIL_VISIBLE });
         assert.equal(
-            limitedAtDetailVisible,
+            await routeClient.getActor('actor-limited'),
             null,
-            'When the actor detail path is split off to DETAIL_VISIBLE, LIMITED ownership will return null. This assertion captures the future contract — the as-shipped LIST_VISIBLE check above will then change.',
+            'Full route-client actor reads require OBSERVER',
+        );
+        assert.equal(
+            (await routeClient.getActorCardSource('actor-limited'))?.name,
+            'Limited',
+            'The explicitly restricted card source remains available at LIMITED',
         );
 
-        // OBSERVER passes both thresholds.
-        assert.ok(actorStore.getActor('actor-observer', { subject, minOwnership: DOCUMENT_VISIBILITY.DETAIL_VISIBLE }) !== null);
-
-        // Hidden never returns.
-        assert.equal(actorStore.getActor('actor-hidden', { subject, minOwnership: DOCUMENT_VISIBILITY.LIST_VISIBLE }), null);
+        assert.equal((await routeClient.getActor('actor-observer'))?.name, 'Observer');
+        assert.equal(await routeClient.getActor('actor-hidden'), null);
+        assert.equal(await routeClient.getActorCardSource('actor-hidden'), null);
+        assert.equal(
+            actorStore.getActor('actor-limited', { subject, minOwnership: DOCUMENT_VISIBILITY.DETAIL_VISIBLE }),
+            null,
+        );
     } finally {
         actorStore.clear('threshold-test');
         userStore.clear('threshold-test');

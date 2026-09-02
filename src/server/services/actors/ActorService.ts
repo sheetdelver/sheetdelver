@@ -14,6 +14,11 @@ import type {
     ActorDetailPayload,
     ActorErrorPayload,
 } from '@shared/contracts/actors';
+import {
+    DocumentOwnershipLevel,
+    getEffectiveOwnership,
+} from '@server/core/documents/primary/base/ownership';
+import { userStore } from '@server/core/documents/primary/users/UserStore';
 
 interface ActorProjection extends ActorDetailPayload {
     foundryUrl?: string;
@@ -78,16 +83,22 @@ export function createActorService(deps: ActorServiceDeps) {
         logger.info(`Core Service | Actor types found: ${Array.from(actorTypes).join(', ')}`);
         logger.info(`Core Service | Actor folders found: ${Array.from(actorFolders).join(', ')}`);
 
-        const owned = rawActors.filter((a) =>
-            a.ownership?.[currentUserId!] === 3 || a.ownership?.default === 3
-        );
+        const subject = userStore.createAccessSubject(currentUserId);
+        const permissionFor = (actor: ActorDocument) => {
+            if (subject) return getEffectiveOwnership(actor.ownership, subject);
+            const explicit = currentUserId ? actor.ownership?.[currentUserId] : undefined;
+            return explicit ?? actor.ownership?.default ?? DocumentOwnershipLevel.NONE;
+        };
+
+        const owned = rawActors.filter((actor) => permissionFor(actor) >= DocumentOwnershipLevel.OWNER);
 
         const observable = rawActors.filter((a) => {
             const isOwned = owned.includes(a);
             if (isOwned) return false;
 
-            const userPermission = a.ownership?.[currentUserId!] || a.ownership?.default || 0;
-            const isObservable = userPermission >= 1;
+            // Full read-only actor DTOs require OBSERVER. LIMITED actors are
+            // represented only by adapter-produced cards below.
+            const isObservable = permissionFor(a) >= DocumentOwnershipLevel.OBSERVER;
             const actorType = (a.type || '').toLowerCase();
             const isNPC = actorType === 'npc' || actorType === 'monster' || actorType === 'vehicle';
 
@@ -106,9 +117,13 @@ export function createActorService(deps: ActorServiceDeps) {
             actors: await normalize(ownedCharacters),
             ownedActors: await normalize(ownedCharacters),
             readOnlyActors: await normalize(observable),
-            // Cards are included for the visible dashboard set only. The legacy
-            // `/actors/cards` endpoint remains for clients that still call it.
-            actorCards: buildActorCards([...ownedCharacters, ...observable], adapter),
+            // LIMITED actors may contribute only the adapter-owned card projection.
+            // Recheck visibility here so alternate clients cannot project hidden cache rows.
+            actorCards: buildActorCards(rawActors.filter((a) => {
+                const actorType = (a.type || '').toLowerCase();
+                const isNPC = actorType === 'npc' || actorType === 'monster' || actorType === 'vehicle';
+                return permissionFor(a) >= DocumentOwnershipLevel.LIMITED && !isNPC;
+            }), adapter),
             system: systemInfo.id
         };
     };
@@ -128,7 +143,7 @@ export function createActorService(deps: ActorServiceDeps) {
         client: ActorServiceClientLike,
         actorId: string
     ): Promise<ActorCard | ActorErrorPayload | Record<string, never>> => {
-        const actor = await client.getActor(actorId);
+        const actor = await client.getActorCardSource(actorId);
         if (!actor || actor.error) {
             return {
                 error: actor?.error || 'Actor not found',

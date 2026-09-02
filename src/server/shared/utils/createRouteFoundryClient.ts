@@ -154,11 +154,19 @@ function createBaseRouteFoundryClient(
     };
 
     const getActor = async (actorId: string) => {
-        // This remains LIST_VISIBLE until route-specific detail/card thresholds split.
         ensureActorStoreReady();
         const subject = getSubject();
         if (!subject) return actorStore.get(actorId);
-        return actorStore.getActor(actorId, { subject, minOwnership: DOCUMENT_VISIBILITY.LIST_VISIBLE });
+        return actorStore.getActor(actorId, { subject, minOwnership: DOCUMENT_VISIBILITY.DETAIL_VISIBLE });
+    };
+
+    const getActorCardSource = async (actorId: string) => {
+        // LIMITED may feed only the adapter's restricted card projection. Keeping
+        // this separate prevents detail/roll callers from receiving the full Actor.
+        ensureActorStoreReady();
+        const subject = getSubject();
+        if (!subject) return actorStore.get(actorId);
+        return actorStore.getActor(actorId, { subject, minOwnership: DOCUMENT_VISIBILITY.CARD_VISIBLE });
     };
 
     const getActorRaw = async (actorId: string) => {
@@ -257,6 +265,7 @@ function createBaseRouteFoundryClient(
         },
         getActors,
         getActor,
+        getActorCardSource,
         getActorRaw,
         createActor: (actorData: Record<string, unknown> | Array<Record<string, unknown>>) => actorRepository.createActor(actorData),
         deleteActor: (actorId: string) => actorRepository.deleteActor(actorId),

@@ -19,10 +19,10 @@ function getErrorStatus(error: unknown, fallback = 500): number {
 /**
  * Actor route registrar — ownership-threshold contract (ADR-0013):
  *
- *   GET    /actors                  → LIST_VISIBLE (via actorStore.listActors)
+ *   GET    /actors                  → OWNER/OBSERVER full DTOs; LIMITED card projections only
  *   GET    /actors/cards            → LIST_VISIBLE (via actorStore.listActors)
- *   GET    /actors/:id/card         → LIST_VISIBLE (via actorStore.getActor, see note)
- *   GET    /actors/:id              → LIST_VISIBLE (via actorStore.getActor, see note)
+ *   GET    /actors/:id/card         → CARD_VISIBLE restricted projection
+ *   GET    /actors/:id              → DETAIL_VISIBLE
  *   POST   /actors                  → no courtesy gate; Foundry enforces on dispatch
  *   PATCH  /actors/:id              → no courtesy gate; Foundry enforces on dispatch
  *   DELETE /actors/:id              → no courtesy gate; Foundry enforces on dispatch
@@ -31,12 +31,6 @@ function getErrorStatus(error: unknown, fallback = 500): number {
  *   PUT    /actors/:id/items        → no courtesy gate
  *   DELETE /actors/:id/items        → no courtesy gate
  *   POST   /actors/:id/update       → no courtesy gate
- *
- * Note: detail and per-actor card reads currently apply LIST_VISIBLE instead
- * of the documented DETAIL_VISIBLE. Tracked by the comment at
- * `createRouteFoundryClient.getActor`; the future split is captured by the
- * `runActorDetailUsesListVisibleAsShipped` test in
- * `src/tests/unit/routing/route-ownership-thresholds.test.ts`.
  *
  * Write endpoints intentionally lack a Sheet Delver-side WRITEABLE courtesy
  * gate; Foundry is the authoritative permission check on writes (the original

@@ -49,6 +49,18 @@ export function createJournalService() {
         folder: (journal.folder ?? null) as string | null,
     });
 
+    const toJournalListDto = (journal: JournalEntryDocument): JournalEntryDto => ({
+        // Foundry's journal directory exposes metadata, not embedded page bodies.
+        // Selecting fields here prevents the service-account cache from placing
+        // page text, flags, or other full-document data in a list response.
+        id: typeof journal.id === 'string' ? journal.id : undefined,
+        _id: String(journal._id || journal.id || ''),
+        name: getStringField(journal.name),
+        folder: (journal.folder ?? null) as string | null,
+        ownership: journal.ownership,
+        sort: journal.sort,
+    });
+
     const toFolderDto = (folder: FolderDocument) => ({
         ...folder,
         _id: String(folder._id || folder.id || ''),
@@ -72,7 +84,9 @@ export function createJournalService() {
 
         const allFolders = folderStore.listByType('JournalEntry');
         const visibleJournals = subject
-            ? journalStore.list({ subject, minOwnership: DOCUMENT_VISIBILITY.LIST_VISIBLE })
+            // LIMITED journals are map-note/image hints in Foundry, not journal
+            // directory entries. Directory listing therefore begins at OBSERVER.
+            ? journalStore.list({ subject, minOwnership: DOCUMENT_VISIBILITY.DETAIL_VISIBLE })
             : [];
 
         const visibleFolderIds = new Set(folderStore.getFolderTreeIdsForFolders(
@@ -83,7 +97,7 @@ export function createJournalService() {
         const visibleFolders = allFolders.filter((f) => isAssistantGm || (!!f._id && visibleFolderIds.has(f._id)));
 
         return {
-            journals: visibleJournals.map(toJournalDto),
+            journals: visibleJournals.map(toJournalListDto),
             folders: visibleFolders.map(toFolderDto),
         };
     };

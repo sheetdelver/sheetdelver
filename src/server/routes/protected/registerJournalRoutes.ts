@@ -6,12 +6,11 @@ import { isErrorPayload } from '@server/shared/utils/isErrorPayload';
 /**
  * Journal route registrar — ownership-threshold contract (ADR-0013):
  *
- *   GET    /journals       → LIST_VISIBLE (via journalStore.list)
+ *   GET    /journals       → DETAIL_VISIBLE metadata-only directory projection
  *                            Folder list filtered to ancestors of any visible
  *                            journal; ASSISTANT-GM bypasses to see all folders.
  *   GET    /journals/:id   → DETAIL_VISIBLE on entry + per-page (visiblePages)
- *                            Journal is the one type where the LIST/DETAIL
- *                            split is fully realized today.
+ *                            Full entry with per-page ownership filtering.
  *   POST   /journals       → no courtesy gate; Foundry enforces on dispatch
  *   PATCH  /journals/:id   → no courtesy gate
  *   DELETE /journals/:id   → no courtesy gate

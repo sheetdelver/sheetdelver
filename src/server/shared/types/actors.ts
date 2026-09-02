@@ -78,7 +78,10 @@ export interface ActorServiceClientLike extends FoundryClientLike {
 
     getSystem(): Promise<{ id: string }>;
     getActors(): Promise<ActorDocument[]>;
+    /** Full Actor read; route clients require OBSERVER-level access. */
     getActor(actorId: string): Promise<(ActorDocument & { error?: string }) | null | undefined>;
+    /** Restricted Actor source used only to build the module-defined LIMITED card projection. */
+    getActorCardSource(actorId: string): Promise<(ActorDocument & { error?: string }) | null | undefined>;
     getActorRaw(actorId: string): Promise<(ActorDocument & { error?: string }) | null | undefined>;
 
     createActor(

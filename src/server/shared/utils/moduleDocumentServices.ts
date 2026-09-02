@@ -65,6 +65,57 @@ function resolveMinOwnership(level: ModuleOwnershipLevel | undefined, fallback: 
     }
 }
 
+const LIMITED_PROJECTION_KEYS = [
+    '_id',
+    'id',
+    'uuid',
+    'name',
+    'type',
+    'img',
+    'folder',
+    'sort',
+    'ownership',
+] as const;
+
+function getDocumentId(document: Record<string, unknown>): string | null {
+    const id = document._id ?? document.id;
+    return typeof id === 'string' && id.length > 0 ? id : null;
+}
+
+/**
+ * A LIMITED ownership match permits discovery, not a raw cache clone. Keep the
+ * generic projection deliberately small; system-defined Actor details belong in
+ * the adapter's ActorCard projection rather than this cross-system SDK surface.
+ */
+function projectLimitedDocument(document: Record<string, unknown>): Record<string, unknown> {
+    const projected: Record<string, unknown> = {};
+    for (const key of LIMITED_PROJECTION_KEYS) {
+        if (document[key] !== undefined) projected[key] = document[key];
+    }
+    return projected;
+}
+
+function projectDetailDocument(
+    type: string,
+    document: Record<string, unknown>,
+    subject: DocumentAccessSubject,
+): Record<string, unknown> {
+    if (type !== 'JournalEntry') return document;
+    const id = getDocumentId(document);
+    return {
+        ...document,
+        // Entry ownership does not imply visibility of every embedded page.
+        pages: id ? journalStore.visiblePages(id, subject, DOCUMENT_VISIBILITY.DETAIL_VISIBLE) : [],
+    };
+}
+
+function defaultListVisibility(type: string): ResolvedDocumentOwnershipLevel {
+    // Foundry does not place LIMITED journals in the journal directory.
+    return type === 'JournalEntry'
+        ? DOCUMENT_VISIBILITY.DETAIL_VISIBLE
+        : DOCUMENT_VISIBILITY.LIST_VISIBLE;
+}
+
 /**
  * Type-keyed map of the implemented primary stores (ADR-0027 A8). Stub stores
  * (Scene, Adventure, Setting, FogExploration) are intentionally absent.
@@ -157,14 +208,31 @@ function makeReads(deps: ReaderDeps): ReadonlyDocumentStore {
             const store = requireStore(type);
             const subject = resolveSubject(opts);
             if (!subject) return store.get(id) ?? null;
-            return store.get(id, { subject, minOwnership: resolveMinOwnership(opts?.minOwnership, DOCUMENT_VISIBILITY.DETAIL_VISIBLE) }) ?? null;
+            const threshold = resolveMinOwnership(opts?.minOwnership, DOCUMENT_VISIBILITY.DETAIL_VISIBLE);
+            const document = store.get(id, { subject, minOwnership: threshold });
+            if (!document) return null;
+            return store.canReadDocument(id, subject, DOCUMENT_VISIBILITY.DETAIL_VISIBLE)
+                ? projectDetailDocument(type, document, subject)
+                : projectLimitedDocument(document);
         },
         async list(type, query, opts) {
             await ensureReady();
             const store = requireStore(type);
             const subject = resolveSubject(opts);
+            const requested = resolveMinOwnership(opts?.minOwnership, defaultListVisibility(type));
+            // A caller may request a stricter threshold, but cannot lower the
+            // document-specific journal directory floor below OBSERVER.
+            const threshold = type === 'JournalEntry'
+                ? Math.max(requested, DOCUMENT_VISIBILITY.DETAIL_VISIBLE) as ResolvedDocumentOwnershipLevel
+                : requested;
             const rows = subject
-                ? store.list({ subject, minOwnership: resolveMinOwnership(opts?.minOwnership, DOCUMENT_VISIBILITY.LIST_VISIBLE) })
+                ? store.list({ subject, minOwnership: threshold }).map((document) => {
+                    if (type === 'JournalEntry') return projectLimitedDocument(document);
+                    const id = getDocumentId(document);
+                    return id && store.canReadDocument(id, subject, DOCUMENT_VISIBILITY.DETAIL_VISIBLE)
+                        ? projectDetailDocument(type, document, subject)
+                        : projectLimitedDocument(document);
+                })
                 : store.list();
             return applyQuery(rows, query);
         },
@@ -278,10 +346,20 @@ export function createDocumentStore(
         }
 
         if (parsed.kind === 'embedded-world') {
-            // Embedded UUID transport remains resolver-backed, but the root Store read
-            // enforces caller visibility before exposing any embedded child payload.
-            const root = await getVisibleDocument(parsed.root.type, parsed.root.id, opts);
+            // Embedded contents always require full root visibility, even when a
+            // caller explicitly asks for a LIMITED top-level projection.
+            const detailOpts: DocumentOpOptions = { ...opts, minOwnership: 'observer' };
+            const root = await getVisibleDocument(parsed.root.type, parsed.root.id, detailOpts);
             if (!root) return null;
+
+            // Journal pages have independent ownership beneath the readable entry.
+            const subject = await requireSubject(opts);
+            const firstChild = parsed.path[0];
+            if (parsed.root.type === 'JournalEntry'
+                && firstChild?.type === 'JournalEntryPage'
+                && !journalStore.canReadPage(parsed.root.id, firstChild.id, subject, DOCUMENT_VISIBILITY.DETAIL_VISIBLE)) {
+                return null;
+            }
             return c.fetchByUuid(parsed.raw) as Promise<Record<string, unknown> | null>;
         }
 
@@ -393,19 +471,18 @@ export function createRollRuntime(
 
 /** RollTable draw primitive (fetch the table, then simulate the draw). */
 export function createTableRuntime(
-    client: RouteFoundryClient,
+    documents: Pick<DocumentStore, 'fetchByUuid'>,
     ensureReady: () => Promise<void> = awaitWorldReady,
 ): TableRuntime {
-    const c = client as unknown as { fetchByUuid(uuid: string): Promise<Record<string, unknown>> };
     return {
         draw: async (uuid, options) => {
             await ensureReady();
-            const table = await c.fetchByUuid(uuid);
+            const table = await documents.fetchByUuid(uuid);
             if (!table) throw new SdkError('not_found', `RollTable not found: ${uuid}`);
             return simulateTableDraw(table, {
                 rollOverride: options?.rollOverride,
                 fetchDocument: async (u) => {
-                    try { return (await c.fetchByUuid(u)) as Record<string, unknown>; } catch { return null; }
+                    try { return await documents.fetchByUuid(u); } catch { return null; }
                 },
             });
         },
@@ -483,11 +560,12 @@ export function createModuleRequestRuntime(
     client: RouteFoundryClient,
     ensureReady: () => Promise<void> = awaitWorldReady,
 ): ModuleRequestRuntime {
+    const documents = createDocumentStore(client, ensureReady);
     return {
         ...base,
-        documents: createDocumentStore(client, ensureReady),
+        documents,
         rolls: createRollRuntime(client, ensureReady),
-        tables: createTableRuntime(client, ensureReady),
+        tables: createTableRuntime(documents, ensureReady),
         chat: createChatRuntime(client, ensureReady),
     };
 }

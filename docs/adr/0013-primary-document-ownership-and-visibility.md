@@ -483,6 +483,33 @@ write still travels exactly once through `req.foundryClient` and the
 requesting user's Repository/transport. No system-service fallback or new
 Repository authorization layer was introduced.
 
+**Pre-merge authorization-projection amendment (September 2, 2026).**
+The first Phase 2 follow-up above is now closed. A service-account-hydrated
+Store may contain complete Foundry documents, so checking that a caller has
+`LIMITED` ownership and then returning the Store clone was not a safe actor
+detail implementation.
+
+- Full actor reads used by sheet detail, rolls, and item-use now require
+  `DETAIL_VISIBLE` (`OBSERVER`). `CARD_VISIBLE` remains `LIMITED`, but it
+  has a separate route-client method and may feed only the adapter-owned actor
+  card projection. Actor list DTOs include full rows only for `OBSERVER` or
+  `OWNER`; hidden actors are excluded and `LIMITED` actors are card-only.
+- Journal directory reads now require `OBSERVER` and return selected metadata
+  only. Journal detail continues to require `OBSERVER`, with each embedded
+  page filtered independently at `OBSERVER`.
+- The correction does not add local mutation authorization or a system-service
+  fallback. Writes still run once as the requesting Foundry user, and Foundry
+  remains authoritative for delete and other role/ownership permissions.
+- Route-threshold tests now assert the actor detail/card split and journal
+  metadata boundary. Cross-store combat fixtures construct and bind their own
+  Stores, and the production ActorStore bridge binding is idempotent, removing
+  prior test-order dependence.
+
+This amendment supersedes the historical validation statements that actor
+detail was pinned at `LIST_VISIBLE` and that journal directory rows included
+`LIMITED` entries. The second Phase 2 follow-up, concerning optional
+pre-dispatch write courtesy errors, remains unchanged.
+
 ---
 
 ## Exit Criteria

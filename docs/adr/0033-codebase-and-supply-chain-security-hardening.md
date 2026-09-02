@@ -14,6 +14,13 @@ a clean worktree before Phase 5 is closed.
 `33629294007` passed, the branch and remote matched, the worktree was clean,
 and candidate-wide diff checks passed. CSP observation remains an accepted
 report-only residual rather than an unrecorded Phase 5 blocker.
+**Final closeout amendment (September 2, 2026):** ADR-0033 is closed. Its Core
+security phases, dependency review gate, owner-operated module policy, and
+pre-merge authorization corrections are complete and verified. The remaining
+module font CSP observation belongs to the separately managed module and does
+not block this ADR. A subsequent document synchronization audit is an
+independent workstream and does not reopen ADR-0033.
+
 **Date:** August 21, 2026
 **Phase:** Pre-main security remediation
 **Supersedes:** None
@@ -1287,6 +1294,38 @@ restoring module UI, routes, derived behavior, or system-specific logic.
 For this residual review, the only remaining action is to validate Core CSP
 enforcement after the separately managed module corrects its font-policy
 violations.
+
+## Pre-Merge Authorization Amendment
+
+**Completed September 2, 2026.** The final document-library review found a
+projection gap rather than a failure in Foundry's permission evaluator. Core
+correctly calculated `NONE`, `LIMITED`, `OBSERVER`, and `OWNER`, but a few
+read paths could return a complete service-account-hydrated cache row after a
+`LIMITED` check or could call the privileged UUID resolver after only checking
+for a user context.
+
+The remediation separates visibility from payload shape. Full actor and
+journal detail requires `OBSERVER`; LIMITED actors may appear only through a
+restricted adapter card; journal directory entries are metadata-only; generic
+world UUID reads, embedded UUID reads, journal pages, and module table draws all
+pass through caller-scoped Stores. Hidden actor cards are rejected again at the
+ActorService boundary so alternate client implementations cannot rely on a
+pre-filtering assumption. No user write was moved to the service account and no
+new application permission model was introduced.
+
+The test correction also removes order dependence from combat visibility
+fixtures by explicitly binding their ActorStore dependency. Focused
+authorization suites and the complete `npm run test:unit` suite pass. The
+expected warning/error messages from deliberately denied test cases remain
+test evidence, not suite failures.
+
+Repository dependency review is now enabled and the workflow passes. This
+closes the previously environmental CI blocker; dependency review remains a
+pull-request gate that reports a failing check to the pull request author when a
+change introduces a disallowed dependency risk.
+
+The separately managed module font CSP finding remains outside Core and is the
+only residual identified by this review.
 
 ## Deferred Activation Gate
 

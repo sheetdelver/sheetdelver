@@ -69,6 +69,9 @@ export class CombatStore extends PrimaryDocumentStore<CombatDocument> {
      * Called once at module-init time by the coordinator.
      */
     public bindActorVisibilityBridge(actorStore: ActorStore): void {
+        // Tests and lifecycle bootstrap may both request the same wiring. Keep
+        // the bridge idempotent so repeated initialization cannot duplicate events.
+        if (this.actorStore === actorStore) return;
         this.actorStore = actorStore;
         actorStore.on('documentListInvalidated', (event: DocumentListInvalidatedEvent) => {
             if (!event.documentId) return;

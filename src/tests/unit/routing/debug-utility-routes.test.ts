@@ -2,6 +2,12 @@ import { strict as assert } from 'node:assert';
 import type { Request, RequestHandler, Response } from 'express';
 import { registerDebugRoutes } from '@server/routes/debug/registerDebugRoutes';
 import { registerUtilityRoutes } from '@server/routes/protected/registerUtilityRoutes';
+import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
+import { userStore } from '@server/core/documents/primary/users/UserStore';
+import {
+    DocumentOwnershipLevel,
+    FoundryUserRole,
+} from '@server/core/documents/primary/base/ownership';
 
 interface RouteMap {
     get: Map<string, RequestHandler[]>;
@@ -40,14 +46,32 @@ function createRouterStub(routeMap: RouteMap) {
     };
 }
 
-function createRouteClient(fetchByUuid: (uuid: string) => Promise<unknown>) {
+function createRouteClient(
+    fetchByUuid: (uuid: string) => Promise<unknown>,
+    userId = 'player-1',
+) {
     return {
+        userId,
         fetchByUuid,
         resolveUrl: (url?: string) => url || '',
     } as any;
 }
 
 async function runUtilityRouteSmokeTests() {
+    // The generic UUID route must resolve through caller-scoped stores; the
+    // client's raw UUID resolver is privileged and deliberately forged here.
+    await userStore.seed(async () => [
+        { _id: 'player-1', name: 'Player', role: FoundryUserRole.PLAYER },
+    ]);
+    await actorStore.seed(async () => ([
+        {
+            _id: 'actor-observed',
+            name: 'Observed',
+            ownership: { default: DocumentOwnershipLevel.NONE, 'player-1': DocumentOwnershipLevel.OBSERVER },
+        },
+        { _id: 'actor-hidden', name: 'Hidden', ownership: { default: DocumentOwnershipLevel.NONE } },
+    ] as import('@server/shared/types/actors').ActorDocument[]));
+
     const routeMap: RouteMap = { get: new Map() };
     registerUtilityRoutes(createRouterStub(routeMap) as any, {
         getFallbackSharedContentClient: () => createRouteClient(async () => null),
@@ -60,28 +84,45 @@ async function runUtilityRouteSmokeTests() {
     const documentHandlers = routeMap.get.get('/foundry/document');
     assert.ok(documentHandlers);
 
-    const missingUuidRes = createResponseStub();
-    await documentHandlers![0](
-        {
-            query: {},
-            foundryClient: createRouteClient(async () => null),
-        } as unknown as Request,
-        missingUuidRes as unknown as Response,
-        (() => undefined) as any,
-    );
-    assert.equal(missingUuidRes.statusCode, 400);
-    assert.deepEqual(missingUuidRes.payload, { error: 'Missing uuid' });
+    try {
+        const missingUuidRes = createResponseStub();
+        await documentHandlers![0](
+            {
+                query: {},
+                foundryClient: createRouteClient(async () => null),
+            } as unknown as Request,
+            missingUuidRes as unknown as Response,
+            (() => undefined) as any,
+        );
+        assert.equal(missingUuidRes.statusCode, 400);
+        assert.deepEqual(missingUuidRes.payload, { error: 'Missing uuid' });
 
-    const foundDocumentRes = createResponseStub();
-    await documentHandlers![0](
-        {
-            query: { uuid: 'Actor.actor-1' },
-            foundryClient: createRouteClient(async () => ({ id: 'actor-1' })),
-        } as unknown as Request,
-        foundDocumentRes as unknown as Response,
-        (() => undefined) as any,
-    );
-    assert.deepEqual(foundDocumentRes.payload, { id: 'actor-1' });
+        const foundDocumentRes = createResponseStub();
+        await documentHandlers![0](
+            {
+                query: { uuid: 'Actor.actor-observed' },
+                foundryClient: createRouteClient(async () => ({ forged: true })),
+            } as unknown as Request,
+            foundDocumentRes as unknown as Response,
+            (() => undefined) as any,
+        );
+        assert.equal((foundDocumentRes.payload as any).name, 'Observed');
+        assert.equal((foundDocumentRes.payload as any).forged, undefined);
+
+        const hiddenDocumentRes = createResponseStub();
+        await documentHandlers![0](
+            {
+                query: { uuid: 'Actor.actor-hidden' },
+                foundryClient: createRouteClient(async () => ({ forged: true })),
+            } as unknown as Request,
+            hiddenDocumentRes as unknown as Response,
+            (() => undefined) as any,
+        );
+        assert.equal(hiddenDocumentRes.statusCode, 404);
+    } finally {
+        actorStore.clear('debug-utility-routes-test');
+        userStore.clear('debug-utility-routes-test');
+    }
 }
 
 async function runDebugRouteSmokeTests() {

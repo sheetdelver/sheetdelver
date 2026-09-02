@@ -1,10 +1,13 @@
 import { strict as assert } from 'node:assert';
-import { createDocumentStore, createChatRuntime } from '@server/shared/utils/moduleDocumentServices';
+import { createDocumentStore, createChatRuntime, createTableRuntime } from '@server/shared/utils/moduleDocumentServices';
 import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
 import { chatMessageStore } from '@server/core/documents/primary/chat-messages/ChatMessageStore';
-import { DocumentOwnershipLevel } from '@server/core/documents/primary/base/ownership';
+import { journalStore } from '@server/core/documents/primary/journals/JournalStore';
+import { userStore } from '@server/core/documents/primary/users/UserStore';
+import { DocumentOwnershipLevel, FoundryUserRole } from '@server/core/documents/primary/base/ownership';
 import { SdkError, isSdkError } from '@shared/sdk';
 import type { ActorDocument } from '@server/shared/types/actors';
+import type { JournalEntryDocument } from '@server/shared/types/documents';
 
 /**
  * Exercises the route `DocumentStore` access enforcement (ADR-0027 decisions 9/10/25):
@@ -45,6 +48,11 @@ async function rejectsWithCode(fn: () => Promise<unknown>, code: string) {
 const asOwner = { access: { userId: 'owner-user', role: 0, isGM: false, moduleId: 'test' } };
 
 export async function run() {
+    // Seed roles explicitly so this test cannot inherit subject state from another suite.
+    await userStore.seed(async () => [
+        { _id: 'owner-user', name: 'Owner', role: FoundryUserRole.PLAYER },
+        { _id: 'player-user', name: 'Player', role: FoundryUserRole.PLAYER },
+    ]);
     await actorStore.seed(async () => ([
         {
             _id: 'actor-owned',
@@ -55,9 +63,38 @@ export async function run() {
         {
             _id: 'actor-observed',
             name: 'Observed Actor',
+            system: { publicDetail: 'observer-visible' },
             ownership: { 'player-user': DocumentOwnershipLevel.OBSERVER, 'owner-user': DocumentOwnershipLevel.OWNER },
         },
+        {
+            _id: 'actor-limited',
+            name: 'Limited Actor',
+            system: { secret: 'must-not-leave-core' },
+            items: [{ _id: 'limited-item', name: 'Private Item' }],
+            ownership: { 'player-user': DocumentOwnershipLevel.LIMITED, default: DocumentOwnershipLevel.NONE },
+        },
     ] as ActorDocument[]));
+    await journalStore.seed(async () => ([
+        {
+            _id: 'journal-observed',
+            name: 'Observed Journal',
+            ownership: { 'player-user': DocumentOwnershipLevel.OBSERVER },
+            pages: [
+                {
+                    _id: 'page-visible',
+                    name: 'Visible Page',
+                    text: { content: 'visible' },
+                    ownership: { 'player-user': DocumentOwnershipLevel.OBSERVER },
+                },
+                {
+                    _id: 'page-hidden',
+                    name: 'Hidden Page',
+                    text: { content: 'secret' },
+                    ownership: { default: DocumentOwnershipLevel.NONE },
+                },
+            ],
+        },
+    ] as JournalEntryDocument[]));
 
     const noop = async () => {};
 
@@ -92,8 +129,33 @@ export async function run() {
     const playerCalls: DispatchCall[] = [];
     const playerStore = createDocumentStore(makeClient('player-user', playerCalls), noop);
 
-    assert.equal((await playerStore.get('Actor', 'actor-observed'))?.name, 'Observed Actor');
+    const observedActor = await playerStore.get('Actor', 'actor-observed');
+    assert.equal(observedActor?.name, 'Observed Actor');
+    assert.equal((observedActor?.system as any).publicDetail, 'observer-visible');
     assert.equal(await playerStore.get('Actor', 'actor-owned'), null, 'player cannot see owner-only actor');
+    assert.equal(await playerStore.get('Actor', 'actor-limited'), null, 'default detail read requires OBSERVER');
+
+    const limitedActor = await playerStore.get('Actor', 'actor-limited', { minOwnership: 'limited' });
+    assert.equal(limitedActor?.name, 'Limited Actor');
+    assert.equal(limitedActor?.system, undefined, 'LIMITED projection omits system data');
+    assert.equal(limitedActor?.items, undefined, 'LIMITED projection omits embedded items');
+
+    const listedActors = await playerStore.list('Actor');
+    const listedLimited = listedActors.rows.find((actor) => actor._id === 'actor-limited');
+    const listedObserved = listedActors.rows.find((actor) => actor._id === 'actor-observed');
+    assert.equal(listedLimited?.system, undefined, 'LIMITED list row is metadata-only');
+    assert.equal((listedObserved?.system as any).publicDetail, 'observer-visible');
+
+    const listedJournals = await playerStore.list('JournalEntry');
+    assert.equal(listedJournals.rows.length, 1);
+    assert.equal(listedJournals.rows[0].pages, undefined, 'journal directory row omits page content');
+    const journalDetail = await playerStore.get('JournalEntry', 'journal-observed');
+    assert.deepEqual(
+        (journalDetail?.pages as any[]).map((page) => page._id),
+        ['page-visible'],
+        'journal detail filters embedded pages at OBSERVER',
+    );
+
     await rejectsWithCode(() => playerStore.patch('Actor', 'actor-observed', { name: 'x' }), 'permission_denied');
     assert.equal(playerCalls.length, 0, 'observer write never dispatched');
 
@@ -102,6 +164,13 @@ export async function run() {
         if (uuid === 'Actor.actor-owned') return { _id: 'actor-owned', name: 'Raw Hidden Actor' };
         if (uuid === 'Actor.actor-observed') return { _id: 'actor-observed', name: 'Raw Observed Actor' };
         if (uuid === 'Actor.actor-owned.Item.item-hidden') return { _id: 'item-hidden', name: 'Raw Hidden Dagger' };
+        if (uuid === 'Actor.actor-limited.Item.limited-item') return { _id: 'limited-item', name: 'Raw Private Item' };
+        if (uuid === 'JournalEntry.journal-observed.JournalEntryPage.page-visible') {
+            return { _id: 'page-visible', text: { content: 'visible' } };
+        }
+        if (uuid === 'JournalEntry.journal-observed.JournalEntryPage.page-hidden') {
+            return { _id: 'page-hidden', text: { content: 'secret' } };
+        }
         return null;
     };
     const uuidOwnerStore = createDocumentStore(makeClient('owner-user', [], rawUuidFetch), noop);
@@ -111,6 +180,41 @@ export async function run() {
     assert.equal(await uuidPlayerStore.fetchByUuid('Actor.actor-owned'), null, 'hidden world UUID returns null');
     assert.equal(await uuidPlayerStore.fetchByUuid('Actor.actor-owned.Item.item-hidden'), null, 'hidden root blocks embedded UUID');
     assert.equal((await uuidPlayerStore.fetchByUuid('Actor.actor-observed'))?.name, 'Observed Actor');
+    assert.equal(
+        await uuidPlayerStore.fetchByUuid('Actor.actor-limited.Item.limited-item', { minOwnership: 'limited' }),
+        null,
+        'embedded UUIDs require OBSERVER on their root even when LIMITED is requested',
+    );
+    assert.equal(
+        (await uuidPlayerStore.fetchByUuid('JournalEntry.journal-observed.JournalEntryPage.page-visible'))?._id,
+        'page-visible',
+    );
+    assert.equal(
+        await uuidPlayerStore.fetchByUuid('JournalEntry.journal-observed.JournalEntryPage.page-hidden'),
+        null,
+        'embedded journal UUIDs enforce page ownership',
+    );
+
+    // Table draws and referenced-result hydration must use the same scoped
+    // document reader supplied by the request runtime.
+    const tableFetches: string[] = [];
+    const tableRuntime = createTableRuntime({
+        fetchByUuid: async (uuid: string) => {
+            tableFetches.push(uuid);
+            if (uuid === 'RollTable.table-visible') {
+                return {
+                    _id: 'table-visible',
+                    formula: '1d1',
+                    results: [{ _id: 'result-1', range: [1, 1], documentUuid: 'Actor.actor-observed' }],
+                };
+            }
+            if (uuid === 'Actor.actor-observed') return { _id: 'actor-observed', name: 'Observed Actor' };
+            return null;
+        },
+    } as any, noop);
+    const tableDraw = await tableRuntime.draw('RollTable.table-visible', { rollOverride: 1 });
+    assert.deepEqual(tableFetches, ['RollTable.table-visible', 'Actor.actor-observed']);
+    assert.equal(tableDraw.items[0].name, 'Observed Actor');
 
     // --- write-time { access } override must match the bound transport user ---
     await rejectsWithCode(() => playerStore.patch('Actor', 'actor-observed', { name: 'ByOwner' }, asOwner), 'permission_denied');
@@ -212,6 +316,8 @@ export async function run() {
     }
 
     actorStore.clear('module-document-store-test');
+    journalStore.clear('module-document-store-test');
+    userStore.clear('module-document-store-test');
 
     console.log('  - module DocumentStore enforcement: all checks passed');
 }

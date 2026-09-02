@@ -4,6 +4,7 @@ import type { UtilityClientLike } from '@server/shared/types/utility';
 import type { RouteFoundryClient } from '@server/shared/types/requestContext';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
 import { sharedContentStore } from '@server/core/world/SharedContentStore';
+import { createDocumentStore } from '@server/shared/utils/moduleDocumentServices';
 
 interface UtilityServiceDeps {
     getFallbackSharedContentClient: () => RouteFoundryClient;
@@ -14,7 +15,10 @@ export function createUtilityService(deps: UtilityServiceDeps) {
     const getFoundryDocument = async (client: UtilityClientLike, uuid?: string) => {
         if (!uuid) return { error: 'Missing uuid', status: 400 };
 
-        const data = await client.fetchByUuid(uuid);
+        // The route client can resolve privileged cache bytes, so generic UUID
+        // reads must pass through the same caller-scoped Store gate as modules.
+        const documents = createDocumentStore(client as RouteFoundryClient, async () => {});
+        const data = await documents.fetchByUuid(uuid);
         if (!data) return { error: 'Document not found', status: 404 };
 
         return data;
