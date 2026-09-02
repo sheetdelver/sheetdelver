@@ -1137,6 +1137,33 @@ dice, skipped unsupported text, and division by zero.
   central policy receives a separately reviewed exception; they do not justify
   weakening HTML sanitization or any other response header.
 
+**Clean-runner CI corrective addendum - September 2, 2026:** GitHub Actions run
+`33628586983` confirmed that checkout, dependency installation, production
+audit, and lint succeeded, but the standalone TypeScript step failed before the
+remaining gates. A clean checkout correctly omits the generated
+`.managed/tsconfig.paths.json`; the workflow had not invoked the existing
+managed-configuration generator before `tsc`, so application aliases such as
+`@shared/*` were unavailable. Local type checking had masked the ordering bug
+because development/build had already generated that ignored file.
+
+The manager now exposes `generate-managed` as a no-service command and
+`npm run managed:generate` invokes it. It creates the existing TypeScript path
+map, empty-or-discovered module UI registry, and PostCSS helper, then exits
+without starting Core, Next.js, or the Foundry lifecycle. CI runs it immediately
+after `npm ci` and before lint/type checking; a workflow policy assertion
+preserves that ordering. Reproduction with a fresh operating-system temporary
+data directory passed managed generation, lint, standalone TypeScript, the full
+unit suite, credential-free fixture generation, and the production build.
+
+The `ShutdownWatcher.tsx` annotation in that run was a warning from the
+successful lint step, not the job failure. Its document reload is intentional:
+client-side routing would retain the stale world-scoped providers that shutdown
+must discard. A narrowly documented ESLint exception now preserves that hard
+reload, removes the warning, and removes the otherwise unused router hook. This
+supersedes earlier verification references to the warning as a current lint
+residual; those references remain historical results from their respective
+runs.
+
 **Residual and pending record:**
 
 | Item | Reachability/control | Owner | Review/exit |

@@ -58,12 +58,13 @@ logger.info(`[Manager] Loading configuration: App=${host}:${port}, API=${apiPort
 // Determine command (dev or start)
 const args = process.argv.slice(2).filter(a => !a.startsWith('--data-dir'));
 const command = args[0] || 'dev'; // Default to dev
+const MANAGED_CONFIG_COMMAND = 'generate-managed';
 // Child processes must not infer their security mode from a possibly absent or
 // inherited NODE_ENV. The manager owns the npm command-to-environment mapping.
 const runtimeNodeEnv = command === 'dev' ? 'development' : 'production';
 
-// Pre-flight Check: Ensure Cache Exists (Skip for build)
-if (command !== 'build') {
+// Build/config generation do not start Core and therefore need no world cache.
+if (command !== 'build' && command !== MANAGED_CONFIG_COMMAND) {
     const CACHE_PATH = path.join(getCacheDir(), 'core', 'worlds.json');
 
     if (!fs.existsSync(CACHE_PATH)) {
@@ -114,6 +115,14 @@ process.on('SIGTERM', () => {
 });
 
 async function start() {
+    // CI starts from a clean checkout where the ignored .managed directory does
+    // not exist. Expose the existing generator without launching any service.
+    if (command === MANAGED_CONFIG_COMMAND) {
+        logger.info('[Manager] Generating managed configuration only...');
+        ensureManagedConfigs();
+        return;
+    }
+
     // Handle Build Command
     if (command === 'build') {
         logger.info(`[Manager] Building Application with API_PORT=${apiPort}...`);

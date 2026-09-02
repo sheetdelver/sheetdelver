@@ -41,6 +41,7 @@ export function run() {
     const commands = steps.map((step) => step.run ?? '').join('\n');
     for (const required of [
         'npm ci',
+        'npm run managed:generate',
         'npm audit --omit=dev --audit-level=high',
         'npm run lint',
         'npx tsc --noEmit',
@@ -52,6 +53,13 @@ export function run() {
     ]) {
         assert.ok(commands.includes(required), `CI is missing required gate: ${required}`);
     }
+
+    // A clean checkout has no ignored .managed alias map, so generation must
+    // precede the standalone TypeScript gate that consumes it.
+    assert.ok(
+        commands.indexOf('npm run managed:generate') < commands.indexOf('npx tsc --noEmit'),
+        'CI must generate managed TypeScript paths before type checking',
+    );
 
     assert.equal(source.includes('cat >'), false);
     assert.equal(source.includes('data/config/settings.yaml'), false);

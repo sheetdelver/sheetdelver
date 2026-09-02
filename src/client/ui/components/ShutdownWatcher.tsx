@@ -1,13 +1,12 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { useRouter, usePathname } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import { logger } from '@shared/utils/logger';
 
 import { useSession } from '../context/SessionContext';
 
 export default function ShutdownWatcher() {
-    const router = useRouter();
     const pathname = usePathname();
     const { step } = useSession();
     const [shutdownDetected, setShutdownDetected] = useState(false);
@@ -41,11 +40,13 @@ export default function ShutdownWatcher() {
             shutdownTriggeredRef.current = false;
             setShutdownDetected(false);
 
-            // Force reload/redirect to root to ensure MainPage picks up the 'setup' state from fresh fetch
+            // A hard reload is intentional: client navigation would preserve the
+            // stale world providers that this shutdown boundary must discard.
+            // eslint-disable-next-line @next/next/no-location-assign-relative-destination
             window.location.href = '/';
         }
         return () => clearTimeout(timer);
-    }, [shutdownDetected, countDown, router]);
+    }, [shutdownDetected, countDown]);
 
     if (!shutdownDetected) return null;
 

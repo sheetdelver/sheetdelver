@@ -35,6 +35,11 @@ jobs:
       - name: Install reviewed dependency graph
         run: npm ci
 
+      # .managed is intentionally ignored, so a clean runner must generate the
+      # alias map before TypeScript resolves application imports.
+      - name: Generate managed configuration
+        run: npm run managed:generate
+
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high
 
