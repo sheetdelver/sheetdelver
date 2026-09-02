@@ -6,7 +6,7 @@ Welcome to **SheetDelver**! We appreciate your interest in contributing to this 
 
 ### Prerequisites
 - Node.js 22.12+
-- A running instance of Foundry VTT (v13+)
+- A running instance of Foundry VTT generation 13 or 14
 - Access to the target Foundry world with a user account.
 
 ### Installation
@@ -150,6 +150,8 @@ Logs below the configured level will be suppressed in the browser console.
 1.  **Refactoring Components**: When refactoring, split large components into smaller files near their feature area.
 2.  **Styling**: Use Tailwind CSS for styling.
 3.  **Testing**: Verify your changes against a live Foundry instance running the target system.
+    Compatibility changes must retain the v13 `userid` login fixture and the
+    v14 build 366+ `username` plus `userId` fixture.
 4.  **Common Utilities**: Use shared SDK or platform utilities instead of duplicating image, HTML, dice, or document helpers.
 
 ### Asset Resolution

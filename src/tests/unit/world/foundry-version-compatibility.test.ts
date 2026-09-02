@@ -15,13 +15,17 @@ function release(generation?: unknown): FoundryRelease {
 }
 
 function runSupportedGenerationTest() {
-    const result = evaluateFoundryVersionCompatibility(release(13));
-
     assert.equal(SUPPORTED_FOUNDRY_GENERATION_MIN, 13);
-    assert.equal(KNOWN_FOUNDRY_GENERATION_MAX, 13);
-    assert.equal(result.status, 'supported');
-    assert.equal(result.generation, 13);
-    assertFoundryVersionSupported(result);
+    assert.equal(KNOWN_FOUNDRY_GENERATION_MAX, 14);
+
+    // Keep both ends of the supported window explicit so adding v14 support
+    // cannot accidentally erase the existing v13 contract.
+    for (const generation of [13, 14]) {
+        const result = evaluateFoundryVersionCompatibility(release(generation));
+        assert.equal(result.status, 'supported');
+        assert.equal(result.generation, generation);
+        assertFoundryVersionSupported(result);
+    }
 }
 
 function runUnsupportedGenerationTest() {
@@ -41,10 +45,10 @@ function runUnsupportedGenerationTest() {
 }
 
 function runNewerUntestedGenerationTest() {
-    const result = evaluateFoundryVersionCompatibility(release(14));
+    const result = evaluateFoundryVersionCompatibility(release(15));
 
     assert.equal(result.status, 'newer-untested');
-    assert.equal(result.generation, 14);
+    assert.equal(result.generation, 15);
     assertFoundryVersionSupported(result);
 }
 

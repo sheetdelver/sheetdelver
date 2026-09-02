@@ -9,6 +9,11 @@ closeout. CSP remains report-only pending observed module font violations.
 audit and candidate-wide verification now pass. The candidate still must be
 staged as one coherent change, committed, pushed through CI, and reviewed from
 a clean worktree before Phase 5 is closed.
+**Phase 5 closeout addendum (September 2, 2026):** Phase 5 completed at commit
+`e5da60b6f5de87c440dee1d9e35a82427606aab3`. GitHub Actions run
+`33629294007` passed, the branch and remote matched, the worktree was clean,
+and candidate-wide diff checks passed. CSP observation remains an accepted
+report-only residual rather than an unrecorded Phase 5 blocker.
 **Date:** August 21, 2026
 **Phase:** Pre-main security remediation
 **Supersedes:** None
@@ -402,7 +407,8 @@ Verification and surfaced drift:
   application-state seeding: direct tests connected a `CoreSocket` and queried
   unseeded Stores. Test-only setup now initializes its data resolver and invokes
   WorldBootstrapper explicitly. Connection, system snapshot, actor-read, and
-  user/compendium-read cases pass against Foundry generation 14 build 367.
+  user/compendium-read cases pass against the configured Foundry generation 14
+  environment, which used build 367 at that validation point.
 - The mutation, rolling, and batch socket cases were not run against the
   configured owner world because they create documents or chat records. They
   remain wired through the corrected bootstrap helper and require an explicitly
@@ -1182,12 +1188,44 @@ runs.
 
 **Residual-status amendment - September 2, 2026:** The stateful live Foundry
 validation row above is satisfied for the exercised scope: the owner confirmed
-world setup/start/shutdown/retry transitions, Foundry v14.367 login/session
-restoration, requesting-user document authorization, pre-login presentation,
+world setup/start/shutdown/retry transitions, Foundry generation 14
+login/session restoration using build 367 for the build 366+ login branch,
+requesting-user document authorization, pre-login presentation,
 extensionless module routes, and local/managed module reconciliation. The
 uncommitted candidate still requires pushed CI and final branch/clean-worktree
 review. CSP enforcement remains intentionally open because the configured D&D
 module produced font-policy reports.
+
+**Final Phase 5 closeout amendment - September 2, 2026:** The preceding
+GitHub/branch row and its uncommitted-candidate wording are superseded. Commit
+`e5da60b6f5de87c440dee1d9e35a82427606aab3` was pushed on
+`lifecycle-improvements`; CI run `33629294007` completed successfully with
+the production dependency audit, lint, TypeScript, unit, integration,
+credential-free fixture, isolated production build, and SBOM gates. A final
+read-only review found the branch synchronized with
+`origin/lifecycle-improvements`, a clean worktree, and no candidate-wide
+whitespace errors relative to `origin/main`.
+
+All original Phase 5 checklist outcomes are therefore satisfied through the
+implementation and corrective amendments. The configured-owner validation row
+is also closed for its recorded scope. Conditional GitHub dependency review,
+development-only compatibility switches, disabled remote-distribution
+scaffolding, pre-authentication presentation, automatic host-key lifecycle, and
+module fallback remain explicit accepted dispositions in the table rather than
+unfinished Phase 5 work. CSP remains report-only pending the separately owned
+module font resolution or an explicit policy decision.
+
+The closeout audit also identified that the Foundry generation policy still
+reported generation 14 as newer-untested after generation 14 compatibility and
+the build 366+ login branch had been validated using build 367. ADR-0019
+Amendment 1 owns the resulting support-window and login documentation
+correction. That additive compatibility follow-up does not reopen the
+authorization, credential, module-distribution, or transport decisions closed
+here.
+
+Finally, the statement below that ADR-0029 Amendment 1A remains proposed is
+historical. ADR-0029 Amendments 1B and 1C record its implementation and the
+same-service remediation; ADR-0033 Phase 3 is complete.
 
 ## Deferred Activation Gate
 

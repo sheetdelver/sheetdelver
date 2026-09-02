@@ -1,7 +1,9 @@
 import type { FoundryRelease } from '@server/core/world/types';
 
 export const SUPPORTED_FOUNDRY_GENERATION_MIN = 13;
-export const KNOWN_FOUNDRY_GENERATION_MAX = 13;
+// Generation 14 is validated alongside 13; later generations remain
+// warning-only until their world and authentication contracts are exercised.
+export const KNOWN_FOUNDRY_GENERATION_MAX = 14;
 
 export type FoundryVersionCompatibilityStatus =
     | 'supported'

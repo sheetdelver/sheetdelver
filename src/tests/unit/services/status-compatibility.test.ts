@@ -19,7 +19,7 @@ function diagnostic(
         status,
         generation,
         minGeneration: 13,
-        maxGeneration: 13,
+        maxGeneration: 14,
         message: `synthetic ${status}`,
         checkedAt: 123456,
     };
@@ -88,7 +88,8 @@ async function runStatusProjectionTests() {
     try {
         const cases = [
             diagnostic('supported', 13),
-            diagnostic('newer-untested', 14),
+            diagnostic('supported', 14),
+            diagnostic('newer-untested', 15),
             diagnostic('unknown', null),
             diagnostic('unsupported', 12),
         ];
@@ -101,7 +102,7 @@ async function runStatusProjectionTests() {
         const nullPayload = await projectCompatibility(null);
         assert.equal(nullPayload.foundryCompatibility, null);
 
-        const original = diagnostic('newer-untested', 14);
+        const original = diagnostic('newer-untested', 15);
         const payload = await projectCompatibility(original);
         assert.ok(payload.foundryCompatibility);
         payload.foundryCompatibility.status = 'unsupported';

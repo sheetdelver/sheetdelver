@@ -55,7 +55,13 @@ SheetDelver follows a **Hardened 4-Folder Root** architecture with a strict **Lo
 
 ### Requirements
 - **Node.js**: 22.12+
-- **Foundry VTT**: Valid instance (v13+ recommended)
+- **Foundry VTT**: Generations 13 and 14
+
+SheetDelver retains the Foundry v13 login contract while negotiating the newer
+v14 build 366+ login fields automatically. That login branch was verified with
+build 367, but generation support is not capped at that build. Later Foundry
+generations are not currently claimed as supported and run with a
+`newer-untested` diagnostic.
 
 ### Configuration
 SheetDelver stores all runtime data (configuration, cache, credentials, module state, logs) in a **data directory**.

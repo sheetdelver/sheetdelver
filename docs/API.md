@@ -99,6 +99,12 @@ Response:
 The request body is limited to 8 KiB. Usernames are trimmed and bounded to
 1-128 characters; passwords are bounded to 1024 characters.
 
+This browser-facing contract is stable across supported Foundry generations.
+Core resolves the user id and negotiates Foundry's upstream `/join` payload:
+generation 13 and generation 14 through build 365 use `userid`; generation 14
+build 366 and later use `username` plus `userId`. The resolved id and
+upstream cookie remain server-side.
+
 ### `POST /api/logout`
 
 Auth: protected.

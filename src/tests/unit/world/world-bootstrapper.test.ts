@@ -308,19 +308,33 @@ async function runBootstrapWarnsAndProceedsForNewerAndUnknownGeneration() {
             warnings.push([message, ...args.map(String)].join(' '));
         }) as typeof logger.warn;
 
+        // Generation 14 is part of the supported window and must bootstrap
+        // without the newer-version warning formerly emitted for it.
+        const supportedOrder: string[] = [];
+        const supported = createCompatibilityBootstrapper(() => 14, supportedOrder);
+        await supported.bootstrap({} as any);
+
+        assert.equal(supported.isReady(), true);
+        assert.equal(supported.getFoundryCompatibility()?.status, 'supported');
+        assert.deepEqual(supportedOrder.slice(0, 3), [
+            'snapshot:14',
+            'seed-world:SyntheticSystem',
+            'seed-users:1',
+        ]);
+
         const newerOrder: string[] = [];
-        const newer = createCompatibilityBootstrapper(() => 14, newerOrder);
+        const newer = createCompatibilityBootstrapper(() => 15, newerOrder);
         await newer.bootstrap({} as any);
 
         assert.equal(newer.isReady(), true);
         assert.equal(newer.getFoundryCompatibility()?.status, 'newer-untested');
         assert.deepEqual(newerOrder.slice(0, 3), [
-            'snapshot:14',
+            'snapshot:15',
             'seed-world:SyntheticSystem',
             'seed-users:1',
         ]);
         assert.equal(
-            warnings.some((entry) => entry.includes('generation 14') && entry.includes('newer than known maximum')),
+            warnings.some((entry) => entry.includes('generation 15') && entry.includes('newer than known maximum')),
             true,
         );
 

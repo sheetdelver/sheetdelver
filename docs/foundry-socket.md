@@ -1,6 +1,9 @@
-# Foundry V13 Socket Protocol Documentation
+# Foundry V13-V14 Socket Protocol and Transport Architecture
 
-This document outlines the socket events and data structures observed for Foundry VTT v13, and details the **SheetDelver Socket Architecture**.
+This document describes the Foundry socket and login contracts supported by
+SheetDelver for Foundry VTT generations 13 and 14. Generation 13 remains fully
+supported, and generation 14 support is not capped to a particular maintenance
+build.
 
 ## Architecture Overview
 
@@ -43,7 +46,8 @@ classDiagram
 *   **Responsibilities**:
     *   Manages `socket.io` connection lifecycle.
     *   Handles cookie persistence and headers.
-    *   Implements high-level `handshake` and `login` workflows.
+    *   Reads the Foundry version during `/api/status` handshake and selects the
+        matching `/join` login payload.
     *   Hydrates restored browser Cookie headers for transport reconnects; it does not decide whether a cached session is eligible.
 *   **Key Files**: `@server/core/foundry/sockets/SocketBase.ts`
 
@@ -75,9 +79,40 @@ classDiagram
     *   Supplies the narrow `{ userId, cookie }` credential that `ClientSocket` needs to reconnect.
 *   **Key Files**: `@server/core/session/SessionManager.ts`
 
+## Supported Versions and Login Negotiation
+
+The public SheetDelver login request remains
+`POST /api/login { username, password }` for every supported Foundry version.
+Core resolves that display name to a Foundry user id, then `SocketBase` uses
+the version returned by Foundry's `GET /api/status` response to construct the
+upstream `POST /join` request.
+
+| Foundry version | Upstream identity fields |
+| --- | --- |
+| Generation 13 | `userid: <resolved-id>` |
+| Generation 14 through build 365 | `userid: <resolved-id>` |
+| Generation 14 build 366 and later | `username: <configured-name>`, `userId: <resolved-id>` |
+
+Both `CoreSocket` service-account login and `ClientSocket` user login use this
+shared negotiation. The v13 lowercase `userid` contract is intentionally
+retained. Build 367 is recorded as the configured environment that verified the
+build 366+ login branch, not as the maximum supported generation 14 build. A
+restored user session bypasses `/join`: `SessionManager` validates the
+encrypted record and gives `ClientSocket` only the prior `{ userId, cookie }`
+transport credential.
+
+Generations below 13 fail bootstrap. Generations 13 and 14 are supported.
+Generation 15 and later currently warn as `newer-untested` and proceed under
+the compatibility policy rather than being claimed as supported.
+
 ## Socket Operations & Dispatch Model
 
-SheetDelver relies on two primary methods within `CoreSocket` for communicating with the Foundry VTT server:
+SheetDelver uses the same Foundry wire operations through two identity-bound
+transports. `CoreSocket` is the service-account transport for platform
+bootstrap, metadata, compendium hydration, and explicit system operations.
+`ClientSocket` is the requesting user's transport for user-originated document
+reads and writes. A missing user socket fails closed; it never falls back to
+`CoreSocket`.
 
 ### 1. `emitSocketEvent` (Low-Level Pipeline)
 *   **Purpose**: A direct wrapper around `socket.io`'s standard `.emit()`. Sends raw, named socket events directly to Foundry's socket server and waits for an acknowledgment/callback.
@@ -87,20 +122,24 @@ SheetDelver relies on two primary methods within `CoreSocket` for communicating 
     *   `getCompendiumIndex` / `getDocuments`: Bulk-reading compendium data.
 
 ### 2. `dispatchDocumentSocket` (The Document Workhorse)
-*   **Purpose**: The primary way SheetDelver interacts with data. Foundry operates entirely around "Documents" (Actors, Items, ChatMessages, etc.). This method packages a request and sends it via the specific `modifyDocument` socket event.
+*   **Purpose**: Packages Foundry document requests as `modifyDocument` socket
+    events. The method exists on both identity-bound transports; selecting the
+    transport is an authorization decision made before dispatch.
 *   **Payload**: `{ type: "DocumentName", action: "CRUD action", operation: { data: [...] } }`
 *   **Foundry Backend Flow**:
     1. Receives `modifyDocument`.
     2. Routes to the correct internal class based on `type`.
-    3. Checks permissions for the connected Service Account.
+    3. Checks permissions for the user connected on that specific transport.
     4. Writes changes to the database (LevelDB).
     5. Broadcasts the `modifyDocument` event to all connected clients to keep caches synced.
 *   **Examples**:
-    *   **Reading Data**: `dispatchDocumentSocket('JournalEntry', 'get', { query: { _id: "ID" } })`
-    *   **Writing Data (e.g. updating Health)**: `dispatchDocumentSocket('Actor', 'update', { updates: [{ _id: "ID", name: "New Name" }] })`
-    *   **Sending Chat / Rolls**: `dispatchDocumentSocket('ChatMessage', 'create', { data: [chatData] })`
+    *   Platform bootstrap and explicitly system-owned reads may use the service
+        account after Core has established that identity.
+    *   Player actor updates, document creation/deletion, chat, and rolls use the
+        authenticated player's `ClientSocket`, so Foundry applies that player's
+        role and document permissions.
 
-## Core Events (v13 Discovered)
+## Core Events (Observed in V13 and Exercised in V14)
 
 ### `session`
 *   **Payload**: `{ "sessionId": "...", "userId": "..." }`
@@ -120,7 +159,9 @@ SheetDelver uses a **Multiplexed Smart Proxy** to ensure data security and envir
 
 *   **Multiplexed Relay**: Unlike a standard browser client, the Backend Core maintains individual `ClientSocket` connections to Foundry for every authenticated user.
 *   **Per-User Isolation**: World-backed realtime events are re-emitted only after the server checks the requesting user's visibility. The browser receives application events from `AppSocketGateway`, not raw Foundry broadcasts.
-*   **System Status**: The singleton `CoreSocket` remains the master source for global, non-sensitive world metadata (world title, status, active user counts).
+*   **System Status**: The singleton `CoreSocket` remains the source for global
+    world availability. Status projection decides which allowlisted
+    presentation fields can reach pre-authentication clients.
 *   **Primary Document Cache**: To optimize performance, `SystemService.bootstrap()` seeds primary document stores after module discovery. Route clients and Foundry event ingress feed modify-document results into those stores instead of owning separate document state.
 *   **Document Realtime**: Primary document stores emit typed changed/list-invalidated events. `AppSocketGateway` forwards those as application socket events such as `<type>Changed` and `<type>ListInvalidated`; module UI consumes the SDK signal bus (`document:changed` / `document:listInvalidated`) rather than raw socket events.
 
@@ -128,7 +169,17 @@ SheetDelver uses a **Multiplexed Smart Proxy** to ensure data security and envir
 
 While the current socket implementation is functional, there are several areas of concern and potential improvements for the future:
 
-1.  **Strict Permission Assumptions**: `dispatchDocumentSocket` assumes the headless Service Account has Game Master (or Assistant GM) permissions. If the account is demoted to a standard "Player", operations like fetching all users, reading private GM compendiums, or updating other players' actors will silently fail or return errors.
-2.  **Primary Document Coverage**: `ActorStore` handles Actor, Item, and ActiveEffect mutations for actor-owned embedded data. Other primary document types (`Item`, `Cards`, `ChatMessage`, `Combat`, etc.) still need their own stores and bootstrap seeding before they can use the same cache-backed read model.
-3.  **Macro Execution**: There is currently no native way to explicitly execute a macro (e.g., "Execute Macro X") over the socket. To achieve macro-like effects, the headless client must mimic the exact document updates the macro *would* perform.
-4.  **Local Roll Evaluation**: `CoreSocket.roll()` evaluates dice math *locally* in the Node.js environment using a replica `Roll` class, and then sends the resulting totals/strings to Foundry as a `ChatMessage`. The server backend is not asked to roll the dice. While this matches standard browser behavior, it means complex Foundry modules that hook deeply into the server's internal rolling sequence might not trigger.
+1.  **Service-account scope**: The configured service account must exist in each
+    active world and needs enough permission for platform bootstrap, metadata,
+    and configured system operations. This authority is not borrowed for a
+    player's failed request.
+2.  **Newer Foundry generations**: Generation 15 and later are allowed under a
+    warning so operators can diagnose shape drift, but they are not currently
+    in the supported range.
+3.  **Macro execution**: There is no generic protocol for executing arbitrary
+    Foundry macros. A module composes the supported document, roll, table, and
+    chat primitives instead.
+4.  **Local roll evaluation**: SheetDelver's bounded local `Roll`
+    implementation evaluates supported formulas before a service posts the
+    structured result to Foundry. Foundry modules that depend on deeper internal
+    roll hooks may therefore require a module-specific integration.

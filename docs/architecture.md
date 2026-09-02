@@ -154,8 +154,10 @@ See `docs/MODULE_MANIFEST.md` for the full module authoring reference.
 
 ### 6.2 Authentication & Handshake
 1.  Frontend POST `/api/login`.
-2.  Backend resolves the Foundry user id, creates a `ClientSocket` transport through `FoundryUserConnectionService`, performs the Foundry login handshake, and sets an opaque HttpOnly player-session cookie.
-3.  `FoundryContext` transitions to `'authenticating'` until the next status poll confirms the specific socket session is ready.
+2.  Backend resolves the Foundry user id, creates a `ClientSocket` transport through `FoundryUserConnectionService`, and reads the upstream version from Foundry `/api/status`.
+3.  `SocketBase` retains the generation 13 and early-generation-14 `userid` login contract, while generation 14 build 366+ sends `username` plus `userId`.
+4.  After Foundry accepts the login, Core sets an opaque HttpOnly player-session cookie. Restored sessions reconnect with the encrypted upstream cookie and do not repeat `/join`.
+5.  `FoundryContext` transitions to `'authenticating'` until the next status poll confirms the specific socket session is ready.
 
 ### 6.3 Data Normalization & Computation
 All data returned by the API passes through a **System Adapter**.

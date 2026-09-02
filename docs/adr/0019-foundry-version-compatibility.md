@@ -1,6 +1,9 @@
 # ADR-0019: Foundry Version Compatibility
 
 **Status:** Accepted - Completed May 21, 2026.
+**Status amendment (September 2, 2026):** The supported window now includes
+Foundry generations 13 and 14. Generation 13 compatibility is retained, and
+generation 14 support is not capped to a particular maintenance build.
 **Date:** May 21, 2026
 **Phase:** Foundry Version Compatibility (post ADR-0014 arc)
 **Supersedes:** None. Follows ADR-0018 socket-boundary closure.
@@ -175,6 +178,79 @@ Phase 4 closes ADR-0019 once the policy, bootstrap gate, and diagnostics are imp
 **Phase 4 implementation note:** ADR-0019 is accepted. The supported generation constants are `SUPPORTED_FOUNDRY_GENERATION_MIN = 13` and `KNOWN_FOUNDRY_GENERATION_MAX = 13` in `src/server/services/world/foundryVersionCompatibility.ts`. `WorldBootstrapper` evaluates the raw bootstrap snapshot before Store seeding, records the last compatibility diagnostic with `checkedAt`, fails closed for below-min generations, and exposes `foundryCompatibility` through the shared status/admin payload.
 
 **Exit for Phase 4:** ADR-0019 is accepted; unsupported older Foundry generations fail closed at bootstrap; newer/unknown generations are diagnostic warnings; status/admin surfaces expose the compatibility state; validation passes.
+
+---
+
+## Amendment 1: Foundry Generation 14 Compatibility
+
+**Date:** September 2, 2026
+
+### Context
+
+The original decision intentionally anchored world-state types and the known
+compatibility maximum to generation 13. Configured validation later exercised
+generation 14 across world discovery, service-account login, player login,
+encrypted session restoration, lifecycle transitions, requesting-user document
+authorization, module loading, and status projection. The configured instance
+used build 367; that build number is evidence for the login-contract branch
+described below, not an upper bound on generation 14 support.
+
+That validation surfaced one build-level wire change rather than a replacement
+of the generation 13 contract. Foundry generation 14 build 366 changed the
+world-login form from a selected lowercase `userid` field to username
+autocomplete backed by `username` and camel-case `userId`. Sending only the
+old field to build 367 returned `401 JOIN.ErrorUserDoesNotExist`.
+
+### Amended Decision
+
+- `SUPPORTED_FOUNDRY_GENERATION_MIN` remains `13`.
+- `KNOWN_FOUNDRY_GENERATION_MAX` advances from `13` to `14`.
+- Generation 13 remains supported and retains its original login payload.
+- Generation 14 is supported without a maintenance-build ceiling. Build 367 is
+  retained only as the configured validation point for the build 366+ login
+  contract.
+- Generation 15 and later remain `newer-untested`: bootstrap warns and
+  proceeds, but the project does not claim support.
+- Missing or invalid generation data remains `unknown` and warning-only.
+
+`SocketBase` records the version returned by the Foundry `/api/status`
+handshake and uses one shared negotiation path for both `CoreSocket` and
+`ClientSocket`:
+
+| Foundry version | Upstream `POST /join` identity fields |
+| --- | --- |
+| Generation 13 | `userid: <resolved-id>` |
+| Generation 14 through build 365 | `userid: <resolved-id>` |
+| Generation 14 build 366 and later | `username: <configured-name>`, `userId: <resolved-id>` |
+
+The SheetDelver browser contract remains `POST /api/login { username,
+password }`. The server resolves the Foundry id and retains the upstream
+cookie. Restored sessions continue to reconnect with the previously validated
+`{ userId, cookie }` transport credential and do not perform another
+`POST /join`.
+
+### Compatibility Scope
+
+This amendment does not erase or deprecate generation 13, does not assume that
+generation 15 preserves the generation 14 login form, and does not turn the
+service account into a fallback for player requests. The typed generation 13
+world-state contracts remain the historical baseline; their exercised shapes
+are compatible with the validated generation 14 build, while future shape
+drift still requires focused type and fixture updates.
+
+### Verification
+
+- Login-contract tests retain generation 13 and generation 14 build 365
+  `userid` fixtures and cover generation 14 builds 366 and 367 with
+  `username` plus `userId`.
+- Compatibility-policy and bootstrap tests classify generations 13 and 14 as
+  supported, generation 12 as unsupported, generation 15 as newer-untested,
+  and missing/non-numeric generations as unknown.
+- Status tests project the amended minimum/maximum range without changing
+  readiness or authorization.
+- The owner validated generation 14 against the configured deployment,
+  including restart restoration and world lifecycle recovery; build 367
+  specifically verified the build 366+ login payload.
 
 ---
 
