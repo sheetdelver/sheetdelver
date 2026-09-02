@@ -1062,7 +1062,7 @@ export function validateManagedModule(moduleId: string, source?: ModuleSourceCat
     }
 
     const targetSource = source || record.activeSource || ModuleSourceCategory.Managed;
-    
+
     // Clear health immediately
     if (record.sourceStates && record.sourceStates[targetSource]) {
         record.sourceStates[targetSource]!.health = undefined;
@@ -1072,7 +1072,7 @@ export function validateManagedModule(moduleId: string, source?: ModuleSourceCat
     }
 
     saveLifecycleStore(lifecycleStore, getLifecycleStateFilePathOverride());
-    
+
     // Force a registry refresh which will automatically re-evaluate all sources,
     // picking up the cleared health and checking the manifest.
     refreshRegistry();

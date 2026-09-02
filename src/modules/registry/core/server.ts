@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import type { SystemModuleInfo } from './types';
 export * from './utils';
 import { ModuleLifecycleStatus } from '@shared/types/modules';
@@ -24,6 +26,7 @@ import {
     getLifecycleRecord,
 } from './internals';
 import { initializeRegistry } from './bootstrap';
+import { getModulesDataDir } from '@core/paths';
 export { initializeRegistry, refreshRegistry } from './bootstrap';
 export { FALLBACK_ADAPTER } from './fallbackAdapter';
 
@@ -76,8 +79,15 @@ export function listModules(options?: { includeExperimental?: boolean; includeDi
             const lifecycle = getLifecycleRecord(moduleId) || fallbackLifecycle;
             const artifact = getArtifact(artifactStore, moduleId);
 
-            // A module is managed if it has an artifact record (meaning it was installed/managed via the system).
-            const managed = !!artifact;
+            // The package directory is authoritative. Artifact metadata may be
+            // absent for an older/manual install or stale after removal.
+            const managedPath = path.join(getModulesDataDir(), moduleId);
+            let managed = false;
+            try {
+                managed = fs.lstatSync(managedPath).isDirectory();
+            } catch {
+                managed = false;
+            }
 
             return {
                 info: plugin.info,

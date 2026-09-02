@@ -7,6 +7,7 @@ import {
     readWildcardPath,
     resolveConfinedDirectory,
     resolveConfinedFile,
+    resolveConfinedModuleEntry,
     resolveModuleDirectory,
 } from '@server/security/modulePath';
 
@@ -31,6 +32,8 @@ export function run(): void {
         fs.mkdirSync(siblingRoot, { recursive: true });
         fs.mkdirSync(outsideRoot, { recursive: true });
         fs.writeFileSync(path.join(assetsRoot, 'inside.txt'), 'inside');
+        fs.mkdirSync(path.join(moduleRoot, 'module'), { recursive: true });
+        fs.writeFileSync(path.join(moduleRoot, 'module', 'server.ts'), 'export const apiRoutes = {};');
         fs.writeFileSync(path.join(siblingRoot, 'secret.txt'), 'sibling');
         fs.writeFileSync(path.join(outsideRoot, 'secret.txt'), 'outside');
 
@@ -41,10 +44,19 @@ export function run(): void {
         assert.equal(resolveConfinedFile(assetsRoot, 'C:\\outside.txt'), null);
         assert.equal(resolveConfinedFile(assetsRoot, 'missing.txt'), null);
         assert.equal(resolveConfinedFile(assetsRoot, 'nested'), null);
+        assert.equal(
+            resolveConfinedModuleEntry(moduleRoot, 'module/server'),
+            fs.realpathSync(path.join(moduleRoot, 'module', 'server.ts')),
+        );
+        assert.equal(resolveConfinedModuleEntry(moduleRoot, 'module/missing'), null);
 
         const escapedLink = path.join(assetsRoot, 'escaped.txt');
         fs.symlinkSync(path.join(outsideRoot, 'secret.txt'), escapedLink);
         assert.equal(resolveConfinedFile(assetsRoot, 'escaped.txt'), null);
+
+        const escapedEntry = path.join(moduleRoot, 'module', 'escaped.ts');
+        fs.symlinkSync(path.join(outsideRoot, 'secret.txt'), escapedEntry);
+        assert.equal(resolveConfinedModuleEntry(moduleRoot, 'module/escaped'), null);
 
         const moduleLink = path.join(modulesRoot, 'linked-module');
         fs.symlinkSync(outsideRoot, moduleLink, 'dir');

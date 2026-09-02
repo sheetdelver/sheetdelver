@@ -131,7 +131,7 @@ security:
         allowed-origins:
             - http://localhost:3000
     service-token: { env: APP_SERVICE_TOKEN }
-    # Optional. Without this key, Foundry sessions are not restored after restart.
+    # Optional override. Otherwise Core creates an owner-only host key outside <DATA_DIR>.
     foundry-session-key: { env: APP_FOUNDRY_SESSION_KEY }
     # Optional extra input to the stored admin password hash.
     admin-pepper: { env: APP_ADMIN_PEPPER }

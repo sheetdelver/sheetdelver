@@ -11,7 +11,7 @@ the separate `<DATA_DIR>/local/modules/<moduleId>` root, and the registry
 exposes those origins as `managed` and `local` respectively.
 
 ## Context
-In ADR-0007 (Distribution Infrastructure), we introduced Source Profiles and remote index retrieval. However, we explicitly scoped out a "Public marketplace or submission workflow," operating under the assumption that backend API tests or manual HTTP requests would suffice to test the distribution pipeline for the pilot extraction (ADR-0008). 
+In ADR-0007 (Distribution Infrastructure), we introduced Source Profiles and remote index retrieval. However, we explicitly scoped out a "Public marketplace or submission workflow," operating under the assumption that backend API tests or manual HTTP requests would suffice to test the distribution pipeline for the pilot extraction (ADR-0008).
 
 During practical end-to-end testing, we found this lack of visibility into remote modules counterproductive. When an administrator clicks "Test Connection" on a Source Profile, they expect to see the modules discovered on that remote index and be able to install them from the UI. Without this, the administrative loop is incomplete.
 

@@ -316,4 +316,3 @@ async function runApplyModifyDocumentRoutes() {
     store.applyModifyDocument('Card', 'create', [{ _id: 'inner' }], { parentUuid: 'Cards.a' });
     assert.equal(embeddedCalls, 1);
 }
-

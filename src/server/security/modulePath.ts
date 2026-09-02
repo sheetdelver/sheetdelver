@@ -2,6 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { parseModuleId } from '@shared/security/moduleId';
 
+const MODULE_ENTRY_EXTENSIONS = ['.ts', '.tsx', '.js', '.mjs'] as const;
+
 function isStrictDescendant(root: string, candidate: string): boolean {
     const relative = path.relative(root, candidate);
     return relative.length > 0 && !relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative);
@@ -45,6 +47,27 @@ export function resolveConfinedFile(root: string, relativePath: string): string 
     const candidateReal = realpathIfType(candidate, 'file');
     if (!candidateReal || !isStrictDescendant(rootReal, candidateReal)) return null;
     return candidateReal;
+}
+
+function getModuleEntryCandidates(relativePath: string): string[] {
+    if (path.extname(relativePath)) return [relativePath];
+    return [relativePath, ...MODULE_ENTRY_EXTENSIONS.map((extension) => `${relativePath}${extension}`)];
+}
+
+/** Resolve an exact or extensionless manifest entry without weakening confinement. */
+export function resolveConfinedModuleEntry(root: string, relativePath: string): string | null {
+    for (const candidate of getModuleEntryCandidates(relativePath)) {
+        const resolved = resolveConfinedFile(root, candidate);
+        if (resolved) return resolved;
+    }
+    return null;
+}
+
+/** Distinguish an optional missing entry from an existing entry that escapes confinement. */
+export function hasModuleEntryCandidate(root: string, relativePath: string): boolean {
+    if (!isSafeRelativePath(relativePath)) return true;
+    return getModuleEntryCandidates(relativePath)
+        .some((candidate) => fs.existsSync(path.resolve(root, candidate)));
 }
 
 export function resolveConfinedDirectory(root: string, relativePath: string): string | null {

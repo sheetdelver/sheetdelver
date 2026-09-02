@@ -39,8 +39,8 @@ export const sanitizeStatusUser = (user: Partial<UserWithPresence>, foundryBaseU
 
 /**
  * Remove authenticated world and user metadata at the single status boundary.
- * Login still receives a display name and an explicit eligibility decision,
- * but never Foundry IDs, roles, actor links, avatars, URLs, or debug settings.
+ * The explicit system allowlist preserves the pre-authentication login display
+ * without forwarding the source object's configuration or synchronization data.
  */
 export function projectPublicStatus(payload: SystemStatusPayload): PublicStatusPayload {
     return {
@@ -57,10 +57,20 @@ export function projectPublicStatus(payload: SystemStatusPayload): PublicStatusP
                 canLogin: user.active !== true && user.name !== 'Gamemaster',
             })),
         system: {
-            id: null,
+            // System identity and presentation are public because the login shell
+            // uses them before a Foundry user session can exist.
+            id: payload.system.id,
+            title: payload.system.title,
+            version: payload.system.version,
             worldTitle: payload.system.worldTitle,
+            worldDescription: payload.system.worldDescription,
+            worldBackground: payload.system.worldBackground,
+            background: payload.system.background,
+            nextSession: payload.system.nextSession,
             status: payload.system.status,
             users: payload.system.users,
+            theme: payload.system.theme,
+            componentStyles: payload.system.componentStyles,
         },
         appVersion: payload.appVersion,
     };

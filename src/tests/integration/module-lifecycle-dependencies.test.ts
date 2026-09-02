@@ -4,7 +4,7 @@ import { logger } from '@shared/utils/logger';
 
 /**
  * Integration tests for module dependency and conflict constraints.
- * 
+ *
  * These tests verify that:
  * - Modules cannot be enabled if dependencies are not met
  * - Modules cannot be enabled if they conflict with enabled modules

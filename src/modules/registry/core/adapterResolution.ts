@@ -44,7 +44,9 @@ export async function getAdapter(systemId: string): Promise<SystemAdapter | null
 
     if (!isModuleEnabledForRuntime(id) && pluginMap.has(id)) {
         logger.warn(`Registry | Module ${id} is disabled or unavailable due to lifecycle state`);
-        return null;
+        // Disabled module code must not execute, but core actor/combat reads can
+        // continue through the internal adapter instead of becoming HTTP 500s.
+        return FALLBACK_ADAPTER;
     }
 
     // Ensure discovery has run
@@ -75,7 +77,7 @@ export async function getAdapter(systemId: string): Promise<SystemAdapter | null
     const pluginId = parseModuleId(plugin.info.id)!;
     if (!isModuleEnabledForRuntime(pluginId)) {
         logger.warn(`Registry | Refusing to instantiate disabled/incompatible module ${pluginId}`);
-        return null;
+        return FALLBACK_ADAPTER;
     }
 
     try {
@@ -98,7 +100,7 @@ export async function getAdapter(systemId: string): Promise<SystemAdapter | null
             logger.error(`Registry | No Adapter class found for ${id}`);
             recordLifecycleRuntimeFailure(lifecycleStore, pluginId, 'No Adapter class found in logic module export');
             saveLifecycleStore(lifecycleStore, getLifecycleStateFilePathOverride());
-            return null;
+            return FALLBACK_ADAPTER;
         }
 
         const adapter = new AdapterClass();
@@ -119,7 +121,9 @@ export async function getAdapter(systemId: string): Promise<SystemAdapter | null
         const message = e instanceof Error ? e.message : 'Unknown adapter load error';
         recordLifecycleRuntimeFailure(lifecycleStore, pluginId, message);
         saveLifecycleStore(lifecycleStore, getLifecycleStateFilePathOverride());
-        return null;
+        // The failure remains visible and disables this source, while the
+        // current request can still use core's non-module projection behavior.
+        return FALLBACK_ADAPTER;
     }
 }
 

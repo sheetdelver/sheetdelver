@@ -31,6 +31,7 @@ import {
     consumeAdminBootstrapCredential,
     consumeAdminRecoveryCredential,
 } from '@server/security/adminOneTimeCredentialStore';
+import { isAdminLoginProtectionEnabled } from '@server/middleware/rateLimiters';
 
 export interface RegisterAdminAuthRoutesOptions {
     adminRouter: express.Router;
@@ -112,8 +113,10 @@ export function registerAdminAuthRoutes(opts: RegisterAdminAuthRoutesOptions): v
                 });
             }
 
-            // Check if account is locked
-            if (isAccountLocked(account)) {
+            // Development remains easy to exercise repeatedly; production
+            // continues to enforce the persisted account lockout policy.
+            const enforceLoginProtection = isAdminLoginProtectionEnabled();
+            if (enforceLoginProtection && isAccountLocked(account)) {
                 const remainingMs = getRemainingLockoutMs(account);
                 const remainingSeconds = Math.ceil(remainingMs / 1000);
                 logger.warn(`Admin login attempt on locked account. Unlock in ${remainingSeconds}s`);
@@ -125,14 +128,18 @@ export function registerAdminAuthRoutes(opts: RegisterAdminAuthRoutesOptions): v
 
             const { password } = req.body as AdminLoginRequest;
             if (typeof password !== 'string' || password.length < 1 || password.length > 1024) {
-                await recordFailedLogin(account);
+                if (enforceLoginProtection) {
+                    await recordFailedLogin(account);
+                }
                 return res.status(400).json({ error: 'Password must be between 1 and 1024 characters' });
             }
 
             // Verify password
             const isValid = await verifyPassword(password, account.passwordHash);
             if (!isValid) {
-                await recordFailedLogin(account);
+                if (enforceLoginProtection) {
+                    await recordFailedLogin(account);
+                }
                 logger.warn('Admin login failed with invalid password');
                 return res.status(401).json({ error: 'Invalid password' });
             }

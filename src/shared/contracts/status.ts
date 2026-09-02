@@ -1,4 +1,4 @@
-import type { AppConfig } from '@shared/interfaces';
+import type { AppConfig, AppSystemInfo } from '@shared/interfaces';
 
 export interface StatusUser {
     _id?: string;
@@ -51,6 +51,8 @@ export interface SystemStatusPayload {
         background?: string;
         nextSession?: string | null;
         status?: string;
+        theme?: AppSystemInfo['theme'];
+        componentStyles?: AppSystemInfo['componentStyles'];
         actorSyncToken?: string;
         users?: { active: number; total: number };
         config?: unknown;
@@ -73,10 +75,18 @@ export interface PublicStatusPayload {
     foundryCompatibility: FoundryCompatibilityStatusPayload | null;
     users: PublicStatusUser[];
     system: {
-        id: null;
+        id: string | null;
+        title?: string;
+        version?: string;
         worldTitle?: string;
+        worldDescription?: string | null;
+        worldBackground?: string;
+        background?: string;
+        nextSession?: string | null;
         status?: string;
         users?: { active: number; total: number };
+        theme?: AppSystemInfo['theme'];
+        componentStyles?: AppSystemInfo['componentStyles'];
     };
     appVersion: AppConfig['app']['version'];
     worldId?: never;

@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { SystemModuleInfo } from '../core/types';
 import type { ModuleArtifactHealthDiagnostic } from './lifecycle';
+import { resolveConfinedModuleEntry } from '@server/security/modulePath';
 
 /**
  * Result of the installed-artifact audit. `hasErrors` is the only blocking bit;
@@ -126,12 +127,12 @@ function checkRequiredEntry(
 ): string | null {
     // Required UI/logic entries are blocking because the selected module cannot load
     // if the registry points at a missing or escaped file.
-    const resolved = resolveInsideModule(modulePath, relPath);
-    if (!resolved) {
+    if (!resolveInsideModule(modulePath, relPath)) {
         add(diagnostics, 'error', `artifact.entry.${entryKind}.outside-root`, `manifest.${entryKind} points outside the module directory: ${relPath}`);
         return null;
     }
-    if (!fs.existsSync(resolved) || !fs.statSync(resolved).isFile()) {
+    const resolved = resolveConfinedModuleEntry(modulePath, relPath);
+    if (!resolved) {
         add(diagnostics, 'error', `artifact.entry.${entryKind}.missing`, `Required packaged ${entryKind} entry is missing: ${relPath}`);
         return null;
     }
@@ -233,12 +234,15 @@ export function validatePackagedModuleArtifact(
     const uiPath = checkRequiredEntry(diagnostics, modulePath, 'ui', info.manifest.ui);
 
     // The server entry is optional in the manifest; a missing one is actionable drift.
+    let serverPath: string | null = null;
     if (typeof info.manifest.server === 'string') {
-        const serverPath = resolveInsideModule(modulePath, info.manifest.server);
-        if (!serverPath) {
+        if (!resolveInsideModule(modulePath, info.manifest.server)) {
             add(diagnostics, 'warning', 'artifact.entry.server.outside-root', `manifest.server points outside the module directory: ${info.manifest.server}`);
-        } else if (!fs.existsSync(serverPath) || !fs.statSync(serverPath).isFile()) {
-            add(diagnostics, 'warning', 'artifact.entry.server.missing', `Optional packaged server entry is declared but missing: ${info.manifest.server}`);
+        } else {
+            serverPath = resolveConfinedModuleEntry(modulePath, info.manifest.server);
+            if (!serverPath) {
+                add(diagnostics, 'warning', 'artifact.entry.server.missing', `Optional packaged server entry is declared but missing: ${info.manifest.server}`);
+            }
         }
     }
 
@@ -266,8 +270,8 @@ export function validatePackagedModuleArtifact(
         checkDeprecatedPatterns(diagnostics, logicSource);
     }
 
-    if (typeof info.manifest.server === 'string') {
-        const serverSource = readIfFile(resolveInsideModule(modulePath, info.manifest.server));
+    if (serverPath) {
+        const serverSource = readIfFile(serverPath);
         if (serverSource) {
             checkNodeImports(diagnostics, serverSource, 'server');
             checkDeprecatedPatterns(diagnostics, serverSource);

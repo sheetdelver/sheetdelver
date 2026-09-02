@@ -2,7 +2,7 @@ import { logger } from '@shared/utils/logger';
 
 /**
  * Checks if a URL is allowed by the host allowlist.
- * 
+ *
  * @param url The URL to check
  * @param allowlist Array of allowed hostnames (e.g. ['registry.example.com'])
  * @param mode 'production' or 'development'. In development, it only logs a warning if rejected.

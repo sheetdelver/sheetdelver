@@ -1,6 +1,9 @@
 import { strict as assert } from 'node:assert';
 import type { AppConfig } from '@shared/interfaces';
-import { getAdminLoginRateLimitSettings } from '@server/middleware/rateLimiters';
+import {
+    getAdminLoginRateLimitSettings,
+    isAdminLoginProtectionEnabled,
+} from '@server/middleware/rateLimiters';
 
 const testConfig: AppConfig = {
     app: {
@@ -67,6 +70,23 @@ async function runAdminRateLimiterTests(): Promise<void> {
     const tinySettings = getAdminLoginRateLimitSettings(tinyConfig);
     assert.equal(tinySettings.windowMinutes, 1, 'Window should floor to 1 minute minimum');
     assert.equal(tinySettings.maxAttempts, 1, 'Max attempts should floor to 1 minimum');
+
+    console.log('  Test 3: Bypasses admin login protection only in explicit development');
+    assert.equal(
+        isAdminLoginProtectionEnabled({ NODE_ENV: 'production' }),
+        true,
+        'Production should enforce admin login throttling and account lockout'
+    );
+    assert.equal(
+        isAdminLoginProtectionEnabled({ NODE_ENV: 'development' }),
+        false,
+        'Development should not enforce admin login throttling or account lockout'
+    );
+    assert.equal(
+        isAdminLoginProtectionEnabled({}),
+        true,
+        'An unspecified environment should fail closed instead of assuming development'
+    );
 
     console.log('  All admin rate limiter tests passed!');
 }

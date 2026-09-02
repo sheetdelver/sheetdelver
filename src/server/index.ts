@@ -13,7 +13,10 @@ import { registerHttpErrorHandlers } from '@server/security/httpRequestSecurity'
 import { FoundryUserConnectionService } from '@server/services/foundry';
 import { worldLifecycleStore } from '@server/core/world/WorldLifecycleStore';
 import type { WorldLifecycleTransition } from '@server/core/world/WorldLifecycleStore';
-import { createFoundrySessionStoreFromEnvironment } from '@server/security/foundrySessionStore';
+import {
+    createFoundrySessionStoreFromEnvironment,
+    getDefaultFoundrySessionKeyPath,
+} from '@server/security/foundrySessionStore';
 
 async function startServer() {
     // Resolve and initialize the data directory before anything else.
@@ -76,6 +79,10 @@ async function startServer() {
                     APP_FOUNDRY_SESSION_KEY: config.security.foundrySessionKey,
                     APP_FOUNDRY_SESSION_PREVIOUS_KEY: config.security.foundrySessionPreviousKey,
                 },
+                // Existing installations regain encrypted restart persistence
+                // without rewriting settings; explicit configured keys win.
+                autoKeyFilePath: getDefaultFoundrySessionKeyPath(),
+                dataDir,
             }),
         },
     );

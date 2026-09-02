@@ -97,6 +97,70 @@ export async function run(): Promise<void> {
         assert.equal(fs.existsSync(disabledPaths.legacyFilePath), false);
         assert.deepEqual(await disabledStore.load(), {});
 
+        const automaticPaths = createPaths(path.join(root, 'automatic'));
+        const automaticKeyPath = path.join(root, 'host-config', 'foundry-session.key');
+        const automaticStore = createFoundrySessionStoreFromEnvironment({
+            env: {},
+            ...automaticPaths,
+            autoKeyFilePath: automaticKeyPath,
+            dataDir: path.join(root, 'automatic'),
+        });
+        assert.equal(automaticStore.enabled, true);
+        await automaticStore.save(SESSIONS);
+        assert.equal(fs.existsSync(automaticKeyPath), true);
+        if (process.platform !== 'win32') {
+            assert.equal(fs.statSync(automaticKeyPath).mode & 0o777, 0o600);
+        }
+        assert.doesNotMatch(fs.readFileSync(automaticKeyPath, 'utf8'), /plaintext-cookie-value/);
+
+        const automaticReload = createFoundrySessionStoreFromEnvironment({
+            env: {},
+            ...automaticPaths,
+            autoKeyFilePath: automaticKeyPath,
+            dataDir: path.join(root, 'automatic'),
+        });
+        assert.deepEqual(await automaticReload.load(), SESSIONS);
+
+        assert.throws(
+            () => createFoundrySessionStoreFromEnvironment({
+                env: {},
+                ...createPaths(path.join(root, 'inside-data')),
+                autoKeyFilePath: path.join(root, 'inside-data', 'key'),
+                dataDir: path.join(root, 'inside-data'),
+            }),
+            /outside <DATA_DIR>/,
+        );
+
+        if (process.platform !== 'win32') {
+            const symlinkDataDir = path.join(root, 'symlink-data');
+            const symlinkConfigHome = path.join(root, 'symlink-config-home');
+            fs.mkdirSync(symlinkDataDir, { recursive: true });
+            fs.symlinkSync(symlinkDataDir, symlinkConfigHome, 'dir');
+            assert.throws(
+                () => createFoundrySessionStoreFromEnvironment({
+                    env: {},
+                    ...createPaths(symlinkDataDir),
+                    autoKeyFilePath: path.join(symlinkConfigHome, 'sheet-delver', 'foundry-session.key'),
+                    dataDir: symlinkDataDir,
+                }),
+                /outside <DATA_DIR>/,
+                'parent symlinks must not place the automatic key physically inside data',
+            );
+        }
+
+        const missingKeyPaths = createPaths(path.join(root, 'missing-host-key'));
+        fs.mkdirSync(path.dirname(missingKeyPaths.filePath), { recursive: true });
+        fs.writeFileSync(missingKeyPaths.filePath, '{}', 'utf8');
+        assert.throws(
+            () => createFoundrySessionStoreFromEnvironment({
+                env: {},
+                ...missingKeyPaths,
+                autoKeyFilePath: path.join(root, 'missing-key', 'foundry-session.key'),
+                dataDir: path.join(root, 'missing-host-key'),
+            }),
+            /Foundry session key is missing/i,
+        );
+
         const rotationPaths = createPaths(path.join(root, 'rotation'));
         const oldStore = new EncryptedFoundrySessionStore({
             ...rotationPaths,

@@ -1,4 +1,54 @@
-import { logger } from '@shared/utils/logger';
+const MAX_FORMULA_LENGTH = 256;
+const MAX_ARITHMETIC_TOKENS = 128;
+const MAX_DICE_PER_TERM = 100;
+const MAX_DIE_FACES = 1_000_000;
+const MAX_NUMERIC_LITERAL = 1_000_000_000;
+
+function evaluateArithmeticTokens(tokens: Array<number | string>): number | null {
+    if (tokens.length === 0 || tokens.length > MAX_ARITHMETIC_TOKENS) return null;
+
+    const normalized = [...tokens];
+    if (normalized[0] === '+' || normalized[0] === '-') normalized.unshift(0);
+    if (normalized.length % 2 === 0) return null;
+
+    // Collapse multiplication/division first, then apply addition/subtraction.
+    // This preserves the helper's arithmetic behavior without dynamic code.
+    const additiveValues: number[] = [];
+    const additiveOperators: string[] = [];
+    let current = normalized[0];
+    if (typeof current !== 'number' || !Number.isFinite(current)) return null;
+
+    for (let index = 1; index < normalized.length; index += 2) {
+        const operator = normalized[index];
+        const right = normalized[index + 1];
+        if (typeof operator !== 'string' || typeof right !== 'number' || !Number.isFinite(right)) return null;
+
+        if (operator === '*') {
+            current *= right;
+        } else if (operator === '/') {
+            if (right === 0) return null;
+            current /= right;
+        } else if (operator === '+' || operator === '-') {
+            additiveValues.push(current);
+            additiveOperators.push(operator);
+            current = right;
+        } else {
+            return null;
+        }
+
+        if (!Number.isFinite(current)) return null;
+    }
+
+    additiveValues.push(current);
+    let total = additiveValues[0];
+    for (let index = 0; index < additiveOperators.length; index += 1) {
+        total = additiveOperators[index] === '+'
+            ? total + additiveValues[index + 1]
+            : total - additiveValues[index + 1];
+        if (!Number.isFinite(total)) return null;
+    }
+    return total;
+}
 
 /**
  * Lightweight Foundry Roll stand-in used by server route helpers.
@@ -35,25 +85,43 @@ export class Roll {
         // Update: Added support for kh (keep highest) and kl (keep lowest)
 
         this._terms = [];
-        const total = 0;
-
         // Regex to match: (Dice: 1d6[kh|kl]?) OR (Operator: + - * /) OR (Number: 5)
         // Group 1: Dice (e.g. 1d6, 2d20, 2d20kh1, 2d20kl1)
         // Group 2: Operator
         // Group 3: Number
         const regex = /([0-9]+d[0-9]+(?:kh[0-9]*|kl[0-9]*)?)|([+\-*\/])|([0-9]+)/g;
 
-        // We need to tokenize the formula
-        // Remove spaces for easier parsing or handle them
+        const rejectFormula = () => {
+            this._terms = [];
+            this._total = 0;
+            this._evaluated = true;
+            return this;
+        };
+
+        // Formula and term limits prevent a compact authenticated request from
+        // turning the local fallback roller into a CPU or memory exhaustion path.
+        if (typeof this._formula !== 'string' || this._formula.length > MAX_FORMULA_LENGTH) {
+            return rejectFormula();
+        }
+
+        // Whitespace normalization happens only after the raw input is bounded.
         const cleanFormula = this._formula.replace(/\s/g, '');
+        if (cleanFormula.length === 0 || cleanFormula.length > MAX_FORMULA_LENGTH) {
+            return rejectFormula();
+        }
 
         let match;
-        const lastIndex = 0;
+        let lastIndex = 0;
 
         // Simple arithmetic evaluator tokens
         const evalTokens: (number | string)[] = [];
 
         while ((match = regex.exec(cleanFormula)) !== null) {
+            // The old tokenizer silently skipped unsupported text. Requiring
+            // contiguous matches makes the accepted grammar explicit.
+            if (match.index !== lastIndex) return rejectFormula();
+            lastIndex = regex.lastIndex;
+
             // Dice Term
             if (match[1]) {
                 const termStr = match[1];
@@ -76,8 +144,15 @@ export class Roll {
                 }
 
                 const parts = cleanDice.split('d');
-                const count = parseInt(parts[0]) || 1;
-                const faces = parseInt(parts[1]) || 6;
+                const count = parseInt(parts[0], 10);
+                const faces = parseInt(parts[1], 10);
+                if (
+                    !Number.isSafeInteger(count) || count < 1 || count > MAX_DICE_PER_TERM ||
+                    !Number.isSafeInteger(faces) || faces < 1 || faces > MAX_DIE_FACES ||
+                    !Number.isSafeInteger(keepCount) || keepCount < 1 || keepCount > count
+                ) {
+                    return rejectFormula();
+                }
                 const results = [];
                 let subTotal = 0;
 
@@ -138,7 +213,8 @@ export class Roll {
             }
             // Numeric Term
             else if (match[3]) {
-                const num = parseInt(match[3]);
+                const num = parseInt(match[3], 10);
+                if (!Number.isSafeInteger(num) || num > MAX_NUMERIC_LITERAL) return rejectFormula();
                 this._terms.push({
                     class: "NumericTerm",
                     formula: match[3],
@@ -147,26 +223,13 @@ export class Roll {
                 });
                 evalTokens.push(num);
             }
+
+            if (evalTokens.length > MAX_ARITHMETIC_TOKENS) return rejectFormula();
         }
 
-        // Evaluate the token stream (basic left-to-right with precedence handling is hard, 
-        // strictly for this feature we will use Function constructor or simple eval 
-        // BUT strict constraint: verify safe tokens only).
-        // Since we constructed evalTokens strictly from parsed numbers and known operators, it is safe-ish.
+        if (lastIndex !== cleanFormula.length) return rejectFormula();
 
-        // Construct string
-        const evalString = evalTokens.join(' ');
-        try {
-            // Basic safety check: only allow numbers and operators
-            if (/^[\d\s+\-*\/().]+$/.test(evalString)) {
-                 
-                this._total = new Function(`return ${evalString}`)();
-            } else {
-                this._total = 0; // unsafe
-            }
-        } catch (e) {
-            this._total = 0;
-        }
+        this._total = evaluateArithmeticTokens(evalTokens) ?? 0;
 
         this._evaluated = true;
         return this;

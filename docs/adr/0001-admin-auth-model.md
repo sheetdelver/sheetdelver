@@ -1,7 +1,7 @@
 # ADR-0001: Admin Authentication Model
 
-**Status:** Accepted  
-**Date:** April 21, 2026  
+**Status:** Accepted
+**Date:** April 21, 2026
 **Phase:** 19
 
 ---
@@ -70,6 +70,16 @@ This is a single-account local model bootstrapped by the server operator. It doe
 - Session tokens are maintained in-memory for the current server process.
 - **CSRF protection** required for browser-based admin panel mutations.
 - Localhost restriction (`requireLocalhost`) remains on `/admin` as a second gate, not the primary identity check.
+
+**Amendment (September 2, 2026 - deployment and development controls):**
+ADR-0033 supersedes the literal loopback-only route requirement with the
+configured admin hostname, exact browser origin, and client CIDR allowlist on
+the same application shell; admin authentication and CSRF remain mandatory.
+`npm start` enforces both the dedicated request limiter and persisted account
+lockout. `npm run dev` explicitly sets `NODE_ENV=development` and bypasses those
+two failed-attempt controls for owner iteration. An absent or unknown
+`NODE_ENV` fails closed by enforcing them. Successful admin sessions remain
+15-minute, in-memory, revocable sessions in every mode.
 
 ### Recovery and Reset
 

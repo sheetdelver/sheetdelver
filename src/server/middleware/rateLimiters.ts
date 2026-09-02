@@ -25,7 +25,9 @@ export function createAdminLoginLimiter(config: AppConfig) {
         },
         standardHeaders: true,
         legacyHeaders: false,
-        skip: () => !config.security.rateLimit.enabled,
+        // Local development is an operator-controlled environment. Keep the
+        // production brute-force policy from interrupting iterative testing.
+        skip: () => !config.security.rateLimit.enabled || !isAdminLoginProtectionEnabled(),
     });
 }
 
@@ -46,4 +48,14 @@ export function getAdminLoginRateLimitSettings(config: AppConfig): { windowMinut
     const maxAttempts = Math.max(1, Math.floor(config.security.rateLimit.maxAttempts / 2));
 
     return { windowMinutes, maxAttempts };
+}
+
+/**
+ * Admin brute-force controls are bypassed only in an explicitly development
+ * process. The startup manager sets NODE_ENV for both supported run modes.
+ */
+export function isAdminLoginProtectionEnabled(
+    env: Readonly<Record<string, string | undefined>> = process.env
+): boolean {
+    return env.NODE_ENV !== 'development';
 }

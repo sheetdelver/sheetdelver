@@ -276,7 +276,7 @@ export function applyLifecycleClassification(
 
     const sourceStates = existing.sourceStates || {};
     const existingSourceState = sourceStates[source] || ({} as Partial<ModuleSourceState>);
-    
+
     const newSourceState: ModuleSourceState = {
         status: classification.status,
         enabled: classification.enabled,
@@ -307,9 +307,15 @@ export function applyLifecycleClassification(
         updatedAt: now
     };
 
+    // Keep the compatibility flags synchronized with the source-specific state.
+    // Bootstrap and the admin UI both consume these fields while old lifecycle
+    // records are migrated in place.
+    if (source === ModuleSourceCategory.Local) next.localEnabled = classification.enabled;
+    else if (source === ModuleSourceCategory.Managed) next.managedEnabled = classification.enabled;
+
     const activeSource = classification.activeSource ?? existing.activeSource;
     next.activeSource = activeSource;
-    
+
     if (source === activeSource) {
         next.status = classification.status;
         next.enabled = classification.enabled;
@@ -354,6 +360,11 @@ export function recordLifecycleRuntimeFailure(
         health: newHealth,
         updatedAt: now,
     };
+
+    // A runtime failure disables only the source that actually failed. Keeping
+    // this flag aligned prevents a restart from reviving or mislabelling it.
+    if (existing.activeSource === ModuleSourceCategory.Local) next.localEnabled = false;
+    else if (existing.activeSource === ModuleSourceCategory.Managed) next.managedEnabled = false;
 
     if (existing.activeSource) {
         const sourceStates = next.sourceStates || {};

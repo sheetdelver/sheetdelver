@@ -1,3 +1,5 @@
+import type { SystemComponentStyles, SystemThemeColors } from './interfaces';
+
 /**
  * Standard user information for platform-wide status.
  */
@@ -56,6 +58,8 @@ export interface SystemStatusPayload {
         background?: string;
         nextSession?: string | null;
         status?: string;
+        theme?: SystemThemeColors;
+        componentStyles?: SystemComponentStyles;
         actorSyncToken?: string;
         users?: { active: number; total: number };
         config?: Record<string, unknown>;
@@ -77,10 +81,18 @@ export interface PublicStatusPayload {
     foundryCompatibility: FoundryCompatibilityStatusPayload | null;
     users: PublicStatusUser[];
     system: {
-        id: null;
+        id: string | null;
+        title?: string;
+        version?: string;
         worldTitle?: string;
+        worldDescription?: string | null;
+        worldBackground?: string;
+        background?: string;
+        nextSession?: string | null;
         status?: string;
         users?: { active: number; total: number };
+        theme?: SystemThemeColors;
+        componentStyles?: SystemComponentStyles;
     };
     appVersion: string;
     worldId?: never;

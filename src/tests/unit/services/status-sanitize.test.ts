@@ -51,14 +51,21 @@ function runStatusSanitizeTests() {
         foundryCompatibility: null,
         users: [sanitizedAvatar, sanitizedImg],
         system: {
-            id: 'private-system',
+            id: 'shadowdark',
+            title: 'Shadowdark RPG',
+            version: '4.0.6',
             worldTitle: 'Public World Title',
-            worldDescription: 'private description',
-            worldBackground: '/private-background.png',
+            worldDescription: '<p>Public campaign introduction</p>',
+            worldBackground: 'http://foundry.test/world-background.png',
+            background: 'http://foundry.test/system-background.png',
+            nextSession: 'Saturday at 7 PM',
+            theme: { bg: 'bg-black', accent: 'text-red-500' },
+            componentStyles: { loadingModal: { container: 'bg-black' } },
             actorSyncToken: 'private-sync-token',
             status: 'active',
             users: { active: 1, total: 2 },
-            config: { private: true },
+            config: { privateConfigMarker: true },
+            internalMetadata: 'private-internal-metadata',
         },
         url: foundryBaseUrl,
         appVersion: 'test',
@@ -70,15 +77,26 @@ function runStatusSanitizeTests() {
         { name: 'Player User', active: false, canLogin: true },
     ]);
     assert.deepEqual(publicStatus.system, {
-        id: null,
+        id: 'shadowdark',
+        title: 'Shadowdark RPG',
+        version: '4.0.6',
         worldTitle: 'Public World Title',
+        worldDescription: '<p>Public campaign introduction</p>',
+        worldBackground: 'http://foundry.test/world-background.png',
+        background: 'http://foundry.test/system-background.png',
+        nextSession: 'Saturday at 7 PM',
         status: 'active',
         users: { active: 1, total: 2 },
+        theme: { bg: 'bg-black', accent: 'text-red-500' },
+        componentStyles: { loadingModal: { container: 'bg-black' } },
     });
     for (const privateKey of ['worldId', 'url', 'debug']) {
         assert.equal(Object.hasOwn(publicStatus, privateKey), false, `${privateKey} must not enter the public projection`);
     }
-    assert.equal(JSON.stringify(publicStatus).includes('private'), false);
+    const serializedPublicStatus = JSON.stringify(publicStatus);
+    for (const privateValue of ['private-sync-token', 'privateConfigMarker', 'private-internal-metadata']) {
+        assert.equal(serializedPublicStatus.includes(privateValue), false, `${privateValue} must remain private`);
+    }
 }
 
 export function run() {

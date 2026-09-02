@@ -129,7 +129,14 @@ async function runGatewayTests() {
                 isConfigured: true,
                 foundryCompatibility: null,
                 users: [{ name: 'Gateway User', active: false, canLogin: true }],
-                system: { id: null, worldTitle: 'Test', status: 'active' },
+                system: {
+                    id: 'shadowdark',
+                    worldTitle: 'Test',
+                    worldDescription: '<p>Campaign introduction</p>',
+                    worldBackground: 'http://foundry.test/world.webp',
+                    nextSession: 'Saturday at 7 PM',
+                    status: 'active',
+                },
                 appVersion: '0.0.0-test',
             }),
             broadcastSystemStatus: () => undefined,
@@ -210,6 +217,11 @@ async function runGatewayTests() {
         const guestStatus = guestEmitted.find((entry) => entry.event === 'systemStatus')?.payload as Record<string, unknown>;
         assert.equal(Object.hasOwn(guestStatus, 'debug'), false);
         assert.equal(JSON.stringify(guestStatus).includes('user-1'), false);
+        const guestSystem = guestStatus.system as Record<string, unknown>;
+        assert.equal(guestSystem.id, 'shadowdark');
+        assert.equal(guestSystem.worldDescription, '<p>Campaign introduction</p>');
+        assert.equal(guestSystem.worldBackground, 'http://foundry.test/world.webp');
+        assert.equal(guestSystem.nextSession, 'Saturday at 7 PM');
     } finally {
         (systemService as any).getSystemClient = originalGetSystemClient;
         (systemService as any).isReady = originalIsReady;

@@ -58,6 +58,9 @@ logger.info(`[Manager] Loading configuration: App=${host}:${port}, API=${apiPort
 // Determine command (dev or start)
 const args = process.argv.slice(2).filter(a => !a.startsWith('--data-dir'));
 const command = args[0] || 'dev'; // Default to dev
+// Child processes must not infer their security mode from a possibly absent or
+// inherited NODE_ENV. The manager owns the npm command-to-environment mapping.
+const runtimeNodeEnv = command === 'dev' ? 'development' : 'production';
 
 // Pre-flight Check: Ensure Cache Exists (Skip for build)
 if (command !== 'build') {
@@ -114,13 +117,14 @@ async function start() {
     // Handle Build Command
     if (command === 'build') {
         logger.info(`[Manager] Building Application with API_PORT=${apiPort}...`);
-        
+
         // 0. Ensure managed configs are present for build
         ensureManagedConfigs();
 
         const nextCmd = path.join(process.cwd(), 'node_modules', '.bin', 'next');
         const env = {
             ...process.env,
+            NODE_ENV: runtimeNodeEnv,
             API_PORT: apiPort.toString(),
             APP_ADMIN_ORIGIN: adminOrigin.origin,
             SHEET_DELVER_DATA: getDataDir(),
@@ -161,7 +165,13 @@ async function start() {
 
     coreProcess = spawn('npx', coreArgs, {
         stdio: 'inherit',
-        env: { ...process.env, PORT: apiPort.toString(), API_PORT: apiPort.toString(), SHEET_DELVER_DATA: getDataDir() }
+        env: {
+            ...process.env,
+            NODE_ENV: runtimeNodeEnv,
+            PORT: apiPort.toString(),
+            API_PORT: apiPort.toString(),
+            SHEET_DELVER_DATA: getDataDir(),
+        }
     });
 
     coreProcess.on('error', (err) => {
@@ -204,6 +214,7 @@ async function start() {
     // Pass API_PORT and SHEET_DELVER_DATA to Next.js so it knows where to proxy and find data
     const env = {
         ...process.env,
+        NODE_ENV: runtimeNodeEnv,
         PORT: port.toString(),
         HOSTNAME: host,
         API_PORT: apiPort.toString(),

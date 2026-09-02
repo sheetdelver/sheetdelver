@@ -72,6 +72,8 @@ export function run() {
 
         store.modules.shadowdark.status = 'disabled';
         store.modules.shadowdark.enabled = false;
+        store.modules.shadowdark.activeSource = ModuleSourceCategory.Local;
+        store.modules.shadowdark.localEnabled = true;
 
         const updated = upsertDiscoveredModule(store, {
             moduleId: 'shadowdark',
@@ -97,6 +99,7 @@ export function run() {
         assert.equal(failed?.health?.errorCount, 1);
         assert.equal(failed?.health?.lastError, 'Adapter initialize failed in test');
         assert.equal(failed?.health?.lastErrorAt, 3000);
+        assert.equal(failed?.localEnabled, false, 'runtime failure disables only the active local source');
 
         const failedAgain = recordLifecycleRuntimeFailure(
             store,

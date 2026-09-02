@@ -90,7 +90,7 @@ export async function loadConfig(): Promise<AppConfig | null> {
 
     // Browser Fallback (Config is typically injected or fetched via API on client)
     if (typeof window !== 'undefined') {
-        return null; 
+        return null;
     }
 
     const fs = await getFs();
@@ -222,7 +222,7 @@ export async function loadConfig(): Promise<AppConfig | null> {
                 ? corsConfig['allowed-origins'].map((origin: unknown) => String(origin).trim()).filter(Boolean)
                 : undefined;
             const modulePolicy = resolveModulePolicyConfig(security, process.env);
-            
+
             const sourceGovernanceConfig = security['source-governance'] || {};
             const hostAllowlist = Array.isArray(sourceGovernanceConfig['host-allowlist'])
                 ? sourceGovernanceConfig['host-allowlist'].map((host: unknown) => String(host).trim()).filter(Boolean)

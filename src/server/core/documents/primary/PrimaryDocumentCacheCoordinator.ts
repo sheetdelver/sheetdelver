@@ -388,4 +388,3 @@ combatStore.bindSceneBridge(sceneStore);
 // The singleton self-binds at module load (idempotent); this call documents
 // the dependency in the same place as the other cross-store wiring.
 combatEncounterReadModel.bind(combatStore, actorStore, sceneStore);
-

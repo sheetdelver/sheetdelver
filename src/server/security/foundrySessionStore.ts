@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import {
     createCipheriv,
@@ -10,6 +11,7 @@ import { logger } from '@shared/utils/logger';
 import {
     getCacheDir,
     getSecurityDir,
+    ensureOwnerOnlyFileSync,
     writeOwnerOnlyFileAtomicSync,
 } from '@server/core/paths';
 
@@ -54,6 +56,72 @@ export interface EncryptedFoundrySessionStoreOptions {
     legacyFilePath: string;
     currentKey: Buffer;
     previousKey?: Buffer;
+}
+
+function isInside(parent: string, candidate: string): boolean {
+    const relative = path.relative(path.resolve(parent), path.resolve(candidate));
+    return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
+/** Resolve a not-yet-created target through the nearest existing real ancestor. */
+function resolvePhysicalTarget(targetPath: string): string {
+    let existingAncestor = path.resolve(targetPath);
+    const missingSegments: string[] = [];
+
+    while (!fs.existsSync(existingAncestor)) {
+        const parent = path.dirname(existingAncestor);
+        if (parent === existingAncestor) break;
+        missingSegments.unshift(path.basename(existingAncestor));
+        existingAncestor = parent;
+    }
+
+    const physicalAncestor = fs.realpathSync(existingAncestor);
+    return path.join(physicalAncestor, ...missingSegments);
+}
+
+/** Stable machine-local key location used when an installation has no explicit key. */
+export function getDefaultFoundrySessionKeyPath(
+    env: Readonly<Record<string, string | undefined>> = process.env,
+    homeDirectory = os.homedir(),
+): string {
+    const configuredHome = env.XDG_CONFIG_HOME?.trim();
+    const configHome = configuredHome ? path.resolve(configuredHome) : path.join(homeDirectory, '.config');
+    return path.join(configHome, 'sheet-delver', 'foundry-session.key');
+}
+
+function loadOrCreateHostKey(keyFilePath: string, encryptedFilePath: string, dataDir?: string): string {
+    const resolvedKeyPath = path.resolve(keyFilePath);
+    // Resolve parent symlinks even before the key exists; lexical separation is
+    // insufficient when XDG_CONFIG_HOME or one of its parents is a symlink.
+    const physicalKeyPath = resolvePhysicalTarget(resolvedKeyPath);
+    const physicalDataDir = dataDir ? resolvePhysicalTarget(dataDir) : undefined;
+    if (physicalDataDir && isInside(physicalDataDir, physicalKeyPath)) {
+        throw new Error('Automatic Foundry session key must be outside <DATA_DIR>');
+    }
+
+    if (fs.existsSync(resolvedKeyPath)) {
+        ensureOwnerOnlyFileSync(resolvedKeyPath);
+        const stat = fs.lstatSync(resolvedKeyPath);
+        if (stat.isSymbolicLink() || !stat.isFile()) {
+            throw new Error(`Automatic Foundry session key must be a regular non-symlink file: ${resolvedKeyPath}`);
+        }
+        const value = fs.readFileSync(resolvedKeyPath, 'utf8').replace(/\r?\n$/, '');
+        decodeKey(value, 'Automatic Foundry session key');
+        return value;
+    }
+
+    // Losing a key must not silently replace it while an unreadable envelope remains.
+    if (fs.existsSync(encryptedFilePath)) {
+        throw new Error(
+            `Automatic Foundry session key is missing at ${resolvedKeyPath}; `
+            + 'restore the key or configure APP_FOUNDRY_SESSION_KEY before startup',
+        );
+    }
+
+    const value = `base64:${randomBytes(32).toString('base64')}`;
+    writeOwnerOnlyFileAtomicSync(resolvedKeyPath, value);
+    logger.warn(`FoundrySessionStore | Generated owner-only host session key at ${resolvedKeyPath}.`);
+    return value;
 }
 
 function keyId(key: Buffer): string {
@@ -281,17 +349,29 @@ export function createFoundrySessionStoreFromEnvironment(options: {
     env?: Readonly<Record<string, string | undefined>>;
     filePath?: string;
     legacyFilePath?: string;
+    autoKeyFilePath?: string;
+    dataDir?: string;
 } = {}): FoundrySessionStore {
     const env = options.env ?? process.env;
     const legacyFilePath = options.legacyFilePath ?? path.join(getCacheDir(), 'core', 'sessions.json');
     const filePath = options.filePath ?? path.join(getSecurityDir(), 'foundry-sessions.enc.json');
-    const currentValue = env.APP_FOUNDRY_SESSION_KEY;
+    let currentValue = env.APP_FOUNDRY_SESSION_KEY;
     const previousValue = env.APP_FOUNDRY_SESSION_PREVIOUS_KEY;
 
     if (!currentValue) {
         if (previousValue) {
             throw new Error('APP_FOUNDRY_SESSION_PREVIOUS_KEY requires APP_FOUNDRY_SESSION_KEY');
         }
+        if (options.autoKeyFilePath) {
+            currentValue = loadOrCreateHostKey(
+                options.autoKeyFilePath,
+                filePath,
+                options.dataDir,
+            );
+        }
+    }
+
+    if (!currentValue) {
         return new DisabledFoundrySessionStore(legacyFilePath);
     }
 

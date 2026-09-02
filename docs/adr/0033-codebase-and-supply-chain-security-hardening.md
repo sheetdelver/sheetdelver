@@ -1,6 +1,14 @@
 # ADR-0033: Codebase Security Hardening and Dormant Distribution Boundaries
 
 **Status:** Accepted - Phases 0-4 implemented with CSP observation pending; Phase 5 proposed.
+**Status amendment (September 2, 2026):** Phase 5 implementation and configured
+owner validation are substantially complete. Commit/push, CI on that commit,
+the final dependency/branch audit, and clean-worktree review remain before
+closeout. CSP remains report-only pending observed module font violations.
+**Pre-commit status addendum (September 2, 2026):** The final local dependency
+audit and candidate-wide verification now pass. The candidate still must be
+staged as one coherent change, committed, pushed through CI, and reviewed from
+a clean worktree before Phase 5 is closed.
 **Date:** August 21, 2026
 **Phase:** Pre-main security remediation
 **Supersedes:** None
@@ -691,6 +699,36 @@ data and synthetic hostnames/networks:
 No configured world, module installation, or real
 `<DATA_DIR>/config/settings.yaml` was read for mutation or modified.
 
+#### Phase 3 Session Persistence Corrective Amendment - September 1, 2026
+
+The Phase 3 no-key behavior was secure but incomplete for existing
+installations. Deployments created before the external session-key setting had
+persistent Foundry user sessions, yet after upgrading they silently received a
+memory-only store: Core removed the legacy plaintext cache, browser cookies no
+longer restored after restart, and no migration supplied the newly required
+key. This was an operational regression that configured-world verification had
+not exercised across a complete Core process restart.
+
+Explicit `security.foundry-session-key` environment/file references remain
+authoritative. When neither an explicit current nor previous key is configured,
+Core now creates or reuses an installation key at
+`$XDG_CONFIG_HOME/sheet-delver/foundry-session.key`, falling back to
+`~/.config/sheet-delver/foundry-session.key`. The host-key directory and file
+are owner-only, the key remains outside `<DATA_DIR>`, and `settings.yaml` is not
+rewritten. One installation key encrypts the versioned map of independent
+browser/Foundry sessions; each browser still holds only its own opaque HttpOnly
+session identifier.
+
+Core will not silently generate a replacement if an encrypted session envelope
+exists but the automatic host key is missing. Startup reports an actionable
+error so the operator can restore the key or provide an explicit current/
+previous key. The low-level disabled-store mode remains available to isolated
+callers and tests, but the application composition root now defaults existing
+installations to encrypted restart persistence. Coverage verifies first-key
+creation, owner-only permissions, encrypted save/reload, outside-data
+enforcement, missing-key failure, explicit key validation, rotation, and
+plaintext migration.
+
 ### Phase 4 - Public/realtime/path/request hardening
 
 - [x] Split guest/authenticated status DTOs and socket rooms.
@@ -805,6 +843,66 @@ owner's configured world; Phase 4 changes no Foundry mutation authority and its
 negative transport cases use isolated HTTP and Socket.IO fixtures. No configured
 world, installed module, or real `<DATA_DIR>/config/settings.yaml` was modified.
 
+#### Phase 4 Status Projection Corrective Amendment - September 1, 2026
+
+The Phase 4 implementation amendment incorrectly classified world description,
+backgrounds, and system identity as private authenticated data. Those values
+were already part of Sheet Delver's intentional pre-login presentation contract:
+the login screen displays the world introduction and next-session information,
+the application background uses the world/system image, and system identity
+selects the applicable module presentation. Removing them produced a plain login
+screen and was a behavioral regression, not a required security property.
+
+The terms `PublicStatusPayload` and `status:public` refer only to the internal
+status projection and Socket.IO recipient group used before a Foundry player
+session cookie has been restored. They do not create a public service, listener,
+port, route namespace, or externally selectable room, and they do not override
+any deployment-level access control. The server assigns the group during the
+existing socket handshake. `pre-authentication status` is the accurate product
+description even though the established source identifiers retain `public` to
+avoid unrelated lifecycle churn.
+
+This amendment supersedes only the earlier field classification. The
+pre-authentication projection explicitly retains system ID/title/version, world
+title/description, world and fallback backgrounds, next-session information,
+aggregate user counts, lifecycle status, login theme/component styling, and the
+redacted roster of display name, active state, and server-decided eligibility.
+It still excludes world and user identifiers, roles, GM flags, actor links,
+avatars, Foundry base URL, debug settings, adapter/module configuration,
+synchronization tokens, and arbitrary source-system metadata.
+
+The authenticated/pre-authentication delivery split remains because the login
+screen must receive status before it can establish a Foundry player session,
+while that does not justify sending it the complete authenticated status object.
+No client state-machine, socket connection, retry, polling cadence, Core world
+discovery, or Foundry mutation-authority behavior changes in this correction.
+Projection tests now assert the complete login presentation and private-field
+exclusions, the initial socket test asserts presentation delivery, and recurring
+broadcast tests cover `closed -> setup -> startup -> active` for the
+pre-authentication projection.
+
+The same configured-world validation surfaced a second Phase 4 compatibility
+regression in Core's confined module-entry resolver. Existing manifests may
+declare an extensionless entry such as `module/server`; the prior runtime loader
+resolved `module/server.ts`, while the first confinement implementation checked
+only the literal extensionless path and silently omitted the server export. Core
+now checks the established `.ts`, `.tsx`, `.js`, and `.mjs` candidates, applying
+the full lexical and realpath confinement proof independently to each candidate.
+Packaged-artifact diagnostics use the same resolver, missing optional server
+entries retain warning-only behavior, and symlink/path escapes remain blocked.
+Registry coverage imports an actual extensionless server declaration so adapter
+success cannot mask broken module routes again. No module manifest, source, or
+pack was modified.
+
+**Configured-world confirmation - September 1, 2026:** The owner confirmed that
+the restored pre-authentication projection returns the established login page,
+the existing Shadowdark local-development module serves its system-manifest
+route without `404`, and a newly established player session survives a complete
+`npm run dev` stop/start with the socket restored as authenticated. The module,
+its packs, and `<DATA_DIR>/config/settings.yaml` were not changed to obtain those
+results. Sessions erased by the earlier memory-only run cannot be recovered and
+require one fresh login before subsequent encrypted restart restoration.
+
 ### Phase 5 - CI and merge closeout
 
 - [ ] Pin actions and add dependency review/audit/SBOM plus current test gates.
@@ -818,6 +916,251 @@ world, installed module, or real `<DATA_DIR>/config/settings.yaml` was modified.
 
 **Exit:** Current Critical/High findings are closed or narrowly dispositioned,
 dormant remote paths remain unavailable, and all project gates pass.
+
+#### Phase 5 Implementation Amendment - September 1, 2026
+
+Phase 5 implementation is in progress. Commit `a61d8d5` established the CI
+candidate, and the September 1 closeout run added three narrowly scoped fixes
+surfaced by dynamic and source validation. The original checklist above is
+preserved; it is not complete until the owner tests the configured deployment,
+the candidate is committed and pushed, GitHub Actions passes, and the final
+clean-worktree branch review is recorded.
+
+**Scope amendment - September 2, 2026:** "Three" described only the initial
+closeout pass. Configured testing subsequently required corrective amendments
+for pre-authentication presentation, encrypted session persistence,
+extensionless module entries, development admin lockout, and module-source
+reconciliation/fallback. Those corrections are part of the same uncommitted
+candidate and are individually recorded below; no earlier proposal is silently
+treated as implemented when it was reverted or superseded.
+
+**CI and reproducible fixture implementation:**
+
+- `.github/workflows/ci.yml` now grants only `contents: read`, disables checkout
+  credential persistence, and pins checkout, Node setup, dependency review, and
+  artifact upload actions to reviewed commit SHAs with release-version comments.
+- The mandatory verification job runs production dependency audit, lint,
+  TypeScript, unit tests, integration tests, an isolated build, production
+  CycloneDX SBOM generation, and SBOM artifact upload. The invalid job-level
+  `runner.temp` expression was replaced with a step-level `GITHUB_ENV` export.
+- GitHub dependency review is conditional on the repository variable
+  `ENABLE_DEPENDENCY_REVIEW=true` because availability for this private
+  repository depends on GitHub Advanced Security. This amends the original
+  proposal: production `npm audit` remains mandatory on every CI run, while the
+  platform dependency-review service must not make CI fail merely because an
+  unconfirmed paid repository capability is unavailable.
+- `npm run ci:fixture` invokes
+  `src/scripts/tools/testing/create-ci-data.ts`. The generator requires an
+  explicit `SHEET_DELVER_DATA` outside the workspace, rejects filesystem root,
+  refuses to overwrite settings, uses the production owner-only atomic writer,
+  and creates only credential-free setup configuration and synthetic world
+  cache data. Unit policy tests audit both the workflow and fixture guardrails.
+
+**Client bootstrap race discovered by the browser gate:**
+
+The first production browser probe could remain at `data-step="init"` when the
+Socket.IO connection's initial `systemStatus` arrived before
+`FoundryProvider` attached its listener. The successful REST `/api/status`
+bootstrap previously restored identity/configuration only, leaving system,
+roster, version, world, and connection step dependent on another socket
+broadcast that might not occur until the lifecycle changed.
+
+The correction is client-only. `FoundryContext.tsx` now hydrates the same public
+status state from REST and applies the existing connection-step policy as the
+missed-event recovery path. `foundryConnectionStep.ts` prefers the current
+status payload's `isConfigured` value over stale React state, and
+`useSystemStatusRealtime.ts` uses that policy for live broadcasts. A synchronized
+step ref prevents socket-driven UI transitions from causing extra REST fetches.
+No Core startup, Foundry probing/retry, socket room, session authority, or
+document mutation behavior changed.
+
+**Rollback amendment - configured lifecycle regression:** The REST hydration
+correction described immediately above was reverted before commit after owner
+testing against the configured deployment. It caused the reduced public REST
+projection to become authoritative over the socket-fed login context, removing
+the background/world presentation and preventing the client from following the
+established setup-to-world refresh sequence. The affected status API typing,
+`FoundryContext`, connection-step helper, realtime hook, and client assertion
+now match commit `a61d8d5` exactly. Socket status and its recurring four-second
+broadcast remain authoritative; Core retry and lifecycle code was never changed
+in this closeout pass. The isolated browser's missed-initial-event observation
+remains unresolved and must not be addressed again without configured tests for
+login presentation, session restoration, and the complete world lifecycle.
+
+**Stale setup instruction discovered by the browser gate:**
+
+The rendered setup state still instructed the operator to run the retired
+`npm run admin` command and choose a removed CLI option. `SetupView.tsx` now
+links to `/admin` on the same application shell and notes that setup must use
+the configured local admin origin. Existing origin and network middleware
+remain authoritative; this adds no route, service, or port.
+
+**Development admin lockout correction - September 1, 2026:**
+
+Dynamic testing showed that the shared 15-minute rate-limit window made local
+admin iteration unnecessarily disruptive. The dedicated admin middleware also
+halves the configured attempt count, while the credential store independently
+persists a five-failure, 15-minute account lockout. Applying both controls to
+the repository owner's development process did not improve the deployed
+boundary and could leave the local admin UI unavailable during routine testing.
+
+The startup manager now explicitly sets `NODE_ENV=development` for
+`npm run dev` and `NODE_ENV=production` for `npm start` and `npm run build`.
+Admin setup/login/reset rate limiting and failed-password account lockout are
+bypassed only when the process is explicitly development. Production, absent,
+and unrecognized modes keep both original protections. Successful admin
+sessions still expire after 15 minutes in every mode, and the general
+player-login limiter is unchanged. This amends the original Phase 5
+implementation detail; it does not weaken admin origin, network, credential,
+CSRF, or session controls.
+
+**Configured module-source regression correction - September 1, 2026:**
+
+Owner testing with the same module ID present as both a managed package and a
+local-development source exposed contradictory persisted lifecycle fields. The
+record identified local as active and `localEnabled: true`, but its shared
+`enabled` and local `sourceStates` values were false; managed fields contained
+the inverse contradiction. Startup trusted the shared active value while admin
+trusted the per-source flag. Core therefore refused the local adapter even
+though admin presented it as enabled, and `/api/actors` returned HTTP 500 through
+`ActorCombatContext`.
+
+Per-source enabled flags now drive startup reconciliation and classification or
+runtime failure synchronizes the shared, per-source, and source-state values.
+Source paths and package presence are derived from actual discovery instead of
+stale lifecycle/artifact metadata, and an unavailable persisted preference is
+relabelled to the source actually selected. Disabled, incompatible, or failed
+module code remains blocked, but adapter resolution returns Core's internal
+generic adapter so actor/combat reads degrade without executing the module or
+returning an avoidable 500. Tests reproduce the observed contradictory record,
+verify the local adapter is selected, verify independent managed disablement,
+remove the local source to verify accurate package fallback, and cover immediate
+generic fallback after an invalid adapter export. No module source, package, or
+configured data file is changed by the implementation.
+
+**Configured-owner confirmation - September 2, 2026:** After restarting the
+development stack, the owner confirmed that the D&D system's local-development
+source is active independently of its disabled managed package, the admin view
+no longer conflates those sources, and actor loading no longer returns the
+adapter-related HTTP 500. Browser CSP reports for fonts remain in the D&D module
+and are explicitly deferred to that module's next maintenance pass; they are
+not treated as evidence that Core source reconciliation still fails.
+
+**SEC-14 - bounded local roll evaluation (High availability risk, remediated):**
+
+The closeout source-sink inventory found that authenticated actor owners could
+supply a compact initiative formula with an unbounded dice count. The local
+`Roll` fallback allocated and looped once per requested die, creating a CPU and
+memory exhaustion path. It also used `new Function` over reconstructed numeric
+tokens; the token construction prevented an evident code-injection path, but
+dynamic evaluation was unnecessary and obscured the boundary.
+
+`src/server/core/foundry/Roll.ts` now limits formula length, arithmetic token
+count, dice per term, die faces, keep count, and numeric literals; requires the
+tokenizer to consume the complete formula; rejects non-finite arithmetic; and
+uses a bounded precedence reducer instead of dynamic code. Invalid or excessive
+formulas fail closed at total zero before large allocation. Direct tests retain
+normal dice, keep-highest, and arithmetic precedence while covering excessive
+dice, skipped unsupported text, and division by zero.
+
+**Verification evidence:**
+
+- TypeScript, full lint, full unit, integration, focused client/roll tests, and
+  `git diff --check` passed. Lint retains only the pre-existing documented
+  `ShutdownWatcher.tsx` internal-navigation warning.
+- Full and production-only `npm audit --audit-level=high` both reported zero
+  vulnerabilities on September 1, 2026.
+- A fresh credential-free fixture under the operating-system temporary
+  directory completed the Next.js 16.3.2 production build. The rebuilt browser
+  candidate reached `data-step="setup"` and `Configuration Required` within ten
+  seconds instead of remaining at `init`.
+- The preceding `data-step="setup"` result belonged to the reverted REST
+  hydration candidate and is superseded by the rollback amendment. It is not
+  evidence for the current merge candidate. After rollback, focused tests pass
+  for initial app-socket status, recurring public/authenticated broadcasts, and
+  Core closed/setup/new-world recovery; configured owner validation remains
+  required.
+- The isolated shell returned player `200`, configured same-port admin `200`,
+  external-host admin `404`, nonce-bearing report-only CSP and the expected
+  security headers, plus the guest-safe public status projection.
+- The candidate-wide `git diff --check origin/main` initially surfaced only
+  historical trailing whitespace and extra final blank lines. Those mechanical
+  defects were removed without semantic edits, and both candidate-wide and
+  worktree-only checks now pass.
+- A read-only `GET /api/status` handshake against the owner's Foundry endpoint
+  returned Foundry `14.367` and active-world metadata. No cookie was retained;
+  no login, Socket.IO user session, world start/stop, roll, or document mutation
+  was attempted because no disposable world was designated for this run.
+
+**Pre-commit completeness audit - September 2, 2026:**
+
+- The complete unit and integration suites, TypeScript, lint, an isolated
+  Next.js production build, `git diff --check`, full `npm audit`, and
+  production-only `npm audit` pass. Lint retains only the previously documented
+  `ShutdownWatcher.tsx` navigation warning; both dependency audits report zero
+  vulnerabilities. The isolated build used an operating-system temporary data
+  directory and did not write `<DATA_DIR>/config/settings.yaml` or module data.
+- The configured regressions did not justify reopening Foundry authorization.
+  User document writes remain bound to the requesting user's Foundry socket;
+  the service account is not a user-write fallback, and no service credential is
+  exposed to the browser. The source-reconciliation fallback restores Core
+  reads through the internal generic adapter but never executes disabled,
+  incompatible, or failed module code.
+- Pre-authentication world/system presentation was deliberately restored as a
+  narrow product requirement. This is an exception to a minimal availability-
+  only guest projection, not an authenticated-data bypass: the allowlist
+  excludes identifiers, roles, actor associations, service URLs, debug fields,
+  and arbitrary metadata. Recurring socket status remains authoritative for the
+  login view and world lifecycle; the reverted REST-hydration experiment is not
+  part of the candidate.
+- Development admin failed-attempt throttling and persisted credential lockout
+  are deliberately exempt only when `NODE_ENV` is exactly `development`.
+  Production, absent, and unrecognized modes fail closed. Password verification,
+  allowed host/origin/CIDR checks, CSRF, HttpOnly sessions, and session expiry
+  remain active in development, so this is not a general admin-auth bypass.
+- Automatic host-key creation supersedes the original no-key/no-persistence
+  consequence. The generated key is owner-only and physically confined outside
+  `<DATA_DIR>`, including when a configured parent path contains symlinks. This
+  restores encrypted restart sessions while introducing the explicitly recorded
+  host-secret backup, loss, and rotation responsibility.
+- Local-development and managed-package sources remain independent. If the
+  selected source disappears, another owner-controlled source activates only
+  when its own persisted state is enabled and its validation permits loading;
+  otherwise Core uses generic degradation. Remote indexes, direct downloads,
+  publishers, archive installation, and third-party module trust remain
+  unavailable and were not reintroduced by source failover.
+- Extensionless module server-entry resolution was restored only inside the
+  existing canonical module root and realpath-aware confinement boundary. It
+  does not weaken path traversal or arbitrary-import protections.
+- CSP remains report-only. The observed D&D module font reports preclude CSP
+  enforcement in this candidate unless the module assets are corrected or the
+  central policy receives a separately reviewed exception; they do not justify
+  weakening HTML sanitization or any other response header.
+
+**Residual and pending record:**
+
+| Item | Reachability/control | Owner | Review/exit |
+| --- | --- | --- | --- |
+| CSP remains report-only | Browser responses enforce all other recorded headers; script policy is observed but not yet blocking. | Repository owner | Review collected violation reports before switching to enforcement. |
+| Module font CSP reports | Configured testing observed font-policy violations from the owner-controlled D&D module. Report-only mode records them without breaking the module. | Repository owner | Correct the module asset/font declarations or make an explicit host-policy decision before CSP enforcement. |
+| Development admin failed-attempt bypass | Only explicit `NODE_ENV=development` bypasses admin request throttling and persisted lockout; password verification, origin/CIDR policy, CSRF, and session controls remain. | Repository owner | Keep development off untrusted networks; use `npm start` for deployment-like validation. |
+| Pre-authentication presentation metadata | Any client that can reach the login surface receives the allowlisted world/system presentation and redacted login roster before a Foundry session. IDs, roles, actor links, URLs, debug data, and arbitrary source metadata remain excluded. | Repository owner | Retain as the login product contract; reassess before intentionally publishing the service to a broader audience. |
+| Module generic degradation and source failover | Disabled/blocked module code does not execute. Core actor/combat reads continue through `BaseSystemAdapter`; an independently enabled remaining source may become active if the selected directory disappears. | Repository owner | Monitor admin health/logs; require explicit source disablement when automatic use of the remaining owner-controlled source is not desired. |
+| Automatic host session key | Restart persistence is restored by an owner-only key outside `<DATA_DIR>` when no explicit key is supplied. Parent symlinks are resolved before enforcing separation, but host-config loss invalidates persisted sessions. | Repository owner | Back up separately when restoration matters; use an explicit secret for cross-host deployment/rotation. |
+| Dependency review job is conditional | Mandatory npm audit and lockfile install run regardless; GitHub's additional service requires confirmed repository support and explicit variable enablement. | Repository owner | Enable when GitHub Advanced Security/dependency review is available; revisit before changing repository visibility or plan. |
+| Manifest fail-open compatibility mode | Requires the explicit `SHEET_DELVER_MANIFEST_FAIL_OPEN=true` development environment value and is forced off whenever `NODE_ENV=production`. It is not admin-configurable. | Repository owner | Retain as owner-controlled development compatibility; review if environment/config ownership changes. |
+| Remote distribution scaffolding | Indexed/direct refs are denied before source profiles, adapters, fetchers, or dynamic imports; default adapters contain local sources only. | Repository owner | SEC-01/03/04 remain activation blockers under the Deferred Activation Gate. |
+| Stateful live Foundry validation | Automated and read-only checks cover contracts and availability, but this run intentionally did not mutate the owner's active world. | Repository owner | Test session restoration and normal world transitions in the configured deployment before Phase 5 closeout. |
+| GitHub and branch closeout | Local gates pass, but the client/roll/ADR amendment is not yet committed and therefore has no pushed CI result or clean-worktree review. | Repository owner and implementation agent | Commit/push after owner testing, require CI success, then record `origin/main...HEAD` and clean-worktree results. |
+
+**Residual-status amendment - September 2, 2026:** The stateful live Foundry
+validation row above is satisfied for the exercised scope: the owner confirmed
+world setup/start/shutdown/retry transitions, Foundry v14.367 login/session
+restoration, requesting-user document authorization, pre-login presentation,
+extensionless module routes, and local/managed module reconciliation. The
+uncommitted candidate still requires pushed CI and final branch/clean-worktree
+review. CSP enforcement remains intentionally open because the configured D&D
+module produced font-policy reports.
 
 ## Deferred Activation Gate
 
@@ -851,6 +1194,15 @@ SEC-01/03/04 acceptance properties then become mandatory before activation.
 - Strict sanitization may require allowlist maintenance for Foundry markup.
 - Without an external encryption key, cross-restart Foundry session restoration
   is intentionally lost.
+
+**Consequence amendment - September 2, 2026:** The earlier no-external-key
+tradeoff is superseded by the Phase 3 corrective amendment. Application startup
+now creates an owner-only host key outside `<DATA_DIR>` when no explicit key is
+configured. Explicit secrets remain preferred for cross-host operation and
+rotation; the low-level disabled store remains only for isolated callers/tests.
+The replacement tradeoff is a small machine-local secret lifecycle outside
+`<DATA_DIR>`: losing that host key invalidates encrypted restart sessions, while
+backing it up beside the data envelope reduces the intended separation.
 
 ## Alternatives Considered
 

@@ -18,7 +18,7 @@ Instead of `shadowdark` (which is large and complex), we elected to use `dnd5e` 
 ## Decisions
 
 1. **Archive Extraction Pipeline**
-   We formalized the actual artifact retrieval and decompression pipeline natively in the Node.js backend. 
+   We formalized the actual artifact retrieval and decompression pipeline natively in the Node.js backend.
    - We utilize `extract-zip` for `.zip` files and `tar` for `.tgz`/`.tar.gz`/`.tar` formats.
    - We explicitly decided **against** supporting proprietary formats like `.rar`, matching the standard open-source conventions used by platforms like Foundry VTT.
    - The Module Manager now correctly downloads the archive, enforces the SHA-256 integrity hash, and unpacks the contents into the active `${DATA_DIR}/modules/<moduleId>` folder prior to completing the `install` or `upgrade` state transitions.

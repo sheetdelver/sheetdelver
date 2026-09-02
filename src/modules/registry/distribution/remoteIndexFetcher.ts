@@ -8,12 +8,12 @@ export interface RemoteIndexFetchOptions {
     backoffMs?: number;
 }
 
-export type RemoteIndexErrorCode = 
-    | 'network-error' 
-    | 'auth-failed' 
-    | 'timeout' 
-    | 'malformed-index' 
-    | 'schema-mismatch' 
+export type RemoteIndexErrorCode =
+    | 'network-error'
+    | 'auth-failed'
+    | 'timeout'
+    | 'malformed-index'
+    | 'schema-mismatch'
     | 'http-error';
 
 export interface RemoteIndexFetchResult {
@@ -104,7 +104,7 @@ export async function fetchRemoteIndex(url: string, options: RemoteIndexFetchOpt
                 return { ok: false, errorCode: 'network-error', error: error instanceof Error ? error.message : 'Network error' };
             }
         }
-        
+
         // Wait before retry if we are going to try again
         if (attempt <= retries) {
             await new Promise(res => setTimeout(res, backoffMs * attempt));

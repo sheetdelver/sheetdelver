@@ -33,12 +33,12 @@ graph TD
         WTC["World Transport Controller"]
         INGRESS["Foundry Event Ingress"]
         CACHE["Compendium Cache"]
-        
+
         API --> FUC
         WTC --> SYS["CoreSocket Transport (Service Account)"]
         FUC --> POOL["ClientSocket Transports"]
         SYS --> INGRESS
-        
+
         SYS --> CACHE
     end
 
@@ -46,11 +46,11 @@ graph TD
         FC["FoundryContext (Auth & Sync)"]
         JC["JournalContext (Navigation)"]
         UC["UIContext (Global Modals)"]
-        
+
         FC -. WebSockets/Proxy .-> API
         JC -. WebSockets/Proxy .-> API
     end
-    
+
     subgraph "Foundry VTT"
         FVTT["Foundry Server"]
     end
@@ -115,9 +115,9 @@ SheetDelver's RPG system support is entirely module-driven. Modules live outside
 
 **Mode A — Source Module (local dev):** modules live under `<DATA_DIR>/local/modules/<id>`. Server logic is imported during development, and UI source is bundled through the generated `.managed/module-ui-registry.ts` before `next dev` / `next build`. Suitable for trusted local development.
 
-**Mode B — Artifact Module (managed/remote):** modules live under `<DATA_DIR>/modules/<id>`. `info.json` points to pre-compiled `dist/logic.js`, `dist/ui.js`, and optional `dist/server.js`. Bundles use public SDK entry points only; no internal aliases. Required for modules installed from remote sources.
+**Mode B — Artifact Module (managed package):** modules live under `<DATA_DIR>/modules/<id>`. `info.json` points to pre-compiled `dist/logic.js`, `dist/ui.js`, and optional `dist/server.js`. Bundles use public SDK entry points only; no internal aliases. The current operating model supports owner-controlled packages already present in this directory; remote index and artifact retrieval remain disabled by ADR-0033.
 
-The server registry resolves the active module source from lifecycle state and imports the matching adapter/route artifact. Local source and managed installs are intentionally separate directories.
+The server registry resolves the active module source from lifecycle state and imports the matching adapter/route artifact. Local source and managed installs are intentionally separate directories with independent enabled state. A persisted source preference is active only while that source is discovered; if it disappears, the registry selects and accurately labels the remaining source. Disabled, incompatible, or failed module adapter code is never executed. Core actor/combat projection remains available through the internal generic adapter while lifecycle health reports the module problem to admin.
 
 ### 5.2 Static Registry and Runtime Fallback
 
@@ -169,7 +169,7 @@ All data returned by the API passes through a **System Adapter**.
 ## 7. Security & Isolation
 - **Per-User Sockets**: Every user has their own dedicated socket. Foundry's native permission model is enforced at the transport layer.
 - **Local Admin Surface**: `/admin` is a provider-isolated route group in the application shell. The shell exposes it and `/api/admin` only on the configured local hostname; other hostnames return `404`. Browser sessions use a path-scoped opaque HttpOnly cookie plus CSRF protection. Core independently enforces the configured browser origin and client CIDR allowlist.
-- **Foundry Session Persistence**: Reusable Foundry cookies are stored only in an authenticated-encryption envelope when an external 32-byte key is configured. Cross-restart restoration is disabled when no key is available.
+- **Foundry Session Persistence**: Reusable Foundry cookies are stored only in an authenticated-encryption envelope. An explicit external 32-byte key takes priority; otherwise Core creates and reuses an owner-only installation key under the host configuration directory, outside `<DATA_DIR>`. Missing or mismatched key material fails restoration rather than reverting to plaintext.
 
 ## 8. Ports & Config
 - **Frontend**: 3000

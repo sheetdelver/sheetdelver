@@ -172,7 +172,7 @@ export function deleteSourceProfile(id: string): boolean {
     const profiles = loadSourceProfiles();
     const initialLength = profiles.length;
     const filtered = profiles.filter(p => p.id !== id);
-    
+
     if (filtered.length !== initialLength) {
         saveSourceProfiles(filtered);
         return true;

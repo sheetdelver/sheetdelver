@@ -29,9 +29,12 @@ async function runBroadcasterTests() {
             system: {
                 id: 'shadowdark',
                 worldTitle: 'Test',
-                worldDescription: 'private',
+                worldDescription: '<p>Guest-visible introduction</p>',
+                worldBackground: 'http://foundry.test/world.webp',
+                nextSession: 'Saturday at 7 PM',
                 status: lifecycleStatus,
                 actorSyncToken: String(++payloadCounter),
+                config: { privateConfigMarker: true },
             },
             url: 'http://localhost:30000',
             appVersion: '0.0.0-test',
@@ -45,6 +48,13 @@ async function runBroadcasterTests() {
     const guestInitial = emitted.find((entry) => entry.room === 'status:public')?.payload as Record<string, unknown>;
     assert.equal(Object.hasOwn(guestInitial, 'debug'), false);
     assert.equal(JSON.stringify(guestInitial).includes('private-id'), false);
+    const guestInitialSystem = guestInitial.system as Record<string, unknown>;
+    assert.equal(guestInitialSystem.id, 'shadowdark');
+    assert.equal(guestInitialSystem.worldDescription, '<p>Guest-visible introduction</p>');
+    assert.equal(guestInitialSystem.worldBackground, 'http://foundry.test/world.webp');
+    assert.equal(guestInitialSystem.nextSession, 'Saturday at 7 PM');
+    assert.equal(Object.hasOwn(guestInitialSystem, 'actorSyncToken'), false);
+    assert.equal(Object.hasOwn(guestInitialSystem, 'config'), false);
 
     const originalOn = (systemService as any).on;
     const originalOff = (systemService as any).off;
@@ -73,6 +83,7 @@ async function runBroadcasterTests() {
 
         // Both audiences receive lifecycle progression, but through distinct DTOs.
         const lifecycleEmissions: SystemStatusPayload[] = [];
+        const publicLifecycleStatuses: string[] = [];
         for (const status of ['closed', 'setup', 'startup', 'active'] as const) {
             lifecycleStatus = status;
             const previousEmissionCount: number = emitted.length;
@@ -84,12 +95,19 @@ async function runBroadcasterTests() {
                 .find((entry) => entry.room === 'authenticated');
             assert.equal(authenticated?.event, 'systemStatus');
             lifecycleEmissions.push(authenticated?.payload as SystemStatusPayload);
+            const publicEmission = emitted
+                .slice(previousEmissionCount)
+                .find((entry) => entry.room === 'status:public');
+            publicLifecycleStatuses.push(
+                String((publicEmission?.payload as { system?: { status?: string } })?.system?.status),
+            );
         }
         assert.deepEqual(
             lifecycleEmissions.map((payload) => payload.system.status),
             ['closed', 'setup', 'startup', 'active'],
         );
         assert.equal(lifecycleEmissions.at(-1)?.connected, true);
+        assert.deepEqual(publicLifecycleStatuses, ['closed', 'setup', 'startup', 'active']);
 
         registration.dispose();
         assert.equal(offCalls.length, 4);

@@ -18,6 +18,7 @@ import { run as runRequestSecurity } from './security/request-security.test';
 import { run as runSocketConnectionPolicy } from './security/socket-connection-policy.test';
 import { run as runCiWorkflowSecurity } from './security/ci-workflow-security.test';
 import { run as runCiDataFixture } from './security/ci-data-fixture.test';
+import { run as runRollFormulaSecurity } from './security/roll-formula-security.test';
 
 // ── services ──────────────────────────────────────────────────────────────────
 import { run as runStatusSanitize } from './services/status-sanitize.test';
@@ -154,6 +155,7 @@ async function runAllUnitTests() {
     runSocketConnectionPolicy();
     runCiWorkflowSecurity();
     runCiDataFixture();
+    await runRollFormulaSecurity();
     runStatusSanitize();
     runLocalhostPolicy();
     runSyncTokenService();

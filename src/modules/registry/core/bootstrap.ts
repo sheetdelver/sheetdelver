@@ -11,7 +11,10 @@ import {
 } from '../lifecycle/lifecycle';
 import { validatePackagedModuleArtifact, type ModuleArtifactHealthResult } from '../lifecycle/artifactHealth';
 import { parseModuleId } from '@shared/security/moduleId';
-import { resolveConfinedFile } from '@server/security/modulePath';
+import {
+    hasModuleEntryCandidate,
+    resolveConfinedModuleEntry,
+} from '@server/security/modulePath';
 import { evaluateModuleCompatibility, validateModuleInfoShape } from '../lifecycle/validation';
 import { getModulesDataDir, getLocalModulesDir } from '@/server/core/paths';
 import {
@@ -41,6 +44,13 @@ export function initializeRegistry() {
         lifecycleStore.version = loadedStore.version;
         lifecycleStore.modules = loadedStore.modules;
         const coreVersion = getCoreVersion();
+
+        // Local source locations are discovery facts, not durable configuration.
+        // Clear stale paths before scanning so a removed dev checkout cannot keep
+        // the admin/runtime labelled as local while a package is actually loaded.
+        for (const record of Object.values(lifecycleStore.modules)) {
+            record.localDirectory = undefined;
+        }
 
         const dataModulesDir = getModulesDataDir();
         const localModulesDir = getLocalModulesDir();
@@ -172,13 +182,15 @@ export function initializeRegistry() {
                         continue;
                     }
 
-                    const logicPath = resolveConfinedFile(modulePath, info.manifest.logic);
-                    const uiPath = resolveConfinedFile(modulePath, info.manifest.ui);
+                    // Manifest entries historically permit omitted TypeScript/JavaScript
+                    // extensions; every candidate still crosses realpath confinement.
+                    const logicPath = resolveConfinedModuleEntry(modulePath, info.manifest.logic);
+                    const uiPath = resolveConfinedModuleEntry(modulePath, info.manifest.ui);
                     const serverPath = info.manifest.server
-                        ? resolveConfinedFile(modulePath, info.manifest.server)
+                        ? resolveConfinedModuleEntry(modulePath, info.manifest.server)
                         : undefined;
                     const configuredServerExists = info.manifest.server
-                        ? fs.existsSync(path.resolve(modulePath, info.manifest.server))
+                        ? hasModuleEntryCandidate(modulePath, info.manifest.server)
                         : false;
                     if (!logicPath || !uiPath || (configuredServerExists && !serverPath)) {
                         const entryError = 'Manifest entry path is missing or escapes the module directory';
@@ -265,7 +277,10 @@ export function initializeRegistry() {
             pluginMap.set(id, chosen);
 
             if (rec) {
-                if (!rec.activeSource) rec.activeSource = chosen.source as ModuleSourceCategory;
+                // A persisted preference is usable only while that source is
+                // actually discovered. Fall over to the available source and
+                // keep the lifecycle label synchronized with the chosen plugin.
+                rec.activeSource = chosen.source as ModuleSourceCategory;
                 rec.directory = chosen.directory;
             }
 
@@ -278,15 +293,18 @@ export function initializeRegistry() {
             // be enabled. Only the active source updates the top-level lifecycle record.
             for (const [source, plugin] of sources) {
                 const sourceState = existingLifecycle?.sourceStates?.[source];
-                const enabled = source === activeSource
-                    ? (existingLifecycle ? existingLifecycle.enabled : true)
-                    : sourceState?.enabled ?? (
-                        source === ModuleSourceCategory.Local
-                            ? existingLifecycle?.localEnabled
-                            : source === ModuleSourceCategory.Managed
-                                ? existingLifecycle?.managedEnabled
-                                : undefined
-                    ) ?? true;
+                // Per-source flags are the operator's persisted intent. Older
+                // records may have a stale shared `enabled` value or sourceState
+                // after switching between a package and its local-dev override.
+                const sourceEnabled = source === ModuleSourceCategory.Local
+                    ? existingLifecycle?.localEnabled
+                    : source === ModuleSourceCategory.Managed
+                        ? existingLifecycle?.managedEnabled
+                        : undefined;
+                const enabled = sourceEnabled
+                    ?? sourceState?.enabled
+                    ?? (source === activeSource ? existingLifecycle?.enabled : undefined)
+                    ?? true;
                 const compat = evaluateModuleCompatibility(plugin.info, coreVersion);
                 const artifactHealth = artifactHealthBySource.get(id)?.get(source);
                 const entryPathError = entryPathErrors.get(id)?.get(source);

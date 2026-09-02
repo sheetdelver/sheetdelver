@@ -60,7 +60,7 @@ interface CardEntry {
     sourceEnabled: boolean;
     /** Whether the OTHER source (if any) is enabled — blocks enable on this card. */
     otherSourceEnabled: boolean;
-    
+
     // Extracted source-specific state
     status: string;
     reason?: string;

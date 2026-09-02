@@ -1,8 +1,8 @@
 # ADR-0002: Runtime Boundary Enforcement (Player vs Admin Surfaces)
 
-**Status:** Accepted  
-**Date:** April 22, 2026  
-**Phase:** 21  
+**Status:** Accepted
+**Date:** April 22, 2026
+**Phase:** 21
 **Supersedes:** None (prerequisite layer below Phase 22)
 
 ---

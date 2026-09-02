@@ -23,7 +23,7 @@ export interface DependencyViolation {
 
 /**
  * Check if a module can be enabled based on its dependencies.
- * 
+ *
  * @param moduleId - Module to enable
  * @param moduleInfoMap - Map of module ID to SystemModuleInfo
  * @param enabledModules - Set of currently enabled module IDs
@@ -108,7 +108,7 @@ export function checkEnableDependencies(
 
 /**
  * Check if a module can be disabled without breaking dependents.
- * 
+ *
  * @param moduleId - Module to disable
  * @param moduleInfoMap - Map of module ID to SystemModuleInfo
  * @param enabledModules - Set of currently enabled module IDs

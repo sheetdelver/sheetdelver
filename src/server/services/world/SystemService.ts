@@ -280,7 +280,7 @@ export class SystemService extends EventEmitter {
     private handleConnect() {
         const state = worldLifecycleStore.getState();
         logger.info(`SystemService | System Client connected. World State: ${state}`);
-        
+
         this.emit('world:connected', { state });
 
         if (state === 'startup' || (state === 'active' && !this.isReady())) {

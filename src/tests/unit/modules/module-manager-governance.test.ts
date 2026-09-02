@@ -78,7 +78,7 @@ export async function run(): Promise<void> {
         const testDataDir = path.join(os.tmpdir(), `sheet-delver-gov-test-${Date.now()}`);
         if (!fs.existsSync(testDataDir)) fs.mkdirSync(testDataDir, { recursive: true });
         initDataDir(resolveDataDir(['--data-dir', testDataDir]));
-        
+
         const testModulesDir = getModulesDataDir();
         const shadowdarkDir = path.join(testModulesDir, 'shadowdark');
         if (!fs.existsSync(shadowdarkDir)) {

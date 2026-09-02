@@ -67,6 +67,16 @@ revokes all admin sessions. On the first Phase 3 admin load, the exact legacy
 `admin-token` and `admin-csrf` local-storage entries are removed without reading
 or clearing unrelated preferences.
 
+`npm run dev` explicitly runs Core and the shell with `NODE_ENV=development`.
+In that operator-controlled mode, admin setup/login/reset requests are not
+rate-limited and failed admin passwords do not increment or honor the persisted
+account lockout. `npm start` explicitly uses `NODE_ENV=production` and retains
+both protections. An unset or unrecognized `NODE_ENV` also retains them; only
+explicit development bypasses the controls. This distinction does not change
+the 15-minute lifetime of a successful admin session or the player-login rate
+limiter. Do not expose a development process to an untrusted network: password
+verification still runs, but brute-force throttling and lockout do not.
+
 ## Bootstrap And Recovery
 
 When no admin account exists, issue a bootstrap credential from the local
@@ -92,9 +102,10 @@ valid bootstrap or recovery credential.
 
 ## Foundry Session Encryption
 
-Cross-restart Foundry user-session restoration requires
-`APP_FOUNDRY_SESSION_KEY` or the resolved `security.foundry-session-key`. The
-value must decode to exactly 32 bytes and use an explicit prefix:
+Cross-restart Foundry user sessions use one installation key to encrypt the
+map of independent browser/Foundry session records. An explicit
+`APP_FOUNDRY_SESSION_KEY` or resolved `security.foundry-session-key` takes
+priority. The value must decode to exactly 32 bytes and use an explicit prefix:
 
 ```bash
 printf 'base64:'; openssl rand -base64 32 | tr -d '\n'; printf '\n'
@@ -104,11 +115,21 @@ The encrypted AES-256-GCM envelope is written atomically with owner-only mode at
 `<DATA_DIR>/security/foundry-sessions.enc.json`. It contains a key identifier,
 IV, authentication tag, and ciphertext, never plaintext cookies.
 
-At first startup with a key, the old
+When no explicit current or previous key is configured, Core creates and reuses
+an owner-only automatic key at
+`$XDG_CONFIG_HOME/sheet-delver/foundry-session.key`, or
+`~/.config/sheet-delver/foundry-session.key` when `XDG_CONFIG_HOME` is unset.
+This path is outside `<DATA_DIR>` and does not require changing `settings.yaml`.
+Back up the key separately from the data directory if cross-host restoration is
+required. Startup resolves parent symlinks before enforcing this separation, so
+an `XDG_CONFIG_HOME` symlink cannot place the key physically inside
+`<DATA_DIR>`.
+
+At first startup with either an explicit or automatic key, the old
 `<DATA_DIR>/cache/core/sessions.json` is encrypted and then removed. If no key
-is configured, any legacy plaintext session file is removed and cross-restart
-restoration is disabled. An existing encrypted file is retained while the key
-is unavailable, but cannot be loaded until a matching key returns.
+can be created or loaded, startup reports the failure. Core never replaces a
+missing automatic key while an encrypted envelope exists; restore that key or
+configure a matching explicit current/previous key.
 
 ## Key Rotation
 

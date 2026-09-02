@@ -182,4 +182,3 @@ async function runPackDocumentDisconnected() {
     assert.equal(await service.getPackDocument('synthetic.items', 'torch', 'Item'), null);
     assert.equal(transport.calls.length, 0);
 }
-
