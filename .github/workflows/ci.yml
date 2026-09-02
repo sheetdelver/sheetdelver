@@ -72,12 +72,11 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  # GitHub supports dependency review for public repositories and private
-  # organization repositories with GitHub Advanced Security. Enable this job
-  # with the repository variable once that service is available.
+  # Public repositories can run GitHub's dependency-delta review directly.
+  # Keep this PR-only: push builds retain the mandatory full npm audit above.
   dependency-review:
     name: Dependency review
-    if: github.event_name == 'pull_request' && vars.ENABLE_DEPENDENCY_REVIEW == 'true'
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 10
 

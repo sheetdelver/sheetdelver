@@ -63,7 +63,10 @@ export function run() {
 
     assert.equal(source.includes('cat >'), false);
     assert.equal(source.includes('data/config/settings.yaml'), false);
-    assert.ok(source.includes("vars.ENABLE_DEPENDENCY_REVIEW == 'true'"));
+    const dependencyReviewJob = workflow.jobs?.['dependency-review'];
+    assert.ok(dependencyReviewJob, 'CI must define the dependency-review job');
+    assert.equal(dependencyReviewJob.if, "github.event_name == 'pull_request'");
+    assert.equal(source.includes('ENABLE_DEPENDENCY_REVIEW'), false);
     assert.ok(steps.some((step) => step.uses?.startsWith('actions/dependency-review-action@')));
     assert.ok(steps.some((step) => step.uses?.startsWith('actions/upload-artifact@')));
     for (const step of steps.filter((candidate) => candidate.uses?.startsWith('actions/checkout@'))) {

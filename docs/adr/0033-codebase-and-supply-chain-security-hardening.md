@@ -1227,6 +1227,67 @@ Finally, the statement below that ADR-0029 Amendment 1A remains proposed is
 historical. ADR-0029 Amendments 1B and 1C record its implementation and the
 same-service remediation; ADR-0033 Phase 3 is complete.
 
+**Dependency-review activation amendment - September 2, 2026:** The
+conditional dependency-review residual in the table above is superseded. This
+public repository can use GitHub's dependency review service directly, so the
+pinned `actions/dependency-review-action` job now runs on every pull request
+without a repository-variable gate and fails when a dependency delta introduces
+a high or critical vulnerability. The result is visible to the pull-request
+author as a PR check; notification delivery follows that contributor's GitHub
+notification settings, and branch protection determines whether the failed
+check blocks merging. The mandatory full production `npm audit` remains in the
+main CI job for both pull requests and pushes.
+
+**Accepted development-authentication disposition - September 2, 2026:** The
+repository owner confirms that bypassing admin login rate limiting and persisted
+failed-attempt lockout is intentional for `npm run dev`, where the process is
+expected to remain on an operator-controlled trusted network. Password
+verification, successful-session expiry, CSRF, host/origin checks, and the
+player-login limiter remain active. `npm start`, unset `NODE_ENV`, and any
+unrecognized environment retain rate limiting and lockout. The operational
+constraint and exact boundary are documented in `docs/SECURITY_OPERATIONS.md`;
+development mode must not be exposed to an untrusted network.
+
+**Module-documentation scope disposition - September 2, 2026:** Technical
+documentation continues to describe extension modules abstractly and must not
+couple Core contracts to a local-development or managed-package directory. The
+product README may identify officially maintained system integrations and link
+to their separately managed repositories. ADR-0027 owns the detailed scope
+clarification; this exception is informational and does not broaden module trust
+or runtime access.
+
+**Residual reclassification amendment - September 2, 2026:** A comparison with
+Foundry's generation 13 and 14 join behavior confirms that its unauthenticated
+join surface intentionally presents the user-account selector, world title,
+background, next-session time, world description, and current user counts.
+Foundry's generation 14 username autocomplete also operates on user identifier,
+display name, and active state. Sheet Delver retains the equivalent login
+presentation but exposes a narrower user projection: no world or user IDs,
+roles, GM flags, actor associations, avatars, Foundry URL, tokens, or arbitrary
+source data. System/application versions and lifecycle state permit ordinary
+service fingerprinting but provide no authentication, authorization, or
+mutation capability. This is accepted product behavior, not active remediation.
+
+The automatic host key is likewise accepted behavior rather than remediation.
+World-bound session records are transitory and are cleared when Foundry returns
+to setup; the owner-only installation key remains stable so it can encrypt the
+next world's independent session records. The manifest compatibility bypass is
+also closed as an accepted development control: it requires the exact
+`SHEET_DELVER_MANIFEST_FAIL_OPEN=true` opt-in, defaults to strict fail-closed,
+and cannot override fail-closed behavior in production.
+
+Module source fallback is removed from the remediation list. Losing the active
+local or managed directory may select the remaining directory, but it never
+copies enabled state or enables that source. Runtime activation occurs only when
+the remaining source was independently enabled and passes blocking validation;
+otherwise module code remains disabled and Core uses its non-module generic
+adapter. The generic adapter preserves basic platform availability without
+restoring module UI, routes, derived behavior, or system-specific logic.
+
+For this residual review, the only remaining action is to validate Core CSP
+enforcement after the separately managed module corrects its font-policy
+violations.
+
 ## Deferred Activation Gate
 
 Remote distribution is not an implementation phase in this ADR. If it becomes

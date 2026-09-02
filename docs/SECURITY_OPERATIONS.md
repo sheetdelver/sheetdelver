@@ -67,6 +67,8 @@ revokes all admin sessions. On the first Phase 3 admin load, the exact legacy
 `admin-token` and `admin-csrf` local-storage entries are removed without reading
 or clearing unrelated preferences.
 
+### Development-Only Lockout Exception
+
 `npm run dev` explicitly runs Core and the shell with `NODE_ENV=development`.
 In that operator-controlled mode, admin setup/login/reset requests are not
 rate-limited and failed admin passwords do not increment or honor the persisted
