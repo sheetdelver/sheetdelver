@@ -52,6 +52,8 @@ function endpointsFor(type: string): DocumentEndpoints {
 const LOADING_SNAPSHOT: DocumentSnapshot = Object.freeze({ data: null, loading: true, notFound: false, error: null });
 
 interface Entry {
+    type: string;
+    id: string;
     snapshot: DocumentSnapshot;
     listeners: Set<() => void>;
     fetcher: CoalescedFetch<void> | null;
@@ -66,71 +68,84 @@ function statusToError(status: number, message: string): ClientDocumentError {
     return { code, message, status };
 }
 
-function createDocumentSource(getFetch: () => FetchWithAuth): { source: ClientDocumentSource; reset: () => void } {
+function createDocumentSource(getFetch: () => FetchWithAuth): {
+    source: ClientDocumentSource;
+    reset: (refreshObserved?: boolean) => void;
+} {
     const entries = new Map<string, Entry>();
+    let epoch = 0;
     const fetchWithAuth: FetchWithAuth = (input, init) => getFetch()(input, init);
 
     const keyFor = (type: string, id: string) => `${type}:${id}`;
 
-    const ensureEntry = (key: string): Entry => {
+    const ensureEntry = (key: string, type: string, id: string): Entry => {
         let entry = entries.get(key);
         if (!entry) {
-            entry = { snapshot: LOADING_SNAPSHOT, listeners: new Set(), fetcher: null };
+            entry = { type, id, snapshot: LOADING_SNAPSHOT, listeners: new Set(), fetcher: null };
             entries.set(key, entry);
         }
         return entry;
     };
 
-    const setSnapshot = (key: string, snapshot: DocumentSnapshot) => {
-        const entry = ensureEntry(key);
+    const setSnapshot = (key: string, snapshot: DocumentSnapshot, requestEpoch: number) => {
+        // A request from an older world/session must not recreate or update an
+        // entry after reset. The entry lookup intentionally does not ensure.
+        if (requestEpoch !== epoch) return;
+        const entry = entries.get(key);
+        if (!entry) return;
         entry.snapshot = snapshot;
         entry.listeners.forEach((listener) => listener());
     };
 
     const ensureFetcher = (type: string, id: string, key: string): CoalescedFetch<void> => {
-        const entry = ensureEntry(key);
+        const entry = ensureEntry(key, type, id);
         if (entry.fetcher) return entry.fetcher;
 
         const cfg = endpointsFor(type);
+        const fetcherEpoch = epoch;
+        const isCurrentEpoch = () => fetcherEpoch === epoch && entries.get(key) === entry;
         // Ordinary reads use fetcher.dedupe(); invalidations call the fetcher
         // itself so a signal observed during an active read queues one trailing
         // authoritative read rather than accepting the older response.
         entry.fetcher = createCoalescedFetch<void>(async () => {
-            const current = ensureEntry(key);
-            setSnapshot(key, { ...current.snapshot, loading: true, error: null });
+            if (!isCurrentEpoch()) return;
+            setSnapshot(key, { ...entry.snapshot, loading: true, error: null }, fetcherEpoch);
             try {
                 const res = await fetchWithAuth(cfg.read(id), { cache: 'no-store' });
+                if (!isCurrentEpoch()) return;
                 if (res.status === 404) {
-                    setSnapshot(key, { data: null, loading: false, notFound: true, error: null });
+                    setSnapshot(key, { data: null, loading: false, notFound: true, error: null }, fetcherEpoch);
                     return;
                 }
                 if (!res.ok) {
                     setSnapshot(key, {
-                        data: ensureEntry(key).snapshot.data,
+                        data: entry.snapshot.data,
                         loading: false,
                         notFound: false,
                         error: statusToError(res.status, `Request failed (${res.status})`),
-                    });
+                    }, fetcherEpoch);
                     return;
                 }
                 const data = await res.json();
+                if (!isCurrentEpoch()) return;
                 if (data && !data.error) {
-                    setSnapshot(key, { data, loading: false, notFound: false, error: null });
+                    setSnapshot(key, { data, loading: false, notFound: false, error: null }, fetcherEpoch);
                 } else {
                     setSnapshot(key, {
                         data: null,
                         loading: false,
                         notFound: false,
                         error: statusToError(res.status, data?.error ?? 'Unknown error'),
-                    });
+                    }, fetcherEpoch);
                 }
             } catch (e) {
+                if (!isCurrentEpoch()) return;
                 setSnapshot(key, {
-                    data: ensureEntry(key).snapshot.data,
+                    data: entry.snapshot.data,
                     loading: false,
                     notFound: false,
                     error: statusToError(0, e instanceof Error ? e.message : 'Connection error'),
-                });
+                }, fetcherEpoch);
             }
         });
         return entry.fetcher;
@@ -138,11 +153,11 @@ function createDocumentSource(getFetch: () => FetchWithAuth): { source: ClientDo
 
     const source: ClientDocumentSource = {
         getSnapshot<T = unknown>(type: string, id: string): DocumentSnapshot<T> {
-            return ensureEntry(keyFor(type, id)).snapshot as DocumentSnapshot<T>;
+            return ensureEntry(keyFor(type, id), type, id).snapshot as DocumentSnapshot<T>;
         },
 
         subscribe(type: string, id: string, onStoreChange: () => void): () => void {
-            const entry = ensureEntry(keyFor(type, id));
+            const entry = ensureEntry(keyFor(type, id), type, id);
             entry.listeners.add(onStoreChange);
             return () => { entry.listeners.delete(onStoreChange); };
         },
@@ -210,8 +225,28 @@ function createDocumentSource(getFetch: () => FetchWithAuth): { source: ClientDo
         },
     };
 
-    const reset = () => {
-        entries.clear();
+    const reset = (refreshObserved = false) => {
+        epoch += 1;
+        const observed: Array<{ type: string; id: string }> = [];
+
+        for (const [key, entry] of entries) {
+            entry.fetcher = null;
+            if (entry.listeners.size === 0) {
+                entries.delete(key);
+                continue;
+            }
+
+            // Preserve subscriptions across the epoch boundary. Mounted hooks
+            // see the loading snapshot immediately and can be refreshed without
+            // replacing the public source identity.
+            entry.snapshot = LOADING_SNAPSHOT;
+            entry.listeners.forEach((listener) => listener());
+            if (refreshObserved) observed.push({ type: entry.type, id: entry.id });
+        }
+
+        for (const { type, id } of observed) {
+            void source.refresh(type, id);
+        }
     };
 
     return { source, reset };
@@ -228,7 +263,11 @@ export function createClientDocumentSource(fetchWithAuth: FetchWithAuth): Client
 let latestFetch: FetchWithAuth = async () => {
     throw new Error('[sdk] document source used before a transport was provided');
 };
-let singleton: { source: ClientDocumentSource; reset: () => void } | null = null;
+let singleton: {
+    source: ClientDocumentSource;
+    reset: (refreshObserved?: boolean) => void;
+} | null = null;
+let singletonScope: string | null | undefined;
 
 export function getClientDocumentSource(fetchWithAuth: FetchWithAuth): ClientDocumentSource {
     latestFetch = fetchWithAuth;
@@ -236,7 +275,18 @@ export function getClientDocumentSource(fetchWithAuth: FetchWithAuth): ClientDoc
     return singleton.source;
 }
 
-/** Clear the shared cache (e.g. on logout or world change). */
+/**
+ * Bind the singleton to one authenticated world/user scope. Changing scope
+ * advances its private epoch and refreshes every key that remains observed.
+ */
+export function setClientDocumentSourceScope(scope: string | null): void {
+    if (singletonScope === scope) return;
+    singletonScope = scope;
+    singleton?.reset(scope !== null);
+}
+
+/** Retire the active scope without reading until another scope becomes active. */
 export function resetClientDocumentSource(): void {
-    singleton?.reset();
+    singletonScope = null;
+    singleton?.reset(false);
 }

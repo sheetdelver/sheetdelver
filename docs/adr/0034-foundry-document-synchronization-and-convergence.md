@@ -5,6 +5,9 @@
 list bridge, Actor trailing refresh, and shared Store application of Foundry
 field operators are complete and live-validated; the remaining Phase 2 items
 stay open below.
+**Status amendment (September 3, 2026):** Phase 2 is complete. Store-to-client
+signal parity, trailing refresh, SDK epoch rejection, and mounted-subscriber
+reset behavior are implemented and verified. Phase 3 is pending.
 **Date:** September 2, 2026
 **Phase:** Pre-main synchronization remediation
 **Supersedes:** None
@@ -360,8 +363,8 @@ Phase 1.
   operations at the shared Store merge boundary.
 - [x] Apply the shared trailing-refresh primitive to native browser and SDK
   document consumers.
-- [ ] Add SDK world/session epochs and stale-completion rejection.
-- [ ] Ensure reset reaches mounted subscribers.
+- [x] Add SDK world/session epochs and stale-completion rejection.
+- [x] Ensure reset reaches mounted subscribers.
 
 **Phase 2 partial implementation result:** The typed
 `actorListInvalidated` signal now crosses Store, SystemService,
@@ -413,6 +416,27 @@ Focused tests prove concurrent-read deduplication, one trailing read for an
 in-flight invalidation burst, and SDK convergence when the first request returns
 stale data. This amendment still does not close Phase 2: SDK world/session epoch
 rejection and reset notification for already mounted subscribers remain open.
+
+**Phase 2 epoch/reset amendment:** The app-level SDK document source now owns a
+monotonic private epoch bounded by the authenticated world and user scope. A
+read captures both the epoch and cache entry identity before transport work.
+After every asynchronous boundary, an older completion is discarded without
+recreating an entry, changing a snapshot, or notifying current-world listeners.
+
+Reset no longer destroys mounted subscriptions. It advances the epoch, removes
+unobserved entries, replaces observed snapshots with the stable loading
+snapshot, and notifies their existing listeners. Entering a new authenticated
+dashboard scope then starts one authoritative read for each observed key using
+the current transport. Leaving the dashboard, losing authentication, changing
+world, or changing user moves to a null or different scope and retires the old
+epoch. This is an SDK cache boundary only; it does not alter the established
+world lifecycle state machine or Foundry session restoration.
+
+The former reset-race characterization has been inverted. Tests now prove that
+mounted listeners observe reset, a previous-world response cannot repopulate
+the cache, and the same mounted source converges on the new-world response.
+With these assertions and the preceding parity and trailing-refresh amendments,
+Phase 2 is complete.
 
 ### Phase 3: Audience and socket correctness
 

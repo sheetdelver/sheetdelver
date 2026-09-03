@@ -3,6 +3,7 @@ import {
     createClientDocumentSource,
     getClientDocumentSource,
     resetClientDocumentSource,
+    setClientDocumentSourceScope,
 } from '@client/ui/sdk/createClientDocumentSource';
 
 /**
@@ -43,7 +44,8 @@ export async function run() {
     await runInvalidateDuringFlightQueuesTrailingRead();
     await runMutationInvalidates();
     await runNotFound();
-    await runResetDuringFlightCharacterization();
+    await runResetDuringFlightRejectsStaleCompletion();
+    await runScopeChangeRefreshesMountedSubscribers();
     console.log('  - Client document source (cache/dedup/invalidation): all checks passed');
 }
 
@@ -154,7 +156,7 @@ async function runNotFound() {
     assert.equal(snap.data, null);
 }
 
-async function runResetDuringFlightCharacterization() {
+async function runResetDuringFlightRejectsStaleCompletion() {
     type DeferredResponse = {
         promise: Promise<Response>;
         resolve: (value: Response) => void;
@@ -168,7 +170,7 @@ async function runResetDuringFlightCharacterization() {
     resetClientDocumentSource();
     const source = getClientDocumentSource(async () => responsePromise);
     let notifications = 0;
-    source.subscribe('Actor', 'reset-race', () => {
+    const unsubscribe = source.subscribe('Actor', 'reset-race', () => {
         notifications += 1;
     });
 
@@ -176,9 +178,8 @@ async function runResetDuringFlightCharacterization() {
     const notificationsBeforeReset = notifications;
     resetClientDocumentSource();
 
-    // This assertion records the current reset gap. Phase 2/3 must invert it:
-    // reset should notify mounted subscribers and invalidate the old epoch.
-    assert.equal(notifications, notificationsBeforeReset);
+    assert.ok(notifications > notificationsBeforeReset, 'reset notifies mounted subscribers');
+    assert.equal(source.getSnapshot('Actor', 'reset-race').loading, true);
 
     resolveResponse({
         ok: true,
@@ -187,12 +188,59 @@ async function runResetDuringFlightCharacterization() {
     } as Response);
     await request;
 
-    // The old request currently recreates an entry after reset. Keeping this
-    // explicit makes stale-world resurrection measurable before remediation.
     assert.equal(
         source.getSnapshot<{ name: string }>('Actor', 'reset-race').data?.name,
-        'Previous World Actor',
+        undefined,
+        'completion from the retired epoch cannot restore previous-world data',
     );
+    unsubscribe();
+    resetClientDocumentSource();
+}
+
+async function runScopeChangeRefreshesMountedSubscribers() {
+    let resolveOld!: (value: Response) => void;
+    let resolveCurrent!: (value: Response) => void;
+    let currentCalls = 0;
+    const oldResponse = new Promise<Response>((resolve) => { resolveOld = resolve; });
+    const currentResponse = new Promise<Response>((resolve) => { resolveCurrent = resolve; });
+
+    resetClientDocumentSource();
+    const source = getClientDocumentSource(async () => oldResponse);
+    setClientDocumentSourceScope('world-a:user-a');
+    let notifications = 0;
+    const unsubscribe = source.subscribe('Actor', 'scope-race', () => { notifications += 1; });
+    const oldRequest = source.refresh('Actor', 'scope-race');
+    const notificationsBeforeScopeChange = notifications;
+
+    // SDKProvider updates the transport before publishing the new scope. The
+    // scope transition resets observed entries and immediately rereads them.
+    getClientDocumentSource(async () => {
+        currentCalls += 1;
+        return currentResponse;
+    });
+    setClientDocumentSourceScope('world-b:user-a');
+    assert.ok(notifications > notificationsBeforeScopeChange);
+    assert.equal(currentCalls, 1, 'one current-epoch read starts for the mounted key');
+
+    resolveOld({
+        ok: true,
+        status: 200,
+        json: async () => ({ id: 'scope-race', name: 'World A Actor' }),
+    } as Response);
+    await oldRequest;
+    assert.equal(
+        source.getSnapshot<{ name: string }>('Actor', 'scope-race').data?.name,
+        undefined,
+        'old-world completion remains rejected while the new read is pending',
+    );
+
+    resolveCurrent({
+        ok: true,
+        status: 200,
+        json: async () => ({ id: 'scope-race', name: 'World B Actor' }),
+    } as Response);
+    await waitFor(() => source.getSnapshot<{ name: string }>('Actor', 'scope-race').data?.name === 'World B Actor');
+    unsubscribe();
     resetClientDocumentSource();
 }
 

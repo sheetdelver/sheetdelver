@@ -11,7 +11,10 @@ import RollDialog from '@client/ui/components/RollDialog';
 import { ConfirmationModal } from '@client/ui/components/ConfirmationModal';
 import RichTextEditor from '@client/ui/components/RichTextEditor';
 import { SharedContentModal } from '@client/ui/components/SharedContentModal';
-import { getClientDocumentSource, resetClientDocumentSource } from '@client/ui/sdk/createClientDocumentSource';
+import {
+    getClientDocumentSource,
+    setClientDocumentSourceScope,
+} from '@client/ui/sdk/createClientDocumentSource';
 import { createSdkEventBus } from '@client/ui/sdk/createSdkEventBus';
 import type { SdkEvents } from '@shared/sdk/events';
 import { buildModuleAssetUrl, setModuleLogSink } from '@shared/sdk';
@@ -62,6 +65,10 @@ export function SDKProvider({ children, moduleId }: { children: React.ReactNode;
     // dashboard card and an open sheet share one fetch; the call keeps its transport current.
     const documents = getClientDocumentSource(fetchWithAuth);
 
+    const documentScope = isConnected && token && worldId && currentUser
+        ? JSON.stringify([worldId, currentUser.id ?? (currentUser as any)._id ?? ''])
+        : null;
+
     // Cache invalidation rides the signal bus (decision 25): any document:changed for a
     // cached key refreshes every mounted surface from the single source — all types, not
     // just actors.
@@ -76,10 +83,12 @@ export function SDKProvider({ children, moduleId }: { children: React.ReactNode;
         on: (signal, handler) => events.on(signal, handler),
     }), [events]);
 
-    // Clear the shared cache when the session ends (logout / world change drops the token).
+    // The SDK cache exists only inside an authenticated world/user scope. The
+    // source advances its epoch on scope changes, preserving mounted listeners
+    // while rejecting completion from the prior session or world.
     useEffect(() => {
-        if (!token) resetClientDocumentSource();
-    }, [token]);
+        setClientDocumentSourceScope(documentScope);
+    }, [documentScope]);
 
     const resolvedModuleId = moduleId ?? system?.id ?? null;
     const assetUrl = useCallback(

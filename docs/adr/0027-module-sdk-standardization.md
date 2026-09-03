@@ -393,6 +393,14 @@ Phases are sequenced so each slice is independently verifiable. Checkpoints are 
 - [x] Add `SurfaceHost` (host-owned error + loading boundary + style-scope root) and wrap every dynamic surface: actor page, `tools`, `dashboardTools`, `rollModal` (decision 18). — `SurfaceHost.tsx` (first React error boundary in `src/client`) wraps `ActorPageRouter`, `ToolPageRouter`, `SystemTools`, and `CombatHUD`'s rollModal; emits a `sd-surface-root` scope anchor (data-surface/data-module) for decision 28. Wrapping `tools`/`dashboardTools` also gives them SDK context they previously lacked.
 - [x] Provide host-supplied runtime identity (`moduleId`, `worldId`, `system`) via the provider; stop `/system/data` identity discovery (decision 19). — `worldId` lifted out of `FoundryContext` (was internal `lastWorldId`); `SDKContextValue` gains `moduleId`/`worldId`; `SurfaceHost`/`SDKProvider` inject `moduleId` per surface. Module-side removal of any `/system/data` identity probing rides Phase 3 conformance.
 - [x] Back data hooks with a host-owned cache (dedup + realtime invalidation); expose no query library (decision 25, client half). — `createClientDocumentSource` is an **app-level singleton** (`getClientDocumentSource`) so a dashboard card and an open sheet share one fetch; concurrent reads dedup on the in-flight promise; a single `actorChanged` listener in `SDKProvider` invalidates the key (every mounted surface refreshes from one source); mutations write through + invalidate; `resetClientDocumentSource` clears on logout/world change. No query library is exposed. Covered by `src/tests/unit/client/document-source.test.ts`.
+  **Addendum (synchronization follow-up, 2026-09-03).** The singleton now binds
+  to an authenticated world/user scope and advances a private epoch whenever
+  that scope changes. Reset preserves and notifies mounted subscribers,
+  refreshes their observed keys only after a new authenticated scope is active,
+  and rejects asynchronous completion from a retired epoch. Realtime
+  invalidation is supplied by the generic SDK document signal bus rather than
+  an Actor-only listener. The source remains host-owned and stable by identity;
+  no lifecycle controls or epoch values are exposed to modules.
 
 ### Phase 3 — Prove it with dnd5e (conform)
 
