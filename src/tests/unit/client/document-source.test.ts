@@ -29,9 +29,18 @@ async function tick() {
     await Promise.resolve();
 }
 
+async function waitFor(predicate: () => boolean): Promise<void> {
+    for (let attempts = 0; attempts < 20; attempts += 1) {
+        if (predicate()) return;
+        await new Promise(resolve => setImmediate(resolve));
+    }
+    assert.fail('Timed out waiting for asynchronous document-source work');
+}
+
 export async function run() {
     await runReadDedupAndSnapshot();
     await runSubscribeAndInvalidate();
+    await runInvalidateDuringFlightQueuesTrailingRead();
     await runMutationInvalidates();
     await runNotFound();
     await runResetDuringFlightCharacterization();
@@ -80,6 +89,40 @@ async function runSubscribeAndInvalidate() {
     assert.equal(source.getSnapshot<{ name: string }>('Actor', 'a1').data?.name, 'Actor v1');
 
     unsubscribe();
+}
+
+async function runInvalidateDuringFlightQueuesTrailingRead() {
+    const responses: Array<(response: Response) => void> = [];
+    const calls: FetchCall[] = [];
+    const source = createClientDocumentSource(async (url, init) => {
+        calls.push({ url, init });
+        return new Promise<Response>((resolve) => responses.push(resolve));
+    });
+    source.subscribe('Actor', 'a1', () => undefined);
+
+    const request = source.refresh('Actor', 'a1');
+    source.invalidate('Actor', 'a1');
+    assert.equal(calls.length, 1, 'invalidation does not start a parallel read');
+
+    responses[0]({
+        ok: true,
+        status: 200,
+        json: async () => ({ id: 'a1', name: 'Stale Actor' }),
+    } as Response);
+    await waitFor(() => calls.length === 2);
+    assert.equal(calls.length, 2, 'invalidation queues one trailing read');
+
+    responses[1]({
+        ok: true,
+        status: 200,
+        json: async () => ({ id: 'a1', name: 'Fresh Actor' }),
+    } as Response);
+    await request;
+    assert.equal(
+        source.getSnapshot<{ name: string }>('Actor', 'a1').data?.name,
+        'Fresh Actor',
+        'the post-invalidation read becomes the final snapshot',
+    );
 }
 
 async function runMutationInvalidates() {

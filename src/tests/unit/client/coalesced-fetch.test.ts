@@ -17,6 +17,7 @@ export async function run() {
     await runInvalidationDuringFlightTriggersTrailingFetch();
     await runQuietFetchRunsOnce();
     await runBurstCoalescesIntoSingleTrailingFetch();
+    await runConcurrentReadDedupDoesNotQueueTrailingFetch();
     console.log('  - createCoalescedFetch: all checks passed');
 }
 
@@ -85,6 +86,22 @@ async function runBurstCoalescesIntoSingleTrailingFetch() {
     deferreds[1].resolve(2);
     assert.equal(await request, 2);
     assert.equal(fetchCount, 2, 'no further fetches after the trailing one settles');
+}
+
+async function runConcurrentReadDedupDoesNotQueueTrailingFetch() {
+    const deferred = createDeferred<string>();
+    let fetchCount = 0;
+    const fetcher = createCoalescedFetch<string>(() => {
+        fetchCount += 1;
+        return deferred.promise;
+    });
+
+    const first = fetcher.dedupe();
+    const second = fetcher.dedupe();
+    assert.equal(second, first, 'concurrent reads share the active promise');
+    deferred.resolve('snapshot');
+    assert.equal(await first, 'snapshot');
+    assert.equal(fetchCount, 1, 'dedup-only callers do not queue a trailing fetch');
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

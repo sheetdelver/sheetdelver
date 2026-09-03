@@ -13,7 +13,12 @@ import { SafeHtmlContent } from './SafeHtmlContent';
 
 export default function JournalModal() {
     const { activeJournalId, setActiveJournalId, sharedJournalId, setSharedJournalId } = useUI();
-    const { getJournal, updateJournal } = useJournal();
+    const {
+        getJournal,
+        updateJournal,
+        journalRevisions,
+        journalGlobalRevision,
+    } = useJournal();
     const { foundryUrl } = useConfig();
     const { currentUser } = useSession();
 
@@ -21,6 +26,7 @@ export default function JournalModal() {
     const [loading, setLoading] = useState(false);
     const [isEditing, setIsEditing] = useState(false);
     const [activePageIndex, setActivePageIndex] = useState(0);
+    const activeJournalRevision = activeJournalId ? (journalRevisions[activeJournalId] ?? 0) : 0;
 
     useEffect(() => {
         if (activeJournalId) {
@@ -36,7 +42,15 @@ export default function JournalModal() {
             setIsEditing(false);
             setActivePageIndex(0);
         }
-    }, [activeJournalId, getJournal]);
+    // Realtime revisions are scoped by Journal id; broad invalidations use the
+    // global revision. getJournal coalesces a change during an active detail
+    // read into one trailing request whose result is returned to this modal.
+    }, [
+        activeJournalId,
+        activeJournalRevision,
+        getJournal,
+        journalGlobalRevision,
+    ]);
 
     const close = () => {
         setActiveJournalId(null);

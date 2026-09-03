@@ -6,6 +6,7 @@ import type {
     DocumentSnapshot,
     ClientDocumentError,
 } from '@shared/sdk/client-documents';
+import { createCoalescedFetch, type CoalescedFetch } from '@client/ui/context/coalescedFetch';
 
 /**
  * Host-owned client document cache (ADR-0027 decisions 17/25).
@@ -53,7 +54,7 @@ const LOADING_SNAPSHOT: DocumentSnapshot = Object.freeze({ data: null, loading: 
 interface Entry {
     snapshot: DocumentSnapshot;
     listeners: Set<() => void>;
-    inFlight: Promise<void> | null;
+    fetcher: CoalescedFetch<void> | null;
 }
 
 function statusToError(status: number, message: string): ClientDocumentError {
@@ -74,7 +75,7 @@ function createDocumentSource(getFetch: () => FetchWithAuth): { source: ClientDo
     const ensureEntry = (key: string): Entry => {
         let entry = entries.get(key);
         if (!entry) {
-            entry = { snapshot: LOADING_SNAPSHOT, listeners: new Set(), inFlight: null };
+            entry = { snapshot: LOADING_SNAPSHOT, listeners: new Set(), fetcher: null };
             entries.set(key, entry);
         }
         return entry;
@@ -84,6 +85,55 @@ function createDocumentSource(getFetch: () => FetchWithAuth): { source: ClientDo
         const entry = ensureEntry(key);
         entry.snapshot = snapshot;
         entry.listeners.forEach((listener) => listener());
+    };
+
+    const ensureFetcher = (type: string, id: string, key: string): CoalescedFetch<void> => {
+        const entry = ensureEntry(key);
+        if (entry.fetcher) return entry.fetcher;
+
+        const cfg = endpointsFor(type);
+        // Ordinary reads use fetcher.dedupe(); invalidations call the fetcher
+        // itself so a signal observed during an active read queues one trailing
+        // authoritative read rather than accepting the older response.
+        entry.fetcher = createCoalescedFetch<void>(async () => {
+            const current = ensureEntry(key);
+            setSnapshot(key, { ...current.snapshot, loading: true, error: null });
+            try {
+                const res = await fetchWithAuth(cfg.read(id), { cache: 'no-store' });
+                if (res.status === 404) {
+                    setSnapshot(key, { data: null, loading: false, notFound: true, error: null });
+                    return;
+                }
+                if (!res.ok) {
+                    setSnapshot(key, {
+                        data: ensureEntry(key).snapshot.data,
+                        loading: false,
+                        notFound: false,
+                        error: statusToError(res.status, `Request failed (${res.status})`),
+                    });
+                    return;
+                }
+                const data = await res.json();
+                if (data && !data.error) {
+                    setSnapshot(key, { data, loading: false, notFound: false, error: null });
+                } else {
+                    setSnapshot(key, {
+                        data: null,
+                        loading: false,
+                        notFound: false,
+                        error: statusToError(res.status, data?.error ?? 'Unknown error'),
+                    });
+                }
+            } catch (e) {
+                setSnapshot(key, {
+                    data: ensureEntry(key).snapshot.data,
+                    loading: false,
+                    notFound: false,
+                    error: statusToError(0, e instanceof Error ? e.message : 'Connection error'),
+                });
+            }
+        });
+        return entry.fetcher;
     };
 
     const source: ClientDocumentSource = {
@@ -99,53 +149,7 @@ function createDocumentSource(getFetch: () => FetchWithAuth): { source: ClientDo
 
         refresh(type: string, id: string): Promise<void> {
             const key = keyFor(type, id);
-            const entry = ensureEntry(key);
-            if (entry.inFlight) return entry.inFlight;
-
-            const cfg = endpointsFor(type);
-            setSnapshot(key, { ...entry.snapshot, loading: true, error: null });
-
-            const request = (async () => {
-                try {
-                    const res = await fetchWithAuth(cfg.read(id), { cache: 'no-store' });
-                    if (res.status === 404) {
-                        setSnapshot(key, { data: null, loading: false, notFound: true, error: null });
-                        return;
-                    }
-                    if (!res.ok) {
-                        setSnapshot(key, {
-                            data: ensureEntry(key).snapshot.data,
-                            loading: false,
-                            notFound: false,
-                            error: statusToError(res.status, `Request failed (${res.status})`),
-                        });
-                        return;
-                    }
-                    const data = await res.json();
-                    if (data && !data.error) {
-                        setSnapshot(key, { data, loading: false, notFound: false, error: null });
-                    } else {
-                        setSnapshot(key, {
-                            data: null,
-                            loading: false,
-                            notFound: false,
-                            error: statusToError(res.status, data?.error ?? 'Unknown error'),
-                        });
-                    }
-                } catch (e) {
-                    setSnapshot(key, {
-                        data: ensureEntry(key).snapshot.data,
-                        loading: false,
-                        notFound: false,
-                        error: statusToError(0, e instanceof Error ? e.message : 'Connection error'),
-                    });
-                } finally {
-                    ensureEntry(key).inFlight = null;
-                }
-            })();
-
-            entry.inFlight = request;
-            return request;
+            return ensureFetcher(type, id, key).dedupe() as Promise<void>;
         },
 
         invalidate(type: string, id: string): void {
@@ -154,7 +158,7 @@ function createDocumentSource(getFetch: () => FetchWithAuth): { source: ClientDo
             if (!entry) return;
             // Mounted surfaces refresh from the single source; unobserved keys are dropped.
             if (entry.listeners.size > 0) {
-                void source.refresh(type, id);
+                void ensureFetcher(type, id, key)();
             } else {
                 entries.delete(key);
             }

@@ -8,6 +8,7 @@ import type { User } from '@shared/interfaces';
 import { UnauthorizedApiError } from '@client/ui/api/http';
 import * as foundryApi from '@client/ui/api/foundryApi';
 import { areUsersEqual } from '@client/ui/context/foundryRealtimeComparisons';
+import { createCoalescedFetch } from '@client/ui/context/coalescedFetch';
 
 interface UseUserRosterRealtimeOptions {
     appSocket: Socket | null;
@@ -23,7 +24,6 @@ export function useUserRosterRealtime({
     setUsers,
 }: UseUserRosterRealtimeOptions) {
     const latestRef = useRef({ token, users });
-    const refreshInFlightRef = useRef<Promise<void> | null>(null);
 
     useEffect(() => {
         latestRef.current = { token, users };
@@ -32,28 +32,20 @@ export function useUserRosterRealtime({
     useEffect(() => {
         if (!appSocket) return;
 
-        const refreshUsers = (): Promise<void> => {
-            if (refreshInFlightRef.current) return refreshInFlightRef.current;
-
-            const promise = (async () => {
-                try {
-                    const latest = latestRef.current;
-                    const data = await foundryApi.fetchStatus(latest.token);
-                    if (Array.isArray(data.users) && !areUsersEqual(latest.users, data.users)) {
-                        setUsers(data.users as User[]);
-                    }
-                } catch (e) {
-                    if (!(e instanceof UnauthorizedApiError)) {
-                        logger.error('FoundryProvider | User refresh failed', e);
-                    }
-                } finally {
-                    refreshInFlightRef.current = null;
+        // User events can arrive while the status projection is loading. The
+        // coalescer records that invalidation and performs one later read.
+        const refreshUsers = createCoalescedFetch<void>(async () => {
+            try {
+                const data = await foundryApi.fetchStatus(latestRef.current.token);
+                if (Array.isArray(data.users) && !areUsersEqual(latestRef.current.users, data.users)) {
+                    setUsers(data.users as User[]);
                 }
-            })();
-
-            refreshInFlightRef.current = promise;
-            return promise;
-        };
+            } catch (e) {
+                if (!(e instanceof UnauthorizedApiError)) {
+                    logger.error('FoundryProvider | User refresh failed', e);
+                }
+            }
+        });
 
         const handleUserChanged = () => { void refreshUsers(); };
         const handleUserListInvalidated = () => { void refreshUsers(); };

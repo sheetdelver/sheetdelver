@@ -55,6 +55,16 @@ export interface RealtimeChatMessageListInvalidatedPayload {
     targetUserIds?: string[];
 }
 
+export interface RealtimeJournalChangedPayload {
+    journalId: string;
+    action: 'create' | 'update' | 'delete';
+}
+export interface RealtimeJournalListInvalidatedPayload {
+    reason: string;
+    journalId?: string;
+    targetUserIds?: string[];
+}
+
 // Phase 7 — RollTable + Macro. No in-tree browser consumer yet; contracts
 // ship for SDK consumers and to keep the wire surface uniform across Stores.
 export interface RealtimeRollTableChangedPayload {

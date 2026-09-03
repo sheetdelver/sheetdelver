@@ -9,8 +9,12 @@ import * as journalApi from '@client/ui/api/journalApi';
 import type {
     JournalEntryDto,
     JournalFolderDto,
-    JournalListPayload,
 } from '@shared/contracts/journals';
+import { createCoalescedFetch, type CoalescedFetch } from '@client/ui/context/coalescedFetch';
+import type {
+    RealtimeJournalChangedPayload,
+    RealtimeJournalListInvalidatedPayload,
+} from '@shared/contracts/realtime';
 
 // Walkthrough/Changelog Notes:
 // - **Permissions**: "Edit" & "Share" buttons are now hidden for shared content and non-authorized users. Journals are now restricted to users with `Observer` level or higher.
@@ -26,6 +30,8 @@ interface JournalContextType {
     folders: Folder[];
     loading: boolean;
     error: string | null;
+    journalRevisions: Record<string, number>;
+    journalGlobalRevision: number;
     fetchJournals: () => Promise<void>;
     getJournal: (id: string) => Promise<JournalEntry | null>;
     createJournal: (name: string, folderId?: string) => Promise<void>;
@@ -43,35 +49,36 @@ export function JournalProvider({ children }: { children: React.ReactNode }) {
     const [folders, setFolders] = useState<Folder[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [journalRevisions, setJournalRevisions] = useState<Record<string, number>>({});
+    const [journalGlobalRevision, setJournalGlobalRevision] = useState(0);
     const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const fetchInFlightRef = useRef<Promise<void> | null>(null);
+    const listFetcherRef = useRef<{ token: string; fetch: CoalescedFetch<void> } | null>(null);
+    const detailFetchersRef = useRef(new Map<string, CoalescedFetch<JournalEntry | null>>());
 
     const fetchJournals = useCallback(async () => {
         if (!token) return;
-        if (fetchInFlightRef.current) return fetchInFlightRef.current;
-        setLoading(true);
-        const request = (async () => {
-            try {
-                const data = await journalApi.fetchJournals(token);
-                setJournals(data.journals || []);
-                setFolders(data.folders || []);
-            } catch (err: any) {
-                if (err instanceof UnauthorizedApiError) {
-                    return;
-                }
-                logger.error('JournalProvider | Fetch failed:', err);
-                setError(err.message);
-            } finally {
-                setLoading(false);
-            }
-        })();
-        fetchInFlightRef.current = request;
-        request.finally(() => {
-            if (fetchInFlightRef.current === request) {
-                fetchInFlightRef.current = null;
-            }
-        });
-        return request;
+        if (listFetcherRef.current?.token !== token) {
+            listFetcherRef.current = {
+                token,
+                // Folder/Journal invalidations observed during this request
+                // guarantee one post-change list read.
+                fetch: createCoalescedFetch<void>(async () => {
+                    setLoading(true);
+                    try {
+                        const data = await journalApi.fetchJournals(token);
+                        setJournals(data.journals || []);
+                        setFolders(data.folders || []);
+                    } catch (err: any) {
+                        if (err instanceof UnauthorizedApiError) return;
+                        logger.error('JournalProvider | Fetch failed:', err);
+                        setError(err.message);
+                    } finally {
+                        setLoading(false);
+                    }
+                }),
+            };
+        }
+        return listFetcherRef.current.fetch();
     }, [token]);
 
     const requestJournalsRefresh = useCallback(() => {
@@ -104,8 +111,24 @@ export function JournalProvider({ children }: { children: React.ReactNode }) {
         if (!appSocket) return;
         const handleFolderChanged = () => { requestJournalsRefresh(); };
         const handleFolderListInvalidated = () => { requestJournalsRefresh(); };
-        const handleJournalChanged = () => { requestJournalsRefresh(); };
-        const handleJournalListInvalidated = () => { requestJournalsRefresh(); };
+        const invalidateJournalDetail = (journalId?: string) => {
+            if (!journalId) {
+                setJournalGlobalRevision(revision => revision + 1);
+                return;
+            }
+            setJournalRevisions(revisions => ({
+                ...revisions,
+                [journalId]: (revisions[journalId] ?? 0) + 1,
+            }));
+        };
+        const handleJournalChanged = (data: RealtimeJournalChangedPayload) => {
+            invalidateJournalDetail(data.journalId);
+            requestJournalsRefresh();
+        };
+        const handleJournalListInvalidated = (data: RealtimeJournalListInvalidatedPayload) => {
+            invalidateJournalDetail(data.journalId);
+            requestJournalsRefresh();
+        };
 
         appSocket.on('folderChanged', handleFolderChanged);
         appSocket.on('folderListInvalidated', handleFolderListInvalidated);
@@ -121,12 +144,20 @@ export function JournalProvider({ children }: { children: React.ReactNode }) {
 
     const getJournal = useCallback(async (id: string) => {
         if (!token) return null;
-        try {
-            return await journalApi.fetchJournalById(token, id);
-        } catch (err) {
-            logger.error(`JournalProvider | Get detail failed for ${id}:`, err);
-            return null;
+        const key = `${token}:${id}`;
+        let fetcher = detailFetchersRef.current.get(key);
+        if (!fetcher) {
+            fetcher = createCoalescedFetch<JournalEntry | null>(async () => {
+                try {
+                    return await journalApi.fetchJournalById(token, id);
+                } catch (err) {
+                    logger.error(`JournalProvider | Get detail failed for ${id}:`, err);
+                    return null;
+                }
+            });
+            detailFetchersRef.current.set(key, fetcher);
         }
+        return (await fetcher()) ?? null;
     }, [token]);
 
     const createJournal = async (name: string, folderId?: string) => {
@@ -167,7 +198,7 @@ export function JournalProvider({ children }: { children: React.ReactNode }) {
 
     return (
         <JournalContext.Provider value={{
-            journals, folders, loading, error,
+            journals, folders, loading, error, journalRevisions, journalGlobalRevision,
             fetchJournals, getJournal, createJournal, updateJournal, deleteJournal, createFolder
         }}>
             {children}

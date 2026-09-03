@@ -11,15 +11,21 @@
  * arrive) so the last observed state always reflects a fetch started after
  * the last invalidation.
  */
+export interface CoalescedFetch<TResult> {
+    (): Promise<TResult | void>;
+    /** Share an active request without treating the caller as an invalidation. */
+    dedupe(): Promise<TResult | void>;
+}
+
 export function createCoalescedFetch<TResult>(
     fetchOnce: () => Promise<TResult | void>,
-): () => Promise<TResult | void> {
+): CoalescedFetch<TResult> {
     let inFlight: Promise<TResult | void> | null = null;
     let refetchQueued = false;
 
-    return () => {
+    const invoke = (queueTrailing: boolean): Promise<TResult | void> => {
         if (inFlight) {
-            refetchQueued = true;
+            if (queueTrailing) refetchQueued = true;
             return inFlight;
         }
 
@@ -38,4 +44,11 @@ export function createCoalescedFetch<TResult>(
         });
         return request;
     };
+
+    // The callable form represents an invalidation request. Initial/concurrent
+    // reads use `dedupe` so they share transport without manufacturing a
+    // trailing fetch when no newer state was observed.
+    const fetcher = (() => invoke(true)) as CoalescedFetch<TResult>;
+    fetcher.dedupe = () => invoke(false);
+    return fetcher;
 }

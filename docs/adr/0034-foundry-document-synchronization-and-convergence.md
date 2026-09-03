@@ -358,7 +358,7 @@ Phase 1.
   coalescing.
 - [x] Apply generation 13 and generation 14 replacement/deletion field
   operations at the shared Store merge boundary.
-- [ ] Apply the shared trailing-refresh primitive to native browser and SDK
+- [x] Apply the shared trailing-refresh primitive to native browser and SDK
   document consumers.
 - [ ] Add SDK world/session epochs and stale-completion rejection.
 - [ ] Ensure reset reaches mounted subscribers.
@@ -393,6 +393,26 @@ the Scene owner/non-owner cases and the Setting player-denial case; gateway
 coverage proves GM delivery and listener cleanup. The remaining Phase 2 work is
 non-Actor native/SDK trailing refresh, SDK world/session epoch rejection, and
 mounted-subscriber reset behavior.
+
+**Phase 2 trailing-refresh amendment:** The shared coalescer now distinguishes
+ordinary concurrent reads from invalidation reads. Ordinary reads may share the
+active request without scheduling another request; an invalidation received
+while that request is active marks the resource dirty and guarantees exactly
+one trailing authoritative read after the active request settles. Further
+invalidations in the same burst coalesce into that trailing read.
+
+That contract now covers the native Actor and Combat lists, Chat list, Journal
+and folder list, an open Journal detail, User roster, native Actor detail and
+per-Actor cards, and module-facing SDK document sources. Journal changed/list
+signals carry only typed invalidation metadata; they increment targeted or
+global revisions so an open detail can reread without exposing a document body
+through realtime. The implementation does not infer changed field values from
+an event payload.
+
+Focused tests prove concurrent-read deduplication, one trailing read for an
+in-flight invalidation burst, and SDK convergence when the first request returns
+stale data. This amendment still does not close Phase 2: SDK world/session epoch
+rejection and reset notification for already mounted subscribers remain open.
 
 ### Phase 3: Audience and socket correctness
 

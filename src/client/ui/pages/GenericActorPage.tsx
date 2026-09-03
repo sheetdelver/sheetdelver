@@ -12,6 +12,7 @@ import { processHtmlContent } from '@modules/registry/client';
 import { useNotifications } from '@client/ui/components/NotificationSystem';
 import LoadingModal from '@client/ui/components/LoadingModal';
 import { SharedContentModal } from '@client/ui/components/SharedContentModal';
+import { createCoalescedFetch, type CoalescedFetch } from '@client/ui/context/coalescedFetch';
 
 export interface GenericActorPageProps {
     actorId: string;
@@ -44,52 +45,61 @@ export default function GenericActorPage({ actorId }: GenericActorPageProps) {
         addToast(content, type, { html: true });
     }, [addToast]);
 
-    const actorFetchInFlightRef = useRef<{ actorId: string; request: Promise<void> } | null>(null);
+    const actorFetcherRef = useRef<{
+        actorId: string;
+        fetch: (silent: boolean) => Promise<void>;
+    } | null>(null);
     const actorRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    const fetchActor = useCallback(async (id: string, silent = false) => {
-        const inFlight = actorFetchInFlightRef.current;
-        if (inFlight?.actorId === id) return inFlight.request;
-
+    const fetchActorOnce = useCallback(async (id: string, silent: boolean) => {
         if (!silent) setLoading(true);
-        const request = (async () => {
-            try {
-                const res = await fetchWithAuth(`/api/actors/${id}`);
-                if (res.status === 503 || res.status === 401) {
-                    router.push('/');
-                    return;
-                }
-                if (res.status === 404) {
-                    setShowDeleteModal(true);
-                    return;
-                }
-
-                const data = await res.json();
-                if (data && !data.error) {
-                    setActor(data);
-                    if (data.foundryUrl) setFoundryUrl(data.foundryUrl);
-                } else {
-                    if (res.status >= 500) {
-                        addNotification('Server Error: ' + (data?.error || 'Unknown Error'), 'error');
-                    } else {
-                        setShowDeleteModal(true);
-                    }
-                }
-            } catch (e: any) {
-                addNotification('Connection Error: ' + e.message, 'error');
-            } finally {
-                if (!silent) setLoading(false);
+        try {
+            const res = await fetchWithAuth(`/api/actors/${id}`);
+            if (res.status === 503 || res.status === 401) {
+                router.push('/');
+                return;
             }
-        })();
-
-        actorFetchInFlightRef.current = { actorId: id, request };
-        request.finally(() => {
-            if (actorFetchInFlightRef.current?.request === request) {
-                actorFetchInFlightRef.current = null;
+            if (res.status === 404) {
+                setShowDeleteModal(true);
+                return;
             }
-        });
-        return request;
+
+            const data = await res.json();
+            if (data && !data.error) {
+                setActor(data);
+                if (data.foundryUrl) setFoundryUrl(data.foundryUrl);
+            } else if (res.status >= 500) {
+                addNotification('Server Error: ' + (data?.error || 'Unknown Error'), 'error');
+            } else {
+                setShowDeleteModal(true);
+            }
+        } catch (e: any) {
+            addNotification('Connection Error: ' + e.message, 'error');
+        } finally {
+            if (!silent) setLoading(false);
+        }
     }, [router, fetchWithAuth, addNotification, setFoundryUrl]);
+
+    const fetchActor = useCallback(async (id: string, silent = false) => {
+        if (actorFetcherRef.current?.actorId !== id) {
+            let nextRequestIsSilent = true;
+            const coalesced: CoalescedFetch<void> = createCoalescedFetch<void>(() => {
+                const requestIsSilent = nextRequestIsSilent;
+                nextRequestIsSilent = true;
+                return fetchActorOnce(id, requestIsSilent);
+            });
+            actorFetcherRef.current = {
+                actorId: id,
+                fetch: (requestedSilent) => {
+                    if (!requestedSilent) nextRequestIsSilent = false;
+                    return coalesced() as Promise<void>;
+                },
+            };
+        }
+        // Realtime refreshes for this Actor queue behind an active detail read,
+        // ensuring the final request starts after the newest invalidation.
+        return actorFetcherRef.current.fetch(silent);
+    }, [fetchActorOnce]);
 
     const requestActorRefresh = useCallback((id: string) => {
         if (actorRefreshTimerRef.current) {

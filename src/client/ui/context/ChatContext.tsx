@@ -7,6 +7,7 @@ import { UnauthorizedApiError } from '@client/ui/api/http';
 import * as foundryApi from '@client/ui/api/foundryApi';
 import { useSession } from '@client/ui/context/SessionContext';
 import { useRealtime } from '@client/ui/context/RealtimeContext';
+import { createCoalescedFetch, type CoalescedFetch } from '@client/ui/context/coalescedFetch';
 import type { ChatMessageDto } from '@shared/contracts/chat';
 import type {
     RealtimeChatMessageChangedPayload,
@@ -28,34 +29,32 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     const { addNotification } = useNotifications();
     const [messages, setMessages] = useState<ChatMessageDto[]>([]);
     const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const fetchInFlightRef = useRef<Promise<void> | null>(null);
+    const fetcherRef = useRef<{ token: string; fetch: CoalescedFetch<void> } | null>(null);
 
     const fetchChat = useCallback(async () => {
         if (step !== 'dashboard' || !token) return;
-        if (fetchInFlightRef.current) return fetchInFlightRef.current;
-
-        const request = (async () => {
-            try {
-                const data = await foundryApi.fetchChatLog(token);
-                if (Array.isArray(data.messages)) {
-                    setMessages(data.messages);
-                }
-            } catch (error) {
-                if (error instanceof UnauthorizedApiError) {
-                    setToken(null);
-                    return;
-                }
-                logger.error('ChatContext | Failed to fetch chat:', error);
-            }
-        })();
-
-        fetchInFlightRef.current = request;
-        request.finally(() => {
-            if (fetchInFlightRef.current === request) {
-                fetchInFlightRef.current = null;
-            }
-        });
-        return request;
+        if (fetcherRef.current?.token !== token) {
+            fetcherRef.current = {
+                token,
+                // A realtime hint received during an active chat read queues a
+                // trailing read so the pre-change log cannot become final.
+                fetch: createCoalescedFetch<void>(async () => {
+                    try {
+                        const data = await foundryApi.fetchChatLog(token);
+                        if (Array.isArray(data.messages)) {
+                            setMessages(data.messages);
+                        }
+                    } catch (error) {
+                        if (error instanceof UnauthorizedApiError) {
+                            setToken(null);
+                            return;
+                        }
+                        logger.error('ChatContext | Failed to fetch chat:', error);
+                    }
+                }),
+            };
+        }
+        return fetcherRef.current.fetch();
     }, [step, token, setToken]);
 
     const requestChatRefresh = useCallback(() => {
@@ -88,6 +87,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     }, [addNotification, requestChatRefresh, token]);
 
     const resetChatState = useCallback(() => {
+        fetcherRef.current = null;
         setMessages([]);
     }, []);
 
