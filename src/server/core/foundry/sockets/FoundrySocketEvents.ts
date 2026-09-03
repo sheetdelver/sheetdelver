@@ -1,17 +1,37 @@
 export type FoundryDocumentAction = 'get' | 'create' | 'update' | 'delete';
 
 export interface FoundryModifyDocumentEvent {
-    type: string;
-    action: FoundryDocumentAction | string;
-    result: unknown;
+    response?: unknown;
+    type?: string;
+    action?: FoundryDocumentAction | string;
+    result?: unknown;
     operation?: unknown;
 }
 
 export interface FoundryDocumentDispatchConfirmedEvent {
-    type: string;
-    action: FoundryDocumentAction | string;
-    result: unknown;
+    response?: unknown;
+    fallback?: {
+        type?: string;
+        action?: FoundryDocumentAction | string;
+        operation?: unknown;
+    };
+    type?: string;
+    action?: FoundryDocumentAction | string;
+    result?: unknown;
     operation?: unknown;
+}
+
+export interface FoundryModifyDocumentBatchEvent {
+    response: unknown;
+}
+
+export interface FoundryAutosaveEvent {
+    uuid: string;
+    html: string;
+}
+
+export interface FoundryManageCompendiumEvent {
+    response: unknown;
 }
 
 export interface FoundryDocumentCompatibilityEvent {

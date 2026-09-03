@@ -325,6 +325,60 @@ export class CompendiumStore {
         return this.packs.has(packId);
     }
 
+    /**
+     * Invalidates one pack's mirrored contents without discarding its catalog
+     * metadata. Foundry owns pack rows; removing the manifest entry prevents a
+     * stale persistent shard from being treated as current on the next read or
+     * hydration pass.
+     */
+    public async invalidatePackContent(
+        systemId: string | null | undefined,
+        packId: string,
+        _reason?: string,
+    ): Promise<void> {
+        const normalizedPackId = String(packId || '').trim();
+        if (!normalizedPackId) return;
+
+        this.packs.get(normalizedPackId)?.variants.clear();
+        if (!systemId) return;
+
+        const manifest = await this.getManifest(systemId);
+        if (manifest?.packs[normalizedPackId]) {
+            const packs = { ...manifest.packs };
+            delete packs[normalizedPackId];
+            await this.setManifest({ ...manifest, packs });
+        }
+
+        // Test caches may only implement get/set. Production PersistentCache
+        // supports deletion, allowing both historical and stable shard names
+        // to be removed after a live Foundry mutation.
+        if (this.cache.delete) {
+            const namespace = packNamespaceFor(systemId);
+            const shardKeys = new Set([
+                shardKeyFor(normalizedPackId),
+                stableShardKeyFor(normalizedPackId),
+            ]);
+            await Promise.all(
+                Array.from(shardKeys, key => this.cache.delete!(namespace, key)),
+            );
+        }
+    }
+
+    /**
+     * Removes a deleted pack from the live catalog and invalidates any hydrated
+     * rows which survived from an earlier world snapshot.
+     */
+    public async removePack(
+        systemId: string | null | undefined,
+        packId: string,
+        reason?: string,
+    ): Promise<void> {
+        const normalizedPackId = String(packId || '').trim();
+        if (!normalizedPackId) return;
+        this.packs.delete(normalizedPackId);
+        await this.invalidatePackContent(systemId, normalizedPackId, reason);
+    }
+
     public findIndexEntry(uuid: string): CompendiumIndexLookupResult | null {
         const parsed = parseCompendiumUuid(uuid);
         if (!parsed) return null;

@@ -4,6 +4,7 @@ import { useEffect, useRef } from 'react';
 import type { Socket } from 'socket.io-client';
 import type { ActorCardData } from '@shared/sdk';
 import type { ActorListPayload } from '@shared/contracts/actors';
+import type { RealtimeActorListInvalidatedPayload } from '@shared/contracts/realtime';
 import * as foundryApi from '@client/ui/api/foundryApi';
 
 interface UseActorRealtimeOptions {
@@ -54,10 +55,18 @@ export function useActorRealtime({
                 void latest.fetchActors();
             }
         };
+        const handleActorListInvalidated = (_data: RealtimeActorListInvalidatedPayload) => {
+            // Membership and projection-band changes require the authoritative
+            // list payload; a card-only refresh cannot move an Actor between
+            // owned, read-only, limited-card, and hidden collections.
+            void latestRef.current.fetchActors();
+        };
 
         appSocket.on('actorChanged', handleActorChanged);
+        appSocket.on('actorListInvalidated', handleActorListInvalidated);
         return () => {
             appSocket.off('actorChanged', handleActorChanged);
+            appSocket.off('actorListInvalidated', handleActorListInvalidated);
         };
     }, [appSocket]);
 }

@@ -162,7 +162,8 @@ async function runGatewayTests() {
         // shared-content, presence/status, and combat updates flow through the
         // system client / Store bridges.
         // The system client carries Store-bridged events:
-        //   actorChanged + chatMessageChanged + chatMessageListInvalidated
+        //   actorChanged + actorListInvalidated
+        //   + chatMessageChanged + chatMessageListInvalidated
         //   + userChanged + userListInvalidated + folderChanged + folderListInvalidated
         //   + journalChanged + journalListInvalidated
         //   + combatChanged + combatListInvalidated
@@ -170,9 +171,10 @@ async function runGatewayTests() {
         //   + rollTableChanged + rollTableListInvalidated
         //   + macroChanged + macroListInvalidated
         //   + playlistChanged + playlistListInvalidated
-        //   + cardsChanged + cardsListInvalidated = 21.
+        //   + cardsChanged + cardsListInvalidated = 22.
         assert.equal(attachedHandlers.length, 0);
-        assert.equal(systemAttachedHandlers.length, 21);
+        assert.equal(systemAttachedHandlers.length, 22);
+        assert.ok(systemAttachedHandlers.some((entry) => entry.event === 'actorListInvalidated'));
         assert.ok(browserCounts.includes(1));
 
         const userChanged = systemAttachedHandlers.find((entry) => entry.event === 'userChanged')?.handler;
@@ -190,7 +192,8 @@ async function runGatewayTests() {
         disconnectHandler?.();
 
         assert.equal(detachedHandlers.length, 0);
-        assert.equal(systemDetachedHandlers.length, 21);
+        assert.equal(systemDetachedHandlers.length, 22);
+        assert.ok(systemDetachedHandlers.some((entry) => entry.event === 'actorListInvalidated'));
         assert.ok(browserCounts.includes(0));
 
         // Guest degradation path (no cookie): middleware should still call next.
@@ -327,8 +330,8 @@ async function runDeferredAttachWhenNotReady() {
         ready = true;
         systemService.emit('world:ready', { systemId: 'shadowdark' });
 
-        // After readiness fires, the 21 system-client listeners are attached.
-        assert.equal(systemAttachedHandlers.length, 21);
+        // After readiness fires, all 22 system-client listeners are attached.
+        assert.equal(systemAttachedHandlers.length, 22);
     } finally {
         (systemService as any).getSystemClient = originalGetSystemClient;
         (systemService as any).isReady = originalIsReady;

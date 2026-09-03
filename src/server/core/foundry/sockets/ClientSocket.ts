@@ -160,7 +160,15 @@ export class ClientSocket extends SocketBase {
         }
 
         try {
-            return await this.emitSocketEvent('modifyDocument', { type, action, operation }, 5000);
+            const response = await this.emitSocketEvent('modifyDocument', { type, action, operation }, 5000);
+            // Mirror the acknowledgement through the same ingress normalizer
+            // used by CoreSocket. Foundry still authorizes the write using this
+            // requesting user's socket; this only updates Sheet Delver's cache.
+            this.emit('foundry:documentDispatchConfirmed', {
+                response,
+                fallback: { type, action, operation },
+            });
+            return response;
         } catch (error: unknown) {
             logger.warn(`ClientSocket | Dispatch failed on user socket: ${getErrorMessage(error)}`);
             throw error;

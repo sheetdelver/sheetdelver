@@ -17,6 +17,10 @@ export interface ModifyDocumentPayload {
     operation?: Record<string, unknown>;
 }
 
+export type ModifyDocumentRouteOutcome =
+    | { status: 'dispatched'; route: 'direct' | 'embedded'; storeType: string }
+    | { status: 'dropped'; reason: 'unregistered-direct-type' | 'unregistered-parent-type' };
+
 /**
  * Single inbound dispatch point that routes Foundry modifyDocument events into
  * the right per-type Store. Replaces the per-type switch in CoreSocket and the
@@ -59,7 +63,7 @@ export class ModifyDocumentRouter {
         this.embeddedParentHandlers.clear();
     }
 
-    route(payload: ModifyDocumentPayload): void {
+    route(payload: ModifyDocumentPayload): ModifyDocumentRouteOutcome {
         // parentUuid present means this is an embedded event. Route to the
         // registered handler for the parent type, or drop. No fall-through to
         // direct-type — an `Item` with `parentUuid: ActorDelta.<id>.Item.<id>`
@@ -73,12 +77,12 @@ export class ModifyDocumentRouter {
             const parentStore = this.embeddedParentHandlers.get(parentType);
             if (parentStore) {
                 parentStore.applyModifyDocument(payload.type, payload.action, payload.result, payload.operation);
-                return;
+                return { status: 'dispatched', route: 'embedded', storeType: parentStore.documentType };
             }
             logger.debug(
                 `modifyDocumentRouter | Dropping unrouted embedded event: type=${payload.type} parentUuid=${parentUuid}`,
             );
-            return;
+            return { status: 'dropped', reason: 'unregistered-parent-type' };
         }
 
         // No parentUuid → direct-type lookup. This is the common case for
@@ -86,10 +90,11 @@ export class ModifyDocumentRouter {
         const direct = this.storesByType.get(payload.type);
         if (direct) {
             direct.applyModifyDocument(payload.type, payload.action, payload.result, payload.operation);
-            return;
+            return { status: 'dispatched', route: 'direct', storeType: direct.documentType };
         }
 
         logger.debug(`modifyDocumentRouter | Dropping unrouted event: type=${payload.type} action=${payload.action}`);
+        return { status: 'dropped', reason: 'unregistered-direct-type' };
     }
 }
 

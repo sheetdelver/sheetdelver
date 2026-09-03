@@ -3,7 +3,12 @@ import { EventEmitter } from 'node:events';
 import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
 import { adventureStore } from '@server/core/documents/primary/adventures/AdventureStore';
 import { fogExplorationStore } from '@server/core/documents/primary/fog-explorations/FogExplorationStore';
-import { FoundryUserRole } from '@server/core/documents/primary/base/ownership';
+import {
+    DOCUMENT_VISIBILITY,
+    DocumentOwnershipLevel,
+    FoundryUserRole,
+    type ResolvedDocumentOwnershipLevel,
+} from '@server/core/documents/primary/base/ownership';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
 import { registerAppSocketGateway } from '@server/realtime/AppSocketGateway';
 import { PLAYER_SESSION_COOKIE_NAME } from '@server/security/playerSessionCookie';
@@ -224,7 +229,6 @@ async function runIngressToAuthorizedBrowserHarness() {
         );
         const missingEvents = EXPECTED_BROWSER_STORE_EVENTS.filter((event) => !registeredEvents.has(event));
         assert.deepEqual(missingEvents, [
-            'actorListInvalidated',
             'sceneChanged',
             'sceneListInvalidated',
             'settingChanged',
@@ -232,12 +236,14 @@ async function runIngressToAuthorizedBrowserHarness() {
         ]);
 
         foundryTransport.emit('foundry:modifyDocument', {
-            type: 'Actor',
-            action: 'update',
-            operation: {
-                updates: [{ _id: 'actor-sync', name: 'After' }],
+            response: {
+                type: 'Actor',
+                action: 'update',
+                operation: {
+                    updates: [{ _id: 'actor-sync', name: 'After' }],
+                },
+                result: [{ _id: 'actor-sync', name: 'After' }],
             },
-            result: [{ _id: 'actor-sync', name: 'After' }],
         });
 
         assert.equal(actorStore.get('actor-sync')?.name, 'After');
@@ -252,16 +258,116 @@ async function runIngressToAuthorizedBrowserHarness() {
             'a non-owner does not receive the document-specific invalidation',
         );
 
+        // Feed each incoming ownership value through the exact CoreSocket
+        // envelope. Production code reads the response value; this matrix
+        // guards against accidentally specializing convergence for one level.
+        const otherSubject = userStore.createAccessSubject('other-user');
+        assert.ok(otherSubject);
+        const ownershipTransitions: ResolvedDocumentOwnershipLevel[] = [
+            DocumentOwnershipLevel.OWNER,
+            DocumentOwnershipLevel.LIMITED,
+            DocumentOwnershipLevel.OBSERVER,
+            DocumentOwnershipLevel.NONE,
+        ];
+        for (const level of ownershipTransitions) {
+            const ownership = {
+                default: DocumentOwnershipLevel.NONE,
+                'owner-user': DocumentOwnershipLevel.OWNER,
+                'other-user': level,
+            };
+            foundryTransport.emit('foundry:modifyDocument', {
+                response: {
+                    type: 'Actor',
+                    action: 'update',
+                    operation: { updates: [{ _id: 'actor-sync', ownership }] },
+                    // Foundry v14 returns replacement DataFieldOperators in
+                    // this serialized form. Ingress must preserve the wire
+                    // value until the Store applies its database semantics.
+                    result: [{
+                        _id: 'actor-sync',
+                        ownership: {
+                            '__$OPERATOR$__': 'ForcedReplacement',
+                            value: ownership,
+                        },
+                    }],
+                },
+            });
+
+            const visibleAt = (threshold: ResolvedDocumentOwnershipLevel): boolean => actorStore.listActors({
+                subject: otherSubject!,
+                minOwnership: threshold,
+            }).some(actor => actor._id === 'actor-sync');
+            assert.equal(
+                visibleAt(DOCUMENT_VISIBILITY.LIST_VISIBLE),
+                level >= DOCUMENT_VISIBILITY.LIST_VISIBLE,
+                `LIST visibility must follow incoming ownership level ${level}`,
+            );
+            assert.equal(
+                visibleAt(DOCUMENT_VISIBILITY.DETAIL_VISIBLE),
+                level >= DOCUMENT_VISIBILITY.DETAIL_VISIBLE,
+                `DETAIL visibility must follow incoming ownership level ${level}`,
+            );
+            assert.equal(
+                visibleAt(DOCUMENT_VISIBILITY.WRITEABLE),
+                level >= DOCUMENT_VISIBILITY.WRITEABLE,
+                `WRITE visibility must follow incoming ownership level ${level}`,
+            );
+        }
+        assert.deepEqual(
+            actorStore.get('actor-sync')?.ownership,
+            {
+                default: DocumentOwnershipLevel.NONE,
+                'owner-user': DocumentOwnershipLevel.OWNER,
+                'other-user': DocumentOwnershipLevel.NONE,
+            },
+            'the cached Actor contains ownership values, not v14 operator metadata',
+        );
+
+        // Foundry v13 expresses the same whole-field replacement with the
+        // legacy `==` key. Omitted overrides must disappear on this path too.
+        foundryTransport.emit('foundry:modifyDocument', {
+            response: {
+                type: 'Actor',
+                action: 'update',
+                result: [{
+                    _id: 'actor-sync',
+                    '==ownership': {
+                        default: DocumentOwnershipLevel.NONE,
+                        'owner-user': DocumentOwnershipLevel.OWNER,
+                    },
+                }],
+            },
+        });
+        assert.equal(
+            Object.hasOwn(actorStore.get('actor-sync')?.ownership ?? {}, 'other-user'),
+            false,
+            'v13 replacement removes an omitted ownership override',
+        );
+        assert.equal(
+            otherBrowser.emitted.some((entry) => entry.event === 'actorListInvalidated'),
+            true,
+            'ownership transitions reach the affected browser as list invalidations',
+        );
+        assert.equal(
+            ownerBrowser.emitted.some((entry) => entry.event === 'actorListInvalidated'),
+            false,
+            'ownership invalidations do not leak to an unaffected browser',
+        );
+
         // The explicitly unsupported Stores stay outside generic ingress.
         foundryTransport.emit('foundry:modifyDocument', {
-            type: 'Adventure',
-            action: 'create',
-            result: [{ _id: 'unsupported-adventure' }],
+            response: {
+                type: 'Adventure',
+                action: 'create',
+                result: [{ _id: 'unsupported-adventure' }],
+            },
         });
         foundryTransport.emit('foundry:modifyDocument', {
-            type: 'FogExploration',
-            action: 'create',
-            result: [{ _id: 'unsupported-fog' }],
+            response: {
+                type: 'FogExploration',
+                action: 'create',
+                result: [{ _id: 'unsupported-fog' }],
+            },
         });
         assert.equal(adventureStore.get('unsupported-adventure'), null);
         assert.equal(fogExplorationStore.get('unsupported-fog'), null);

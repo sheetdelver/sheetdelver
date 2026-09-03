@@ -1,7 +1,6 @@
 import { strict as assert } from 'node:assert';
 import { CoreSocket } from '@core/foundry/sockets/CoreSocket';
-import { modifyDocumentRouter } from '@server/core/documents/primary/base/modifyDocumentRouter';
-import { foundryEventIngress } from '@server/services/world/FoundryEventIngress';
+import { FoundryEventIngress } from '@server/services/world/FoundryEventIngress';
 
 /**
  * Per ADR-0021/0023, CoreSocket.dispatchDocumentSocket emits confirmed
@@ -31,11 +30,12 @@ class TestCoreSocket extends CoreSocket {
 async function runPackScopedDispatchSkipsWorldRouter() {
     const socket = new TestCoreSocket();
     const routerCalls: Array<{ type: string; action: string; operation?: unknown }> = [];
-    const originalRoute = modifyDocumentRouter.route.bind(modifyDocumentRouter);
-    (modifyDocumentRouter as any).route = (input: { type: string; action: string; operation?: unknown }) => {
-        routerCalls.push({ type: input.type, action: input.action, operation: input.operation });
-    };
-    const detachIngress = foundryEventIngress.attach(socket);
+    const ingress = new FoundryEventIngress({
+        routeDocument: (input) => {
+            routerCalls.push({ type: input.type, action: input.action, operation: input.operation });
+        },
+    });
+    const detachIngress = ingress.attach(socket);
 
     try {
         await socket.dispatchDocumentSocket('Item', 'get', { pack: 'dnd5e.items', index: true });
@@ -47,7 +47,6 @@ async function runPackScopedDispatchSkipsWorldRouter() {
         assert.equal(routerCalls[0].action, 'update');
     } finally {
         detachIngress();
-        (modifyDocumentRouter as any).route = originalRoute;
     }
 }
 

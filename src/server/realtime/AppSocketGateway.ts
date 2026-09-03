@@ -18,7 +18,10 @@ import {
 } from '@server/core/documents/primary/base/ownership';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
 import { sharedContentStore, type SharedContentChangedEvent } from '@server/core/world/SharedContentStore';
-import type { RealtimeActorChangedPayload } from '@shared/contracts/realtime';
+import type {
+    RealtimeActorChangedPayload,
+    RealtimeActorListInvalidatedPayload,
+} from '@shared/contracts/realtime';
 import { readPlayerSessionCookie } from '@server/security/playerSessionCookie';
 import { STATUS_ROOMS } from './SystemStatusBroadcaster';
 
@@ -155,6 +158,15 @@ export function registerAppSocketGateway({
                     }
                 }
                 emitWorldBackedEvent('actorChanged', data);
+            };
+            const handleActorListInvalidated = (...args: unknown[]) => {
+                const data = (args[0] || {}) as RealtimeActorListInvalidatedPayload;
+                const userId = getSessionUserId();
+                // Ownership changes are calculated against old and new Store
+                // state, so preserve that audience instead of rechecking only
+                // the post-change document (which would lose removal events).
+                if (data.targetUserIds && (!userId || !data.targetUserIds.includes(userId))) return;
+                emitWorldBackedEvent('actorListInvalidated', data);
             };
             const handleChatMessageChanged = (...args: unknown[]) => {
                 const data = (args[0] || {}) as { messageId: string; action: 'create' | 'update' | 'delete' };
@@ -323,6 +335,7 @@ export function registerAppSocketGateway({
             // applies ownership filtering separately for each browser socket.
             const systemClient = systemService.getSystemClient();
             systemClient.on('actorChanged', handleActorChanged);
+            systemClient.on('actorListInvalidated', handleActorListInvalidated);
             systemClient.on('chatMessageChanged', handleChatMessageChanged);
             systemClient.on('chatMessageListInvalidated', handleChatMessageListInvalidated);
             systemClient.on('userChanged', handleUserChanged);
@@ -347,6 +360,7 @@ export function registerAppSocketGateway({
 
             const detachWorldBackedListeners = () => {
                 systemClient.off('actorChanged', handleActorChanged);
+                systemClient.off('actorListInvalidated', handleActorListInvalidated);
                 systemClient.off('chatMessageChanged', handleChatMessageChanged);
                 systemClient.off('chatMessageListInvalidated', handleChatMessageListInvalidated);
                 systemClient.off('userChanged', handleUserChanged);

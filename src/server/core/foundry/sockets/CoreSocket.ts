@@ -264,12 +264,46 @@ export class CoreSocket extends SocketBase {
                 });
 
                 this.socket.on('modifyDocument', (data: any) => {
-                    this.emit('foundry:modifyDocument', {
-                        type: data.type,
-                        action: data.action,
-                        result: data.result,
-                        operation: data.operation,
+                    const resultEntries = Array.isArray(data?.result)
+                        ? data.result
+                        : data?.result && typeof data.result === 'object'
+                            ? [data.result]
+                            : [];
+                    // Log shape rather than values so synchronization failures
+                    // are diagnosable without exposing document contents.
+                    logger.debug('CoreSocket | Received Foundry modifyDocument response', {
+                        type: data?.type,
+                        action: data?.action,
+                        pack: data?.operation?.pack,
+                        resultCount: resultEntries.length,
+                        resultFields: resultEntries[0] && typeof resultEntries[0] === 'object'
+                            ? Object.keys(resultEntries[0]).slice(0, 20)
+                            : [],
+                        operationUpdateCount: Array.isArray(data?.operation?.updates)
+                            ? data.operation.updates.length
+                            : null,
                     });
+                    this.emit('foundry:modifyDocument', { response: data });
+                });
+
+                // Foundry v14 adds ordered batches while v13 continues to use
+                // the single event above. Keep both listeners active so batch
+                // support is additive rather than a generation switch.
+                this.socket.on('modifyDocumentBatch', (data: any) => {
+                    logger.debug('CoreSocket | Received Foundry modifyDocumentBatch response', {
+                        resultCount: Array.isArray(data?.results) ? data.results.length : null,
+                    });
+                    this.emit('foundry:modifyDocumentBatch', { response: data });
+                });
+
+                // ProseMirror autosave is the persistence signal in both v13
+                // and v14; pm.newSteps remains transient collaborative state.
+                this.socket.on('pm.autosave', (uuid: string, html: string) => {
+                    this.emit('foundry:pmAutosave', { uuid, html });
+                });
+
+                this.socket.on('manageCompendium', (response: any) => {
+                    this.emit('foundry:manageCompendium', { response });
                 });
 
                 this.socket.on('createUser', (user: any) => {
@@ -411,19 +445,13 @@ export class CoreSocket extends SocketBase {
             const result: any = await this.emitSocketEvent('modifyDocument', { type, action, operation }, 5000);
             this.consecutiveFailures = 0;
 
-            // Per ADR-0021, compendium pack operations (`operation.pack` set) are
-            // pack-scoped reads. Foundry's CONST.COMPENDIUM_DOCUMENT_TYPES overlap
-            // with world primary documents (Actor, Item, JournalEntry, …), so the
-            // boundary is scope, not the returned document `type`. Pack-scoped
-            // results must not mirror into world Stores.
-            const isPackScoped = Boolean(operation && operation.pack);
-
-            if (result && !isPackScoped) {
+            if (result) {
+                // Ingress owns single/batch normalization and pack scope for
+                // both acknowledgements and broadcasts. Supplying the request
+                // fallback preserves terse v13 acknowledgement compatibility.
                 this.emit('foundry:documentDispatchConfirmed', {
-                    type,
-                    action,
-                    result: result.result,
-                    operation: result.operation || operation,
+                    response: result,
+                    fallback: { type, action, operation },
                 });
             }
 

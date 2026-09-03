@@ -8,6 +8,12 @@ export interface RealtimeActorChangedPayload {
     action: 'create' | 'update' | 'delete';
 }
 
+export interface RealtimeActorListInvalidatedPayload {
+    reason: string;
+    actorId?: string;
+    targetUserIds?: string[];
+}
+
 export interface RealtimeSharedContentPayload {
     type: 'image' | 'journal' | null;
     data?: {

@@ -74,6 +74,7 @@ export interface CompendiumPackManifest {
 export interface CompendiumPackCache {
     get<T>(namespace: string, key: string): Promise<T | null>;
     set<T>(namespace: string, key: string, value: T): Promise<void>;
+    delete?(namespace: string, key: string): Promise<void>;
 }
 
 export interface CompendiumPackQueryOptions {

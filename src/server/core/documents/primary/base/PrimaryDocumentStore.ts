@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events';
+import { logger } from '@shared/utils/logger';
 import {
     DOCUMENT_VISIBILITY,
     type DocumentAccessSubject,
@@ -69,30 +70,100 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+const FOUNDRY_OPERATOR_IDENTIFIER = '__$OPERATOR$__';
+
+type FoundryFieldOperation =
+    | { kind: 'delete' }
+    | { kind: 'replace'; value: unknown }
+    | { kind: 'merge'; value: unknown };
+
 /**
- * Deep-merge with Foundry-style dotted-key support ("system.hp.value": 5).
+ * Decode the two DataFieldOperator forms Foundry serializes over Socket.IO.
+ * v14 uses the explicit operator envelope; v13 uses the legacy `==`/`-=`
+ * key prefixes. Keeping this at the shared merge boundary applies the same
+ * database semantics to every primary and embedded document Store.
+ */
+function resolveFoundryFieldOperation(rawKey: string, rawValue: unknown): {
+    key: string;
+    operation: FoundryFieldOperation;
+} {
+    if (rawKey.startsWith('==')) {
+        return { key: rawKey.slice(2), operation: { kind: 'replace', value: rawValue } };
+    }
+    if (rawKey.startsWith('-=')) {
+        return { key: rawKey.slice(2), operation: { kind: 'delete' } };
+    }
+    if (isRecord(rawValue)) {
+        const operator = rawValue[FOUNDRY_OPERATOR_IDENTIFIER];
+        if (operator === 'ForcedReplacement') {
+            return { key: rawKey, operation: { kind: 'replace', value: rawValue.value } };
+        }
+        if (operator === 'ForcedDeletion') {
+            return { key: rawKey, operation: { kind: 'delete' } };
+        }
+    }
+    return { key: rawKey, operation: { kind: 'merge', value: rawValue } };
+}
+
+/**
+ * Materialize nested operator values without retaining Foundry's transport
+ * metadata in the cached document. This mirrors Foundry's applyDataOperators
+ * behavior for replacement payloads and arrays.
+ */
+function materializeFoundryValue(value: unknown): unknown {
+    if (Array.isArray(value)) return value.map(materializeFoundryValue);
+    if (!isRecord(value)) return value;
+
+    const materialized: Record<string, unknown> = {};
+    for (const [rawKey, rawValue] of Object.entries(value)) {
+        const { key, operation } = resolveFoundryFieldOperation(rawKey, rawValue);
+        if (!key || operation.kind === 'delete') continue;
+        materialized[key] = materializeFoundryValue(operation.value);
+    }
+    return materialized;
+}
+
+function resolvePath(
+    target: Record<string, unknown>,
+    dottedKey: string,
+): { parent: Record<string, unknown>; key: string } | null {
+    const parts = dottedKey.split('.').filter(Boolean);
+    const key = parts.pop();
+    if (!key) return null;
+
+    let parent = target;
+    for (const part of parts) {
+        if (!isRecord(parent[part])) parent[part] = {};
+        parent = parent[part] as Record<string, unknown>;
+    }
+    return { parent, key };
+}
+
+/**
+ * Deep-merge with Foundry-style dotted keys and serialized field operators.
  * Mutates target in place; returns it for convenience.
  */
 export function deepMerge(
     target: Record<string, unknown>,
     source: Record<string, unknown>,
 ): Record<string, unknown> {
-    for (const [key, value] of Object.entries(source)) {
-        if (key.includes('.')) {
-            const parts = key.split('.');
-            let current = target;
-            for (let i = 0; i < parts.length - 1; i += 1) {
-                const part = parts[i];
-                if (!isRecord(current[part])) current[part] = {};
-                current = current[part] as Record<string, unknown>;
-            }
-            current[parts[parts.length - 1]] = value;
+    for (const [rawKey, rawValue] of Object.entries(source)) {
+        const { key, operation } = resolveFoundryFieldOperation(rawKey, rawValue);
+        const path = resolvePath(target, key);
+        if (!path) continue;
+
+        if (operation.kind === 'delete') {
+            delete path.parent[path.key];
             continue;
         }
-        if (isRecord(value) && isRecord(target[key])) {
-            deepMerge(target[key] as Record<string, unknown>, value);
+
+        const value = operation.value;
+        if (operation.kind === 'replace') {
+            path.parent[path.key] = materializeFoundryValue(value);
+        } else if (isRecord(value) && isRecord(path.parent[path.key])) {
+            deepMerge(path.parent[path.key] as Record<string, unknown>, value);
         } else {
-            target[key] = value;
+            path.parent[path.key] = materializeFoundryValue(value);
         }
     }
     return target;
@@ -500,6 +571,7 @@ export abstract class PrimaryDocumentStore<TDocument extends DocumentLike> exten
     protected emitChanged(documentId: string, action: ChangeAction): void {
         if (!this.ready) return;
         const event: DocumentChangedEvent = { type: this.documentType, id: documentId, action };
+        logger.debug('PrimaryDocumentStore | Applied document change', event);
         this.emit('documentChanged', event);
         this.emit('primaryDocumentChanged', event);
     }
@@ -519,6 +591,15 @@ export abstract class PrimaryDocumentStore<TDocument extends DocumentLike> exten
             documentId: options?.documentId,
             targetUserIds: options?.targetUserIds,
         };
+        // Keep user identifiers out of diagnostics while reporting whether an
+        // invalidation is globally visible or scoped to an affected audience.
+        logger.debug('PrimaryDocumentStore | Emitted list invalidation', {
+            type: event.type,
+            reason: event.reason,
+            documentId: event.documentId,
+            targeted: Array.isArray(event.targetUserIds),
+            targetCount: event.targetUserIds?.length ?? 0,
+        });
         this.emit('documentListInvalidated', event);
         this.emit('primaryDocumentListInvalidated', event);
     }
@@ -546,8 +627,10 @@ export abstract class PrimaryDocumentStore<TDocument extends DocumentLike> exten
     }
 
     /**
-     * Diff an old/new ownership map and emit a listInvalidated targeted at the
-     * users whose effective LIST_VISIBLE access changed. Called after upsert/patch.
+     * Diff an old/new ownership map and emit a listInvalidated targeted at users
+     * whose effective permission changed. A transition can move a document
+     * between hidden, card-only, read-only, and owned projections even when both
+     * levels remain above LIST_VISIBLE.
      */
     protected diffOwnershipAndEmitInvalidation(
         documentId: string,
@@ -561,11 +644,14 @@ export abstract class PrimaryDocumentStore<TDocument extends DocumentLike> exten
 
         const beforeDefault = before.default ?? 0;
         const afterDefault = after.default ?? 0;
-        const beforeVisibleByDefault = beforeDefault >= DOCUMENT_VISIBILITY.LIST_VISIBLE;
-        const afterVisibleByDefault = afterDefault >= DOCUMENT_VISIBILITY.LIST_VISIBLE;
-
-        // Default-level visibility crossing affects everyone — emit broadcast-wide.
-        if (beforeVisibleByDefault !== afterVisibleByDefault) {
+        // A default permission change can alter every subject without an
+        // explicit override, including their dashboard projection category.
+        if (beforeDefault !== afterDefault) {
+            logger.debug('PrimaryDocumentStore | Ownership default changed', {
+                type: this.documentType,
+                documentId,
+                transition: `${beforeDefault}->${afterDefault}`,
+            });
             this.emitListInvalidated('ownership-default-changed', { documentId });
             return;
         }
@@ -582,15 +668,25 @@ export abstract class PrimaryDocumentStore<TDocument extends DocumentLike> exten
         }
 
         const crossed: string[] = [];
+        const transitionCounts: Record<string, number> = {};
         for (const userId of affectedUserIds) {
             const beforeLevel = before[userId] ?? beforeDefault;
             const afterLevel = after[userId] ?? afterDefault;
-            const beforeVisible = beforeLevel >= DOCUMENT_VISIBILITY.LIST_VISIBLE;
-            const afterVisible = afterLevel >= DOCUMENT_VISIBILITY.LIST_VISIBLE;
-            if (beforeVisible !== afterVisible) crossed.push(userId);
+            if (beforeLevel !== afterLevel) {
+                crossed.push(userId);
+                // Aggregate only numeric transitions. User identities stay in
+                // the internal audience list and never enter diagnostics.
+                const transition = `${beforeLevel}->${afterLevel}`;
+                transitionCounts[transition] = (transitionCounts[transition] ?? 0) + 1;
+            }
         }
 
         if (crossed.length > 0) {
+            logger.debug('PrimaryDocumentStore | Ownership users changed', {
+                type: this.documentType,
+                documentId,
+                transitionCounts,
+            });
             this.emitListInvalidated('ownership-user-changed', {
                 documentId,
                 targetUserIds: crossed,

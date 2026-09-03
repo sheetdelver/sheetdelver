@@ -39,6 +39,7 @@ const CHANGED_EVENTS: Record<string, { type: string; idField: string }> = {
 
 // `<type>ListInvalidated` socket events → a `document:listInvalidated` signal.
 const LIST_INVALIDATED_EVENTS: Record<string, string> = {
+    actorListInvalidated: 'Actor',
     combatListInvalidated: 'Combat',
     itemListInvalidated: 'Item',
     chatMessageListInvalidated: 'ChatMessage',

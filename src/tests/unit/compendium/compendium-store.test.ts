@@ -20,6 +20,10 @@ class MemoryPackCache implements CompendiumPackCache {
     public async set<T>(namespace: string, key: string, value: T): Promise<void> {
         this.values.set(`${namespace}/${key}`, value);
     }
+
+    public async delete(namespace: string, key: string): Promise<void> {
+        this.values.delete(`${namespace}/${key}`);
+    }
 }
 
 export async function run() {
@@ -35,7 +39,42 @@ export async function run() {
     await runFindDocument();
     await runLegacyPackKeyCompatibility();
     await runClearPreservesPersistentShards();
+    await runPackContentInvalidation();
     console.log('  - CompendiumStore: all checks passed');
+}
+
+async function runPackContentInvalidation() {
+    const cache = new MemoryPackCache();
+    const store = new CompendiumStore(cache);
+    const systemId = 'synthetic-system';
+    const packId = 'vendor.synthetic.items';
+    const manifest: CompendiumPackManifest = {
+        systemId,
+        _instanceId: 'invalidation-test',
+        packs: {
+            [packId]: {
+                id: packId,
+                hash: 'stale-hash',
+                lastUpdated: 1,
+                rowCount: 1,
+            },
+        },
+    };
+
+    store.setPackIndex(packId, createMetadata({ id: packId }), createIndex());
+    await store.setManifest(manifest);
+    await store.setPackRows(systemId, packId, itemRows());
+    await store.invalidatePackContent(systemId, packId, 'test-update');
+
+    // Content invalidation retains catalog membership while making every
+    // in-memory and persistent content representation unavailable.
+    assert.equal(store.hasPackMetadata(packId), true);
+    assert.equal(store.getPackIndex(packId), null);
+    assert.equal((await store.getManifest(systemId))?.packs[packId], undefined);
+    assert.equal(await store.getPackRows(systemId, packId), null);
+
+    await store.removePack(systemId, packId, 'test-delete');
+    assert.equal(store.hasPackMetadata(packId), false);
 }
 
 // Keep these fixtures synthetic. Real compendium pack rows, pack dumps, and local

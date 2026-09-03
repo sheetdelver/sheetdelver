@@ -49,6 +49,7 @@ export async function run() {
     await runDeleteIdempotency();
     await runNoEmissionDuringSeeding();
     await runListInvalidationOnOwnershipCrossing();
+    await runFoundryFieldOperatorUpdates();
     await runGenericPrimaryDocumentChangedEvent();
     await runApplyModifyDocumentRoutes();
     runAppendCreatedByIdIdempotency();
@@ -207,6 +208,77 @@ async function runPatchDottedKeys() {
     assert.equal(events.length, 1);
 }
 
+async function runFoundryFieldOperatorUpdates() {
+    const v13Store = new MockStore();
+    await v13Store.seed(async () => [{
+        _id: 'v13',
+        ownership: {
+            default: DocumentOwnershipLevel.NONE,
+            retained: DocumentOwnershipLevel.OWNER,
+            removed: DocumentOwnershipLevel.OBSERVER,
+        },
+        system: { retained: true, removed: true },
+    }]);
+
+    // Foundry v13 emits the legacy replacement-key form. The omitted user
+    // must be removed instead of surviving an ordinary recursive merge.
+    v13Store.applyModifyDocument('Cards', 'update', [{
+        _id: 'v13',
+        '==ownership': {
+            default: DocumentOwnershipLevel.NONE,
+            retained: DocumentOwnershipLevel.OWNER,
+        },
+        '-=system.removed': null,
+    }]);
+    assert.deepEqual(v13Store.get('v13')?.ownership, {
+        default: DocumentOwnershipLevel.NONE,
+        retained: DocumentOwnershipLevel.OWNER,
+    });
+    assert.deepEqual(v13Store.get('v13')?.system, { retained: true });
+
+    const v14Store = new MockStore();
+    await v14Store.seed(async () => [{
+        _id: 'v14',
+        ownership: {
+            default: DocumentOwnershipLevel.NONE,
+            retained: DocumentOwnershipLevel.OBSERVER,
+            removed: DocumentOwnershipLevel.OWNER,
+        },
+        system: { retained: true, removed: true },
+    }]);
+    const invalidations: DocumentListInvalidatedEvent[] = [];
+    v14Store.on('documentListInvalidated', event => {
+        invalidations.push(event as DocumentListInvalidatedEvent);
+    });
+
+    // Foundry v14 serializes DataFieldOperator instances before transport.
+    // Replacement and deletion semantics must be applied generically, and
+    // the operator envelope itself must never become cached document data.
+    v14Store.applyModifyDocument('Cards', 'update', [{
+        _id: 'v14',
+        ownership: {
+            '__$OPERATOR$__': 'ForcedReplacement',
+            value: {
+                default: DocumentOwnershipLevel.NONE,
+                retained: DocumentOwnershipLevel.OWNER,
+            },
+        },
+        system: {
+            removed: { '__$OPERATOR$__': 'ForcedDeletion' },
+        },
+    }]);
+
+    assert.deepEqual(v14Store.get('v14')?.ownership, {
+        default: DocumentOwnershipLevel.NONE,
+        retained: DocumentOwnershipLevel.OWNER,
+    });
+    assert.deepEqual(v14Store.get('v14')?.system, { retained: true });
+    assert.deepEqual(
+        invalidations.find(event => event.reason === 'ownership-user-changed')?.targetUserIds?.sort(),
+        ['removed', 'retained'],
+    );
+}
+
 async function runDeleteIdempotency() {
     const store = new MockStore();
     await store.seed(async () => [{ _id: 'a' }, { _id: 'b' }]);
@@ -257,6 +329,15 @@ async function runListInvalidationOnOwnershipCrossing() {
     const crossing = invalidations.find(e => e.reason === 'ownership-user-changed');
     assert.ok(crossing, 'expected ownership-user-changed invalidation');
     assert.deepEqual(crossing?.targetUserIds, ['p2']);
+
+    // Move p2 within the visible range. The document changes from read-only to
+    // owned projection, so this must invalidate even though it stays listed.
+    invalidations.length = 0;
+    store.applyModifyDocument('Cards', 'update', [
+        { _id: 'a', ownership: { default: DocumentOwnershipLevel.NONE, p1: DocumentOwnershipLevel.OWNER, p2: DocumentOwnershipLevel.OWNER } },
+    ]);
+    const projectionChange = invalidations.find(e => e.reason === 'ownership-user-changed');
+    assert.deepEqual(projectionChange?.targetUserIds, ['p2']);
 
     // Drop p2 below visibility threshold — another listInvalidated.
     invalidations.length = 0;

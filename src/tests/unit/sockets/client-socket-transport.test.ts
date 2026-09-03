@@ -40,6 +40,23 @@ class LoginContractClientSocket extends ClientSocket {
     }
 }
 
+class DispatchContractClientSocket extends ClientSocket {
+    public response: unknown = {
+        operation: { updates: [{ _id: 'actor-1', name: 'Updated' }] },
+        result: [{ _id: 'actor-1', name: 'Updated' }],
+    };
+
+    public constructor() {
+        super({ url: 'http://foundry.example', username: 'player' });
+        this.socket = {} as never;
+        this.isSocketConnected = true;
+    }
+
+    public async emitSocketEvent<T>(): Promise<T> {
+        return this.response as T;
+    }
+}
+
 async function runClientSocketTransportTests() {
     const client = new ClientSocket({ url: 'http://foundry.example', username: 'player' });
     const originalGetSystemClient = (systemService as any).getSystemClient;
@@ -88,6 +105,28 @@ async function runRestoredCredentialConnectIsTransportOnly() {
     assert.equal(client.getSessionCookie(), 'session=abc123; foundry=xyz');
 }
 
+async function runDispatchAcknowledgementContract() {
+    const client = new DispatchContractClientSocket();
+    const confirmations: unknown[] = [];
+    client.on('foundry:documentDispatchConfirmed', event => confirmations.push(event));
+
+    const response = await client.dispatchDocument(
+        'Actor',
+        'update',
+        { updates: [{ _id: 'actor-1', name: 'Updated' }] },
+    );
+
+    assert.equal(response, client.response);
+    assert.deepEqual(confirmations, [{
+        response: client.response,
+        fallback: {
+            type: 'Actor',
+            action: 'update',
+            operation: { updates: [{ _id: 'actor-1', name: 'Updated' }] },
+        },
+    }]);
+}
+
 async function runVersionedLoginContractTests() {
     const v13Client = new LoginContractClientSocket({
         url: 'http://foundry.example',
@@ -132,6 +171,7 @@ async function runVersionedLoginContractTests() {
 export async function run() {
     await runClientSocketTransportTests();
     await runRestoredCredentialConnectIsTransportOnly();
+    await runDispatchAcknowledgementContract();
     await runVersionedLoginContractTests();
 }
 

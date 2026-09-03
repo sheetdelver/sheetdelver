@@ -30,13 +30,14 @@ export function ActorCombatProvider({ children }: { children: React.ReactNode })
     const [readOnlyActors, setReadOnlyActors] = useState<ActorDto[]>([]);
     const [actorCards, setActorCards] = useState<Record<string, ActorCardData>>({});
     const [combats, setCombats] = useState<CombatTrackerDto[]>([]);
-    const lastActorFetchTimeRef = useRef<number>(0);
+    const actorFetcherRef = useRef<{
+        token: string;
+        fetch: () => Promise<ActorListPayload | void>;
+    } | null>(null);
     const combatFetcherRef = useRef<{
         token: string;
         fetch: () => Promise<CombatListPayload | void>;
     } | null>(null);
-    const FETCH_THROTTLE_MS = 2000;
-
     const fetchActorCards = useCallback(async () => {
         if (!token) return;
         try {
@@ -54,37 +55,40 @@ export function ActorCombatProvider({ children }: { children: React.ReactNode })
 
     const fetchActors = useCallback(async () => {
         if (!token) return;
-
-        const now = Date.now();
-        if (now - lastActorFetchTimeRef.current < FETCH_THROTTLE_MS) {
-            logger.debug('ActorCombatContext | Skipping fetchActors (throttled)');
-            return;
+        if (actorFetcherRef.current?.token !== token) {
+            actorFetcherRef.current = {
+                token,
+                // An invalidation during an in-flight list request must queue a
+                // trailing read; otherwise its older snapshot can overwrite the
+                // ownership state which triggered the invalidation.
+                fetch: createCoalescedFetch<ActorListPayload>(async () => {
+                    try {
+                        const data = await foundryApi.fetchActors(token);
+                        if (data.ownedActors || data.actors) {
+                            setOwnedActors(data.ownedActors || data.actors || []);
+                            setReadOnlyActors(data.readOnlyActors || []);
+                            if (data.actorCards) {
+                                // Newer backends return cards with the actor list to avoid a
+                                // second `/api/actors/cards` request during dashboard load.
+                                setActorCards(data.actorCards);
+                            } else {
+                                // Compatibility path for older payloads and partial responses.
+                                await fetchActorCards();
+                            }
+                        }
+                        return data;
+                    } catch (error: any) {
+                        if (error instanceof UnauthorizedApiError) {
+                            setToken(null);
+                            return;
+                        }
+                        logger.error('ActorCombatContext | Fetch actors failed:', error.message);
+                        return;
+                    }
+                }),
+            };
         }
-
-        lastActorFetchTimeRef.current = now;
-
-        try {
-            const data = await foundryApi.fetchActors(token);
-            if (data.ownedActors || data.actors) {
-                setOwnedActors(data.ownedActors || data.actors || []);
-                setReadOnlyActors(data.readOnlyActors || []);
-                if (data.actorCards) {
-                    // Newer backends return cards with the actor list to avoid a
-                    // second `/api/actors/cards` request during dashboard load.
-                    setActorCards(data.actorCards);
-                } else {
-                    // Compatibility path for older payloads and partial responses.
-                    await fetchActorCards();
-                }
-            }
-            return data;
-        } catch (error: any) {
-            if (error instanceof UnauthorizedApiError) {
-                setToken(null);
-                return;
-            }
-            logger.error('ActorCombatContext | Fetch actors failed:', error.message);
-        }
+        return actorFetcherRef.current.fetch();
     }, [fetchActorCards, token, setToken]);
 
     // Coalesced with a trailing-refetch guarantee: an invalidation arriving

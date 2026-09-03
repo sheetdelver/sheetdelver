@@ -1,6 +1,10 @@
 # ADR-0034: Foundry Document Synchronization and Convergence
 
-**Status:** Accepted - implementation in progress (Phase 0).
+**Status:** Accepted - Phase 1 complete; Phase 2 pending.
+**Status amendment (September 3, 2026):** Phase 2 is in progress. The Actor
+list bridge, Actor trailing refresh, and shared Store application of Foundry
+field operators are complete and live-validated; the remaining Phase 2 items
+stay open below.
 **Date:** September 2, 2026
 **Phase:** Pre-main synchronization remediation
 **Supersedes:** None
@@ -89,6 +93,22 @@ silently applied as successful mutations.
 Generation 13's single-response path remains supported unchanged. Generation
 14 batching is additive and must not replace or reinterpret the generation 13
 contract.
+
+**Implementation amendment - field operators:** Live generation 14 ownership
+testing exposed a compatibility layer omitted from the original ingress plan.
+A valid document response can contain database field operations inside its
+`result`, not only ordinary partial values. Generation 13 ownership updates use
+the legacy `"==ownership"` whole-field replacement key, while generation 14
+serializes `ForcedReplacement` as an object identified by
+`"__$OPERATOR$__"`. Both generations also have corresponding forced-deletion
+forms. Treating those values as ordinary nested data preserves removed keys and
+can insert operator metadata into the cached document.
+
+Response normalization therefore preserves these field operations until the
+shared Store merge boundary. That boundary applies replacement and deletion
+semantics for both supported generations before cache comparison and event
+emission. This is a generic direct/embedded document rule; it does not infer an
+ownership level or special-case Actor documents.
 
 Repository mirroring and later CoreSocket broadcast delivery remain
 idempotent. Both paths use the same normalized result semantics so a logical
@@ -287,23 +307,76 @@ those assertions as the convergence and epoch protections are implemented.
 ### Phase 1: Persistence ingress normalization
 
 - [x] Implement the shared single/batch result normalizer.
-- [ ] Register `modifyDocumentBatch` on CoreSocket.
-- [ ] Normalize inbound broadcasts and outbound dispatch acknowledgements.
-- [ ] Route successful batch primary and side-effect results in order.
-- [ ] Reject pack scope before world routing and invalidate compendium shards.
-- [ ] Wire `pm.autosave` to structured UUID resolution and coalesced root reads.
-- [ ] Wire `manageCompendium` to authoritative catalog invalidation.
-- [ ] Add structured malformed/error telemetry.
+- [x] Register `modifyDocumentBatch` on CoreSocket.
+- [x] Normalize inbound broadcasts and outbound dispatch acknowledgements.
+- [x] Route successful batch primary and side-effect results in order.
+- [x] Reject pack scope before world routing and invalidate compendium shards.
+- [x] Wire `pm.autosave` to structured UUID resolution and coalesced root reads.
+- [x] Wire `manageCompendium` to authoritative catalog invalidation.
+- [x] Add structured malformed/error telemetry.
+
+**Phase 1 implementation result:** CoreSocket retains the generation 13
+`modifyDocument` listener and adds the generation 14
+`modifyDocumentBatch` listener. Broadcasts and CoreSocket/ClientSocket
+acknowledgements now pass through the same ordered normalizer. The initiating
+request is fallback context only for a terse primary acknowledgement; batch
+side effects must remain self-describing. Failed and malformed entries are
+reported with origin, response kind, index, type, action, and side-effect
+context and are not routed.
+
+Pack scope is rejected before the world router. Pack mutations clear in-memory
+index variants, remove the pack from the persistent freshness manifest, and
+delete known persistent shard names. Pack reads remain isolated but do not
+invalidate current content. A `manageCompendium` create applies the
+authoritative server metadata while invalidating prior content under that id;
+a delete removes both catalog metadata and mirrored content.
+
+For both supported generations, CoreSocket now maps `pm.autosave(uuid, html)`
+to a structured UUID parse. The HTML is not merged. Direct and embedded world
+UUIDs schedule a targeted read of the owning root, and an autosave received
+during that read guarantees one trailing read. The full returned root is
+applied as an update so normal Store comparison emits downstream invalidation.
+Compendium UUIDs invalidate only their pack. Unsupported roots, including
+Adventure and FogExploration, remain unwired.
+
+These changes do not alter requesting-user authorization: ClientSocket emits
+the successful acknowledgement for cache convergence only after Foundry has
+processed the operation on that user's socket. No CoreSocket write fallback,
+startup-state change, browser event expansion, or module change is included in
+Phase 1.
 
 ### Phase 2: Store-to-client convergence
 
 - [ ] Complete typed changed/list signal parity for every active Store.
-- [ ] Repair the Actor list bridge and replace the Actor throttle with trailing
+- [x] Repair the Actor list bridge and replace the Actor throttle with trailing
   coalescing.
+- [x] Apply generation 13 and generation 14 replacement/deletion field
+  operations at the shared Store merge boundary.
 - [ ] Apply the shared trailing-refresh primitive to native browser and SDK
   document consumers.
 - [ ] Add SDK world/session epochs and stale-completion rejection.
 - [ ] Ensure reset reaches mounted subscribers.
+
+**Phase 2 partial implementation result:** The typed
+`actorListInvalidated` signal now crosses Store, SystemService,
+AppSocketGateway, browser hooks, and the SDK event bus. Actor list reads use
+the shared coalesced-fetch primitive, so an invalidation during an active read
+schedules a trailing read instead of being discarded.
+
+Live generation 14 testing changed one player through None, Limited, Observer,
+and Owner. The Store diagnostics reported the numeric transitions, authorized
+`/api/actors` reads changed membership/projection, and the mounted dashboard
+updated without reload. That test also exposed serialized
+`ForcedReplacement` metadata being recursively merged as ownership entries.
+The shared merge correction now materializes v14 operators and the v13 legacy
+replacement/deletion keys for every active direct and embedded Store. Unit
+coverage verifies exact field replacement, omitted-key removal, nested
+deletion, all ownership levels, and operator-metadata exclusion.
+
+This does not close Phase 2. Scene and Setting changed/list browser parity,
+non-Actor native and SDK trailing refresh, SDK epoch rejection, and mounted
+subscriber reset behavior remain open. Compendium convergence continues to use
+pack invalidation and rehydration rather than primary-Store merging.
 
 ### Phase 3: Audience and socket correctness
 
