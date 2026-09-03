@@ -4,30 +4,11 @@ import { logger } from '@shared/utils/logger';
 import { engagementService } from '@server/services/world';
 import type { FoundryUserConnectionServiceLike, FoundryUserConnectionLike, FoundryDocumentClientLike } from '@server/shared/types/foundry';
 import type { PublicStatusPayload, SystemStatusPayload } from '@shared/contracts/status';
-import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
-import { chatMessageStore } from '@server/core/documents/primary/chat-messages/ChatMessageStore';
-import { combatStore } from '@server/core/documents/primary/combats/CombatStore';
-import { cardsStore } from '@server/core/documents/primary/cards/CardsStore';
-import { itemStore } from '@server/core/documents/primary/items/ItemStore';
-import { journalStore } from '@server/core/documents/primary/journals/JournalStore';
-import { macroStore } from '@server/core/documents/primary/macros/MacroStore';
-import { playlistStore } from '@server/core/documents/primary/playlists/PlaylistStore';
-import { rollTableStore } from '@server/core/documents/primary/roll-tables/RollTableStore';
-import { sceneStore } from '@server/core/documents/primary/scenes/SceneStore';
 import {
-    DOCUMENT_VISIBILITY,
-    isGM,
-} from '@server/core/documents/primary/base/ownership';
-import { userStore } from '@server/core/documents/primary/users/UserStore';
+    documentAudienceIncludes,
+    isDocumentAudience,
+} from '@server/core/documents/primary/base/audience';
 import { sharedContentStore, type SharedContentChangedEvent } from '@server/core/world/SharedContentStore';
-import type {
-    RealtimeActorChangedPayload,
-    RealtimeActorListInvalidatedPayload,
-    RealtimeSceneChangedPayload,
-    RealtimeSceneListInvalidatedPayload,
-    RealtimeSettingChangedPayload,
-    RealtimeSettingListInvalidatedPayload,
-} from '@shared/contracts/realtime';
 import { readPlayerSessionCookie } from '@server/security/playerSessionCookie';
 import { STATUS_ROOMS } from './SystemStatusBroadcaster';
 
@@ -122,248 +103,58 @@ export function registerAppSocketGateway({
             const sessionIdentity = socket.userSession?.username || socket.userSession?.userId || foundryClient.userId || 'unknown';
             logger.info(`App Socket | Attaching per-user listeners for ${sessionIdentity} (${socket.id})`);
 
-            // Subject builder closes over the current session; ownership checks
-            // are dynamic per event (ADR-0012's fan-out rule).
             const getSessionUserId = () => socket.userSession?.userId || foundryClient.userId || null;
-            const getSubject = () => {
-                if (!systemService.isReady()) return null;
-                return userStore.createAccessSubject(getSessionUserId());
-            };
             const emitWorldBackedEvent = (event: string, payload: unknown) => {
                 if (!systemService.isReady()) return;
                 socket.emit(event, payload);
             };
+            // Stores calculate audience before state is lost and through their
+            // type-specific visibility policy. The gateway fails closed on a
+            // missing/malformed audience and strips it from the browser payload.
+            const forwardAudienceEvent = (event: string, rawPayload: unknown) => {
+                if (!rawPayload || typeof rawPayload !== 'object' || Array.isArray(rawPayload)) {
+                    logger.warn(`App Socket | Rejected malformed ${event} audience envelope.`);
+                    return;
+                }
+                const data = rawPayload as Record<string, unknown>;
+                if (!isDocumentAudience(data.audience)) {
+                    logger.warn(`App Socket | Rejected ${event} without a valid audience.`);
+                    return;
+                }
+                if (!documentAudienceIncludes(data.audience, getSessionUserId())) return;
+                const { audience: _internalAudience, ...browserPayload } = data;
+                emitWorldBackedEvent(event, browserPayload);
+            };
+            const createAudienceHandler = (event: string) => (...args: unknown[]) => {
+                forwardAudienceEvent(event, args[0]);
+            };
 
-            // CombatStore has no per-doc ownership map; visibility is
-            // cross-referenced against ActorStore. Deletes bypass the gate so
-            // a caller who could see the combat learns it's gone.
-            const handleCombatChanged = (...args: unknown[]) => {
-                const data = (args[0] || {}) as { combatId: string; action: 'create' | 'update' | 'delete' };
-                if (data.action !== 'delete' && data.combatId) {
-                    const subject = getSubject();
-                    if (!subject || !combatStore.canReadDocument(data.combatId, subject, DOCUMENT_VISIBILITY.LIST_VISIBLE)) {
-                        return;
-                    }
-                }
-                emitWorldBackedEvent('combatChanged', data);
-            };
-            const handleCombatListInvalidated = (...args: unknown[]) => {
-                const data = (args[0] || {}) as { reason: string; combatId?: string; targetUserIds?: string[] };
-                const userId = getSessionUserId();
-                if (data.targetUserIds && (!userId || !data.targetUserIds.includes(userId))) return;
-                emitWorldBackedEvent('combatListInvalidated', data);
-            };
-            const handleActorChanged = (...args: unknown[]) => {
-                const data = (args[0] || {}) as RealtimeActorChangedPayload;
-                // Actor updates originate globally from ActorStore, so each socket
-                // re-checks current ownership immediately before fan-out.
-                if (data.action !== 'delete' && data.actorId) {
-                    const subject = getSubject();
-                    if (!subject || !actorStore.canReadActor(data.actorId, subject, DOCUMENT_VISIBILITY.LIST_VISIBLE)) {
-                        return;
-                    }
-                }
-                emitWorldBackedEvent('actorChanged', data);
-            };
-            const handleActorListInvalidated = (...args: unknown[]) => {
-                const data = (args[0] || {}) as RealtimeActorListInvalidatedPayload;
-                const userId = getSessionUserId();
-                // Ownership changes are calculated against old and new Store
-                // state, so preserve that audience instead of rechecking only
-                // the post-change document (which would lose removal events).
-                if (data.targetUserIds && (!userId || !data.targetUserIds.includes(userId))) return;
-                emitWorldBackedEvent('actorListInvalidated', data);
-            };
-            const handleChatMessageChanged = (...args: unknown[]) => {
-                const data = (args[0] || {}) as { messageId: string; action: 'create' | 'update' | 'delete' };
-                // Whisper / blind filtering happens at the Store via canReadDocument.
-                // Deletes bypass — a user who could see the message should know it's gone.
-                if (data.action !== 'delete' && data.messageId) {
-                    const subject = getSubject();
-                    if (!subject || !chatMessageStore.canReadDocument(data.messageId, subject, DOCUMENT_VISIBILITY.LIST_VISIBLE)) {
-                        return;
-                    }
-                }
-                emitWorldBackedEvent('chatMessageChanged', data);
-            };
-            const handleChatMessageListInvalidated = (...args: unknown[]) => {
-                const data = (args[0] || {}) as { reason: string; messageId?: string; targetUserIds?: string[] };
-                const userId = getSessionUserId();
-                if (data.targetUserIds && (!userId || !data.targetUserIds.includes(userId))) return;
-                emitWorldBackedEvent('chatMessageListInvalidated', data);
-            };
-            // User document fan-out. Per ADR-0013 User docs have no per-user
-            // ownership map; every authenticated subject sees the roster.
-            // `targetUserIds` is honored if present for future-proofing.
-            const handleUserChanged = (...args: unknown[]) => {
-                const data = (args[0] || {}) as { userId: string; action: 'create' | 'update' | 'delete' };
-                emitWorldBackedEvent('userChanged', data);
-            };
-            const handleUserListInvalidated = (...args: unknown[]) => {
-                const data = (args[0] || {}) as { reason: string; userId?: string; targetUserIds?: string[] };
-                const userId = getSessionUserId();
-                if (data.targetUserIds && (!userId || !data.targetUserIds.includes(userId))) return;
-                emitWorldBackedEvent('userListInvalidated', data);
-            };
-            // Folder document fan-out. FolderStore emits broadcast-wide today;
-            // honor targetUserIds if the Store ever emits a narrower target.
-            const handleFolderChanged = (...args: unknown[]) => {
-                const data = (args[0] || {}) as { folderId: string; action: 'create' | 'update' | 'delete' };
-                emitWorldBackedEvent('folderChanged', data);
-            };
-            const handleFolderListInvalidated = (...args: unknown[]) => {
-                const data = (args[0] || {}) as { reason: string; folderId?: string; targetUserIds?: string[] };
-                const userId = getSessionUserId();
-                if (data.targetUserIds && (!userId || !data.targetUserIds.includes(userId))) return;
-                emitWorldBackedEvent('folderListInvalidated', data);
-            };
-            // Journal document fan-out. JournalEntry carries a standard per-user
-            // ownership map, so per-document changes get a Store-side ownership
-            // gate; deletes bypass (a caller who could see the entry should know
-            // it's gone). Invalidations honor `targetUserIds`.
-            const handleJournalChanged = (...args: unknown[]) => {
-                const data = (args[0] || {}) as { journalId: string; action: 'create' | 'update' | 'delete' };
-                if (data.action !== 'delete' && data.journalId) {
-                    const subject = getSubject();
-                    if (!subject || !journalStore.canReadDocument(data.journalId, subject, DOCUMENT_VISIBILITY.LIST_VISIBLE)) {
-                        return;
-                    }
-                }
-                emitWorldBackedEvent('journalChanged', data);
-            };
-            const handleJournalListInvalidated = (...args: unknown[]) => {
-                const data = (args[0] || {}) as { reason: string; journalId?: string; targetUserIds?: string[] };
-                const userId = getSessionUserId();
-                if (data.targetUserIds && (!userId || !data.targetUserIds.includes(userId))) return;
-                emitWorldBackedEvent('journalListInvalidated', data);
-            };
-            // World Item documents use the standard ownership map.
-            // `canReadDocument` enforces it per-socket; deletes bypass so a
-            // caller who could see the item learns it's gone. Invalidations
-            // honor `targetUserIds`.
-            const handleItemChanged = (...args: unknown[]) => {
-                const data = (args[0] || {}) as { itemId: string; action: 'create' | 'update' | 'delete' };
-                if (data.action !== 'delete' && data.itemId) {
-                    const subject = getSubject();
-                    if (!subject || !itemStore.canReadDocument(data.itemId, subject, DOCUMENT_VISIBILITY.LIST_VISIBLE)) {
-                        return;
-                    }
-                }
-                emitWorldBackedEvent('itemChanged', data);
-            };
-            const handleItemListInvalidated = (...args: unknown[]) => {
-                const data = (args[0] || {}) as { reason: string; itemId?: string; targetUserIds?: string[] };
-                const userId = getSessionUserId();
-                if (data.targetUserIds && (!userId || !data.targetUserIds.includes(userId))) return;
-                emitWorldBackedEvent('itemListInvalidated', data);
-            };
-            // RollTable documents use the standard ownership map;
-            // `canReadDocument` enforces per-socket. Deletes bypass so a
-            // caller who could see the table learns it's gone.
-            const handleRollTableChanged = (...args: unknown[]) => {
-                const data = (args[0] || {}) as { rollTableId: string; action: 'create' | 'update' | 'delete' };
-                if (data.action !== 'delete' && data.rollTableId) {
-                    const subject = getSubject();
-                    if (!subject || !rollTableStore.canReadDocument(data.rollTableId, subject, DOCUMENT_VISIBILITY.LIST_VISIBLE)) {
-                        return;
-                    }
-                }
-                emitWorldBackedEvent('rollTableChanged', data);
-            };
-            const handleRollTableListInvalidated = (...args: unknown[]) => {
-                const data = (args[0] || {}) as { reason: string; rollTableId?: string; targetUserIds?: string[] };
-                const userId = getSessionUserId();
-                if (data.targetUserIds && (!userId || !data.targetUserIds.includes(userId))) return;
-                emitWorldBackedEvent('rollTableListInvalidated', data);
-            };
-            // Macro documents use the standard ownership map.
-            const handleMacroChanged = (...args: unknown[]) => {
-                const data = (args[0] || {}) as { macroId: string; action: 'create' | 'update' | 'delete' };
-                if (data.action !== 'delete' && data.macroId) {
-                    const subject = getSubject();
-                    if (!subject || !macroStore.canReadDocument(data.macroId, subject, DOCUMENT_VISIBILITY.LIST_VISIBLE)) {
-                        return;
-                    }
-                }
-                emitWorldBackedEvent('macroChanged', data);
-            };
-            const handleMacroListInvalidated = (...args: unknown[]) => {
-                const data = (args[0] || {}) as { reason: string; macroId?: string; targetUserIds?: string[] };
-                const userId = getSessionUserId();
-                if (data.targetUserIds && (!userId || !data.targetUserIds.includes(userId))) return;
-                emitWorldBackedEvent('macroListInvalidated', data);
-            };
-            // Playlist documents use the standard ownership map.
-            const handlePlaylistChanged = (...args: unknown[]) => {
-                const data = (args[0] || {}) as { playlistId: string; action: 'create' | 'update' | 'delete' };
-                if (data.action !== 'delete' && data.playlistId) {
-                    const subject = getSubject();
-                    if (!subject || !playlistStore.canReadDocument(data.playlistId, subject, DOCUMENT_VISIBILITY.LIST_VISIBLE)) {
-                        return;
-                    }
-                }
-                emitWorldBackedEvent('playlistChanged', data);
-            };
-            const handlePlaylistListInvalidated = (...args: unknown[]) => {
-                const data = (args[0] || {}) as { reason: string; playlistId?: string; targetUserIds?: string[] };
-                const userId = getSessionUserId();
-                if (data.targetUserIds && (!userId || !data.targetUserIds.includes(userId))) return;
-                emitWorldBackedEvent('playlistListInvalidated', data);
-            };
-            // Cards documents use the standard ownership map.
-            // Cross-Cards-doc transfers (`Cards#pass`) arrive as paired events
-            // on both parents — each leg flows through this same gate.
-            const handleCardsChanged = (...args: unknown[]) => {
-                const data = (args[0] || {}) as { cardsId: string; action: 'create' | 'update' | 'delete' };
-                if (data.action !== 'delete' && data.cardsId) {
-                    const subject = getSubject();
-                    if (!subject || !cardsStore.canReadDocument(data.cardsId, subject, DOCUMENT_VISIBILITY.LIST_VISIBLE)) {
-                        return;
-                    }
-                }
-                emitWorldBackedEvent('cardsChanged', data);
-            };
-            const handleCardsListInvalidated = (...args: unknown[]) => {
-                const data = (args[0] || {}) as { reason: string; cardsId?: string; targetUserIds?: string[] };
-                const userId = getSessionUserId();
-                if (data.targetUserIds && (!userId || !data.targetUserIds.includes(userId))) return;
-                emitWorldBackedEvent('cardsListInvalidated', data);
-            };
-            // Scene documents use their standard ownership map. No Scene body
-            // is sent over this channel; consumers receive only a refetch hint.
-            const handleSceneChanged = (...args: unknown[]) => {
-                const data = (args[0] || {}) as RealtimeSceneChangedPayload;
-                if (data.action !== 'delete' && data.sceneId) {
-                    const subject = getSubject();
-                    if (!subject || !sceneStore.canReadDocument(data.sceneId, subject, DOCUMENT_VISIBILITY.LIST_VISIBLE)) {
-                        return;
-                    }
-                }
-                emitWorldBackedEvent('sceneChanged', data);
-            };
-            const handleSceneListInvalidated = (...args: unknown[]) => {
-                const data = (args[0] || {}) as RealtimeSceneListInvalidatedPayload;
-                const userId = getSessionUserId();
-                if (data.targetUserIds && (!userId || !data.targetUserIds.includes(userId))) return;
-                emitWorldBackedEvent('sceneListInvalidated', data);
-            };
-            // Setting visibility is type-level GM-only rather than an ownership
-            // map. Enforce it for changed, list, and delete hints alike so an
-            // authenticated player never receives Setting identifiers.
-            const handleSettingChanged = (...args: unknown[]) => {
-                const data = (args[0] || {}) as RealtimeSettingChangedPayload;
-                const subject = getSubject();
-                if (!subject || !isGM(subject)) return;
-                emitWorldBackedEvent('settingChanged', data);
-            };
-            const handleSettingListInvalidated = (...args: unknown[]) => {
-                const data = (args[0] || {}) as RealtimeSettingListInvalidatedPayload;
-                const subject = getSubject();
-                if (!subject || !isGM(subject)) return;
-                const userId = getSessionUserId();
-                if (data.targetUserIds && (!userId || !data.targetUserIds.includes(userId))) return;
-                emitWorldBackedEvent('settingListInvalidated', data);
-            };
+            const handleCombatChanged = createAudienceHandler('combatChanged');
+            const handleCombatListInvalidated = createAudienceHandler('combatListInvalidated');
+            const handleActorChanged = createAudienceHandler('actorChanged');
+            const handleActorListInvalidated = createAudienceHandler('actorListInvalidated');
+            const handleChatMessageChanged = createAudienceHandler('chatMessageChanged');
+            const handleChatMessageListInvalidated = createAudienceHandler('chatMessageListInvalidated');
+            const handleUserChanged = createAudienceHandler('userChanged');
+            const handleUserListInvalidated = createAudienceHandler('userListInvalidated');
+            const handleFolderChanged = createAudienceHandler('folderChanged');
+            const handleFolderListInvalidated = createAudienceHandler('folderListInvalidated');
+            const handleJournalChanged = createAudienceHandler('journalChanged');
+            const handleJournalListInvalidated = createAudienceHandler('journalListInvalidated');
+            const handleItemChanged = createAudienceHandler('itemChanged');
+            const handleItemListInvalidated = createAudienceHandler('itemListInvalidated');
+            const handleRollTableChanged = createAudienceHandler('rollTableChanged');
+            const handleRollTableListInvalidated = createAudienceHandler('rollTableListInvalidated');
+            const handleMacroChanged = createAudienceHandler('macroChanged');
+            const handleMacroListInvalidated = createAudienceHandler('macroListInvalidated');
+            const handlePlaylistChanged = createAudienceHandler('playlistChanged');
+            const handlePlaylistListInvalidated = createAudienceHandler('playlistListInvalidated');
+            const handleCardsChanged = createAudienceHandler('cardsChanged');
+            const handleCardsListInvalidated = createAudienceHandler('cardsListInvalidated');
+            const handleSceneChanged = createAudienceHandler('sceneChanged');
+            const handleSceneListInvalidated = createAudienceHandler('sceneListInvalidated');
+            const handleSettingChanged = createAudienceHandler('settingChanged');
+            const handleSettingListInvalidated = createAudienceHandler('settingListInvalidated');
             // Shared-content fan-out subscribes to SharedContentStore directly.
             // SocketBase writes Foundry wire events into the Store, and the
             // gateway preserves the browser-facing `sharedContentUpdate` event.

@@ -420,19 +420,19 @@ async function runActorVisibilityBridgePropagates() {
     // containing it should fire combatListInvalidated.
     (actor as any).emitListInvalidated('ownership-test', {
         documentId: 'actor-shared',
-        targetUserIds: ['p-1', 'p-2'],
+        audience: { kind: 'users', userIds: ['p-1', 'p-2'] },
     });
 
     const propagated = invalidations.filter((e) => e.reason === 'actor-visibility-changed');
     assert.equal(propagated.length, 1, 'one combat invalidation fired');
     assert.equal(propagated[0].documentId, 'combat-with-shared');
-    assert.deepEqual(propagated[0].targetUserIds, ['p-1', 'p-2']);
+    assert.deepEqual(propagated[0].audience, { kind: 'users', userIds: ['p-1', 'p-2'] });
 
     // No combat contains the unrelated actor — nothing fires.
     const beforeUnrelated = invalidations.length;
     (actor as any).emitListInvalidated('ownership-test', {
         documentId: 'actor-completely-unknown',
-        targetUserIds: ['p-1'],
+        audience: { kind: 'users', userIds: ['p-1'] },
     });
     assert.equal(invalidations.length, beforeUnrelated, 'unknown actors do not propagate');
 }

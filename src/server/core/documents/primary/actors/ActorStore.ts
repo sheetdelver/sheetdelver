@@ -16,6 +16,7 @@ import {
     type ModifyDocumentAction,
     type PrimaryDocumentType,
 } from '../base/PrimaryDocumentStore';
+import type { DocumentAudience } from '../base/audience';
 import {
     getEffectiveOwnership,
     type DocumentAccessSubject,
@@ -29,8 +30,8 @@ import {
  * (e.g., SystemService's actorChanged bridge) keep working unchanged.
  */
 export type ActorStoreEvent =
-    | { type: 'actorChanged'; actorId: string; action: ChangeAction }
-    | { type: 'actorListInvalidated'; reason: string; actorId?: string; targetUserIds?: string[] };
+    | { type: 'actorChanged'; actorId: string; action: ChangeAction; audience: DocumentAudience }
+    | { type: 'actorListInvalidated'; reason: string; actorId?: string; audience: DocumentAudience };
 
 type ActorStoreListener = (event: ActorStoreEvent) => void;
 
@@ -95,24 +96,29 @@ export class ActorStore extends PrimaryDocumentStore<ActorDocument> {
     // Subclass overrides for emit shaping and embedded children.
     // ---------------------------------------------------------------------
 
-    protected emitChanged(actorId: string, action: ChangeAction): void {
-        super.emitChanged(actorId, action);
+    protected emitChanged(actorId: string, action: ChangeAction, audience?: DocumentAudience): void {
+        const resolvedAudience = audience ?? this.audienceForDocumentId(actorId);
+        super.emitChanged(actorId, action, resolvedAudience);
         // Round 01 compatibility: re-emit on the discriminated-union event so
         // existing subscribers (SystemService.actorChanged bridge) keep working.
-        this.emit('actorStoreEvent', { type: 'actorChanged', actorId, action } satisfies ActorStoreEvent);
+        this.emit('actorStoreEvent', {
+            type: 'actorChanged', actorId, action, audience: resolvedAudience,
+        } satisfies ActorStoreEvent);
     }
 
     protected emitListInvalidated(
         reason: string,
-        options?: { documentId?: string; targetUserIds?: string[] },
+        options?: { documentId?: string; audience?: DocumentAudience },
     ): void {
-        super.emitListInvalidated(reason, options);
+        const resolvedAudience = options?.audience
+            ?? (options?.documentId ? this.audienceForDocumentId(options.documentId) : { kind: 'all' });
+        super.emitListInvalidated(reason, { ...options, audience: resolvedAudience });
         // Round 01 compatibility: bridge to actorListInvalidated discriminated union.
         this.emit('actorStoreEvent', {
             type: 'actorListInvalidated',
             reason,
             actorId: options?.documentId,
-            targetUserIds: options?.targetUserIds,
+            audience: resolvedAudience,
         } satisfies ActorStoreEvent);
     }
 

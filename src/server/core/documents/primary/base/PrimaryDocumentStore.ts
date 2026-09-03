@@ -6,6 +6,13 @@ import {
     type DocumentOwnershipMap,
     type ResolvedDocumentOwnershipLevel,
 } from './ownership';
+import {
+    ALL_DOCUMENT_AUDIENCE,
+    NO_DOCUMENT_AUDIENCE,
+    documentAudienceForUsers,
+    unionDocumentAudiences,
+    type DocumentAudience,
+} from './audience';
 
 // Foundry's full primary-document set. New types extend this union as their
 // subsystems land. Stub types (Scene / FogExploration / Adventure / Setting)
@@ -43,6 +50,7 @@ export interface DocumentChangedEvent {
     type: PrimaryDocumentType;
     id: string;
     action: ChangeAction;
+    audience: DocumentAudience;
 }
 
 /**
@@ -54,7 +62,7 @@ export interface DocumentListInvalidatedEvent {
     type: PrimaryDocumentType;
     reason: string;
     documentId?: string;
-    targetUserIds?: string[];
+    audience: DocumentAudience;
 }
 
 // Store reads return defensive clones so adapters/routes cannot mutate cache state by accident.
@@ -298,6 +306,7 @@ export abstract class PrimaryDocumentStore<TDocument extends DocumentLike> exten
     protected documents = new Map<string, TDocument>();
     protected ready = false;
     protected staleDocumentIds = new Set<string>();
+    private audienceSubjectsProvider: () => DocumentAccessSubject[] = () => [];
 
     /**
      * Per-type ownership resolver. Subclasses encode the type's visibility
@@ -307,6 +316,40 @@ export abstract class PrimaryDocumentStore<TDocument extends DocumentLike> exten
         document: TDocument,
         subject: DocumentAccessSubject,
     ): ResolvedDocumentOwnershipLevel;
+
+    /**
+     * Bind the authoritative subject roster after Store construction. Keeping
+     * enumeration outside each Store avoids coupling type-specific visibility
+     * policy back to UserStore while still including implicit GM access.
+     */
+    public bindAudienceSubjects(provider: () => DocumentAccessSubject[]): void {
+        this.audienceSubjectsProvider = provider;
+    }
+
+    /** Resolve a document through this Store's existing type-specific policy. */
+    protected audienceForDocument(document: TDocument | null | undefined): DocumentAudience {
+        if (!document) return NO_DOCUMENT_AUDIENCE;
+        const subjects = this.audienceSubjectsProvider();
+        if (subjects.length === 0) return NO_DOCUMENT_AUDIENCE;
+
+        const visibleUserIds = new Set<string>();
+        const knownUserIds = new Set<string>();
+        for (const subject of subjects) {
+            if (!subject.userId) continue;
+            knownUserIds.add(subject.userId);
+            if (this.resolveOwnership(document, subject) >= DOCUMENT_VISIBILITY.LIST_VISIBLE) {
+                visibleUserIds.add(subject.userId);
+            }
+        }
+        if (knownUserIds.size > 0 && visibleUserIds.size === knownUserIds.size) {
+            return ALL_DOCUMENT_AUDIENCE;
+        }
+        return documentAudienceForUsers(visibleUserIds);
+    }
+
+    protected audienceForDocumentId(documentId: string): DocumentAudience {
+        return this.audienceForDocument(this.documents.get(documentId));
+    }
 
     /**
      * Subclass hook for embedded-document mutations. Called when
@@ -416,9 +459,12 @@ export abstract class PrimaryDocumentStore<TDocument extends DocumentLike> exten
         const beforeJson = existing ? stableJson(existing) : null;
         const action: ChangeAction = existing ? 'update' : 'create';
         const beforeOwnership = existing ? (existing as { ownership?: DocumentOwnershipMap }).ownership : undefined;
+        const beforeAudience = this.audienceForDocument(existing);
         this.documents.set(id, cloneDocument(document));
         const afterJson = stableJson(this.documents.get(id));
-        if (afterJson !== beforeJson) this.emitChanged(id, action);
+        if (afterJson !== beforeJson) {
+            this.emitChanged(id, action, unionDocumentAudiences(beforeAudience, this.audienceForDocumentId(id)));
+        }
         const afterOwnership = (document as { ownership?: DocumentOwnershipMap }).ownership;
         this.diffOwnershipAndEmitInvalidation(id, action, beforeOwnership, afterOwnership);
     }
@@ -430,13 +476,18 @@ export abstract class PrimaryDocumentStore<TDocument extends DocumentLike> exten
             return;
         }
         const before = stableJson(existing);
+        const beforeAudience = this.audienceForDocument(existing);
         const beforeOwnership = (existing as { ownership?: DocumentOwnershipMap }).ownership
             ? structuredClone((existing as { ownership?: DocumentOwnershipMap }).ownership)
             : undefined;
         deepMerge(existing as Record<string, unknown>, diff);
         this.documents.set(documentId, existing);
         if (stableJson(existing) !== before) {
-            this.emitChanged(documentId, 'update');
+            this.emitChanged(
+                documentId,
+                'update',
+                unionDocumentAudiences(beforeAudience, this.audienceForDocument(existing)),
+            );
             this.diffOwnershipAndEmitInvalidation(
                 documentId,
                 'update',
@@ -448,18 +499,14 @@ export abstract class PrimaryDocumentStore<TDocument extends DocumentLike> exten
 
     public delete(documentId: string): void {
         const existing = this.documents.get(documentId);
+        const audience = this.audienceForDocument(existing);
         const existed = this.documents.delete(documentId);
         this.staleDocumentIds.delete(documentId);
         if (existed) {
-            this.emitChanged(documentId, 'delete');
-            // Delete removes the doc for everyone who could see it. Emit
-            // broadcast-wide listInvalidated (no targetUserIds).
-            const ownership = existing
-                ? (existing as { ownership?: DocumentOwnershipMap }).ownership
-                : undefined;
+            this.emitChanged(documentId, 'delete', audience);
             this.emitListInvalidated('delete', {
                 documentId,
-                targetUserIds: this.usersWithEffectiveVisibility(ownership),
+                audience,
             });
         }
     }
@@ -505,16 +552,14 @@ export abstract class PrimaryDocumentStore<TDocument extends DocumentLike> exten
             }
             for (const id of ids) {
                 const doc = this.documents.get(id);
+                const audience = this.audienceForDocument(doc);
                 const existed = this.documents.delete(id);
                 this.staleDocumentIds.delete(id);
                 if (existed) {
-                    this.emitChanged(id, 'delete');
-                    const ownership = doc
-                        ? (doc as { ownership?: DocumentOwnershipMap }).ownership
-                        : undefined;
+                    this.emitChanged(id, 'delete', audience);
                     this.emitListInvalidated('delete', {
                         documentId: id,
-                        targetUserIds: this.usersWithEffectiveVisibility(ownership),
+                        audience,
                     });
                 }
             }
@@ -528,13 +573,18 @@ export abstract class PrimaryDocumentStore<TDocument extends DocumentLike> exten
 
             if (existing && action === 'update') {
                 const before = stableJson(existing);
+                const beforeAudience = this.audienceForDocument(existing);
                 const beforeOwnership = (existing as { ownership?: DocumentOwnershipMap }).ownership
                     ? structuredClone((existing as { ownership?: DocumentOwnershipMap }).ownership)
                     : undefined;
                 deepMerge(existing as Record<string, unknown>, doc as Record<string, unknown>);
                 this.documents.set(id, existing);
                 if (stableJson(existing) !== before) {
-                    this.emitChanged(id, 'update');
+                    this.emitChanged(
+                        id,
+                        'update',
+                        unionDocumentAudiences(beforeAudience, this.audienceForDocument(existing)),
+                    );
                     this.diffOwnershipAndEmitInvalidation(
                         id,
                         'update',
@@ -550,10 +600,8 @@ export abstract class PrimaryDocumentStore<TDocument extends DocumentLike> exten
                 this.documents.set(id, cloneDocument(doc));
                 if (stableJson(doc) !== before) {
                     this.emitChanged(id, 'create');
-                    const ownership = (doc as { ownership?: DocumentOwnershipMap }).ownership;
                     this.emitListInvalidated('create', {
                         documentId: id,
-                        targetUserIds: this.usersWithEffectiveVisibility(ownership),
                     });
                 }
             } else {
@@ -568,9 +616,13 @@ export abstract class PrimaryDocumentStore<TDocument extends DocumentLike> exten
      * (Repository mirror + broadcast) because callers gate on observable change.
      * Silent during seeding (ready === false).
      */
-    protected emitChanged(documentId: string, action: ChangeAction): void {
+    protected emitChanged(
+        documentId: string,
+        action: ChangeAction,
+        audience: DocumentAudience = this.audienceForDocumentId(documentId),
+    ): void {
         if (!this.ready) return;
-        const event: DocumentChangedEvent = { type: this.documentType, id: documentId, action };
+        const event: DocumentChangedEvent = { type: this.documentType, id: documentId, action, audience };
         logger.debug('PrimaryDocumentStore | Applied document change', event);
         this.emit('documentChanged', event);
         this.emit('primaryDocumentChanged', event);
@@ -582,14 +634,16 @@ export abstract class PrimaryDocumentStore<TDocument extends DocumentLike> exten
      */
     protected emitListInvalidated(
         reason: string,
-        options?: { documentId?: string; targetUserIds?: string[] },
+        options?: { documentId?: string; audience?: DocumentAudience },
     ): void {
         if (!this.ready) return;
+        const audience = options?.audience
+            ?? (options?.documentId ? this.audienceForDocumentId(options.documentId) : ALL_DOCUMENT_AUDIENCE);
         const event: DocumentListInvalidatedEvent = {
             type: this.documentType,
             reason,
             documentId: options?.documentId,
-            targetUserIds: options?.targetUserIds,
+            audience,
         };
         // Keep user identifiers out of diagnostics while reporting whether an
         // invalidation is globally visible or scoped to an affected audience.
@@ -597,33 +651,11 @@ export abstract class PrimaryDocumentStore<TDocument extends DocumentLike> exten
             type: event.type,
             reason: event.reason,
             documentId: event.documentId,
-            targeted: Array.isArray(event.targetUserIds),
-            targetCount: event.targetUserIds?.length ?? 0,
+            audience: event.audience.kind,
+            targetCount: event.audience.kind === 'users' ? event.audience.userIds.length : 0,
         });
         this.emit('documentListInvalidated', event);
         this.emit('primaryDocumentListInvalidated', event);
-    }
-
-    /**
-     * Compute the set of user ids whose effective LIST_VISIBLE access on the
-     * given ownership map crosses the threshold. Used to scope listInvalidated
-     * events to affected users on create/delete.
-     */
-    protected usersWithEffectiveVisibility(
-        ownership: DocumentOwnershipMap | undefined,
-    ): string[] | undefined {
-        if (!ownership) return undefined;
-        const defaultLevel = ownership.default ?? 0;
-        const visibleByDefault = defaultLevel >= DOCUMENT_VISIBILITY.LIST_VISIBLE;
-        // If world-default already exposes the doc, the change is broadcast-wide.
-        if (visibleByDefault) return undefined;
-        // Otherwise, scope to users with explicit ownership at or above the threshold.
-        const userIds: string[] = [];
-        for (const [key, level] of Object.entries(ownership)) {
-            if (key === 'default') continue;
-            if ((level ?? 0) >= DOCUMENT_VISIBILITY.LIST_VISIBLE) userIds.push(key);
-        }
-        return userIds.length > 0 ? userIds : undefined;
     }
 
     /**
@@ -652,7 +684,10 @@ export abstract class PrimaryDocumentStore<TDocument extends DocumentLike> exten
                 documentId,
                 transition: `${beforeDefault}->${afterDefault}`,
             });
-            this.emitListInvalidated('ownership-default-changed', { documentId });
+            this.emitListInvalidated('ownership-default-changed', {
+                documentId,
+                audience: ALL_DOCUMENT_AUDIENCE,
+            });
             return;
         }
 
@@ -689,7 +724,7 @@ export abstract class PrimaryDocumentStore<TDocument extends DocumentLike> exten
             });
             this.emitListInvalidated('ownership-user-changed', {
                 documentId,
-                targetUserIds: crossed,
+                audience: documentAudienceForUsers(crossed),
             });
         }
     }

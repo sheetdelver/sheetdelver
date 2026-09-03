@@ -185,18 +185,28 @@ async function runGatewayTests() {
         assert.ok(userChanged);
 
         worldReady = false;
-        userChanged!({ userId: 'user-1', action: 'update' });
+        userChanged!({ userId: 'user-1', action: 'update', audience: { kind: 'all' } });
         assert.equal(emitted.some((entry) => entry.event === 'userChanged'), false);
 
         worldReady = true;
-        userChanged!({ userId: 'user-1', action: 'update' });
+        userChanged!({ userId: 'user-1', action: 'update', audience: { kind: 'all' } });
         assert.equal(emitted.some((entry) => entry.event === 'userChanged'), true);
+        const browserUserChange = emitted.find((entry) => entry.event === 'userChanged')?.payload as Record<string, unknown>;
+        assert.equal(
+            Object.hasOwn(browserUserChange, 'audience'),
+            false,
+            'internal recipient identities are removed from browser payloads',
+        );
 
         // The authenticated fixture is a GM, so the Setting type-level policy
         // permits its invalidation hint without exposing the document body.
         const settingChanged = systemAttachedHandlers.find((entry) => entry.event === 'settingChanged')?.handler;
         assert.ok(settingChanged);
-        settingChanged!({ settingId: 'setting-1', action: 'update' });
+        settingChanged!({
+            settingId: 'setting-1',
+            action: 'update',
+            audience: { kind: 'users', userIds: ['user-1'] },
+        });
         assert.equal(
             emitted.some((entry) => entry.event === 'settingChanged'),
             true,
@@ -204,10 +214,29 @@ async function runGatewayTests() {
         const settingListInvalidated = systemAttachedHandlers
             .find((entry) => entry.event === 'settingListInvalidated')?.handler;
         assert.ok(settingListInvalidated);
-        settingListInvalidated!({ reason: 'create', settingId: 'setting-2' });
+        settingListInvalidated!({
+            reason: 'create',
+            settingId: 'setting-2',
+            audience: { kind: 'users', userIds: ['user-1'] },
+        });
         assert.equal(
             emitted.some((entry) => entry.event === 'settingListInvalidated'),
             true,
+        );
+
+        // `none`, a nonmatching explicit user set, and malformed legacy
+        // envelopes all fail closed instead of becoming authenticated broadcasts.
+        const settingEventCount = emitted.filter((entry) => entry.event === 'settingChanged').length;
+        settingChanged!({ settingId: 'none', action: 'update', audience: { kind: 'none' } });
+        settingChanged!({
+            settingId: 'someone-else',
+            action: 'update',
+            audience: { kind: 'users', userIds: ['user-2'] },
+        });
+        settingChanged!({ settingId: 'missing-audience', action: 'update' });
+        assert.equal(
+            emitted.filter((entry) => entry.event === 'settingChanged').length,
+            settingEventCount,
         );
 
         io.engine.clientsCount = 0;

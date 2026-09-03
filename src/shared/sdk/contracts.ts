@@ -162,7 +162,6 @@ export interface RealtimeCombatChangedPayload {
 export interface RealtimeCombatListInvalidatedPayload {
     reason: string;
     combatId?: string;
-    targetUserIds?: string[];
 }
 
 /** Payload for realtime world Item document changes (skinny invalidation hint). */
@@ -174,7 +173,6 @@ export interface RealtimeItemChangedPayload {
 export interface RealtimeItemListInvalidatedPayload {
     reason: string;
     itemId?: string;
-    targetUserIds?: string[];
 }
 
 /** Payload for realtime RollTable document changes (Phase 7). */
@@ -186,7 +184,6 @@ export interface RealtimeRollTableChangedPayload {
 export interface RealtimeRollTableListInvalidatedPayload {
     reason: string;
     rollTableId?: string;
-    targetUserIds?: string[];
 }
 
 /** Payload for realtime Macro document changes (Phase 7). */
@@ -198,7 +195,6 @@ export interface RealtimeMacroChangedPayload {
 export interface RealtimeMacroListInvalidatedPayload {
     reason: string;
     macroId?: string;
-    targetUserIds?: string[];
 }
 
 /** Payload for realtime Playlist document changes (Phase 7). */
@@ -210,7 +206,6 @@ export interface RealtimePlaylistChangedPayload {
 export interface RealtimePlaylistListInvalidatedPayload {
     reason: string;
     playlistId?: string;
-    targetUserIds?: string[];
 }
 
 /** Payload for realtime Cards document changes (Phase 7). */
@@ -222,7 +217,6 @@ export interface RealtimeCardsChangedPayload {
 export interface RealtimeCardsListInvalidatedPayload {
     reason: string;
     cardsId?: string;
-    targetUserIds?: string[];
 }
 
 /**

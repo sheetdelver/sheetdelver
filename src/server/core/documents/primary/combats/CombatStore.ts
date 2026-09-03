@@ -10,6 +10,7 @@ import {
     type ModifyDocumentAction,
     type PrimaryDocumentType,
 } from '../base/PrimaryDocumentStore';
+import { unionDocumentAudiences } from '../base/audience';
 import {
     DOCUMENT_VISIBILITY,
     DocumentOwnershipLevel,
@@ -80,7 +81,7 @@ export class CombatStore extends PrimaryDocumentStore<CombatDocument> {
             for (const combatId of affected) {
                 this.emitListInvalidated('actor-visibility-changed', {
                     documentId: combatId,
-                    targetUserIds: event.targetUserIds,
+                    audience: event.audience,
                 });
             }
         });
@@ -192,6 +193,7 @@ export class CombatStore extends PrimaryDocumentStore<CombatDocument> {
         if (!combat) return;
 
         const before = stableJson(combat);
+        const beforeAudience = this.audienceForDocument(combat);
         const beforeVisibilitySource = combatVisibilitySourceState(combat);
 
         if (type === 'Combatant') {
@@ -202,10 +204,15 @@ export class CombatStore extends PrimaryDocumentStore<CombatDocument> {
 
         this.documents.set(combatId, combat);
         if (action !== 'get' && stableJson(combat) !== before) {
-            this.emitChanged(combatId, 'update');
+            const changedAudience = unionDocumentAudiences(
+                beforeAudience,
+                this.audienceForDocument(combat),
+            );
+            this.emitChanged(combatId, 'update', changedAudience);
             if (combatVisibilitySourceState(combat) !== beforeVisibilitySource) {
                 this.emitListInvalidated('combatant-visibility-changed', {
                     documentId: combatId,
+                    audience: changedAudience,
                 });
             }
         }
@@ -225,12 +232,16 @@ export class CombatStore extends PrimaryDocumentStore<CombatDocument> {
         operation?: Record<string, unknown>,
     ): void {
         const beforeSources = new Map<string, string>();
+        const beforeAudiences = new Map<string, ReturnType<CombatStore['audienceForDocument']>>();
         if (action === 'update') {
             for (const doc of toDocumentArray<CombatDocument>(result)) {
                 const id = getDocumentId(doc);
                 if (!id) continue;
                 const existing = this.documents.get(id);
-                if (existing) beforeSources.set(id, combatVisibilitySourceState(existing));
+                if (existing) {
+                    beforeSources.set(id, combatVisibilitySourceState(existing));
+                    beforeAudiences.set(id, this.audienceForDocument(existing));
+                }
             }
         }
 
@@ -242,6 +253,10 @@ export class CombatStore extends PrimaryDocumentStore<CombatDocument> {
             if (combatVisibilitySourceState(updated) !== beforeSource) {
                 this.emitListInvalidated('combat-visibility-source-changed', {
                     documentId: id,
+                    audience: unionDocumentAudiences(
+                        beforeAudiences.get(id) ?? this.audienceForDocument(updated),
+                        this.audienceForDocument(updated),
+                    ),
                 });
             }
         }

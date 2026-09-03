@@ -8,6 +8,10 @@ stay open below.
 **Status amendment (September 3, 2026):** Phase 2 is complete. Store-to-client
 signal parity, trailing refresh, SDK epoch rejection, and mounted-subscriber
 reset behavior are implemented and verified. Phase 3 is pending.
+**Status amendment (September 3, 2026):** Phase 3 is in progress. Structured
+audiences, deletion-safe Store policy, and multi-user delivery tests are
+complete. Server-session invalidation of already-connected app sockets remains
+open as the final Phase 3 slice.
 **Date:** September 2, 2026
 **Phase:** Pre-main synchronization remediation
 **Supersedes:** None
@@ -440,10 +444,55 @@ Phase 2 is complete.
 
 ### Phase 3: Audience and socket correctness
 
-- [ ] Introduce the structured all/users/none audience contract.
-- [ ] Capture pre-delete visibility and apply type-specific visibility policy.
-- [ ] Add multi-user positive and negative delivery tests.
+- [x] Introduce the structured all/users/none audience contract.
+- [x] Capture pre-delete visibility and apply type-specific visibility policy.
+- [x] Add multi-user positive and negative delivery tests.
 - [ ] Revoke or reclassify app sockets when their server session is invalidated.
+
+#### Phase 3 audience implementation amendment - September 3, 2026
+
+Primary Store events now carry a required server-internal `DocumentAudience`
+with exactly three states: `all`, a non-empty `users` set, or `none`. The empty
+set canonicalizes to `none`; the app gateway rejects missing, malformed, or
+empty-user audience envelopes instead of interpreting them as broadcasts. The
+gateway evaluates this envelope against the authenticated session identity and
+removes it before emitting the existing skinny browser and SDK invalidation
+payloads. The former optional `targetUserIds` field has therefore been removed
+from those public payload contracts as well as from internal events.
+
+The primary-document coordinator binds every active Store to the current
+UserStore subject roster. Each Store calculates recipients through its own
+`resolveOwnership` policy, preserving implicit GM access and non-ownership
+rules such as ChatMessage author/whisper/blind visibility, Combat derived
+visibility, Folder permissions, and GM-only Settings. This deliberately moves
+the policy decision to the Store while the document still exists; the gateway
+is a delivery boundary and does not reread mutable Store state.
+
+Create events use post-create visibility, delete events retain pre-delete
+visibility, and updates use the union of pre- and post-update visibility so a
+former viewer receives the invalidation needed to discard stale state. Folder
+permission/tree invalidations and Combat visibility-source mutations preserve
+the same union despite their type-specific fields and projections. Broad list
+invalidations use explicit `all`; a document with no authorized known subject
+uses explicit `none`.
+
+Unit characterization now covers all/users/none normalization, gateway
+fail-closed behavior, stripping internal audience data, owner/non-owner/GM
+delivery, implicit GM access, GM-only Setting delivery, and a private Actor
+delete whose identifier reaches its prior owner and GM but not an unrelated
+player. Type checking, lint, and the full unit suite pass.
+
+Live acceptance confirmed immediate dashboard and `/api/actors` convergence
+while an Actor's default ownership moved through None, Limited, Observer, and
+Owner. Backend diagnostics showed explicit `all` delivery for each default
+transition, as expected because a default change can affect every subject.
+Chat acceptance separately produced author-only, restricted-user/GM, and
+world-visible audiences as explicit `users` and `all` states, with immediate
+client updates and no delivery observed outside the calculated audience.
+
+This amendment does not complete or alter the remaining server-session
+invalidation item: a socket whose server session is revoked still requires
+explicit revocation or reclassification work in the next Phase 3 slice.
 
 ### Phase 4: Repair and lifecycle unification
 

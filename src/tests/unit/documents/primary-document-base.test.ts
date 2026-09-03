@@ -16,6 +16,13 @@ import {
     type DocumentOwnershipMap,
     type ResolvedDocumentOwnershipLevel,
 } from '@server/core/documents/primary/base/ownership';
+import {
+    ALL_DOCUMENT_AUDIENCE,
+    NO_DOCUMENT_AUDIENCE,
+    documentAudienceForUsers,
+    documentAudienceIncludes,
+    unionDocumentAudiences,
+} from '@server/core/documents/primary/base/audience';
 
 /**
  * Mock document type and Store used for generic base-contract verification.
@@ -42,6 +49,7 @@ class MockStore extends PrimaryDocumentStore<MockDoc> {
 }
 
 export async function run() {
+    runDocumentAudienceContract();
     await runSeedAndCloning();
     await runOwnershipFilteredReads();
     await runUpsertEmitsOnlyOnChange();
@@ -56,6 +64,25 @@ export async function run() {
     runGetDeletionIdsShapes();
     await runBroadcastShapedSelfDelete();
     console.log('  - PrimaryDocumentStore<T> base: all checks passed');
+}
+
+// The explicit three-state contract prevents an empty recipient set from
+// becoming an accidental broadcast at the realtime gateway.
+function runDocumentAudienceContract() {
+    const users = documentAudienceForUsers(['p2', 'p1', 'p2']);
+    assert.deepEqual(users, { kind: 'users', userIds: ['p1', 'p2'] });
+    assert.deepEqual(documentAudienceForUsers([]), NO_DOCUMENT_AUDIENCE);
+    assert.deepEqual(
+        unionDocumentAudiences(NO_DOCUMENT_AUDIENCE, users),
+        users,
+    );
+    assert.deepEqual(
+        unionDocumentAudiences(users, ALL_DOCUMENT_AUDIENCE),
+        ALL_DOCUMENT_AUDIENCE,
+    );
+    assert.equal(documentAudienceIncludes(users, 'p1'), true);
+    assert.equal(documentAudienceIncludes(users, 'outsider'), false);
+    assert.equal(documentAudienceIncludes(NO_DOCUMENT_AUDIENCE, 'p1'), false);
 }
 
 // Foundry delete broadcasts carry deleted ids in `result` as plain strings;
@@ -274,8 +301,8 @@ async function runFoundryFieldOperatorUpdates() {
     });
     assert.deepEqual(v14Store.get('v14')?.system, { retained: true });
     assert.deepEqual(
-        invalidations.find(event => event.reason === 'ownership-user-changed')?.targetUserIds?.sort(),
-        ['removed', 'retained'],
+        invalidations.find(event => event.reason === 'ownership-user-changed')?.audience,
+        { kind: 'users', userIds: ['removed', 'retained'] },
     );
 }
 
@@ -328,7 +355,7 @@ async function runListInvalidationOnOwnershipCrossing() {
 
     const crossing = invalidations.find(e => e.reason === 'ownership-user-changed');
     assert.ok(crossing, 'expected ownership-user-changed invalidation');
-    assert.deepEqual(crossing?.targetUserIds, ['p2']);
+    assert.deepEqual(crossing?.audience, { kind: 'users', userIds: ['p2'] });
 
     // Move p2 within the visible range. The document changes from read-only to
     // owned projection, so this must invalidate even though it stays listed.
@@ -337,7 +364,7 @@ async function runListInvalidationOnOwnershipCrossing() {
         { _id: 'a', ownership: { default: DocumentOwnershipLevel.NONE, p1: DocumentOwnershipLevel.OWNER, p2: DocumentOwnershipLevel.OWNER } },
     ]);
     const projectionChange = invalidations.find(e => e.reason === 'ownership-user-changed');
-    assert.deepEqual(projectionChange?.targetUserIds, ['p2']);
+    assert.deepEqual(projectionChange?.audience, { kind: 'users', userIds: ['p2'] });
 
     // Drop p2 below visibility threshold — another listInvalidated.
     invalidations.length = 0;
@@ -345,16 +372,16 @@ async function runListInvalidationOnOwnershipCrossing() {
         { _id: 'a', ownership: { default: DocumentOwnershipLevel.NONE, p1: DocumentOwnershipLevel.OWNER, p2: DocumentOwnershipLevel.NONE } },
     ]);
     const downward = invalidations.find(e => e.reason === 'ownership-user-changed');
-    assert.deepEqual(downward?.targetUserIds, ['p2']);
+    assert.deepEqual(downward?.audience, { kind: 'users', userIds: ['p2'] });
 
-    // Default flips to visible-by-default → broadcast-wide (no targetUserIds).
+    // Default flips to visible-by-default, so every authenticated user must refresh.
     invalidations.length = 0;
     store.applyModifyDocument('Cards', 'update', [
         { _id: 'a', ownership: { default: DocumentOwnershipLevel.OBSERVER, p1: DocumentOwnershipLevel.OWNER, p2: DocumentOwnershipLevel.NONE } },
     ]);
     const defaultFlip = invalidations.find(e => e.reason === 'ownership-default-changed');
     assert.ok(defaultFlip, 'expected ownership-default-changed invalidation');
-    assert.equal(defaultFlip?.targetUserIds, undefined);
+    assert.deepEqual(defaultFlip?.audience, ALL_DOCUMENT_AUDIENCE);
 }
 
 async function runGenericPrimaryDocumentChangedEvent() {

@@ -11,7 +11,6 @@ export interface RealtimeActorChangedPayload {
 export interface RealtimeActorListInvalidatedPayload {
     reason: string;
     actorId?: string;
-    targetUserIds?: string[];
 }
 
 export interface RealtimeSharedContentPayload {
@@ -34,7 +33,6 @@ export interface RealtimeCombatChangedPayload {
 export interface RealtimeCombatListInvalidatedPayload {
     reason: string;
     combatId?: string;
-    targetUserIds?: string[];
 }
 export interface RealtimeItemChangedPayload {
     itemId: string;
@@ -43,7 +41,6 @@ export interface RealtimeItemChangedPayload {
 export interface RealtimeItemListInvalidatedPayload {
     reason: string;
     itemId?: string;
-    targetUserIds?: string[];
 }
 export interface RealtimeChatMessageChangedPayload {
     messageId: string;
@@ -52,7 +49,6 @@ export interface RealtimeChatMessageChangedPayload {
 export interface RealtimeChatMessageListInvalidatedPayload {
     reason: string;
     messageId?: string;
-    targetUserIds?: string[];
 }
 
 export interface RealtimeJournalChangedPayload {
@@ -62,7 +58,6 @@ export interface RealtimeJournalChangedPayload {
 export interface RealtimeJournalListInvalidatedPayload {
     reason: string;
     journalId?: string;
-    targetUserIds?: string[];
 }
 
 // Phase 7 — RollTable + Macro. No in-tree browser consumer yet; contracts
@@ -74,7 +69,6 @@ export interface RealtimeRollTableChangedPayload {
 export interface RealtimeRollTableListInvalidatedPayload {
     reason: string;
     rollTableId?: string;
-    targetUserIds?: string[];
 }
 export interface RealtimeMacroChangedPayload {
     macroId: string;
@@ -83,7 +77,6 @@ export interface RealtimeMacroChangedPayload {
 export interface RealtimeMacroListInvalidatedPayload {
     reason: string;
     macroId?: string;
-    targetUserIds?: string[];
 }
 export interface RealtimePlaylistChangedPayload {
     playlistId: string;
@@ -92,7 +85,6 @@ export interface RealtimePlaylistChangedPayload {
 export interface RealtimePlaylistListInvalidatedPayload {
     reason: string;
     playlistId?: string;
-    targetUserIds?: string[];
 }
 export interface RealtimeCardsChangedPayload {
     cardsId: string;
@@ -101,7 +93,6 @@ export interface RealtimeCardsChangedPayload {
 export interface RealtimeCardsListInvalidatedPayload {
     reason: string;
     cardsId?: string;
-    targetUserIds?: string[];
 }
 
 // Scene and Setting currently expose invalidation signals only. Their raw
@@ -113,7 +104,6 @@ export interface RealtimeSceneChangedPayload {
 export interface RealtimeSceneListInvalidatedPayload {
     reason: string;
     sceneId?: string;
-    targetUserIds?: string[];
 }
 export interface RealtimeSettingChangedPayload {
     settingId: string;
@@ -122,5 +112,4 @@ export interface RealtimeSettingChangedPayload {
 export interface RealtimeSettingListInvalidatedPayload {
     reason: string;
     settingId?: string;
-    targetUserIds?: string[];
 }

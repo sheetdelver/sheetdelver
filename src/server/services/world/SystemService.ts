@@ -61,26 +61,30 @@ export class SystemService extends EventEmitter {
         // wire event to `actorChanged` so every primary doc type uses uniform
         // `<type>Changed` / `<type>ListInvalidated` names.
         actorStore.on('documentChanged', (event: DocumentChangedEvent) => {
-            this.systemClient?.emit('actorChanged', { actorId: event.id, action: event.action });
+            this.systemClient?.emit('actorChanged', {
+                actorId: event.id, action: event.action, audience: event.audience,
+            });
         });
         actorStore.on('documentListInvalidated', (event: DocumentListInvalidatedEvent) => {
             this.systemClient?.emit('actorListInvalidated', {
                 reason: event.reason,
                 actorId: event.documentId,
-                targetUserIds: event.targetUserIds,
+                audience: event.audience,
             });
         });
 
         // ChatMessageStore is the chat-event source going forward. Per ADR-0012,
         // ChatMessage uses the new event names.
         chatMessageStore.on('documentChanged', (event: DocumentChangedEvent) => {
-            this.systemClient?.emit('chatMessageChanged', { messageId: event.id, action: event.action });
+            this.systemClient?.emit('chatMessageChanged', {
+                messageId: event.id, action: event.action, audience: event.audience,
+            });
         });
         chatMessageStore.on('documentListInvalidated', (event: DocumentListInvalidatedEvent) => {
             this.systemClient?.emit('chatMessageListInvalidated', {
                 reason: event.reason,
                 messageId: event.documentId,
-                targetUserIds: event.targetUserIds,
+                audience: event.audience,
             });
         });
 
@@ -88,13 +92,15 @@ export class SystemService extends EventEmitter {
         // document-type generic; contained Actor/Item/Journal documents emit
         // through their own Stores.
         folderStore.on('documentChanged', (event: DocumentChangedEvent) => {
-            this.systemClient?.emit('folderChanged', { folderId: event.id, action: event.action });
+            this.systemClient?.emit('folderChanged', {
+                folderId: event.id, action: event.action, audience: event.audience,
+            });
         });
         folderStore.on('documentListInvalidated', (event: DocumentListInvalidatedEvent) => {
             this.systemClient?.emit('folderListInvalidated', {
                 reason: event.reason,
                 folderId: event.documentId,
-                targetUserIds: event.targetUserIds,
+                audience: event.audience,
             });
         });
 
@@ -103,14 +109,16 @@ export class SystemService extends EventEmitter {
         // a systemStatus refresh because the dashboard and login dropdown derive
         // their roster view from the full status payload.
         userStore.on('documentChanged', (event: DocumentChangedEvent) => {
-            this.systemClient?.emit('userChanged', { userId: event.id, action: event.action });
+            this.systemClient?.emit('userChanged', {
+                userId: event.id, action: event.action, audience: event.audience,
+            });
             this.emit('system:status-update');
         });
         userStore.on('documentListInvalidated', (event: DocumentListInvalidatedEvent) => {
             this.systemClient?.emit('userListInvalidated', {
                 reason: event.reason,
                 userId: event.documentId,
-                targetUserIds: event.targetUserIds,
+                audience: event.audience,
             });
             this.emit('system:status-update');
         });
@@ -120,13 +128,15 @@ export class SystemService extends EventEmitter {
         // parent entry — gateway consumers refetch the entry detail to pick
         // up the new page state.
         journalStore.on('documentChanged', (event: DocumentChangedEvent) => {
-            this.systemClient?.emit('journalChanged', { journalId: event.id, action: event.action });
+            this.systemClient?.emit('journalChanged', {
+                journalId: event.id, action: event.action, audience: event.audience,
+            });
         });
         journalStore.on('documentListInvalidated', (event: DocumentListInvalidatedEvent) => {
             this.systemClient?.emit('journalListInvalidated', {
                 reason: event.reason,
                 journalId: event.documentId,
-                targetUserIds: event.targetUserIds,
+                audience: event.audience,
             });
         });
 
@@ -137,13 +147,15 @@ export class SystemService extends EventEmitter {
         // changes propagate via CombatStore.bindActorVisibilityBridge; embedded
         // combatant actor-id / hidden changes can also invalidate combat lists.
         combatStore.on('documentChanged', (event: DocumentChangedEvent) => {
-            this.systemClient?.emit('combatChanged', { combatId: event.id, action: event.action });
+            this.systemClient?.emit('combatChanged', {
+                combatId: event.id, action: event.action, audience: event.audience,
+            });
         });
         combatStore.on('documentListInvalidated', (event: DocumentListInvalidatedEvent) => {
             this.systemClient?.emit('combatListInvalidated', {
                 reason: event.reason,
                 combatId: event.documentId,
-                targetUserIds: event.targetUserIds,
+                audience: event.audience,
             });
         });
 
@@ -153,13 +165,15 @@ export class SystemService extends EventEmitter {
         // exists for future module-SDK consumers and to keep the wire-event
         // surface uniform across Stores.
         itemStore.on('documentChanged', (event: DocumentChangedEvent) => {
-            this.systemClient?.emit('itemChanged', { itemId: event.id, action: event.action });
+            this.systemClient?.emit('itemChanged', {
+                itemId: event.id, action: event.action, audience: event.audience,
+            });
         });
         itemStore.on('documentListInvalidated', (event: DocumentListInvalidatedEvent) => {
             this.systemClient?.emit('itemListInvalidated', {
                 reason: event.reason,
                 itemId: event.documentId,
-                targetUserIds: event.targetUserIds,
+                audience: event.audience,
             });
         });
 
@@ -167,26 +181,30 @@ export class SystemService extends EventEmitter {
         // Embedded RollTableResult mutations (e.g. `drawn` flips) are reported
         // as `update` events on the parent table. No in-tree consumer today.
         rollTableStore.on('documentChanged', (event: DocumentChangedEvent) => {
-            this.systemClient?.emit('rollTableChanged', { rollTableId: event.id, action: event.action });
+            this.systemClient?.emit('rollTableChanged', {
+                rollTableId: event.id, action: event.action, audience: event.audience,
+            });
         });
         rollTableStore.on('documentListInvalidated', (event: DocumentListInvalidatedEvent) => {
             this.systemClient?.emit('rollTableListInvalidated', {
                 reason: event.reason,
                 rollTableId: event.documentId,
-                targetUserIds: event.targetUserIds,
+                audience: event.audience,
             });
         });
 
         // MacroStore is the Macro document-event source (Phase 7). No embedded
         // children. No in-tree consumer today.
         macroStore.on('documentChanged', (event: DocumentChangedEvent) => {
-            this.systemClient?.emit('macroChanged', { macroId: event.id, action: event.action });
+            this.systemClient?.emit('macroChanged', {
+                macroId: event.id, action: event.action, audience: event.audience,
+            });
         });
         macroStore.on('documentListInvalidated', (event: DocumentListInvalidatedEvent) => {
             this.systemClient?.emit('macroListInvalidated', {
                 reason: event.reason,
                 macroId: event.documentId,
-                targetUserIds: event.targetUserIds,
+                audience: event.audience,
             });
         });
 
@@ -195,13 +213,15 @@ export class SystemService extends EventEmitter {
         // are reported as `update` events on the parent playlist. No in-tree
         // consumer today.
         playlistStore.on('documentChanged', (event: DocumentChangedEvent) => {
-            this.systemClient?.emit('playlistChanged', { playlistId: event.id, action: event.action });
+            this.systemClient?.emit('playlistChanged', {
+                playlistId: event.id, action: event.action, audience: event.audience,
+            });
         });
         playlistStore.on('documentListInvalidated', (event: DocumentListInvalidatedEvent) => {
             this.systemClient?.emit('playlistListInvalidated', {
                 reason: event.reason,
                 playlistId: event.documentId,
-                targetUserIds: event.targetUserIds,
+                audience: event.audience,
             });
         });
 
@@ -211,13 +231,15 @@ export class SystemService extends EventEmitter {
         // on both parents — each leg fires its own `cardsChanged`. No in-tree
         // consumer today.
         cardsStore.on('documentChanged', (event: DocumentChangedEvent) => {
-            this.systemClient?.emit('cardsChanged', { cardsId: event.id, action: event.action });
+            this.systemClient?.emit('cardsChanged', {
+                cardsId: event.id, action: event.action, audience: event.audience,
+            });
         });
         cardsStore.on('documentListInvalidated', (event: DocumentListInvalidatedEvent) => {
             this.systemClient?.emit('cardsListInvalidated', {
                 reason: event.reason,
                 cardsId: event.documentId,
-                targetUserIds: event.targetUserIds,
+                audience: event.audience,
             });
         });
 
@@ -225,27 +247,31 @@ export class SystemService extends EventEmitter {
         // mutation rooted under a Scene. Realtime events carry ids only; raw
         // canvas state remains unavailable outside Core.
         sceneStore.on('documentChanged', (event: DocumentChangedEvent) => {
-            this.systemClient?.emit('sceneChanged', { sceneId: event.id, action: event.action });
+            this.systemClient?.emit('sceneChanged', {
+                sceneId: event.id, action: event.action, audience: event.audience,
+            });
         });
         sceneStore.on('documentListInvalidated', (event: DocumentListInvalidatedEvent) => {
             this.systemClient?.emit('sceneListInvalidated', {
                 reason: event.reason,
                 sceneId: event.documentId,
-                targetUserIds: event.targetUserIds,
+                audience: event.audience,
             });
         });
 
         // Settings are mirrored for privileged Core consumers and are GM-only.
-        // The gateway rechecks that type-level policy before forwarding these
-        // invalidation hints to an authenticated browser.
+        // SettingStore resolves that type-level policy into the server-only
+        // audience carried by each invalidation hint.
         settingStore.on('documentChanged', (event: DocumentChangedEvent) => {
-            this.systemClient?.emit('settingChanged', { settingId: event.id, action: event.action });
+            this.systemClient?.emit('settingChanged', {
+                settingId: event.id, action: event.action, audience: event.audience,
+            });
         });
         settingStore.on('documentListInvalidated', (event: DocumentListInvalidatedEvent) => {
             this.systemClient?.emit('settingListInvalidated', {
                 reason: event.reason,
                 settingId: event.documentId,
-                targetUserIds: event.targetUserIds,
+                audience: event.audience,
             });
         });
 

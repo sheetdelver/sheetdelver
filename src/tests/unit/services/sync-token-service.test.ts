@@ -12,7 +12,9 @@ import type {
 
 class SyntheticSyncTokenSource extends EventEmitter implements SyncTokenSource {
     public emitChange(type: PrimaryDocumentType, action: ChangeAction = 'update', id = `${type}.test`): void {
-        const event: DocumentChangedEvent = { type, action, id };
+        // Sync tokens are audience-independent, but the source event must obey
+        // the Store's explicit realtime delivery contract.
+        const event: DocumentChangedEvent = { type, action, id, audience: { kind: 'all' } };
         this.emit('documentChanged', event);
     }
 }

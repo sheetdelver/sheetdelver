@@ -124,7 +124,7 @@ async function runIngressToAuthorizedBrowserHarness() {
     let connectionHandler: ((socket: TestSocket) => Promise<void>) | undefined;
 
     const io = {
-        engine: { clientsCount: 2 },
+        engine: { clientsCount: 3 },
         use(handler: (socket: TestSocket, next: () => void) => Promise<void>) {
             authMiddleware = handler;
         },
@@ -148,6 +148,10 @@ async function runIngressToAuthorizedBrowserHarness() {
         ...ownerClient,
         userId: 'other-user',
     };
+    const gmClient = {
+        ...ownerClient,
+        userId: 'gm-user',
+    };
     const foundryUserConnections = {
         isCacheReady: () => true,
         getOrRestoreSession: async (token: string) => {
@@ -156,6 +160,9 @@ async function runIngressToAuthorizedBrowserHarness() {
             }
             if (token === 'other-token') {
                 return { client: otherClient, userId: 'other-user', username: 'other' };
+            }
+            if (token === 'gm-token') {
+                return { client: gmClient, userId: 'gm-user', username: 'gm' };
             }
             return undefined;
         },
@@ -172,21 +179,34 @@ async function runIngressToAuthorizedBrowserHarness() {
     const detachIngress = ingress.attach(foundryTransport);
     const ownerBrowser = createBrowserSocket('owner-browser', 'owner-token');
     const otherBrowser = createBrowserSocket('other-browser', 'other-token');
+    const gmBrowser = createBrowserSocket('gm-browser', 'gm-token');
 
     try {
         await userStore.seed(async () => [
             { _id: 'owner-user', name: 'Owner', role: FoundryUserRole.PLAYER },
             { _id: 'other-user', name: 'Other', role: FoundryUserRole.PLAYER },
+            { _id: 'gm-user', name: 'GM', role: FoundryUserRole.GAMEMASTER },
         ]);
-        await actorStore.seed(async () => [{
-            _id: 'actor-sync',
-            name: 'Before',
-            type: 'character',
-            ownership: {
-                default: 0,
-                'owner-user': 3,
+        await actorStore.seed(async () => [
+            {
+                _id: 'actor-sync',
+                name: 'Before',
+                type: 'character',
+                ownership: {
+                    default: 0,
+                    'owner-user': 3,
+                },
             },
-        }]);
+            {
+                _id: 'actor-delete',
+                name: 'Delete Me',
+                type: 'character',
+                ownership: {
+                    default: DocumentOwnershipLevel.NONE,
+                    'owner-user': DocumentOwnershipLevel.OWNER,
+                },
+            },
+        ]);
         await sceneStore.seed(async () => [{
             _id: 'scene-sync',
             name: 'Before Scene',
@@ -235,8 +255,10 @@ async function runIngressToAuthorizedBrowserHarness() {
 
         await authMiddleware!(ownerBrowser.socket, () => undefined);
         await authMiddleware!(otherBrowser.socket, () => undefined);
+        await authMiddleware!(gmBrowser.socket, () => undefined);
         await connectionHandler!(ownerBrowser.socket);
         await connectionHandler!(otherBrowser.socket);
+        await connectionHandler!(gmBrowser.socket);
 
         // Every active Store now has changed/list signal parity. Unsupported
         // Adventure and FogExploration remain absent from the expected set.
@@ -267,6 +289,44 @@ async function runIngressToAuthorizedBrowserHarness() {
             otherBrowser.emitted.some((entry) => entry.event === 'actorChanged'),
             false,
             'a non-owner does not receive the document-specific invalidation',
+        );
+        assert.equal(
+            gmBrowser.emitted.some((entry) => entry.event === 'actorChanged'),
+            true,
+            'implicit GM ownership is honored by the Store audience policy',
+        );
+
+        // Delete routing must use the document snapshot that existed before
+        // removal. Otherwise the gateway cannot notify authorized viewers and
+        // may leak the tombstone identifier to unrelated authenticated users.
+        const priorActorEvents = new Map([
+            ['owner', ownerBrowser.emitted.length],
+            ['other', otherBrowser.emitted.length],
+            ['gm', gmBrowser.emitted.length],
+        ]);
+        foundryTransport.emit('foundry:modifyDocument', {
+            response: {
+                type: 'Actor',
+                action: 'delete',
+                result: ['actor-delete'],
+            },
+        });
+        const receivedDeletedActor = (
+            entries: Array<{ event: string; payload: unknown }>,
+            start: number,
+        ) => entries.slice(start).some((entry) => {
+            const payload = entry.payload as { actorId?: string; action?: string };
+            return entry.event === 'actorChanged'
+                && payload.actorId === 'actor-delete'
+                && payload.action === 'delete';
+        });
+        assert.equal(actorStore.get('actor-delete'), null);
+        assert.equal(receivedDeletedActor(ownerBrowser.emitted, priorActorEvents.get('owner')!), true);
+        assert.equal(receivedDeletedActor(gmBrowser.emitted, priorActorEvents.get('gm')!), true);
+        assert.equal(
+            receivedDeletedActor(otherBrowser.emitted, priorActorEvents.get('other')!),
+            false,
+            'an unrelated player never receives the private deleted Actor id',
         );
 
         // Feed each incoming ownership value through the exact CoreSocket
@@ -355,12 +415,18 @@ async function runIngressToAuthorizedBrowserHarness() {
             'v13 replacement removes an omitted ownership override',
         );
         assert.equal(
-            otherBrowser.emitted.some((entry) => entry.event === 'actorListInvalidated'),
+            otherBrowser.emitted.some((entry) => {
+                const payload = entry.payload as { actorId?: string };
+                return entry.event === 'actorListInvalidated' && payload.actorId === 'actor-sync';
+            }),
             true,
             'ownership transitions reach the affected browser as list invalidations',
         );
         assert.equal(
-            ownerBrowser.emitted.some((entry) => entry.event === 'actorListInvalidated'),
+            ownerBrowser.emitted.some((entry) => {
+                const payload = entry.payload as { actorId?: string };
+                return entry.event === 'actorListInvalidated' && payload.actorId === 'actor-sync';
+            }),
             false,
             'ownership invalidations do not leak to an unaffected browser',
         );
@@ -435,6 +501,11 @@ async function runIngressToAuthorizedBrowserHarness() {
             false,
             'another player never receives GM-only Setting identifiers',
         );
+        assert.equal(
+            gmBrowser.emitted.some((entry) => entry.event === 'settingChanged'),
+            true,
+            'the Setting Store type policy routes its invalidation to a GM',
+        );
 
         // The explicitly unsupported Stores stay outside generic ingress.
         foundryTransport.emit('foundry:modifyDocument', {
@@ -456,6 +527,7 @@ async function runIngressToAuthorizedBrowserHarness() {
     } finally {
         ownerBrowser.disconnect();
         otherBrowser.disconnect();
+        gmBrowser.disconnect();
         detachIngress();
         actorStore.clear('document-sync-characterization');
         userStore.clear('document-sync-characterization');

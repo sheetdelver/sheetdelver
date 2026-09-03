@@ -36,11 +36,9 @@ function getUserDocumentRole(user: UserDocument | null | undefined): FoundryUser
  * Users are *subjects* of ownership, not targets. All authenticated callers
  * see the roster (OBSERVER); GMs see it as OWNER.
  *
- * Because User docs have no `ownership` field, the base
- * `diffOwnershipAndEmitInvalidation` and `usersWithEffectiveVisibility`
- * never produce a `targetUserIds` list for User events — `documentListInvalidated`
- * for User is always broadcast-wide. Gateways consuming `userListInvalidated`
- * can treat a missing `targetUserIds` as "everyone authenticated."
+ * Because every authenticated Foundry user can observe the roster, User Store
+ * changes resolve to the explicit `all` audience. The app gateway consumes
+ * that server-only audience before emitting the browser invalidation hint.
  *
  * UserStore is foundational: every other Store's subject construction reads
  * role information from here via {@link getRole}. Don't introduce cross-store

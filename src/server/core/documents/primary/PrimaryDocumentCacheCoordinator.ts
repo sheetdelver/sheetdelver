@@ -62,6 +62,26 @@ class PrimaryDocumentCacheCoordinator {
 
 export const primaryDocumentCacheCoordinator = new PrimaryDocumentCacheCoordinator();
 
+// Store event audiences are calculated through each Store's own visibility
+// policy. UserStore supplies only the current subject roster, keeping role and
+// implicit-GM handling aligned with authorized route reads.
+const getAudienceSubjects = () => userStore.list()
+    .map(user => userStore.createAccessSubject(user._id || user.id))
+    .filter(subject => subject !== null);
+actorStore.bindAudienceSubjects(getAudienceSubjects);
+chatMessageStore.bindAudienceSubjects(getAudienceSubjects);
+folderStore.bindAudienceSubjects(getAudienceSubjects);
+userStore.bindAudienceSubjects(getAudienceSubjects);
+journalStore.bindAudienceSubjects(getAudienceSubjects);
+combatStore.bindAudienceSubjects(getAudienceSubjects);
+itemStore.bindAudienceSubjects(getAudienceSubjects);
+rollTableStore.bindAudienceSubjects(getAudienceSubjects);
+macroStore.bindAudienceSubjects(getAudienceSubjects);
+playlistStore.bindAudienceSubjects(getAudienceSubjects);
+cardsStore.bindAudienceSubjects(getAudienceSubjects);
+sceneStore.bindAudienceSubjects(getAudienceSubjects);
+settingStore.bindAudienceSubjects(getAudienceSubjects);
+
 // -----------------------------------------------------------------------------
 // Built-in Store registrations
 //

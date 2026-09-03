@@ -11,6 +11,10 @@ import {
     type PrimaryDocumentType,
 } from '../base/PrimaryDocumentStore';
 import {
+    unionDocumentAudiences,
+    type DocumentAudience,
+} from '../base/audience';
+import {
     DocumentOwnershipLevel,
     isGM,
     type DocumentAccessSubject,
@@ -112,16 +116,18 @@ export class FolderStore extends PrimaryDocumentStore<FolderDocument> {
         const normalized = normalizeFolderDocument(folder);
         const id = folderId(normalized);
         const existed = id ? this.documents.has(id) : false;
+        const beforeAudience = id ? this.audienceForDocumentId(id) : undefined;
         const before = id ? comparableFolderState(this.documents.get(id)) : '';
         super.upsert(normalized);
-        if (existed) this.emitFolderListInvalidationIfNeeded(id, before);
+        if (existed) this.emitFolderListInvalidationIfNeeded(id, before, beforeAudience);
     }
 
     public patch(folderIdValue: string, diff: Record<string, unknown>): void {
+        const beforeAudience = this.audienceForDocumentId(folderIdValue);
         const before = comparableFolderState(this.documents.get(folderIdValue));
         const normalized = normalizeFolderPatch(diff as FolderDocument) as Record<string, unknown>;
         super.patch(folderIdValue, normalized);
-        this.emitFolderListInvalidationIfNeeded(folderIdValue, before);
+        this.emitFolderListInvalidationIfNeeded(folderIdValue, before, beforeAudience);
     }
 
     public listByType(type?: string | null): FolderDocument[] {
@@ -200,12 +206,13 @@ export class FolderStore extends PrimaryDocumentStore<FolderDocument> {
             ? getDeletionIds(operation, result, docs)
             : docs.map(folderId).filter((id): id is string => Boolean(id));
         const before = new Map(ids.map(id => [id, comparableFolderState(this.documents.get(id))]));
+        const beforeAudiences = new Map(ids.map(id => [id, this.audienceForDocumentId(id)]));
 
         super.applySelfChange(action, normalizedResult, operation);
 
         if (action !== 'update') return;
         for (const id of ids) {
-            this.emitFolderListInvalidationIfNeeded(id, before.get(id) ?? '');
+            this.emitFolderListInvalidationIfNeeded(id, before.get(id) ?? '', beforeAudiences.get(id));
         }
     }
 
@@ -239,7 +246,11 @@ export class FolderStore extends PrimaryDocumentStore<FolderDocument> {
         return DocumentOwnershipLevel.NONE;
     }
 
-    private emitFolderListInvalidationIfNeeded(folderIdValue: string | null, before: string): void {
+    private emitFolderListInvalidationIfNeeded(
+        folderIdValue: string | null,
+        before: string,
+        beforeAudience?: DocumentAudience,
+    ): void {
         if (!folderIdValue) return;
         const after = comparableFolderState(this.documents.get(folderIdValue));
         if (before === after) return;
@@ -248,7 +259,15 @@ export class FolderStore extends PrimaryDocumentStore<FolderDocument> {
         const afterState = after ? JSON.parse(after) as Record<string, unknown> : {};
         const permissionChanged = stableJson(beforeState.permission ?? null) !== stableJson(afterState.permission ?? null);
         const reason = permissionChanged ? 'folder-permission-changed' : 'folder-tree-changed';
-        this.emitListInvalidated(reason, { documentId: folderIdValue });
+        // Folder visibility comes from `permission`, so retain both former and
+        // current viewers when a permission or ancestry mutation changes the list.
+        this.emitListInvalidated(reason, {
+            documentId: folderIdValue,
+            audience: unionDocumentAudiences(
+                beforeAudience ?? this.audienceForDocumentId(folderIdValue),
+                this.audienceForDocumentId(folderIdValue),
+            ),
+        });
     }
 }
 
