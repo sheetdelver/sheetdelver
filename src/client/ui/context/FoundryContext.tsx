@@ -83,6 +83,7 @@ export function FoundryProvider({ children }: { children: ReactNode }) {
         setIsConfigured,
         handleLogin,
         handleLogout,
+        isExplicitLogoutPending,
         registerLogoutCleanup,
     } = useSession();
 
@@ -244,6 +245,7 @@ export function FoundryProvider({ children }: { children: ReactNode }) {
         setLastWorldId,
         resetActorCombatState,
         fetchActors,
+        isExplicitLogoutPending,
     });
     useSharedContentRealtime({ appSocket, sharedContent, setSharedContent });
     useActorRealtime({ appSocket, token, actorCards, patchActorCard, fetchActors });

@@ -6,16 +6,23 @@ import { userStore } from '@server/core/documents/primary/users/UserStore';
 import { FoundryUserRole } from '@server/core/documents/primary/base/ownership';
 import type { SystemStatusPayload } from '@shared/contracts/status';
 import { PLAYER_SESSION_COOKIE_NAME } from '@server/security/playerSessionCookie';
+import type {
+    FoundrySessionInvalidationEvent,
+    FoundrySessionInvalidationListener,
+} from '@server/shared/types/foundry';
 
 type EventHandler = (...args: unknown[]) => void;
 
 interface MockSocket {
     id: string;
+    connected: boolean;
     handshake: { headers: { cookie?: string } };
     rooms: Set<string>;
     join: (room: string) => void;
+    leave: (room: string) => void;
     emit: (event: string, payload?: unknown) => void;
     on: (event: string, handler: EventHandler) => void;
+    off: (event: string, handler: EventHandler) => void;
     userSession?: unknown;
     foundryClient?: MockFoundryClient;
 }
@@ -48,6 +55,8 @@ async function runGatewayTests() {
     const detachedHandlers: Array<{ event: string; handler: EventHandler }> = [];
     const systemAttachedHandlers: Array<{ event: string; handler: EventHandler }> = [];
     const systemDetachedHandlers: Array<{ event: string; handler: EventHandler }> = [];
+    const invalidationListeners = new Set<FoundrySessionInvalidationListener>();
+    let validSession = true;
 
     const foundryClient: MockFoundryClient = {
         userId: 'user-1',
@@ -61,11 +70,16 @@ async function runGatewayTests() {
 
     const foundryUserConnections = {
         isCacheReady: () => true,
+        isValidSession: (token: string) => token === 'valid-token' && validSession,
         getOrRestoreSession: async (token: string) => {
             if (token === 'valid-token') {
                 return { client: foundryClient, userId: 'user-1', username: 'tester' };
             }
             return undefined;
+        },
+        onSessionInvalidated: (listener: FoundrySessionInvalidationListener) => {
+            invalidationListeners.add(listener);
+            return () => invalidationListeners.delete(listener);
         },
     };
 
@@ -91,20 +105,30 @@ async function runGatewayTests() {
         }) as typeof engagementService.setActiveBrowserCount;
 
         const emitted: Array<{ event: string; payload: unknown }> = [];
-        let disconnectHandler: EventHandler | undefined;
+        const socketHandlers = new Map<string, EventHandler[]>();
 
         const socket: MockSocket = {
             id: 'socket-1',
+            connected: true,
             handshake: { headers: { cookie: `${PLAYER_SESSION_COOKIE_NAME}=valid-token` } },
             rooms: new Set(),
             join(room: string) {
                 this.rooms.add(room);
             },
+            leave(room: string) {
+                this.rooms.delete(room);
+            },
             emit(event: string, payload?: unknown) {
                 emitted.push({ event, payload });
             },
             on(event: string, handler: EventHandler) {
-                if (event === 'disconnect') disconnectHandler = handler;
+                socketHandlers.set(event, [...(socketHandlers.get(event) ?? []), handler]);
+            },
+            off(event: string, handler: EventHandler) {
+                socketHandlers.set(
+                    event,
+                    (socketHandlers.get(event) ?? []).filter(candidate => candidate !== handler),
+                );
             },
         };
 
@@ -239,8 +263,46 @@ async function runGatewayTests() {
             settingEventCount,
         );
 
+        // An unrelated session event leaves this socket authorized. Its own
+        // invalidation immediately strips rooms, references, and listeners.
+        for (const listener of invalidationListeners) {
+            listener({ scope: 'session', sessionId: 'another-token', reason: 'revoked' });
+        }
+        assert.equal(socket.rooms.has('authenticated'), true);
+
+        const worldEventCount = emitted.filter(entry => entry.event === 'userChanged').length;
+        const statusCountBeforeInvalidation = emitted.filter(entry => entry.event === 'systemStatus').length;
+        for (const listener of invalidationListeners) {
+            listener({ scope: 'session', sessionId: 'valid-token', reason: 'expired' });
+        }
+        await Promise.resolve();
+        await Promise.resolve();
+
+        assert.equal(socket.rooms.has('authenticated'), false);
+        assert.equal(socket.rooms.has('status:public'), true);
+        assert.equal(socket.userSession, undefined);
+        assert.equal(socket.foundryClient, undefined);
+        const invalidated = emitted.find(entry => entry.event === 'sessionInvalidated')?.payload as Record<string, unknown>;
+        assert.deepEqual(invalidated, { reason: 'expired' });
+        assert.equal(JSON.stringify(invalidated).includes('valid-token'), false);
+        assert.equal(systemDetachedHandlers.length, 26);
+        assert.equal(
+            emitted.filter(entry => entry.event === 'systemStatus').length,
+            statusCountBeforeInvalidation,
+            'retirement must not emit a pre-logout public roster snapshot',
+        );
+
+        // A callback already captured by an emitter must also fail closed after
+        // authority retirement, even though normal listener detachment ran.
+        userChanged!({ userId: 'user-1', action: 'update', audience: { kind: 'all' } });
+        assert.equal(
+            emitted.filter(entry => entry.event === 'userChanged').length,
+            worldEventCount,
+        );
+
         io.engine.clientsCount = 0;
-        disconnectHandler?.();
+        socket.connected = false;
+        for (const handler of socketHandlers.get('disconnect') ?? []) handler();
 
         assert.equal(detachedHandlers.length, 0);
         assert.equal(systemDetachedHandlers.length, 26);
@@ -253,13 +315,18 @@ async function runGatewayTests() {
         const guestEmitted: Array<{ event: string; payload: unknown }> = [];
         const guestSocket: MockSocket = {
             id: 'socket-guest',
+            connected: true,
             handshake: { headers: {} },
             rooms: new Set(),
             join(room: string) {
                 this.rooms.add(room);
             },
+            leave(room: string) {
+                this.rooms.delete(room);
+            },
             emit: (event, payload) => guestEmitted.push({ event, payload }),
             on: () => undefined,
+            off: () => undefined,
         };
 
         let guestNext = false;
@@ -278,6 +345,34 @@ async function runGatewayTests() {
         assert.equal(guestSystem.worldDescription, '<p>Campaign introduction</p>');
         assert.equal(guestSystem.worldBackground, 'http://foundry.test/world.webp');
         assert.equal(guestSystem.nextSession, 'Saturday at 7 PM');
+
+        // Reconcile the narrow race where middleware authenticated a token but
+        // the service retired it before the connection handler subscribed.
+        const raceEmitted: Array<{ event: string; payload: unknown }> = [];
+        const raceSocket: MockSocket = {
+            id: 'socket-handshake-race',
+            connected: true,
+            handshake: { headers: { cookie: `${PLAYER_SESSION_COOKIE_NAME}=valid-token` } },
+            rooms: new Set(),
+            join(room: string) { this.rooms.add(room); },
+            leave(room: string) { this.rooms.delete(room); },
+            emit: (event, payload) => raceEmitted.push({ event, payload }),
+            on: () => undefined,
+            off: () => undefined,
+        };
+        validSession = true;
+        await authMiddleware!(raceSocket, () => undefined);
+        assert.equal(raceSocket.rooms.has('authenticated'), true);
+        validSession = false;
+        const attachedBeforeRace = systemAttachedHandlers.length;
+        await connectionHandler!(raceSocket);
+        assert.equal(raceSocket.rooms.has('authenticated'), false);
+        assert.equal(raceSocket.rooms.has('status:public'), true);
+        assert.equal(
+            raceEmitted.some(entry => entry.event === 'sessionInvalidated'),
+            true,
+        );
+        assert.equal(systemAttachedHandlers.length, attachedBeforeRace);
     } finally {
         (systemService as any).getSystemClient = originalGetSystemClient;
         (systemService as any).isReady = originalIsReady;
@@ -306,6 +401,7 @@ async function runDeferredAttachWhenNotReady() {
 
     const attachedHandlers: Array<{ event: string; handler: EventHandler }> = [];
     const systemAttachedHandlers: Array<{ event: string; handler: EventHandler }> = [];
+    const invalidationListeners = new Set<FoundrySessionInvalidationListener>();
 
     const foundryClient: MockFoundryClient = {
         userId: 'user-1',
@@ -319,7 +415,12 @@ async function runDeferredAttachWhenNotReady() {
 
     const foundryUserConnections = {
         isCacheReady: () => true,
+        isValidSession: (token: string) => token === 'valid-token',
         getOrRestoreSession: async () => ({ client: foundryClient, userId: 'user-1', username: 'tester' }),
+        onSessionInvalidated: (listener: FoundrySessionInvalidationListener) => {
+            invalidationListeners.add(listener);
+            return () => invalidationListeners.delete(listener);
+        },
     };
 
     const originalGetSystemClient = (systemService as any).getSystemClient;
@@ -347,6 +448,7 @@ async function runDeferredAttachWhenNotReady() {
             rooms: new Set(),
             connected: true,
             join(room: string) { this.rooms.add(room); },
+            leave(room: string) { this.rooms.delete(room); },
             emit: () => undefined,
             on: () => undefined,
             off: () => undefined,
@@ -378,13 +480,21 @@ async function runDeferredAttachWhenNotReady() {
         // listener attachment happened on the system client.
         assert.equal(systemAttachedHandlers.length, 0);
 
+        // Setup-wide invalidation before readiness must cancel the pending
+        // world:ready attachment, not merely filter events after attachment.
+        for (const listener of invalidationListeners) {
+            listener({ scope: 'all', reason: 'world-entered-setup' });
+        }
+        await Promise.resolve();
+        assert.equal(socket.rooms.has('authenticated'), false);
+        assert.equal(socket.rooms.has('status:public'), true);
+
         // Mark ready and emit `world:ready`. The gateway is listening via
-        // `systemService.once('world:ready', ...)` and should attach now.
+        // `systemService.once('world:ready', ...)`, but revocation removed it.
         ready = true;
         systemService.emit('world:ready', { systemId: 'shadowdark' });
 
-        // After readiness fires, all 26 system-client listeners are attached.
-        assert.equal(systemAttachedHandlers.length, 26);
+        assert.equal(systemAttachedHandlers.length, 0);
     } finally {
         (systemService as any).getSystemClient = originalGetSystemClient;
         (systemService as any).isReady = originalIsReady;

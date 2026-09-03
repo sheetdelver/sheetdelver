@@ -33,6 +33,7 @@ interface UseSystemStatusRealtimeOptions {
     setLastWorldId: Dispatch<SetStateAction<string | null>>;
     resetActorCombatState: () => void;
     fetchActors: () => Promise<ActorListPayload | void>;
+    isExplicitLogoutPending: () => boolean;
 }
 
 export function useSystemStatusRealtime({
@@ -54,6 +55,7 @@ export function useSystemStatusRealtime({
     setLastWorldId,
     resetActorCombatState,
     fetchActors,
+    isExplicitLogoutPending,
 }: UseSystemStatusRealtimeOptions) {
     const latestRef = useRef({
         step,
@@ -134,6 +136,7 @@ export function useSystemStatusRealtime({
                 const targetStep = determineConnectionStep(data, latest.step, {
                     isConfigured: latest.isConfigured,
                     isAuthenticated: !!latest.token,
+                    isExplicitLogoutPending: isExplicitLogoutPending(),
                 });
 
                 if (latest.step !== targetStep) {
@@ -153,6 +156,7 @@ export function useSystemStatusRealtime({
         };
     }, [
         appSocket,
+        isExplicitLogoutPending,
         resetActorCombatState,
         setAppVersion,
         setIsConfigured,

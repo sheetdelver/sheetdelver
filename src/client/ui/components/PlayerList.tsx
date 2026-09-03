@@ -31,7 +31,7 @@ export default function PlayerList() {
         };
     }, [isOpen, setIsOpen]);
 
-    if (!users || users.length === 0 || step === 'login') return null;
+    if (!users || users.length === 0 || step === 'login' || step === 'logging-out') return null;
 
     const activeCount = users.filter(u => u.active).length;
 

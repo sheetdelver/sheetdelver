@@ -8,6 +8,8 @@ type HeadersWithSetCookie = Headers & {
     getSetCookie?: () => string[];
 };
 
+export const FOUNDRY_LOGOUT_TIMEOUT_MS = 5_000;
+
 export abstract class SocketBase extends EventEmitter {
     protected socket: Socket | null = null;
     protected cookieMap = new Map<string, string>();
@@ -295,6 +297,10 @@ export abstract class SocketBase extends EventEmitter {
             logger.info(`[${this.constructor.name}] Attempting explicit logout from Foundry via POST /logout...`);
             const response = await fetch(`${baseUrl}/logout`, {
                 method: 'POST',
+                // Foundry teardown is best-effort after local authority has
+                // already been retired; bound an unavailable upstream so the
+                // browser cannot remain in its logging-out state indefinitely.
+                signal: AbortSignal.timeout(FOUNDRY_LOGOUT_TIMEOUT_MS),
                 headers: {
                     'Cookie': this.sessionCookie || '',
                     'Content-Type': 'application/json'

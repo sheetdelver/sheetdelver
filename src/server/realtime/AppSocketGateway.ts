@@ -2,7 +2,12 @@ import type { Server, Socket } from 'socket.io';
 import { systemService } from '@server/services/world';
 import { logger } from '@shared/utils/logger';
 import { engagementService } from '@server/services/world';
-import type { FoundryUserConnectionServiceLike, FoundryUserConnectionLike, FoundryDocumentClientLike } from '@server/shared/types/foundry';
+import type {
+    FoundryDocumentClientLike,
+    FoundrySessionInvalidationEvent,
+    FoundryUserConnectionLike,
+    FoundryUserConnectionServiceLike,
+} from '@server/shared/types/foundry';
 import type { PublicStatusPayload, SystemStatusPayload } from '@shared/contracts/status';
 import {
     documentAudienceIncludes,
@@ -13,6 +18,7 @@ import { readPlayerSessionCookie } from '@server/security/playerSessionCookie';
 import { STATUS_ROOMS } from './SystemStatusBroadcaster';
 
 type AppSocket = Socket & {
+    playerSessionId?: string;
     userSession?: FoundryUserConnectionLike;
     foundryClient?: FoundryDocumentClientLike;
 };
@@ -52,6 +58,7 @@ export function registerAppSocketGateway({
                 return next();
             }
             // Attach session/client to socket for later use
+            socket.playerSessionId = token;
             socket.userSession = session;
             socket.foundryClient = session.client;
 
@@ -76,10 +83,66 @@ export function registerAppSocketGateway({
         // return-to-engagement signal consumed by WorldTransportController.
         engagementService.setActiveBrowserCount(clientCount);
 
+        let detachWorldBackedListeners: (() => void) | null = null;
+        let cancelDeferredWorldAttach: (() => void) | null = null;
+        let unsubscribeSessionInvalidation: () => void = () => undefined;
+        let sessionAuthorityRetired = false;
+
+        const retireSocketAuthority = (event: FoundrySessionInvalidationEvent) => {
+            const sessionId = socket.playerSessionId;
+            const matches = !!sessionId && (
+                event.scope === 'all' || event.sessionId === sessionId
+            );
+            if (!matches || sessionAuthorityRetired) return;
+
+            sessionAuthorityRetired = true;
+            unsubscribeSessionInvalidation();
+            unsubscribeSessionInvalidation = () => undefined;
+            cancelDeferredWorldAttach?.();
+            cancelDeferredWorldAttach = null;
+            detachWorldBackedListeners?.();
+            detachWorldBackedListeners = null;
+            socket.leave(STATUS_ROOMS.authenticated);
+            socket.join(STATUS_ROOMS.public);
+            delete socket.playerSessionId;
+            delete socket.userSession;
+            delete socket.foundryClient;
+
+            logger.info(`App Socket | Reclassified ${socket.id} after server session invalidation (${event.reason}).`);
+            // The reason is diagnostic only. No session id or Foundry document
+            // data crosses this browser boundary.
+            socket.emit('sessionInvalidated', { reason: event.reason });
+        };
+
+        unsubscribeSessionInvalidation = socket.playerSessionId
+            ? foundryUserConnections.onSessionInvalidated((event) => {
+                retireSocketAuthority(event);
+            })
+            : () => undefined;
+
+        // Subscribe before reconciling so invalidation cannot fall between the
+        // middleware authentication result and listener registration.
+        if (
+            socket.playerSessionId
+            && !foundryUserConnections.isValidSession(socket.playerSessionId)
+        ) {
+            retireSocketAuthority({
+                scope: 'session',
+                sessionId: socket.playerSessionId,
+                reason: 'revoked',
+            });
+        }
+
         // Initial status uses the same audience split as subsequent broadcasts.
-        const payload = socket.rooms.has(STATUS_ROOMS.authenticated)
+        // Recheck the room after the await: session invalidation can occur while
+        // the authenticated projection is being assembled.
+        const beganAuthenticated = socket.rooms.has(STATUS_ROOMS.authenticated);
+        let payload = beganAuthenticated
             ? await getSystemStatusPayload()
             : await getPublicStatusPayload();
+        if (beganAuthenticated && !socket.rooms.has(STATUS_ROOMS.authenticated)) {
+            payload = await getPublicStatusPayload();
+        }
         socket.emit('systemStatus', payload);
 
         // Per ADR-0021, authenticated world-backed listener attachment must wait
@@ -94,18 +157,25 @@ export function registerAppSocketGateway({
         // were ever attached. Listener cleanup is a separate disconnect handler
         // registered inside attachWorldBackedListeners.
         socket.on('disconnect', () => {
+            unsubscribeSessionInvalidation();
+            cancelDeferredWorldAttach?.();
             const remaining = io.engine.clientsCount;
             logger.debug(`App Socket | Client disconnected: ${socket.id}. Remaining: ${remaining}`);
             engagementService.setActiveBrowserCount(remaining);
         });
 
         const attachWorldBackedListeners = (foundryClient: FoundryDocumentClientLike) => {
+            if (sessionAuthorityRetired || !socket.userSession) return;
             const sessionIdentity = socket.userSession?.username || socket.userSession?.userId || foundryClient.userId || 'unknown';
             logger.info(`App Socket | Attaching per-user listeners for ${sessionIdentity} (${socket.id})`);
 
             const getSessionUserId = () => socket.userSession?.userId || foundryClient.userId || null;
             const emitWorldBackedEvent = (event: string, payload: unknown) => {
-                if (!systemService.isReady()) return;
+                if (
+                    sessionAuthorityRetired
+                    || !socket.rooms.has(STATUS_ROOMS.authenticated)
+                    || !systemService.isReady()
+                ) return;
                 socket.emit(event, payload);
             };
             // Stores calculate audience before state is lost and through their
@@ -194,7 +264,10 @@ export function registerAppSocketGateway({
             systemClient.on('settingListInvalidated', handleSettingListInvalidated);
             const unsubscribeSharedContent = sharedContentStore.onSharedContentChanged(handleSharedUpdate);
 
-            const detachWorldBackedListeners = () => {
+            let detached = false;
+            const detachListeners = () => {
+                if (detached) return;
+                detached = true;
                 systemClient.off('actorChanged', handleActorChanged);
                 systemClient.off('actorListInvalidated', handleActorListInvalidated);
                 systemClient.off('chatMessageChanged', handleChatMessageChanged);
@@ -223,13 +296,14 @@ export function registerAppSocketGateway({
                 systemClient.off('settingListInvalidated', handleSettingListInvalidated);
                 unsubscribeSharedContent();
             };
+            detachWorldBackedListeners = detachListeners;
 
             if (socket.connected) {
-                socket.on('disconnect', detachWorldBackedListeners);
+                socket.on('disconnect', detachListeners);
             } else {
                 // Edge case: socket disconnected between readiness wait and
                 // attach — run cleanup immediately so we don't leak listeners.
-                detachWorldBackedListeners();
+                detachListeners();
             }
         };
 
@@ -242,11 +316,17 @@ export function registerAppSocketGateway({
                 // don't attach world-backed listeners to a dead socket.
                 logger.debug(`App Socket | Deferring per-user listeners for ${socket.id} until world:ready`);
                 const onWorldReady = () => {
-                    socket.off('disconnect', onSocketDisconnect);
+                    cancelDeferredWorldAttach?.();
+                    cancelDeferredWorldAttach = null;
                     attachWorldBackedListeners(foundryClient);
                 };
                 const onSocketDisconnect = () => {
+                    cancelDeferredWorldAttach?.();
+                    cancelDeferredWorldAttach = null;
+                };
+                cancelDeferredWorldAttach = () => {
                     systemService.off('world:ready', onWorldReady);
+                    socket.off('disconnect', onSocketDisconnect);
                 };
                 systemService.once('world:ready', onWorldReady);
                 socket.on('disconnect', onSocketDisconnect);

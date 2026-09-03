@@ -24,6 +24,8 @@ interface SessionContextType {
     setIsConfigured: React.Dispatch<React.SetStateAction<boolean>>;
     handleLogin: (username: string, password?: string) => Promise<void>;
     handleLogout: () => Promise<void>;
+    invalidateLocalSession: (reason: string) => void;
+    isExplicitLogoutPending: () => boolean;
     registerLogoutCleanup: (cleanup: () => void) => () => void;
 }
 
@@ -45,6 +47,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     const [appVersion, setAppVersion] = useState<string | null>(null);
     const [isConfigured, setIsConfigured] = useState<boolean>(true);
     const logoutCleanupRef = useRef<Array<() => void>>([]);
+    const explicitLogoutPendingRef = useRef(false);
 
     const currentUser = users.find((user) => (user._id || user.id) === currentUserId) || null;
 
@@ -88,23 +91,38 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         }
     }, [addNotification, setStep, setToken]);
 
+    const invalidateLocalSession = useCallback((reason: string) => {
+        // Both explicit logout and server-side revocation must retire every
+        // session-bound client cache, not only the non-secret token marker.
+        resetUI();
+        setStep('login', 'session-invalidation', reason);
+        logoutCleanupRef.current.forEach((cleanup) => cleanup());
+        setToken(null);
+    }, [resetUI, setStep, setToken]);
+
+    const isExplicitLogoutPending = useCallback(
+        () => explicitLogoutPendingRef.current,
+        [],
+    );
+
     const handleLogout = useCallback(async () => {
+        if (explicitLogoutPendingRef.current) return;
+        explicitLogoutPendingRef.current = true;
+
+        // Preserve the public-reclassified socket until the server completes
+        // Foundry logout. The dedicated step withholds both dashboard and login
+        // controls while that socket receives the authoritative inactive roster.
+        resetUI();
+        setStep('logging-out', 'handleLogout', 'Logout requested');
+        logoutCleanupRef.current.forEach((cleanup) => cleanup());
         try {
-            resetUI();
-            setStep('login', 'handleLogout', 'User logged out');
-
-            logoutCleanupRef.current.forEach((cleanup) => cleanup());
-
             await foundryApi.logout(token);
-            setToken(null);
         } catch (error: unknown) {
             logger.error('SessionProvider | Logout error:', error);
-            resetUI();
-            setStep('login', 'handleLogout error', 'Force transition');
-
-            logoutCleanupRef.current.forEach((cleanup) => cleanup());
-
+        } finally {
+            explicitLogoutPendingRef.current = false;
             setToken(null);
+            setStep('login', 'handleLogout complete', 'Server logout settled');
         }
     }, [resetUI, setStep, setToken, token]);
 
@@ -131,6 +149,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         setIsConfigured,
         handleLogin,
         handleLogout,
+        invalidateLocalSession,
+        isExplicitLogoutPending,
         registerLogoutCleanup,
     }), [
         step,
@@ -144,6 +164,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         isConfigured,
         handleLogin,
         handleLogout,
+        invalidateLocalSession,
+        isExplicitLogoutPending,
         registerLogoutCleanup,
     ]);
 

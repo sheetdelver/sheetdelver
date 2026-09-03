@@ -5,7 +5,12 @@ import { worldStateStore } from '@server/core/world/WorldStateStore';
 import { worldLifecycleStore } from '@server/core/world/WorldLifecycleStore';
 import { logger } from '@shared/utils/logger';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
-import type { RestoredFoundrySessionCredential } from '@server/shared/types/foundry';
+import type {
+    FoundrySessionInvalidationEvent,
+    FoundrySessionInvalidationListener,
+    FoundrySessionInvalidationReason,
+    RestoredFoundrySessionCredential,
+} from '@server/shared/types/foundry';
 import { foundryEventIngress } from '@server/services/world/FoundryEventIngress';
 import { FoundryUserIdentityResolver } from './FoundryUserIdentityResolver';
 import { FoundryUserDiscoveryProbe } from './FoundryUserDiscoveryProbe';
@@ -38,9 +43,12 @@ export class FoundryUserConnectionService {
     private readonly SESSION_TIMEOUT_MS = 1000 * 60 * 60 * 24;
     private readonly RESTORE_RETRY_BASE_DELAY_MS = 300;
     private readonly RESTORE_RETRY_MAX_DELAY_MS = 2000;
+    private authorityEpoch = 0;
+    private readonly sessionAuthorityVersions = new Map<string, number>();
     private isSaving = false;
     private cacheReadyProbe: () => boolean = () => true;
     private readonly sessionStore: FoundrySessionStore;
+    private readonly sessionInvalidationListeners = new Set<FoundrySessionInvalidationListener>();
 
     public constructor(config: FoundryConfig, options: { sessionStore?: FoundrySessionStore } = {}) {
         this.config = config;
@@ -56,10 +64,16 @@ export class FoundryUserConnectionService {
         this.cacheReadyProbe = probe;
     }
 
+    /** Subscribe app-socket authority to server-side session retirement. */
+    public onSessionInvalidated(listener: FoundrySessionInvalidationListener): () => void {
+        this.sessionInvalidationListeners.add(listener);
+        return () => this.sessionInvalidationListeners.delete(listener);
+    }
+
     // Foundry sessions are world-bound; setup means the prior world's live and
     // persisted credentials must be invalidated before another world launches.
     public handleWorldEnteredSetup(): Promise<void> {
-        return this.clearAllSessions();
+        return this.clearAllSessions('world-entered-setup');
     }
 
     public isCacheReady(): boolean {
@@ -68,11 +82,12 @@ export class FoundryUserConnectionService {
 
     public async createSession(username: string, password?: string): Promise<{ sessionId: string; userId: string }> {
         logger.info(`FoundryUserConnectionService | Creating Foundry user connection for: ${username}`);
+        const authorityEpoch = this.authorityEpoch;
 
         for (const [id, connection] of this.connections.entries()) {
             if (connection.username === username) {
                 logger.info(`FoundryUserConnectionService | Found existing connection for ${username} (${id}). Destroying...`);
-                await this.destroySession(id);
+                await this.destroySession(id, 'replaced');
             }
         }
 
@@ -90,6 +105,9 @@ export class FoundryUserConnectionService {
 
             client.userId = userId;
             await client.login(username, password);
+            if (authorityEpoch !== this.authorityEpoch) {
+                throw new Error('World session authority changed while login was in progress');
+            }
             const detachFoundryEventIngress = foundryEventIngress.attach(client);
 
             const sessionId = randomUUID();
@@ -106,6 +124,11 @@ export class FoundryUserConnectionService {
             this.connections.set(sessionId, connection);
 
             await this.saveSession(sessionId, client, username);
+            if (authorityEpoch !== this.authorityEpoch || !this.connections.has(sessionId)) {
+                // A setup transition can retire authority while the protected
+                // session write is queued; never report that login as valid.
+                throw new Error('World session authority changed while login was being persisted');
+            }
 
             logger.info(`FoundryUserConnectionService | Connection created: ${sessionId} (User: ${username}, ID: ${userId})`);
             return { sessionId, userId };
@@ -148,7 +171,7 @@ export class FoundryUserConnectionService {
 
             if (connection.worldId && connection.worldId !== currentWorldId) {
                 logger.warn(`FoundryUserConnectionService | World mismatch for session ${sessionId}. Expected: ${connection.worldId}, Current: ${currentWorldId}. Destroying session.`);
-                await this.destroySession(sessionId);
+                await this.destroySession(sessionId, 'world-mismatch');
                 return undefined;
             }
 
@@ -159,25 +182,65 @@ export class FoundryUserConnectionService {
         return this.restoreSessionFromCache(sessionId, 3);
     }
 
-    public async destroySession(sessionId: string): Promise<void> {
-        const connection = this.connections.get(sessionId);
-        if (connection) {
-            logger.info(`FoundryUserConnectionService | Destroying connection: ${sessionId}`);
-            connection.detachFoundryEventIngress?.();
+    public async destroySession(
+        sessionId: string,
+        reason: FoundrySessionInvalidationReason = 'revoked',
+    ): Promise<void> {
+        const connection = this.retireSessionAuthority(sessionId, reason);
+        if (connection) await this.destroyLiveConnection(connection);
+        // Logout must also purge a protected record when this process has not
+        // restored its ClientSocket yet; otherwise the cleared browser cookie
+        // leaves a reusable server-side credential behind.
+        await this.clearSession(sessionId);
+    }
+
+    private async destroyLiveConnection(connection: FoundryUserConnection): Promise<void> {
+        logger.info(`FoundryUserConnectionService | Destroying connection: ${connection.id}`);
+        this.detachConnectionIngress(connection);
+        try {
             await connection.client.logout();
+        } catch (error: unknown) {
+            // Server authority is still retired if Foundry's best-effort
+            // remote logout fails; retaining it would defeat local revocation.
+            logger.warn(`FoundryUserConnectionService | Foundry logout failed during local session teardown: ${getErrorMessage(error)}`);
+        }
+        try {
             connection.client.disconnect();
-            this.connections.delete(sessionId);
-            await this.clearSession(sessionId);
+        } catch (error: unknown) {
+            logger.warn(`FoundryUserConnectionService | Client disconnect failed during local session teardown: ${getErrorMessage(error)}`);
         }
     }
 
-    public async clearAllSessions(): Promise<void> {
-        logger.info('FoundryUserConnectionService | Invalidating all Foundry user connections due to world disconnect/setup.');
-        for (const sessionId of this.connections.keys()) {
-            await this.destroySession(sessionId);
+    private detachConnectionIngress(connection: FoundryUserConnection): void {
+        const detach = connection.detachFoundryEventIngress;
+        connection.detachFoundryEventIngress = undefined;
+        try {
+            detach?.();
+        } catch (error: unknown) {
+            logger.warn(`FoundryUserConnectionService | Ingress detach failed during local session teardown: ${getErrorMessage(error)}`);
         }
+    }
+
+    public async clearAllSessions(
+        reason: FoundrySessionInvalidationReason = 'revoked',
+    ): Promise<void> {
+        logger.info('FoundryUserConnectionService | Invalidating all Foundry user connections due to world disconnect/setup.');
+        const connections = Array.from(this.connections.values());
+        // Retire authority before waiting on remote logout. The epoch prevents
+        // any in-flight login or restore from repopulating the cleared map.
+        this.authorityEpoch += 1;
         this.connections.clear();
-        await this.sessionStore.clear();
+        for (const connection of connections) this.detachConnectionIngress(connection);
+        this.emitSessionInvalidated({ scope: 'all', reason });
+        try {
+            // Remove restorable credentials before best-effort remote logouts;
+            // the latter may be slow or unavailable during a world transition.
+            await this.clearSessionStore();
+        } finally {
+            for (const connection of connections) {
+                await this.destroyLiveConnection(connection);
+            }
+        }
     }
 
     public isValidSession(sessionId: string): boolean {
@@ -191,6 +254,7 @@ export class FoundryUserConnectionService {
         const restorePromise = this.restoreSessionFromCacheWithRetries(sessionId, maxAttempts)
             .finally(() => {
                 this.restorePromises.delete(sessionId);
+                this.sessionAuthorityVersions.delete(sessionId);
             });
 
         this.restorePromises.set(sessionId, restorePromise);
@@ -215,6 +279,8 @@ export class FoundryUserConnectionService {
 
     private async tryRestoreSession(sessionId: string): Promise<RestoreAttemptResult> {
         let client: ClientSocket | null = null;
+        const authorityEpoch = this.authorityEpoch;
+        const sessionAuthorityVersion = this.getSessionAuthorityVersion(sessionId);
         try {
             const cached = await this.loadSessions();
             if (!cached) return { status: 'retryable' };
@@ -222,9 +288,10 @@ export class FoundryUserConnectionService {
             const sessionData = cached[sessionId];
             if (!sessionData) return { status: 'terminal' };
 
-            if (!this.isCachedSessionFresh(sessionData)) {
+            const invalidReason = this.getCachedSessionInvalidationReason(sessionData);
+            if (invalidReason) {
                 logger.info(`FoundryUserConnectionService | Cached session ${sessionId} is expired or incomplete. Purging key.`);
-                await this.clearSession(sessionId);
+                await this.invalidatePersistedSession(sessionId, invalidReason);
                 return { status: 'terminal' };
             }
 
@@ -248,13 +315,13 @@ export class FoundryUserConnectionService {
 
             if (!sessionData.worldId) {
                 logger.warn(`FoundryUserConnectionService | Cached session ${sessionId} has no world id. Purging key before restore.`);
-                await this.clearSession(sessionId);
+                await this.invalidatePersistedSession(sessionId, 'invalid-record');
                 return { status: 'terminal' };
             }
 
             if (currentWorldId !== sessionData.worldId) {
                 logger.warn(`FoundryUserConnectionService | World mismatch (Current: ${currentWorldId}, Session: ${sessionData.worldId}). Purging key ${sessionId}.`);
-                await this.clearSession(sessionId);
+                await this.invalidatePersistedSession(sessionId, 'world-mismatch');
                 return { status: 'terminal' };
             }
 
@@ -267,6 +334,14 @@ export class FoundryUserConnectionService {
             });
 
             await client.connectWithRestoredCredential(credential);
+            if (
+                authorityEpoch !== this.authorityEpoch
+                || sessionAuthorityVersion !== this.getSessionAuthorityVersion(sessionId)
+            ) {
+                // Revocation won while transport connection was in flight.
+                client.disconnect();
+                return { status: 'terminal' };
+            }
             const detachFoundryEventIngress = foundryEventIngress.attach(client);
 
             this.connections.set(sessionId, {
@@ -288,11 +363,15 @@ export class FoundryUserConnectionService {
         }
     }
 
-    private isCachedSessionFresh(sessionData: PersistedFoundrySessionRecord): boolean {
+    private getCachedSessionInvalidationReason(
+        sessionData: PersistedFoundrySessionRecord,
+    ): 'expired' | 'invalid-record' | null {
         if (!sessionData.cookie || !sessionData.userId || typeof sessionData.lastSaved !== 'number') {
-            return false;
+            return 'invalid-record';
         }
-        return Date.now() - sessionData.lastSaved <= this.SESSION_TIMEOUT_MS;
+        return Date.now() - sessionData.lastSaved > this.SESSION_TIMEOUT_MS
+            ? 'expired'
+            : null;
     }
 
     private toRestoredCredential(sessionData: PersistedFoundrySessionRecord): RestoredFoundrySessionCredential | null {
@@ -351,6 +430,62 @@ export class FoundryUserConnectionService {
             }
         } finally {
             this.isSaving = false;
+        }
+    }
+
+    private async clearSessionStore(): Promise<void> {
+        while (this.isSaving) await new Promise(r => setTimeout(r, 50));
+        this.isSaving = true;
+        try {
+            // Serialize a world-wide purge with per-session saves so a late
+            // save cannot recreate credentials from the retired world.
+            await this.sessionStore.clear();
+        } finally {
+            this.isSaving = false;
+        }
+    }
+
+    private async invalidatePersistedSession(
+        sessionId: string,
+        reason: FoundrySessionInvalidationReason,
+    ): Promise<void> {
+        this.retireSessionAuthority(sessionId, reason);
+        await this.clearSession(sessionId);
+    }
+
+    private getSessionAuthorityVersion(sessionId: string): number {
+        return this.sessionAuthorityVersions.get(sessionId) ?? 0;
+    }
+
+    private retireSessionAuthority(
+        sessionId: string,
+        reason: FoundrySessionInvalidationReason,
+    ): FoundryUserConnection | undefined {
+        const connection = this.connections.get(sessionId);
+        this.connections.delete(sessionId);
+        // A per-session version is needed only while restore is in flight;
+        // avoiding permanent entries keeps arbitrary invalid token churn bounded.
+        if (this.restorePromises.has(sessionId)) {
+            this.sessionAuthorityVersions.set(
+                sessionId,
+                this.getSessionAuthorityVersion(sessionId) + 1,
+            );
+        }
+        // Notify after the map removal but before remote/storage cleanup so
+        // app sockets lose authority immediately and reconciliation sees false.
+        this.emitSessionInvalidated({ scope: 'session', sessionId, reason });
+        return connection;
+    }
+
+    private emitSessionInvalidated(event: FoundrySessionInvalidationEvent): void {
+        for (const listener of this.sessionInvalidationListeners) {
+            try {
+                listener(event);
+            } catch (error: unknown) {
+                // One faulty subscriber cannot prevent other sockets from
+                // dropping authority after the service has retired a session.
+                logger.error(`FoundryUserConnectionService | Session invalidation listener failed: ${getErrorMessage(error)}`);
+            }
         }
     }
 

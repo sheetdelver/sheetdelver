@@ -1,5 +1,6 @@
 import { strict as assert } from 'node:assert';
 import { ClientSocket } from '@core/foundry/sockets/ClientSocket';
+import { FOUNDRY_LOGOUT_TIMEOUT_MS } from '@core/foundry/sockets/SocketBase';
 import { systemService } from '@server/services/world';
 
 // Expose the shared protected authentication steps without opening a real socket.
@@ -168,11 +169,34 @@ async function runVersionedLoginContractTests() {
     }
 }
 
+async function runLogoutUsesBoundedRequest() {
+    const originalFetch = globalThis.fetch;
+    const requestSignals: Array<AbortSignal | null> = [];
+    globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+        requestSignals.push(init?.signal ?? null);
+        return new Response('{}', { status: 200 });
+    }) as typeof fetch;
+
+    try {
+        const client = new ClientSocket({ url: 'http://foundry.example', username: 'player' });
+        await client.logout();
+
+        // A concrete bound documents the operator-visible maximum wait and
+        // verifies the transport request cannot remain pending indefinitely.
+        assert.equal(FOUNDRY_LOGOUT_TIMEOUT_MS, 5_000);
+        const requestSignal = requestSignals[0];
+        assert.ok(requestSignal instanceof AbortSignal);
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+}
+
 export async function run() {
     await runClientSocketTransportTests();
     await runRestoredCredentialConnectIsTransportOnly();
     await runDispatchAcknowledgementContract();
     await runVersionedLoginContractTests();
+    await runLogoutUsesBoundedRequest();
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

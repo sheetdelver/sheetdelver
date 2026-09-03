@@ -2,6 +2,11 @@ import type { RealtimeStatusPayload } from '@shared/contracts/status';
 
 export type RealtimeSystemStatusPayload = RealtimeStatusPayload;
 
+/** Non-secret notice that server-side authority for this browser was retired. */
+export interface RealtimeSessionInvalidatedPayload {
+    reason: string;
+}
+
 // Actor socket events are invalidation hints; clients refetch instead of applying diffs.
 export interface RealtimeActorChangedPayload {
     actorId: string;

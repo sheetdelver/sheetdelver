@@ -4,6 +4,9 @@ import { ClientSocket } from '@core/foundry/sockets/ClientSocket';
 import { worldStateStore } from '@server/core/world/WorldStateStore';
 import { worldLifecycleStore } from '@server/core/world/WorldLifecycleStore';
 import type {
+    FoundrySessionInvalidationEvent,
+} from '@server/shared/types/foundry';
+import type {
     FoundrySessionStore,
     PersistedFoundrySessions,
 } from '@server/security/foundrySessionStore';
@@ -154,6 +157,8 @@ async function runWorldMismatchPurgesWithoutTransportConnect() {
         },
     }, async () => {
         const manager = createManager();
+        const invalidations: FoundrySessionInvalidationEvent[] = [];
+        manager.onSessionInvalidated(event => invalidations.push(event));
         const session = await manager.getOrRestoreSession(SESSION_TOKEN);
 
         assert.equal(session, undefined);
@@ -161,6 +166,9 @@ async function runWorldMismatchPurgesWithoutTransportConnect() {
 
         const cached = await sessionStore.load();
         assert.equal(cached?.[SESSION_TOKEN], undefined, 'mismatched cached session should be purged');
+        assert.deepEqual(invalidations, [{
+            scope: 'session', sessionId: SESSION_TOKEN, reason: 'world-mismatch',
+        }]);
     });
 
     await resetState();
@@ -182,6 +190,8 @@ async function runExpiredCachedSessionPurgesWithoutTransportConnect() {
         },
     }, async () => {
         const manager = createManager();
+        const invalidations: FoundrySessionInvalidationEvent[] = [];
+        manager.onSessionInvalidated(event => invalidations.push(event));
         const session = await manager.getOrRestoreSession(SESSION_TOKEN);
 
         assert.equal(session, undefined);
@@ -189,6 +199,9 @@ async function runExpiredCachedSessionPurgesWithoutTransportConnect() {
 
         const cached = await sessionStore.load();
         assert.equal(cached?.[SESSION_TOKEN], undefined, 'expired cached session should be purged');
+        assert.deepEqual(invalidations, [{
+            scope: 'session', sessionId: SESSION_TOKEN, reason: 'expired',
+        }]);
     });
 
     await resetState();
@@ -208,6 +221,8 @@ async function runCachedSessionWithoutWorldIdPurgesWhenWorldIsKnown() {
         },
     }, async () => {
         const manager = createManager();
+        const invalidations: FoundrySessionInvalidationEvent[] = [];
+        manager.onSessionInvalidated(event => invalidations.push(event));
         const session = await manager.getOrRestoreSession(SESSION_TOKEN);
 
         assert.equal(session, undefined);
@@ -215,6 +230,9 @@ async function runCachedSessionWithoutWorldIdPurgesWhenWorldIsKnown() {
 
         const cached = await sessionStore.load();
         assert.equal(cached?.[SESSION_TOKEN], undefined, 'cached session without a world id should be purged once the active world is known');
+        assert.deepEqual(invalidations, [{
+            scope: 'session', sessionId: SESSION_TOKEN, reason: 'invalid-record',
+        }]);
     });
 
     await resetState();
@@ -225,6 +243,8 @@ async function runSetupInvalidatesCachedSessions() {
     await writeCachedSession();
 
     const manager = createManager();
+    const invalidations: FoundrySessionInvalidationEvent[] = [];
+    manager.onSessionInvalidated(event => invalidations.push(event));
     await manager.handleWorldEnteredSetup();
 
     const cached = await sessionStore.load();
@@ -233,6 +253,58 @@ async function runSetupInvalidatesCachedSessions() {
         undefined,
         'entering setup must invalidate the previous world session cache',
     );
+    assert.deepEqual(invalidations, [{ scope: 'all', reason: 'world-entered-setup' }]);
+
+    await resetState();
+}
+
+async function runDestroyPurgesPersistedOnlySessionAndNotifies() {
+    await resetState();
+    await writeCachedSession();
+
+    const manager = createManager();
+    const invalidations: FoundrySessionInvalidationEvent[] = [];
+    manager.onSessionInvalidated(event => invalidations.push(event));
+
+    // A browser can log out before its persisted Foundry transport has been
+    // restored in this process. Revocation still has to remove that credential.
+    await manager.destroySession(SESSION_TOKEN);
+
+    const cached = await sessionStore.load();
+    assert.equal(cached?.[SESSION_TOKEN], undefined);
+    assert.deepEqual(invalidations, [{
+        scope: 'session', sessionId: SESSION_TOKEN, reason: 'revoked',
+    }]);
+
+    await resetState();
+}
+
+async function runFailedFoundryLogoutStillRevokesLocalAuthority() {
+    await resetState();
+    await writeCachedSession();
+
+    const manager = createManager();
+    const invalidations: FoundrySessionInvalidationEvent[] = [];
+    let disconnected = false;
+    manager.onSessionInvalidated(event => invalidations.push(event));
+    (manager as any).connections.set(SESSION_TOKEN, {
+        id: SESSION_TOKEN,
+        userId: 'user-1',
+        username: 'ptest',
+        client: {
+            logout: async () => { throw new Error('synthetic Foundry logout failure'); },
+            disconnect: () => { disconnected = true; },
+        },
+    });
+
+    await manager.destroySession(SESSION_TOKEN);
+
+    assert.equal(disconnected, true);
+    assert.equal(manager.isValidSession(SESSION_TOKEN), false);
+    assert.equal((await sessionStore.load())?.[SESSION_TOKEN], undefined);
+    assert.deepEqual(invalidations, [{
+        scope: 'session', sessionId: SESSION_TOKEN, reason: 'revoked',
+    }]);
 
     await resetState();
 }
@@ -383,16 +455,104 @@ async function runFailedRestoreDisconnectsAndClearsInFlight() {
     await resetState();
 }
 
+async function runRevocationWinsAgainstInFlightRestore() {
+    await resetState();
+    seedActiveWorld();
+    await writeCachedSession();
+
+    let releaseConnect!: () => void;
+    let connectStarted!: () => void;
+    const connectGate = new Promise<void>(resolve => { releaseConnect = resolve; });
+    const connectStartedSignal = new Promise<void>(resolve => { connectStarted = resolve; });
+
+    await withPatchedClientSocket({
+        connectWithRestoredCredential: async function (this: ClientSocket, credential) {
+            this.userId = credential.userId;
+            connectStarted();
+            await connectGate;
+            this.isSocketConnected = true;
+        },
+    }, async () => {
+        const manager = createManager();
+        const invalidations: FoundrySessionInvalidationEvent[] = [];
+        manager.onSessionInvalidated(event => invalidations.push(event));
+
+        const restore = manager.getOrRestoreSession(SESSION_TOKEN);
+        await connectStartedSignal;
+
+        // Revocation removes authority and publishes before transport cleanup;
+        // the late successful connect must not reinsert the retired session.
+        const revoke = manager.destroySession(SESSION_TOKEN);
+        assert.equal(manager.isValidSession(SESSION_TOKEN), false);
+        assert.deepEqual(invalidations, [{
+            scope: 'session', sessionId: SESSION_TOKEN, reason: 'revoked',
+        }]);
+        await revoke;
+
+        releaseConnect();
+        assert.equal(await restore, undefined);
+        assert.equal(manager.isValidSession(SESSION_TOKEN), false);
+        assert.equal((await sessionStore.load())?.[SESSION_TOKEN], undefined);
+    });
+
+    await resetState();
+}
+
+async function runWorldInvalidationWinsAgainstInFlightRestore() {
+    await resetState();
+    seedActiveWorld();
+    await writeCachedSession();
+
+    let releaseConnect!: () => void;
+    let connectStarted!: () => void;
+    const connectGate = new Promise<void>(resolve => { releaseConnect = resolve; });
+    const connectStartedSignal = new Promise<void>(resolve => { connectStarted = resolve; });
+
+    await withPatchedClientSocket({
+        connectWithRestoredCredential: async function (this: ClientSocket, credential) {
+            this.userId = credential.userId;
+            connectStarted();
+            await connectGate;
+            this.isSocketConnected = true;
+        },
+    }, async () => {
+        const manager = createManager();
+        const invalidations: FoundrySessionInvalidationEvent[] = [];
+        manager.onSessionInvalidated(event => invalidations.push(event));
+
+        const restore = manager.getOrRestoreSession(SESSION_TOKEN);
+        await connectStartedSignal;
+
+        // The global epoch is the world-transition equivalent of per-session
+        // revocation and must defeat every restore already in transport setup.
+        const invalidate = manager.handleWorldEnteredSetup();
+        assert.equal(manager.isValidSession(SESSION_TOKEN), false);
+        assert.deepEqual(invalidations, [{ scope: 'all', reason: 'world-entered-setup' }]);
+        await invalidate;
+
+        releaseConnect();
+        assert.equal(await restore, undefined);
+        assert.equal(manager.isValidSession(SESSION_TOKEN), false);
+        assert.equal((await sessionStore.load())?.[SESSION_TOKEN], undefined);
+    });
+
+    await resetState();
+}
+
 export async function run() {
     await runConcurrentRestoreDedupesTransport();
     await runWorldMismatchPurgesWithoutTransportConnect();
     await runExpiredCachedSessionPurgesWithoutTransportConnect();
     await runCachedSessionWithoutWorldIdPurgesWhenWorldIsKnown();
     await runSetupInvalidatesCachedSessions();
+    await runDestroyPurgesPersistedOnlySessionAndNotifies();
+    await runFailedFoundryLogoutStillRevokesLocalAuthority();
     await runClosedWorldDoesNotAttemptCachedRestore();
     await runStartupRestoreDefersUntilWorldIdExists();
     await runStartupReturnsUndefinedWithoutSpawningClient();
     await runFailedRestoreDisconnectsAndClearsInFlight();
+    await runRevocationWinsAgainstInFlightRestore();
+    await runWorldInvalidationWinsAgainstInFlightRestore();
     console.log('  - FoundryUserConnectionService restore: all checks passed');
 }
 

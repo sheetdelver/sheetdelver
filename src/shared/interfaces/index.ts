@@ -93,7 +93,7 @@ export interface Combat {
     stats: any;
 }
 
-export type ConnectionStep = 'init' | 'reconnecting' | 'login' | 'dashboard' | 'setup' | 'startup' | 'authenticating' | 'initializing' | 'world-closed';
+export type ConnectionStep = 'init' | 'reconnecting' | 'login' | 'logging-out' | 'dashboard' | 'setup' | 'startup' | 'authenticating' | 'initializing' | 'world-closed';
 
 export interface SystemConfig {
     id: string;

@@ -65,6 +65,15 @@ function runConnectionStepCases() {
     assert.equal(determine({ system: { id: 'dnd5e', status: 'active' } }, { isAuthenticated: true }), 'startup');
     assert.equal(determine({}, { isAuthenticated: false }), 'login');
     assert.equal(determine({}, { isAuthenticated: true }), 'dashboard');
+    assert.equal(
+        determineConnectionStep(statusPayload(), 'login', {
+            isConfigured: true,
+            isAuthenticated: true,
+            isExplicitLogoutPending: true,
+        }),
+        'logging-out',
+        'public status received during explicit logout must preserve the bounded intermediate state',
+    );
 
     // A guest client remains informed throughout recovery without receiving or
     // needing a Foundry user-session token while Core monitors the lifecycle.

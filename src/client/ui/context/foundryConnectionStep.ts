@@ -4,6 +4,7 @@ import type { SystemStatusPayload } from '@shared/contracts/status';
 interface DetermineConnectionStepOptions {
     isConfigured: boolean;
     isAuthenticated: boolean;
+    isExplicitLogoutPending?: boolean;
 }
 
 type ConnectionStatusPayload = Pick<SystemStatusPayload, 'connected' | 'initialized' | 'system'>;
@@ -11,7 +12,7 @@ type ConnectionStatusPayload = Pick<SystemStatusPayload, 'connected' | 'initiali
 export function determineConnectionStep(
     data: ConnectionStatusPayload,
     currentStep: ConnectionStep,
-    { isConfigured, isAuthenticated }: DetermineConnectionStepOptions,
+    { isConfigured, isAuthenticated, isExplicitLogoutPending = false }: DetermineConnectionStepOptions,
 ): ConnectionStep {
     const status = data.system?.status || (data.connected ? 'active' : 'offline');
 
@@ -27,6 +28,11 @@ export function determineConnectionStep(
     if (!data.connected || data.initialized === false) {
         return worldTitle ? 'startup' : 'initializing';
     }
+
+    // Explicit logout intentionally retains the public-reclassified socket
+    // until Foundry reports the user inactive; status must not expose either
+    // dashboard or login controls while the compatibility marker still exists.
+    if (isExplicitLogoutPending) return 'logging-out';
 
     if (currentStep === 'authenticating') {
         return isAuthenticated ? 'dashboard' : 'authenticating';

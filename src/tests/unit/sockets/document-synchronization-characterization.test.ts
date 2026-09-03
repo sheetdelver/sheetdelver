@@ -14,6 +14,7 @@ import { sceneStore } from '@server/core/documents/primary/scenes/SceneStore';
 import { settingStore } from '@server/core/documents/primary/settings/SettingStore';
 import { registerAppSocketGateway } from '@server/realtime/AppSocketGateway';
 import { PLAYER_SESSION_COOKIE_NAME } from '@server/security/playerSessionCookie';
+import type { FoundrySessionInvalidationEvent } from '@server/shared/types/foundry';
 import { engagementService, FoundryEventIngress, systemService } from '@server/services/world';
 import type { SystemStatusPayload } from '@shared/contracts/status';
 
@@ -154,6 +155,8 @@ async function runIngressToAuthorizedBrowserHarness() {
     };
     const foundryUserConnections = {
         isCacheReady: () => true,
+        isValidSession: (token: string) => ['owner-token', 'other-token', 'gm-token'].includes(token),
+        onSessionInvalidated: (_listener: (event: FoundrySessionInvalidationEvent) => void) => () => undefined,
         getOrRestoreSession: async (token: string) => {
             if (token === 'owner-token') {
                 return { client: ownerClient, userId: 'owner-user', username: 'owner' };

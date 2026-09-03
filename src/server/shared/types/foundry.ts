@@ -85,11 +85,37 @@ export interface FoundryUserConnectionLike {
     client: FoundryDocumentClientLike;
 }
 
+export type FoundrySessionInvalidationReason =
+    | 'revoked'
+    | 'replaced'
+    | 'expired'
+    | 'world-mismatch'
+    | 'invalid-record'
+    | 'world-entered-setup';
+
+/** Server-only signal used to retire already-connected app socket authority. */
+export type FoundrySessionInvalidationEvent =
+    | {
+        scope: 'session';
+        sessionId: string;
+        reason: FoundrySessionInvalidationReason;
+    }
+    | {
+        scope: 'all';
+        reason: FoundrySessionInvalidationReason;
+    };
+
+export type FoundrySessionInvalidationListener = (
+    event: FoundrySessionInvalidationEvent,
+) => void;
+
 export interface FoundryUserConnectionServiceLike {
     isCacheReady(): boolean;
     createSession(username: string, password?: string): Promise<{ sessionId: string; userId: string }>;
     getOrRestoreSession(token: string): Promise<FoundryUserConnectionLike | undefined>;
     destroySession(token: string): Promise<void>;
+    isValidSession(token: string): boolean;
+    onSessionInvalidated(listener: FoundrySessionInvalidationListener): () => void;
 }
 
 export type StatusServiceConfigLike = Pick<AppConfig, 'app' | 'foundry' | 'debug'>;

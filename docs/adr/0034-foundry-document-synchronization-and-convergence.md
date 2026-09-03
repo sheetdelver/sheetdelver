@@ -12,6 +12,9 @@ reset behavior are implemented and verified. Phase 3 is pending.
 audiences, deletion-safe Store policy, and multi-user delivery tests are
 complete. Server-session invalidation of already-connected app sockets remains
 open as the final Phase 3 slice.
+**Status amendment (September 3, 2026):** Phase 3 is complete. Server-side
+session retirement now immediately removes app-socket authority, listener
+access, and session-bound client state. Phase 4 is pending.
 **Date:** September 2, 2026
 **Phase:** Pre-main synchronization remediation
 **Supersedes:** None
@@ -447,7 +450,7 @@ Phase 2 is complete.
 - [x] Introduce the structured all/users/none audience contract.
 - [x] Capture pre-delete visibility and apply type-specific visibility policy.
 - [x] Add multi-user positive and negative delivery tests.
-- [ ] Revoke or reclassify app sockets when their server session is invalidated.
+- [x] Revoke or reclassify app sockets when their server session is invalidated.
 
 #### Phase 3 audience implementation amendment - September 3, 2026
 
@@ -493,6 +496,86 @@ client updates and no delivery observed outside the calculated audience.
 This amendment does not complete or alter the remaining server-session
 invalidation item: a socket whose server session is revoked still requires
 explicit revocation or reclassification work in the next Phase 3 slice.
+
+#### Phase 3 session-authority amendment - September 3, 2026
+
+The Foundry user connection service now publishes a server-internal retirement
+signal after deleting session authority from its in-memory map and before
+waiting for Foundry logout or protected-store cleanup. A signal targets either
+one session or every session and carries a bounded diagnostic reason: explicit
+revocation, replacement by another login, expiry, world mismatch, invalid
+persisted data, or entry into Foundry setup. Session identifiers remain inside
+the server and are not emitted to browsers.
+
+An established authenticated app socket subscribes to that authority signal.
+When its session is retired, the gateway cancels deferred world attachment,
+detaches every per-user Store listener, leaves the authenticated status room,
+joins the public status room, removes its user and Foundry-client references,
+and emits only the non-secret invalidation reason. Captured callbacks also
+recheck authority and room membership before delivery. The gateway subscribes
+before reconciling session validity, which closes the gap between socket
+middleware authentication and connection-handler setup.
+
+The browser disconnects the retired authenticated transport, runs the same
+session-bound cleanup registered for explicit logout, clears its local session
+marker, and creates a fresh public-status transport through the existing React
+scope transition. Explicit logout now performs local retirement before its
+best-effort server request, so a slow or unavailable Foundry logout cannot
+leave the UI authenticated.
+
+Transport and persistence races are bounded independently. Per-session
+authority versions prevent a revoked in-flight restore from reinserting its
+connection; a world authority epoch prevents any login or restore begun before
+setup from becoming current. World-wide protected-session deletion is
+serialized with individual saves, and logout removes persisted-only sessions
+even when no live ClientSocket has been restored. Remote Foundry logout and
+disconnect failures are diagnostic cleanup failures, not reasons to restore
+local authority.
+
+Focused tests cover explicit, expired, mismatched, malformed,
+middleware-to-handler, deferred-startup, and world-wide invalidation paths,
+including late transport completion and listener callbacks. Type checking,
+lint, the document vertical characterization, gateway tests, and the full unit
+suite pass. This amendment does not alter CoreSocket lifecycle discovery,
+heartbeat retries, world state transitions, Foundry write authorization, or
+module behavior.
+
+**Live-acceptance correction - explicit logout:** The generic browser
+disconnect wording above applies to unsolicited server invalidation. Explicit
+logout is a short ordered exception because the login selector consumes
+Foundry's public presence roster. It clears private UI state immediately, while
+the gateway has already removed authenticated authority and reclassified the
+existing socket into the public status room. The browser retains that
+non-authoritative transport until `/logout` completes so it can observe the
+user becoming inactive; a pending-logout guard prevents public status from
+returning the UI to the dashboard during that interval. The cleared cookie then
+causes the normal public socket scope to be established. This restores the
+pre-amendment roster behavior without extending authenticated access or
+changing the world lifecycle state machine.
+
+Repeated live logout testing exposed an additional ordering race: constructing
+a public status payload at the instant of authority retirement could capture
+the still-active Foundry presence and complete after the later inactive update.
+The gateway therefore does not manufacture a status snapshot during
+retirement. Public status comes from the authoritative UserStore update or the
+fresh post-logout public connection, and gateway coverage rejects any
+pre-logout status emission from the retirement path.
+
+**Final live-acceptance correction - bounded logout state:** The browser no
+longer renders the normal login form while Foundry logout is unsettled. An
+explicit request enters a client-only `logging-out` step that clears private
+state and hides dashboard, login, player-list, and floating controls. The
+server has already retired authenticated authority, while the reclassified
+public socket remains available for authoritative roster updates. Status
+events preserve this intermediate step and cannot return the browser to either
+dashboard or login early.
+
+The Foundry `/logout` transport is bounded to five seconds with an abort signal.
+Success, upstream failure, or timeout all proceed through local disconnect,
+protected-session deletion, and HttpOnly cookie clearing before the browser
+enters `login` and establishes its fresh public socket. The timeout changes
+only best-effort Foundry teardown latency; it does not defer local authority
+revocation or alter CoreSocket world lifecycle transitions.
 
 ### Phase 4: Repair and lifecycle unification
 

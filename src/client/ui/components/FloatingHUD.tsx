@@ -90,7 +90,7 @@ export default function FloatingHUD() {
     }, [anyToolOpen, isMinimized]);
 
     // Hide HUD if not fully connected/authenticated
-    if (['init', 'setup', 'authenticating', 'login', 'startup', 'initializing'].includes(step)) return null;
+    if (['init', 'setup', 'authenticating', 'login', 'logging-out', 'startup', 'initializing'].includes(step)) return null;
 
     return (
         <div
