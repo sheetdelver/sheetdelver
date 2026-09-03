@@ -19,6 +19,14 @@ function adapter(id: string): SystemAdapter {
 const markLifecycleActive = () => undefined;
 const MISSING_GENERATION = Symbol('missing-generation');
 
+function deferred(): { promise: Promise<void>; resolve(): void } {
+    let resolve!: () => void;
+    const promise = new Promise<void>((done) => {
+        resolve = done;
+    });
+    return { promise, resolve };
+}
+
 function createBootstrapSnapshot(generation: unknown = 13): any {
     const release = generation === MISSING_GENERATION ? {} : { generation };
 
@@ -415,6 +423,7 @@ async function runBootstrapSharesConcurrentPromise() {
 async function runBootstrapFailureResetsForRetry() {
     let seedAttempts = 0;
     let readyCalls = 0;
+    const teardownReasons: string[] = [];
     const bootstrapper = new WorldBootstrapper({
         createCompendiumService: () => ({
             seedPackMetadataFromGameData: () => undefined,
@@ -428,6 +437,9 @@ async function runBootstrapFailureResetsForRetry() {
         seedDocuments: async () => {
             seedAttempts += 1;
             if (seedAttempts === 1) throw new Error('seed failed');
+        },
+        clearWorldRuntimeState: (reason) => {
+            teardownReasons.push(reason);
         },
         markLifecycleActive,
     });
@@ -443,6 +455,7 @@ async function runBootstrapFailureResetsForRetry() {
 
     assert.equal(bootstrapper.isReady(), false);
     assert.equal(readyCalls, 0);
+    assert.deepEqual(teardownReasons, ['world-bootstrap-failed']);
 
     await bootstrapper.bootstrap({} as any, {
         onReady: () => {
@@ -453,6 +466,86 @@ async function runBootstrapFailureResetsForRetry() {
     assert.equal(seedAttempts, 2);
     assert.equal(readyCalls, 1);
     assert.equal(bootstrapper.isReady(), true);
+}
+
+async function runTeardownSerializesReplacementBootstrap() {
+    const firstSeedGate = deferred();
+    const events: string[] = [];
+    let snapshotNumber = 0;
+    let currentSystemId: string | null = null;
+
+    const bootstrapper = new WorldBootstrapper({
+        getBootstrapSnapshot: async () => {
+            snapshotNumber += 1;
+            const systemId = snapshotNumber === 1 ? 'world-a-system' : 'world-b-system';
+            events.push(`snapshot:${systemId}`);
+            return {
+                gameData: {
+                    ...createBootstrapSnapshot().gameData,
+                    world: { id: `world-${snapshotNumber}`, title: `World ${snapshotNumber}` },
+                    system: { id: systemId },
+                },
+            };
+        },
+        seedWorldSnapshot: (snapshot) => {
+            currentSystemId = snapshot.gameData.system?.id || null;
+            events.push(`seed-world:${currentSystemId}`);
+        },
+        seedUserSnapshot: async () => undefined,
+        createCompendiumService: () => ({
+            seedPackMetadataFromGameData: () => undefined,
+            hydratePacks: async () => ({ manifest: { systemId: '', _instanceId: '', packs: {} }, hydrated: 0, skipped: 0, missing: 0 }),
+            getPackEntries: async () => [],
+        }) as any,
+        seedPackMetadata: () => undefined,
+        getSystem: () => currentSystemId ? { id: currentSystemId } : null,
+        getRegisteredModules: () => [],
+        loadAdapter: async () => null,
+        seedDocuments: async () => {
+            if (currentSystemId === 'world-a-system') {
+                events.push('seed-docs:world-a-start');
+                await firstSeedGate.promise;
+                events.push('seed-docs:world-a-finish');
+                return;
+            }
+            events.push('seed-docs:world-b');
+        },
+        clearWorldRuntimeState: (reason) => {
+            events.push(`teardown:${reason}`);
+            currentSystemId = null;
+        },
+        markLifecycleActive: (systemId) => {
+            events.push(`active:${systemId}`);
+        },
+    });
+
+    const first = bootstrapper.bootstrap({} as any);
+    while (!events.includes('seed-docs:world-a-start')) await Promise.resolve();
+
+    bootstrapper.reset('world-a-departed');
+    const second = bootstrapper.bootstrap({} as any);
+
+    // The replacement cannot seed until the invalidated run has stopped.
+    await Promise.resolve();
+    assert.equal(snapshotNumber, 1);
+    firstSeedGate.resolve();
+
+    await assert.rejects(first, /superseded by a runtime teardown/);
+    const result = await second;
+
+    assert.deepEqual(result, { ready: true, systemId: 'world-b-system' });
+    assert.equal(bootstrapper.isReady(), true);
+    assert.deepEqual(events, [
+        'snapshot:world-a-system',
+        'seed-world:world-a-system',
+        'seed-docs:world-a-start',
+        'teardown:world-a-departed',
+        'seed-docs:world-a-finish',
+        'snapshot:world-b-system',
+        'seed-world:world-b-system',
+        'seed-docs:world-b',
+        'active:world-b-system',
+    ]);
 }
 
 async function runResetClearsReadinessAndAdapter() {
@@ -531,6 +624,7 @@ export async function run() {
     await runBootstrapWarnsAndProceedsForNewerAndUnknownGeneration();
     await runBootstrapSharesConcurrentPromise();
     await runBootstrapFailureResetsForRetry();
+    await runTeardownSerializesReplacementBootstrap();
     await runResetClearsReadinessAndAdapter();
     await runDisposeCalledOnClear();
     console.log('  - WorldBootstrapper: all checks passed');

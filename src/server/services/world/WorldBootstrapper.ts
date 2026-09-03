@@ -10,6 +10,7 @@ import { primaryDocumentCacheCoordinator } from '@server/core/documents/primary/
 import { userPresence } from '@server/core/documents/primary/users/UserPresence';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
 import type { CoreSocket } from '@server/core/foundry/sockets/CoreSocket';
+import { sharedContentStore } from '@server/core/world/SharedContentStore';
 import { worldLifecycleStore } from '@server/core/world/WorldLifecycleStore';
 import { worldStateStore } from '@server/core/world/WorldStateStore';
 import type { GameData, SceneDataCache } from '@server/core/world/types';
@@ -48,6 +49,7 @@ export interface WorldBootstrapperDeps {
     markLifecycleActive?: (systemId?: string) => void;
     markLifecycleClosed?: (reason: string) => void;
     evaluateCompatibility?: typeof evaluateFoundryVersionCompatibility;
+    clearWorldRuntimeState?: (reason: string) => void;
     now?: () => number;
 }
 
@@ -71,6 +73,13 @@ export interface WorldBootstrapResult {
 
 export interface WorldBootstrapOptions {
     onReady?: (event: WorldBootstrapReadyEvent) => void | Promise<void>;
+}
+
+class StaleWorldBootstrapError extends Error {
+    public constructor() {
+        super('World bootstrap was superseded by a runtime teardown');
+        this.name = 'StaleWorldBootstrapError';
+    }
 }
 
 /**
@@ -98,6 +107,7 @@ export class WorldBootstrapper {
     private readonly markLifecycleActive: (systemId?: string) => void;
     private readonly markLifecycleClosed: (reason: string) => void;
     private readonly evaluateCompatibility: typeof evaluateFoundryVersionCompatibility;
+    private readonly clearWorldRuntimeState: (reason: string) => void;
     private readonly now: () => number;
     private activeSystemId: string | null = null;
     private activeAdapter: SystemAdapter | null = null;
@@ -107,6 +117,8 @@ export class WorldBootstrapper {
     private lastCompatibility: FoundryVersionCompatibilityDiagnostic | null = null;
     private ready = false;
     private bootstrapPromise: Promise<WorldBootstrapResult> | null = null;
+    private bootstrapEpoch: number | null = null;
+    private runtimeEpoch = 0;
 
     public constructor(deps: WorldBootstrapperDeps = {}) {
         this.loadAdapter = deps.loadAdapter ?? ((systemId) => getAdapter(systemId));
@@ -166,6 +178,15 @@ export class WorldBootstrapper {
             worldLifecycleStore.setState('closed', reason);
         });
         this.evaluateCompatibility = deps.evaluateCompatibility ?? evaluateFoundryVersionCompatibility;
+        this.clearWorldRuntimeState = deps.clearWorldRuntimeState ?? ((reason) => {
+            // Runtime teardown deliberately preserves SetupManager's world list,
+            // while clearing every value derived from the departed active world.
+            primaryDocumentCacheCoordinator.clearAll(reason);
+            compendiumStore.clear(reason);
+            sharedContentStore.clear(reason);
+            userPresence.clear();
+            worldStateStore.clearRuntimeState(reason);
+        });
         this.now = deps.now ?? Date.now;
     }
 
@@ -177,14 +198,29 @@ export class WorldBootstrapper {
             });
         }
 
-        if (this.bootstrapPromise) return this.bootstrapPromise;
+        if (this.bootstrapPromise) {
+            if (this.bootstrapEpoch === this.runtimeEpoch) return this.bootstrapPromise;
+
+            // A reconnect may arrive while an invalidated bootstrap is still
+            // unwinding. Serialize the replacement so old async Store seeds
+            // cannot land after the new world's authoritative seed.
+            return this.bootstrapPromise
+                .catch(() => undefined)
+                .then(() => this.bootstrap(transport, options));
+        }
 
         // Connect, status, and retry paths may all ask for bootstrap. The first
         // caller owns the run; everyone else observes the same in-flight promise.
-        this.bootstrapPromise = this.runBootstrap(transport, options).catch((error) => {
-            this.bootstrapPromise = null;
-            throw error;
+        const epoch = this.runtimeEpoch;
+        const run = this.runBootstrap(transport, options, epoch);
+        const tracked = run.finally(() => {
+            if (this.bootstrapPromise === tracked) {
+                this.bootstrapPromise = null;
+                this.bootstrapEpoch = null;
+            }
         });
+        this.bootstrapPromise = tracked;
+        this.bootstrapEpoch = epoch;
 
         return this.bootstrapPromise;
     }
@@ -198,19 +234,33 @@ export class WorldBootstrapper {
     }
 
     public reset(reason = 'world-bootstrap-reset'): void {
+        // Increment first so any in-flight bootstrap or repair response becomes
+        // stale before active-world Stores are emptied.
+        logger.debug('WorldBootstrapper | Tearing down active world runtime', {
+            reason,
+            previousEpoch: this.runtimeEpoch,
+            nextEpoch: this.runtimeEpoch + 1,
+        });
+        this.runtimeEpoch += 1;
         this.ready = false;
-        this.bootstrapPromise = null;
         this.clearActiveAdapter(reason);
+        this.clearWorldRuntimeState(reason);
+    }
+
+    public getRuntimeEpoch(): number {
+        return this.runtimeEpoch;
     }
 
     private async runBootstrap(
         transport: WorldBootstrapTransport,
         options: WorldBootstrapOptions,
+        epoch: number,
     ): Promise<WorldBootstrapResult> {
         logger.info('WorldBootstrapper | Beginning world bootstrap...');
 
         try {
             const snapshot = await this.getBootstrapSnapshot(transport);
+            this.assertCurrentEpoch(epoch);
             if (snapshot) {
                 // Compatibility is evaluated while the snapshot is still raw.
                 // Older known-bad shapes must fail before Stores become current;
@@ -221,6 +271,7 @@ export class WorldBootstrapper {
                 // acceptance boundary for the connected-world snapshot.
                 this.seedWorldSnapshot(snapshot);
                 await this.seedUserSnapshot(snapshot);
+                this.assertCurrentEpoch(epoch);
             }
 
             // Per ADR-0021, bootstrap seeds pack metadata passively from
@@ -242,7 +293,7 @@ export class WorldBootstrapper {
                 const sysId = sysInfo.id.toLowerCase();
                 const registered = this.getRegisteredModules();
                 const moduleInfo = registered.find(module => module.id.toLowerCase() === sysId);
-                const adapter = await this.loadActiveAdapter(sysId);
+                const adapter = await this.loadActiveAdapterForEpoch(sysId, epoch);
 
                 let compendiumPackConfig = moduleInfo?.compendiumPacks;
                 if (!compendiumPackConfig && hasCompendiumPackConfig(adapter)) {
@@ -251,41 +302,58 @@ export class WorldBootstrapper {
 
                 if (compendiumPackConfig) {
                     await this.hydrateCompendiumPacks(sysId, compendiumPackConfig, compendiumService);
+                    this.assertCurrentEpoch(epoch);
                 }
 
                 // Routes are not ready until every registered primary-document
                 // Store has completed its bootstrap seed.
                 await this.seedDocuments(transport);
+                this.assertCurrentEpoch(epoch);
 
                 if (hasInitialize(adapter)) {
                     logger.info(`WorldBootstrapper | Initializing adapter for ${sysInfo.id}...`);
                     const runtime = await this.createModuleRuntime(sysId);
+                    this.assertCurrentEpoch(epoch);
                     this.activeRuntime = runtime;
                     await adapter.initialize(runtime);
+                    this.assertCurrentEpoch(epoch);
                 }
 
+                this.assertCurrentEpoch(epoch);
                 this.ready = true;
-                this.bootstrapPromise = null;
                 this.markLifecycleActive(sysInfo.id);
                 await options.onReady?.({ systemId: sysInfo.id });
+                this.assertCurrentEpoch(epoch);
                 logger.info('WorldBootstrapper | World bootstrap complete.');
                 return { ready: true, systemId: sysInfo.id };
             }
 
+            this.assertCurrentEpoch(epoch);
             this.ready = true;
-            this.bootstrapPromise = null;
             this.markLifecycleActive();
             logger.info('WorldBootstrapper | World bootstrap complete.');
             return { ready: true };
         } catch (error) {
-            logger.error(`WorldBootstrapper | Bootstrap encountered error: ${getErrorMessage(error)}`);
-            this.ready = false;
-            this.bootstrapPromise = null;
+            if (error instanceof StaleWorldBootstrapError) {
+                logger.debug('WorldBootstrapper | Discarded stale bootstrap after runtime teardown.');
+            } else {
+                logger.error(`WorldBootstrapper | Bootstrap encountered error: ${getErrorMessage(error)}`);
+                // Partial snapshot, pack, and primary-document seeds are never
+                // allowed to remain readable after a failed bootstrap.
+                if (this.runtimeEpoch === epoch) this.reset('world-bootstrap-failed');
+            }
             throw error;
         }
     }
 
     public async loadActiveAdapter(systemId: string): Promise<SystemAdapter | null> {
+        return this.loadActiveAdapterForEpoch(systemId, this.runtimeEpoch);
+    }
+
+    private async loadActiveAdapterForEpoch(
+        systemId: string,
+        epoch: number,
+    ): Promise<SystemAdapter | null> {
         const normalizedSystemId = systemId.trim().toLowerCase();
         if (!normalizedSystemId) {
             this.clearActiveAdapter('empty-system-id');
@@ -298,6 +366,7 @@ export class WorldBootstrapper {
 
         try {
             const adapter = await this.loadAdapter(normalizedSystemId);
+            this.assertCurrentEpoch(epoch);
             this.activeSystemId = normalizedSystemId;
             this.activeAdapter = adapter;
 
@@ -309,6 +378,7 @@ export class WorldBootstrapper {
 
             return adapter;
         } catch (error) {
+            if (error instanceof StaleWorldBootstrapError) throw error;
             this.activeSystemId = normalizedSystemId;
             this.activeAdapter = null;
             logger.error(`WorldBootstrapper | Failed to load active adapter for ${normalizedSystemId}: ${getErrorMessage(error)}`);
@@ -370,6 +440,10 @@ export class WorldBootstrapper {
     private getUnsupportedLifecycleReason(compatibility: FoundryVersionCompatibilityResult): string {
         const generation = compatibility.generation ?? 'unknown';
         return `unsupported-foundry-generation:${generation}:min-${compatibility.minGeneration}`;
+    }
+
+    private assertCurrentEpoch(epoch: number): void {
+        if (epoch !== this.runtimeEpoch) throw new StaleWorldBootstrapError();
     }
 }
 

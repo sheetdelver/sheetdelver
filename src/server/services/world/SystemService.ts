@@ -6,11 +6,9 @@ import { logger } from '@shared/utils/logger';
 import { worldBootstrapper } from './WorldBootstrapper';
 import { foundryEventIngress } from './FoundryEventIngress';
 import { WorldTransportController } from './WorldTransportController';
-import { compendiumStore } from '@server/core/compendium';
 import { worldStateStore } from '@server/core/world/WorldStateStore';
 import { worldLifecycleStore } from '@server/core/world/WorldLifecycleStore';
 import { SetupManager } from '@server/core/world/SetupManager';
-import { primaryDocumentCacheCoordinator } from '@server/core/documents/primary/PrimaryDocumentCacheCoordinator';
 import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
 import { chatMessageStore } from '@server/core/documents/primary/chat-messages/ChatMessageStore';
 import { combatStore } from '@server/core/documents/primary/combats/CombatStore';
@@ -34,6 +32,7 @@ export interface SystemServiceDeps {
     ) => () => void;
     createWorldTransportController: (deps: { transport: CoreSocket }) => WorldTransportController;
     loadSetupCache: typeof SetupManager.loadCache;
+    teardownWorldRuntime: (reason: string) => void;
 }
 
 const defaultSystemServiceDeps: SystemServiceDeps = {
@@ -41,6 +40,7 @@ const defaultSystemServiceDeps: SystemServiceDeps = {
     attachFoundryEventIngress: (transport, options) => foundryEventIngress.attach(transport, options),
     createWorldTransportController: (deps) => new WorldTransportController(deps),
     loadSetupCache: () => SetupManager.loadCache(),
+    teardownWorldRuntime: (reason) => worldBootstrapper.reset(reason),
 };
 
 /**
@@ -349,11 +349,9 @@ export class SystemService extends EventEmitter {
     private handleDisconnect() {
         logger.info('SystemService | System Client disconnected.');
         this.emit('world:disconnected');
-        primaryDocumentCacheCoordinator.clearAll('world-disconnected');
-        // Per ADR-0021, compendiumStore.clear() drops in-memory state only.
-        // Persistent shards are reused on reconnect when world identity matches.
-        compendiumStore.clear('world-disconnected');
-        worldBootstrapper.reset('world-disconnected');
+        // Runtime teardown is idempotent because both an explicit lifecycle
+        // event and the eventual transport disconnect can reach this boundary.
+        this.deps.teardownWorldRuntime('world-disconnected');
     }
 
     /**

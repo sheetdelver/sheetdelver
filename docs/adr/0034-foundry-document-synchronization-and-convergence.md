@@ -579,11 +579,45 @@ revocation or alter CoreSocket world lifecycle transitions.
 
 ### Phase 4: Repair and lifecycle unification
 
-- [ ] Centralize complete world-runtime teardown.
-- [ ] Clear partial bootstrap state through the same operation.
+- [x] Centralize complete world-runtime teardown.
+- [x] Clear partial bootstrap state through the same operation.
 - [ ] Add bounded primary and embedded Store-miss repair.
-- [ ] Verify setup -> world A -> shutdown -> setup -> world B transitions
+- [x] Verify setup -> world A -> shutdown -> setup -> world B transitions
   without stale-world resurrection.
+
+**Phase 4 lifecycle implementation (September 3, 2026):**
+`WorldBootstrapper.reset(reason)` is now the single active-world teardown
+operation used by both `foundry:runtimeTeardown` ingress and the eventual Core
+socket disconnect. It retires adapter/runtime readiness and clears all
+registered primary-document Stores (including the combat encounter read
+model), in-memory compendium state, shared content, user presence, and
+`WorldStateStore` active runtime state. SetupManager's cached world list remains
+intact because it is setup-plane state, not state derived from the departed
+world. Duplicate teardown calls from an explicit lifecycle event followed by
+transport disconnect remain deliberately idempotent.
+
+The bootstrap run now carries a monotonically increasing runtime epoch.
+Teardown invalidates that epoch before clearing state; a replacement bootstrap
+waits for an invalidated run to unwind, and each asynchronous bootstrap
+boundary rejects stale completion. A current-epoch bootstrap failure invokes
+the same complete teardown operation, so partially seeded snapshots, users,
+packs, documents, adapters, or runtimes cannot remain authoritative. Autosave
+root refreshes carry the same epoch and discard late responses from a departed
+world; a new epoch may replace an old pending refresh without waiting for its
+transport timeout. These guards do not change
+`WorldTransportController` heartbeat, reconnect, setup, closed, or active
+transition policy.
+
+Focused coverage verifies partial-failure teardown, old/new bootstrap
+serialization, stale autosave rejection, ingress teardown delegation, and
+disconnect teardown delegation.
+
+**Live lifecycle acceptance (September 3, 2026):** With Sheet Delver kept
+running, an active world was shut down to Foundry setup and a different world
+was then started. Core reported the runtime teardown, continued lifecycle
+monitoring, discovered the replacement world automatically, bootstrapped only
+the replacement world's state, and resumed immediate document synchronization.
+No stale documents from the departed world appeared in API or dashboard reads.
 
 ### Phase 5: Documentation and live acceptance
 

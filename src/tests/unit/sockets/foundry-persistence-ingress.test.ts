@@ -194,6 +194,64 @@ async function runAutosaveScopeAndUuidRouting() {
     }
 }
 
+async function runStaleAutosaveRefreshIsDiscarded() {
+    let runtimeEpoch = 4;
+    const harness = createHarness();
+    harness.detach();
+    const response = deferred<unknown>();
+    harness.transport.responses.push(response.promise);
+    const ingress = new FoundryEventIngress({
+        routeDocument: (payload) => {
+            harness.routed.push(payload);
+        },
+        compendiumStore: {
+            setPackMetadata: () => undefined,
+            invalidatePackContent: async () => undefined,
+            removePack: async () => undefined,
+        },
+        getActiveSystemId: () => 'synthetic',
+        getRuntimeEpoch: () => runtimeEpoch,
+    });
+    const detach = ingress.attach(harness.transport);
+
+    try {
+        harness.transport.emit('foundry:pmAutosave', autosaveFixtures.direct);
+        assert.equal(harness.transport.calls.length, 1);
+
+        // Simulate world teardown while the authoritative root read is pending.
+        runtimeEpoch += 1;
+        response.resolve({
+            type: 'Actor',
+            action: 'get',
+            result: [{ _id: 'actor-1', name: 'Departed world value' }],
+        });
+        await new Promise(resolve => setImmediate(resolve));
+
+        assert.equal(harness.routed.length, 0);
+    } finally {
+        detach();
+    }
+}
+
+async function runRuntimeTeardownDelegation() {
+    const reasons: string[] = [];
+    const transport = new TestTransport();
+    const ingress = new FoundryEventIngress({
+        teardownWorldRuntime: (reason) => {
+            reasons.push(reason);
+        },
+    });
+    const detach = ingress.attach(transport);
+
+    try {
+        transport.emit('foundry:runtimeTeardown', { reason: 'world-a-departed' });
+        transport.emit('foundry:runtimeTeardown', {});
+        assert.deepEqual(reasons, ['world-a-departed', 'foundry-runtime-teardown']);
+    } finally {
+        detach();
+    }
+}
+
 async function runCompendiumLifecycle() {
     const harness = createHarness();
     try {
@@ -219,6 +277,8 @@ export async function run() {
     await runSingleAndBatchRouting();
     await runAutosaveRootRefresh();
     await runAutosaveScopeAndUuidRouting();
+    await runStaleAutosaveRefreshIsDiscarded();
+    await runRuntimeTeardownDelegation();
     await runCompendiumLifecycle();
     console.log('  - Foundry persistence ingress: all checks passed');
 }

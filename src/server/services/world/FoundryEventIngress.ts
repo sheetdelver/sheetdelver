@@ -12,9 +12,9 @@ import { sharedContentStore } from '@server/core/world/SharedContentStore';
 import { worldStateStore } from '@server/core/world/WorldStateStore';
 import { compendiumStore } from '@server/core/compendium';
 import type { CompendiumPackMetadata } from '@server/core/compendium/types';
-import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
 import { parseDocumentUuid, type ParsedDocumentUuid } from '@server/services/documents';
+import { worldBootstrapper } from './WorldBootstrapper';
 import type { RealtimeSharedContentPayload } from '@shared/contracts/realtime';
 import type {
     FoundryAutosaveEvent,
@@ -62,6 +62,8 @@ interface FoundryEventIngressDeps {
     compendiumStore?: FoundryIngressCompendiumStore;
     parseDocumentUuid?: (uuid: string) => ParsedDocumentUuid | null;
     getActiveSystemId?: () => string | null;
+    getRuntimeEpoch?: () => number;
+    teardownWorldRuntime?: (reason: string) => void;
 }
 
 interface RootRefreshTarget {
@@ -71,6 +73,7 @@ interface RootRefreshTarget {
 
 interface RootRefreshState {
     dirty: boolean;
+    epoch: number;
 }
 
 const ACTIVE_WORLD_ROOT_TYPES = new Set([
@@ -95,6 +98,8 @@ export class FoundryEventIngress {
     private readonly packStore: FoundryIngressCompendiumStore;
     private readonly parseUuid: (uuid: string) => ParsedDocumentUuid | null;
     private readonly getActiveSystemId: () => string | null;
+    private readonly getRuntimeEpoch: () => number;
+    private readonly teardownWorldRuntime: (reason: string) => void;
     private readonly rootRefreshes = new Map<string, RootRefreshState>();
 
     public constructor(deps: FoundryEventIngressDeps = {}) {
@@ -102,6 +107,8 @@ export class FoundryEventIngress {
         this.packStore = deps.compendiumStore ?? compendiumStore;
         this.parseUuid = deps.parseDocumentUuid ?? parseDocumentUuid;
         this.getActiveSystemId = deps.getActiveSystemId ?? (() => worldStateStore.getSystem()?.id || null);
+        this.getRuntimeEpoch = deps.getRuntimeEpoch ?? (() => worldBootstrapper.getRuntimeEpoch());
+        this.teardownWorldRuntime = deps.teardownWorldRuntime ?? ((reason) => worldBootstrapper.reset(reason));
     }
 
     public attach(source: FoundryIngressTransport, options: FoundryEventIngressOptions = {}): () => void {
@@ -319,13 +326,16 @@ export class FoundryEventIngress {
 
     private scheduleRootRefresh(root: RootRefreshTarget, source: FoundryIngressTransport): void {
         const key = `${root.type}.${root.id}`;
+        const epoch = this.getRuntimeEpoch();
         const existing = this.rootRefreshes.get(key);
-        if (existing) {
+        if (existing?.epoch === epoch) {
             existing.dirty = true;
             return;
         }
 
-        const state: RootRefreshState = { dirty: false };
+        // Epoch-tagged entries let a new world replace an old pending refresh
+        // immediately without waiting for the old transport timeout.
+        const state: RootRefreshState = { dirty: false, epoch };
         this.rootRefreshes.set(key, state);
 
         // An autosave that arrives during the read marks the root dirty. The
@@ -335,8 +345,8 @@ export class FoundryEventIngress {
             try {
                 do {
                     state.dirty = false;
-                    await this.refreshRoot(root, source);
-                } while (state.dirty);
+                    await this.refreshRoot(root, source, epoch);
+                } while (state.dirty && epoch === this.getRuntimeEpoch());
             } catch (error) {
                 logger.error('FoundryEventIngress | Autosave root refresh failed', {
                     rootType: root.type,
@@ -349,7 +359,11 @@ export class FoundryEventIngress {
         })();
     }
 
-    private async refreshRoot(root: RootRefreshTarget, source: FoundryIngressTransport): Promise<void> {
+    private async refreshRoot(
+        root: RootRefreshTarget,
+        source: FoundryIngressTransport,
+        epoch: number,
+    ): Promise<void> {
         const operation = { ids: [root.id], broadcast: false };
         const response = await source.emitSocketEvent!<unknown>('modifyDocument', {
             type: root.type,
@@ -361,6 +375,16 @@ export class FoundryEventIngress {
             action: 'get',
             operation,
         });
+
+        // A response from a departed world must never repopulate the current
+        // Store, even when the Foundry request itself completed successfully.
+        if (epoch !== this.getRuntimeEpoch()) {
+            logger.debug('FoundryEventIngress | Discarded stale autosave refresh response', {
+                rootType: root.type,
+                rootId: root.id,
+            });
+            return;
+        }
 
         let applied = false;
         for (const entry of entries) {
@@ -545,12 +569,7 @@ export class FoundryEventIngress {
 
     private handleRuntimeTeardown(event: FoundryRuntimeTeardownEvent): void {
         const reason = event.reason || 'foundry-runtime-teardown';
-        worldStateStore.clearRuntimeState(reason);
-        sharedContentStore.clear(reason);
-        compendiumStore.clear(reason);
-        userPresence.clear();
-        userStore.clear(reason);
-        actorStore.clear(reason);
+        this.teardownWorldRuntime(reason);
     }
 }
 
