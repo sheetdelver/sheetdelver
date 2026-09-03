@@ -15,6 +15,10 @@ open as the final Phase 3 slice.
 **Status amendment (September 3, 2026):** Phase 3 is complete. Server-side
 session retirement now immediately removes app-socket authority, listener
 access, and session-bound client state. Phase 4 is pending.
+**Status amendment (September 3, 2026):** Phase 4 is complete. Unified runtime
+teardown, epoch rejection, bounded Store-miss repair, and live lifecycle and
+document convergence checks are complete. A ChatMessage compatibility defect
+found during live acceptance is corrected below. Phase 5 is pending.
 **Date:** September 2, 2026
 **Phase:** Pre-main synchronization remediation
 **Supersedes:** None
@@ -581,7 +585,7 @@ revocation or alter CoreSocket world lifecycle transitions.
 
 - [x] Centralize complete world-runtime teardown.
 - [x] Clear partial bootstrap state through the same operation.
-- [ ] Add bounded primary and embedded Store-miss repair.
+- [x] Add bounded primary and embedded Store-miss repair.
 - [x] Verify setup -> world A -> shutdown -> setup -> world B transitions
   without stale-world resurrection.
 
@@ -618,6 +622,51 @@ was then started. Core reported the runtime teardown, continued lifecycle
 monitoring, discovered the replacement world automatically, bootstrapped only
 the replacement world's state, and resumed immediate document synchronization.
 No stale documents from the departed world appeared in API or dashboard reads.
+
+**Phase 4 Store-miss repair implementation (September 3, 2026):** The shared
+`PrimaryDocumentStore.applyModifyDocument` boundary now returns typed repair
+targets for direct partial updates whose root is absent and for any embedded
+mutation whose registered primary parent is absent. Direct update ids are
+resolved from normalized results, `operation.updates`, and `operation.ids`;
+embedded roots are resolved from the registered parent UUID. Individual Store
+handlers continue to own normal type-specific mutation semantics and are not
+given partial synthetic parents.
+
+`ModifyDocumentRouter` preserves repair targets in its dispatched outcome,
+and `FoundryEventIngress` coalesces those targets with its authoritative root
+refresh machinery. Repair reads use CoreSocket only for a targeted,
+non-broadcast `get`; the requesting user's write path remains unchanged. A
+successful full-root response is applied as a create to restore list
+membership, while same-root misses arriving during the read guarantee a
+trailing authoritative refresh. Repair bursts are capped at three reads.
+Missing transport, transport failure, an empty/mismatched response, or cap
+exhaustion produces a typed `unavailable` diagnostic through `logger.warn`.
+All repair work carries the current world epoch, so teardown discards late
+responses instead of repopulating the replacement world. Autosave-only
+coalescing retains its existing trailing-refresh behavior and is not subject
+to the repair-attempt cap.
+
+**Phase 4 live-acceptance compatibility correction (September 3, 2026):** An
+actor roll reached Foundry over the correct requesting-user transport but was
+rejected by generation 14 because Core still created the ChatMessage with
+numeric `type: 5`. This was not an ingress or Store-repair failure. Generation
+13 already defines the numeric presentation field as `style` and only accepted
+numeric `type` through a deprecated migration; generation 14 removed that
+migration because `type` is now reserved for string document subtypes.
+
+Core-owned text payloads now use `style: 1`. Roll payloads use `style: 0` and
+the populated `rolls` array, which is the supported roll discriminator in both
+generations 13 and 14. The chat read projection likewise recognizes populated
+`rolls`, while retaining `type: 5` only as an inbound compatibility fallback
+for stale cache data.
+
+The ChatMessage Repository also converts numeric legacy `type` values to the
+equivalent valid `style` before create dispatch. Values outside the supported
+0-3 style range become `style: 0`, matching generation 13's former migration
+for removed ROLL and WHISPER enum values. String `type` values remain unchanged
+so system-defined ChatMessage subtypes continue to work. This boundary applies
+equally to route and SDK callers and does not branch on a particular generation
+14 build.
 
 ### Phase 5: Documentation and live acceptance
 

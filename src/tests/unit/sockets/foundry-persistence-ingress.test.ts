@@ -1,6 +1,7 @@
 import { strict as assert } from 'node:assert';
 import { EventEmitter } from 'node:events';
 import { FoundryEventIngress } from '@server/services/world/FoundryEventIngress';
+import type { DocumentRepairUnavailableEvent } from '@server/services/world/FoundryEventIngress';
 import {
     autosaveFixtures,
     manageCompendiumFixtures,
@@ -252,6 +253,231 @@ async function runRuntimeTeardownDelegation() {
     }
 }
 
+async function runStoreMissRepair() {
+    const routed: RoutedDocument[] = [];
+    const unavailable: DocumentRepairUnavailableEvent[] = [];
+    const transport = new TestTransport();
+    const firstRepair = deferred<unknown>();
+    const trailingRepair = deferred<unknown>();
+    transport.responses.push(firstRepair.promise, trailingRepair.promise);
+
+    const ingress = new FoundryEventIngress({
+        routeDocument: (payload) => {
+            routed.push(payload);
+            if (payload.type === 'Actor' && payload.action === 'update') {
+                return {
+                    status: 'dispatched',
+                    route: 'direct',
+                    storeType: 'Actor',
+                    repairTargets: [{
+                        type: 'Actor',
+                        id: 'actor-missing',
+                        reason: 'direct-update-miss',
+                    }],
+                };
+            }
+            return { status: 'dispatched', route: 'direct', storeType: payload.type };
+        },
+        reportRepairUnavailable: event => unavailable.push(event),
+        getRuntimeEpoch: () => 9,
+    });
+    const detach = ingress.attach(transport);
+
+    try {
+        const update = {
+            response: {
+                type: 'Actor',
+                action: 'update',
+                result: [{ _id: 'actor-missing', name: 'Partial value' }],
+            },
+        };
+        transport.emit('foundry:modifyDocument', update);
+        transport.emit('foundry:modifyDocument', update);
+        assert.equal(transport.calls.length, 1, 'same-root misses share the active repair read');
+
+        firstRepair.resolve({
+            type: 'Actor',
+            action: 'get',
+            result: [{ _id: 'actor-missing', name: 'Authoritative value' }],
+        });
+        await waitFor(() => transport.calls.length === 2);
+
+        trailingRepair.resolve({
+            type: 'Actor',
+            action: 'get',
+            result: [{ _id: 'actor-missing', name: 'Trailing authoritative value' }],
+        });
+        await waitFor(() => routed.filter(entry => entry.action === 'create').length === 2);
+
+        const repairRequests = transport.calls.map(call => call.payloads[0] as {
+            type: string;
+            operation: { ids: string[]; broadcast: boolean };
+        });
+        assert.deepEqual(repairRequests, [
+            { type: 'Actor', action: 'get', operation: { ids: ['actor-missing'], broadcast: false } },
+            { type: 'Actor', action: 'get', operation: { ids: ['actor-missing'], broadcast: false } },
+        ]);
+        assert.deepEqual(
+            routed.filter(entry => entry.action === 'create').map(entry => entry.result),
+            [
+                [{ _id: 'actor-missing', name: 'Authoritative value' }],
+                [{ _id: 'actor-missing', name: 'Trailing authoritative value' }],
+            ],
+        );
+        assert.deepEqual(unavailable, []);
+    } finally {
+        detach();
+    }
+}
+
+async function runEmbeddedMissRepairAndUnavailableOutcome() {
+    const routed: RoutedDocument[] = [];
+    const unavailable: DocumentRepairUnavailableEvent[] = [];
+    let directMissEnabled = false;
+    const transport = new TestTransport();
+    transport.responses.push(Promise.resolve({
+        type: 'JournalEntry',
+        action: 'get',
+        result: [{ _id: 'journal-missing', name: 'Authoritative journal', pages: [] }],
+    }));
+
+    const ingress = new FoundryEventIngress({
+        routeDocument: (payload) => {
+            routed.push(payload);
+            if (payload.type === 'JournalEntryPage') {
+                return {
+                    status: 'dispatched',
+                    route: 'embedded',
+                    storeType: 'JournalEntry',
+                    repairTargets: [{
+                        type: 'JournalEntry',
+                        id: 'journal-missing',
+                        reason: 'embedded-root-miss',
+                    }],
+                };
+            }
+            if (directMissEnabled && payload.type === 'Actor' && payload.action === 'update') {
+                return {
+                    status: 'dispatched',
+                    route: 'direct',
+                    storeType: 'Actor',
+                    repairTargets: [{
+                        type: 'Actor',
+                        id: 'actor-unavailable',
+                        reason: 'direct-update-miss',
+                    }],
+                };
+            }
+            return { status: 'dispatched', route: 'direct', storeType: payload.type };
+        },
+        reportRepairUnavailable: event => unavailable.push(event),
+        getRuntimeEpoch: () => 3,
+    });
+    const detach = ingress.attach(transport);
+
+    try {
+        transport.emit('foundry:modifyDocument', {
+            response: {
+                type: 'JournalEntryPage',
+                action: 'update',
+                operation: { parentUuid: 'JournalEntry.journal-missing' },
+                result: [{ _id: 'page-1', name: 'Partial page' }],
+            },
+        });
+        await waitFor(() => routed.some(entry => entry.type === 'JournalEntry' && entry.action === 'create'));
+        assert.deepEqual(unavailable, []);
+
+        transport.responses.push(Promise.resolve({
+            type: 'Actor',
+            action: 'get',
+            result: [],
+        }));
+        directMissEnabled = true;
+        transport.emit('foundry:modifyDocument', {
+            response: {
+                type: 'Actor',
+                action: 'update',
+                result: [{ _id: 'actor-unavailable', name: 'Partial actor' }],
+            },
+        });
+        await waitFor(() => unavailable.length === 1);
+        assert.deepEqual(unavailable[0], {
+            status: 'unavailable',
+            rootType: 'Actor',
+            rootId: 'actor-unavailable',
+            reason: 'empty-response',
+        });
+    } finally {
+        detach();
+    }
+}
+
+async function runStoreMissRepairAttemptCap() {
+    const unavailable: DocumentRepairUnavailableEvent[] = [];
+    const transport = new TestTransport();
+    const responses = [
+        deferred<unknown>(),
+        deferred<unknown>(),
+        deferred<unknown>(),
+    ];
+    transport.responses.push(...responses.map(response => response.promise));
+
+    const ingress = new FoundryEventIngress({
+        routeDocument: (payload) => {
+            if (payload.type === 'Actor' && payload.action === 'update') {
+                return {
+                    status: 'dispatched',
+                    route: 'direct',
+                    storeType: 'Actor',
+                    repairTargets: [{
+                        type: 'Actor',
+                        id: 'actor-churning',
+                        reason: 'direct-update-miss',
+                    }],
+                };
+            }
+            return { status: 'dispatched', route: 'direct', storeType: payload.type };
+        },
+        reportRepairUnavailable: event => unavailable.push(event),
+        getRuntimeEpoch: () => 6,
+    });
+    const detach = ingress.attach(transport);
+    const emitMiss = () => transport.emit('foundry:modifyDocument', {
+        response: {
+            type: 'Actor',
+            action: 'update',
+            result: [{ _id: 'actor-churning', name: 'Partial actor' }],
+        },
+    });
+    const authoritative = {
+        type: 'Actor',
+        action: 'get',
+        result: [{ _id: 'actor-churning', name: 'Authoritative actor' }],
+    };
+
+    try {
+        emitMiss();
+        for (let index = 0; index < responses.length; index += 1) {
+            emitMiss();
+            responses[index].resolve(authoritative);
+            if (index < responses.length - 1) {
+                await waitFor(() => transport.calls.length === index + 2);
+            }
+        }
+
+        await waitFor(() => unavailable.length === 1);
+        assert.equal(transport.calls.length, 3);
+        assert.deepEqual(unavailable[0], {
+            status: 'unavailable',
+            rootType: 'Actor',
+            rootId: 'actor-churning',
+            reason: 'coalescing-limit',
+        });
+    } finally {
+        detach();
+    }
+}
+
 async function runCompendiumLifecycle() {
     const harness = createHarness();
     try {
@@ -279,6 +505,9 @@ export async function run() {
     await runAutosaveScopeAndUuidRouting();
     await runStaleAutosaveRefreshIsDiscarded();
     await runRuntimeTeardownDelegation();
+    await runStoreMissRepair();
+    await runEmbeddedMissRepairAndUnavailableOutcome();
+    await runStoreMissRepairAttemptCap();
     await runCompendiumLifecycle();
     console.log('  - Foundry persistence ingress: all checks passed');
 }

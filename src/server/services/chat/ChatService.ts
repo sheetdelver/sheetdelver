@@ -12,6 +12,7 @@ import {
 import {
     createTextChatMessageData,
     isRecord,
+    normalizeChatMessageCreateData,
     normalizeSpeaker,
 } from '@server/core/documents/primary/chat-messages/chatMessagePayload';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
@@ -31,7 +32,9 @@ function projectChatMessage(message: ChatMessageDocument, subject: DocumentAcces
         }
     });
     const roll = rolls[0] as { total?: number; formula?: string } | undefined;
-    const isRoll = message.type === 5;
+    // Foundry v13+ stores roll semantics in `rolls`; retain the old numeric
+    // check only for cache rows created before the canonical payload migration.
+    const isRoll = rolls.length > 0 || message.type === 5;
     const isBlind = message.blind === true;
     // No subject means the caller is the system account / privileged path
     // (already the existing semantics via `FoundryUserRole.GAMEMASTER` fallback);
@@ -116,9 +119,9 @@ export function createChatService(deps: ChatServiceDeps) {
                 speaker: normalizeSpeaker(body.speaker),
                 displayChat: false,
             });
-            const chatData: Record<string, unknown> = isRecord(synthetic)
+            const chatData = normalizeChatMessageCreateData(isRecord(synthetic)
                 ? { ...synthetic }
-                : { content: String(synthetic), type: 5 };
+                : { content: String(synthetic), style: 0 });
             delete chatData._synthetic;
             if (!chatData.author && client.userId) chatData.author = client.userId;
             if (!chatData.author) throw new Error('Cannot send message: Author ID missing');

@@ -2,6 +2,13 @@ import type { EventEmitter } from 'node:events';
 import { logger } from '@shared/utils/logger';
 import { modifyDocumentRouter } from '@server/core/documents/primary/base/modifyDocumentRouter';
 import {
+    getDocumentId,
+    toDocumentArray,
+    type DocumentLike,
+    type DocumentRepairTarget,
+    type ModifyDocumentAction,
+} from '@server/core/documents/primary/base/PrimaryDocumentStore';
+import {
     isPackScopedDocumentResult,
     normalizeFoundryDocumentResponse,
     type FoundryDocumentResponseFallback,
@@ -64,6 +71,7 @@ interface FoundryEventIngressDeps {
     getActiveSystemId?: () => string | null;
     getRuntimeEpoch?: () => number;
     teardownWorldRuntime?: (reason: string) => void;
+    reportRepairUnavailable?: (event: DocumentRepairUnavailableEvent) => void;
 }
 
 interface RootRefreshTarget {
@@ -74,7 +82,19 @@ interface RootRefreshTarget {
 interface RootRefreshState {
     dirty: boolean;
     epoch: number;
+    repairRequired: boolean;
+    repairObserved: boolean;
 }
+
+export interface DocumentRepairUnavailableEvent {
+    status: 'unavailable';
+    rootType: string;
+    rootId: string;
+    reason: 'transport-unavailable' | 'transport-error' | 'empty-response' | 'coalescing-limit';
+    detail?: string;
+}
+
+const MAX_ROOT_REFRESH_ATTEMPTS = 3;
 
 const ACTIVE_WORLD_ROOT_TYPES = new Set([
     'Actor',
@@ -100,6 +120,7 @@ export class FoundryEventIngress {
     private readonly getActiveSystemId: () => string | null;
     private readonly getRuntimeEpoch: () => number;
     private readonly teardownWorldRuntime: (reason: string) => void;
+    private readonly reportRepairUnavailable: (event: DocumentRepairUnavailableEvent) => void;
     private readonly rootRefreshes = new Map<string, RootRefreshState>();
 
     public constructor(deps: FoundryEventIngressDeps = {}) {
@@ -109,6 +130,9 @@ export class FoundryEventIngress {
         this.getActiveSystemId = deps.getActiveSystemId ?? (() => worldStateStore.getSystem()?.id || null);
         this.getRuntimeEpoch = deps.getRuntimeEpoch ?? (() => worldBootstrapper.getRuntimeEpoch());
         this.teardownWorldRuntime = deps.teardownWorldRuntime ?? ((reason) => worldBootstrapper.reset(reason));
+        this.reportRepairUnavailable = deps.reportRepairUnavailable ?? ((event) => {
+            logger.warn('FoundryEventIngress | Document repair unavailable', event);
+        });
     }
 
     public attach(source: FoundryIngressTransport, options: FoundryEventIngressOptions = {}): () => void {
@@ -116,15 +140,22 @@ export class FoundryEventIngress {
             ['foundry:modifyDocument', (event: unknown) => this.routeDocumentResponse(
                 event as FoundryModifyDocumentEvent,
                 'broadcast-single',
+                source,
             )],
             ['foundry:modifyDocumentBatch', (event: unknown) => this.routeDocumentResponse(
                 event as FoundryModifyDocumentBatchEvent,
                 'broadcast-batch',
+                source,
             )],
-            ['foundry:documentCompatibility', (event: unknown) => this.routeCompatibilityDocument(event as FoundryDocumentCompatibilityEvent, options)],
+            ['foundry:documentCompatibility', (event: unknown) => this.routeCompatibilityDocument(
+                event as FoundryDocumentCompatibilityEvent,
+                options,
+                source,
+            )],
             ['foundry:documentDispatchConfirmed', (event: unknown) => this.routeDocumentResponse(
                 event as FoundryDocumentDispatchConfirmedEvent,
                 'dispatch-acknowledgement',
+                source,
             )],
             ['foundry:pmAutosave', (event: unknown) => this.handleAutosave(
                 event as FoundryAutosaveEvent,
@@ -154,8 +185,12 @@ export class FoundryEventIngress {
         };
     }
 
-    private routeCompatibilityDocument(event: FoundryDocumentCompatibilityEvent, options: FoundryEventIngressOptions): void {
-        this.routeDocumentResponse(event, 'compatibility-event');
+    private routeCompatibilityDocument(
+        event: FoundryDocumentCompatibilityEvent,
+        options: FoundryEventIngressOptions,
+        source: FoundryIngressTransport,
+    ): void {
+        this.routeDocumentResponse(event, 'compatibility-event', source);
 
         if (event.type === 'User' && event.action === 'delete') {
             const ids = (event.operation as { ids?: unknown } | undefined)?.ids;
@@ -172,6 +207,7 @@ export class FoundryEventIngress {
     private routeDocumentResponse(
         event: FoundryModifyDocumentEvent | FoundryModifyDocumentBatchEvent | FoundryDocumentDispatchConfirmedEvent,
         origin: string,
+        source: FoundryIngressTransport,
     ): void {
         const eventRecord = this.toRecord(event);
         const response = eventRecord && Object.hasOwn(eventRecord, 'response')
@@ -202,6 +238,10 @@ export class FoundryEventIngress {
                 result: entry.result,
                 operation: entry.operation,
             });
+            const repairTargets = routeOutcome?.status === 'dispatched'
+                ? routeOutcome.repairTargets
+                : undefined;
+            this.scheduleRepairs(repairTargets, source);
             logger.debug('FoundryEventIngress | Dispatched document response', {
                 origin,
                 source: entry.source,
@@ -321,38 +361,108 @@ export class FoundryEventIngress {
             return;
         }
 
-        this.scheduleRootRefresh(root, source);
+        this.scheduleRootRefresh(root, source, false);
     }
 
-    private scheduleRootRefresh(root: RootRefreshTarget, source: FoundryIngressTransport): void {
+    private scheduleRepairs(
+        targets: DocumentRepairTarget[] | undefined,
+        source: FoundryIngressTransport,
+    ): void {
+        if (!targets?.length) return;
+        for (const target of targets) {
+            this.scheduleRootRefresh({ type: target.type, id: target.id }, source, true);
+        }
+    }
+
+    private scheduleRootRefresh(
+        root: RootRefreshTarget,
+        source: FoundryIngressTransport,
+        repairRequired: boolean,
+    ): void {
+        if (typeof source.emitSocketEvent !== 'function') {
+            if (repairRequired) {
+                this.reportRepairUnavailable({
+                    status: 'unavailable',
+                    rootType: root.type,
+                    rootId: root.id,
+                    reason: 'transport-unavailable',
+                });
+            }
+            return;
+        }
+
         const key = `${root.type}.${root.id}`;
         const epoch = this.getRuntimeEpoch();
         const existing = this.rootRefreshes.get(key);
         if (existing?.epoch === epoch) {
             existing.dirty = true;
+            existing.repairRequired ||= repairRequired;
+            existing.repairObserved ||= repairRequired;
             return;
         }
 
         // Epoch-tagged entries let a new world replace an old pending refresh
         // immediately without waiting for the old transport timeout.
-        const state: RootRefreshState = { dirty: false, epoch };
+        const state: RootRefreshState = {
+            dirty: false,
+            epoch,
+            repairRequired,
+            repairObserved: repairRequired,
+        };
         this.rootRefreshes.set(key, state);
 
         // An autosave that arrives during the read marks the root dirty. The
         // loop guarantees one trailing authoritative read before the key can
         // be considered current.
         void (async () => {
+            let attempts = 0;
             try {
                 do {
+                    attempts += 1;
                     state.dirty = false;
-                    await this.refreshRoot(root, source, epoch);
-                } while (state.dirty && epoch === this.getRuntimeEpoch());
+                    const applyAction: ModifyDocumentAction = state.repairRequired
+                        ? 'create'
+                        : 'update';
+                    state.repairRequired = false;
+                    const applied = await this.refreshRoot(root, source, epoch, applyAction);
+                    if (!applied && state.repairObserved && epoch === this.getRuntimeEpoch()) {
+                        this.reportRepairUnavailable({
+                            status: 'unavailable',
+                            rootType: root.type,
+                            rootId: root.id,
+                            reason: 'empty-response',
+                        });
+                        return;
+                    }
+                } while (
+                    state.dirty
+                    && epoch === this.getRuntimeEpoch()
+                    && (!state.repairObserved || attempts < MAX_ROOT_REFRESH_ATTEMPTS)
+                );
+
+                if (state.dirty && epoch === this.getRuntimeEpoch() && state.repairObserved) {
+                    this.reportRepairUnavailable({
+                        status: 'unavailable',
+                        rootType: root.type,
+                        rootId: root.id,
+                        reason: 'coalescing-limit',
+                    });
+                }
             } catch (error) {
-                logger.error('FoundryEventIngress | Autosave root refresh failed', {
+                logger.error('FoundryEventIngress | Authoritative root refresh failed', {
                     rootType: root.type,
                     rootId: root.id,
                     error: error instanceof Error ? error.message : String(error),
                 });
+                if (state.repairObserved && epoch === this.getRuntimeEpoch()) {
+                    this.reportRepairUnavailable({
+                        status: 'unavailable',
+                        rootType: root.type,
+                        rootId: root.id,
+                        reason: 'transport-error',
+                        detail: error instanceof Error ? error.message : String(error),
+                    });
+                }
             } finally {
                 if (this.rootRefreshes.get(key) === state) this.rootRefreshes.delete(key);
             }
@@ -363,7 +473,8 @@ export class FoundryEventIngress {
         root: RootRefreshTarget,
         source: FoundryIngressTransport,
         epoch: number,
-    ): Promise<void> {
+        applyAction: ModifyDocumentAction,
+    ): Promise<boolean> {
         const operation = { ids: [root.id], broadcast: false };
         const response = await source.emitSocketEvent!<unknown>('modifyDocument', {
             type: root.type,
@@ -383,7 +494,7 @@ export class FoundryEventIngress {
                 rootType: root.type,
                 rootId: root.id,
             });
-            return;
+            return false;
         }
 
         let applied = false;
@@ -394,24 +505,35 @@ export class FoundryEventIngress {
                 continue;
             }
 
-            // A targeted get returns the authoritative full root. Apply it as
-            // an update so Store comparison emits the invalidation that the
-            // autosave event itself does not carry.
+            const matchingRoots = toDocumentArray<DocumentLike>(entry.result)
+                .filter(document => getDocumentId(document) === root.id);
+            if (matchingRoots.length === 0) continue;
+
+            // A targeted get returns the authoritative full root. Autosave
+            // convergence applies it as an update; missing-root repair applies
+            // it as a create so list membership is restored and invalidated.
             this.routeDocumentResult({
                 type: root.type,
-                action: 'update',
-                result: entry.result,
+                action: applyAction,
+                result: matchingRoots,
                 operation,
             });
             applied = true;
         }
 
         if (!applied) {
-            logger.warn('FoundryEventIngress | Autosave root refresh returned no routable document', {
+            logger.warn('FoundryEventIngress | Authoritative root refresh returned no requested document', {
+                rootType: root.type,
+                rootId: root.id,
+            });
+        } else if (applyAction === 'create') {
+            logger.debug('FoundryEventIngress | Document repair completed', {
+                status: 'repaired',
                 rootType: root.type,
                 rootId: root.id,
             });
         }
+        return applied;
     }
 
     private handleManageCompendium(event: FoundryManageCompendiumEvent): void {

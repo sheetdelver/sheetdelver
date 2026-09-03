@@ -199,7 +199,9 @@ function createBaseRouteFoundryClient(
                 author,
                 content: String(evaluatedRoll.total),
                 flavor,
-                type: 5,
+                // Foundry v13+ identifies roll messages by their `rolls` data;
+                // numeric ChatMessage `type` was only a deprecated legacy shim.
+                style: 0,
                 rolls: [JSON.stringify(evaluatedRoll.toJSON())],
                 flags: options?.flags || {},
                 sound: 'sounds/dice.wav',

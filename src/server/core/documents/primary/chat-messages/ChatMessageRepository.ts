@@ -2,6 +2,7 @@ import type { ChatMessageDocument } from '@server/shared/types/documents';
 import { PrimaryDocumentRepository, type DocumentTransport } from '../base/PrimaryDocumentRepository';
 import type { ModifyDocumentAction } from '../base/PrimaryDocumentStore';
 import { chatMessageStore } from './ChatMessageStore';
+import { isRecord, normalizeChatMessageCreateData } from './chatMessagePayload';
 
 /**
  * ChatMessage primary-document Repository. Per-request transport binding
@@ -26,7 +27,19 @@ export class ChatMessageRepository extends PrimaryDocumentRepository<ChatMessage
         operation: Record<string, unknown> = {},
         parent?: { type: string; id: string },
     ): Promise<any> {
-        return super.dispatchDocument(type, action, operation, parent);
+        let normalizedOperation = operation;
+        if (type === 'ChatMessage' && action === 'create' && Array.isArray(operation.data)) {
+            // Normalize at the Repository boundary as well as in Core's builders
+            // so legacy module callers cannot send v13's removed numeric `type`
+            // compatibility shape to a v14 Foundry server.
+            normalizedOperation = {
+                ...operation,
+                data: operation.data.map(candidate => isRecord(candidate)
+                    ? normalizeChatMessageCreateData(candidate)
+                    : candidate),
+            };
+        }
+        return super.dispatchDocument(type, action, normalizedOperation, parent);
     }
 
     /**

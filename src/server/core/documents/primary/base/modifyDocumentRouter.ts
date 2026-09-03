@@ -1,5 +1,6 @@
 import { logger } from '@shared/utils/logger';
 import type {
+    DocumentRepairTarget,
     ModifyDocumentAction,
     PrimaryDocumentStore,
     PrimaryDocumentType,
@@ -18,7 +19,12 @@ export interface ModifyDocumentPayload {
 }
 
 export type ModifyDocumentRouteOutcome =
-    | { status: 'dispatched'; route: 'direct' | 'embedded'; storeType: string }
+    | {
+        status: 'dispatched';
+        route: 'direct' | 'embedded';
+        storeType: string;
+        repairTargets?: DocumentRepairTarget[];
+    }
     | { status: 'dropped'; reason: 'unregistered-direct-type' | 'unregistered-parent-type' };
 
 /**
@@ -76,8 +82,20 @@ export class ModifyDocumentRouter {
             const parentType = parentUuid.split('.')[0];
             const parentStore = this.embeddedParentHandlers.get(parentType);
             if (parentStore) {
-                parentStore.applyModifyDocument(payload.type, payload.action, payload.result, payload.operation);
-                return { status: 'dispatched', route: 'embedded', storeType: parentStore.documentType };
+                const outcome = parentStore.applyModifyDocument(
+                    payload.type,
+                    payload.action,
+                    payload.result,
+                    payload.operation,
+                );
+                return {
+                    status: 'dispatched',
+                    route: 'embedded',
+                    storeType: parentStore.documentType,
+                    ...(outcome.repairTargets.length > 0
+                        ? { repairTargets: outcome.repairTargets }
+                        : {}),
+                };
             }
             logger.debug(
                 `modifyDocumentRouter | Dropping unrouted embedded event: type=${payload.type} parentUuid=${parentUuid}`,
@@ -89,8 +107,20 @@ export class ModifyDocumentRouter {
         // world-level documents.
         const direct = this.storesByType.get(payload.type);
         if (direct) {
-            direct.applyModifyDocument(payload.type, payload.action, payload.result, payload.operation);
-            return { status: 'dispatched', route: 'direct', storeType: direct.documentType };
+            const outcome = direct.applyModifyDocument(
+                payload.type,
+                payload.action,
+                payload.result,
+                payload.operation,
+            );
+            return {
+                status: 'dispatched',
+                route: 'direct',
+                storeType: direct.documentType,
+                ...(outcome.repairTargets.length > 0
+                    ? { repairTargets: outcome.repairTargets }
+                    : {}),
+            };
         }
 
         logger.debug(`modifyDocumentRouter | Dropping unrouted event: type=${payload.type} action=${payload.action}`);

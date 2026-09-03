@@ -1,5 +1,6 @@
 import { strict as assert } from 'node:assert';
 import { ChatMessageStore } from '@server/core/documents/primary/chat-messages/ChatMessageStore';
+import { ChatMessageRepository } from '@server/core/documents/primary/chat-messages/ChatMessageRepository';
 import {
     DocumentOwnershipLevel,
     FoundryUserRole,
@@ -16,6 +17,7 @@ export async function run() {
     await runGmSeesEverything();
     await runBroadcastUpdatesStoreAndEmits();
     await runFullMirrorRetention();
+    await runRepositoryNormalizesLegacyCreateTypes();
     console.log('  - ChatMessageStore: all checks passed');
 }
 
@@ -152,4 +154,42 @@ async function runFullMirrorRetention() {
     // Beyond what config.app.chatHistory (default 100) would display:
     // The store mirrors Foundry's set in full.
     void DocumentOwnershipLevel; // keep symbol referenced
+}
+
+async function runRepositoryNormalizesLegacyCreateTypes() {
+    let dispatchedOperation: Record<string, unknown> | undefined;
+    const repository = new ChatMessageRepository({
+        dispatchDocument: async (_type, _action, operation) => {
+            dispatchedOperation = operation as Record<string, unknown>;
+            return { result: [] };
+        },
+    });
+
+    // The boundary accepts legacy callers but emits only schema-valid v13/v14
+    // fields. A string `type` remains a legitimate document subtype.
+    await repository.dispatchDocument('ChatMessage', 'create', {
+        data: [
+            { content: 'legacy roll', type: 5, rolls: ['{}'] },
+            { content: 'legacy OOC', type: 1 },
+            { content: 'typed message', type: 'system-card', style: 3 },
+        ],
+    });
+
+    const data = dispatchedOperation?.data as Array<Record<string, unknown>>;
+    assert.deepEqual(data, [
+        {
+            content: 'legacy roll',
+            style: 0,
+            rolls: ['{}'],
+        },
+        {
+            content: 'legacy OOC',
+            style: 1,
+        },
+        {
+            content: 'typed message',
+            type: 'system-card',
+            style: 3,
+        },
+    ]);
 }

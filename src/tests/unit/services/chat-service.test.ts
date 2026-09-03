@@ -18,7 +18,7 @@ function createMockClient(overrides: Partial<ChatClientLike> = {}): ChatClientLi
         off: () => undefined,
         createChatMessage: async () => ({ result: [] }),
         dispatchDocument: async () => ({ result: [] }),
-        roll: async () => ({ author: 'p-author', content: '7', type: 5, rolls: ['{"total":7,"formula":"1d20"}'] }),
+        roll: async () => ({ author: 'p-author', content: '7', style: 0, rolls: ['{"total":7,"formula":"1d20"}'] }),
         ...overrides,
     };
 }
@@ -54,7 +54,8 @@ async function runStoreBackedReadsProjectChatDto() {
                 blind: false,
                 content: '7',
                 flavor: 'Check',
-                type: 5,
+                type: 'base',
+                style: 0,
                 rolls: ['{"total":7,"formula":"1d20"}'],
                 timestamp: 100,
             },
@@ -91,7 +92,8 @@ async function runNormalChatWritesThroughCreateChatMessage() {
         assert.equal(createdMessages.length, 1);
         assert.equal(createdMessages[0].content, 'Hello');
         assert.equal(createdMessages[0].author, 'p-author');
-        assert.equal(createdMessages[0].type, 1);
+        assert.equal(createdMessages[0].style, 1);
+        assert.equal(createdMessages[0].type, undefined);
         assert.deepEqual(createdMessages[0].speaker, { alias: 'Narrator' });
         assert.equal(rawDispatchCalls, 0);
     });
@@ -118,6 +120,8 @@ async function runRollChatWritesThroughCreateChatMessage() {
                     _synthetic: true,
                     author: 'p-author',
                     content: '7',
+                    // Exercise normalization of the legacy shape returned by
+                    // older module roll implementations.
                     type: 5,
                     rolls: ['{"total":7,"formula":"1d20"}'],
                 };
@@ -127,7 +131,8 @@ async function runRollChatWritesThroughCreateChatMessage() {
         assert.equal('success' in payload && payload.success, true);
         assert.equal(createdMessages.length, 1);
         assert.equal(createdMessages[0]._synthetic, undefined);
-        assert.equal(createdMessages[0].type, 5);
+        assert.equal(createdMessages[0].style, 0);
+        assert.equal(createdMessages[0].type, undefined);
         assert.equal((rollOptions[0] as any).displayChat, false);
         assert.equal(rawDispatchCalls, 0);
     });

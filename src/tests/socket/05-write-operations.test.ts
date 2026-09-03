@@ -122,7 +122,7 @@ export async function testWriteOperations() {
         try {
             await routeClient.createChatMessage({
                 content: "🧪 Socket Test: Write Operations Verified",
-                type: 1,
+                style: 1,
                 author: client.userId,
             });
             logger.info(`   ✅ Sent chat message`);

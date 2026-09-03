@@ -10,6 +10,26 @@ export function normalizeSpeaker(speaker: ChatSendBody['speaker'] | unknown): Ch
     return isRecord(speaker) ? speaker as ChatSendBody['speaker'] : undefined;
 }
 
+/**
+ * Convert the pre-v14 numeric `type` compatibility shape into Foundry's
+ * canonical ChatMessage `style` field. String `type` values are document
+ * subtypes and must remain intact.
+ */
+export function normalizeChatMessageCreateData(data: Record<string, unknown>): Record<string, unknown> {
+    const normalized = { ...data };
+    if (typeof normalized.type !== 'number') return normalized;
+
+    if (typeof normalized.style !== 'number') {
+        // Foundry v13 mapped removed ROLL/WHISPER values to OTHER; rolls and
+        // whisper recipients now carry those semantics independently.
+        normalized.style = normalized.type >= 0 && normalized.type <= 3
+            ? normalized.type
+            : 0;
+    }
+    delete normalized.type;
+    return normalized;
+}
+
 export async function resolveRollModeData(
     mode: string | undefined,
     userId: string | null | undefined,
@@ -43,11 +63,13 @@ export async function createTextChatMessageData(options: {
     const data: Record<string, unknown> = {
         ...(extra || {}),
         content,
-        type: extra?.type ?? 1,
         author,
     };
+    // Supply the normal OOC default only when the caller did not provide either
+    // the canonical style or a legacy numeric type that still needs conversion.
+    if (data.style === undefined && typeof data.type !== 'number') data.style = 1;
     const normalizedSpeaker = normalizeSpeaker(speaker);
     if (normalizedSpeaker) data.speaker = normalizedSpeaker;
     Object.assign(data, await resolveRollModeData(rollMode, author, getGmUserIds));
-    return data;
+    return normalizeChatMessageCreateData(data);
 }

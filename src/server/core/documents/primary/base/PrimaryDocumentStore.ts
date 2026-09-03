@@ -65,6 +65,16 @@ export interface DocumentListInvalidatedEvent {
     audience: DocumentAudience;
 }
 
+export interface DocumentRepairTarget {
+    type: PrimaryDocumentType;
+    id: string;
+    reason: 'direct-update-miss' | 'embedded-root-miss';
+}
+
+export interface PrimaryDocumentApplyOutcome {
+    repairTargets: DocumentRepairTarget[];
+}
+
 // Store reads return defensive clones so adapters/routes cannot mutate cache state by accident.
 export function cloneDocument<TDocument>(document: TDocument): TDocument {
     return structuredClone(document);
@@ -527,12 +537,51 @@ export abstract class PrimaryDocumentStore<TDocument extends DocumentLike> exten
         action: ModifyDocumentAction,
         result: unknown,
         operation?: Record<string, unknown>,
-    ): void {
+    ): PrimaryDocumentApplyOutcome {
+        const repairTargets: DocumentRepairTarget[] = [];
         if (type === this.documentType) {
+            if (action === 'update') {
+                const updateCandidates = [
+                    ...toDocumentArray<TDocument>(result),
+                    ...toDocumentArray<TDocument>(operation?.updates),
+                ];
+                const missingIds = new Set<string>();
+                for (const doc of updateCandidates) {
+                    const id = getDocumentId(doc);
+                    if (id) missingIds.add(id);
+                }
+                if (Array.isArray(operation?.ids)) {
+                    for (const id of operation.ids) {
+                        if (typeof id === 'string' && id) missingIds.add(id);
+                    }
+                }
+                for (const id of missingIds) {
+                    if (this.documents.has(id)) continue;
+                    repairTargets.push({
+                        type: this.documentType,
+                        id,
+                        reason: 'direct-update-miss',
+                    });
+                }
+            }
             this.applySelfChange(action, result, operation);
         } else {
+            const rootId = this.getEmbeddedRootId(operation);
+            if (action !== 'get' && rootId && !this.documents.has(rootId)) {
+                // Embedded payloads contain only child deltas. Without the
+                // parent root, applying them would fabricate an incomplete
+                // document, so ingress must fetch the authoritative root.
+                this.markStale(rootId, `${this.documentType}-embedded-root-miss`);
+                repairTargets.push({
+                    type: this.documentType,
+                    id: rootId,
+                    reason: 'embedded-root-miss',
+                });
+                return { repairTargets };
+            }
             this.applyEmbeddedChange(type, action, result, operation);
         }
+        return { repairTargets };
     }
 
     protected applySelfChange(
@@ -579,6 +628,7 @@ export abstract class PrimaryDocumentStore<TDocument extends DocumentLike> exten
                     : undefined;
                 deepMerge(existing as Record<string, unknown>, doc as Record<string, unknown>);
                 this.documents.set(id, existing);
+                this.staleDocumentIds.delete(id);
                 if (stableJson(existing) !== before) {
                     this.emitChanged(
                         id,
@@ -598,6 +648,7 @@ export abstract class PrimaryDocumentStore<TDocument extends DocumentLike> exten
             } else if (action === 'create') {
                 const before = existing ? stableJson(existing) : null;
                 this.documents.set(id, cloneDocument(doc));
+                this.staleDocumentIds.delete(id);
                 if (stableJson(doc) !== before) {
                     this.emitChanged(id, 'create');
                     this.emitListInvalidated('create', {
@@ -607,8 +658,21 @@ export abstract class PrimaryDocumentStore<TDocument extends DocumentLike> exten
             } else {
                 // action === 'get': silent upsert (bootstrap or refresh fetch).
                 this.documents.set(id, cloneDocument(doc));
+                this.staleDocumentIds.delete(id);
             }
         }
+    }
+
+    private getEmbeddedRootId(operation?: Record<string, unknown>): string | null {
+        const parentUuid = typeof operation?.parentUuid === 'string'
+            ? operation.parentUuid
+            : '';
+        const [parentType, parentId] = parentUuid.split('.');
+        if (parentType === this.documentType && parentId) return parentId;
+        if (typeof operation?.parentId === 'string' && operation.parentId) {
+            return operation.parentId;
+        }
+        return null;
     }
 
     /**

@@ -4,6 +4,7 @@ import {
 } from '@server/core/documents/primary/base/modifyDocumentRouter';
 import {
     PrimaryDocumentStore,
+    type PrimaryDocumentApplyOutcome,
     type ModifyDocumentAction,
     type PrimaryDocumentType,
 } from '@server/core/documents/primary/base/PrimaryDocumentStore';
@@ -43,14 +44,15 @@ class RecordingStore extends PrimaryDocumentStore<TestDoc> {
     public applyModifyDocument(
         type: string,
         action: ModifyDocumentAction,
-        _result: unknown,
+        result: unknown,
         operation?: Record<string, unknown>,
-    ): void {
+    ): PrimaryDocumentApplyOutcome {
         this.received.push({
             type,
             action,
             parentUuid: typeof operation?.parentUuid === 'string' ? operation.parentUuid : undefined,
         });
+        return super.applyModifyDocument(type, action, result, operation);
     }
 }
 
@@ -67,6 +69,7 @@ export async function run() {
     await runUnregisteredTypeDroppedSilently();
     await runResetClearsRegistrations();
     await runMalformedPayloadDoesNotThrow();
+    await runMissingRootRepairOutcomes();
     console.log('  - ModifyDocumentRouter: all checks passed');
 }
 
@@ -345,4 +348,66 @@ async function runMalformedPayloadDoesNotThrow() {
     assert.equal(actor.received.length, 1);
 
     void DocumentOwnershipLevel;
+}
+
+async function runMissingRootRepairOutcomes() {
+    const router = new ModifyDocumentRouter();
+    const actor = new RecordingStore('Actor');
+    router.register(actor);
+    router.registerEmbeddedHandler('Actor', actor);
+
+    const directMiss = router.route({
+        type: 'Actor',
+        action: 'update',
+        result: [{ _id: 'missing-direct', name: 'Partial update' }],
+    });
+    assert.deepEqual(
+        directMiss.status === 'dispatched' ? directMiss.repairTargets : undefined,
+        [{
+            type: 'Actor',
+            id: 'missing-direct',
+            reason: 'direct-update-miss',
+        }],
+    );
+
+    const operationOnlyMiss = router.route({
+        type: 'Actor',
+        action: 'update',
+        operation: { updates: [{ _id: 'missing-from-operation', name: 'Partial update' }] },
+    });
+    assert.deepEqual(
+        operationOnlyMiss.status === 'dispatched' ? operationOnlyMiss.repairTargets : undefined,
+        [{
+            type: 'Actor',
+            id: 'missing-from-operation',
+            reason: 'direct-update-miss',
+        }],
+    );
+
+    const embeddedMiss = router.route({
+        type: 'Item',
+        action: 'create',
+        result: [{ _id: 'item-1' }],
+        operation: { parentUuid: 'Actor.missing-parent' },
+    });
+    assert.deepEqual(
+        embeddedMiss.status === 'dispatched' ? embeddedMiss.repairTargets : undefined,
+        [{
+            type: 'Actor',
+            id: 'missing-parent',
+            reason: 'embedded-root-miss',
+        }],
+    );
+
+    await actor.seed(async () => [{ _id: 'present-parent' }]);
+    const presentParent = router.route({
+        type: 'Item',
+        action: 'create',
+        result: [{ _id: 'item-2' }],
+        operation: { parentUuid: 'Actor.present-parent' },
+    });
+    assert.equal(
+        presentParent.status === 'dispatched' ? presentParent.repairTargets : undefined,
+        undefined,
+    );
 }

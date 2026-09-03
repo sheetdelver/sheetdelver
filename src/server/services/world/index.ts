@@ -31,6 +31,7 @@ export {
 export {
     FoundryEventIngress,
     foundryEventIngress,
+    type DocumentRepairUnavailableEvent,
 } from './FoundryEventIngress';
 
 export {
