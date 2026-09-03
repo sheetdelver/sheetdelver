@@ -171,10 +171,14 @@ async function runGatewayTests() {
         //   + rollTableChanged + rollTableListInvalidated
         //   + macroChanged + macroListInvalidated
         //   + playlistChanged + playlistListInvalidated
-        //   + cardsChanged + cardsListInvalidated = 22.
+        //   + cardsChanged + cardsListInvalidated
+        //   + sceneChanged + sceneListInvalidated
+        //   + settingChanged + settingListInvalidated = 26.
         assert.equal(attachedHandlers.length, 0);
-        assert.equal(systemAttachedHandlers.length, 22);
+        assert.equal(systemAttachedHandlers.length, 26);
         assert.ok(systemAttachedHandlers.some((entry) => entry.event === 'actorListInvalidated'));
+        assert.ok(systemAttachedHandlers.some((entry) => entry.event === 'sceneListInvalidated'));
+        assert.ok(systemAttachedHandlers.some((entry) => entry.event === 'settingListInvalidated'));
         assert.ok(browserCounts.includes(1));
 
         const userChanged = systemAttachedHandlers.find((entry) => entry.event === 'userChanged')?.handler;
@@ -188,12 +192,32 @@ async function runGatewayTests() {
         userChanged!({ userId: 'user-1', action: 'update' });
         assert.equal(emitted.some((entry) => entry.event === 'userChanged'), true);
 
+        // The authenticated fixture is a GM, so the Setting type-level policy
+        // permits its invalidation hint without exposing the document body.
+        const settingChanged = systemAttachedHandlers.find((entry) => entry.event === 'settingChanged')?.handler;
+        assert.ok(settingChanged);
+        settingChanged!({ settingId: 'setting-1', action: 'update' });
+        assert.equal(
+            emitted.some((entry) => entry.event === 'settingChanged'),
+            true,
+        );
+        const settingListInvalidated = systemAttachedHandlers
+            .find((entry) => entry.event === 'settingListInvalidated')?.handler;
+        assert.ok(settingListInvalidated);
+        settingListInvalidated!({ reason: 'create', settingId: 'setting-2' });
+        assert.equal(
+            emitted.some((entry) => entry.event === 'settingListInvalidated'),
+            true,
+        );
+
         io.engine.clientsCount = 0;
         disconnectHandler?.();
 
         assert.equal(detachedHandlers.length, 0);
-        assert.equal(systemDetachedHandlers.length, 22);
+        assert.equal(systemDetachedHandlers.length, 26);
         assert.ok(systemDetachedHandlers.some((entry) => entry.event === 'actorListInvalidated'));
+        assert.ok(systemDetachedHandlers.some((entry) => entry.event === 'sceneListInvalidated'));
+        assert.ok(systemDetachedHandlers.some((entry) => entry.event === 'settingListInvalidated'));
         assert.ok(browserCounts.includes(0));
 
         // Guest degradation path (no cookie): middleware should still call next.
@@ -330,8 +354,8 @@ async function runDeferredAttachWhenNotReady() {
         ready = true;
         systemService.emit('world:ready', { systemId: 'shadowdark' });
 
-        // After readiness fires, all 22 system-client listeners are attached.
-        assert.equal(systemAttachedHandlers.length, 22);
+        // After readiness fires, all 26 system-client listeners are attached.
+        assert.equal(systemAttachedHandlers.length, 26);
     } finally {
         (systemService as any).getSystemClient = originalGetSystemClient;
         (systemService as any).isReady = originalIsReady;

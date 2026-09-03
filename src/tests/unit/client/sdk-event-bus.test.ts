@@ -35,22 +35,30 @@ export function run() {
     socket.emit('actorChanged', { actorId: 'a1', action: 'update' });
     socket.emit('combatChanged', { combatId: 'c1', action: 'create' });
     socket.emit('itemChanged', { itemId: 'i1', action: 'delete' });
+    socket.emit('sceneChanged', { sceneId: 's1', action: 'update' });
+    socket.emit('settingChanged', { settingId: 'set1', action: 'create' });
 
     assert.deepEqual(changes[0], { type: 'Actor', id: 'a1', action: 'update' });
     // Combat rides document:changed — no special-casing.
     assert.deepEqual(changes[1], { type: 'Combat', id: 'c1', action: 'create' });
     assert.deepEqual(changes[2], { type: 'Item', id: 'i1', action: 'delete' });
+    assert.deepEqual(changes[3], { type: 'Scene', id: 's1', action: 'update' });
+    assert.deepEqual(changes[4], { type: 'Setting', id: 'set1', action: 'create' });
 
     // Unsubscribe stops delivery.
     offChange();
     socket.emit('actorChanged', { actorId: 'a2', action: 'update' });
-    assert.equal(changes.length, 3, 'no delivery after unsubscribe');
+    assert.equal(changes.length, 5, 'no delivery after unsubscribe');
 
     // list invalidation
     const lists: Array<{ type: string; reason: string }> = [];
     bus.on('document:listInvalidated', (p) => lists.push(p));
     socket.emit('combatListInvalidated', { reason: 'reseed' });
+    socket.emit('sceneListInvalidated', { reason: 'tokens-changed' });
+    socket.emit('settingListInvalidated', { reason: 'create' });
     assert.deepEqual(lists[0], { type: 'Combat', reason: 'reseed' });
+    assert.deepEqual(lists[1], { type: 'Scene', reason: 'tokens-changed' });
+    assert.deepEqual(lists[2], { type: 'Setting', reason: 'create' });
 
     // shared content
     const shares: Array<{ kind: string | null }> = [];

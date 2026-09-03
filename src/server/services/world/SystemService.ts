@@ -21,6 +21,8 @@ import { journalStore } from '@server/core/documents/primary/journals/JournalSto
 import { macroStore } from '@server/core/documents/primary/macros/MacroStore';
 import { playlistStore } from '@server/core/documents/primary/playlists/PlaylistStore';
 import { rollTableStore } from '@server/core/documents/primary/roll-tables/RollTableStore';
+import { sceneStore } from '@server/core/documents/primary/scenes/SceneStore';
+import { settingStore } from '@server/core/documents/primary/settings/SettingStore';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
 import type { DocumentChangedEvent, DocumentListInvalidatedEvent } from '@server/core/documents/primary/base/PrimaryDocumentStore';
 
@@ -215,6 +217,34 @@ export class SystemService extends EventEmitter {
             this.systemClient?.emit('cardsListInvalidated', {
                 reason: event.reason,
                 cardsId: event.documentId,
+                targetUserIds: event.targetUserIds,
+            });
+        });
+
+        // SceneStore owns direct Scene updates and every Token/ActorDelta
+        // mutation rooted under a Scene. Realtime events carry ids only; raw
+        // canvas state remains unavailable outside Core.
+        sceneStore.on('documentChanged', (event: DocumentChangedEvent) => {
+            this.systemClient?.emit('sceneChanged', { sceneId: event.id, action: event.action });
+        });
+        sceneStore.on('documentListInvalidated', (event: DocumentListInvalidatedEvent) => {
+            this.systemClient?.emit('sceneListInvalidated', {
+                reason: event.reason,
+                sceneId: event.documentId,
+                targetUserIds: event.targetUserIds,
+            });
+        });
+
+        // Settings are mirrored for privileged Core consumers and are GM-only.
+        // The gateway rechecks that type-level policy before forwarding these
+        // invalidation hints to an authenticated browser.
+        settingStore.on('documentChanged', (event: DocumentChangedEvent) => {
+            this.systemClient?.emit('settingChanged', { settingId: event.id, action: event.action });
+        });
+        settingStore.on('documentListInvalidated', (event: DocumentListInvalidatedEvent) => {
+            this.systemClient?.emit('settingListInvalidated', {
+                reason: event.reason,
+                settingId: event.documentId,
                 targetUserIds: event.targetUserIds,
             });
         });

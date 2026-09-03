@@ -10,6 +10,8 @@ import {
     type ResolvedDocumentOwnershipLevel,
 } from '@server/core/documents/primary/base/ownership';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
+import { sceneStore } from '@server/core/documents/primary/scenes/SceneStore';
+import { settingStore } from '@server/core/documents/primary/settings/SettingStore';
 import { registerAppSocketGateway } from '@server/realtime/AppSocketGateway';
 import { PLAYER_SESSION_COOKIE_NAME } from '@server/security/playerSessionCookie';
 import { engagementService, FoundryEventIngress, systemService } from '@server/services/world';
@@ -185,6 +187,20 @@ async function runIngressToAuthorizedBrowserHarness() {
                 'owner-user': 3,
             },
         }]);
+        await sceneStore.seed(async () => [{
+            _id: 'scene-sync',
+            name: 'Before Scene',
+            ownership: {
+                default: DocumentOwnershipLevel.NONE,
+                'owner-user': DocumentOwnershipLevel.OWNER,
+            },
+            tokens: [],
+        }]);
+        await settingStore.seed(async () => [{
+            _id: 'setting-sync',
+            key: 'core.syntheticSetting',
+            value: '"before"',
+        }]);
 
         serviceState.systemClient = systemClient;
         serviceState.isReady = () => true;
@@ -222,18 +238,13 @@ async function runIngressToAuthorizedBrowserHarness() {
         await connectionHandler!(ownerBrowser.socket);
         await connectionHandler!(otherBrowser.socket);
 
-        // This records the current gap without pretending event parity is
-        // complete. Phase 2 changes the expected missing set to empty.
+        // Every active Store now has changed/list signal parity. Unsupported
+        // Adventure and FogExploration remain absent from the expected set.
         const registeredEvents = new Set(
             systemClient.eventNames().filter((event): event is string => typeof event === 'string'),
         );
         const missingEvents = EXPECTED_BROWSER_STORE_EVENTS.filter((event) => !registeredEvents.has(event));
-        assert.deepEqual(missingEvents, [
-            'sceneChanged',
-            'sceneListInvalidated',
-            'settingChanged',
-            'settingListInvalidated',
-        ]);
+        assert.deepEqual(missingEvents, []);
 
         foundryTransport.emit('foundry:modifyDocument', {
             response: {
@@ -354,6 +365,77 @@ async function runIngressToAuthorizedBrowserHarness() {
             'ownership invalidations do not leak to an unaffected browser',
         );
 
+        foundryTransport.emit('foundry:modifyDocument', {
+            response: {
+                type: 'Scene',
+                action: 'update',
+                result: [{ _id: 'scene-sync', name: 'After Scene' }],
+            },
+        });
+        assert.equal(sceneStore.get('scene-sync')?.name, 'After Scene');
+        assert.equal(
+            ownerBrowser.emitted.some((entry) => entry.event === 'sceneChanged'),
+            true,
+            'an owning player receives an authorized Scene invalidation',
+        );
+        assert.equal(
+            otherBrowser.emitted.some((entry) => entry.event === 'sceneChanged'),
+            false,
+            'a non-owning player does not receive a Scene invalidation',
+        );
+
+        foundryTransport.emit('foundry:modifyDocument', {
+            response: {
+                type: 'Scene',
+                action: 'update',
+                result: [{
+                    _id: 'scene-sync',
+                    ownership: {
+                        '__$OPERATOR$__': 'ForcedReplacement',
+                        value: {
+                            default: DocumentOwnershipLevel.NONE,
+                            'owner-user': DocumentOwnershipLevel.OWNER,
+                            'other-user': DocumentOwnershipLevel.OBSERVER,
+                        },
+                    },
+                }],
+            },
+        });
+        assert.equal(
+            otherBrowser.emitted.some((entry) => entry.event === 'sceneListInvalidated'),
+            true,
+            'a Scene ownership change reaches the newly authorized player',
+        );
+        assert.equal(
+            ownerBrowser.emitted.some((entry) => entry.event === 'sceneListInvalidated'),
+            false,
+            'a targeted Scene list invalidation excludes an unchanged owner',
+        );
+
+        let settingBridgeEvents = 0;
+        systemClient.on('settingChanged', () => {
+            settingBridgeEvents += 1;
+        });
+        foundryTransport.emit('foundry:modifyDocument', {
+            response: {
+                type: 'Setting',
+                action: 'update',
+                result: [{ _id: 'setting-sync', value: '"after"' }],
+            },
+        });
+        assert.equal(settingStore.getValueByKey('core.syntheticSetting'), 'after');
+        assert.equal(settingBridgeEvents, 1, 'Setting Store changes reach the system bridge');
+        assert.equal(
+            ownerBrowser.emitted.some((entry) => entry.event === 'settingChanged'),
+            false,
+            'a player never receives GM-only Setting identifiers',
+        );
+        assert.equal(
+            otherBrowser.emitted.some((entry) => entry.event === 'settingChanged'),
+            false,
+            'another player never receives GM-only Setting identifiers',
+        );
+
         // The explicitly unsupported Stores stay outside generic ingress.
         foundryTransport.emit('foundry:modifyDocument', {
             response: {
@@ -377,6 +459,8 @@ async function runIngressToAuthorizedBrowserHarness() {
         detachIngress();
         actorStore.clear('document-sync-characterization');
         userStore.clear('document-sync-characterization');
+        sceneStore.clear('document-sync-characterization');
+        settingStore.clear('document-sync-characterization');
         adventureStore.clear('document-sync-characterization');
         fogExplorationStore.clear('document-sync-characterization');
         serviceState.systemClient = originalSystemClient;

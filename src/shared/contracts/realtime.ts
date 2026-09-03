@@ -93,3 +93,24 @@ export interface RealtimeCardsListInvalidatedPayload {
     cardsId?: string;
     targetUserIds?: string[];
 }
+
+// Scene and Setting currently expose invalidation signals only. Their raw
+// document bodies remain inside Core until an authorized read API is designed.
+export interface RealtimeSceneChangedPayload {
+    sceneId: string;
+    action: 'create' | 'update' | 'delete';
+}
+export interface RealtimeSceneListInvalidatedPayload {
+    reason: string;
+    sceneId?: string;
+    targetUserIds?: string[];
+}
+export interface RealtimeSettingChangedPayload {
+    settingId: string;
+    action: 'create' | 'update' | 'delete';
+}
+export interface RealtimeSettingListInvalidatedPayload {
+    reason: string;
+    settingId?: string;
+    targetUserIds?: string[];
+}

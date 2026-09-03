@@ -35,6 +35,8 @@ const CHANGED_EVENTS: Record<string, { type: string; idField: string }> = {
     macroChanged: { type: 'Macro', idField: 'macroId' },
     playlistChanged: { type: 'Playlist', idField: 'playlistId' },
     cardsChanged: { type: 'Cards', idField: 'cardsId' },
+    sceneChanged: { type: 'Scene', idField: 'sceneId' },
+    settingChanged: { type: 'Setting', idField: 'settingId' },
 };
 
 // `<type>ListInvalidated` socket events → a `document:listInvalidated` signal.
@@ -50,6 +52,8 @@ const LIST_INVALIDATED_EVENTS: Record<string, string> = {
     macroListInvalidated: 'Macro',
     playlistListInvalidated: 'Playlist',
     cardsListInvalidated: 'Cards',
+    sceneListInvalidated: 'Scene',
+    settingListInvalidated: 'Setting',
 };
 
 function extractId(payload: Record<string, unknown>, idField: string): string {

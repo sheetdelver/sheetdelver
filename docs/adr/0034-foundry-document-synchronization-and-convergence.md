@@ -285,7 +285,7 @@ supported transport contract.
 - [x] Add `manageCompendium` create/delete fixtures.
 - [x] Add an in-process vertical harness from Foundry event through Store,
   SystemService, AppSocketGateway, and authorized fake users.
-- [ ] Add parity tests proving every active Store has complete changed/list
+- [x] Add parity tests proving every active Store has complete changed/list
   event wiring and every unsupported Store remains unwired.
 - [x] Add deferred-request tests for invalidation-during-fetch and
   reset-during-fetch.
@@ -297,6 +297,12 @@ keeping Adventure and FogExploration explicitly unwired. The parity
 characterization records five missing browser-event hops: Actor list
 invalidation plus changed/list signals for the active Scene and Setting Stores.
 The parity checklist remains open until Phase 2 removes those expected gaps.
+
+**Phase 2 parity amendment:** The characterization now reports no missing
+changed/list event families for active Stores. Scene and Setting have joined
+the SystemService, authenticated AppSocketGateway, shared payload, and generic
+SDK signal paths. Adventure and FogExploration remain absent by design, so the
+test cannot accidentally treat their placeholder Stores as supported.
 
 Existing coalesced-fetch coverage proves that invalidation during a request
 schedules a trailing read. The added SDK reset race also records the current
@@ -347,7 +353,7 @@ Phase 1.
 
 ### Phase 2: Store-to-client convergence
 
-- [ ] Complete typed changed/list signal parity for every active Store.
+- [x] Complete typed changed/list signal parity for every active Store.
 - [x] Repair the Actor list bridge and replace the Actor throttle with trailing
   coalescing.
 - [x] Apply generation 13 and generation 14 replacement/deletion field
@@ -377,6 +383,16 @@ This does not close Phase 2. Scene and Setting changed/list browser parity,
 non-Actor native and SDK trailing refresh, SDK epoch rejection, and mounted
 subscriber reset behavior remain open. Compendium convergence continues to use
 pack invalidation and rehydration rather than primary-Store merging.
+
+**Subsequent Phase 2 parity result:** Scene and Setting changed/list parity is
+now complete. Scene signals are filtered through its standard ownership policy;
+an ownership-targeted list invalidation reaches only the affected player.
+Setting signals enforce the Store's GM-only policy for changes, lists, and
+deletes, and never include Setting document bodies. The vertical test proves
+the Scene owner/non-owner cases and the Setting player-denial case; gateway
+coverage proves GM delivery and listener cleanup. The remaining Phase 2 work is
+non-Actor native/SDK trailing refresh, SDK world/session epoch rejection, and
+mounted-subscriber reset behavior.
 
 ### Phase 3: Audience and socket correctness
 

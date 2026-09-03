@@ -13,14 +13,20 @@ import { journalStore } from '@server/core/documents/primary/journals/JournalSto
 import { macroStore } from '@server/core/documents/primary/macros/MacroStore';
 import { playlistStore } from '@server/core/documents/primary/playlists/PlaylistStore';
 import { rollTableStore } from '@server/core/documents/primary/roll-tables/RollTableStore';
+import { sceneStore } from '@server/core/documents/primary/scenes/SceneStore';
 import {
     DOCUMENT_VISIBILITY,
+    isGM,
 } from '@server/core/documents/primary/base/ownership';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
 import { sharedContentStore, type SharedContentChangedEvent } from '@server/core/world/SharedContentStore';
 import type {
     RealtimeActorChangedPayload,
     RealtimeActorListInvalidatedPayload,
+    RealtimeSceneChangedPayload,
+    RealtimeSceneListInvalidatedPayload,
+    RealtimeSettingChangedPayload,
+    RealtimeSettingListInvalidatedPayload,
 } from '@shared/contracts/realtime';
 import { readPlayerSessionCookie } from '@server/security/playerSessionCookie';
 import { STATUS_ROOMS } from './SystemStatusBroadcaster';
@@ -323,6 +329,41 @@ export function registerAppSocketGateway({
                 if (data.targetUserIds && (!userId || !data.targetUserIds.includes(userId))) return;
                 emitWorldBackedEvent('cardsListInvalidated', data);
             };
+            // Scene documents use their standard ownership map. No Scene body
+            // is sent over this channel; consumers receive only a refetch hint.
+            const handleSceneChanged = (...args: unknown[]) => {
+                const data = (args[0] || {}) as RealtimeSceneChangedPayload;
+                if (data.action !== 'delete' && data.sceneId) {
+                    const subject = getSubject();
+                    if (!subject || !sceneStore.canReadDocument(data.sceneId, subject, DOCUMENT_VISIBILITY.LIST_VISIBLE)) {
+                        return;
+                    }
+                }
+                emitWorldBackedEvent('sceneChanged', data);
+            };
+            const handleSceneListInvalidated = (...args: unknown[]) => {
+                const data = (args[0] || {}) as RealtimeSceneListInvalidatedPayload;
+                const userId = getSessionUserId();
+                if (data.targetUserIds && (!userId || !data.targetUserIds.includes(userId))) return;
+                emitWorldBackedEvent('sceneListInvalidated', data);
+            };
+            // Setting visibility is type-level GM-only rather than an ownership
+            // map. Enforce it for changed, list, and delete hints alike so an
+            // authenticated player never receives Setting identifiers.
+            const handleSettingChanged = (...args: unknown[]) => {
+                const data = (args[0] || {}) as RealtimeSettingChangedPayload;
+                const subject = getSubject();
+                if (!subject || !isGM(subject)) return;
+                emitWorldBackedEvent('settingChanged', data);
+            };
+            const handleSettingListInvalidated = (...args: unknown[]) => {
+                const data = (args[0] || {}) as RealtimeSettingListInvalidatedPayload;
+                const subject = getSubject();
+                if (!subject || !isGM(subject)) return;
+                const userId = getSessionUserId();
+                if (data.targetUserIds && (!userId || !data.targetUserIds.includes(userId))) return;
+                emitWorldBackedEvent('settingListInvalidated', data);
+            };
             // Shared-content fan-out subscribes to SharedContentStore directly.
             // SocketBase writes Foundry wire events into the Store, and the
             // gateway preserves the browser-facing `sharedContentUpdate` event.
@@ -356,6 +397,10 @@ export function registerAppSocketGateway({
             systemClient.on('playlistListInvalidated', handlePlaylistListInvalidated);
             systemClient.on('cardsChanged', handleCardsChanged);
             systemClient.on('cardsListInvalidated', handleCardsListInvalidated);
+            systemClient.on('sceneChanged', handleSceneChanged);
+            systemClient.on('sceneListInvalidated', handleSceneListInvalidated);
+            systemClient.on('settingChanged', handleSettingChanged);
+            systemClient.on('settingListInvalidated', handleSettingListInvalidated);
             const unsubscribeSharedContent = sharedContentStore.onSharedContentChanged(handleSharedUpdate);
 
             const detachWorldBackedListeners = () => {
@@ -381,6 +426,10 @@ export function registerAppSocketGateway({
                 systemClient.off('playlistListInvalidated', handlePlaylistListInvalidated);
                 systemClient.off('cardsChanged', handleCardsChanged);
                 systemClient.off('cardsListInvalidated', handleCardsListInvalidated);
+                systemClient.off('sceneChanged', handleSceneChanged);
+                systemClient.off('sceneListInvalidated', handleSceneListInvalidated);
+                systemClient.off('settingChanged', handleSettingChanged);
+                systemClient.off('settingListInvalidated', handleSettingListInvalidated);
                 unsubscribeSharedContent();
             };
 
