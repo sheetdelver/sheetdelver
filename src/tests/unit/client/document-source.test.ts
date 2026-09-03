@@ -1,5 +1,9 @@
 import { strict as assert } from 'node:assert';
-import { createClientDocumentSource } from '@client/ui/sdk/createClientDocumentSource';
+import {
+    createClientDocumentSource,
+    getClientDocumentSource,
+    resetClientDocumentSource,
+} from '@client/ui/sdk/createClientDocumentSource';
 
 /**
  * Exercises the host-owned client document cache (ADR-0027 decisions 17/25):
@@ -30,6 +34,7 @@ export async function run() {
     await runSubscribeAndInvalidate();
     await runMutationInvalidates();
     await runNotFound();
+    await runResetDuringFlightCharacterization();
     console.log('  - Client document source (cache/dedup/invalidation): all checks passed');
 }
 
@@ -104,6 +109,48 @@ async function runNotFound() {
     const snap = source.getSnapshot('Actor', 'missing');
     assert.equal(snap.notFound, true);
     assert.equal(snap.data, null);
+}
+
+async function runResetDuringFlightCharacterization() {
+    type DeferredResponse = {
+        promise: Promise<Response>;
+        resolve: (value: Response) => void;
+    };
+
+    let resolveResponse!: DeferredResponse['resolve'];
+    const responsePromise = new Promise<Response>((resolve) => {
+        resolveResponse = resolve;
+    });
+
+    resetClientDocumentSource();
+    const source = getClientDocumentSource(async () => responsePromise);
+    let notifications = 0;
+    source.subscribe('Actor', 'reset-race', () => {
+        notifications += 1;
+    });
+
+    const request = source.refresh('Actor', 'reset-race');
+    const notificationsBeforeReset = notifications;
+    resetClientDocumentSource();
+
+    // This assertion records the current reset gap. Phase 2/3 must invert it:
+    // reset should notify mounted subscribers and invalidate the old epoch.
+    assert.equal(notifications, notificationsBeforeReset);
+
+    resolveResponse({
+        ok: true,
+        status: 200,
+        json: async () => ({ id: 'reset-race', name: 'Previous World Actor' }),
+    } as Response);
+    await request;
+
+    // The old request currently recreates an entry after reset. Keeping this
+    // explicit makes stale-world resurrection measurable before remediation.
+    assert.equal(
+        source.getSnapshot<{ name: string }>('Actor', 'reset-race').data?.name,
+        'Previous World Actor',
+    );
+    resetClientDocumentSource();
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

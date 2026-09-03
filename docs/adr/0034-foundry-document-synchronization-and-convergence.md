@@ -263,12 +263,26 @@ supported transport contract.
 - [x] Add `pm.autosave` fixtures for direct, embedded, malformed, and compendium
   UUIDs in both supported generations.
 - [x] Add `manageCompendium` create/delete fixtures.
-- [ ] Add an in-process vertical harness from Foundry event through Store,
+- [x] Add an in-process vertical harness from Foundry event through Store,
   SystemService, AppSocketGateway, and authorized fake users.
 - [ ] Add parity tests proving every active Store has complete changed/list
   event wiring and every unsupported Store remains unwired.
-- [ ] Add deferred-request tests for invalidation-during-fetch and
+- [x] Add deferred-request tests for invalidation-during-fetch and
   reset-during-fetch.
+
+**Phase 0 characterization result:** The vertical harness now exercises the
+real ingress, Store, SystemService, and authenticated AppSocketGateway path. It
+proves the positive owner delivery and negative non-owner delivery cases while
+keeping Adventure and FogExploration explicitly unwired. The parity
+characterization records five missing browser-event hops: Actor list
+invalidation plus changed/list signals for the active Scene and Setting Stores.
+The parity checklist remains open until Phase 2 removes those expected gaps.
+
+Existing coalesced-fetch coverage proves that invalidation during a request
+schedules a trailing read. The added SDK reset race also records the current
+defect: reset does not notify mounted subscribers, and an older in-flight read
+can repopulate data from the previous world. Phase 2 and Phase 3 must invert
+those assertions as the convergence and epoch protections are implemented.
 
 ### Phase 1: Persistence ingress normalization
 

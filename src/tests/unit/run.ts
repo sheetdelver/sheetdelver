@@ -44,6 +44,7 @@ import { run as runAppSocketGateway } from './sockets/app-socket-gateway.test';
 import { run as runClientSocketTransport } from './sockets/client-socket-transport.test';
 import { run as runCoreSocketPackScope } from './sockets/core-socket-pack-scope.test';
 import { run as runFoundryDocumentResponseNormalizer } from './sockets/foundry-document-response-normalizer.test';
+import { run as runDocumentSynchronizationCharacterization } from './sockets/document-synchronization-characterization.test';
 import { run as runSocketImportBoundary } from './sockets/socket-import-boundary.test';
 
 // ── actors ────────────────────────────────────────────────────────────────────
@@ -216,6 +217,7 @@ async function runAllUnitTests() {
     await runClientSocketTransport();
     await runCoreSocketPackScope();
     runFoundryDocumentResponseNormalizer();
+    await runDocumentSynchronizationCharacterization();
     runSocketImportBoundary();
     await runRealtimeBroadcaster();
     await runAppSocketGateway();
