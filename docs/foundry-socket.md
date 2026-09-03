@@ -165,6 +165,40 @@ SheetDelver uses a **Multiplexed Smart Proxy** to ensure data security and envir
 *   **Primary Document Cache**: To optimize performance, `SystemService.bootstrap()` seeds primary document stores after module discovery. Route clients and Foundry event ingress feed modify-document results into those stores instead of owning separate document state.
 *   **Document Realtime**: Primary document stores emit typed changed/list-invalidated events. `AppSocketGateway` forwards those as application socket events such as `<type>Changed` and `<type>ListInvalidated`; module UI consumes the SDK signal bus (`document:changed` / `document:listInvalidated`) rather than raw socket events.
 
+## Persistence Ingress and Diagnostics
+
+Core normalizes generation 13 single document responses and generation 14
+single/batch responses before routing them to world Stores. Pack-scoped results
+remain inside the compendium catalog/shard boundary. Persisted `pm.autosave`
+events trigger a coalesced authoritative read of the owning root; their partial
+HTML is never merged directly. An update for a missing root triggers the same
+read as bounded repair. All reads carry the current world epoch, so a late
+response from a departed world is discarded.
+
+Synchronization failures are server-side operational events. They use the
+platform logger and do not depend on a browser console being open. Configure a
+log level that includes warnings for normal operation and enable debug only
+while tracing event flow.
+
+| Log message | Meaning | Operator response |
+| --- | --- | --- |
+| `Rejected malformed document response` | A single or batch entry lacked a routable type/action/result shape. | Record origin, source, index, type, action, and Foundry generation. Treat repeated occurrences as upstream shape drift and retain payloads only in a controlled diagnostic environment. |
+| `Rejected failed document response` | Foundry returned an entry-level error. No Store mutation was applied. | Correlate it with the initiating route/request id and resolve the Foundry validation or permission error. Do not route the write through the service account. |
+| `Document repair unavailable` with `transport-unavailable` | A missing Store root was observed but no authoritative Core read transport existed. | Check world lifecycle and service-account connectivity. Repair does not borrow player write authority. |
+| `Document repair unavailable` with `transport-error` | The bounded authoritative read failed or timed out. | Check CoreSocket connectivity and the adjacent `Authoritative root refresh failed` detail, then retry the originating read after connectivity recovers. |
+| `Document repair unavailable` with `empty-response` | Foundry did not return the requested type/id. | Verify that the document still exists and that the event root is valid. A genuine upstream delete requires no synthetic replacement. |
+| `Document repair unavailable` with `coalescing-limit` | More repair invalidations arrived while the bounded three-read burst was active. | Look for sustained mutation churn or duplicate upstream broadcasts. A later independent event can start a new bounded repair. |
+| `Rejected malformed pm.autosave UUID` or `Rejected unresolvable pm.autosave UUID` | The persisted-editor event could not identify a root. | Capture the UUID and Foundry generation. Repeated valid-looking UUIDs indicate parser or upstream protocol drift. |
+| `Ignored autosave for unsupported world root` | The UUID belongs to a document family outside the active synchronization set. | Expected for explicitly unsupported families; otherwise treat it as a missing Store registration. |
+| `Cannot refresh autosave root without a Foundry transport` | Persistence was observed while the Core read path was unavailable. | Check lifecycle/service-account recovery; do not merge the autosave HTML manually. |
+| `Failed to invalidate compendium pack content` or another compendium invalidation error | World Stores remain isolated, but the affected pack shard may be stale. | Resolve filesystem/cache errors, then use authenticated admin cache controls or restart during maintenance to force normal catalog/hydration recovery. |
+
+At debug level, `Dispatched document response` confirms the normalized route and
+`Document repair completed` confirms a missing root was restored. `Discarded
+stale autosave refresh response` is expected during a world transition and
+proves the old epoch was prevented from repopulating current state. Debug
+messages are tracing evidence, not alerts.
+
 ## Limitations & Future Considerations
 
 While the current socket implementation is functional, there are several areas of concern and potential improvements for the future:

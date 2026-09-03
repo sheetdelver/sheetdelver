@@ -898,3 +898,30 @@ Repository writes still use the requesting user's DocumentTransport and mirror
 successful normalized results idempotently. CoreSocket authoritative reads for
 bootstrap or bounded repair do not make the service account a fallback write
 identity.
+
+### ADR-0034 Implementation Closeout
+
+**Date:** September 3, 2026
+
+The final ingress contract preserves the Store/Repository ownership established
+here while closing two cases the original model did not cover. The shared Store
+merge boundary now materializes generation 13 legacy replacement/deletion keys
+and generation 14 serialized field operators before comparison and emission.
+An update for a missing direct root, or an embedded mutation whose registered
+primary root is missing, returns a typed repair target instead of constructing a
+partial synthetic document. `FoundryEventIngress` coalesces a bounded,
+non-broadcast CoreSocket read of that root and reapplies the full result through
+the existing router as a create, restoring both document state and list
+membership.
+
+World runtime teardown now clears every active primary Store, derived model,
+compendium runtime, and world-state projection through one epoch-advancing
+operation. Late bootstrap, autosave, or repair completions from a departed world
+are discarded. Scene and Setting remain active members of this contract;
+Adventure and FogExploration remain explicitly unwired.
+
+ChatMessage writes continue through the requesting user's Repository transport.
+That Repository now normalizes deprecated numeric ChatMessage `type` values to
+the canonical `style` field used by both generations 13 and 14, while preserving
+string `type` values as legitimate document subtypes. This compatibility
+normalization does not introduce a service-account write fallback.

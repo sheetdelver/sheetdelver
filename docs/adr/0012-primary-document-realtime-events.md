@@ -297,3 +297,31 @@ become final state.
 List audiences will distinguish all recipients, an explicit user set, and no
 recipients. Delete delivery uses pre-delete visibility. These amendments retain
 invalidation-only browser payloads and per-event authorization.
+
+### ADR-0034 Implementation Closeout
+
+**Date:** September 3, 2026
+
+The future-tense audience paragraph above is now implemented with a required
+server-internal `DocumentAudience`: `all`, a non-empty `users` set, or `none`.
+An empty set canonicalizes to `none` and never broadcasts. Creates use
+post-create visibility, deletes retain pre-delete visibility, and updates use
+the union of pre- and post-update visibility so former viewers receive the
+invalidation needed to discard stale state. The gateway strips this internal
+audience before emitting the existing skinny browser/SDK payload; the former
+optional public `targetUserIds` field is removed.
+
+Every active Store now has changed/list signal continuity through
+SystemService, authenticated AppSocketGateway delivery, and the generic SDK
+event bus. Native Actor, Combat, Chat, Journal/folder, User-roster, detail/card,
+and SDK document readers use dirty-aware coalescing: ordinary concurrent reads
+deduplicate, while an invalidation during a read guarantees a trailing
+authoritative read. SDK document sources retain mounted subscriptions across a
+world/user scope reset and reject completions from an older private epoch.
+
+Missing-root repair re-enters this same event contract as an authoritative
+create, restoring list membership without exposing document bodies in realtime.
+Server-side session retirement immediately removes Store listeners and
+authenticated room authority from established app sockets before slow Foundry
+logout cleanup can complete. These changes preserve the single Store-emission
+model rather than adding a second browser mutation channel.

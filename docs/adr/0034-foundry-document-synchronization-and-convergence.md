@@ -19,6 +19,10 @@ access, and session-bound client state. Phase 4 is pending.
 teardown, epoch rejection, bounded Store-miss repair, and live lifecycle and
 document convergence checks are complete. A ChatMessage compatibility defect
 found during live acceptance is corrected below. Phase 5 is pending.
+**Status amendment (September 3, 2026):** Phase 5 is in progress. Related ADR
+and operator documentation is complete; local automated gates and CI for the
+Phase 4 implementation pass. Final CI for this documentation change and the
+remaining live acceptance items recorded below are still open.
 **Date:** September 2, 2026
 **Phase:** Pre-main synchronization remediation
 **Supersedes:** None
@@ -670,12 +674,61 @@ equally to route and SDK callers and does not branch on a particular generation
 
 ### Phase 5: Documentation and live acceptance
 
-- [ ] Amend ADR-0011, ADR-0012, ADR-0019, and ADR-0031 with the implemented
+- [x] Amend ADR-0011, ADR-0012, ADR-0019, and ADR-0031 with the implemented
   contract and any deviations from this plan.
-- [ ] Document operator-facing synchronization diagnostics.
+- [x] Document operator-facing synchronization diagnostics.
 - [ ] Run unit, type, lint, integration, isolated build, CI, and live multi-user
   acceptance.
 - [ ] Record residuals explicitly and close this ADR only after all phases pass.
+
+**Phase 5 documentation result (September 3, 2026):** ADR-0011 now records
+field-operator materialization, Store-miss repair, epoch teardown, active Store
+scope, and ChatMessage Repository normalization. ADR-0012 records the final
+all/users/none audience envelope, pre/post visibility rules, trailing reads,
+SDK epochs, missing-root event behavior, and immediate app-socket authority
+retirement. ADR-0019 records the implemented single/batch/autosave/compendium
+contract and the generation-neutral ChatMessage `style` correction. ADR-0031
+records the final ordered delete and deletion-safe audience behavior.
+
+`docs/foundry-socket.md` now maps the exact server-side ingress, autosave,
+repair, and compendium warning classes to operator actions. Browser console
+output is not an operational failure surface, and no guidance suggests
+rerouting a failed user write through the service account.
+
+**Automated acceptance evidence (September 3, 2026):** Full lint, TypeScript,
+unit, and isolated integration suites pass. The production build passes with
+`SHEET_DELVER_DATA` set to `/tmp/sheet-delver-lifecycle-build`; no real
+`<DATA_DIR>` content was read or written. A CycloneDX 1.5 production SBOM was
+generated in `/tmp` with 199 components. The configured production dependency
+gate (`npm audit --omit=dev --audit-level=high`) passes. GitHub CI run 277 passed
+for implementation commit `fe7d1c0`, including dependency review in
+[GitHub CI run 277](https://github.com/sheetdelver/sheetdelver/actions/runs/33799430718).
+The eventual Phase 5 documentation commit still requires its own green CI run.
+
+**Recorded live acceptance:** Generation 14 testing confirmed immediate Actor
+list/detail convergence through None, Limited, Observer, and Owner ownership
+transitions; default-ownership broadcast behavior; ordinary document updates
+and mutations; audience-correct private and world-visible ChatMessage delivery;
+repeated login/logout; restart restoration; setup/world lifecycle recovery;
+world replacement without stale state; and actor roll creation with the
+canonical ChatMessage `style`/`rolls` shape.
+
+**Open synchronization acceptance:** The final code has not been rerun against
+a live generation 13 instance. Generation 13 single-response, autosave, and
+compendium behavior has fixture coverage and its retained source contract was
+checked, but this ADR's live generation 13 exit criterion remains open. The
+full manual matrix for every active direct Store and every registered embedded
+route, live generation 14 side-effect batching, non-Actor rich-text autosave,
+and live compendium document/catalog mutation also lacks complete recorded
+evidence. These are acceptance gaps, not known failing behavior.
+
+**External merge residual:** The high-severity production audit gate passes,
+but npm currently reports moderate advisories for the directly declared Tiptap
+3.30.2 family and transitive `qs` 6.15.3. They are not synchronization defects
+and do not change this ADR's architecture, but dependency upgrades and their
+editor/request regression checks should be resolved or explicitly accepted
+before merging to main. The registry currently offers Tiptap 3.31.2 and `qs`
+6.16.0 as upgrade targets.
 
 Implementation comments are required where response normalization, UUID/root
 resolution, audience calculation, or epoch rejection would otherwise be

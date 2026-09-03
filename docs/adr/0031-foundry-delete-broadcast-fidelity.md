@@ -125,3 +125,17 @@ Pack-scoped deletes invalidate only compendium state. World-document delete
 fan-out captures visibility before Store removal and distinguishes an explicit
 empty audience from broadcast, preventing unauthorized tombstone identifiers
 from being disclosed.
+
+### ADR-0034 Implementation Closeout
+
+**Date:** September 3, 2026
+
+The normalized delete and audience rules above are implemented. Batch entries
+are applied in wire order, failed entries never reach a Store, and each
+successful delete still resolves ids through ADR-0031's union rule. Before
+removal, the Store calculates recipients with its type-specific visibility
+policy and emits a required `all`, non-empty `users`, or `none` audience.
+AppSocketGateway fails closed on a missing or malformed audience and strips the
+internal envelope from the browser event. Reapplying the same delete remains an
+idempotent no-op; a missing document is not recreated merely to deliver a
+tombstone.

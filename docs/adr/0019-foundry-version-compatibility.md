@@ -337,3 +337,29 @@ Generation 14 support therefore requires response normalization without
 removing generation 13 behavior. Build 367 remains evidence for login
 negotiation, not a document-transport ceiling or a latest-validated-build
 claim.
+
+### Amendment 2 Implementation Closeout
+
+**Date:** September 3, 2026
+
+The persistence transport contract is implemented without generation sniffing
+at Store call sites. One ingress normalizer accepts generation 13 single
+responses and generation 14 single or ordered batch responses, preserves batch
+side-effect order, rejects failed/malformed entries, and separates pack scope
+before world Store routing. Both supported generations also route persisted
+`pm.autosave` through an authoritative root read and `manageCompendium` through
+catalog/shard invalidation.
+
+Live generation 14 ownership updates exposed a second shape difference:
+generation 13 legacy replacement/deletion keys and generation 14 serialized
+field-operator objects now materialize at the shared Store merge boundary.
+This is response-shape compatibility, not Actor-specific ownership logic.
+
+Live roll acceptance also exposed an outbound compatibility defect. Generation
+13 already defines numeric ChatMessage presentation as `style` and accepted
+numeric `type` only through a deprecated migration; generation 14 removed that
+migration because `type` identifies string document subtypes. Core now emits
+`style: 1` for ordinary OOC messages and `style: 0` plus `rolls` for roll
+messages. The ChatMessage Repository normalizes legacy numeric caller input
+while preserving string subtypes. This works against the shared generation
+13/14 schema and is intentionally unrelated to the build-366 login branch.
