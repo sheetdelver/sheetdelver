@@ -108,3 +108,20 @@ RollTable results, Playlist sounds, Cards cards, Combat combatants/groups).
   broadcast-shaped embedded-child delete.
 - Verification gates: `npx tsc --noEmit`, focused lint on changed store files,
   `npm run test:unit`.
+---
+
+## ADR-0034 Amendment: Normalized and Audience-Correct Deletes
+
+**Date:** September 2, 2026
+**Status:** Accepted decision; implementation tracked by ADR-0034.
+
+ADR-0031's deletion-id union remains authoritative for each normalized delete
+entry. ADR-0034 extends the input boundary so generation 14 batch entries,
+including side effects, are unwrapped and processed in wire order before the
+existing Store delete logic runs. Failed batch entries are diagnostic and do
+not mutate Stores.
+
+Pack-scoped deletes invalidate only compendium state. World-document delete
+fan-out captures visibility before Store removal and distinguishes an explicit
+empty audience from broadcast, preventing unauthorized tombstone identifiers
+from being disclosed.

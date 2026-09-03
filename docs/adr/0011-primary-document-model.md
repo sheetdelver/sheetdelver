@@ -875,3 +875,26 @@ This ADR is fulfilled when every Foundry primary doc type covered by the alignme
 - [X] `PrimaryDocumentCacheCoordinator` replaces the hardcoded actor-only seeding path in `SystemService.bootstrap()`.
 - [X] Each phase's exit criteria verified before proceeding to the next.
 - [X] Status flipped to **Accepted** when Phase 7 ships green.
+---
+
+## ADR-0034 Amendment: Persistence Ingress and Active Store Scope
+
+**Date:** September 2, 2026
+**Status:** Accepted decision; implementation tracked by ADR-0034.
+
+ADR-0011's Store and Repository ownership remains in force, but its description
+of `modifyDocumentRouter` as the complete mutation ingress is incomplete.
+ADR-0034 adds normalized generation 14 batch responses and persisted
+`pm.autosave` invalidations before the existing router. Pack-scoped results
+remain outside world Stores.
+
+The active synchronization set is now Actor, ChatMessage, Folder, User,
+JournalEntry, Combat, Item, RollTable, Macro, Playlist, Cards, Scene, and
+Setting, including registered embedded routes. Scene and Setting were promoted
+by later implementation and are no longer stubs. Adventure and FogExploration
+remain explicit, unwired placeholders.
+
+Repository writes still use the requesting user's DocumentTransport and mirror
+successful normalized results idempotently. CoreSocket authoritative reads for
+bootstrap or bounded repair do not make the service account a fallback write
+identity.

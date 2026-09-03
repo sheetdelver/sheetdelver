@@ -1,0 +1,415 @@
+# ADR-0034: Foundry Document Synchronization and Convergence
+
+**Status:** Accepted - implementation in progress (Phase 0).
+**Date:** September 2, 2026
+**Phase:** Pre-main synchronization remediation
+**Supersedes:** None
+**Revises:** ADR-0011 (Store ingress and active scope), ADR-0012 (realtime delivery and client convergence), ADR-0019 (generation 14 document transport compatibility), ADR-0031 (normalized delete handling)
+**Related:** ADR-0013 (ownership and visibility), ADR-0015 (compendiums), ADR-0016 (UUID routing), ADR-0017 (world lifecycle), ADR-0018 (socket boundary), ADR-0033 (security closeout)
+
+---
+
+## Context
+
+A live Foundry-side Actor update did not appear in Sheet Delver's document
+pool. The Actor was the observed symptom, but the affected architecture is the
+shared synchronization path for every active primary-document Store.
+
+The existing model correctly gives each supported document type a Store and
+Repository, routes requesting-user writes over that user's Foundry transport,
+and treats browser realtime messages as invalidation hints. It does not yet
+guarantee that every persisted Foundry mutation reaches the correct Store or
+that every affected browser and SDK cache performs a post-change read.
+
+A comparison of the saved Foundry generation 13 and generation 14 clients
+identified four persistence surfaces:
+
+| Persistence surface | Generation 13 | Generation 14 | Current coverage |
+| --- | --- | --- | --- |
+| `modifyDocument` | Yes | Yes | Partial |
+| `modifyDocumentBatch` | No | Yes | Missing |
+| `pm.autosave` | Yes | Yes | Missing |
+| `manageCompendium` | Yes | Yes | Missing |
+
+Generation 14 retains the single `modifyDocument` event and adds
+`modifyDocumentBatch`, whose ordered results can include primary results,
+side effects, and errors. Both supported generations persist collaborative
+editor content through `pm.autosave`; Foundry applies that event directly to
+the addressed document source rather than passing it through the ordinary
+`modifyDocument` client handler. Both generations use `manageCompendium`
+for world compendium pack creation and deletion.
+
+Other core socket events were classified explicitly. `pm.newSteps`,
+`pm.resync`, and `pm.usersEditing` are collaborative working state rather
+than canonical persistence. Presence, media, shared display, canvas, and pause
+events do not mutate primary-document Stores. `resetFog` is relevant only if
+the currently unsupported FogExploration Store is promoted in a future
+decision.
+
+The ingress gaps combine with downstream gaps:
+
+- incoming pack-scoped document results can reach world-document routing
+- `actorListInvalidated` is emitted by the Store but is not forwarded through
+  the complete server/browser event path
+- several browser consumers suppress an in-flight duplicate request without
+  scheduling a trailing refresh
+- SDK reset can orphan subscribers or admit completion from a prior world
+- delete and list-invalidation audiences cannot distinguish all users from no
+  users and do not consistently preserve pre-delete visibility
+- runtime teardown does not clear every active Store through one boundary
+- update misses mark documents stale without triggering authoritative repair
+
+The result is not Actor-specific. Any active direct or embedded document can
+remain stale at ingress, in the server Store, or in a browser/SDK projection.
+
+## Decision
+
+Sheet Delver adopts one end-to-end synchronization invariant:
+
+> For every supported Foundry persistence event or response, Sheet Delver
+> updates or invalidates the correct Store, emits an audience-correct signal,
+> and guarantees that an observed browser or SDK cache eventually performs a
+> post-change read within the same world and session epoch.
+
+### 1. Normalize supported document responses before Store routing
+
+One transport-level normalizer will accept:
+
+- generation 13 single `modifyDocument` responses
+- generation 14 legacy/single `modifyDocument` responses
+- generation 14 `modifyDocumentBatch` envelopes
+- request acknowledgements returned to CoreSocket and ClientSocket dispatches
+
+The normalizer produces an ordered sequence of typed result entries containing
+the document type, action, operation, result, side-effect status, and error
+status. Successful primary and side-effect entries are routed in wire order.
+Malformed or failed entries are logged with structured context and are never
+silently applied as successful mutations.
+
+Generation 13's single-response path remains supported unchanged. Generation
+14 batching is additive and must not replace or reinterpret the generation 13
+contract.
+
+Repository mirroring and later CoreSocket broadcast delivery remain
+idempotent. Both paths use the same normalized result semantics so a logical
+mutation emits one observable Store change regardless of which path arrives
+first.
+
+### 2. Separate world documents from compendium scope
+
+A normalized entry whose operation identifies a compendium pack must never
+enter a world primary-document Store.
+
+Pack-scoped document results invalidate or update only the relevant compendium
+shard. The `manageCompendium` event invalidates authoritative pack-catalog
+metadata for create/delete operations. Compendium pack membership and
+compendium document content remain outside the world Store namespace.
+
+The scope decision occurs before `modifyDocumentRouter`, not independently
+inside each Store.
+
+### 3. Treat persisted editor autosave as an authoritative invalidation
+
+CoreSocket listens for `pm.autosave(uuid, html)` in generations 13 and 14.
+The UUID is parsed by the shared structured document UUID parser.
+
+Sheet Delver does not trust or directly merge the event's partial HTML payload.
+Instead, it treats the event as proof that the addressed document has persisted
+and schedules an authoritative read of the owning root:
+
+- a direct world UUID refreshes its primary document
+- an embedded UUID refreshes its owning primary document
+- a compendium UUID invalidates the relevant pack shard
+- malformed or unsupported UUIDs produce bounded operator diagnostics
+
+Refreshes are coalesced per root with a trailing-read guarantee. If another
+autosave arrives while a read is active, at least one read starts after the
+active request settles. Sheet Delver does not consume `pm.newSteps` as
+canonical state.
+
+### 4. Apply the contract to every active Store
+
+The synchronization contract covers these active primary-document Stores:
+
+- Actor
+- ChatMessage
+- Folder
+- User
+- JournalEntry
+- Combat
+- Item
+- RollTable
+- Macro
+- Playlist
+- Cards
+- Scene
+- Setting
+
+It also covers their registered embedded routing, including Items,
+ActiveEffects, JournalEntryPages, Combatants, RollTableResults,
+PlaylistSounds, Cards, Tokens, ActorDelta state, and other embedded children
+already owned by those roots.
+
+Adventure and FogExploration remain explicitly unsupported and unwired. They
+must not be reported as synchronized merely because placeholder Store classes
+exist. Compendium state is covered through its separate catalog and shard
+model, not by pretending pack documents are world primary documents.
+
+### 5. Make list and document invalidation complete end to end
+
+Every active Store's document-change and list-invalidation signals must be
+represented in typed server and SDK contracts, bridged through SystemService,
+forwarded by AppSocketGateway, and consumed by each relevant native or SDK
+cache.
+
+Realtime payloads remain invalidation hints. Full document bodies are obtained
+through authorized REST or SDK reads. A client may patch an already loaded
+projection only when that is equivalent to an authoritative reread; list
+membership, ownership transitions, embedded changes, and deletes require the
+appropriate list/detail invalidation.
+
+The Actor-specific missing `actorListInvalidated` bridge is repaired as one
+instance of this universal rule, not as a special synchronization architecture.
+
+### 6. Coalescing must guarantee a trailing refresh
+
+Suppressing concurrent duplicate reads is allowed only when an invalidation
+that arrives during an active request marks the resource dirty. Once the active
+request settles, the cache performs a trailing read before considering itself
+current.
+
+The same primitive applies to Actor pools and details, Chat, Journal, User
+roster, Combat projections, and module-facing SDK document sources. Bursts may
+coalesce into fewer reads, but the pre-change response may not become the final
+state.
+
+### 7. Audience calculations are explicit and deletion-safe
+
+The realtime audience contract distinguishes:
+
+- all currently authenticated and authorized subjects
+- an explicit set of user ids
+- no recipients
+
+An empty user-id set never means broadcast. Per-document delivery is evaluated
+against the Store's type-specific visibility policy.
+
+Delete handling captures authorized visibility before removing the document so
+that only prior viewers receive a document-specific tombstone or invalidation.
+ADR-0031's union of result-string ids, operation ids, and defensive document ids
+remains the delete-id rule after response normalization.
+
+### 8. World and session epochs bound all synchronization work
+
+One world-runtime teardown operation clears every active Store, compendium
+state, derived model, shared world state, and world-bound browser/SDK cache.
+Partial bootstrap failure uses the same cleanup boundary.
+
+Asynchronous reads capture the current world/session epoch. A completion from a
+prior epoch is discarded and cannot repopulate current state. Reset either
+notifies existing subscribers or replaces source identity in a way that causes
+mounted consumers to resubscribe.
+
+Invalidating a server-side player session also revokes or reclassifies its
+established app socket before further authenticated events are delivered.
+
+These changes do not alter the world lifecycle state machine, disable heartbeat
+discovery, or stop retries when Foundry moves through setup, unknown-world, and
+active-world states.
+
+### 9. Store misses trigger bounded repair
+
+An update or embedded mutation for a missing cached root is not merely recorded
+as stale. It schedules a coalesced authoritative read of that root or emits a
+typed unavailable state when repair cannot be performed.
+
+Repair is bounded, observable, and scoped to the current world epoch. It is not
+general polling.
+
+### 10. Requesting-user authorization remains unchanged
+
+User-originated creates, updates, and deletes continue through the requesting
+user's Foundry socket. A missing user transport fails closed. CoreSocket and
+the service account are not fallback write identities.
+
+CoreSocket may perform authoritative reads needed for bootstrap, ingress repair,
+or autosave convergence. That read responsibility does not grant it ownership
+of user CRUD or bypass Foundry's write authorization.
+
+## Compatibility Contract
+
+| Foundry generation | Document response support | Specialized persistence |
+| --- | --- | --- |
+| 13 | Single `modifyDocument` | `pm.autosave`, `manageCompendium` |
+| 14 | Single `modifyDocument` plus ordered `modifyDocumentBatch` | `pm.autosave`, `manageCompendium` |
+
+ADR-0019's generation 14 build 366 login negotiation remains a login-specific
+compatibility branch. It is independent from generation 14 batch document
+responses. Supporting the latter must not remove generation 13 or generation
+14 single-response handling.
+
+Newer Foundry generations retain ADR-0019's warn-and-proceed policy. Their
+document shapes are not silently declared compatible; malformed or unknown
+response shapes produce diagnostics and fixture work before they become a
+supported transport contract.
+
+## Implementation Plan
+
+### Phase 0: Characterization and contract fixtures
+
+- [x] Add generation 13 single and generation 14 single/batch transport fixtures.
+- [x] Cover ordered side effects, per-entry errors, deletes, `parentUuid`, and
+  pack scope.
+- [x] Add `pm.autosave` fixtures for direct, embedded, malformed, and compendium
+  UUIDs in both supported generations.
+- [x] Add `manageCompendium` create/delete fixtures.
+- [ ] Add an in-process vertical harness from Foundry event through Store,
+  SystemService, AppSocketGateway, and authorized fake users.
+- [ ] Add parity tests proving every active Store has complete changed/list
+  event wiring and every unsupported Store remains unwired.
+- [ ] Add deferred-request tests for invalidation-during-fetch and
+  reset-during-fetch.
+
+### Phase 1: Persistence ingress normalization
+
+- [x] Implement the shared single/batch result normalizer.
+- [ ] Register `modifyDocumentBatch` on CoreSocket.
+- [ ] Normalize inbound broadcasts and outbound dispatch acknowledgements.
+- [ ] Route successful batch primary and side-effect results in order.
+- [ ] Reject pack scope before world routing and invalidate compendium shards.
+- [ ] Wire `pm.autosave` to structured UUID resolution and coalesced root reads.
+- [ ] Wire `manageCompendium` to authoritative catalog invalidation.
+- [ ] Add structured malformed/error telemetry.
+
+### Phase 2: Store-to-client convergence
+
+- [ ] Complete typed changed/list signal parity for every active Store.
+- [ ] Repair the Actor list bridge and replace the Actor throttle with trailing
+  coalescing.
+- [ ] Apply the shared trailing-refresh primitive to native browser and SDK
+  document consumers.
+- [ ] Add SDK world/session epochs and stale-completion rejection.
+- [ ] Ensure reset reaches mounted subscribers.
+
+### Phase 3: Audience and socket correctness
+
+- [ ] Introduce the structured all/users/none audience contract.
+- [ ] Capture pre-delete visibility and apply type-specific visibility policy.
+- [ ] Add multi-user positive and negative delivery tests.
+- [ ] Revoke or reclassify app sockets when their server session is invalidated.
+
+### Phase 4: Repair and lifecycle unification
+
+- [ ] Centralize complete world-runtime teardown.
+- [ ] Clear partial bootstrap state through the same operation.
+- [ ] Add bounded primary and embedded Store-miss repair.
+- [ ] Verify setup -> world A -> shutdown -> setup -> world B transitions
+  without stale-world resurrection.
+
+### Phase 5: Documentation and live acceptance
+
+- [ ] Amend ADR-0011, ADR-0012, ADR-0019, and ADR-0031 with the implemented
+  contract and any deviations from this plan.
+- [ ] Document operator-facing synchronization diagnostics.
+- [ ] Run unit, type, lint, integration, isolated build, CI, and live multi-user
+  acceptance.
+- [ ] Record residuals explicitly and close this ADR only after all phases pass.
+
+Implementation comments are required where response normalization, UUID/root
+resolution, audience calculation, or epoch rejection would otherwise be
+difficult to audit. The comments must explain the protocol or invariant, not
+narrate obvious assignments.
+
+## Acceptance Matrix
+
+The live matrix uses at least one GM, one owning player, and one non-owning
+player. Mutations are initiated from Foundry and Sheet Delver wherever both
+surfaces exist.
+
+- ordinary create/update/delete for every active direct Store
+- embedded create/update/delete for every registered parent route
+- Actor rich-text autosave and another non-Actor rich-text autosave
+- ownership transitions across Owner, Observer, Limited, None, and GM
+- private ChatMessage creation/deletion with negative-recipient checks
+- generation 14 ordered side-effect batches
+- compendium document mutation without world Store contamination
+- compendium pack create/delete with catalog refresh
+- disconnect/reconnect in the same world
+- world A -> setup -> world B with no world A state retained
+- server session purge while its browser socket remains connected
+
+Generation 13 and generation 14 both run single-response, autosave, and
+compendium lifecycle fixtures. Generation 14 additionally runs batch fixtures.
+
+## Alternatives Considered
+
+### Repair only the Actor browser path
+
+Rejected. It would hide the reported symptom while leaving every Store exposed
+to missing batch and autosave ingress, stale in-flight reads, and lifecycle
+races.
+
+### Listen to every Foundry socket event
+
+Rejected. Collaborative working steps, presence, media, canvas, and display
+signals are not canonical document persistence. The complete upstream listener
+inventory is classified, but only persistence events enter this contract.
+
+### Poll all documents periodically
+
+Rejected. Polling increases Foundry and browser load, obscures event failures,
+and still needs world-epoch correctness. Bounded repair and an optional sync
+token may supplement, but never replace, event-driven convergence.
+
+### Apply autosave HTML directly to cached documents
+
+Rejected. The event is a partial field payload addressed by UUID and can target
+embedded or compendium documents. An authoritative targeted read preserves
+normalization, ownership, parent routing, and version compatibility.
+
+### Replace generation 13 handling with generation 14 batching
+
+Rejected. Generation 13 remains supported. A shared normalizer accepts both
+contracts without manufacturing a batch requirement for generation 13.
+
+## Consequences
+
+### Positive
+
+- Every active Store has one auditable persistence and convergence contract.
+- Foundry generation 13 remains supported while generation 14 batching is
+  handled correctly.
+- Rich-text persistence can no longer bypass Store ingress.
+- Compendium scope cannot contaminate world Stores.
+- Browser and SDK caches cannot settle permanently on a pre-change response.
+- Authorization remains Foundry-native for writes and type-specific for reads
+  and fan-out.
+- World transitions cannot resurrect prior-world data.
+
+### Tradeoffs
+
+- Autosave convergence performs an additional targeted authoritative read.
+- Batch ordering, dirty/trailing refresh state, and world epochs add explicit
+  state that requires focused tests and diagnostics.
+- Accurate delete audiences require retaining pre-delete visibility long enough
+  to compute delivery.
+- Full parity tests cover many Stores even where no first-party browser view
+  currently consumes their events.
+
+## Guardrails
+
+- Do not modify separately managed modules to compensate for Core event loss.
+- Do not route user writes through CoreSocket or the service account.
+- Do not collapse local-development and managed module sources.
+- Do not rewrite startup or world-discovery state transitions.
+- Do not make polling the primary synchronization mechanism.
+- Do not read or write the real `<DATA_DIR>` during automated verification.
+- Do not enable Adventure or FogExploration implicitly.
+- Do not expose document bodies in invalidation events.
+- Do not remove generation 13 compatibility.
+
+## Exit Criteria
+
+ADR-0034 is complete when all implementation phases are checked, all acceptance
+gates pass, live generation 13 and generation 14 verification is recorded, and
+no known synchronization residual remains undocumented.

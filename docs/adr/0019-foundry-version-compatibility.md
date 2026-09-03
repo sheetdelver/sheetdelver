@@ -317,3 +317,23 @@ ADR-0019 is fulfilled when Foundry generation compatibility is explicit and enfo
 - [x] Phase 3: status/admin diagnostics expose compatibility state.
 - [x] Phase 4: closure docs and audits pass; ADR-0019 status flips to **Accepted**.
 - [x] `git diff --check`, `npx tsc --noEmit`, and `npm run test:unit` pass.
+---
+
+## Amendment 2: Document Persistence Transport Compatibility
+
+**Date:** September 2, 2026
+**Status:** Accepted decision; implementation tracked by ADR-0034.
+
+Amendment 1's build 366 login branch is login-specific. Document persistence
+has a separate compatibility contract:
+
+- generation 13 retains single `modifyDocument`
+- generation 14 retains single `modifyDocument` and adds ordered
+  `modifyDocumentBatch`
+- generations 13 and 14 both use `pm.autosave` for persisted collaborative
+  editor content and `manageCompendium` for pack lifecycle
+
+Generation 14 support therefore requires response normalization without
+removing generation 13 behavior. Build 367 remains evidence for login
+negotiation, not a document-transport ceiling or a latest-validated-build
+claim.

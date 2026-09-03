@@ -275,3 +275,25 @@ This ADR is fulfilled when the event contract is in force across every Store and
 - [x] Legacy event names (`actorUpdate`, `chatUpdate`, `combatUpdate`) are removed from the server-emitted wire surface; browser clients switched to the new event names.
 - [x] Each phase's tests cover idempotency, no-emission-during-seeding, and the list-vs-document separation.
 - [x] Status flipped to **Accepted** when the contract is in force for every shipped Store.
+---
+
+## ADR-0034 Amendment: Persistence Events and Client Convergence
+
+**Date:** September 2, 2026
+**Status:** Accepted decision; implementation tracked by ADR-0034.
+
+The original per-Store changed/list event model remains, but a single
+`modifyDocument` listener is not the complete Foundry persistence boundary.
+Ingress now includes normalized generation 13 single responses, generation 14
+single and batch responses, persisted `pm.autosave` invalidations, and
+compendium lifecycle invalidation outside world Stores.
+
+Store emission alone is not sufficient acceptance. Every active Store signal
+must have typed SystemService, AppSocketGateway, browser, and SDK continuity
+where a consumer exists. Concurrent refresh suppression must retain a dirty bit
+and perform a trailing read, so a response begun before an invalidation cannot
+become final state.
+
+List audiences will distinguish all recipients, an explicit user set, and no
+recipients. Delete delivery uses pre-delete visibility. These amendments retain
+invalidation-only browser payloads and per-event authorization.
