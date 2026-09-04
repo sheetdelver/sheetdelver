@@ -3,6 +3,12 @@
 import React, { useState } from 'react';
 
 import { LayoutGrid, Package, Sparkles, AlertCircle } from 'lucide-react';
+import {
+    beginPrimitiveEdit,
+    commitPrimitiveEdit,
+    shouldUseMultilineField,
+    updatePrimitiveDraft,
+} from './genericSheetFieldState';
 
 
 
@@ -206,34 +212,64 @@ function DataProperty({ label, data, path, onUpdate, root }: any) {
 
 function PrimitiveField({ label, value, path, onUpdate }: any) {
     const [isEditing, setIsEditing] = useState(false);
-    const [editValue, setEditValue] = useState(value);
+    const [editState, setEditState] = useState(() => beginPrimitiveEdit(value));
+
+    const beginEditing = () => {
+        // Snapshot the latest realtime value when the user enters the control;
+        // a stale hidden draft must never overwrite a refreshed document.
+        setEditState(beginPrimitiveEdit(value));
+        setIsEditing(true);
+    };
+
+    const handleDraftChange = (draft: string) => {
+        setEditState(current => updatePrimitiveDraft(current, draft));
+    };
 
     const handleSave = () => {
-        let finalVal = editValue;
-        if (typeof value === 'number') finalVal = Number(editValue);
-        if (onUpdate && finalVal !== value) onUpdate(path, finalVal);
+        const result = commitPrimitiveEdit(editState);
+        if (onUpdate && result.changed) onUpdate(path, result.value);
         setIsEditing(false);
     };
 
     if (isEditing) {
+        const useMultiline = shouldUseMultilineField(value, path);
         return (
-            <div className="flex items-center gap-2 py-1">
-                <span className="text-xs text-neutral-400 font-mono w-24 shrink-0 truncate text-right mr-2">{label}</span>
-                <input
-                    autoFocus
-                    className="flex-1 bg-white border-2 border-blue-500 rounded px-2 py-1 text-sm outline-none shadow-sm"
-                    value={editValue}
-                    onChange={(e) => setEditValue(e.target.value)}
-                    onBlur={handleSave}
-                    onKeyDown={(e) => e.key === 'Enter' && handleSave()}
-                />
+            <div className={`flex gap-2 py-1 ${useMultiline ? 'items-start' : 'items-center'}`}>
+                <span className="text-xs text-neutral-400 font-mono w-24 shrink-0 truncate text-right mr-2 pt-1">{label}</span>
+                {useMultiline ? (
+                    <textarea
+                        autoFocus
+                        rows={6}
+                        className="flex-1 min-w-0 min-h-32 resize-y bg-white border-2 border-blue-500 rounded px-2 py-1 text-sm leading-relaxed outline-none shadow-sm"
+                        value={editState.draft}
+                        onChange={(event) => handleDraftChange(event.target.value)}
+                        onBlur={handleSave}
+                        onKeyDown={(event) => {
+                            if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+                                event.preventDefault();
+                                event.currentTarget.blur();
+                            }
+                        }}
+                    />
+                ) : (
+                    <input
+                        autoFocus
+                        className="flex-1 min-w-0 bg-white border-2 border-blue-500 rounded px-2 py-1 text-sm outline-none shadow-sm"
+                        value={editState.draft}
+                        onChange={(event) => handleDraftChange(event.target.value)}
+                        onBlur={handleSave}
+                        onKeyDown={(event) => {
+                            if (event.key === 'Enter') event.currentTarget.blur();
+                        }}
+                    />
+                )}
             </div>
         );
     }
 
     return (
         <div
-            onClick={() => onUpdate && setIsEditing(true)}
+            onClick={() => onUpdate && beginEditing()}
             className="group flex items-center justify-between py-1.5 px-2 -mx-2 rounded hover:bg-neutral-50 cursor-pointer transition-colors"
         >
             <span className="text-xs text-neutral-500 font-medium mr-4 truncate capitalize opacity-70 group-hover:opacity-100 transition-opacity">{label}</span>

@@ -787,6 +787,19 @@ retains the same page across refreshed or reordered payloads, and falls back to
 the first sorted page only when the selected page was removed. The repeated
 live autosave converged without a modal reload or page-selection change.
 
+**Generic field-editor acceptance correction:** Live generation 13 testing of
+direct Actor biography fields exposed a client-side stale-draft hazard in the
+generic fallback sheet. A primitive field captured its value only when the
+component first mounted. After a realtime refresh, merely focusing and blurring
+the field could compare that stale draft with the current prop and overwrite
+Foundry even though the user had made no edit. The generic editor now snapshots
+the latest value when editing begins and requires both explicit user input and
+a value difference before dispatching a mutation. Long, multiline, HTML, and
+known narrative fields use a resizable multiline text control while short
+scalar fields retain the compact control. Live acceptance confirmed that
+inspecting a narrative field performs no write and that an actual edit produces
+one user-scoped update.
+
 
 **Open synchronization acceptance:** Targeted live generation 13
 single-response, direct/embedded mutation, ownership, session, and journal

@@ -6,6 +6,7 @@ import { run as runSdkEventBus } from './sdk-event-bus.test';
 import { run as runCoalescedFetch } from './coalesced-fetch.test';
 import { run as runCombatHudState } from './combat-hud-state.test';
 import { run as runJournalOrdering } from './journal-ordering.test';
+import { run as runGenericSheetFieldState } from './generic-sheet-field-state.test';
 
 export async function run() {
     runFoundryStateHelpers();
@@ -16,6 +17,7 @@ export async function run() {
     await runCoalescedFetch();
     runCombatHudState();
     runJournalOrdering();
+    runGenericSheetFieldState();
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
