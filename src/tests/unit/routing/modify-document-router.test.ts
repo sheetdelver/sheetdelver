@@ -217,24 +217,24 @@ async function runCardEmbeddedRouting() {
     router.register(cards);
     router.registerEmbeddedHandler('Cards', cards);
 
-    // Cross-Cards-doc transfer: paired delete on deck + create on hand. Each
-    // leg lands independently on the Cards embedded handler for its parent.
+    // A deck-to-hand pass creates the destination copy and marks the home card
+    // drawn. Each leg lands independently on the handler for its parent.
     router.route({
         type: 'Card',
-        action: 'delete',
-        result: null,
-        operation: { parentUuid: 'Cards.deck-1', ids: ['c-1'] },
+        action: 'update',
+        result: [{ _id: 'c-1', drawn: true }],
+        operation: { parentUuid: 'Cards.deck-1' },
     });
     router.route({
         type: 'Card',
         action: 'create',
-        result: [{ _id: 'c-1', name: 'King', drawn: false }],
+        result: [{ _id: 'c-1', name: 'King', drawn: true, origin: 'deck-1' }],
         operation: { parentUuid: 'Cards.hand-1' },
     });
 
     assert.equal(cards.received.length, 2);
     assert.equal(cards.received[0].parentUuid, 'Cards.deck-1');
-    assert.equal(cards.received[0].action, 'delete');
+    assert.equal(cards.received[0].action, 'update');
     assert.equal(cards.received[1].parentUuid, 'Cards.hand-1');
     assert.equal(cards.received[1].action, 'create');
 }

@@ -913,6 +913,25 @@ event or repair warning occurred. The temporary documents were removed during
 the probe. Foundry generation 13 and generation 14 expose the same Playlist
 and PlaylistSound metadata names and schemas for this tested contract.
 
+**Cards synchronization acceptance (September 4, 2026):** The source audit
+corrected an imprecise transfer description and fixture without changing
+runtime behavior. Foundry generation 13 and generation 14 both implement a
+home-deck pass as a destination Card create plus a home Card `drawn` update;
+returning that card updates the home Card and deletes the destination copy.
+The focused Store and router fixtures now model both parent legs rather than a
+generic delete/create pair.
+
+Live generation 14 build-367 verification created a temporary deck and hand,
+updated the deck, created and updated its embedded Card, passed the Card to the
+hand, returned it to the deck, and deleted both Cards documents. Every direct
+and embedded response routed to the correct Store and parent without a dropped
+event or repair warning. Deleting the two Cards documents caused Foundry to
+create its standard return/recall ChatMessages independently of the pass
+notification option. Those two messages were then deleted in one operation;
+Core applied both deletion results and the probe left no temporary documents.
+As with Playlist, Cards data remains synchronized for generic module reads and
+future support; Sheet Delver has no current in-tree Cards UI consumer.
+
 **External merge residual:** The high-severity production audit gate passes,
 but npm currently reports moderate advisories for the directly declared Tiptap
 3.30.2 family and transitive `qs` 6.15.3. They are not synchronization defects

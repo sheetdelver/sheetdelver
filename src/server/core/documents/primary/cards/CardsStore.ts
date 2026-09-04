@@ -35,9 +35,10 @@ function cardId(card: unknown): string | null {
  * Embedded children: `Card` events with `parentUuid: Cards.<id>` apply to the
  * parent's `cards[]` array in place. No game-specific card semantics modeled
  * (Sheet Delver doesn't use cards today). Cross-Cards-doc transfers
- * (`Cards#pass` deck→hand→pile) arrive as paired update/delete events across
- * two parents; each leg is handled independently by its parent's handler so
- * both deck and hand caches stay coherent on change.
+ * (`Cards#pass` deck→hand→deck) arrive as paired embedded operations across
+ * two parents. A draw creates the hand card and marks the home card drawn;
+ * returning it clears the home card and deletes the hand card. Each leg is
+ * handled independently so both parent caches stay coherent.
  */
 export class CardsStore extends PrimaryDocumentStore<CardsDocument> {
     public readonly documentType: PrimaryDocumentType = 'Cards';

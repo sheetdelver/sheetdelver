@@ -10,8 +10,9 @@ import { cardsStore } from './CardsStore';
  * (direct-type) or `CardsStore.applyEmbeddedChange` (`Card` with
  * `parentUuid: Cards.<id>`).
  *
- * Cross-Cards-doc transfers (`Cards#pass`) arrive as paired update/delete
- * events across two parents; both legs flow through this Repository.
+ * Cross-Cards-doc transfers (`Cards#pass`) arrive as paired embedded
+ * operations across two parents: create/update on draw and update/delete on
+ * return. Both legs flow through this Repository.
  */
 export class CardsRepository extends PrimaryDocumentRepository<CardsDocument> {
     constructor(transport: DocumentTransport) {

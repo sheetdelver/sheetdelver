@@ -296,7 +296,7 @@ primaryDocumentCacheCoordinator.register({
 
 // CardsStore — standard ownership map; embedded `Card` events flow via
 // `parentUuid: Cards.<id>` (handler registered below). Cross-Cards-doc
-// transfers (`Cards#pass`) arrive as paired update/delete legs on both parents.
+// transfers (`Cards#pass`) arrive as paired embedded legs on both parents.
 primaryDocumentCacheCoordinator.register({
     type: 'Cards',
     async seed(client) {

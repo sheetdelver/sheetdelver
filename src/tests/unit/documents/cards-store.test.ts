@@ -118,9 +118,9 @@ async function runEmbeddedCardRouting() {
 }
 
 async function runCrossDocTransferPairedEvents() {
-    // Foundry's `Cards#pass` deck→hand arrives as paired update/delete events
-    // across two parents. Each leg lands on its own parent through the same
-    // in-place handler so both deck and hand caches stay coherent.
+    // Foundry keeps a home card in its deck. Passing it to a hand creates a
+    // drawn destination copy and updates the home card; returning it updates
+    // the home card and deletes the hand copy.
     const store = new CardsStore();
     await store.seed(async () => [
         {
@@ -137,19 +137,29 @@ async function runCrossDocTransferPairedEvents() {
         },
     ] as CardsDocument[]);
 
-    // Leg 1: remove from deck.
-    store.applyModifyDocument('Card', 'delete', null, {
-        parentUuid: 'Cards.deck',
-        ids: ['card-x'],
-    });
-    assert.equal(store.get('deck')?.cards?.length, 0);
-
-    // Leg 2: create on hand.
+    // Draw: destination create plus source update. The operations may arrive in
+    // either order because Foundry dispatches them together.
     store.applyModifyDocument('Card', 'create', [
-        { _id: 'card-x', name: 'Card X', drawn: false },
+        { _id: 'card-x', name: 'Card X', drawn: true, origin: 'deck' },
     ], { parentUuid: 'Cards.hand' });
+    store.applyModifyDocument('Card', 'update', [
+        { _id: 'card-x', drawn: true },
+    ], { parentUuid: 'Cards.deck' });
+
     assert.equal(store.get('hand')?.cards?.length, 1);
     assert.equal((store.get('hand')?.cards?.[0] as any)?._id, 'card-x');
+    assert.equal((store.get('deck')?.cards?.[0] as any)?.drawn, true);
+
+    // Return: destination update plus source delete.
+    store.applyModifyDocument('Card', 'update', [
+        { _id: 'card-x', drawn: false },
+    ], { parentUuid: 'Cards.deck' });
+    store.applyModifyDocument('Card', 'delete', ['card-x'], {
+        parentUuid: 'Cards.hand',
+    });
+
+    assert.equal((store.get('deck')?.cards?.[0] as any)?.drawn, false);
+    assert.equal(store.get('hand')?.cards?.length, 0);
 }
 
 async function runRepositoryMirrorsWrites() {
