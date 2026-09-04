@@ -116,6 +116,32 @@ async function runTransportFactTests() {
     }
 }
 
+async function runProgressReconnectTests() {
+    resetWorldState();
+    const { controller, transport } = createController();
+
+    try {
+        transport.isConnected = true;
+        transport.emit('foundry:progress', {
+            data: { action: 'launchWorld', step: 'complete' },
+        });
+
+        assert.equal(
+            transport.disconnectCalls,
+            1,
+            'launch completion disconnects the still-connected Setup transport',
+        );
+        assert.equal(
+            transport.connectCalls,
+            1,
+            'launch completion starts a fresh world connection flow',
+        );
+    } finally {
+        controller.dispose();
+        resetWorldState();
+    }
+}
+
 async function runClosedWorldMonitoringTests() {
     resetWorldState();
     const { controller, transport } = createController();
@@ -174,6 +200,7 @@ async function runClosedWorldMonitoringTests() {
 export async function run() {
     await runWorldControlTests();
     await runTransportFactTests();
+    await runProgressReconnectTests();
     await runClosedWorldMonitoringTests();
 }
 

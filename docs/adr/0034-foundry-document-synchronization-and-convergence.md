@@ -632,6 +632,26 @@ monitoring, discovered the replacement world automatically, bootstrapped only
 the replacement world's state, and resumed immediate document synchronization.
 No stale documents from the departed world appeared in API or dashboard reads.
 
+**Connected-Setup launch correction (September 4, 2026):** Follow-up testing
+exposed a narrower reconnect defect when Foundry reported
+`launchWorld`/`complete` over a still-connected Setup socket. The controller
+reset its retry delay and called the existing connection flow, but
+`CoreSocket.connect()` correctly treated the live Setup transport as already
+connected and returned without probing the launched world. The progress
+handler now disconnects that obsolete Setup transport before starting the same
+connection flow. This preserves the established setup/active/closed state
+machine, service-account authentication, retry policy, and fallback heartbeat;
+it only ensures that the explicit launch-complete signal cannot be stranded by
+the transport's connected guard. A focused controller test fixes the ordering
+contract by requiring one disconnect followed by one connection attempt.
+
+An isolated upgrade from generation 14 build 359 to build 367 additionally
+confirmed that the fallback lifecycle path still discovers an active world,
+authenticates the service account, seeds all primary Stores, and reaches
+`ready`. That upgrade was detected on the scheduled Setup probe because no
+live Setup progress socket was attached at launch; it is fallback-path evidence,
+not a substitute for the focused connected-Setup test above.
+
 **Phase 4 Store-miss repair implementation (September 3, 2026):** The shared
 `PrimaryDocumentStore.applyModifyDocument` boundary now returns typed repair
 targets for direct partial updates whose root is absent and for any embedded
@@ -829,6 +849,28 @@ coverage now passes. The full manual matrix for every active direct Store and
 every registered embedded route and live generation 14 side-effect batching
 still lack complete recorded evidence. These are acceptance gaps, not known
 failing behavior.
+
+**Generation 14 build-367 batch acceptance amendment (September 4, 2026):**
+The final clause above is now satisfied for the build boundary that introduced
+observer-facing `modifyDocumentBatch`. This is feature-specific evidence for
+the batch transport contract, not a claim that build 367 is the latest or
+maximum supported generation 14 build. Generation 13 and pre-batch generation
+14 single-response handling remain intact.
+
+An isolated build-367 Daggerheart world issued a two-operation Macro/RollTable
+create batch and a corresponding delete batch. CoreSocket received one batch
+envelope for each request; ingress retained wire indices zero and one and
+routed both entries to their correct primary Stores without duplication. A
+second probe activated a replacement Combat. Foundry emitted the implicit
+deactivation of the prior Combat first with `sideEffect: true`, followed by the
+explicit Combat creation with `sideEffect: false`. Sheet Delver applied both
+entries to CombatStore in that order, while Foundry's initiating-client result
+correctly returned only the explicit operation. The temporary Macro,
+RollTable, and Combat documents were removed after verification.
+
+The remaining open acceptance scope is the exhaustive manual matrix for every
+active direct Store and every registered embedded route. No generation 14
+batch or side-effect transport defect remains open from this item.
 
 **External merge residual:** The high-severity production audit gate passes,
 but npm currently reports moderate advisories for the directly declared Tiptap

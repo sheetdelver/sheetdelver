@@ -199,6 +199,10 @@ export class WorldTransportController {
         if (data?.action === 'launchWorld' && data.step === 'complete') {
             logger.warn('WorldTransportController | Foundry progress: world launch complete. Reconnecting immediately.');
             this.resetRetryBackoff();
+            // The launch progress event arrives on the still-connected Setup
+            // socket. Disconnect it first or CoreSocket.connect() returns
+            // early and leaves lifecycle state stranded in Setup.
+            this.transport.disconnect();
             void this.connect().catch(() => undefined);
         }
     }
