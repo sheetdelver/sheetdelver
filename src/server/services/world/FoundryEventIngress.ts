@@ -303,7 +303,15 @@ export class FoundryEventIngress {
             this.getActiveSystemId(),
             packId,
             `${origin}:${entry.action}`,
-        ).catch(error => {
+        ).then(() => {
+            // Successful completion is logged without document content so a
+            // live pack mutation can be audited without exposing pack data.
+            logger.debug('FoundryEventIngress | Invalidated compendium pack content', {
+                origin,
+                packId,
+                action: entry.action,
+            });
+        }).catch(error => {
             logger.error('FoundryEventIngress | Failed to invalidate compendium pack content', {
                 origin,
                 packId,
@@ -566,6 +574,15 @@ export class FoundryEventIngress {
                 id: packId,
             });
             void this.packStore.invalidatePackContent(systemId, packId, 'manageCompendium:create')
+                .then(() => {
+                    // Catalog telemetry records identifiers and outcomes only;
+                    // compendium metadata and rows are intentionally omitted.
+                    logger.debug('FoundryEventIngress | Applied compendium catalog change', {
+                        action,
+                        packId,
+                        outcome: 'created',
+                    });
+                })
                 .catch(error => {
                     logger.error('FoundryEventIngress | Failed to invalidate created compendium pack', {
                         packId,
@@ -587,6 +604,13 @@ export class FoundryEventIngress {
             }
 
             void this.packStore.removePack(systemId, packId, 'manageCompendium:delete')
+                .then(() => {
+                    logger.debug('FoundryEventIngress | Applied compendium catalog change', {
+                        action,
+                        packId,
+                        outcome: 'deleted',
+                    });
+                })
                 .catch(error => {
                     logger.error('FoundryEventIngress | Failed to remove deleted compendium pack', {
                         packId,

@@ -800,14 +800,35 @@ scalar fields retain the compact control. Live acceptance confirmed that
 inspecting a narrative field performs no write and that an actual edit produces
 one user-scoped update.
 
+**Direct-root autosave acceptance:** Live generation 13 testing edited an
+Actor biography field through Foundry's ProseMirror control while the same
+Actor remained open in Sheet Delver. Foundry's generation 13 authority emits
+`pm.autosave` before saving the owning root, so the later
+`modifyDocument` broadcast is an expected second persistence signal rather
+than a distinct user mutation. Sheet Delver converged to the persisted text
+without a browser reload or a write from its generic sheet. This closes the
+generation 13 direct-root Actor autosave acceptance item while retaining both
+ingress paths.
+
+
+**Generation 13 compendium acceptance:** A temporary world Item compendium was
+created through Foundry, populated with an Item, updated, emptied, and deleted.
+Sheet Delver applied both `manageCompendium` catalog transitions immediately.
+Each pack-scoped `modifyDocument` create, update, and delete invalidated only
+that pack's content shard and never entered the world Item Store. Debug
+completion telemetry now records the operation, pack id, and outcome without
+logging document rows or pack metadata, making the catalog and shard boundaries
+auditable in live environments. The isolated test had no preexisting hydrated
+shard, so persistent deletion correctly resolved as a cache miss; fixture and
+store tests retain coverage for removal of populated manifests and historical
+and stable shard keys.
 
 **Open synchronization acceptance:** Targeted live generation 13
 single-response, direct/embedded mutation, ownership, session, and journal
-coverage now passes. Live generation 13 direct-root Actor `pm.autosave` and
-compendium behavior, the full manual matrix for every active direct Store and
-every registered embedded route, live generation 14 side-effect batching, and
-live compendium document/catalog mutation still lack complete recorded
-evidence. These are acceptance gaps, not known failing behavior.
+coverage now passes. The full manual matrix for every active direct Store and
+every registered embedded route and live generation 14 side-effect batching
+still lack complete recorded evidence. These are acceptance gaps, not known
+failing behavior.
 
 **External merge residual:** The high-severity production audit gate passes,
 but npm currently reports moderate advisories for the directly declared Tiptap
