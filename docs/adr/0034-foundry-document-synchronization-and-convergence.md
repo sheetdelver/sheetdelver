@@ -897,6 +897,22 @@ the embedded handler, and each applied a parent RollTable update without a
 repair or dropped-event warning. The temporary documents were removed after
 verification.
 
+**Playlist synchronization acceptance (September 4, 2026):** Playlist and
+PlaylistSound remain active document-cache types so module document reads and
+SDK change signals can observe Foundry playlist metadata. This is not an audio
+transport or playback feature: Sheet Delver does not stream media, expose
+playback controls, or publish a dedicated PlaylistSound mutation API.
+
+Live generation 14 build-367 verification created and updated a temporary
+Playlist, created and updated one embedded PlaylistSound with an empty media
+path, deleted the sound, and deleted the playlist. Core received all six
+single responses. Playlist operations routed directly to PlaylistStore;
+PlaylistSound operations routed through the Playlist embedded handler and
+applied updates to the correct parent. No audio was played, and no dropped
+event or repair warning occurred. The temporary documents were removed during
+the probe. Foundry generation 13 and generation 14 expose the same Playlist
+and PlaylistSound metadata names and schemas for this tested contract.
+
 **External merge residual:** The high-severity production audit gate passes,
 but npm currently reports moderate advisories for the directly declared Tiptap
 3.30.2 family and transitive `qs` 6.15.3. They are not synchronization defects
