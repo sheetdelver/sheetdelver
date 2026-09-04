@@ -932,6 +932,23 @@ Core applied both deletion results and the probe left no temporary documents.
 As with Playlist, Cards data remains synchronized for generic module reads and
 future support; Sheet Delver has no current in-tree Cards UI consumer.
 
+**World Item ActiveEffect acceptance (September 4, 2026):** Foundry
+generation 13 and generation 14 retain the same `Item` and `ActiveEffect`
+document names and `Item.<id>` parent UUID contract. Generation 14 substantially
+changed the ActiveEffect data schema, but ItemStore intentionally treats effect
+rows as opaque documents and deep-merges the fields Foundry emits. No
+generation-specific effect-field translation is required for synchronization.
+Actor-owned Item effects remain a separate path rooted at
+`Actor.<id>.Item.<id>` and continue to route to ActorStore.
+
+Live generation 14 build-367 verification created a valid system-specific
+world Item, updated a nested system description, created and updated a disabled
+embedded ActiveEffect with no changes, deleted the effect, and deleted the
+Item. Core received all six single responses. Item operations routed directly
+to ItemStore, while each ActiveEffect operation routed through the Item
+embedded handler and updated the correct parent. No dropped event, repair
+warning, or temporary document remained after the probe.
+
 **External merge residual:** The high-severity production audit gate passes,
 but npm currently reports moderate advisories for the directly declared Tiptap
 3.30.2 family and transitive `qs` 6.15.3. They are not synchronization defects
