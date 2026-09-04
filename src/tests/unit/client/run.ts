@@ -5,6 +5,7 @@ import { run as runDocumentSource } from './document-source.test';
 import { run as runSdkEventBus } from './sdk-event-bus.test';
 import { run as runCoalescedFetch } from './coalesced-fetch.test';
 import { run as runCombatHudState } from './combat-hud-state.test';
+import { run as runJournalOrdering } from './journal-ordering.test';
 
 export async function run() {
     runFoundryStateHelpers();
@@ -14,6 +15,7 @@ export async function run() {
     runSdkEventBus();
     await runCoalescedFetch();
     runCombatHudState();
+    runJournalOrdering();
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

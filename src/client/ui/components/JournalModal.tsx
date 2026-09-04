@@ -10,12 +10,14 @@ import { useSession } from '@client/ui/context/SessionContext';
 import { logger } from '@shared/utils/logger';
 import { sanitizeRichHtml } from '@shared/security/safeHtml';
 import { SafeHtmlContent } from './SafeHtmlContent';
+import { sortJournalPages } from './journalOrdering';
 
 export default function JournalModal() {
     const { activeJournalId, setActiveJournalId, sharedJournalId, setSharedJournalId } = useUI();
     const {
         getJournal,
         updateJournal,
+        updateJournalPage,
         journalRevisions,
         journalGlobalRevision,
     } = useJournal();
@@ -27,6 +29,11 @@ export default function JournalModal() {
     const [isEditing, setIsEditing] = useState(false);
     const [activePageIndex, setActivePageIndex] = useState(0);
     const activeJournalRevision = activeJournalId ? (journalRevisions[activeJournalId] ?? 0) : 0;
+    // Foundry persists page order in each JournalEntryPage.sort value; socket
+    // and REST payload array order is not itself the ordering contract.
+    const orderedPages = React.useMemo(
+        () => sortJournalPages(journal?.pages ?? []), [journal?.pages],
+    );
 
     useEffect(() => {
         if (activeJournalId) {
@@ -63,13 +70,14 @@ export default function JournalModal() {
 
         try {
             if (journal.pages && journal.pages.length > 0) {
-                const page = journal.pages[activePageIndex];
-                const newPages = [...journal.pages];
-                newPages[activePageIndex] = {
-                    ...page,
-                    text: { ...page.text, content: html }
-                };
-                await updateJournal(journal._id, { pages: newPages });
+                const page = orderedPages[activePageIndex];
+                const pageId = page?._id || page?.id;
+                if (!pageId) throw new Error('Cannot update a journal page without an id');
+                // Pages are embedded Foundry documents. Sending only the page
+                // delta preserves fields omitted from mutation responses.
+                await updateJournalPage(journal._id, pageId, {
+                    text: { ...page.text, content: html },
+                });
             } else {
                 await updateJournal(journal._id, { content: html });
             }
@@ -89,7 +97,7 @@ export default function JournalModal() {
     const canEdit = !isShared && (isGM || (journal?.ownership?.[currentUserId] || 0) >= 3);
     const canShare = isGM && !isShared;
 
-    const currentPage = journal?.pages?.[activePageIndex];
+    const currentPage = orderedPages[activePageIndex];
     const rawContent = currentPage?.text?.content || journal?.content || '';
 
     // Keep editor input raw for round-tripping; only display content receives
@@ -117,9 +125,9 @@ export default function JournalModal() {
                             <h2 className="font-bold text-lg text-white leading-tight truncate">
                                 {journal?.name || 'Loading Journal...'}
                             </h2>
-                            {journal?.pages && journal.pages.length > 0 && (
+                            {orderedPages.length > 0 && (
                                 <p className="text-[10px] text-zinc-500 uppercase font-bold tracking-widest mt-0.5">
-                                    Page {activePageIndex + 1} of {journal.pages.length} {currentPage?.name ? `• ${currentPage.name}` : ''}
+                                    Page {activePageIndex + 1} of {orderedPages.length} {currentPage?.name ? `• ${currentPage.name}` : ''}
                                 </p>
                             )}
                         </div>
@@ -194,7 +202,7 @@ export default function JournalModal() {
                 </div>
 
                 {/* Footer / Pagination */}
-                {journal?.pages && journal.pages.length > 1 && !isEditing && (
+                {orderedPages.length > 1 && !isEditing && (
                     <div className="p-4 bg-black/40 border-t border-white/5 flex items-center justify-between">
                         <button
                             disabled={activePageIndex === 0}
@@ -206,7 +214,7 @@ export default function JournalModal() {
                         </button>
 
                         <div className="hidden sm:flex gap-2">
-                            {journal.pages.map((_, i) => (
+                            {orderedPages.map((_, i) => (
                                 <button
                                     key={i}
                                     onClick={() => setActivePageIndex(i)}
@@ -217,11 +225,11 @@ export default function JournalModal() {
                         </div>
 
                         <div className="sm:hidden text-[10px] font-black text-zinc-600">
-                            {activePageIndex + 1} / {journal.pages.length}
+                            {activePageIndex + 1} / {orderedPages.length}
                         </div>
 
                         <button
-                            disabled={activePageIndex === journal.pages.length - 1}
+                            disabled={activePageIndex === orderedPages.length - 1}
                             onClick={() => setActivePageIndex(p => p + 1)}
                             className="flex items-center gap-2 text-xs font-black text-zinc-500 hover:text-white disabled:opacity-10 transition-colors uppercase tracking-widest"
                         >

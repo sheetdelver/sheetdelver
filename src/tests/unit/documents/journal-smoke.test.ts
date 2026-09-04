@@ -5,7 +5,12 @@ import { journalStore } from '@server/core/documents/primary/journals/JournalSto
 import { userStore } from '@server/core/documents/primary/users/UserStore';
 
 async function runJournalSmokeTests() {
-    const dispatchCalls: Array<{ collection: string; action: string; payload: unknown }> = [];
+    const dispatchCalls: Array<{
+        collection: string;
+        action: string;
+        payload: unknown;
+        parent?: { type: string; id: string };
+    }> = [];
 
     const journalService = createJournalService();
     await userStore.seed(async () => [
@@ -17,21 +22,23 @@ async function runJournalSmokeTests() {
             id: 'folder-root',
             name: 'Root Folder',
             type: 'JournalEntry',
-            parent: null,
+            folder: null,
+            sorting: 'm',
         },
         {
             _id: 'folder-child',
             id: 'folder-child',
             name: 'Child Folder',
             type: 'JournalEntry',
-            parent: 'folder-root',
+            folder: 'folder-root',
+            sorting: 'a',
         },
         {
             _id: 'folder-hidden',
             id: 'folder-hidden',
             name: 'Hidden Folder',
             type: 'JournalEntry',
-            parent: null,
+            folder: null,
         },
     ]);
     await journalStore.seed(async () => [
@@ -59,8 +66,8 @@ async function runJournalSmokeTests() {
     ]);
     const client = {
         userId: 'user-1',
-        dispatchDocument: async (collection: string, action: string, payload: unknown) => {
-            dispatchCalls.push({ collection, action, payload });
+        dispatchDocument: async (collection: string, action: string, payload: unknown, parent?: { type: string; id: string }) => {
+            dispatchCalls.push({ collection, action, payload, parent });
             if (collection === 'JournalEntry' && action === 'update') {
                 return {
                     result: [{ _id: 'j-visible-1', name: 'Renamed Journal' }],
@@ -81,6 +88,9 @@ async function runJournalSmokeTests() {
         ['folder-child', 'folder-root']
     );
 
+    const childFolder = listPayload.folders.find(folder => folder._id === 'folder-child');
+    assert.equal(childFolder?.parent, 'folder-root');
+    assert.equal(childFolder?.sorting, 'a');
     const detailPayload = await journalService.getJournalById(client, 'j-visible-1');
     if ('error' in detailPayload) {
         assert.fail(`Expected journal detail, got error: ${detailPayload.error}`);
@@ -105,14 +115,28 @@ async function runJournalSmokeTests() {
         updates: [{ _id: 'j-visible-1', name: 'Renamed Journal' }],
     });
 
+    await journalService.updateJournalPage(client, 'j-visible-1', 'page-1', {
+        data: { text: { content: '<p>Updated page</p>' } },
+    });
+    const pageUpdateCall = dispatchCalls.find(
+        (call) => call.collection === 'JournalEntryPage' && call.action === 'update',
+    );
+    assert.ok(pageUpdateCall);
+    assert.deepEqual(pageUpdateCall!.payload, {
+        updates: [{ _id: 'page-1', text: { content: '<p>Updated page</p>' } }],
+    });
+
+    assert.deepEqual(pageUpdateCall!.parent, {
+        type: 'JournalEntry', id: 'j-visible-1',
+    });
     await journalService.createJournal(client, {
         type: 'Folder',
-        data: { name: 'New Folder', type: 'JournalEntry', parent: null },
+        data: { name: 'New Folder', type: 'JournalEntry', folder: null },
     });
     const folderCreateCall = dispatchCalls.find((call) => call.collection === 'Folder' && call.action === 'create');
     assert.ok(folderCreateCall);
     assert.deepEqual(folderCreateCall!.payload, {
-        data: [{ name: 'New Folder', type: 'JournalEntry', parent: null }],
+        data: [{ name: 'New Folder', type: 'JournalEntry', folder: null }],
     });
 
     // JournalEntry create routes through JournalRepository.

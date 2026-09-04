@@ -65,6 +65,23 @@ export function registerJournalRoutes(appRouter: express.Router) {
         }
     });
 
+    appRouter.patch('/journals/:id/pages/:pageId', async (req, res) => {
+        try {
+            const client = req.foundryClient;
+            // Page edits use Foundry's embedded JournalEntryPage mutation so
+            // the parent cache retains page ownership and metadata.
+            const payload = await journalService.updateJournalPage(
+                client,
+                req.params.id,
+                req.params.pageId,
+                req.body,
+            );
+            res.json(payload);
+        } catch (error: unknown) {
+            res.status(500).json({ error: getErrorMessage(error) });
+        }
+    });
+
     appRouter.delete('/journals/:id', async (req, res) => {
         try {
             const client = req.foundryClient;

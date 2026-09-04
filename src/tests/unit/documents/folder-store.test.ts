@@ -31,7 +31,7 @@ async function runSeedAndTreeHelpers() {
             _id: 'root',
             name: 'Root',
             type: 'JournalEntry',
-            parent: null,
+            folder: null,
             sort: 10,
             color: '#ff0000',
         },
@@ -39,19 +39,19 @@ async function runSeedAndTreeHelpers() {
             _id: 'child',
             name: 'Child',
             type: 'JournalEntry',
-            parent: 'root',
+            folder: 'root',
         },
         {
             _id: 'grandchild',
             name: 'Grandchild',
             type: 'JournalEntry',
-            parent: 'child',
+            folder: 'child',
         },
         {
             _id: 'actor-folder',
             name: 'Actor Folder',
             type: 'Actor',
-            parent: null,
+            folder: null,
         },
     ]);
 
@@ -156,14 +156,14 @@ async function runBroadcastUpdatesAndInvalidation() {
             _id: 'root',
             name: 'Root',
             type: 'JournalEntry',
-            parent: null,
+            folder: null,
             permission: { default: DocumentOwnershipLevel.NONE },
         },
         {
             _id: 'child',
             name: 'Child',
             type: 'JournalEntry',
-            parent: 'root',
+            folder: 'root',
             permission: { default: DocumentOwnershipLevel.NONE },
         },
     ]);
@@ -173,7 +173,7 @@ async function runBroadcastUpdatesAndInvalidation() {
     store.on('documentChanged', event => changes.push(event as DocumentChangedEvent));
     store.on('documentListInvalidated', event => invalidations.push(event as DocumentListInvalidatedEvent));
 
-    store.applyModifyDocument('Folder', 'update', [{ _id: 'child', parent: null }]);
+    store.applyModifyDocument('Folder', 'update', [{ _id: 'child', folder: null }]);
     assert.equal(store.get('child')?.parent, null);
     assert.equal(changes.length, 1);
     assert.equal(changes[0].action, 'update');
@@ -206,7 +206,7 @@ async function runFolderRepositoryMirrorsWrites() {
                             _id: 'created-folder',
                             name: 'Created Folder',
                             type: 'JournalEntry',
-                            parent: null,
+                            folder: null,
                         },
                     ],
                     operation,
@@ -217,7 +217,7 @@ async function runFolderRepositoryMirrorsWrites() {
                     result: [
                         {
                             _id: 'created-folder',
-                            parent: 'parent-folder',
+                            folder: 'parent-folder',
                         },
                     ],
                     operation,
@@ -228,22 +228,22 @@ async function runFolderRepositoryMirrorsWrites() {
     });
 
     try {
-        await repository.create({ name: 'Created Folder', type: 'JournalEntry', parent: null });
+        await repository.create({ name: 'Created Folder', type: 'JournalEntry', folder: null });
         assert.deepEqual(dispatches[0], {
             type: 'Folder',
             action: 'create',
             operation: {
-                data: [{ name: 'Created Folder', type: 'JournalEntry', parent: null }],
+                data: [{ name: 'Created Folder', type: 'JournalEntry', folder: null }],
             },
         });
         assert.equal(store.get('created-folder')?.parent, null);
 
-        await repository.update('created-folder', { parent: 'parent-folder' });
+        await repository.update('created-folder', { folder: 'parent-folder' });
         assert.deepEqual(dispatches[1], {
             type: 'Folder',
             action: 'update',
             operation: {
-                updates: [{ _id: 'created-folder', parent: 'parent-folder' }],
+                updates: [{ _id: 'created-folder', folder: 'parent-folder' }],
             },
         });
         assert.equal(store.get('created-folder')?.parent, 'parent-folder');

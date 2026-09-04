@@ -34,7 +34,9 @@ function normalizePermissionMap(value: unknown): FolderPermissionMap | undefined
 
 function normalizeFolderDocument(folder: FolderDocument): FolderDocument {
     const normalized = cloneDocument(folder) as FolderDocument;
-    normalized.parent = normalized.parent ?? null;
+    // Foundry v13/v14 persist a parent Folder id in `folder`. Retain the
+    // legacy internal `parent` projection while normalizing canonical input.
+    normalized.parent = normalized.folder ?? normalized.parent ?? null;
 
     const permission = normalizePermissionMap(normalized.permission);
     if (permission) normalized.permission = permission as Record<string, number>;
@@ -45,6 +47,19 @@ function normalizeFolderDocument(folder: FolderDocument): FolderDocument {
 
 function normalizeFolderPatch(folder: FolderDocument): FolderDocument {
     const normalized = cloneDocument(folder) as FolderDocument;
+
+    // Mirror Foundry's canonical parent field and both serialized operator
+    // spellings into the Store's existing parent projection. deepMerge then
+    // materializes the same replacement/deletion semantics for both fields.
+    if (normalized.folder === null || typeof normalized.folder === 'string') {
+        normalized.parent = normalized.folder;
+    }
+    const patch = normalized as Record<string, unknown>;
+    if ('==folder' in patch) patch['==parent'] = patch['==folder'];
+    if ('-=folder' in patch) patch['-=parent'] = patch['-=folder'];
+    if (isRecord(patch.folder) && patch.folder['__$OPERATOR$__']) {
+        patch.parent = cloneDocument(patch.folder);
+    }
 
     if (normalized.permission !== undefined) {
         const permission = normalizePermissionMap(normalized.permission);

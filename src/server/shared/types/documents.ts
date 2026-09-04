@@ -7,7 +7,9 @@ export interface FolderDocument {
     _id?: string;
     name?: string;
     type?: string | null;
+    folder?: string | null;
     parent?: string | null;
+    sorting?: 'a' | 'm';
     sort?: number;
     color?: string | null;
     permission?: Record<string, number>;

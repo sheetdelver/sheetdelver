@@ -4,7 +4,10 @@ export interface JournalPageTextDto {
 }
 
 export interface JournalPageDto {
+    id?: string;
+    _id?: string;
     name?: string;
+    sort?: number;
     text?: JournalPageTextDto;
     [key: string]: unknown;
 }
@@ -16,6 +19,7 @@ export interface JournalEntryDto {
     folder: string | null;
     content?: string;
     pages?: JournalPageDto[];
+    sort?: number;
     ownership?: Record<string, number>;
     [key: string]: unknown;
 }
@@ -27,6 +31,7 @@ export interface JournalFolderDto {
     type: string;
     parent: string | null;
     sort: number;
+    sorting: 'a' | 'm';
     color: string | null;
     ownership?: Record<string, number>;
     [key: string]: unknown;

@@ -5,6 +5,7 @@ import { useJournal, Folder, JournalEntry } from '@client/ui/context/JournalProv
 import { useUI } from '@client/ui/context/UIContext';
 import { useSession } from '@client/ui/context/SessionContext';
 import { Folder as FolderIcon, FileText, ChevronRight, ChevronDown, Plus, Search, Trash2, Book, X } from 'lucide-react';
+import { sortDirectorySiblings } from './journalOrdering';
 
 export default function JournalBrowser() {
     const {
@@ -55,8 +56,9 @@ export default function JournalBrowser() {
 
     const renderFolder = (folder: Folder) => {
         const isExpanded = expandedFolders[folder._id];
-        const childFolders = folders.filter(f => f.parent === folder._id);
-        const childJournals = filteredJournals.filter(j => j.folder === folder._id);
+        const mode = folder.sorting === 'a' ? 'a' : 'm';
+        const childFolders = sortDirectorySiblings(folders.filter(f => f.parent === folder._id), mode);
+        const childJournals = sortDirectorySiblings(filteredJournals.filter(j => j.folder === folder._id), mode);
 
         return (
             <div key={folder._id} className="select-none">
@@ -91,8 +93,10 @@ export default function JournalBrowser() {
         );
     };
 
-    const rootFolders = folders.filter(f => !f.parent);
-    const rootJournals = filteredJournals.filter(j => !j.folder);
+    // Foundry's root sort toggle is browser-local and is not present on socket
+    // documents; preserve the shared persisted manual order in Sheet Delver.
+    const rootFolders = sortDirectorySiblings(folders.filter(f => !f.parent), 'm');
+    const rootJournals = sortDirectorySiblings(filteredJournals.filter(j => !j.folder), 'm');
 
     if (!isJournalOpen) return null;
 

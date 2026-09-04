@@ -9,6 +9,7 @@ import * as journalApi from '@client/ui/api/journalApi';
 import type {
     JournalEntryDto,
     JournalFolderDto,
+    JournalPageDto,
 } from '@shared/contracts/journals';
 import { createCoalescedFetch, type CoalescedFetch } from '@client/ui/context/coalescedFetch';
 import type {
@@ -36,6 +37,7 @@ interface JournalContextType {
     getJournal: (id: string) => Promise<JournalEntry | null>;
     createJournal: (name: string, folderId?: string) => Promise<void>;
     updateJournal: (id: string, data: Partial<JournalEntry>) => Promise<void>;
+    updateJournalPage: (journalId: string, pageId: string, data: Partial<JournalPageDto>) => Promise<void>;
     deleteJournal: (id: string) => Promise<void>;
     createFolder: (name: string, parentId?: string) => Promise<void>;
 }
@@ -178,6 +180,16 @@ export function JournalProvider({ children }: { children: React.ReactNode }) {
         }
     };
 
+    const updateJournalPage = async (
+        journalId: string,
+        pageId: string,
+        data: Partial<JournalPageDto>,
+    ) => {
+        // Keep page writes on Foundry's embedded-document path. The resulting
+        // JournalEntryPage event invalidates the parent journal detail.
+        await journalApi.updateJournalPage(token, journalId, pageId, data);
+    };
+
     const deleteJournal = async (id: string) => {
         try {
             await journalApi.deleteJournalEntry(token, id);
@@ -199,7 +211,8 @@ export function JournalProvider({ children }: { children: React.ReactNode }) {
     return (
         <JournalContext.Provider value={{
             journals, folders, loading, error, journalRevisions, journalGlobalRevision,
-            fetchJournals, getJournal, createJournal, updateJournal, deleteJournal, createFolder
+            fetchJournals, getJournal, createJournal, updateJournal, updateJournalPage,
+            deleteJournal, createFolder
         }}>
             {children}
         </JournalContext.Provider>

@@ -23,6 +23,11 @@ found during live acceptance is corrected below. Phase 5 is pending.
 and operator documentation is complete; local automated gates and CI for the
 Phase 4 implementation pass. Final CI for this documentation change and the
 remaining live acceptance items recorded below are still open.
+**Status amendment (September 3, 2026):** Targeted live generation 13
+acceptance now passes. The isolated run also exposed and corrected world-import
+initialization, embedded journal-page writes, canonical Folder ancestry, and
+journal ordering defects. Phase 5 remains open for the residual live matrix and
+green CI on these corrections.
 **Date:** September 2, 2026
 **Phase:** Pre-main synchronization remediation
 **Supersedes:** None
@@ -713,14 +718,72 @@ repeated login/logout; restart restoration; setup/world lifecycle recovery;
 world replacement without stale state; and actor roll creation with the
 canonical ChatMessage `style`/`rolls` shape.
 
-**Open synchronization acceptance:** The final code has not been rerun against
-a live generation 13 instance. Generation 13 single-response, autosave, and
-compendium behavior has fixture coverage and its retained source contract was
-checked, but this ADR's live generation 13 exit criterion remains open. The
-full manual matrix for every active direct Store and every registered embedded
-route, live generation 14 side-effect batching, non-Actor rich-text autosave,
-and live compendium document/catalog mutation also lacks complete recorded
-evidence. These are acceptance gaps, not known failing behavior.
+
+**Generation 13 live acceptance amendment (September 3, 2026):** The current
+branch was run against Foundry generation 13 build 351 with a Daggerheart world,
+an Assistant-role service account, and a separate player account. Sheet Delver
+used an isolated source copy, data directory, configuration directory, and
+ports; neither the normal Sheet Delver data directory nor the generation 14
+instance participated in the test.
+
+Core completed the generation 13 login contract, bootstrap, player login,
+session restoration, and single `modifyDocument` ingress. Live mutations
+covered User creation/update, Actor creation and field changes, embedded Actor
+Item creation, player-specific Actor ownership transitions through visible and
+hidden states, JournalEntry and JournalEntryPage creation/update, and loss plus
+restoration of Actor visibility. Dashboard and authorized API projections
+updated without a Sheet Delver restart.
+
+**Isolated acceptance tooling correction:** The live setup exposed that
+`admin:import` resolved paths before initializing Core's managed data-directory
+state. It could scrape a world and print success while `PersistentCache` failed
+to write the discovered metadata. The importer now initializes the resolved
+`SHEET_DELVER_DATA` or `--data-dir` path before constructing SetupManager,
+reads the saved cache back before reporting success, and selects the imported
+world when exactly one world was discovered. A child-process test invokes the
+real command against temporary Foundry and Sheet Delver directories and verifies
+the persisted metadata and current world id.
+
+**Journal live-acceptance correction:** The pre-correction editor updated page
+text by replacing the parent JournalEntry's complete `pages` array. Foundry
+accepted the write, but a partial parent update result could replace hydrated
+page fields in the Store; page visibility projection then omitted the damaged
+cached page and Sheet Delver displayed blank content. Page edits now dispatch a
+version-neutral embedded `JournalEntryPage` update with the parent
+`JournalEntry.<id>`. The existing embedded Store path merges only the returned
+page delta and preserves ownership, identity, and other page metadata.
+
+The same live run exposed a separate directory projection mismatch. Foundry
+generation 13 and 14 both persist a Folder's parent id in `folder`, while the
+Sheet Delver tree expected `parent`. FolderStore now normalizes canonical
+`folder` values and both generations' serialized replacement/deletion forms
+into the established internal parent projection. New folder creates send the
+canonical field. The journal browser sorts nested siblings according to each
+parent Folder's persisted alphabetical/manual mode, uses persisted numeric sort
+at the root where Foundry's own mode is browser-local, and orders
+JournalEntryPages by their numeric `sort` value. Focused tests cover canonical
+ancestry, service projection, non-mutating sibling ordering, and page order.
+
+These corrections use contracts shared by generations 13 and 14. They do not
+branch on a specific Foundry build, change requesting-user authorization, alter
+the world lifecycle state machine, or modify a system module.
+
+**Generation 13 correction-batch verification:** Live generation 13 acceptance
+confirmed immediate JournalEntryPage text persistence, canonical folder and
+subfolder projection, sibling ordering, and numeric page ordering. TypeScript,
+lint, the full unit suite, the isolated integration suite, and a Turbopack
+production build all pass. The build used a credential-free generated fixture
+and an isolated source tree outside the repository; it did not read or write the
+normal Sheet Delver `<DATA_DIR>`. CI evidence remains pending until this batch is
+committed and pushed.
+
+**Open synchronization acceptance:** Targeted live generation 13
+single-response, direct/embedded mutation, ownership, session, and journal
+coverage now passes. Live generation 13 `pm.autosave` and compendium behavior,
+the full manual matrix for every active direct Store and every registered
+embedded route, live generation 14 side-effect batching, non-Actor rich-text
+autosave, and live compendium document/catalog mutation still lack complete
+recorded evidence. These are acceptance gaps, not known failing behavior.
 
 **External merge residual:** The high-severity production audit gate passes,
 but npm currently reports moderate advisories for the directly declared Tiptap

@@ -106,6 +106,7 @@ import { run as runAdminRateLimiter } from './admin/admin-rate-limiter.test';
 import { run as runAdminAuditLog } from './admin/admin-audit-log.test';
 import { run as runSourceProfileRedaction } from './admin/source-profile-redaction.test';
 import { run as runAdminOneTimeCredentialStore } from './admin/admin-one-time-credential-store.test';
+import { run as runAdminImportWorlds } from './admin/admin-import-worlds.test';
 
 // ── modules ───────────────────────────────────────────────────────────────────
 import { run as runModuleProxyMatcher } from './modules/module-proxy-matcher.test';
@@ -231,6 +232,7 @@ async function runAllUnitTests() {
     await runAdminAuditLog();
     await runSourceProfileRedaction();
     runAdminOneTimeCredentialStore();
+    runAdminImportWorlds();
     runModuleLifecycleTransitions();
     await runModuleManagerOperations();
     await runModuleManagerGovernance();

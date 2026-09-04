@@ -66,8 +66,11 @@ export function createJournalService() {
         _id: String(folder._id || folder.id || ''),
         name: String(folder.name || ''),
         type: String(folder.type || ''),
-        parent: (folder.parent ?? null) as string | null,
+        // FolderStore normally supplies parent; the canonical Foundry field is
+        // retained as a defensive fallback for mixed/bootstrap payloads.
+        parent: (folder.parent ?? folder.folder ?? null) as string | null,
         sort: getNumberField(folder['sort']),
+        sorting: folder.sorting === 'm' ? 'm' as const : 'a' as const,
         color: getNullableStringField(folder['color']),
     });
 
@@ -137,6 +140,17 @@ export function createJournalService() {
         return createJournalRepository(client).update(journalId, data);
     };
 
+    const updateJournalPage = async (
+        client: JournalClientLike,
+        journalId: string,
+        pageId: string,
+        body: JournalMutationBody,
+    ) => {
+        // JournalEntryPage is an embedded document in Foundry v13 and v14;
+        // preserve that boundary so cache mirroring merges a child delta.
+        return createJournalRepository(client).updatePage(journalId, pageId, body.data);
+    };
+
     const deleteJournal = async (client: JournalClientLike, journalId: string, query: JournalDeleteQuery) => {
         const { type } = query;
         const resolvedType = Array.isArray(type) ? type[0] : type;
@@ -150,6 +164,7 @@ export function createJournalService() {
         createJournal,
         getJournalById,
         updateJournal,
+        updateJournalPage,
         deleteJournal
     };
 }
