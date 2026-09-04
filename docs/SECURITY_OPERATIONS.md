@@ -3,13 +3,17 @@
 This runbook covers the local operator actions introduced by ADR-0033 Phases 3
 and 4.
 All paths are relative to the configured `<DATA_DIR>` unless stated otherwise.
+For setting purpose, defaults, and required/optional status, see
+[`CONFIGURATION.md`](CONFIGURATION.md).
 
 ## External Secrets
 
-Secret-bearing settings accept exactly one structured reference:
+The Foundry service-account username and secret-bearing settings accept
+exactly one structured reference:
 
 ```yaml
 foundry:
+    username: { env: FOUNDRY_USERNAME }
     password: { env: FOUNDRY_PASSWORD }
 
 security:

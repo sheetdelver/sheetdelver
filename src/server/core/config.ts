@@ -185,6 +185,10 @@ export async function loadConfig(): Promise<AppConfig | null> {
                 foundry.password,
                 'foundry.password',
             );
+            // Keep the service-account identity explicit in settings.yaml while
+            // allowing its value to be supplied by the same env/file references.
+            const resolvedFoundryUsername = envUsername
+                || resolveExternalSecret(foundry.username, 'foundry.username')?.value;
             const resolvedServiceToken = resolveConfiguredSecret(
                 envServiceToken,
                 security['service-token'],
@@ -244,7 +248,7 @@ export async function loadConfig(): Promise<AppConfig | null> {
                     port: port,
                     protocol: protocol,
                     url: foundryUrl,
-                    username: envUsername || foundry.username,
+                    username: resolvedFoundryUsername,
                     password: resolvedFoundryPassword,
                     userId: foundry.userId,
                     connector: foundry.connector,

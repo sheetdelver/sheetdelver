@@ -146,9 +146,10 @@ async function main() {
         },
         {
             type: 'input',
-            name: 'foundryUsername',
-            message: 'Foundry Username (GM/Assistant):',
-            default: 'gamemaster'
+            name: 'foundryUsernameEnv',
+            message: 'Foundry Username Environment Variable:',
+            default: 'FOUNDRY_USERNAME',
+            validate: validateEnvironmentName,
         },
         {
             type: 'input',
@@ -171,9 +172,9 @@ async function main() {
         },
         {
             type: 'confirm',
-            name: 'persistFoundrySessions',
-            message: 'Enable encrypted cross-restart Foundry session restoration?',
-            default: true,
+            name: 'configureFoundrySessionKey',
+            message: 'Configure an explicit Foundry session key instead of the automatic host key?',
+            default: false,
         },
         {
             type: 'input',
@@ -181,7 +182,7 @@ async function main() {
             message: 'Foundry Session Key Environment Variable:',
             default: 'APP_FOUNDRY_SESSION_KEY',
             validate: validateEnvironmentName,
-            when: (answers) => answers.persistFoundrySessions,
+            when: (answers) => answers.configureFoundrySessionKey,
         },
         {
             type: 'confirm',
@@ -219,7 +220,7 @@ async function main() {
             port: answers.foundryPort,
             protocol: answers.foundryProtocol,
             connector: 'socket',
-            username: answers.foundryUsername,
+            username: { env: answers.foundryUsernameEnv },
             password: { env: answers.foundryPasswordEnv },
             "allow-live-compendium-uuid-fallback": false,
             ...(answers.foundryDataDir ? { foundryDataDirectory: answers.foundryDataDir } : {})
@@ -243,7 +244,8 @@ async function main() {
                 "allowed-origins": [buildAppUrl(answers.appProtocol, answers.appHost, answers.appPort)]
             },
             "service-token": { env: answers.serviceTokenEnv },
-            ...(answers.persistFoundrySessions
+            // Omitting this reference selects Core's owner-only automatic host key.
+            ...(answers.configureFoundrySessionKey
                 ? { "foundry-session-key": { env: answers.foundrySessionKeyEnv } }
                 : {})
         }
@@ -257,10 +259,11 @@ async function main() {
 
     logger.info(`\n\x1b[32mConfiguration saved to ${SETTINGS_PATH}\x1b[0m`);
     logger.info(`Data directory: ${getDataDir()}`);
-    logger.info('Set the referenced environment secrets before startup:');
+    logger.info('Set the referenced environment configuration before startup:');
+    logger.info(`  ${answers.foundryUsernameEnv}=<Foundry service-account username>`);
     logger.info(`  ${answers.foundryPasswordEnv}=<Foundry password>`);
     logger.info(`  ${answers.serviceTokenEnv}=<32+ byte random service token>`);
-    if (answers.persistFoundrySessions) {
+    if (answers.configureFoundrySessionKey) {
         logger.info(`  ${answers.foundrySessionKeyEnv}=base64:<32-byte random key>`);
     }
 

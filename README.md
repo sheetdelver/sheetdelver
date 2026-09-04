@@ -92,6 +92,8 @@ data/
 #### settings.yaml
 
 The main configuration file lives at `<DATA_DIR>/config/settings.yaml`.
+See the [configuration reference](docs/CONFIGURATION.md) for every setting,
+environment override, default, and required/optional distinction.
 
 ```yaml
 # settings.yaml
@@ -109,8 +111,8 @@ foundry:
     port: 30000               # Port of your Foundry VTT instance
     protocol: http            # Protocol (http/https)
     connector: socket         # 'socket' (Headless Sockets)
-    username: "gamemaster"    # Required for Headless connection
-    password: { env: FOUNDRY_PASSWORD }
+    username: { env: FOUNDRY_USERNAME } # Required Core service-account name
+    password: { env: FOUNDRY_PASSWORD } # Required only when that account has a password
     # Optional diagnostic escape hatch. Keep false for normal module/SDK reads:
     # compendium UUIDs should resolve from declared hydrated compendium pack rows.
     allow-live-compendium-uuid-fallback: false
@@ -136,14 +138,16 @@ security:
         allow-all-origins: false
         allowed-origins:
             - http://localhost:3000
+    # Optional: authenticates trusted server-to-server privileged API requests.
     service-token: { env: APP_SERVICE_TOKEN }
-    # Optional override. Otherwise Core creates an owner-only host key outside <DATA_DIR>.
+    # Optional explicit key. Otherwise Core creates an owner-only host key outside <DATA_DIR>.
     foundry-session-key: { env: APP_FOUNDRY_SESSION_KEY }
-    # Optional extra input to the stored admin password hash.
+    # Optional extra input to the admin password verifier; keep stable once enabled.
     admin-pepper: { env: APP_ADMIN_PEPPER }
 ```
 
-Secret-bearing fields accept `{ env: VARIABLE_NAME }` or
+The service-account username and secret-bearing fields accept
+`{ env: VARIABLE_NAME }` or
 `{ file: /absolute/path }`. Secret files must be regular, non-symlink files,
 must not grant group/other permissions, and are limited to 16 KiB. Encryption
 key files must also live outside `<DATA_DIR>`. Inline string values remain a
@@ -156,6 +160,7 @@ New and existing installations should keep reusable credentials out of
 create a project-root `.env` file containing the values referenced above:
 
 ```dotenv
+FOUNDRY_USERNAME="replace-with-the-service-account-username"
 FOUNDRY_PASSWORD="replace-with-the-service-account-password"
 APP_SERVICE_TOKEN="replace-with-a-separate-random-token"
 ```
@@ -166,9 +171,10 @@ the operating system, service manager, or container take precedence. `.env*`
 is excluded by this repository's `.gitignore`, but operators must still avoid
 copying it into images, backups, logs, browser code, or source control.
 
-Existing installations migrate by placing their current values in `.env`,
-replacing the inline YAML strings with `{ env: FOUNDRY_PASSWORD }` and
-`{ env: APP_SERVICE_TOKEN }`, and restarting. Confirm the legacy-inline warnings
+Existing installations migrate by placing their current username, password,
+and service token in `.env`; replacing the inline YAML values with
+`{ env: FOUNDRY_USERNAME }`, `{ env: FOUNDRY_PASSWORD }`, and
+`{ env: APP_SERVICE_TOKEN }`; and restarting. Confirm the legacy-inline warnings
 are gone, the Core service account connects to Foundry, and trusted
 service-token callers still authenticate before removing unsecured copies.
 Moving an existing token does not rotate it; generating a new token requires
@@ -197,8 +203,8 @@ openssl rand -hex 32
 node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
 ```
 
-Direct environment overrides include `FOUNDRY_PASSWORD`, `APP_SERVICE_TOKEN`,
-`APP_ADMIN_PEPPER`, `APP_FOUNDRY_SESSION_KEY`, and
+Direct environment overrides include `FOUNDRY_USERNAME`, `FOUNDRY_PASSWORD`,
+`APP_SERVICE_TOKEN`, `APP_ADMIN_PEPPER`, `APP_FOUNDRY_SESSION_KEY`, and
 `APP_FOUNDRY_SESSION_PREVIOUS_KEY`. `APP_ADMIN_ORIGIN` overrides the local
 browser origin, and `APP_ADMIN_ALLOWED_NETWORKS` accepts a comma-separated CIDR
 list. Generate a session key with:
