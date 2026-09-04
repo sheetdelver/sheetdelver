@@ -2,9 +2,14 @@ import { logger } from '../shared/utils/logger';
 import fs from 'fs';
 import path from 'path';
 import yaml from 'js-yaml';
+import { config as loadDotEnv } from 'dotenv';
 import { spawn, ChildProcess } from 'child_process';
 import { resolveDataDir, initDataDir, getConfigFilePath, getCacheDir, getDataDir } from '../server/core/paths';
 import { resolveAdminOrigin } from '../shared/security/adminOrigin';
+
+// The manager is the parent of both Core and Next, so it must load project-root
+// secrets before either child is spawned. Existing process variables retain priority.
+loadDotEnv({ quiet: true });
 
 // Resolve and initialize data directory before anything else
 const dataDir = resolveDataDir(process.argv);

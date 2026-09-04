@@ -149,6 +149,40 @@ must not grant group/other permissions, and are limited to 16 KiB. Encryption
 key files must also live outside `<DATA_DIR>`. Inline string values remain a
 migration-only compatibility form and produce a startup warning.
 
+##### Keeping secrets out of settings.yaml
+
+New and existing installations should keep reusable credentials out of
+`<DATA_DIR>/config/settings.yaml`. For a local or single-host installation,
+create a project-root `.env` file containing the values referenced above:
+
+```dotenv
+FOUNDRY_PASSWORD="replace-with-the-service-account-password"
+APP_SERVICE_TOKEN="replace-with-a-separate-random-token"
+```
+
+Set the file to owner-only access (`chmod 600 .env`). Sheet Delver loads `.env`
+before starting Core and the application shell; variables already supplied by
+the operating system, service manager, or container take precedence. `.env*`
+is excluded by this repository's `.gitignore`, but operators must still avoid
+copying it into images, backups, logs, browser code, or source control.
+
+Existing installations migrate by placing their current values in `.env`,
+replacing the inline YAML strings with `{ env: FOUNDRY_PASSWORD }` and
+`{ env: APP_SERVICE_TOKEN }`, and restarting. Confirm the legacy-inline warnings
+are gone, the Core service account connects to Foundry, and trusted
+service-token callers still authenticate before removing unsecured copies.
+Moving an existing token does not rotate it; generating a new token requires
+updating every trusted server-side caller at the same time.
+
+Production service managers and container platforms may inject the same
+variables through their own secret facilities instead of using `.env`.
+Absolute `{ file: ... }` references are also supported for deployments that
+manage owner-only secret files. The obsolete `security.admin-setup-token` has
+no migration: remove it because Core ignores it, and use
+`npm run admin:bootstrap` or `npm run admin:recover` for one-time admin access.
+See [`docs/SECURITY_OPERATIONS.md`](docs/SECURITY_OPERATIONS.md#external-secrets)
+for file validation, session-key handling, rotation, and recovery details.
+
 The service token is used only for internal privileged API bearer flows. Do
 not reuse a Foundry or admin password. Foundry session keys must be exactly 32
 bytes encoded with an explicit `base64:` or `hex:` prefix.
