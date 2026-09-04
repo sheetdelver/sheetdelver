@@ -10,7 +10,11 @@ import { useSession } from '@client/ui/context/SessionContext';
 import { logger } from '@shared/utils/logger';
 import { sanitizeRichHtml } from '@shared/security/safeHtml';
 import { SafeHtmlContent } from './SafeHtmlContent';
-import { sortJournalPages } from './journalOrdering';
+import {
+    getJournalPageId,
+    resolveJournalPageSelection,
+    sortJournalPages,
+} from './journalOrdering';
 
 export default function JournalModal() {
     const { activeJournalId, setActiveJournalId, sharedJournalId, setSharedJournalId } = useUI();
@@ -27,27 +31,45 @@ export default function JournalModal() {
     const [journal, setJournal] = useState<JournalEntry | null>(null);
     const [loading, setLoading] = useState(false);
     const [isEditing, setIsEditing] = useState(false);
-    const [activePageIndex, setActivePageIndex] = useState(0);
+    const [activePageId, setActivePageId] = useState<string | null>(null);
+    const requestedJournalIdRef = React.useRef<string | null>(null);
     const activeJournalRevision = activeJournalId ? (journalRevisions[activeJournalId] ?? 0) : 0;
     // Foundry persists page order in each JournalEntryPage.sort value; socket
     // and REST payload array order is not itself the ordering contract.
     const orderedPages = React.useMemo(
         () => sortJournalPages(journal?.pages ?? []), [journal?.pages],
     );
+    const selectedPageIndex = activePageId
+        ? orderedPages.findIndex(page => getJournalPageId(page) === activePageId)
+        : 0;
+    const activePageIndex = selectedPageIndex >= 0 ? selectedPageIndex : 0;
+
+    const selectPageAtIndex = (index: number) => {
+        setActivePageId(getJournalPageId(orderedPages[index]));
+    };
 
     useEffect(() => {
         if (activeJournalId) {
-            setLoading(true);
-            setIsEditing(false);
-            setActivePageIndex(0);
+            const journalChanged = requestedJournalIdRef.current !== activeJournalId;
+            requestedJournalIdRef.current = activeJournalId;
+            if (journalChanged) {
+                setLoading(true);
+                setIsEditing(false);
+                setActivePageId(null);
+            }
             getJournal(activeJournalId).then(data => {
+                // Ignore a late response from a journal that has since closed
+                // or been replaced by another journal in the same modal.
+                if (requestedJournalIdRef.current !== activeJournalId) return;
                 setJournal(data);
+                setActivePageId(current => resolveJournalPageSelection(data?.pages ?? [], current));
                 setLoading(false);
             });
         } else {
+            requestedJournalIdRef.current = null;
             setJournal(null);
             setIsEditing(false);
-            setActivePageIndex(0);
+            setActivePageId(null);
         }
     // Realtime revisions are scoped by Journal id; broad invalidations use the
     // global revision. getJournal coalesces a change during an active detail
@@ -206,7 +228,7 @@ export default function JournalModal() {
                     <div className="p-4 bg-black/40 border-t border-white/5 flex items-center justify-between">
                         <button
                             disabled={activePageIndex === 0}
-                            onClick={() => setActivePageIndex(p => p - 1)}
+                            onClick={() => selectPageAtIndex(activePageIndex - 1)}
                             className="flex items-center gap-2 text-xs font-black text-zinc-500 hover:text-white disabled:opacity-10 transition-colors uppercase tracking-widest"
                         >
                             <ChevronLeft className="w-5 h-5 font-bold" />
@@ -214,10 +236,10 @@ export default function JournalModal() {
                         </button>
 
                         <div className="hidden sm:flex gap-2">
-                            {orderedPages.map((_, i) => (
+                            {orderedPages.map((page, i) => (
                                 <button
-                                    key={i}
-                                    onClick={() => setActivePageIndex(i)}
+                                    key={getJournalPageId(page) ?? i}
+                                    onClick={() => selectPageAtIndex(i)}
                                     className={`w-2 h-2 rounded-full transition-all hover:scale-125 ${i === activePageIndex ? 'bg-amber-500 w-6' : 'bg-white/10 hover:bg-white/30'}`}
                                     title={`Go to page ${i + 1}`}
                                 />
@@ -230,7 +252,7 @@ export default function JournalModal() {
 
                         <button
                             disabled={activePageIndex === orderedPages.length - 1}
-                            onClick={() => setActivePageIndex(p => p + 1)}
+                            onClick={() => selectPageAtIndex(activePageIndex + 1)}
                             className="flex items-center gap-2 text-xs font-black text-zinc-500 hover:text-white disabled:opacity-10 transition-colors uppercase tracking-widest"
                         >
                             Next

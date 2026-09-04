@@ -3,6 +3,11 @@ interface FoundrySortable {
     sort?: number;
 }
 
+interface FoundryPageIdentity extends FoundrySortable {
+    id?: string;
+    _id?: string;
+}
+
 export type FoundryDirectorySortMode = 'a' | 'm';
 
 function compareAlphabetically(a: FoundrySortable, b: FoundrySortable): number {
@@ -27,4 +32,19 @@ export function sortDirectorySiblings<T extends FoundrySortable>(
 /** JournalEntryPage order is always its persisted numeric sort order. */
 export function sortJournalPages<T extends FoundrySortable>(pages: readonly T[]): T[] {
     return [...pages].sort(compareManually);
+}
+
+export function getJournalPageId(page: FoundryPageIdentity | undefined): string | null {
+    return page?._id || page?.id || null;
+}
+
+/** Retain a selected page across refreshed payloads and ordering changes. */
+export function resolveJournalPageSelection(
+    pages: readonly FoundryPageIdentity[],
+    selectedPageId: string | null,
+): string | null {
+    if (selectedPageId && pages.some(page => getJournalPageId(page) === selectedPageId)) {
+        return selectedPageId;
+    }
+    return getJournalPageId(sortJournalPages(pages)[0]);
 }

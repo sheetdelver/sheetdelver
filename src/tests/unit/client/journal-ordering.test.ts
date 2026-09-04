@@ -1,5 +1,6 @@
 import { strict as assert } from 'node:assert';
 import {
+    resolveJournalPageSelection,
     sortDirectorySiblings,
     sortJournalPages,
 } from '@client/ui/components/journalOrdering';
@@ -35,6 +36,21 @@ export function run() {
         ]).map(page => page._id),
         ['page-1', 'page-2', 'page-3'],
         'journal pages follow their persisted numeric order',
+    );
+
+    const refreshedPages = [
+        { _id: 'page-2', sort: 100 },
+        { _id: 'page-1', sort: 200 },
+    ];
+    assert.equal(
+        resolveJournalPageSelection(refreshedPages, 'page-2'),
+        'page-2',
+        'a refresh preserves selection by page identity when order changes',
+    );
+    assert.equal(
+        resolveJournalPageSelection(refreshedPages, 'page-removed'),
+        'page-2',
+        'a removed selection falls back to the first sorted page',
     );
 
     console.log('  - Journal directory/page ordering: all checks passed');

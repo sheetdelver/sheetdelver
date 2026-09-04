@@ -777,13 +777,24 @@ and an isolated source tree outside the repository; it did not read or write the
 normal Sheet Delver `<DATA_DIR>`. CI evidence remains pending until this batch is
 committed and pushed.
 
+**Embedded autosave acceptance correction:** A generation 13 ProseMirror
+autosave was exercised while the journal modal displayed a noninitial page.
+The persisted page content converged immediately, but the revision-triggered
+detail refresh also reused the journal-open initialization path, displayed its
+loading state, and reset navigation to the first page. The modal now keys its
+selection by JournalEntryPage id, resets only when journal identity changes,
+retains the same page across refreshed or reordered payloads, and falls back to
+the first sorted page only when the selected page was removed. The repeated
+live autosave converged without a modal reload or page-selection change.
+
+
 **Open synchronization acceptance:** Targeted live generation 13
 single-response, direct/embedded mutation, ownership, session, and journal
-coverage now passes. Live generation 13 `pm.autosave` and compendium behavior,
-the full manual matrix for every active direct Store and every registered
-embedded route, live generation 14 side-effect batching, non-Actor rich-text
-autosave, and live compendium document/catalog mutation still lack complete
-recorded evidence. These are acceptance gaps, not known failing behavior.
+coverage now passes. Live generation 13 direct-root Actor `pm.autosave` and
+compendium behavior, the full manual matrix for every active direct Store and
+every registered embedded route, live generation 14 side-effect batching, and
+live compendium document/catalog mutation still lack complete recorded
+evidence. These are acceptance gaps, not known failing behavior.
 
 **External merge residual:** The high-severity production audit gate passes,
 but npm currently reports moderate advisories for the directly declared Tiptap
