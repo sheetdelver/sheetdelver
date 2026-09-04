@@ -1327,6 +1327,17 @@ change introduces a disallowed dependency risk.
 The separately managed module font CSP finding remains outside Core and is the
 only residual identified by this review.
 
+**Subsequent dependency refresh (September 4, 2026):** Newly published
+moderate advisories affected the previously recorded Tiptap 3.30.2 family,
+transitive `qs` 6.15.3, and development-only `@humanfs/node` 0.16.7. Tiptap was
+upgraded as one exact-peer family to 3.31.3, `qs` to 6.16.0, and
+`@humanfs/node` to 0.16.8. The resulting peer graph is valid; full and
+production-only npm audits report zero vulnerabilities. TypeScript, lint, the
+full unit suite, isolated integration suite, temporary-data production build,
+and live rich-text persistence and formatting smoke test pass. The smoke test
+also led to scoped semantic heading and list styles for editor content; this
+presentation correction does not change HTML storage or synchronization.
+
 ## Deferred Activation Gate
 
 Remote distribution is not an implementation phase in this ADR. If it becomes

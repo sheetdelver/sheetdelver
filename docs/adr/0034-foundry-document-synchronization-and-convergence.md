@@ -28,6 +28,11 @@ acceptance now passes. The isolated run also exposed and corrected world-import
 initialization, embedded journal-page writes, canonical Folder ancestry, and
 journal ordering defects. Phase 5 remains open for the residual live matrix and
 green CI on these corrections.
+**Status amendment (September 4, 2026):** The remaining generation 14 direct,
+embedded, audience, and session-retirement live matrix now passes. All local
+Phase 5 gates pass and the external dependency residual is remediated below.
+Phase 5 awaits only green CI on the final closeout commit before this ADR is
+marked complete.
 **Date:** September 2, 2026
 **Phase:** Pre-main synchronization remediation
 **Supersedes:** None
@@ -1108,6 +1113,24 @@ and do not change this ADR's architecture, but dependency upgrades and their
 editor/request regression checks should be resolved or explicitly accepted
 before merging to main. The registry currently offers Tiptap 3.31.2 and `qs`
 6.16.0 as upgrade targets.
+
+**Subsequent dependency and editor closeout (September 4, 2026):** The Tiptap
+family was upgraded together to 3.31.3, transitive `qs` was upgraded to 6.16.0,
+and ESLint's development-only `@humanfs/node` was upgraded to 0.16.8. The final
+peer graph is valid, and both full and production-only npm audits report zero
+vulnerabilities. TypeScript, lint, the full unit suite, the isolated integration
+suite, and a production build against an operating-system temporary data
+directory pass.
+
+The editor smoke test confirmed Sheet Delver-to-Foundry rich-text persistence
+and formatting after the Tiptap upgrade. It also exposed an existing display
+gap: Tailwind preflight removed semantic heading sizes and list markers while
+the editor referenced `prose` classes without the typography plugin that
+defines them. RichTextEditor now applies a stable, scoped content class, and
+Core CSS explicitly restores H1/H2 hierarchy and ordered/unordered list
+markers without changing persisted HTML or adding another dependency. Live
+retesting confirmed headings, lists, inline formatting, save, reopen, and
+Foundry round-trip behavior.
 
 Implementation comments are required where response normalization, UUID/root
 resolution, audience calculation, or epoch rejection would otherwise be
