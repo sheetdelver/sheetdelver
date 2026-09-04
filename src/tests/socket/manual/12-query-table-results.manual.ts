@@ -64,7 +64,7 @@ async function main() {
         }
 
         // Approach 3: Try the embedded UUID shape. ADR-0016 intentionally
-        // leaves RollTableResult rows inside the RollTable payload, so the
+        // leaves TableResult rows inside the RollTable payload, so the
         // route-level resolver is expected to return null here.
         logger.info('\nApproach 3: Fetch first result with embedded UUID');
         const firstResultId = table.results[0];

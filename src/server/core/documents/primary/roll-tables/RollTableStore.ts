@@ -32,7 +32,7 @@ function resultId(result: unknown): string | null {
  * OWNER via `getEffectiveOwnership`; non-GM subjects read explicit user entry
  * or fall back to `ownership.default`. Same policy as Actor, Item, JournalEntry.
  *
- * Embedded children: `RollTableResult` events with `parentUuid: RollTable.<id>`
+ * Embedded children: `TableResult` events with `parentUuid: RollTable.<id>`
  * apply to the parent table's `results[]` array. `drawn: boolean` flips through
  * as a normal embedded `update` — no special handling beyond the standard
  * in-place array maintenance.
@@ -67,7 +67,7 @@ export class RollTableStore extends PrimaryDocumentStore<RollTableDocument> {
     }
 
     /**
-     * Embedded handler for `RollTableResult` events under RollTables. Foundry
+     * Embedded handler for `TableResult` events under RollTables. Foundry
      * dispatches these with `parentUuid: RollTable.<id>`; the parent table's
      * `results[]` array is mutated in place and a `documentChanged` (update)
      * fires on the parent so fan-out subscribers refresh.
@@ -78,7 +78,9 @@ export class RollTableStore extends PrimaryDocumentStore<RollTableDocument> {
         result: unknown,
         operation?: Record<string, unknown>,
     ): void {
-        if (type !== 'RollTableResult') return;
+        // Foundry v13 and v14 both name the embedded socket document
+        // `TableResult`; `RollTableResult` is not a wire document type.
+        if (type !== 'TableResult') return;
         const tableId = this.getTableIdFromOperation(operation);
         if (!tableId) return;
         const table = this.documents.get(tableId);

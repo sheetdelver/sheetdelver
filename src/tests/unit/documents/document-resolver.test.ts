@@ -382,7 +382,7 @@ async function runEmbeddedMissingAndMalformedResolution() {
     assert.equal(await resolver.fetchByUuid('Actor.actor-1.Item.item-1.JournalEntryPage.page-1'), null);
     assert.equal(await resolver.fetchByUuid('Actor.actor-1.Item'), null);
     assert.deepEqual(await resolver.fetchByUuid('RollTable.table-1'), rollTable);
-    assert.equal(await resolver.fetchByUuid('RollTable.table-1.RollTableResult.result-1'), null);
+    assert.equal(await resolver.fetchByUuid('RollTable.table-1.TableResult.result-1'), null);
 }
 
 async function runCompendiumHydratedPackResolution() {

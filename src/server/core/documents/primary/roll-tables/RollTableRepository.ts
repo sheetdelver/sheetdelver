@@ -7,7 +7,7 @@ import { rollTableStore } from './RollTableStore';
  * RollTable primary-document Repository. Per-request transport binds writes
  * to the requesting user's authenticated socket. Foundry's broadcast lands
  * through `modifyDocumentRouter` into `RollTableStore.applyModifyDocument`
- * (direct-type) or `RollTableStore.applyEmbeddedChange` (`RollTableResult`
+ * (direct-type) or `RollTableStore.applyEmbeddedChange` (`TableResult`
  * with `parentUuid: RollTable.<id>`).
  */
 export class RollTableRepository extends PrimaryDocumentRepository<RollTableDocument> {
@@ -40,7 +40,7 @@ export class RollTableRepository extends PrimaryDocumentRepository<RollTableDocu
 
     async createResult(tableId: string, data: Record<string, unknown>): Promise<any> {
         return this.dispatchDocument(
-            'RollTableResult',
+            'TableResult',
             'create',
             { data: [data] },
             { type: 'RollTable', id: tableId },
@@ -49,7 +49,7 @@ export class RollTableRepository extends PrimaryDocumentRepository<RollTableDocu
 
     async updateResult(tableId: string, resultId: string, updates: Record<string, unknown>): Promise<any> {
         return this.dispatchDocument(
-            'RollTableResult',
+            'TableResult',
             'update',
             { updates: [{ _id: resultId, ...updates }] },
             { type: 'RollTable', id: tableId },
@@ -58,7 +58,7 @@ export class RollTableRepository extends PrimaryDocumentRepository<RollTableDocu
 
     async deleteResult(tableId: string, resultId: string): Promise<void> {
         await this.dispatchDocument(
-            'RollTableResult',
+            'TableResult',
             'delete',
             { ids: [resultId] },
             { type: 'RollTable', id: tableId },

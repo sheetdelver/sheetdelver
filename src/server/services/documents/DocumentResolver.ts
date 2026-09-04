@@ -141,7 +141,7 @@ const EMBEDDED_COLLECTIONS_BY_PARENT: Record<string, Record<string, string>> = {
         Card: 'cards',
     },
 };
-// RollTableResult is intentionally absent. Result rows are part of the
+// TableResult is intentionally absent. Result rows are part of the
 // `RollTable.<id>` payload used by draw simulation, not standalone UUID targets.
 
 export interface DocumentStoreReader {

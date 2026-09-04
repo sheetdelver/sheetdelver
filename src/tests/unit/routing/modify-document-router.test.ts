@@ -61,7 +61,7 @@ export async function run() {
     await runEmbeddedParentRouting();
     await runJournalEntryPageEmbeddedRouting();
     await runCombatantEmbeddedRouting();
-    await runRollTableResultEmbeddedRouting();
+    await runTableResultEmbeddedRouting();
     await runPlaylistSoundEmbeddedRouting();
     await runCardEmbeddedRouting();
     await runEmbeddedTakesPriorityOverDirectType();
@@ -175,21 +175,21 @@ async function runCombatantEmbeddedRouting() {
     assert.equal(combat.received[1].action, 'update');
 }
 
-async function runRollTableResultEmbeddedRouting() {
+async function runTableResultEmbeddedRouting() {
     const router = new ModifyDocumentRouter();
     const table = new RecordingStore('RollTable');
     router.register(table);
     router.registerEmbeddedHandler('RollTable', table);
 
     router.route({
-        type: 'RollTableResult',
+        type: 'TableResult',
         action: 'update',
         result: [{ _id: 'r-1', drawn: true }],
         operation: { parentUuid: 'RollTable.t-1' },
     });
 
     assert.equal(table.received.length, 1);
-    assert.equal(table.received[0].type, 'RollTableResult');
+    assert.equal(table.received[0].type, 'TableResult');
     assert.equal(table.received[0].parentUuid, 'RollTable.t-1');
 }
 

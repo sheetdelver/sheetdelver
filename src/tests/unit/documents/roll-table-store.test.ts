@@ -113,14 +113,14 @@ async function runEmbeddedResultRouting() {
     store.on('documentChanged', (e) => events.push(e as DocumentChangedEvent));
 
     // Create result via embedded routing (parentUuid: RollTable.<id>).
-    store.applyModifyDocument('RollTableResult', 'create', [
+    store.applyModifyDocument('TableResult', 'create', [
         { _id: 'r-2', text: 'Orc', drawn: false },
     ], { parentUuid: 'RollTable.t-with-results' });
     assert.equal(store.get('t-with-results')?.results?.length, 2);
     assert.equal(events.find((e) => e.id === 't-with-results')?.action, 'update');
 
     // Update result in place — `drawn` flip is the common case.
-    store.applyModifyDocument('RollTableResult', 'update', [
+    store.applyModifyDocument('TableResult', 'update', [
         { _id: 'r-1', drawn: true },
     ], { parentUuid: 'RollTable.t-with-results' });
     const r1 = (store.get('t-with-results')?.results || []).find((r: any) => r._id === 'r-1') as any;
@@ -128,13 +128,13 @@ async function runEmbeddedResultRouting() {
 
     // Idempotent: same update fires no extra event.
     const before = events.length;
-    store.applyModifyDocument('RollTableResult', 'update', [
+    store.applyModifyDocument('TableResult', 'update', [
         { _id: 'r-1', drawn: true },
     ], { parentUuid: 'RollTable.t-with-results' });
     assert.equal(events.length, before, 'no-op result update emits nothing');
 
     // Delete result.
-    store.applyModifyDocument('RollTableResult', 'delete', null, {
+    store.applyModifyDocument('TableResult', 'delete', null, {
         parentUuid: 'RollTable.t-with-results',
         ids: ['r-2'],
     });
@@ -148,7 +148,7 @@ async function runEmbeddedResultRouting() {
 
     // Broadcast-shaped delete: id strings in result, no operation.ids
     // (ADR-0031 — Foundry-side deletions arrive like this).
-    store.applyModifyDocument('RollTableResult', 'delete', ['r-1'], {
+    store.applyModifyDocument('TableResult', 'delete', ['r-1'], {
         parentUuid: 'RollTable.t-with-results',
     });
     assert.equal(store.get('t-with-results')?.results?.length, 0, 'broadcast-shaped result delete applies');
@@ -177,7 +177,7 @@ async function runRepositoryMirrorsWrites() {
                     operation,
                 };
             }
-            if (type === 'RollTableResult' && action === 'create') {
+            if (type === 'TableResult' && action === 'create') {
                 return {
                     result: [{ _id: 'created-result', text: 'New Entry', drawn: false }],
                     operation,
@@ -194,7 +194,7 @@ async function runRepositoryMirrorsWrites() {
         assert.equal(store.get('created-table')?.name, 'Created Table');
 
         await repository.createResult('created-table', { text: 'New Entry' });
-        const rDispatch = dispatches.find((d) => d.type === 'RollTableResult' && d.action === 'create');
+        const rDispatch = dispatches.find((d) => d.type === 'TableResult' && d.action === 'create');
         assert.ok(rDispatch);
         assert.deepEqual(rDispatch!.parent, { type: 'RollTable', id: 'created-table' });
         assert.equal(store.get('created-table')?.results?.length, 1);

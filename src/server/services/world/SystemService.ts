@@ -178,7 +178,7 @@ export class SystemService extends EventEmitter {
         });
 
         // RollTableStore is the RollTable document-event source (Phase 7).
-        // Embedded RollTableResult mutations (e.g. `drawn` flips) are reported
+        // Embedded TableResult mutations (e.g. `drawn` flips) are reported
         // as `update` events on the parent table. No in-tree consumer today.
         rollTableStore.on('documentChanged', (event: DocumentChangedEvent) => {
             this.systemClient?.emit('rollTableChanged', {

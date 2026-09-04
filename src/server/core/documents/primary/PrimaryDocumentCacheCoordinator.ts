@@ -237,7 +237,7 @@ primaryDocumentCacheCoordinator.register({
     },
 });
 
-// RollTableStore — standard ownership map; embedded `RollTableResult` events
+// RollTableStore — standard ownership map; embedded `TableResult` events
 // flow via `parentUuid: RollTable.<id>` (handler registered below).
 primaryDocumentCacheCoordinator.register({
     type: 'RollTable',
@@ -379,7 +379,7 @@ modifyDocumentRouter.registerEmbeddedHandler('Combat', combatStore);
 // Item owns ActiveEffect with parentUuid 'Item.<id>' (world-Item effects only;
 // actor-owned item effects still flow through ActorStore via 'Actor.<id>.Item.<id>').
 modifyDocumentRouter.registerEmbeddedHandler('Item', itemStore);
-// RollTable owns RollTableResult with parentUuid 'RollTable.<id>'.
+// RollTable owns TableResult with parentUuid 'RollTable.<id>'.
 modifyDocumentRouter.registerEmbeddedHandler('RollTable', rollTableStore);
 // Playlist owns PlaylistSound with parentUuid 'Playlist.<id>'.
 modifyDocumentRouter.registerEmbeddedHandler('Playlist', playlistStore);

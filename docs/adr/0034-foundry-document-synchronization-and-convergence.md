@@ -872,6 +872,31 @@ The remaining open acceptance scope is the exhaustive manual matrix for every
 active direct Store and every registered embedded route. No generation 14
 batch or side-effect transport defect remains open from this item.
 
+**TableResult contract correction and live acceptance (September 4, 2026):**
+The original `RollTableResults` wording above was descriptive, but the first
+remaining-matrix audit found that it had also become an incorrect wire-type
+literal in RollTableStore and RollTableRepository. Foundry generation 13 and
+generation 14 both define the embedded document as `TableResult`; no
+`RollTableResult` socket document type exists. The Store therefore ignored
+real Foundry result-row broadcasts, while Repository result mutations would
+have dispatched an invalid document name.
+
+The ingress guard, Repository dispatches, router fixtures, Store fixtures,
+resolver fixture, and live/manual documentation now use canonical
+`TableResult`. The internal `RollTableResultDocument` TypeScript interface
+retains its semantic name because it describes a result row and is not exposed
+as a transport literal. A metadata comparison of every registered embedded
+handler against the installed generation 13 and generation 14 document sources
+found no other name mismatch.
+
+Live generation 14 build-367 verification created a temporary RollTable,
+created and updated its embedded TableResult, deleted the result, and deleted
+the table. Core received all five single responses in order. The three
+TableResult operations carried `parentUuid: RollTable.<id>`, routed through
+the embedded handler, and each applied a parent RollTable update without a
+repair or dropped-event warning. The temporary documents were removed after
+verification.
+
 **External merge residual:** The high-severity production audit gate passes,
 but npm currently reports moderate advisories for the directly declared Tiptap
 3.30.2 family and transitive `qs` 6.15.3. They are not synchronization defects
