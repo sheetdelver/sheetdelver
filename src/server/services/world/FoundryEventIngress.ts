@@ -149,7 +149,6 @@ export class FoundryEventIngress {
             )],
             ['foundry:documentCompatibility', (event: unknown) => this.routeCompatibilityDocument(
                 event as FoundryDocumentCompatibilityEvent,
-                options,
                 source,
             )],
             ['foundry:documentDispatchConfirmed', (event: unknown) => this.routeDocumentResponse(
@@ -187,21 +186,9 @@ export class FoundryEventIngress {
 
     private routeCompatibilityDocument(
         event: FoundryDocumentCompatibilityEvent,
-        options: FoundryEventIngressOptions,
         source: FoundryIngressTransport,
     ): void {
         this.routeDocumentResponse(event, 'compatibility-event', source);
-
-        if (event.type === 'User' && event.action === 'delete') {
-            const ids = (event.operation as { ids?: unknown } | undefined)?.ids;
-            if (Array.isArray(ids)) {
-                for (const id of ids) {
-                    if (typeof id === 'string' && userPresence.delete(id)) {
-                        options.onStatusUpdate?.();
-                    }
-                }
-            }
-        }
     }
 
     private routeDocumentResponse(

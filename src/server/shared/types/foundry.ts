@@ -91,7 +91,8 @@ export type FoundrySessionInvalidationReason =
     | 'expired'
     | 'world-mismatch'
     | 'invalid-record'
-    | 'world-entered-setup';
+    | 'world-entered-setup'
+    | 'user-deleted';
 
 /** Server-only signal used to retire already-connected app socket authority. */
 export type FoundrySessionInvalidationEvent =

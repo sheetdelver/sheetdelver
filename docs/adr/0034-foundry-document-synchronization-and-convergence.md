@@ -1050,6 +1050,57 @@ routed all three directly to SettingStore, and calculated the expected GM-only
 audience. The key had no registered configuration or change callback, no
 existing Foundry or system setting was modified, and no temporary row remained.
 
+**User authority audit correction (September 4, 2026):** Foundry generations
+13 and 14 retain the same persisted User schema and native create, update, and
+delete permission rules. Sheet Delver accepts both the dedicated User
+compatibility events retained by Foundry and normalized `modifyDocument`
+responses; UserStore remains the canonical roster for either path. User role
+changes are read from that Store when each request, module access context, or
+document audience is evaluated, so an existing browser connection does not
+cache its former role. Browser status and session-user routes continue to use
+explicit allowlists and do not expose password fields, password salts,
+permissions, hotbars, flags, or document statistics from the synchronized
+User row.
+
+The audit found two delete-only gaps. Presence removal was attached only to the
+compatibility ingress branch, so a normalized User delete could remove the
+document while leaving subordinate presence state behind. More importantly,
+deleting a Foundry User did not retire live or encrypted Sheet Delver sessions
+belonging to that user. UserStore now removes presence from its canonical
+delete event regardless of wire origin. The composition root observes that
+same event and asks FoundryUserConnectionService to revoke every live and
+persisted session matching the deleted Foundry user id. Revocation reaches
+connected app sockets through the existing `sessionInvalidated` path, removes
+protected credentials before best-effort upstream logout, leaves other users'
+sessions intact, and blocks a concurrent login or restore from reintroducing
+the deleted identity. The user-id tombstone is scoped to the current world and
+is cleared with the existing all-session teardown on entry to setup.
+
+Focused coverage now proves canonical presence cleanup, immediate role
+resolution, selective live and persisted session retirement, preservation of
+unrelated users' sessions, browser-authority invalidation signaling, and stale
+credential rejection. Live generation 14 create/update/delete and connected-
+session retirement remain the acceptance step for this User slice; equivalent
+generation 13 User CRUD was exercised earlier in this ADR's live matrix.
+
+**Subsequent User live-acceptance result (September 4, 2026):** Live
+generation 14 build-367 verification created a disposable User, applied a
+name and role update, and deleted it. Core received all three operations as
+normalized `modifyDocument` responses, routed them directly through
+UserStore, and reflected the current roster without a restart. The temporary
+User was removed after the probe.
+
+A separate disposable player then logged into the isolated Sheet Delver test
+runtime before its Foundry User document was deleted. The canonical UserStore
+delete immediately removed the roster entry, reclassified the connected app
+socket with the `user-deleted` reason, cleared the protected session record,
+and disconnected the live Foundry transport. The browser returned to login
+and no longer listed the deleted user. The best-effort upstream logout returned
+404 because Foundry had already deleted the account; local revocation had
+completed first and did not depend on that response. This closes the live
+generation 14 User CRUD and connected-session retirement acceptance step while
+retaining the earlier generation 13 CRUD evidence.
+
 **External merge residual:** The high-severity production audit gate passes,
 but npm currently reports moderate advisories for the directly declared Tiptap
 3.30.2 family and transitive `qs` 6.15.3. They are not synchronization defects

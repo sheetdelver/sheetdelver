@@ -51,6 +51,16 @@ function getUserDocumentRole(user: UserDocument | null | undefined): FoundryUser
 export class UserStore extends PrimaryDocumentStore<UserDocument> {
     public readonly documentType: PrimaryDocumentType = 'User';
 
+    public constructor() {
+        super();
+        // Presence is subordinate runtime state for a User document. Clearing
+        // it here covers normalized modifyDocument and compatibility ingress
+        // alike instead of depending on one generation-specific wire event.
+        this.on('documentChanged', (event) => {
+            if (event.action === 'delete') userPresence.delete(event.id);
+        });
+    }
+
     protected resolveOwnership(
         _user: UserDocument,
         subject: DocumentAccessSubject,

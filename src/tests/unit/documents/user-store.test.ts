@@ -130,6 +130,11 @@ async function runBroadcastUpdatesStore() {
     store.applyModifyDocument('User', 'update', [{ _id: 'p-1', color: '#00ff00' }]);
     assert.equal(events.length, 1);
 
+    // Role-derived authorization reads the current Store value on demand; an
+    // existing request/socket does not retain the user's former role.
+    store.applyModifyDocument('User', 'update', [{ _id: 'p-1', role: FoundryUserRole.TRUSTED }]);
+    assert.equal(store.createAccessSubject('p-1')?.role, FoundryUserRole.TRUSTED);
+
     // Create broadcast adds a new user.
     store.applyModifyDocument('User', 'create', [
         { _id: 'p-3', name: 'Charlie', role: FoundryUserRole.PLAYER },
@@ -138,8 +143,10 @@ async function runBroadcastUpdatesStore() {
     assert.equal(events.find(e => e.id === 'p-3' && e.action === 'create')?.action, 'create');
 
     // Delete broadcast removes.
+    userPresence.setActive('p-3', true);
     store.applyModifyDocument('User', 'delete', null, { ids: ['p-3'] });
     assert.equal(store.get('p-3'), null);
+    assert.equal(userPresence.isActive('p-3'), false, 'User deletion clears subordinate presence state');
     assert.ok(events.find(e => e.id === 'p-3' && e.action === 'delete'), 'delete event emitted');
 }
 

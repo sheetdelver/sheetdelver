@@ -45,6 +45,7 @@ export class FoundryUserConnectionService {
     private readonly RESTORE_RETRY_MAX_DELAY_MS = 2000;
     private authorityEpoch = 0;
     private readonly sessionAuthorityVersions = new Map<string, number>();
+    private readonly deletedUserIds = new Set<string>();
     private isSaving = false;
     private cacheReadyProbe: () => boolean = () => true;
     private readonly sessionStore: FoundrySessionStore;
@@ -102,10 +103,13 @@ export class FoundryUserConnectionService {
             if (!userId) {
                 throw new Error(`Could not identify user ID for ${username}`);
             }
+            if (this.deletedUserIds.has(userId)) {
+                throw new Error(`Cannot create a session for deleted Foundry user ${userId}`);
+            }
 
             client.userId = userId;
             await client.login(username, password);
-            if (authorityEpoch !== this.authorityEpoch) {
+            if (authorityEpoch !== this.authorityEpoch || this.deletedUserIds.has(userId)) {
                 throw new Error('World session authority changed while login was in progress');
             }
             const detachFoundryEventIngress = foundryEventIngress.attach(client);
@@ -194,6 +198,37 @@ export class FoundryUserConnectionService {
         await this.clearSession(sessionId);
     }
 
+    /** Retire every live or persisted session bound to one deleted Foundry user. */
+    public async destroySessionsForUser(userId: string): Promise<void> {
+        if (!userId) return;
+
+        // The tombstone closes login/restore races while encrypted records are
+        // located and removed. Foundry User ids are not reused within a world.
+        this.deletedUserIds.add(userId);
+        const sessionIds = new Set<string>();
+        for (const connection of this.connections.values()) {
+            if (connection.userId === userId) sessionIds.add(connection.id);
+        }
+
+        const persisted = await this.loadSessions();
+        for (const [sessionId, record] of Object.entries(persisted ?? {})) {
+            if (record.userId === userId) sessionIds.add(sessionId);
+        }
+
+        const liveConnections: FoundryUserConnection[] = [];
+        for (const sessionId of sessionIds) {
+            const connection = this.retireSessionAuthority(sessionId, 'user-deleted');
+            if (connection) liveConnections.push(connection);
+        }
+
+        // Protected credentials are removed before best-effort Foundry logout
+        // so a failed or slow upstream transport cannot preserve app authority.
+        for (const sessionId of sessionIds) await this.clearSession(sessionId);
+        for (const connection of liveConnections) await this.destroyLiveConnection(connection);
+
+        logger.info(`FoundryUserConnectionService | Retired ${sessionIds.size} session(s) for deleted Foundry user ${userId}.`);
+    }
+
     private async destroyLiveConnection(connection: FoundryUserConnection): Promise<void> {
         logger.info(`FoundryUserConnectionService | Destroying connection: ${connection.id}`);
         this.detachConnectionIngress(connection);
@@ -229,6 +264,7 @@ export class FoundryUserConnectionService {
         // Retire authority before waiting on remote logout. The epoch prevents
         // any in-flight login or restore from repopulating the cleared map.
         this.authorityEpoch += 1;
+        this.deletedUserIds.clear();
         this.connections.clear();
         for (const connection of connections) this.detachConnectionIngress(connection);
         this.emitSessionInvalidated({ scope: 'all', reason });
@@ -327,6 +363,10 @@ export class FoundryUserConnectionService {
 
             const credential = this.toRestoredCredential(sessionData);
             if (!credential) return { status: 'terminal' };
+            if (this.deletedUserIds.has(credential.userId)) {
+                await this.invalidatePersistedSession(sessionId, 'user-deleted');
+                return { status: 'terminal' };
+            }
 
             client = new ClientSocket({
                 ...this.config,
@@ -337,6 +377,7 @@ export class FoundryUserConnectionService {
             if (
                 authorityEpoch !== this.authorityEpoch
                 || sessionAuthorityVersion !== this.getSessionAuthorityVersion(sessionId)
+                || this.deletedUserIds.has(credential.userId)
             ) {
                 // Revocation won while transport connection was in flight.
                 client.disconnect();

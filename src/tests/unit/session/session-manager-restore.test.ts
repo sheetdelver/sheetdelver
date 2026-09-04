@@ -279,6 +279,66 @@ async function runDestroyPurgesPersistedOnlySessionAndNotifies() {
     await resetState();
 }
 
+async function runDeletedUserRevokesAllMatchingSessions() {
+    await resetState();
+    await sessionStore.save({
+        'deleted-live': {
+            username: 'deleted-user', userId: 'user-deleted', cookie: 'session=live',
+            worldId: WORLD_ID, lastSaved: Date.now(),
+        },
+        'deleted-persisted': {
+            username: 'deleted-user', userId: 'user-deleted', cookie: 'session=persisted',
+            worldId: WORLD_ID, lastSaved: Date.now(),
+        },
+        'other-user': {
+            username: 'other-user', userId: 'user-other', cookie: 'session=other',
+            worldId: WORLD_ID, lastSaved: Date.now(),
+        },
+    });
+
+    const manager = createManager();
+    const invalidations: FoundrySessionInvalidationEvent[] = [];
+    let disconnected = false;
+    manager.onSessionInvalidated(event => invalidations.push(event));
+    (manager as any).connections.set('deleted-live', {
+        id: 'deleted-live',
+        userId: 'user-deleted',
+        username: 'deleted-user',
+        client: {
+            logout: async () => undefined,
+            disconnect: () => { disconnected = true; },
+        },
+    });
+
+    await manager.destroySessionsForUser('user-deleted');
+
+    const cached = await sessionStore.load();
+    assert.equal(cached['deleted-live'], undefined);
+    assert.equal(cached['deleted-persisted'], undefined);
+    assert.ok(cached['other-user'], 'sessions for other Foundry users remain valid');
+    assert.equal(disconnected, true);
+    assert.equal(manager.isValidSession('deleted-live'), false);
+    assert.deepEqual(invalidations, [
+        { scope: 'session', sessionId: 'deleted-live', reason: 'user-deleted' },
+        { scope: 'session', sessionId: 'deleted-persisted', reason: 'user-deleted' },
+    ]);
+
+    // A stale credential cannot be reintroduced after its User document was
+    // deleted, even if a concurrent writer were to restore the cache row.
+    await sessionStore.save({
+        ...cached,
+        'deleted-again': {
+            username: 'deleted-user', userId: 'user-deleted', cookie: 'session=stale',
+            worldId: WORLD_ID, lastSaved: Date.now(),
+        },
+    });
+    seedActiveWorld();
+    assert.equal(await manager.getOrRestoreSession('deleted-again'), undefined);
+    assert.equal((await sessionStore.load())['deleted-again'], undefined);
+
+    await resetState();
+}
+
 async function runFailedFoundryLogoutStillRevokesLocalAuthority() {
     await resetState();
     await writeCachedSession();
@@ -546,6 +606,7 @@ export async function run() {
     await runCachedSessionWithoutWorldIdPurgesWhenWorldIsKnown();
     await runSetupInvalidatesCachedSessions();
     await runDestroyPurgesPersistedOnlySessionAndNotifies();
+    await runDeletedUserRevokesAllMatchingSessions();
     await runFailedFoundryLogoutStillRevokesLocalAuthority();
     await runClosedWorldDoesNotAttemptCachedRestore();
     await runStartupRestoreDefersUntilWorldIdExists();

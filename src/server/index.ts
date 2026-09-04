@@ -13,6 +13,7 @@ import { registerHttpErrorHandlers } from '@server/security/httpRequestSecurity'
 import { FoundryUserConnectionService } from '@server/services/foundry';
 import { worldLifecycleStore } from '@server/core/world/WorldLifecycleStore';
 import type { WorldLifecycleTransition } from '@server/core/world/WorldLifecycleStore';
+import { userStore } from '@server/core/documents/primary/users/UserStore';
 import {
     createFoundrySessionStoreFromEnvironment,
     getDefaultFoundrySessionKeyPath,
@@ -86,6 +87,16 @@ async function startServer() {
             }),
         },
     );
+
+    // A Foundry User deletion is an authority deletion, not only a roster
+    // update. Revoke matching app sessions from the canonical Store event so
+    // v13 compatibility and normalized v14 document ingress behave identically.
+    userStore.on('documentChanged', (event) => {
+        if (event.action !== 'delete') return;
+        void foundryUserConnections.destroySessionsForUser(event.id).catch((error: unknown) => {
+            logger.error('Core Service | Failed to retire deleted-user sessions:', error);
+        });
+    });
 
     // Start System Provider
     await systemService.initialize(config.foundry);
