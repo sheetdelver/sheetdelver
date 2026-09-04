@@ -168,11 +168,19 @@ async function runCombatantEmbeddedRouting() {
         result: [{ _id: 'c-1', initiative: 12 }],
         operation: { parentUuid: 'Combat.combat-1' },
     });
+    router.route({
+        type: 'CombatantGroup',
+        action: 'create',
+        result: [{ _id: 'group-1', name: 'Group One', initiative: 10 }],
+        operation: { parentUuid: 'Combat.combat-1' },
+    });
 
-    assert.equal(combat.received.length, 2);
+    assert.equal(combat.received.length, 3);
     assert.equal(combat.received[0].type, 'Combatant');
     assert.equal(combat.received[0].parentUuid, 'Combat.combat-1');
     assert.equal(combat.received[1].action, 'update');
+    assert.equal(combat.received[2].type, 'CombatantGroup');
+    assert.equal(combat.received[2].parentUuid, 'Combat.combat-1');
 }
 
 async function runTableResultEmbeddedRouting() {

@@ -84,15 +84,16 @@ export interface CombatantDocument {
 }
 
 /**
- * Embedded CombatantGroup (Foundry v13). Combatants reference their group via
- * `CombatantDocument.group`; the parent combat mirrors the group set in
- * `groups[]` the same way `combatants[]` mirrors Combatant children.
+ * Embedded CombatantGroup in Foundry v13 and v14. Combatants reference their
+ * group via `CombatantDocument.group`; the parent combat mirrors the group set
+ * in `groups[]` the same way `combatants[]` mirrors Combatant children.
  */
 export interface CombatantGroupDocument {
     id?: string;
     _id?: string;
     name?: string;
     img?: string | null;
+    type?: string;
     initiative?: number | null;
     ownership?: Record<string, number>;
     system?: Record<string, unknown>;

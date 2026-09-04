@@ -8,9 +8,9 @@ import { combatStore } from './CombatStore';
  * the requesting user's authenticated socket; Foundry broadcasts the result
  * which lands through `modifyDocumentRouter` into `CombatStore.applyModifyDocument`
  * (for direct-type Combat ops) or `CombatStore.applyEmbeddedChange` (for
- * `Combatant` ops carrying `parentUuid: Combat.<id>`). The initiator-side
- * mirror in {@link dispatchDocument} makes the second apply idempotent via
- * emit-only-on-change.
+ * `Combatant` / `CombatantGroup` ops carrying `parentUuid: Combat.<id>`). The
+ * initiator-side mirror in {@link dispatchDocument} makes the second apply
+ * idempotent via emit-only-on-change.
  */
 export class CombatRepository extends PrimaryDocumentRepository<CombatDocument> {
     constructor(transport: DocumentTransport) {
@@ -68,6 +68,38 @@ export class CombatRepository extends PrimaryDocumentRepository<CombatDocument> 
             'Combatant',
             'delete',
             { ids: [combatantId] },
+            { type: 'Combat', id: combatId },
+        );
+    }
+
+    /**
+     * CombatantGroup uses the same embedded parent contract as Combatant in
+     * both supported Foundry generations; named helpers keep callers on the
+     * Repository mirror rather than a raw transport path.
+     */
+    async createCombatantGroup(combatId: string, data: Record<string, unknown>): Promise<any> {
+        return this.dispatchDocument(
+            'CombatantGroup',
+            'create',
+            { data: [data] },
+            { type: 'Combat', id: combatId },
+        );
+    }
+
+    async updateCombatantGroup(combatId: string, groupId: string, updates: Record<string, unknown>): Promise<any> {
+        return this.dispatchDocument(
+            'CombatantGroup',
+            'update',
+            { updates: [{ _id: groupId, ...updates }] },
+            { type: 'Combat', id: combatId },
+        );
+    }
+
+    async deleteCombatantGroup(combatId: string, groupId: string): Promise<void> {
+        await this.dispatchDocument(
+            'CombatantGroup',
+            'delete',
+            { ids: [groupId] },
             { type: 'Combat', id: combatId },
         );
     }

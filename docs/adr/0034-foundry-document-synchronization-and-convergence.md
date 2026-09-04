@@ -963,6 +963,36 @@ Actor embedded handler and applied an update to the correct cached Actor. The
 embedded Item and Actor were then deleted, with no dropped event, repair
 warning, or temporary document remaining.
 
+**Combatant and CombatantGroup audit correction (September 4, 2026):** Local
+generation 13 and generation 14 document sources both define `Combatant` and
+`CombatantGroup` as embedded collections of `Combat`, with the same
+`Combat.<id>` parent UUID contract. CombatStore and inbound router coverage
+already applied both child types correctly. The audit found one outbound
+ownership omission: the route facade selected CombatRepository for Combatant
+but allowed CombatantGroup to fall through to the request transport. That path
+still used the requesting user's authenticated socket and did not bypass
+Foundry authorization, but it omitted the Repository's explicit initiator-side
+mirror contract.
+
+The route facade now selects CombatRepository for every `Combat` parent and
+for direct type discrimination of both embedded child names. CombatRepository
+also exposes symmetric CombatantGroup create, update, and delete helpers.
+Focused tests cover the three Repository mutations, parent UUID construction,
+route-facade mirroring, and inbound router selection. The shared group shape
+now includes Foundry's `type` field and no longer describes the document as
+generation-13-only. This correction does not expose a new UI or SDK helper and
+does not broaden write authorization; Foundry remains the mutation authority.
+
+Live generation 14 build-367 verification created a disposable Actor and
+Combat, created and updated an embedded CombatantGroup, and created and updated
+an embedded Combatant linked to both the Actor and group. Core routed all four
+embedded responses through CombatStore using `Combat.<id>` and applied each as
+an update to the correct cached parent. Adding the visible combatant and then
+hiding it each emitted the expected combat-list visibility invalidation. The
+Combatant, CombatantGroup, Combat, and Actor were then deleted in that order;
+all four deletes converged without a dropped event or repair warning, and no
+temporary document remained.
+
 **External merge residual:** The high-severity production audit gate passes,
 but npm currently reports moderate advisories for the directly declared Tiptap
 3.30.2 family and transitive `qs` 6.15.3. They are not synchronization defects

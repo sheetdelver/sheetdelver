@@ -2,6 +2,7 @@ import { strict as assert } from 'node:assert';
 import { CombatStore, combatStore } from '@server/core/documents/primary/combats/CombatStore';
 import { CombatRepository } from '@server/core/documents/primary/combats/CombatRepository';
 import { ActorStore, actorStore } from '@server/core/documents/primary/actors/ActorStore';
+import { createSystemRouteFoundryClient } from '@server/shared/utils/createRouteFoundryClient';
 import {
     DOCUMENT_VISIBILITY,
     DocumentOwnershipLevel,
@@ -36,6 +37,7 @@ export async function run() {
     await runActorChangeBridgeEmitsCombatChanged();
     await runActorVisibilityBridgePropagates();
     await runRepositoryMirrorsWrites();
+    await runRouteClientRoutesCombatGroupsThroughCombatRepository();
     console.log('  - CombatStore: all checks passed');
 }
 
@@ -458,6 +460,21 @@ async function runRepositoryMirrorsWrites() {
                     operation,
                 };
             }
+            if (type === 'CombatantGroup' && action === 'create') {
+                return {
+                    result: [{ _id: 'created-group', name: 'Created Group', initiative: 10 }],
+                    operation,
+                };
+            }
+            if (type === 'CombatantGroup' && action === 'update') {
+                return {
+                    result: [{ _id: 'created-group', initiative: 14 }],
+                    operation,
+                };
+            }
+            if (type === 'CombatantGroup' && action === 'delete') {
+                return { result: ['created-group'], operation };
+            }
             return { result: [], operation };
         },
     });
@@ -479,12 +496,63 @@ async function runRepositoryMirrorsWrites() {
         const uDispatch = dispatches.find((d) => d.type === 'Combatant' && d.action === 'update');
         assert.ok(uDispatch);
         assert.deepEqual(uDispatch!.parent, { type: 'Combat', id: 'created-combat' });
+
+        await repository.createCombatantGroup('created-combat', {
+            name: 'Created Group',
+            initiative: 10,
+        });
+        assert.equal(store.get('created-combat')?.groups?.[0]?._id, 'created-group');
+
+        await repository.updateCombatantGroup('created-combat', 'created-group', { initiative: 14 });
+        assert.equal(store.get('created-combat')?.groups?.[0]?.initiative, 14);
+
+        await repository.deleteCombatantGroup('created-combat', 'created-group');
+        assert.equal(store.get('created-combat')?.groups?.length, 0);
+        const groupDispatches = dispatches.filter((d) => d.type === 'CombatantGroup');
+        assert.deepEqual(groupDispatches.map((d) => d.action), ['create', 'update', 'delete']);
+        assert.ok(groupDispatches.every((d) => d.parent?.type === 'Combat' && d.parent?.id === 'created-combat'));
     } finally {
         store.clear('combat-repository-test');
         actorStore.clear('combat-repository-test');
     }
     // Silence unused references during test isolation.
     void otherPlayer;
+}
+
+async function runRouteClientRoutesCombatGroupsThroughCombatRepository() {
+    combatStore.bindActorVisibilityBridge(actorStore);
+    await combatStore.seed(async () => ([{
+        _id: 'route-combat',
+        combatants: [],
+        groups: [],
+    }]));
+
+    const client = createSystemRouteFoundryClient({
+        isConnected: true,
+        url: 'http://foundry.test',
+        userId: null,
+        on: () => undefined,
+        off: () => undefined,
+        emitSocketEvent: async () => ({}),
+        dispatchDocumentSocket: async () => ({}),
+        dispatchDocument: async (_type: string, _action: string, operation: unknown) => ({
+            result: [{ _id: 'route-group', name: 'Route Group', initiative: 9 }],
+            operation,
+        }),
+    } as any);
+
+    try {
+        await client.dispatchDocument(
+            'CombatantGroup',
+            'create',
+            { data: [{ name: 'Route Group', initiative: 9 }] },
+            { type: 'Combat', id: 'route-combat' },
+        );
+        assert.equal(combatStore.get('route-combat')?.groups?.[0]?._id, 'route-group');
+    } finally {
+        combatStore.clear('combat-group-route-client-test');
+        actorStore.clear('combat-group-route-client-test');
+    }
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

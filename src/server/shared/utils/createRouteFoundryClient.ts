@@ -310,6 +310,12 @@ function createBaseRouteFoundryClient(
             if (parentRootType === 'Cards') {
                 return cardsRepository.dispatchDocument(type, normalizedAction, normalizedOperation, parent);
             }
+            if (parentRootType === 'Combat') {
+                // Combatant and CombatantGroup are both embedded under Combat
+                // in Foundry v13/v14. Keep their acknowledgement mirror on the
+                // parent-owning Repository instead of the raw transport fallback.
+                return combatRepository.dispatchDocument(type, normalizedAction, normalizedOperation, parent);
+            }
 
             if (type === 'Actor') {
                 return actorRepository.dispatchDocument(type, normalizedAction, normalizedOperation, parent);
@@ -331,7 +337,7 @@ function createBaseRouteFoundryClient(
                 return journalRepository.dispatchDocument(type, normalizedAction, normalizedOperation, parent);
             }
 
-            if (type === 'Combat' || type === 'Combatant') {
+            if (type === 'Combat' || type === 'Combatant' || type === 'CombatantGroup') {
                 return combatRepository.dispatchDocument(type, normalizedAction, normalizedOperation, parent);
             }
 
