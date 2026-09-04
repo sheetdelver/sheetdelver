@@ -33,6 +33,14 @@ embedded, audience, and session-retirement live matrix now passes. All local
 Phase 5 gates pass and the external dependency residual is remediated below.
 Phase 5 awaits only green CI on the final closeout commit before this ADR is
 marked complete.
+**Final status amendment (September 4, 2026):** Phase 5 and this ADR are
+complete. Closeout commit `49bb089` passed both the Node 22 verification and
+dependency-review jobs in
+[GitHub Actions run 33898769671](https://github.com/sheetdelver/sheetdelver/actions/runs/33898769671).
+The automated gates,
+generation 13 and generation 14 live acceptance matrix, dependency remediation,
+and editor regression checks recorded below all pass. No unrecorded
+synchronization residual remains; this ADR is accepted and implemented.
 **Date:** September 2, 2026
 **Phase:** Pre-main synchronization remediation
 **Supersedes:** None
@@ -710,6 +718,12 @@ equally to route and SDK callers and does not branch on a particular generation
 - [ ] Run unit, type, lint, integration, isolated build, CI, and live multi-user
   acceptance.
 - [ ] Record residuals explicitly and close this ADR only after all phases pass.
+
+**Phase 5 checklist disposition (September 4, 2026):** The two historically
+open entries above are satisfied by the subsequent automated, live, residual,
+and dependency evidence in this ADR.
+[GitHub Actions run 33898769671](https://github.com/sheetdelver/sheetdelver/actions/runs/33898769671) passed for
+closeout commit `49bb089`, completing the final external gate.
 
 **Phase 5 documentation result (September 3, 2026):** ADR-0011 now records
 field-operator materialization, Store-miss repair, epoch teardown, active Store
