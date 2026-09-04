@@ -949,6 +949,20 @@ to ItemStore, while each ActiveEffect operation routed through the Item
 embedded handler and updated the correct parent. No dropped event, repair
 warning, or temporary document remained after the probe.
 
+**Actor ActiveEffect acceptance (September 4, 2026):** Focused ActorStore
+characterization now covers create, update, and broadcast-shaped delete for
+both effect parent forms. `Actor.<id>` mutates the Actor's top-level effects;
+`Actor.<id>.Item.<id>` mutates only that embedded Item's effects. The nested
+path is also asserted not to leak data into the Actor-level effect collection.
+
+Live generation 14 build-367 verification created a disposable
+system-specific Actor and embedded Item, then performed create, update, and
+delete for an Actor ActiveEffect and for an ActiveEffect on the embedded Item.
+Both disabled effects contained no changes. Every response routed through the
+Actor embedded handler and applied an update to the correct cached Actor. The
+embedded Item and Actor were then deleted, with no dropped event, repair
+warning, or temporary document remaining.
+
 **External merge residual:** The high-severity production audit gate passes,
 but npm currently reports moderate advisories for the directly declared Tiptap
 3.30.2 family and transitive `qs` 6.15.3. They are not synchronization defects

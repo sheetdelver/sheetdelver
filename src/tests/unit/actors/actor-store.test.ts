@@ -18,6 +18,7 @@ export async function run() {
     initDataDir(resolveDataDir(['--data-dir', path.join(process.cwd(), 'temp', 'test-data')]));
     await runActorStoreOwnershipAndClone();
     await runActorStoreMutations();
+    await runActorAndItemActiveEffectMutations();
     await runEmbeddedCreateIdempotency();
     await runActorRepositoryAppliesEffects();
     await runRouteClientReadsFromActorStore();
@@ -111,6 +112,52 @@ async function runActorStoreMutations() {
         parentUuid: 'Actor.actor-1',
     });
     assert.equal(store.get('actor-1')?.items?.length, 0, 'broadcast-shaped item delete applies');
+}
+
+async function runActorAndItemActiveEffectMutations() {
+    const store = new ActorStore();
+    await store.seed(async () => ([
+        {
+            _id: 'actor-effects',
+            name: 'Effect Parent',
+            effects: [],
+            items: [{ _id: 'item-effects', name: 'Effect Item', effects: [] }],
+            ownership: { default: DocumentOwnershipLevel.OWNER },
+        },
+    ] as unknown as ActorDocument[]));
+
+    const actorParent = { parentUuid: 'Actor.actor-effects' };
+    const itemParent = { parentUuid: 'Actor.actor-effects.Item.item-effects' };
+
+    // Actor effects mutate the Actor's top-level effects collection.
+    store.applyModifyDocument('ActiveEffect', 'create', [
+        { _id: 'actor-fx', name: 'Actor Effect', disabled: true },
+    ], actorParent);
+    store.applyModifyDocument('ActiveEffect', 'update', [
+        { _id: 'actor-fx', description: 'Actor Effect Updated' },
+    ], actorParent);
+    const actorEffects = (store.get('actor-effects') as ActorDocument & { effects?: any[] }).effects ?? [];
+    assert.equal(actorEffects[0]?.name, 'Actor Effect');
+    assert.equal(actorEffects[0]?.description, 'Actor Effect Updated');
+
+    store.applyModifyDocument('ActiveEffect', 'delete', ['actor-fx'], actorParent);
+    assert.equal((store.get('actor-effects') as ActorDocument & { effects?: any[] }).effects?.length, 0);
+
+    // Item effects use the nested Actor.Item parent and must not leak into the
+    // Actor's top-level collection.
+    store.applyModifyDocument('ActiveEffect', 'create', [
+        { _id: 'item-fx', name: 'Item Effect', disabled: true },
+    ], itemParent);
+    store.applyModifyDocument('ActiveEffect', 'update', [
+        { _id: 'item-fx', description: 'Item Effect Updated' },
+    ], itemParent);
+    const itemEffects = store.get('actor-effects')?.items?.[0].effects as any[];
+    assert.equal(itemEffects[0]?.name, 'Item Effect');
+    assert.equal(itemEffects[0]?.description, 'Item Effect Updated');
+    assert.equal((store.get('actor-effects') as ActorDocument & { effects?: any[] }).effects?.length, 0);
+
+    store.applyModifyDocument('ActiveEffect', 'delete', ['item-fx'], itemParent);
+    assert.equal((store.get('actor-effects')?.items?.[0].effects as any[])?.length, 0);
 }
 
 // Regression: a Sheet-Delver-initiated write applies the same embedded create twice — once
