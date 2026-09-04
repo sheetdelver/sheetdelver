@@ -993,6 +993,45 @@ Combatant, CombatantGroup, Combat, and Actor were then deleted in that order;
 all four deletes converged without a dropped event or repair warning, and no
 temporary document remained.
 
+**Scene, Token, and ActorDelta audit correction (September 4, 2026):** Scene
+remains an internal Store used by combat projection; it is not exposed through
+module document APIs or a public route, so this amendment does not add a
+SceneRepository or broaden canvas/scene access. Foundry generation 13 and
+generation 14 both root supported synthetic actor persistence at
+`Scene.<sceneId>.Token.<tokenId>`: ActorDelta is the Token's singleton child,
+and its Item and ActiveEffect collections are deltas against the base Actor.
+
+The audit found that SceneStore treated every ActiveEffect below ActorDelta as
+a top-level delta effect. A deeper effect whose parent was
+`...ActorDelta.<deltaId>.Item.<itemId>` could therefore enter the wrong
+collection. It also treated ActorDelta Item/ActiveEffect arrays as ordinary
+embedded collections, which cannot represent Foundry's adoption, inherited
+delete tombstone, or `restoreDelta` semantics. SceneStore now routes by the
+complete parent UUID depth, adopts an inherited Item before applying its nested
+effect, upserts first updates to inherited delta children, preserves tombstones
+for inherited deletes using the bound ActorStore, removes overrides on
+`restoreDelta`, and resets a deleted ActorDelta to its empty token-owned form.
+
+Focused coverage now includes direct Scene CRUD, Token CRUD, ActorDelta merge
+and reset, direct delta Item/ActiveEffect mutation, inherited-child adoption,
+tombstone and restore behavior, nested Item ActiveEffect CRUD with a non-leak
+assertion, and Scene-rooted router selection. Direct ActorDelta and
+ActorDelta-rooted child events remain deliberately dropped because they lack
+the owning Scene/Token identity; parented routing still cannot fall through
+into a world Item Store.
+
+Live generation 14 acceptance was completed against Foundry build 367 with
+Daggerheart 2.9.2 using an inactive disposable Scene and unlinked Token. Direct
+Scene and Token updates, synthetic ActorDelta update, delta Item and
+ActiveEffect create/update, nested Item ActiveEffect create/update, inherited
+Item adoption, and inherited ActiveEffect deletion all arrived as SceneStore
+mutations. Foundry's resulting delta kept the nested effect under its Item,
+stored the inherited Item override, and represented the inherited effect
+deletion as an `_tombstone` row. A follow-up restored that tombstone, deleted
+the nested and delta-only children, reset the ActorDelta, and deleted the Token,
+Scene, and base Actor. Core routing reported every synthetic child operation
+as an embedded Scene dispatch, and all temporary documents were removed.
+
 **External merge residual:** The high-severity production audit gate passes,
 but npm currently reports moderate advisories for the directly declared Tiptap
 3.30.2 family and transitive `qs` 6.15.3. They are not synchronization defects

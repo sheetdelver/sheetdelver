@@ -64,8 +64,9 @@ export async function run() {
     await runTableResultEmbeddedRouting();
     await runPlaylistSoundEmbeddedRouting();
     await runCardEmbeddedRouting();
+    await runSceneEmbeddedRouting();
     await runEmbeddedTakesPriorityOverDirectType();
-    await runActorDeltaDroppedSilently();
+    await runUnsupportedActorDeltaRootDroppedSilently();
     await runUnregisteredTypeDroppedSilently();
     await runResetClearsRegistrations();
     await runMalformedPayloadDoesNotThrow();
@@ -247,6 +248,39 @@ async function runCardEmbeddedRouting() {
     assert.equal(cards.received[1].action, 'create');
 }
 
+async function runSceneEmbeddedRouting() {
+    const router = new ModifyDocumentRouter();
+    const scene = new RecordingStore('Scene');
+    router.register(scene);
+    router.registerEmbeddedHandler('Scene', scene);
+
+    const payloads = [
+        { type: 'Token', parentUuid: 'Scene.scene-1' },
+        { type: 'ActorDelta', parentUuid: 'Scene.scene-1.Token.token-1' },
+        { type: 'Item', parentUuid: 'Scene.scene-1.Token.token-1.ActorDelta.token-1' },
+        {
+            type: 'ActiveEffect',
+            parentUuid: 'Scene.scene-1.Token.token-1.ActorDelta.token-1.Item.item-1',
+        },
+    ];
+    for (const payload of payloads) {
+        router.route({
+            type: payload.type,
+            action: 'update',
+            result: [{ _id: 'changed' }],
+            operation: { parentUuid: payload.parentUuid },
+        });
+    }
+
+    assert.deepEqual(scene.received.map(entry => entry.type), [
+        'Token',
+        'ActorDelta',
+        'Item',
+        'ActiveEffect',
+    ]);
+    assert.deepEqual(scene.received.map(entry => entry.parentUuid), payloads.map(entry => entry.parentUuid));
+}
+
 async function runEmbeddedTakesPriorityOverDirectType() {
     // Phase 6 regression: registering ItemStore directly for `Item` must NOT
     // steal embedded Item events whose parentUuid points to a Store registered
@@ -294,14 +328,15 @@ async function runEmbeddedTakesPriorityOverDirectType() {
     assert.equal(item.received.length, 1, 'embedded event under unrouted parent does not leak to direct-type Store');
 }
 
-async function runActorDeltaDroppedSilently() {
+async function runUnsupportedActorDeltaRootDroppedSilently() {
     const router = new ModifyDocumentRouter();
     const actor = new RecordingStore('Actor');
     router.register(actor);
     router.registerEmbeddedHandler('Actor', actor);
 
-    // ActorDelta is the synthetic-token-actor wire type — out of scope per ADR-0011.
-    // Direct-type route: no 'ActorDelta' registration, no embedded handler for 'ActorDelta'.
+    // Supported synthetic mutations are rooted at Scene.<id>. A direct
+    // ActorDelta or an ActorDelta-rooted child lacks the owning Scene/Token
+    // identity and must still drop rather than leak into a direct Item Store.
     router.route({ type: 'ActorDelta', action: 'update', result: [{ _id: 'd' }] });
 
     // Embedded under ActorDelta — same.

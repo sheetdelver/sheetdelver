@@ -270,12 +270,11 @@ export interface MacroDocument {
 }
 
 /**
- * Stub document types for Phase 7 unwired primary docs. Shape uniformity only —
- * these subsystems aren't actively modeled. A future phase that wires any of
- * them up should expand the shape against real Foundry payloads.
+ * Remaining Phase 7 document shapes. Scene is now actively mirrored for
+ * internal combat projection; FogExploration and Adventure remain unwired.
  */
 /**
- * Embedded ActorDelta on a Token (Foundry v13). For unlinked tokens the
+ * Embedded ActorDelta on a Token (Foundry v13/v14). For unlinked tokens the
  * synthetic token actor is the base actor merged with this delta; status
  * effects applied to the token land in `effects[]` here, not on the base
  * actor document.
@@ -284,14 +283,17 @@ export interface ActorDeltaDocument {
     id?: string;
     _id?: string;
     name?: string | null;
+    type?: string | null;
     img?: string | null;
     system?: Record<string, unknown> | null;
     items?: unknown[];
     effects?: unknown[];
+    ownership?: Record<string, number> | null;
+    flags?: Record<string, unknown>;
     [key: string]: unknown;
 }
 
-/** Embedded Token document on a Scene (Foundry v13). */
+/** Embedded Token document on a Scene (Foundry v13/v14). */
 export interface TokenDocument {
     id?: string;
     _id?: string;

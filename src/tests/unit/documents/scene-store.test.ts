@@ -1,5 +1,6 @@
 import { strict as assert } from 'node:assert';
 import { SceneStore } from '@server/core/documents/primary/scenes/SceneStore';
+import { ActorStore } from '@server/core/documents/primary/actors/ActorStore';
 import type { SceneDocument } from '@server/shared/types/documents';
 import type { DocumentChangedEvent } from '@server/core/documents/primary/base/PrimaryDocumentStore';
 
@@ -10,11 +11,26 @@ import type { DocumentChangedEvent } from '@server/core/documents/primary/base/P
  * `Scene.<id>` and must land on the owning token's `delta`.
  */
 export async function run() {
+    await runDirectSceneCrud();
     await runEmbeddedTokenRouting();
     await runActorDeltaMerging();
+    await runActorDeltaReset();
     await runDeltaChildEffects();
+    await runDeltaCollectionSemantics();
+    await runNestedDeltaItemEffects();
     await runTargetedTokenLookup();
     console.log('  - SceneStore: all checks passed');
+}
+
+async function runDirectSceneCrud() {
+    const store = new SceneStore();
+    await store.seed(async () => []);
+    store.applyModifyDocument('Scene', 'create', [{ _id: 'scene-direct', name: 'Before' }]);
+    assert.equal(store.get('scene-direct')?.name, 'Before');
+    store.applyModifyDocument('Scene', 'update', [{ _id: 'scene-direct', name: 'After' }]);
+    assert.equal(store.get('scene-direct')?.name, 'After');
+    store.applyModifyDocument('Scene', 'delete', ['scene-direct']);
+    assert.equal(store.get('scene-direct'), null);
 }
 
 async function seedScene(): Promise<{ store: SceneStore; events: DocumentChangedEvent[] }> {
@@ -96,6 +112,18 @@ async function runActorDeltaMerging() {
     assert.equal(events.length, count, 'idempotent delta merge stays silent');
 }
 
+async function runActorDeltaReset() {
+    const { store } = await seedScene();
+    store.applyModifyDocument('ActorDelta', 'update', [
+        { _id: 'delta-1', name: 'Changed', system: { hp: { value: 1 } } },
+    ], { parentUuid: 'Scene.scene-1.Token.tok-1' });
+    store.applyModifyDocument('ActorDelta', 'delete', ['delta-1'], {
+        parentUuid: 'Scene.scene-1.Token.tok-1',
+    });
+
+    assert.deepEqual(store.getToken('scene-1', 'tok-1')?.delta, { _id: 'delta-1' });
+}
+
 async function runDeltaChildEffects() {
     const { store } = await seedScene();
 
@@ -114,6 +142,78 @@ async function runDeltaChildEffects() {
     });
     effects = store.getToken('scene-1', 'tok-1')?.delta?.effects as Array<Record<string, unknown>>;
     assert.equal(effects.length, 0);
+}
+
+async function runDeltaCollectionSemantics() {
+    const actors = new ActorStore();
+    await actors.seed(async () => [{
+        _id: 'actor-goblin',
+        items: [{ _id: 'base-item', name: 'Base Item', effects: [] }],
+        effects: [{ _id: 'base-effect', name: 'Base Effect' }],
+    }]);
+    const { store } = await seedScene();
+    store.bindActorStore(actors);
+
+    // Updating an inherited Item adopts it into the ActorDelta.
+    store.applyModifyDocument('Item', 'update', [
+        { _id: 'base-item', name: 'Overridden Item' },
+    ], { parentUuid: 'Scene.scene-1.Token.tok-1.ActorDelta.delta-1' });
+    assert.equal(
+        (store.getToken('scene-1', 'tok-1')?.delta?.items as any[])[0].name,
+        'Overridden Item',
+    );
+
+    // Deleting an inherited row must retain a tombstone so the base Item does
+    // not reappear in the synthetic Actor.
+    store.applyModifyDocument('Item', 'delete', ['base-item'], {
+        parentUuid: 'Scene.scene-1.Token.tok-1.ActorDelta.delta-1',
+    });
+    assert.deepEqual(store.getToken('scene-1', 'tok-1')?.delta?.items, [
+        { _id: 'base-item', _tombstone: true },
+    ]);
+
+    // Foundry restoreDelta removes the override/tombstone and resumes inheritance.
+    store.applyModifyDocument('Item', 'create', [{ _id: 'base-item', name: 'Base Item' }], {
+        parentUuid: 'Scene.scene-1.Token.tok-1.ActorDelta.delta-1',
+        restoreDelta: true,
+    });
+    assert.deepEqual(store.getToken('scene-1', 'tok-1')?.delta?.items, []);
+
+    store.applyModifyDocument('ActiveEffect', 'delete', ['base-effect'], {
+        parentUuid: 'Scene.scene-1.Token.tok-1.ActorDelta.delta-1',
+    });
+    assert.deepEqual(store.getToken('scene-1', 'tok-1')?.delta?.effects, [
+        { _id: 'base-effect', _tombstone: true },
+    ]);
+}
+
+async function runNestedDeltaItemEffects() {
+    const actors = new ActorStore();
+    await actors.seed(async () => [{
+        _id: 'actor-goblin',
+        items: [{ _id: 'base-item', name: 'Base Item', effects: [] }],
+        effects: [],
+    }]);
+    const { store } = await seedScene();
+    store.bindActorStore(actors);
+    const parentUuid = 'Scene.scene-1.Token.tok-1.ActorDelta.delta-1.Item.base-item';
+
+    store.applyModifyDocument('ActiveEffect', 'create', [
+        { _id: 'nested-effect', name: 'Nested Before' },
+    ], { parentUuid });
+    store.applyModifyDocument('ActiveEffect', 'update', [
+        { _id: 'nested-effect', name: 'Nested After' },
+    ], { parentUuid });
+
+    const delta = store.getToken('scene-1', 'tok-1')?.delta;
+    const item = (delta?.items as any[]).find(candidate => candidate._id === 'base-item');
+    assert.equal(item.effects[0].name, 'Nested After');
+    assert.deepEqual(delta?.effects || [], [], 'nested effect does not leak into top-level delta effects');
+
+    store.applyModifyDocument('ActiveEffect', 'delete', ['nested-effect'], { parentUuid });
+    const deletedItem = (store.getToken('scene-1', 'tok-1')?.delta?.items as any[])
+        .find(candidate => candidate._id === 'base-item');
+    assert.deepEqual(deletedItem.effects, []);
 }
 
 async function runTargetedTokenLookup() {

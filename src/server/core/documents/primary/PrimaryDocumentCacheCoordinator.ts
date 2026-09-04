@@ -391,6 +391,10 @@ modifyDocumentRouter.registerEmbeddedHandler('Cards', cardsStore);
 // events) also arrives with parentUuid rooted at 'Scene.<id>'.
 modifyDocumentRouter.registerEmbeddedHandler('Scene', sceneStore);
 
+// ActorDelta collections are relative to the Token's base Actor. SceneStore
+// uses this binding to preserve inherited-child tombstones and adoption.
+sceneStore.bindActorStore(actorStore);
+
 // Cross-store visibility dependency (ADR-0011 Phase 5): CombatStore consumes
 // ActorStore for `resolveOwnership` lookups and re-emits its own list
 // invalidation when actor ownership crossings affect combat visibility.
