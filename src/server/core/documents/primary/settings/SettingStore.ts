@@ -35,13 +35,16 @@ export class SettingStore extends PrimaryDocumentStore<SettingDocument> {
 
     /**
      * Privileged lookup by Foundry setting key (e.g.
-     * `core.combatTrackerConfig`). Foundry persists `value` JSON-serialized;
-     * string values that parse as JSON are decoded, anything else is returned
-     * as-is. Returns undefined when the setting does not exist.
+     * `core.combatTrackerConfig`). This mirrors Foundry's
+     * `WorldSettings.getSetting(key, null)` contract: user-scoped rows with
+     * the same key are not eligible. Foundry persists `value`
+     * JSON-serialized; string values that parse as JSON are decoded, anything
+     * else is returned as-is. Returns undefined when the setting does not
+     * exist.
      */
     public getValueByKey(key: string): unknown {
         for (const setting of this.documents.values()) {
-            if (setting.key !== key) continue;
+            if (setting.key !== key || setting.user != null) continue;
             const { value } = setting;
             if (typeof value === 'string') {
                 try {

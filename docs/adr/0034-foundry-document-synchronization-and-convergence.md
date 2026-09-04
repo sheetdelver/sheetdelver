@@ -1032,6 +1032,24 @@ the nested and delta-only children, reset the ActorDelta, and deleted the Token,
 Scene, and base Actor. Core routing reported every synthetic child operation
 as an embedded Scene dispatch, and all temporary documents were removed.
 
+**Setting scope audit correction (September 4, 2026):** Foundry generations
+13 and 14 use the same Setting schema and store user- and world-scoped rows in
+one collection. Foundry's own world lookup matches both the setting key and a
+null user id. Sheet Delver's privileged `getValueByKey` accessor previously
+matched only the key, so collection order could allow a user-scoped row to
+stand in for world configuration consumed by Core. The accessor now mirrors
+Foundry's null-user lookup, the shared Setting shape records the user field,
+and regression coverage places a same-key user row before the world row. This
+does not expose Setting documents, broaden their GM-only Sheet Delver audience,
+or alter Foundry's native mutation authorization.
+
+Live generation 14 build-367 verification created an unregistered disposable
+world Setting with `user: null`, updated its JSON-serialized value, and deleted
+it. Core received the create, sparse update, and delete responses in order,
+routed all three directly to SettingStore, and calculated the expected GM-only
+audience. The key had no registered configuration or change callback, no
+existing Foundry or system setting was modified, and no temporary row remained.
+
 **External merge residual:** The high-severity production audit gate passes,
 but npm currently reports moderate advisories for the directly declared Tiptap
 3.30.2 family and transitive `qs` 6.15.3. They are not synchronization defects

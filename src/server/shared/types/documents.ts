@@ -336,6 +336,7 @@ export interface SettingDocument {
     _id?: string;
     key?: string;
     value?: unknown;
+    user?: string | null;
     [key: string]: unknown;
 }
 
