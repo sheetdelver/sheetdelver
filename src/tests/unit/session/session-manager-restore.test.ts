@@ -3,6 +3,8 @@ import { FoundryUserConnectionService } from '@server/services/foundry';
 import { ClientSocket } from '@core/foundry/sockets/ClientSocket';
 import { worldStateStore } from '@server/core/world/WorldStateStore';
 import { worldLifecycleStore } from '@server/core/world/WorldLifecycleStore';
+import { userStore } from '@server/core/documents/primary/users/UserStore';
+import { FoundryUserRole } from '@server/core/documents/primary/base/ownership';
 import type {
     FoundrySessionInvalidationEvent,
 } from '@server/shared/types/foundry';
@@ -67,6 +69,7 @@ async function writeCachedSession(worldId = WORLD_ID, overrides: Record<string, 
 
 async function resetState(): Promise<void> {
     await sessionStore.clear();
+    userStore.clear('foundry-user-connection-service-test');
     worldStateStore.clear('foundry-user-connection-service-test');
     worldLifecycleStore.reset('foundry-user-connection-service-test');
 }
@@ -599,6 +602,98 @@ async function runWorldInvalidationWinsAgainstInFlightRestore() {
     await resetState();
 }
 
+async function runRoleChangeRebindsLiveAuthorization() {
+    await resetState();
+    seedActiveWorld();
+    await userStore.seed(async () => [
+        { _id: 'user-1', name: 'ptest', role: FoundryUserRole.ASSISTANT },
+    ]);
+
+    let disconnectCalls = 0;
+    let connectCalls = 0;
+    const fakeClient = {
+        userId: 'user-1',
+        getSessionCookie: () => 'session=role-refresh',
+        disconnect: () => { disconnectCalls += 1; },
+        connectWithRestoredCredential: async (credential: { userId: string; cookie: string }) => {
+            connectCalls += 1;
+            assert.deepEqual(credential, { userId: 'user-1', cookie: 'session=role-refresh' });
+        },
+    } as unknown as ClientSocket;
+    const manager = createManager();
+    (manager as any).connections.set(SESSION_TOKEN, {
+        id: SESSION_TOKEN,
+        client: fakeClient,
+        userId: 'user-1',
+        username: 'ptest',
+        lastActive: 0,
+        worldId: WORLD_ID,
+        cookie: 'session=role-refresh',
+        authorizationRole: FoundryUserRole.PLAYER,
+    });
+
+    await manager.refreshSessionsForUserAuthorization('user-1');
+    const refreshed = (manager as any).connections.get(SESSION_TOKEN);
+    assert.equal(disconnectCalls, 1, 'role change must close the stale transport before reconnecting');
+    assert.equal(connectCalls, 1);
+    assert.equal(refreshed.authorizationRole, FoundryUserRole.ASSISTANT);
+    assert.equal(manager.isValidSession(SESSION_TOKEN), true);
+
+    await manager.refreshSessionsForUserAuthorization('user-1');
+    assert.equal(disconnectCalls, 1, 'unchanged role must not reconnect the transport');
+    assert.equal(connectCalls, 1);
+
+    await userStore.seed(async () => [
+        { _id: 'user-1', name: 'ptest', role: FoundryUserRole.PLAYER },
+    ]);
+    await manager.refreshSessionsForUserAuthorization('user-1');
+    assert.equal(disconnectCalls, 2, 'role downgrade must close elevated transport authority');
+    assert.equal(connectCalls, 2);
+    assert.equal(refreshed.authorizationRole, FoundryUserRole.PLAYER);
+    await resetState();
+}
+
+async function runFailedRoleRefreshRevokesSession() {
+    await resetState();
+    seedActiveWorld();
+    await userStore.seed(async () => [
+        { _id: 'user-1', name: 'ptest', role: FoundryUserRole.ASSISTANT },
+    ]);
+
+    const fakeClient = {
+        userId: 'user-1',
+        getSessionCookie: () => 'session=role-refresh',
+        disconnect: () => undefined,
+        connectWithRestoredCredential: async () => {
+            throw new Error('authorization reconnect failed');
+        },
+        logout: async () => undefined,
+    } as unknown as ClientSocket;
+    const manager = createManager();
+    const invalidations: FoundrySessionInvalidationEvent[] = [];
+    manager.onSessionInvalidated(event => invalidations.push(event));
+    (manager as any).connections.set(SESSION_TOKEN, {
+        id: SESSION_TOKEN,
+        client: fakeClient,
+        userId: 'user-1',
+        username: 'ptest',
+        lastActive: 0,
+        worldId: WORLD_ID,
+        cookie: 'session=role-refresh',
+        authorizationRole: FoundryUserRole.PLAYER,
+    });
+
+    await assert.rejects(
+        manager.refreshSessionsForUserAuthorization('user-1'),
+        /authorization reconnect failed/,
+    );
+    assert.equal(manager.isValidSession(SESSION_TOKEN), false);
+    assert.deepEqual(invalidations, [{
+        scope: 'session', sessionId: SESSION_TOKEN, reason: 'revoked',
+    }]);
+    await resetState();
+}
+
 export async function run() {
     await runConcurrentRestoreDedupesTransport();
     await runWorldMismatchPurgesWithoutTransportConnect();
@@ -614,6 +709,8 @@ export async function run() {
     await runFailedRestoreDisconnectsAndClearsInFlight();
     await runRevocationWinsAgainstInFlightRestore();
     await runWorldInvalidationWinsAgainstInFlightRestore();
+    await runRoleChangeRebindsLiveAuthorization();
+    await runFailedRoleRefreshRevokesSession();
     console.log('  - FoundryUserConnectionService restore: all checks passed');
 }
 

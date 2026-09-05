@@ -34,6 +34,7 @@ export async function run(): Promise<void> {
     const {
         __resetDataDirForTests,
         getDataDir,
+        getLocalModulesDataDir,
         getModulesDataDir,
         initDataDir,
     } = await import('../../../server/core/paths');
@@ -64,6 +65,25 @@ export async function run(): Promise<void> {
         });
         fs.writeFileSync(path.join(moduleDir, 'dist', 'ui.js'), 'export default {};', 'utf8');
         fs.writeFileSync(path.join(moduleDir, 'dist', 'logic.js'), 'export default class Adapter {}', 'utf8');
+
+        const localModuleDir = path.join(getLocalModulesDataDir(), 'localhealth');
+        fs.mkdirSync(path.join(localModuleDir, 'module'), { recursive: true });
+        fs.mkdirSync(path.join(localModuleDir, 'src', 'server'), { recursive: true });
+        writeJson(path.join(localModuleDir, 'info.json'), {
+            id: 'localhealth',
+            title: 'Local UI Health Test Module',
+            version: '1.0.0',
+            manifest: {
+                ui: 'module/ui.ts',
+                logic: 'src/server/adapter.ts',
+            },
+        });
+        fs.writeFileSync(path.join(localModuleDir, 'module', 'ui.ts'), 'export default {};', 'utf8');
+        fs.writeFileSync(
+            path.join(localModuleDir, 'src', 'server', 'adapter.ts'),
+            'export default class Adapter {}',
+            'utf8',
+        );
 
         __resetRegistryForTests();
         initializeRegistry();
@@ -100,6 +120,28 @@ export async function run(): Promise<void> {
         assert.equal(record?.health?.errorCount, 1);
         assert.equal(record?.health?.lastError, 'UI load failure (managed): SyntaxError: forged log tail');
         assert.equal(record?.sourceStates?.managed?.health?.lastError, 'UI load failure (managed): SyntaxError: forged log tail');
+
+        // The same browser report remains diagnostic-only for every local dev
+        // module, while managed artifacts retain their fail-closed behavior above.
+        const localResponse = createResponseStub();
+        await report({
+            params: { id: 'localhealth' },
+            body: { source: 'local', message: 'Development bundle is rebuilding' },
+            userSession: { id: 'session-1', userId: 'user-1' },
+        } as any, localResponse, (() => undefined) as any);
+        assert.equal(localResponse.statusCode, 200);
+
+        const localRecord = getModuleLifecycleState().find(entry => entry.moduleId === 'localhealth');
+        assert.ok(localRecord);
+        assert.equal(localRecord?.activeSource, 'local');
+        assert.equal(localRecord?.status, 'validated');
+        assert.equal(localRecord?.enabled, true);
+        assert.equal(localRecord?.localEnabled, true);
+        assert.equal(localRecord?.health?.errorCount, 1);
+        assert.equal(
+            localRecord?.health?.lastError,
+            'UI load failure (local): Development bundle is rebuilding',
+        );
 
         const missing = recordModuleRuntimeFailure('missing-uihealth', 'should not create a record');
         assert.equal(missing, false);

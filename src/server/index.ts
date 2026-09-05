@@ -88,14 +88,19 @@ async function startServer() {
         },
     );
 
-    // A Foundry User deletion is an authority deletion, not only a roster
-    // update. Revoke matching app sessions from the canonical Store event so
-    // v13 compatibility and normalized v14 document ingress behave identically.
+    // User deletion retires authority entirely. A role update instead rebinds
+    // matching Foundry sockets so elevations and downgrades take effect without
+    // retaining the authorization snapshot captured at socket connection time.
     userStore.on('documentChanged', (event) => {
-        if (event.action !== 'delete') return;
-        void foundryUserConnections.destroySessionsForUser(event.id).catch((error: unknown) => {
-            logger.error('Core Service | Failed to retire deleted-user sessions:', error);
-        });
+        if (event.action === 'delete') {
+            void foundryUserConnections.destroySessionsForUser(event.id).catch((error: unknown) => {
+                logger.error('Core Service | Failed to retire deleted-user sessions:', error);
+            });
+        } else if (event.action === 'update') {
+            void foundryUserConnections.refreshSessionsForUserAuthorization(event.id).catch((error: unknown) => {
+                logger.error('Core Service | Failed to refresh changed-user authorization:', error);
+            });
+        }
     });
 
     // Start System Provider

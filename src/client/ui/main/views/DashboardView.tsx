@@ -35,6 +35,7 @@ export const DashboardView = ({
     setLoginMessage
 }: DashboardViewProps) => {
     const { addNotification } = useNotifications();
+    const canDeleteActors = user?.canDeleteActors === true;
     const [confirmDelete, setConfirmDelete] = useState<{ isOpen: boolean, actorId: string, actorName: string }>({
         isOpen: false,
         actorId: '',
@@ -43,6 +44,15 @@ export const DashboardView = ({
 
     const handleDeleteActor = async () => {
         if (!confirmDelete.actorId) return;
+
+        // This is a courtesy guard for stale UI state. The authenticated
+        // Foundry transport remains the authority for every delete request.
+        if (!canDeleteActors) {
+            addNotification('Foundry does not permit your role to delete characters.', 'error');
+            setConfirmDelete({ isOpen: false, actorId: '', actorName: '' });
+            return;
+        }
+
         setLoading(true);
         setLoginMessage(`Deleting ${confirmDelete.actorName}...`);
 
@@ -61,6 +71,7 @@ export const DashboardView = ({
     };
 
     const confirmDeletion = (id: string, name: string) => {
+        if (!canDeleteActors) return;
         setConfirmDelete({
             isOpen: true,
             actorId: id,
@@ -140,6 +151,7 @@ export const DashboardView = ({
                                 actor={actor}
                                 index={idx}
                                 theme={theme}
+                                canDelete={canDeleteActors}
                                 onDelete={confirmDeletion}
                             />
                         ))}

@@ -3,6 +3,8 @@ import { ClientSocket } from '@server/core/foundry/sockets/ClientSocket';
 import type { FoundryConfig } from '@server/core/foundry/types';
 import { worldStateStore } from '@server/core/world/WorldStateStore';
 import { worldLifecycleStore } from '@server/core/world/WorldLifecycleStore';
+import { userStore } from '@server/core/documents/primary/users/UserStore';
+import { FoundryUserRole } from '@server/core/documents/primary/base/ownership';
 import { logger } from '@shared/utils/logger';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
 import type {
@@ -28,6 +30,7 @@ export interface FoundryUserConnection {
     lastActive: number;
     worldId?: string;
     cookie?: string;
+    authorizationRole: FoundryUserRole;
     detachFoundryEventIngress?: () => void;
 }
 
@@ -40,6 +43,7 @@ export class FoundryUserConnectionService {
     private readonly config: FoundryConfig;
     private readonly connections = new Map<string, FoundryUserConnection>();
     private readonly restorePromises = new Map<string, Promise<FoundryUserConnection | undefined>>();
+    private readonly authorizationRefreshPromises = new Map<string, Promise<void>>();
     private readonly SESSION_TIMEOUT_MS = 1000 * 60 * 60 * 24;
     private readonly RESTORE_RETRY_BASE_DELAY_MS = 300;
     private readonly RESTORE_RETRY_MAX_DELAY_MS = 2000;
@@ -107,6 +111,9 @@ export class FoundryUserConnectionService {
                 throw new Error(`Cannot create a session for deleted Foundry user ${userId}`);
             }
 
+            // Capture before transport connection so a concurrent role change
+            // is detected once the new session is registered below.
+            const authorizationRole = userStore.getRole(userId);
             client.userId = userId;
             await client.login(username, password);
             if (authorityEpoch !== this.authorityEpoch || this.deletedUserIds.has(userId)) {
@@ -123,6 +130,7 @@ export class FoundryUserConnectionService {
                 lastActive: Date.now(),
                 worldId: worldStateStore.getCurrentWorldId() || undefined,
                 cookie: client.getSessionCookie() ?? undefined,
+                authorizationRole,
                 detachFoundryEventIngress,
             };
             this.connections.set(sessionId, connection);
@@ -132,6 +140,11 @@ export class FoundryUserConnectionService {
                 // A setup transition can retire authority while the protected
                 // session write is queued; never report that login as valid.
                 throw new Error('World session authority changed while login was being persisted');
+            }
+
+            await this.refreshSessionAuthorization(sessionId);
+            if (!this.connections.has(sessionId)) {
+                throw new Error('Foundry authorization refresh retired the new session');
             }
 
             logger.info(`FoundryUserConnectionService | Connection created: ${sessionId} (User: ${username}, ID: ${userId})`);
@@ -227,6 +240,99 @@ export class FoundryUserConnectionService {
         for (const connection of liveConnections) await this.destroyLiveConnection(connection);
 
         logger.info(`FoundryUserConnectionService | Retired ${sessionIds.size} session(s) for deleted Foundry user ${userId}.`);
+    }
+
+    /**
+     * Rebind live Foundry sockets when their User role changes. Foundry binds
+     * authorization to the socket's User object, so retaining that socket can
+     * preserve either stale denial after elevation or stale authority after a
+     * downgrade. Disconnecting first makes mutations fail closed while the
+     * existing Foundry session is rebound.
+     */
+    public async refreshSessionsForUserAuthorization(userId: string): Promise<void> {
+        if (!userId) return;
+        const sessionIds = Array.from(this.connections.values())
+            .filter(connection => connection.userId === userId)
+            .map(connection => connection.id);
+        await Promise.all(sessionIds.map(sessionId => this.refreshSessionAuthorization(sessionId)));
+    }
+
+    private async refreshSessionAuthorization(sessionId: string): Promise<void> {
+        const pending = this.authorizationRefreshPromises.get(sessionId);
+        if (pending) {
+            await pending;
+            return this.refreshSessionAuthorization(sessionId);
+        }
+
+        const connection = this.connections.get(sessionId);
+        if (!connection) return;
+        const nextRole = userStore.getRole(connection.userId);
+        if (connection.authorizationRole === nextRole) return;
+
+        const refresh = this.rebindSessionAuthorization(connection, nextRole);
+        this.authorizationRefreshPromises.set(sessionId, refresh);
+        try {
+            await refresh;
+        } finally {
+            if (this.authorizationRefreshPromises.get(sessionId) === refresh) {
+                this.authorizationRefreshPromises.delete(sessionId);
+            }
+        }
+
+        // Coalesce rapid role updates without allowing an intermediate role to
+        // remain bound after the first reconnect finishes.
+        const current = this.connections.get(sessionId);
+        if (current && current.authorizationRole !== userStore.getRole(current.userId)) {
+            await this.refreshSessionAuthorization(sessionId);
+        }
+    }
+
+    private async rebindSessionAuthorization(
+        connection: FoundryUserConnection,
+        nextRole: FoundryUserRole,
+    ): Promise<void> {
+        const sessionId = connection.id;
+        const credential: RestoredFoundrySessionCredential | null = connection.client.userId
+            ? {
+                userId: connection.client.userId,
+                cookie: connection.client.getSessionCookie() || connection.cookie || '',
+            }
+            : null;
+        if (!credential?.cookie) {
+            await this.destroySession(sessionId, 'revoked');
+            throw new Error(`Cannot refresh Foundry authorization for ${connection.username}: session credential is unavailable`);
+        }
+
+        const authorityEpoch = this.authorityEpoch;
+        logger.info(
+            `FoundryUserConnectionService | Refreshing Foundry authorization for ${connection.username} `
+            + `(role ${connection.authorizationRole} -> ${nextRole}).`,
+        );
+
+        // This synchronous disconnect closes the stale-authority window before
+        // any asynchronous handshake or status refresh can run.
+        connection.client.disconnect();
+        try {
+            await connection.client.connectWithRestoredCredential(credential);
+            if (
+                authorityEpoch !== this.authorityEpoch
+                || this.connections.get(sessionId) !== connection
+            ) {
+                connection.client.disconnect();
+                return;
+            }
+
+            connection.authorizationRole = nextRole;
+            connection.cookie = connection.client.getSessionCookie() ?? credential.cookie;
+            connection.lastActive = Date.now();
+            await this.saveSession(sessionId, connection.client, connection.username);
+            logger.info(`FoundryUserConnectionService | Refreshed Foundry authorization for ${connection.username}.`);
+        } catch (error: unknown) {
+            if (this.connections.get(sessionId) === connection) {
+                await this.destroySession(sessionId, 'revoked');
+            }
+            throw error;
+        }
     }
 
     private async destroyLiveConnection(connection: FoundryUserConnection): Promise<void> {
@@ -373,6 +479,9 @@ export class FoundryUserConnectionService {
                 username: foundryUsername,
             });
 
+            // Reconcile after registration if a role update overlaps transport
+            // restoration and therefore could not target this connection yet.
+            const authorizationRole = userStore.getRole(credential.userId);
             await client.connectWithRestoredCredential(credential);
             if (
                 authorityEpoch !== this.authorityEpoch
@@ -393,8 +502,12 @@ export class FoundryUserConnectionService {
                 lastActive: Date.now(),
                 worldId: sessionData.worldId,
                 cookie: credential.cookie,
+                authorizationRole,
                 detachFoundryEventIngress,
             });
+
+            await this.refreshSessionAuthorization(sessionId);
+            if (!this.connections.has(sessionId)) return { status: 'terminal' };
 
             return { status: 'restored', client, userId: credential.userId, connectionId: sessionId };
         } catch (error: unknown) {

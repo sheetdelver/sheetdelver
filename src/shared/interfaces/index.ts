@@ -57,6 +57,8 @@ export interface User {
     canLogin?: boolean;
     isGM?: boolean;
     role?: number;
+    /** Server-derived display hint; Foundry remains authoritative on deletion. */
+    canDeleteActors?: boolean;
     color?: string;
     characterName?: string;
 }

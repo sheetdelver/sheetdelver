@@ -87,6 +87,18 @@ export function run() {
         assert.equal(updated.lastSeenAt, 2000);
         assert.equal(updated.title, 'Shadowdark RPG Updated');
 
+        // Runtime failures in a local development source remain warning-only;
+        // explicit enablement is preserved so the developer can repair in place.
+        store.modules.shadowdark.status = 'validated';
+        store.modules.shadowdark.enabled = true;
+        store.modules.shadowdark.localEnabled = true;
+        store.modules.shadowdark.sourceStates = {
+            [ModuleSourceCategory.Local]: {
+                status: 'validated',
+                enabled: true,
+            },
+        };
+
         const failed = recordLifecycleRuntimeFailure(
             store,
             'shadowdark',
@@ -94,12 +106,15 @@ export function run() {
             3000
         );
         assert.ok(failed);
-        assert.equal(failed?.status, 'errored');
-        assert.equal(failed?.enabled, false);
+        assert.equal(failed?.status, 'validated');
+        assert.equal(failed?.enabled, true);
         assert.equal(failed?.health?.errorCount, 1);
         assert.equal(failed?.health?.lastError, 'Adapter initialize failed in test');
         assert.equal(failed?.health?.lastErrorAt, 3000);
-        assert.equal(failed?.localEnabled, false, 'runtime failure disables only the active local source');
+        assert.equal(failed?.localEnabled, true, 'runtime failure preserves local developer enablement');
+        assert.equal(failed?.sourceStates?.local?.status, 'validated');
+        assert.equal(failed?.sourceStates?.local?.enabled, true);
+        assert.equal(failed?.sourceStates?.local?.health?.errorCount, 1);
 
         const failedAgain = recordLifecycleRuntimeFailure(
             store,
@@ -117,8 +132,8 @@ export function run() {
         const records = getLifecycleRecords(reloaded);
         assert.equal(records.length, 1);
         assert.equal(records[0].moduleId, 'shadowdark');
-        assert.equal(records[0].status, 'errored');
-        assert.equal(records[0].enabled, false);
+        assert.equal(records[0].status, 'validated');
+        assert.equal(records[0].enabled, true);
         assert.equal(records[0].title, 'Shadowdark RPG Updated');
         assert.equal(records[0].health?.errorCount, 2);
         assert.equal(records[0].health?.lastError, 'Second adapter failure in test');

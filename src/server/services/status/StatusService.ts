@@ -4,6 +4,7 @@ import { SetupManager } from '@core/world/SetupManager';
 import { worldStateStore } from '@server/core/world/WorldStateStore';
 import { worldLifecycleStore } from '@server/core/world/WorldLifecycleStore';
 import { UserRole } from '@shared/constants';
+import { canRoleDeleteActors } from '@shared/security/foundryPermissions';
 import { syncTokenService } from '@server/services/status/SyncTokenService';
 import { worldBootstrapper } from '@server/services/world';
 import type {
@@ -31,6 +32,7 @@ export const sanitizeStatusUser = (user: Partial<UserWithPresence>, foundryBaseU
     name: user.name,
     role: user.role,
     isGM: (user.role || 0) >= UserRole.ASSISTANT,
+    canDeleteActors: canRoleDeleteActors(user.role),
     active: user.active,
     color: user.color,
     characterId: user.character,

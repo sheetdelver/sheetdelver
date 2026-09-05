@@ -29,6 +29,7 @@ export async function run() {
     };
     await userStore.seed(async () => [
         { _id: 'player-1', name: 'Player', role: FoundryUserRole.PLAYER },
+        { _id: 'assistant-1', name: 'Assistant', role: FoundryUserRole.ASSISTANT },
     ]);
     await actorStore.seed(async () => [
         observedDocument,
@@ -58,6 +59,12 @@ export async function run() {
         await utilityService.getFoundryDocument(createClient(async () => ({ forged: true })), 'Actor.actor-hidden'),
         { error: 'Document not found', status: 404 },
     );
+
+    const sessionUsers = await utilityService.getSessionUsers(fallbackClient);
+    const player = sessionUsers.users.find(user => user._id === 'player-1');
+    const assistant = sessionUsers.users.find(user => user._id === 'assistant-1');
+    assert.equal(player?.canDeleteActors, false);
+    assert.equal(assistant?.canDeleteActors, true);
 
     sharedContentStore.clear('utility-service-test');
     assert.deepEqual(await utilityService.getSharedContent(), { type: null });

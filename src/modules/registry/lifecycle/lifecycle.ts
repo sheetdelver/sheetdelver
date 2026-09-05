@@ -345,12 +345,44 @@ export function recordLifecycleRuntimeFailure(
     const existing = store.modules[id];
     if (!existing) return null;
 
-    const previousErrorCount = existing.health?.errorCount || 0;
+    const activeSourceState = existing.activeSource
+        ? existing.sourceStates?.[existing.activeSource]
+        : undefined;
+    // Once source-specific state exists, its counter is authoritative and must
+    // not inherit failures from a previously active local or managed source.
+    const previousErrorCount = activeSourceState
+        ? activeSourceState.health?.errorCount || 0
+        : existing.health?.errorCount || 0;
     const newHealth = {
         errorCount: previousErrorCount + 1,
         lastError: errorMessage,
         lastErrorAt: now,
     };
+
+    if (existing.activeSource === ModuleSourceCategory.Local) {
+        const sourceStates = existing.sourceStates || {};
+        const existingSourceState = sourceStates[ModuleSourceCategory.Local];
+        const next: ModuleLifecycleRecord = {
+            ...existing,
+            // Local source is a live development workspace. Runtime failures are
+            // diagnostics for the developer and never override operator enablement.
+            health: newHealth,
+            updatedAt: now,
+            sourceStates: {
+                ...sourceStates,
+                [ModuleSourceCategory.Local]: {
+                    ...(existingSourceState || {
+                        status: existing.status,
+                        enabled: existing.enabled,
+                    }),
+                    health: newHealth,
+                },
+            },
+        };
+
+        store.modules[id] = next;
+        return next;
+    }
 
     const next: ModuleLifecycleRecord = {
         ...existing,
@@ -363,8 +395,7 @@ export function recordLifecycleRuntimeFailure(
 
     // A runtime failure disables only the source that actually failed. Keeping
     // this flag aligned prevents a restart from reviving or mislabelling it.
-    if (existing.activeSource === ModuleSourceCategory.Local) next.localEnabled = false;
-    else if (existing.activeSource === ModuleSourceCategory.Managed) next.managedEnabled = false;
+    if (existing.activeSource === ModuleSourceCategory.Managed) next.managedEnabled = false;
 
     if (existing.activeSource) {
         const sourceStates = next.sourceStates || {};

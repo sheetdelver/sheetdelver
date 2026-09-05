@@ -1,4 +1,5 @@
 import { UserRole } from '@shared/constants';
+import { canRoleDeleteActors } from '@shared/security/foundryPermissions';
 import { logger } from '@shared/utils/logger';
 import type { UtilityClientLike } from '@server/shared/types/utility';
 import type { RouteFoundryClient } from '@server/shared/types/requestContext';
@@ -34,6 +35,7 @@ export function createUtilityService(deps: UtilityServiceDeps) {
             name: u.name,
             role: u.role,
             isGM: (u.role || 0) >= UserRole.ASSISTANT,
+            canDeleteActors: canRoleDeleteActors(u.role),
             active: u.active,
             color: u.color,
             characterId: u.character,

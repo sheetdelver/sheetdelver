@@ -12,6 +12,7 @@ interface ActorCardProps {
     index: number;
     theme: Theme;
     clickable?: boolean;
+    canDelete?: boolean;
     onDelete: (id: string, name: string) => void;
 }
 
@@ -20,6 +21,7 @@ export const ActorCard = ({
     index,
     theme,
     clickable = true,
+    canDelete = false,
     onDelete
 }: ActorCardProps) => {
 
@@ -41,6 +43,7 @@ export const ActorCard = ({
     const displayName = customData.name || actor.name;
     const displayImg = resolveImageUrl(customData.img || actor.img || 'icons/svg/mystery-man.svg');
     const displaySubtext = customData.subtext || actor.type;
+    const deleteEnabled = canDelete && Boolean(actorId);
 
     return (
         <div
@@ -69,10 +72,19 @@ export const ActorCard = ({
                     <button
                         onClick={(e) => {
                             e.stopPropagation();
+                            if (!deleteEnabled) return;
                             onDelete(actorId, actorName);
                         }}
-                        className="absolute -top-1 -right-1 p-2 rounded-lg bg-black/20 hover:bg-red-500/20 text-white/20 hover:text-red-500 backdrop-blur-md border border-white/5 hover:border-red-500/50 transition-all duration-300 group/delete z-10"
-                        title="Delete Character"
+                        disabled={!deleteEnabled}
+                        aria-label="Delete Character"
+                        className={`absolute -top-1 -right-1 p-2 rounded-lg bg-black/20 backdrop-blur-md border border-white/5 transition-all duration-300 group/delete z-10 ${deleteEnabled
+                            ? 'hover:bg-red-500/20 text-white/20 hover:text-red-500 hover:border-red-500/50'
+                            : 'text-white/10 cursor-not-allowed opacity-50'
+                        }`}
+                        title={deleteEnabled
+                            ? 'Delete Character'
+                            : 'Foundry requires an Assistant or Gamemaster role to delete characters'
+                        }
                     >
                         <Trash2 className="w-4 h-4 transition-transform group-hover/delete:scale-110" />
                     </button>

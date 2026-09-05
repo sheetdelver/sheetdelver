@@ -5,6 +5,8 @@ export interface StatusUser {
     name?: string;
     role?: number;
     isGM?: boolean;
+    /** Server-derived display hint; Foundry remains authoritative on deletion. */
+    canDeleteActors?: boolean;
     active?: boolean;
     color?: string;
     characterId?: string | { id?: string; _id?: string } | null;

@@ -18,6 +18,7 @@ function runStatusSanitizeTests() {
     const sanitizedAvatar = sanitizeStatusUser(userWithAvatar, foundryBaseUrl);
     assert.equal(sanitizedAvatar._id, 'u1');
     assert.equal(sanitizedAvatar.isGM, true);
+    assert.equal(sanitizedAvatar.canDeleteActors, true);
     assert.equal(sanitizedAvatar.img, 'http://foundry.test/avatar.png');
 
     const userWithImgFallback = {
@@ -33,6 +34,7 @@ function runStatusSanitizeTests() {
     const sanitizedImg = sanitizeStatusUser(userWithImgFallback, foundryBaseUrl);
     assert.equal(sanitizedImg._id, 'u2');
     assert.equal(sanitizedImg.isGM, false);
+    assert.equal(sanitizedImg.canDeleteActors, false);
     assert.equal(sanitizedImg.img, 'http://foundry.test/img.png');
 
     const userMissingRole = {
@@ -42,6 +44,7 @@ function runStatusSanitizeTests() {
 
     const sanitizedNoRole = sanitizeStatusUser(userMissingRole, foundryBaseUrl);
     assert.equal(sanitizedNoRole.isGM, false);
+    assert.equal(sanitizedNoRole.canDeleteActors, false);
 
     const publicStatus = projectPublicStatus({
         connected: true,
