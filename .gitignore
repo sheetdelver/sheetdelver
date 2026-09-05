@@ -60,3 +60,7 @@ cookies.txt
 
 #Temporary until we are ready to use
 .github/workflows/release.yml
+
+
+AGENTS.md
+CLAUDE.md

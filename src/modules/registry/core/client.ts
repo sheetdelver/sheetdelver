@@ -1,7 +1,7 @@
 import { UIModuleManifest } from './types';
-import { ModuleSourceCategory } from '@shared/types/modules';
 import { parseModuleId } from '@shared/security/moduleId';
 import { logger } from '@shared/utils/logger';
+import { resolveUIModuleForSource } from './uiModuleResolver';
 export * from './utils';
 import React from 'react';
 
@@ -92,7 +92,8 @@ async function fetchActiveSources(): Promise<Record<string, string>> {
         const res = await fetch('/api/registry/sources');
         if (res.ok) activeSources = await res.json();
     } catch {
-        // Network failure — fall back to data loaders for all modules.
+        // Leave the source unresolved so callers use the platform UI without
+        // guessing and can retry source discovery on their next resolution.
     }
     return activeSources ?? {};
 }
@@ -125,9 +126,8 @@ export function invalidateModuleSourceCache() {
  *   ModuleSourceCategory.Local   → localModuleUIs[id]   (<DATA_DIR>/local/modules, bundled source)
  *   ModuleSourceCategory.Managed → runtime ESM route    (<DATA_DIR>/modules, pre-compiled artifact)
  * `dataModuleUIs` is always empty (installed modules are not bundled); managed installs
- * fall through to the runtime ESM route below. Falls back to PLATFORM_DEFAULT_MANIFEST
- * when the module is not resolvable or when its loader throws — a failing module never
- * crashes the platform.
+ * use the runtime ESM route below. Resolution never crosses source boundaries: a local
+ * failure degrades directly to the platform manifest instead of probing managed code.
  */
 export async function getUIModule(systemId: string): Promise<UIModuleManifest> {
     const id = parseModuleId(systemId);
@@ -140,68 +140,36 @@ export async function getUIModule(systemId: string): Promise<UIModuleManifest> {
     const sources = await fetchActiveSources();
     const source = sources[id];
 
-    let manifest: UIModuleManifest = PLATFORM_DEFAULT_MANIFEST;
-
     // Dynamically import the registry — it is a generated file so we import it
     // lazily to ensure we always get the version that was built into the bundle.
     const { localModuleUIs, dataModuleUIs } = await import('@data-registry/module-ui-registry');
 
+    const resolution = await resolveUIModuleForSource({
+        moduleId: id,
+        source,
+        localLoader: localModuleUIs[id],
+        managedLoader: dataModuleUIs[id],
+        // webpackIgnore preserves runtime loading for managed, pre-compiled artifacts.
+        loadManagedRuntime: () => import(/* webpackIgnore: true */ `/api/modules/${id}/ui`),
+    });
+    const manifest = resolution.manifest ?? PLATFORM_DEFAULT_MANIFEST;
+    const routeCompiledStyles = resolution.compiledStyles;
 
-    // Local dev source takes priority when the server has it marked active.
-    if (source === ModuleSourceCategory.Local) {
-        const loader = localModuleUIs[id];
-        if (loader) {
-            try {
-                const m = await loader();
-                manifest = m.default || m;
-            } catch (e) {
-                reportUIModuleLoadFailure(id, ModuleSourceCategory.Local, `Failed to load local UI manifest for "${id}"`, e);
-                // Fall through to data loaders below.
-            }
-        }
-    }
-
-    // Legacy static map for installed modules — now always empty (installed modules are
-    // not bundled). Retained for the import shape; managed installs fall through to the
-    // runtime ESM route below.
-    if (manifest === PLATFORM_DEFAULT_MANIFEST) {
-        const loader = dataModuleUIs[id];
-        if (loader) {
-            try {
-                const m = await loader();
-                manifest = m.default || m;
-            } catch (e) {
-                reportUIModuleLoadFailure(id, ModuleSourceCategory.Managed, `Failed to load managed UI manifest for "${id}"`, e);
-            }
-        }
-    }
-
-    // Module not in the static registry — it was installed at runtime after the
-    // Next.js build. Load via the platform API which serves the artifact with bare
-    // ESM imports rewritten to window.__SD.* globals so the browser can execute it.
-    // webpackIgnore tells webpack not to attempt static analysis of this import.
-    // compiledStyles lives on the packager-patched artifact info.json, not the source
-    // info.json bundled into ui.js — so the runtime UI route re-exports it (decision 37).
-    let routeCompiledStyles: string | undefined;
-    if (manifest === PLATFORM_DEFAULT_MANIFEST) {
-        try {
-            const m = await import(/* webpackIgnore: true */ `/api/modules/${id}/ui`);
-            manifest = m.default || m;
-            if (typeof (m as { __sdCompiledStyles?: unknown }).__sdCompiledStyles === 'string') {
-                routeCompiledStyles = (m as { __sdCompiledStyles?: string }).__sdCompiledStyles;
-            }
-        } catch (e) {
-            reportUIModuleLoadFailure(id, source ?? ModuleSourceCategory.Managed, `Failed to load runtime UI manifest for "${id}"`, e);
-        }
-    }
-
-    if (manifest === PLATFORM_DEFAULT_MANIFEST) {
+    if (resolution.failure) {
+        reportUIModuleLoadFailure(
+            id,
+            resolution.failure.source,
+            resolution.failure.message,
+            resolution.failure.error,
+        );
+    } else if (manifest === PLATFORM_DEFAULT_MANIFEST) {
         const message = `No UI manifest found for "${id}" (source: ${source ?? 'unknown'})`;
-        if (source) reportUIModuleLoadFailure(id, source, message);
-        else logger.warn(`[Registry] ${message}`);
+        logger.warn(`[Registry] ${message}`);
     }
 
-    manifestCache.set(id, manifest);
+    // Cache only an authoritative source outcome. An unresolved source often
+    // means the registry request was transiently unavailable and should retry.
+    if (resolution.manifest || resolution.failure) manifestCache.set(id, manifest);
 
     // Inject module stylesheet(s). The package-time compiled Tailwind artifact (if the
     // packager produced one — `info.compiledStyles`, ADR-0027 decision 37) is linked FIRST

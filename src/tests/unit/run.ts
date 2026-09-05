@@ -114,6 +114,7 @@ import { run as runModuleLifecycleState } from './modules/module-lifecycle-state
 import { run as runModuleManifestValidation } from './modules/module-manifest-validation.test';
 import { run as runModuleArtifactHealth } from './modules/module-artifact-health.test';
 import { run as runModuleUiHealthReport } from './modules/module-ui-health-report.test';
+import { run as runModuleUiSourceResolution } from './modules/module-ui-source-resolution.test';
 import { run as runModuleUiRewrite } from './modules/module-ui-rewrite.test';
 import { run as runModuleRegistryManager } from './modules/module-registry-manager.test';
 import { run as runModuleLifecycleTransitions } from './modules/module-lifecycle-transitions.test';
@@ -184,6 +185,7 @@ async function runAllUnitTests() {
     runModuleManifestValidation();
     runModuleArtifactHealth();
     await runModuleUiHealthReport();
+    await runModuleUiSourceResolution();
     runModuleUiRewrite();
     await runModuleRegistryManager();
     await runActorNormalization();
