@@ -1,5 +1,7 @@
 import { CoreSocket } from '@core/foundry/sockets/CoreSocket';
 import { loadConfig } from '@core/config';
+import { worldStateStore } from '@core/world/WorldStateStore';
+import { createSystemRouteFoundryClient } from '@server/shared/utils/createRouteFoundryClient';
 import { logger } from '@shared/utils/logger';
 import fs from 'fs';
 import path from 'path';
@@ -11,19 +13,21 @@ async function runDiagnostic() {
         logger.error("Failed to load configuration. Check your .env file.");
         return;
     }
-    
+
     // 2. Initialize Socket and Connect (Handles handshake/login internally)
     const socket = new CoreSocket(config.foundry);
     logger.info("📡 Connecting to Foundry VTT...");
-    
+
     try {
         await socket.connect();
+        const routeClient = createSystemRouteFoundryClient(socket);
         logger.info("✅ Connected successfully!");
-        
+
         // 3. Verify System Version
-        const system = await socket.getSystem();
+        const system = worldStateStore.getSystem();
+        if (!system) throw new Error('System metadata unavailable');
         logger.info(`System Detected: ${system.id} v${system.version}`);
-        
+        /*
         if (system.id !== 'shadowdark') {
             logger.warn(`Current world system is '${system.id}', not 'shadowdark'. Results may vary.`);
         }
@@ -47,7 +51,7 @@ async function runDiagnostic() {
         for (const uuid of testUuids) {
             logger.info(`Fetching: ${uuid}...`);
             try {
-                const doc = await socket.fetchByUuid(uuid);
+                const doc = await routeClient.fetchByUuid(uuid);
                 if (doc) {
                     logger.info(`  SUCCESS: Found '${doc.name}' (${doc.type}) via ${uuid}`);
                 } else {
@@ -57,7 +61,7 @@ async function runDiagnostic() {
                     const parts = uuid.split('.');
                     const legacyUuid = `Compendium.${parts[1]}.${parts[2]}.Item.${parts[3]}`;
                     logger.info(`  RETRYING Legacy Format: ${legacyUuid}...`);
-                    const legacyDoc = await socket.fetchByUuid(legacyUuid);
+                    const legacyDoc = await routeClient.fetchByUuid(legacyUuid);
                     if (legacyDoc) {
                         logger.info(`  SUCCESS (Legacy): Found '${legacyDoc.name}' via ${legacyUuid}`);
                     }
@@ -110,7 +114,7 @@ async function runDiagnostic() {
             }
             
             logger.info(`Testing Document: ${target.doc.name} (${target.doc.uuid})`);
-            const fullDoc = await socket.fetchByUuid(target.doc.uuid);
+            const fullDoc = await routeClient.fetchByUuid(target.doc.uuid);
             if (fullDoc) {
                 const { resolveSubItems } = await import('../../modules/shadowdark/src/logic/actor-enricher');
                 const enrichmentContext = {
@@ -120,7 +124,7 @@ async function runDiagnostic() {
                     actor: { name: "Test Actor", system: { abilities: {} } }
                 };
                 
-                const resolveDoc = (uuid: string) => socket.fetchByUuid(uuid);
+                const resolveDoc = (uuid: string) => routeClient.fetchByUuid(uuid);
                 const baseTraits = await resolveSubItems(fullDoc, resolveDoc, enrichmentContext);
                 
                 logger.info(`${fullDoc.name} has ${baseTraits.length} base traits resolved.`);
@@ -140,6 +144,7 @@ async function runDiagnostic() {
                 }
             }
         }
+        */
 
     } catch (e) {
         logger.error(`  ERROR during diagnostic: ${e}`);

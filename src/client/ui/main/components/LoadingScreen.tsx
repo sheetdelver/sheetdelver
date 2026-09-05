@@ -25,6 +25,12 @@ export const LoadingScreen = ({ step, system, theme }: LoadingScreenProps) => {
             />
 
             <LoadingModal
+                message="Logging out..."
+                visible={step === 'logging-out'}
+                theme={system?.componentStyles?.loadingModal}
+            />
+
+            <LoadingModal
                 message="Booting System..."
                 submessage="Warming up Compendium Cache"
                 visible={step === 'initializing'}

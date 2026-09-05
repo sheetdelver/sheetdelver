@@ -1,6 +1,6 @@
-import { logger } from '@shared/utils/logger';
-import { systemService } from '@core/system/SystemService';
-import { SetupManager } from '@core/foundry/SetupManager';
+import { systemService } from '@server/services/world';
+import { SetupManager } from '@core/world/SetupManager';
+import { worldLifecycleStore } from '@server/core/world/WorldLifecycleStore';
 import type {
     AdminServiceDeps,
     AdminServiceResult,
@@ -9,34 +9,32 @@ import type {
 } from '@server/shared/types/admin';
 
 export function createAdminService(deps: AdminServiceDeps): AdminServiceResult {
-    // Admin status projection used by CLI and local maintenance surfaces.
+    // Admin status projection used by the Admin UI and local maintenance surfaces.
     const getStatus = async () => {
         const systemStatus = await deps.getSystemStatusPayload();
         const client = systemService.getSystemClient() as unknown as AdminStatusClientLike;
         return {
             ...systemStatus,
             socket: client.isConnected,
-            worldState: client.worldState,
+            worldState: worldLifecycleStore.getState(),
             userId: client.userId,
             isExplicit: client.isExplicitSession,
-            discoveredUserId: client.discoveredUserId
+            discoveredUserId: client.discoveredUserId,
+            // Surfaced for the admin top-bar environment badge (ADR-0030 UX-2).
+            environment: process.env.NODE_ENV === 'production' ? 'production' : 'development',
         };
     };
 
-    // World listing flow with scrape-first and cache fallback behavior.
+    // World listing reads from the imported-worlds cache only. Per ADR-0022
+    // Phase 1, in-app world scraping was removed; operators can re-import
+    // worlds via `npm run admin:import` (or use `npm run admin:scrape` for
+    // a one-shot authenticated probe) and re-warm the cache that way.
     const listWorlds = async () => {
-        const client = systemService.getSystemClient() as unknown as AdminStatusClientLike;
-        let worlds: WorldEntry[] = [];
-
-        worlds = await SetupManager.scrapeAvailableWorlds(client.url || '');
-
-        if (worlds.length === 0) {
-            const cache = await SetupManager.loadCache();
-            if (cache.currentWorldId && cache.worlds[cache.currentWorldId]) {
-                worlds = [cache.worlds[cache.currentWorldId]];
-            }
+        const worlds: WorldEntry[] = [];
+        const cache = await SetupManager.loadCache();
+        if (cache.currentWorldId && cache.worlds[cache.currentWorldId]) {
+            worlds.push(cache.worlds[cache.currentWorldId]);
         }
-
         return worlds;
     };
 
@@ -44,36 +42,20 @@ export function createAdminService(deps: AdminServiceDeps): AdminServiceResult {
         return SetupManager.loadCache();
     };
 
-    // Manual setup scrape used by local admin/CLI workflows.
-    const scrapeSetup = async (sessionCookie: string) => {
-        if (!sessionCookie) return { error: 'Session cookie required', status: 400 };
-
-        const client = systemService.getSystemClient() as unknown as AdminStatusClientLike;
-        logger.info('Core Service | Triggering manual deep-scrape via CLI...');
-
-        const result = await SetupManager.scrapeWorldData(client.url || '', sessionCookie);
-        await SetupManager.saveCache(result);
-
-        return { success: true, data: result };
-    };
-
     const launchWorld = async (worldId: string) => {
-        const client = systemService.getSystemClient() as unknown as AdminStatusClientLike;
-        await client.launchWorld(worldId);
-        return { success: true as const, message: `Request to launch world ${worldId} sent.` };
+        await systemService.launchWorld(worldId);
+        return { success: true as const, message: `Foundry accepted launch request for world ${worldId}.` };
     };
 
     const shutdownWorld = async () => {
-        const client = systemService.getSystemClient() as unknown as AdminStatusClientLike;
-        await client.shutdownWorld();
-        return { success: true as const, message: 'Request to shut down current world sent.' };
+        await systemService.shutdownWorld();
+        return { success: true as const, message: 'Foundry accepted shutdown request for the current world.' };
     };
 
     return {
         getStatus,
         listWorlds,
         getCache,
-        scrapeSetup,
         launchWorld,
         shutdownWorld
     };

@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { getUIModule } from '@modules/registry/client';
+import { SDKProvider } from '@client/ui/providers/SDKProvider';
 
 interface SheetRouterProps {
     systemId: string;
@@ -63,8 +64,10 @@ export default function SheetRouter(props: SheetRouterProps) {
     }
 
     return (
-        <React.Suspense fallback={null}>
-            <SheetComponent {...sheetProps} />
-        </React.Suspense>
+        <SDKProvider>
+            <React.Suspense fallback={null}>
+                <SheetComponent {...sheetProps} />
+            </React.Suspense>
+        </SDKProvider>
     );
 }

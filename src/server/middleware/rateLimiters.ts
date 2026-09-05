@@ -13,3 +13,49 @@ export function createLoginLimiter(config: AppConfig) {
         skip: () => !config.security.rateLimit.enabled,
     });
 }
+
+export function createAdminLoginLimiter(config: AppConfig) {
+    const { windowMinutes, maxAttempts } = getAdminLoginRateLimitSettings(config);
+
+    return rateLimit({
+        windowMs: windowMinutes * 60 * 1000,
+        max: maxAttempts,
+        message: {
+            error: `Too many admin login attempts. Please try again after ${windowMinutes} minutes.`
+        },
+        standardHeaders: true,
+        legacyHeaders: false,
+        // Local development is an operator-controlled environment. Keep the
+        // production brute-force policy from interrupting iterative testing.
+        skip: () => !config.security.rateLimit.enabled || !isAdminLoginProtectionEnabled(),
+    });
+}
+
+export function createCspReportLimiter(config: AppConfig) {
+    return rateLimit({
+        windowMs: 60 * 1000,
+        max: 60,
+        message: { error: 'Too many CSP reports.' },
+        standardHeaders: true,
+        legacyHeaders: false,
+        // Keep the project-wide rate-limit switch authoritative in development.
+        skip: () => !config.security.rateLimit.enabled,
+    });
+}
+
+export function getAdminLoginRateLimitSettings(config: AppConfig): { windowMinutes: number; maxAttempts: number } {
+    const windowMinutes = Math.max(1, Math.floor(config.security.rateLimit.windowMinutes));
+    const maxAttempts = Math.max(1, Math.floor(config.security.rateLimit.maxAttempts / 2));
+
+    return { windowMinutes, maxAttempts };
+}
+
+/**
+ * Admin brute-force controls are bypassed only in an explicitly development
+ * process. The startup manager sets NODE_ENV for both supported run modes.
+ */
+export function isAdminLoginProtectionEnabled(
+    env: Readonly<Record<string, string | undefined>> = process.env
+): boolean {
+    return env.NODE_ENV !== 'development';
+}

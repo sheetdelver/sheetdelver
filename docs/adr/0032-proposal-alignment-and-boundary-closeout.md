@@ -1,0 +1,396 @@
+# ADR-0032: Proposal Alignment, Authorization Truthfulness, and Transport Boundary Closeout
+
+**Status:** Accepted - Implemented.
+**Date:** August 20, 2026
+**Phase:** Corrective alignment / pre-main closeout
+**Supersedes:** None
+**Revises:** ADR-0011 (Phase 8 completion record), ADR-0013 (authoritative write-denial propagation), ADR-0023 (transport-only socket boundary), ADR-0027 (runtime module-health amendment precedence)
+**Related:** ADR-0004 (completed governance phases), ADR-0008 and ADR-0009 (status metadata), ADR-0017 (world bootstrap ownership), ADR-0031 (authoritative Foundry broadcast fidelity)
+
+---
+
+## Context
+
+The ADR-0001 through ADR-0031 implementation history is substantially
+coherent. Module governance and distribution, primary-document ownership,
+socket-boundary extraction, compendium architecture, SDK standardization,
+admin hardening, combat alignment, and delete-broadcast fidelity all have
+corresponding source and test changes.
+
+A pre-main reconciliation audit nevertheless found two corrective gaps between
+the accepted architecture and the current source:
+
+1. `DELETE /actors/:id` converts a Foundry permission rejection into HTTP 200
+   with `{ success: true, warning: ... }`. The write correctly uses the
+   requesting user's Foundry transport and Foundry correctly remains the
+   authoritative permission check, but Sheet Delver misreports the result.
+2. `CoreSocket.ts` side-effect imports
+   `PrimaryDocumentCacheCoordinator`. Loading the transport class therefore
+   initializes application Store and `modifyDocumentRouter` registrations even
+   though ADR-0023 declares the socket layer transport-only.
+
+The same audit also found record drift:
+
+- ADR-0004 still says `Proposed` although all three implementation phases are
+  complete.
+- ADR-0011's header says Phase 8 tracks an amendment even though its Phase 8
+  checklist and completion notes are complete.
+- ADR-0008 and ADR-0009 use status metadata formatting inconsistent with the
+  rest of the ADR set.
+- ADR-0027's earlier runtime-module-health text says failure reporting remains
+  unimplemented, while the immediately following amendment records the
+  implemented lifecycle health and `/ui-error` reporting path.
+- the primary-document follow-up tracker still labels work open that later
+  ADRs completed or deliberately made conditional on a real workflow.
+- the July 5 pre-main sweep is a historical snapshot whose branch,
+  dependency, worktree, and ADR-status measurements are no longer current.
+
+These record issues matter because closure prose is currently being used to
+judge merge readiness. A completed checkbox is not sufficient when the source
+still violates the claimed boundary, and an old audit measurement must not be
+treated as current evidence.
+
+## Decision
+
+### 1. Foundry mutation outcomes are authoritative and reported truthfully
+
+When a write is dispatched through a requesting user's Foundry transport,
+Foundry remains the authoritative authorization boundary. Sheet Delver may
+normalize the response for its HTTP or SDK surface, but it must preserve the
+success or failure outcome.
+
+No route may convert an upstream authorization rejection into
+`success: true`. The actor-delete route will return a failure response for
+permission denial, with `success: false` and HTTP 403 for the currently
+recognized permission-denial case. Unknown transport errors remain failures
+and use a structured upstream status when one exists or the route's normal
+server-error fallback otherwise.
+
+The required flow is:
+
+```text
+optional local courtesy check
+  -> request-scoped Repository
+  -> requesting user's Foundry socket
+  -> Foundry authoritative authorization
+  -> truthful success or failure response
+```
+
+This decision does not add a new authorization gate and does not alter
+Repository ownership. It corrects the representation of the authoritative
+result.
+
+### 2. User-scoped writes never fall back to the service-account transport
+
+ADR-0011 Phase 8 remains in force: user-originated writes are bound to the
+requesting user's Foundry socket and fail closed when that transport is not
+available. Neither actor-delete correction nor later route error handling may
+introduce a CoreSocket/system-client fallback.
+
+System-account writes remain valid only for callers explicitly constructed
+with a system-scoped route client. They are not a recovery path for a missing
+or rejected user transport.
+
+### 3. Truthful failure propagation is separate from courtesy authorization
+
+Sheet Delver-side `WRITEABLE` checks can reject an obviously unauthorized
+request earlier and provide a cleaner error, but they are advisory because
+Foundry owns final write authorization. This ADR does not approve a broad
+courtesy-gate rollout.
+
+The deferred courtesy-gate item in ADR-0013 remains a product/policy decision.
+The actor-delete correction is required independently because authoritative
+Foundry denial must propagate whether a courtesy check exists, is stale, or is
+bypassed.
+
+### 4. Foundry socket classes are transport-only at import time and runtime
+
+`SocketBase`, `CoreSocket`, and `ClientSocket` may own:
+
+- Socket.io connection, login, cookie, emit, acknowledgement, and timeout
+  mechanics
+- transport-local retry counters and raw protocol details that remain within
+  the accepted controller boundary
+- neutral Foundry transport contracts and transport-local utilities
+
+They may not import modules that register or mutate:
+
+- primary-document Stores or Store coordinators
+- `modifyDocumentRouter`
+- application lifecycle or world Stores
+- service-layer orchestration
+- module registry application state
+
+The residual `PrimaryDocumentCacheCoordinator` side-effect import will be
+removed from `CoreSocket.ts`. Application composition and `WorldBootstrapper`
+already own the coordinator dependency and remain responsible for ensuring
+Store/router registration is available before seeding and mutation ingress.
+
+### 5. Repeated architecture boundaries receive executable enforcement
+
+ADR-0023's source-audit checklist did not catch the residual side-effect
+import. The socket import boundary will therefore be enforced in the active
+unit suite.
+
+The check will parse TypeScript import declarations rather than search raw
+text. This prevents comments and neutral type names from producing false
+positives while allowing the test to reject Store, coordinator, router,
+service, and registry-registration dependencies in the three socket files.
+
+ADR status metadata will also receive a lightweight check. Every ADR must
+contain a recognized top-level status field, while descriptive status suffixes
+remain allowed.
+
+### 6. Historical ADR text is amended rather than overwritten
+
+Existing decision and implementation text remains historical evidence. When a
+later implementation supersedes an earlier statement, an amendment will be
+placed below or adjacent to the stale statement and will identify the
+superseding behavior.
+
+The reconciliation pass will:
+
+- mark ADR-0004 accepted/implemented
+- normalize ADR-0008 and ADR-0009 status metadata syntax
+- state in ADR-0011's header that Phase 8 is complete
+- amend ADR-0013 to distinguish authoritative denial propagation from optional
+  courtesy gates
+- amend ADR-0023 with the residual import correction and executable boundary
+  guard
+- amend ADR-0027 to state that runtime UI failure reporting supersedes its
+  earlier "not yet implemented" text
+- add current-state notes where historical module/path terminology could be
+  mistaken for current operational guidance
+
+Concrete module names used as historical implementation evidence need not be
+erased. Current module-authoring guidance remains abstract, distinguishes
+local and managed sources, and uses configurable `<DATA_DIR>` paths.
+
+### 7. Temporary audit reports are not permanent decision authorities
+
+Any still-relevant constraint from a temporary tracker must be copied into a
+tracked ADR before the tracker is retired. Once copied, the tracker may be
+archived outside the tracked decision set and is retained only as historical
+working evidence; the tracked ADR contains the complete operative rule.
+
+The July 5 pre-main report will be labeled historical/superseded rather than
+having its original measurements rewritten. A new dated pre-main report will
+be produced only after this ADR's corrections, record reconciliation,
+dependency disposition, and current verification gates are complete.
+
+### 8. Retained primary-document constraints
+
+Retiring the temporary primary-document tracker does not retire its boundary
+rules. The following constraints remain authoritative through this ADR and the
+ADRs it revises:
+
+- primary-document CRUD must not be exposed as type-shaped methods on
+  `CoreSocket` or `ClientSocket`; generic Foundry dispatch remains internal
+  transport plumbing behind Store, Repository, service, and request-scoped
+  route-client boundaries
+- user-scoped writes fail closed when their authenticated Foundry transport is
+  unavailable and never fall back to the service-account transport
+- transport implementation details are not part of the public SDK or
+  module-facing request shape
+- feature state uses canonical per-type realtime signals; removed update-event
+  aliases are not restored, and the generic cross-cutting event does not become
+  a hidden global state router
+- Repositories own transport rather than authorization, and folder hierarchy
+  is not treated as inherited document permission
+- remaining stub document types are activated only after their hydration,
+  ownership, route/SDK, and realtime behavior is deliberately designed
+
+## Consequences
+
+### Positive
+
+- HTTP clients can trust mutation success and failure responses.
+- Foundry remains the authoritative write-permission boundary without Sheet
+  Delver inventing a parallel authorization model.
+- User requests cannot gain service-account behavior through an error path.
+- Importing `CoreSocket` no longer initializes application document state.
+- The transport-only boundary becomes executable rather than documentary.
+- ADR status and amendment precedence become usable for merge review.
+- Temporary reports stop competing with tracked ADRs as current truth.
+
+### Tradeoffs
+
+- A client that relied on the incorrect actor-delete HTTP 200 must handle a
+  real failure response. This is an intentional bug fix.
+- Removing a side-effect import can expose hidden module-evaluation ordering.
+  Bootstrap and mutation-routing tests must prove application composition owns
+  registration before the change is accepted.
+- Source-level architecture tests require a maintained allow/deny boundary.
+  The rule must remain narrow enough to permit neutral transport contracts.
+- ADR amendments add text to already long historical records, but preserve
+  why prior decisions were made and what later changed.
+
+## Implementation Plan
+
+### Phase 0 - Characterization tests
+
+- [x] Add route-level actor-delete tests for success, Foundry permission
+  rejection, and generic transport failure.
+- [x] Assert that no rejection case returns 2xx or `success: true`.
+- [x] Add a parsed-import socket-boundary test and demonstrate that the
+  coordinator side-effect import is the current violation.
+- [x] Keep all pre-existing tests green apart from the new assertions that
+  characterize the two defects.
+
+### Phase 1 - Actor-delete result correction
+
+- [x] Replace the successful permission warning with HTTP 403 and
+  `success: false`.
+- [x] Preserve successful deletion as HTTP 200 and `success: true`.
+- [x] Preserve generic or structured transport failures as non-2xx responses.
+- [x] Verify the Repository is invoked once through `req.foundryClient` and no
+  system transport is invoked.
+- [x] Audit other mutation routes for successful error conversions and record
+  any additional instance before broadening this phase. The acceptance audit
+  found only actor deletion.
+
+**Phase 0-1 completed August 20, 2026.** Focused success, permission-denial,
+and transport-failure tests pass. The full unit suite advances through the
+actor contract and stops only at the intentionally open Phase 2 socket import.
+
+### Phase 2 - Socket import-boundary completion
+
+- [x] Remove the coordinator side-effect import from `CoreSocket.ts`.
+- [x] Verify `WorldBootstrapper` and application composition own coordinator
+  initialization before document seeding or mutation ingress.
+- [x] Add the parsed-import architecture test to the active unit runner.
+- [x] Verify world bootstrap seeding, modify-document routing, and direct
+  socket transport tests remain green.
+- [x] Verify
+  `rg "PrimaryDocumentCacheCoordinator" src/server/core/foundry/sockets`
+  returns no hits.
+
+**Phase 2 completed August 20, 2026.** `CoreSocket` no longer imports the
+primary-document coordinator. `WorldBootstrapper` remains the application
+bootstrap owner for coordinator seeding, while `SystemService` loads
+application composition before attaching `FoundryEventIngress`. The parsed
+socket-boundary check is active in the normal unit runner. Focused bootstrap,
+singleton mutation-routing, CoreSocket dispatch-ingress, ClientSocket
+transport, and SystemService composition tests pass.
+
+### Phase 3 - Tracked ADR reconciliation
+
+- [x] Amend ADR-0004, ADR-0008, ADR-0009, and ADR-0011 status metadata.
+- [x] Add corrective amendments to ADR-0013 and ADR-0023.
+- [x] Add the ADR-0027 superseding runtime-health amendment.
+- [x] Add concise current-state notes for historical module/path terminology
+  where needed without deleting original text.
+- [x] Add and run the ADR metadata check.
+
+**Phase 3 completed August 21, 2026.** Historical decision text remains in
+place with adjacent current-state or superseding amendments. ADR-0004 and
+ADR-0011 now report completed implementation, ADR-0008 and ADR-0009 use the
+canonical status field, and the metadata guard parses every tracked ADR's
+top-level status in the normal unit suite. The focused metadata test,
+`npx tsc --noEmit`, `npm run test:unit`, and `git diff --check` pass.
+
+### Phase 4 - Temporary report reconciliation
+
+- [x] Reclassify the primary-document tracker's items as completed, partial,
+  deliberately deferred, or conditional on a future workflow.
+- [x] Preserve its non-fallback, non-socket-CRUD, and canonical realtime
+  constraints in tracked ADRs.
+- [x] Move the tracker to `completed/` after it contains no unique live
+  decision.
+- [x] Mark the July 5 pre-main report historical/superseded without changing
+  its original measurements.
+- [x] Keep the alignment audit active through the remaining corrective work;
+  append final implementation results and move it to `completed/` only after
+  this ADR closes.
+
+**Phase 4 completed August 21, 2026.** The primary-document tracker distinguished
+completed, partial, deferred, and workflow-conditional work before archival.
+Its surviving boundary rules are stated in full in Decision 8 above; no tracked
+decision depends on the archived working copy. The July 5 merge sweep retains
+its original snapshot beneath a prominent superseded notice. The alignment
+audit remained active through final verification and creation of the new merge
+baseline.
+
+### Phase 5 - Verification and merge baseline
+
+- [x] Run `git diff --check`.
+- [x] Run `npm run lint`.
+- [x] Run `npx tsc --noEmit`.
+- [x] Run `npm run test:unit`.
+- [x] Run `npm run test:integration`.
+- [x] Run an isolated production build with `<DATA_DIR>` outside the checkout.
+- [x] Run the ADR metadata and socket import-boundary checks.
+- [x] Audit mutation routes for false-success error responses.
+- [x] Run `npm audit --omit=dev` and fix or explicitly disposition each
+  remaining vulnerability in the new merge report.
+- [x] Produce a new dated pre-main sweep with exact branch divergence,
+  worktree state, Node version, data-directory location, quality gates, and
+  dependency counts.
+
+**Phase 5 completed August 21, 2026.** All source, lint, type, unit,
+integration, architecture, and isolated-build gates pass. The isolated build
+used `/tmp/sheet-delver-phase5-build.DxxMtO` and did not read or write the
+checkout's configured data directory. Lint initially exposed an unnecessary
+blanket ESLint-disable directive in the generated module UI registry; the
+generator was corrected and a regenerated registry now lints cleanly.
+
+The production audit still reports 20 dependency findings (1 critical, 14
+high, 4 moderate, and 1 low). Dependency upgrades remain outside this
+corrective ADR, as stated in its non-goals. The August 21 merge sweep records
+each dependency path and its remediation, accepts the findings only as
+temporary branch-local risk while that separate operational change is made,
+and does not accept them for merge to `main`. ADR-0032's corrective behavior,
+boundary, documentation, and verification work is nevertheless complete.
+
+## Non-Goals
+
+- Choosing new `DETAIL_VISIBLE` or `CARD_VISIBLE` thresholds.
+- Adding `WRITEABLE` courtesy gates to every core HTTP mutation route.
+- Enforcing ownership inside Repositories.
+- Falling back from a user transport to the service-account socket.
+- Seeding every primary Store directly from `game.data`.
+- Activating FogExploration or Adventure Stores.
+- Adding routes, SDK methods, or browser consumers without a concrete
+  workflow.
+- Implementing folder ownership bulk apply.
+- Adding a generic global `primaryDocumentChanged` consumer without a
+  cross-cutting use case.
+- Rewriting historical evidence to conceal the modules used for verification.
+- Upgrading dependencies as part of the architecture correction.
+- Upgrading managed module artifacts under `<DATA_DIR>/modules`.
+
+## Acceptance Criteria
+
+This ADR can be marked implemented only when:
+
+- [x] Actor deletion never reports `success: true` after Foundry rejects the
+  write.
+- [x] Successful, permission-denied, and generic-failure actor-delete route
+  tests pass.
+- [x] User-originated actor deletion remains bound to the requesting user's
+  transport.
+- [x] `CoreSocket`, `ClientSocket`, and `SocketBase` contain no application
+  Store/coordinator/router/service registration imports.
+- [x] Parsed-import socket-boundary coverage runs in the normal unit suite.
+- [x] World bootstrap seeding and document mutation routing remain green after
+  removing the side-effect import.
+- [x] ADR-0004 and ADR-0011 status metadata reflects completed work.
+- [x] ADR-0027 clearly records that runtime UI failure reporting supersedes the
+  earlier gap statement.
+- [x] ADR-0013 and ADR-0023 contain the corrective amendments adopted here.
+- [x] The primary-document tracker accurately distinguishes completed,
+  partial, deferred, and conditional work.
+- [x] The July 5 pre-main report is labeled historical/superseded.
+- [x] All Phase 5 verification gates pass in an isolated environment.
+- [x] A new dated pre-main sweep records current dependency and branch state.
+
+## Implementation Order
+
+1. Accept this ADR.
+2. Land characterization tests for the actor-delete and socket-import gaps.
+3. Correct actor-delete failure propagation without changing transport identity.
+4. Remove the CoreSocket coordinator import and enforce the socket boundary.
+5. Amend affected ADRs without overwriting historical text.
+6. Reconcile and retire stale temporary trackers.
+7. Resolve or explicitly disposition dependency findings separately.
+8. Run the complete verification matrix and produce a new pre-main sweep.

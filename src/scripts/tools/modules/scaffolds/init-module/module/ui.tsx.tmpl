@@ -1,0 +1,14 @@
+import type { ModuleInfo, UIModuleManifest } from '@sheet-delver/sdk';
+import infoJson from '../info.json';
+
+const info = infoJson as ModuleInfo;
+
+// The platform hosts the actor page when only a presentational sheet is declared.
+// Add actorPage only when the system genuinely needs a custom page shell.
+const uiManifest: UIModuleManifest = {
+    info,
+    sheet: () => import('../src/ui/Sheet'),
+    stylesheet: 'assets/styles.css',
+};
+
+export default uiManifest;

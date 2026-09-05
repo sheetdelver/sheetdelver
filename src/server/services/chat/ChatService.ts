@@ -1,16 +1,96 @@
 import type { AppConfig } from '@shared/interfaces';
-import type { ChatClientLike, ChatSendBody } from '@server/shared/types/documents';
-import type { ChatLogPayload, ChatSendSuccessPayload, ChatErrorPayload } from '@shared/contracts/chat';
+import type { ChatClientLike, ChatSendBody, ChatMessageDocument } from '@server/shared/types/documents';
+import type { ChatLogPayload, ChatSendSuccessPayload, ChatErrorPayload, ChatMessageDto } from '@shared/contracts/chat';
+import { chatMessageStore } from '@server/core/documents/primary/chat-messages/ChatMessageStore';
+import {
+    DOCUMENT_VISIBILITY,
+    FoundryUserRole,
+    createDocumentAccessSubject,
+    isAssistantGM,
+    type DocumentAccessSubject,
+} from '@server/core/documents/primary/base/ownership';
+import {
+    createTextChatMessageData,
+    isRecord,
+    normalizeChatMessageCreateData,
+    normalizeSpeaker,
+} from '@server/core/documents/primary/chat-messages/chatMessagePayload';
+import { userStore } from '@server/core/documents/primary/users/UserStore';
+import { PrimaryDocumentCacheNotReadyError } from '@server/core/documents/primary/errors';
 
 interface ChatServiceDeps {
     config: AppConfig;
 }
 
+function projectChatMessage(message: ChatMessageDocument, subject: DocumentAccessSubject | null): ChatMessageDto {
+    const rolls = (Array.isArray(message.rolls) ? message.rolls : []).map((roll: unknown) => {
+        if (typeof roll !== 'string') return roll;
+        try {
+            return JSON.parse(roll);
+        } catch {
+            return roll;
+        }
+    });
+    const roll = rolls[0] as { total?: number; formula?: string } | undefined;
+    // Foundry v13+ stores roll semantics in `rolls`; retain the old numeric
+    // check only for cache rows created before the canonical payload migration.
+    const isRoll = rolls.length > 0 || message.type === 5;
+    const isBlind = message.blind === true;
+    // No subject means the caller is the system account / privileged path
+    // (already the existing semantics via `FoundryUserRole.GAMEMASTER` fallback);
+    // treat it as GM-equivalent so blind/whisper masking is bypassed.
+    const isAssistantGm = subject ? isAssistantGM(subject) : true;
+    const subjectUserId = subject?.userId ?? null;
+    const isAuthor = typeof message.author === 'string' && message.author === subjectUserId;
+    const shouldMask = isBlind && !isAssistantGm && !isAuthor;
+    const author = typeof message.author === 'string'
+        ? userStore.get(message.author)
+        : null;
+
+    return {
+        ...message,
+        user: author?.name || (typeof message.alias === 'string' ? message.alias : undefined) || 'Unknown',
+        timestamp: typeof message.timestamp === 'number' ? message.timestamp : Date.now(),
+        isRoll,
+        rolls: shouldMask ? [] : rolls,
+        rollTotal: shouldMask ? undefined : (roll?.total !== undefined ? roll.total : (isRoll ? Number(message.content) : undefined)),
+        rollFormula: shouldMask ? '???' : (roll?.formula || (isRoll && typeof message.flavor === 'string' ? message.flavor : undefined)),
+        flavor: typeof message.flavor === 'string' ? message.flavor : undefined,
+    };
+}
+
 export function createChatService(deps: ChatServiceDeps) {
-    // Chat history read model used by the chat feed endpoint.
+    /**
+     * Chat history read model used by the chat feed endpoint.
+     *
+     * Phase 1: reads from {@link ChatMessageStore} (full mirror of Foundry's chat
+     * log per ADR-0011). Whisper / blind / world-visible filtering happens at
+     * the Store via `resolveOwnership` (ADR-0013). Display cap from
+     * `config.app.chatHistory` is applied here at the service boundary — the
+     * data model itself is uncapped.
+     */
     const getChatLog = async (client: ChatClientLike, limitParam: unknown): Promise<ChatLogPayload> => {
         const limit = parseInt(limitParam as string) || deps.config.app.chatHistory || 100;
-        const messages = await client.getChatLog(limit);
+
+        // Construct the subject for ownership-aware reads. Service-account / system
+        // routes have no userId; treat them as GM-equivalent for chat (chat is
+        // mostly world-visible anyway).
+        const userId = client.userId;
+        const role = userId
+            ? userStore.getRole(userId)
+            : FoundryUserRole.GAMEMASTER;
+        const subject = createDocumentAccessSubject(userId ?? 'system', role);
+
+        if (!chatMessageStore.isReady()) {
+            throw new PrimaryDocumentCacheNotReadyError('ChatMessage');
+        }
+
+        const visible = subject
+            ? chatMessageStore.list({ subject, minOwnership: DOCUMENT_VISIBILITY.LIST_VISIBLE })
+            : chatMessageStore.list();
+        const sorted = [...visible].sort((a, b) => ((a.timestamp as number) || 0) - ((b.timestamp as number) || 0));
+        const rawMessages = sorted.slice(Math.max(sorted.length - limit, 0));
+        const messages = rawMessages.map(message => projectChatMessage(message, subject));
         return { messages };
     };
 
@@ -34,17 +114,30 @@ export function createChatService(deps: ChatServiceDeps) {
             if (cmd === 'r' || cmd === 'roll') rollMode = 'publicroll';
 
             const cleanFormula = message.trim().replace(ROLL_CMD, '').trim();
-            const result = await client.roll(cleanFormula, undefined, {
+            const synthetic = await client.roll(cleanFormula, undefined, {
                 rollMode,
-                speaker: body.speaker
+                speaker: normalizeSpeaker(body.speaker),
+                displayChat: false,
             });
-            return { success: true, type: 'roll', result };
+            const chatData = normalizeChatMessageCreateData(isRecord(synthetic)
+                ? { ...synthetic }
+                : { content: String(synthetic), style: 0 });
+            delete chatData._synthetic;
+            if (!chatData.author && client.userId) chatData.author = client.userId;
+            if (!chatData.author) throw new Error('Cannot send message: Author ID missing');
+            const response = await client.createChatMessage(chatData);
+            return { success: true, type: 'roll', result: isRecord(response) ? response.result ?? response : response };
         }
 
-        await client.sendMessage(message, {
+        const chatData = await createTextChatMessageData({
+            content: message,
+            author: client.userId,
             rollMode: body.rollMode,
-            speaker: body.speaker
+            speaker: body.speaker,
+            getGmUserIds: () => userStore.getGmUserIds(),
         });
+
+        await client.createChatMessage(chatData);
         return { success: true, type: 'chat' };
     };
 

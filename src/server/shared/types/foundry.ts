@@ -33,40 +33,90 @@ export interface FoundryGameDataLike {
     users?: FoundryUserLike[];
 }
 
+export type FoundryEventHandler = (...args: unknown[]) => void;
+
 export interface FoundryClientLike {
     userId?: string | null;
-    username?: string;
 
-    on(event: string, handler: (...args: unknown[]) => void): void;
-    off(event: string, handler: (...args: unknown[]) => void): void;
+    on(event: string, handler: FoundryEventHandler): void;
+    off(event: string, handler: FoundryEventHandler): void;
+}
+
+export interface FoundryDocumentClientLike extends FoundryClientLike {
+    isConnected: boolean;
+    url: string;
+    dispatchDocument(
+        type: string,
+        action: string,
+        operation?: unknown,
+        parent?: { type: string; id: string }
+    ): Promise<unknown>;
+    dispatchDocumentSocket(
+        type: string,
+        action: string,
+        operation?: unknown,
+        parent?: unknown,
+        failHard?: boolean
+    ): Promise<unknown>;
+}
+
+export interface FoundryCompendiumClientLike extends FoundryDocumentClientLike {
+    emitSocketEvent<T>(event: string, ...payloads: unknown[]): Promise<T>;
+    withHeartbeatPaused?<T>(operation: () => Promise<T>): Promise<T>;
+}
+
+export interface RestoredFoundrySessionCredential {
+    userId: string;
+    cookie: string;
 }
 
 export interface FoundrySystemClientLike {
     isConnected: boolean;
-    worldState: string;
-    cachedWorldData?: unknown;
-    lastActorChange?: string;
-    sceneDataCache?: Record<string, { background?: { src?: string } }>;
-    probeWorldData?: { title?: string; description?: string | null };
-    userMap?: { size: number };
-
-    getGameData(): FoundryGameDataLike | null | undefined;
-    resolveUrl(url?: string): string;
+    url: string;
 }
 
-export interface UserSessionLike {
+export interface FoundryUserConnectionLike {
     id?: string;
     token?: string;
     userId?: string | null;
     username?: string;
     lastActive?: number;
     worldId?: string;
-    client: FoundryClientLike;
+    client: FoundryDocumentClientLike;
 }
 
-export interface SessionManagerLike {
+export type FoundrySessionInvalidationReason =
+    | 'revoked'
+    | 'replaced'
+    | 'expired'
+    | 'world-mismatch'
+    | 'invalid-record'
+    | 'world-entered-setup'
+    | 'user-deleted';
+
+/** Server-only signal used to retire already-connected app socket authority. */
+export type FoundrySessionInvalidationEvent =
+    | {
+        scope: 'session';
+        sessionId: string;
+        reason: FoundrySessionInvalidationReason;
+    }
+    | {
+        scope: 'all';
+        reason: FoundrySessionInvalidationReason;
+    };
+
+export type FoundrySessionInvalidationListener = (
+    event: FoundrySessionInvalidationEvent,
+) => void;
+
+export interface FoundryUserConnectionServiceLike {
     isCacheReady(): boolean;
-    getOrRestoreSession(token: string): Promise<UserSessionLike | undefined>;
+    createSession(username: string, password?: string): Promise<{ sessionId: string; userId: string }>;
+    getOrRestoreSession(token: string): Promise<FoundryUserConnectionLike | undefined>;
+    destroySession(token: string): Promise<void>;
+    isValidSession(token: string): boolean;
+    onSessionInvalidated(listener: FoundrySessionInvalidationListener): () => void;
 }
 
 export type StatusServiceConfigLike = Pick<AppConfig, 'app' | 'foundry' | 'debug'>;

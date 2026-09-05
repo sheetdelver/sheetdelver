@@ -1,0 +1,130 @@
+import { strict as assert } from 'node:assert';
+import { EngagementService } from '@server/services/world';
+import type { WorldLifecycleState } from '@server/core/world/WorldLifecycleStore';
+
+function createClock(initial: number) {
+    let value = initial;
+
+    return {
+        now: () => value,
+        set: (next: number) => {
+            value = next;
+        },
+    };
+}
+
+function runReturnToEngagementTest() {
+    const service = new EngagementService({ now: () => 1000 });
+    let returnedToEngagement = 0;
+    service.on('returnedToEngagement', () => {
+        returnedToEngagement += 1;
+    });
+
+    const update = service.setActiveBrowserCount(1);
+    assert.deepEqual(update, {
+        previousCount: 0,
+        browserCount: 1,
+        becameEngaged: true,
+    });
+    assert.equal(returnedToEngagement, 1);
+    assert.equal(service.shouldReconnectOnEngagement({
+        lifecycleState: 'offline' as WorldLifecycleState,
+        isConnecting: false,
+    }), true);
+
+    service.setActiveBrowserCount(2);
+    assert.equal(returnedToEngagement, 1);
+}
+
+function runNoReconnectWhenAlreadyActiveTest() {
+    const service = new EngagementService({ now: () => 1000 });
+    let returnedToEngagement = 0;
+    service.on('returnedToEngagement', () => {
+        returnedToEngagement += 1;
+    });
+
+    service.setActiveBrowserCount(1);
+    assert.equal(returnedToEngagement, 1);
+    assert.equal(service.shouldReconnectOnEngagement({
+        lifecycleState: 'active',
+        isConnecting: false,
+    }), false);
+
+    service.setActiveBrowserCount(0);
+    service.setActiveBrowserCount(1);
+    assert.equal(returnedToEngagement, 2);
+    assert.equal(service.shouldReconnectOnEngagement({
+        lifecycleState: 'setup',
+        isConnecting: true,
+    }), false);
+}
+
+function runHeartbeatCadenceTest() {
+    const clock = createClock(0);
+    const service = new EngagementService({ now: clock.now });
+
+    assert.equal(service.getNextHeartbeatDelayMs(), 30000);
+
+    service.setActiveBrowserCount(1);
+    assert.equal(service.getNextHeartbeatDelayMs(), 5000);
+
+    service.setActiveBrowserCount(0);
+    clock.set(600001);
+    assert.equal(service.getNextHeartbeatDelayMs(), 60000);
+
+    clock.set(1800001);
+    assert.equal(service.getNextHeartbeatDelayMs(), 120000);
+}
+
+async function runPauseAndRunPolicyTest() {
+    const service = new EngagementService({ now: () => 1000 });
+    const activePolicy = {
+        isConnected: true,
+        isConnecting: false,
+        lifecycleState: 'active' as WorldLifecycleState,
+    };
+
+    assert.equal(service.shouldRunHeartbeat(activePolicy), true);
+    assert.equal(service.shouldRunHeartbeat({ ...activePolicy, isConnected: false }), false);
+    assert.equal(service.shouldRunHeartbeat({ ...activePolicy, lifecycleState: 'offline', isConnected: false }), true);
+    assert.equal(service.shouldRunHeartbeat({ ...activePolicy, lifecycleState: 'closed', isConnected: false }), true);
+    assert.equal(service.shouldRunHeartbeat({ ...activePolicy, lifecycleState: 'startup' }), false);
+    assert.equal(service.shouldRunHeartbeat({ ...activePolicy, isConnecting: true }), false);
+    assert.equal(service.shouldReconnectOnEngagement({ lifecycleState: 'closed', isConnecting: false }), false);
+
+    const result = await service.withHeartbeatPaused(async () => {
+        assert.equal(service.isHeartbeatSuspended(), true);
+        assert.equal(service.shouldRunHeartbeat(activePolicy), false);
+        return 'paused-result';
+    });
+
+    assert.equal(result, 'paused-result');
+    assert.equal(service.isHeartbeatSuspended(), false);
+    assert.equal(service.shouldRunHeartbeat(activePolicy), true);
+}
+
+function runDisconnectPolicyTest() {
+    const service = new EngagementService({ now: () => 1000 });
+
+    assert.equal(service.shouldReconnectAfterUnexpectedDisconnect('transport close'), false);
+    service.setActiveBrowserCount(1);
+    assert.equal(service.shouldReconnectAfterUnexpectedDisconnect('transport close'), true);
+    assert.equal(service.shouldReconnectAfterUnexpectedDisconnect('io client disconnect'), false);
+}
+
+export async function run() {
+    runReturnToEngagementTest();
+    runNoReconnectWhenAlreadyActiveTest();
+    runHeartbeatCadenceTest();
+    await runPauseAndRunPolicyTest();
+    runDisconnectPolicyTest();
+}
+
+if (import.meta.url === `file://${process.argv[1]}`) {
+    run()
+        .then(() => console.log('engagement-service.test.ts passed'))
+        .catch((error) => {
+            console.error(error);
+            process.exit(1);
+        });
+}

@@ -1,8 +1,0 @@
-{
-    "id": "generic",
-    "title": "Generic System",
-    "manifest": {
-        "ui": "module/ui",
-        "logic": "module/logic"
-    }
-}

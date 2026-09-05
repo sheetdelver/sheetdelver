@@ -1,11 +1,13 @@
 import { UserRole } from '@shared/constants';
+import { canRoleDeleteActors } from '@shared/security/foundryPermissions';
 import { logger } from '@shared/utils/logger';
-import type { UtilityClientLike, UtilitySystemClientLike } from '@server/shared/types/utility';
-import type { FoundryUserLike } from '@server/shared/types/foundry';
+import type { UtilityClientLike } from '@server/shared/types/utility';
 import type { RouteFoundryClient } from '@server/shared/types/requestContext';
+import { userStore } from '@server/core/documents/primary/users/UserStore';
+import { sharedContentStore } from '@server/core/world/SharedContentStore';
+import { createDocumentStore } from '@server/shared/utils/moduleDocumentServices';
 
 interface UtilityServiceDeps {
-    getSystemUsers: () => Promise<FoundryUserLike[]>;
     getFallbackSharedContentClient: () => RouteFoundryClient;
 }
 
@@ -14,7 +16,10 @@ export function createUtilityService(deps: UtilityServiceDeps) {
     const getFoundryDocument = async (client: UtilityClientLike, uuid?: string) => {
         if (!uuid) return { error: 'Missing uuid', status: 400 };
 
-        const data = await client.fetchByUuid(uuid);
+        // The route client can resolve privileged cache bytes, so generic UUID
+        // reads must pass through the same caller-scoped Store gate as modules.
+        const documents = createDocumentStore(client as RouteFoundryClient, async () => {});
+        const data = await documents.fetchByUuid(uuid);
         if (!data) return { error: 'Document not found', status: 404 };
 
         return data;
@@ -22,14 +27,15 @@ export function createUtilityService(deps: UtilityServiceDeps) {
 
     // Session user projection mirrors the public status user shape for dashboard consumers.
     const getSessionUsers = async (client: UtilityClientLike) => {
-        const users = await deps.getSystemUsers();
-        logger.debug(`[API] /session/users: Found ${users.length} users via System Client`);
+        const users = userStore.isReady() ? userStore.listWithPresence() : [];
+        logger.debug(`[API] /session/users: Found ${users.length} users via UserStore`);
 
-        const sanitizedUsers = users.map((u: FoundryUserLike) => ({
+        const sanitizedUsers = users.map((u) => ({
             _id: u._id || u.id,
             name: u.name,
             role: u.role,
             isGM: (u.role || 0) >= UserRole.ASSISTANT,
+            canDeleteActors: canRoleDeleteActors(u.role),
             active: u.active,
             color: u.color,
             characterId: u.character,
@@ -39,10 +45,13 @@ export function createUtilityService(deps: UtilityServiceDeps) {
         return { users: sanitizedUsers };
     };
 
-    // Shared content projection resolves stored image URLs for the requesting user context.
+    // Shared content projection reads the canonical snapshot from the Store
+    // and resolves image URLs against the requesting client's Foundry base
+    // URL. The Store returns a defensive copy, so mutating `data.url` here is
+    // safe and does not leak back into the canonical state.
     const getSharedContent = async (client?: UtilityClientLike) => {
         const resolvedClient = client || deps.getFallbackSharedContentClient();
-        const content = resolvedClient.getSharedContent ? resolvedClient.getSharedContent() : null;
+        const content = sharedContentStore.getCurrent();
 
         if (content && content.type === 'image' && content.data?.url) {
             content.data.url = resolvedClient.resolveUrl(content.data.url);

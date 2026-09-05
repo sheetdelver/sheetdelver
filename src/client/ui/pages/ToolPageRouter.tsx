@@ -1,8 +1,10 @@
 'use client';
 
-import React, { use, useEffect, useState, Suspense } from 'react';
+import React, { use, useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { getUIModule } from '@modules/registry/client';
 import LoadingModal from '@client/ui/components/LoadingModal';
+import { SurfaceHost } from '@client/ui/components/SurfaceHost';
 
 /**
  * Generic tool page router.
@@ -13,6 +15,7 @@ import LoadingModal from '@client/ui/components/LoadingModal';
 export default function ToolPageRouter({ params }: { params: Promise<{ systemId: string; toolId: string }> }) {
     const resolvedParams = use(params);
     const { systemId, toolId } = resolvedParams;
+    const router = useRouter();
 
     const [ToolComponent, setToolComponent] = useState<any>(null);
     const [error, setError] = useState<string | null>(null);
@@ -53,7 +56,7 @@ export default function ToolPageRouter({ params }: { params: Promise<{ systemId:
                     <h1 className="text-xl font-bold text-red-500 mb-2">Error Loading Tool</h1>
                     <p className="opacity-70">{error}</p>
                     <button
-                        onClick={() => window.location.href = '/'}
+                        onClick={() => router.push('/')}
                         className="mt-4 px-4 py-2 bg-neutral-800 hover:bg-neutral-700 rounded transition-colors pointer"
                     >
                         Back to Dashboard
@@ -78,8 +81,8 @@ export default function ToolPageRouter({ params }: { params: Promise<{ systemId:
     if (!ToolComponent) return Loading;
 
     return (
-        <Suspense fallback={Loading}>
+        <SurfaceHost moduleId={systemId} surface="tools" loading={Loading}>
             <ToolComponent />
-        </Suspense>
+        </SurfaceHost>
     );
 }

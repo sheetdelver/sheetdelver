@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { SystemAdapter, RollMode } from '@shared/interfaces';
+import { SystemAdapter, RollMode } from '@shared/sdk';
 import { Globe, UserRoundSearch, EyeOff, User } from 'lucide-react';
 
 interface DiceTrayProps {

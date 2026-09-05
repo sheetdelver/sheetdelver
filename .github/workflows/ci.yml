@@ -2,54 +2,91 @@ name: CI
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
+
+permissions:
+  contents: read
 
 jobs:
-  build:
+  verify:
+    name: Verify (Node 22)
     runs-on: ubuntu-latest
-
-    strategy:
-      matrix:
-        node-version: [22.x]
+    timeout-minutes: 20
 
     steps:
-    - uses: actions/checkout@v4
+      - name: Check out source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
-    - name: Use Node.js ${{ matrix.node-version }}
-      uses: actions/setup-node@v4
-      with:
-        node-version: ${{ matrix.node-version }}
-        cache: 'npm'
+      - name: Use Node.js 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22.x"
+          cache: npm
 
-    - name: Install dependencies
-      run: npm ci
+      # runner.temp is a step-level expression; exporting it here avoids the
+      # invalid job-level context that previously broke workflow evaluation.
+      - name: Configure isolated data directory
+        run: echo "SHEET_DELVER_DATA=${{ runner.temp }}/sheet-delver-data" >> "$GITHUB_ENV"
 
-    - name: Lint
-      run: npm run lint
-    
-    - name: Generate config
-      run: |
-          cat > settings.yaml << EOF
-          app:
-              host: localhost
-              port: 3000
-              api-port: 3001
-              protocol: http
-              chat-history: 100
-          foundry:
-              host: localhost
-              port: 30000
-              protocol: http
-              connector: socket
-              username: gamemaster
-              password: gamemaster
-              foundryDataDirectory: foundryData
-          debug:
-              enabled: true
-              level: 3
-          EOF
+      - name: Install reviewed dependency graph
+        run: npm ci
 
-    - name: Build
-      run: npm run build
+      # .managed is intentionally ignored, so a clean runner must generate the
+      # alias map before TypeScript resolves application imports.
+      - name: Generate managed configuration
+        run: npm run managed:generate
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Unit tests
+        run: npm run test:unit
+
+      - name: Integration tests
+        run: npm run test:integration
+
+      - name: Generate isolated build fixture
+        run: npm run ci:fixture
+
+      - name: Build
+        run: npm run build
+
+      - name: Generate production SBOM
+        run: npm sbom --omit=dev --sbom-format cyclonedx > "${{ runner.temp }}/sheet-delver.cdx.json"
+
+      - name: Upload production SBOM
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sheet-delver-sbom-${{ github.sha }}
+          path: ${{ runner.temp }}/sheet-delver.cdx.json
+          if-no-files-found: error
+          retention-days: 14
+
+  # Public repositories can run GitHub's dependency-delta review directly.
+  # Keep this PR-only: push builds retain the mandatory full npm audit above.
+  dependency-review:
+    name: Dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Review dependency changes
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: high

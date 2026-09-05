@@ -37,6 +37,118 @@ body {
   overscroll-behavior-y: none;
 }
 
+/* Tailwind preflight intentionally resets semantic document typography. Keep
+ * persisted rich-text structure visible without requiring the prose plugin. */
+.rich-text-content h1 {
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1.2;
+  margin: 1.5rem 0 0.75rem;
+}
+
+.rich-text-content h2 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1.3;
+  margin: 1.25rem 0 0.625rem;
+}
+
+.rich-text-content ul,
+.rich-text-content ol {
+  margin: 0.75rem 0;
+  padding-left: 1.5rem;
+}
+
+.rich-text-content ul {
+  list-style-type: disc;
+}
+
+.rich-text-content ol {
+  list-style-type: decimal;
+}
+
+.rich-text-content li {
+  margin: 0.25rem 0;
+}
+
+/* Admin variables are scoped to the admin provider root. Keeping them in the
+ * Tailwind entry stylesheet avoids applying the dynamic module-source plugin
+ * to a second plain-CSS entrypoint. */
+.admin-shell {
+  --admin-bg: #f2e7d8;
+  --admin-bg-accent: #dcc5a6;
+  --admin-surface: rgba(255, 250, 240, 0.9);
+  --admin-surface-strong: rgba(255, 247, 234, 0.97);
+  --admin-surface-hover: rgba(248, 235, 216, 0.98);
+  --admin-text-primary: #2b1d0f;
+  --admin-text-secondary: #5b4632;
+  --admin-text-muted: #715c49;
+  --admin-border: rgba(110, 76, 42, 0.2);
+  --admin-border-strong: rgba(93, 61, 30, 0.35);
+  --admin-input-bg: rgba(255, 252, 247, 0.95);
+  --admin-accent: #2457d6;
+  --admin-accent-strong: #1847b8;
+  --admin-accent-soft: rgba(36, 87, 214, 0.26);
+  --admin-success: #1e7a4c;
+  --admin-success-strong: #16663f;
+  --admin-success-soft: #77b997;
+  --admin-success-bg: rgba(208, 237, 221, 0.78);
+  --admin-success-border: rgba(30, 122, 76, 0.34);
+  --admin-danger-bg: rgba(253, 224, 220, 0.94);
+  --admin-danger-border: rgba(185, 53, 42, 0.35);
+  --admin-danger-text: #8d1f15;
+  --admin-danger-button: #b9352a;
+  --admin-danger-button-strong: #94261c;
+  --admin-danger-button-soft: #d98e87;
+  --admin-warning-bg: rgba(255, 232, 176, 0.88);
+  --admin-warning-border: rgba(150, 106, 0, 0.35);
+  --admin-warning-text: #704e00;
+  color: var(--admin-text-primary);
+}
+
+.admin-shell[data-admin-theme='dark'] {
+  --admin-bg: #0d1724;
+  --admin-bg-accent: #1d3246;
+  --admin-surface: rgba(17, 29, 43, 0.88);
+  --admin-surface-strong: rgba(22, 37, 56, 0.94);
+  --admin-surface-hover: rgba(31, 51, 76, 0.98);
+  --admin-text-primary: #edf4ff;
+  --admin-text-secondary: #c0d0e6;
+  --admin-text-muted: #91a6c3;
+  --admin-border: rgba(125, 156, 196, 0.2);
+  --admin-border-strong: rgba(146, 177, 217, 0.34);
+  --admin-input-bg: rgba(10, 20, 32, 0.82);
+  --admin-accent: #4d8dff;
+  --admin-accent-strong: #2f73ee;
+  --admin-accent-soft: rgba(77, 141, 255, 0.28);
+  --admin-success: #2d9b69;
+  --admin-success-strong: #208356;
+  --admin-success-soft: #69b894;
+  --admin-success-bg: rgba(19, 63, 44, 0.66);
+  --admin-success-border: rgba(70, 167, 116, 0.3);
+  --admin-danger-bg: rgba(94, 27, 27, 0.72);
+  --admin-danger-border: rgba(236, 121, 121, 0.3);
+  --admin-danger-text: #ffc5c5;
+  --admin-danger-button: #d14f4f;
+  --admin-danger-button-strong: #b93d3d;
+  --admin-danger-button-soft: #9e6767;
+  --admin-warning-bg: rgba(99, 75, 16, 0.72);
+  --admin-warning-border: rgba(245, 198, 93, 0.35);
+  --admin-warning-text: #ffe39f;
+}
+
+.admin-screen {
+  background:
+    radial-gradient(circle at top, color-mix(in srgb, var(--admin-bg-accent) 46%, transparent), transparent 38%),
+    linear-gradient(180deg, color-mix(in srgb, var(--admin-bg) 92%, white 8%) 0%, var(--admin-bg) 100%);
+}
+
+.admin-panel {
+  background: var(--admin-surface);
+  border: 1px solid var(--admin-border);
+  color: var(--admin-text-primary);
+}
+
 /* Chat Overrides for Visibility */
 .messages-content .roll-card,
 .messages-content .dice-roll,

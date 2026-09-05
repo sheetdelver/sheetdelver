@@ -1,11 +1,12 @@
 'use client';
 
-import React, { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
+import React, { createContext, useCallback, useContext, useMemo, useRef, useState, useEffect } from 'react';
 import { logger } from '@shared/utils/logger';
 import { ConnectionStep, User } from '@shared/interfaces';
 import { useNotifications } from '@client/ui/components/NotificationSystem';
 import { useUI } from '@client/ui/context/UIContext';
 import * as foundryApi from '@client/ui/api/foundryApi';
+import { assertPlayerSurface } from '@client/hooks/useRuntimeSurface';
 
 interface SessionContextType {
     step: ConnectionStep;
@@ -23,8 +24,14 @@ interface SessionContextType {
     setIsConfigured: React.Dispatch<React.SetStateAction<boolean>>;
     handleLogin: (username: string, password?: string) => Promise<void>;
     handleLogout: () => Promise<void>;
+    invalidateLocalSession: (reason: string) => void;
+    isExplicitLogoutPending: () => boolean;
     registerLogoutCleanup: (cleanup: () => void) => () => void;
 }
+
+// Compatibility marker for hooks and module UI that currently gate work on
+// `token`. It is not a credential and is never sent to the server.
+export const COOKIE_SESSION_MARKER = 'cookie-session-active';
 
 const SessionContext = createContext<SessionContextType | undefined>(undefined);
 
@@ -33,30 +40,27 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     const { resetUI } = useUI();
 
     const [step, setStepState] = useState<ConnectionStep>('init');
-    const [token, setTokenState] = useState<string | null>(() => {
-        if (typeof window !== 'undefined') {
-            return localStorage.getItem('sheet-delver-token');
-        }
-        return null;
-    });
+    const [token, setTokenState] = useState<string | null>(null);
 
     const [users, setUsers] = useState<User[]>([]);
     const [currentUserId, setCurrentUserId] = useState<string | null>(null);
     const [appVersion, setAppVersion] = useState<string | null>(null);
     const [isConfigured, setIsConfigured] = useState<boolean>(true);
     const logoutCleanupRef = useRef<Array<() => void>>([]);
+    const explicitLogoutPendingRef = useRef(false);
 
     const currentUser = users.find((user) => (user._id || user.id) === currentUserId) || null;
 
+    // Defensive guard: warn if SessionProvider mounts on non-player surface
+    useEffect(() => {
+        assertPlayerSurface();
+        // Remove credentials persisted by releases before ADR-0033 Phase 2.
+        // Cookie restoration happens through /api/status instead.
+        window.localStorage.removeItem('sheet-delver-token');
+    }, []);
+
     const setToken = useCallback((newToken: string | null) => {
         setTokenState(newToken);
-        if (typeof window !== 'undefined') {
-            if (newToken) {
-                localStorage.setItem('sheet-delver-token', newToken);
-            } else {
-                localStorage.removeItem('sheet-delver-token');
-            }
-        }
     }, []);
 
     const setStep = useCallback((newStep: ConnectionStep, origin: string = 'unknown', reason?: string) => {
@@ -77,11 +81,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
                 throw new Error(data.error);
             }
 
-            if (!data.token) {
-                throw new Error('Login succeeded without token');
-            }
-
-            setToken(data.token);
+            // Login success means the server issued the HttpOnly session cookie.
+            setToken(COOKIE_SESSION_MARKER);
             setStep('authenticating', 'handleLogin', 'Login success');
         } catch (error: unknown) {
             const message = error instanceof Error ? error.message : 'Unknown login error';
@@ -90,23 +91,38 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         }
     }, [addNotification, setStep, setToken]);
 
+    const invalidateLocalSession = useCallback((reason: string) => {
+        // Both explicit logout and server-side revocation must retire every
+        // session-bound client cache, not only the non-secret token marker.
+        resetUI();
+        setStep('login', 'session-invalidation', reason);
+        logoutCleanupRef.current.forEach((cleanup) => cleanup());
+        setToken(null);
+    }, [resetUI, setStep, setToken]);
+
+    const isExplicitLogoutPending = useCallback(
+        () => explicitLogoutPendingRef.current,
+        [],
+    );
+
     const handleLogout = useCallback(async () => {
+        if (explicitLogoutPendingRef.current) return;
+        explicitLogoutPendingRef.current = true;
+
+        // Preserve the public-reclassified socket until the server completes
+        // Foundry logout. The dedicated step withholds both dashboard and login
+        // controls while that socket receives the authoritative inactive roster.
+        resetUI();
+        setStep('logging-out', 'handleLogout', 'Logout requested');
+        logoutCleanupRef.current.forEach((cleanup) => cleanup());
         try {
-            resetUI();
-            setStep('login', 'handleLogout', 'User logged out');
-
-            logoutCleanupRef.current.forEach((cleanup) => cleanup());
-
             await foundryApi.logout(token);
-            setToken(null);
         } catch (error: unknown) {
             logger.error('SessionProvider | Logout error:', error);
-            resetUI();
-            setStep('login', 'handleLogout error', 'Force transition');
-
-            logoutCleanupRef.current.forEach((cleanup) => cleanup());
-
+        } finally {
+            explicitLogoutPendingRef.current = false;
             setToken(null);
+            setStep('login', 'handleLogout complete', 'Server logout settled');
         }
     }, [resetUI, setStep, setToken, token]);
 
@@ -133,6 +149,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         setIsConfigured,
         handleLogin,
         handleLogout,
+        invalidateLocalSession,
+        isExplicitLogoutPending,
         registerLogoutCleanup,
     }), [
         step,
@@ -146,6 +164,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         isConfigured,
         handleLogin,
         handleLogout,
+        invalidateLocalSession,
+        isExplicitLogoutPending,
         registerLogoutCleanup,
     ]);
 

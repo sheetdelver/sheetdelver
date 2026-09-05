@@ -1,40 +1,85 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useJournals, JournalEntry } from '@client/ui/context/JournalProvider';
+import { useJournal, JournalEntry } from '@client/ui/context/JournalProvider';
 import { useUI } from '@client/ui/context/UIContext';
 import { X, Edit, Book, ChevronLeft, ChevronRight, Share2, Loader2 } from 'lucide-react';
 import RichTextEditor from './RichTextEditor';
 import { useConfig } from '@client/ui/context/ConfigContext';
 import { useSession } from '@client/ui/context/SessionContext';
 import { logger } from '@shared/utils/logger';
+import { sanitizeRichHtml } from '@shared/security/safeHtml';
+import { SafeHtmlContent } from './SafeHtmlContent';
+import {
+    getJournalPageId,
+    resolveJournalPageSelection,
+    sortJournalPages,
+} from './journalOrdering';
 
 export default function JournalModal() {
     const { activeJournalId, setActiveJournalId, sharedJournalId, setSharedJournalId } = useUI();
-    const { getJournal, updateJournal } = useJournals();
+    const {
+        getJournal,
+        updateJournal,
+        updateJournalPage,
+        journalRevisions,
+        journalGlobalRevision,
+    } = useJournal();
     const { foundryUrl } = useConfig();
     const { currentUser } = useSession();
 
     const [journal, setJournal] = useState<JournalEntry | null>(null);
     const [loading, setLoading] = useState(false);
     const [isEditing, setIsEditing] = useState(false);
-    const [activePageIndex, setActivePageIndex] = useState(0);
+    const [activePageId, setActivePageId] = useState<string | null>(null);
+    const requestedJournalIdRef = React.useRef<string | null>(null);
+    const activeJournalRevision = activeJournalId ? (journalRevisions[activeJournalId] ?? 0) : 0;
+    // Foundry persists page order in each JournalEntryPage.sort value; socket
+    // and REST payload array order is not itself the ordering contract.
+    const orderedPages = React.useMemo(
+        () => sortJournalPages(journal?.pages ?? []), [journal?.pages],
+    );
+    const selectedPageIndex = activePageId
+        ? orderedPages.findIndex(page => getJournalPageId(page) === activePageId)
+        : 0;
+    const activePageIndex = selectedPageIndex >= 0 ? selectedPageIndex : 0;
+
+    const selectPageAtIndex = (index: number) => {
+        setActivePageId(getJournalPageId(orderedPages[index]));
+    };
 
     useEffect(() => {
         if (activeJournalId) {
-            setLoading(true);
-            setIsEditing(false);
-            setActivePageIndex(0);
+            const journalChanged = requestedJournalIdRef.current !== activeJournalId;
+            requestedJournalIdRef.current = activeJournalId;
+            if (journalChanged) {
+                setLoading(true);
+                setIsEditing(false);
+                setActivePageId(null);
+            }
             getJournal(activeJournalId).then(data => {
+                // Ignore a late response from a journal that has since closed
+                // or been replaced by another journal in the same modal.
+                if (requestedJournalIdRef.current !== activeJournalId) return;
                 setJournal(data);
+                setActivePageId(current => resolveJournalPageSelection(data?.pages ?? [], current));
                 setLoading(false);
             });
         } else {
+            requestedJournalIdRef.current = null;
             setJournal(null);
             setIsEditing(false);
-            setActivePageIndex(0);
+            setActivePageId(null);
         }
-    }, [activeJournalId, getJournal]);
+    // Realtime revisions are scoped by Journal id; broad invalidations use the
+    // global revision. getJournal coalesces a change during an active detail
+    // read into one trailing request whose result is returned to this modal.
+    }, [
+        activeJournalId,
+        activeJournalRevision,
+        getJournal,
+        journalGlobalRevision,
+    ]);
 
     const close = () => {
         setActiveJournalId(null);
@@ -47,13 +92,14 @@ export default function JournalModal() {
 
         try {
             if (journal.pages && journal.pages.length > 0) {
-                const page = journal.pages[activePageIndex];
-                const newPages = [...journal.pages];
-                newPages[activePageIndex] = {
-                    ...page,
-                    text: { ...page.text, content: html }
-                };
-                await updateJournal(journal._id, { pages: newPages });
+                const page = orderedPages[activePageIndex];
+                const pageId = page?._id || page?.id;
+                if (!pageId) throw new Error('Cannot update a journal page without an id');
+                // Pages are embedded Foundry documents. Sending only the page
+                // delta preserves fields omitted from mutation responses.
+                await updateJournalPage(journal._id, pageId, {
+                    text: { ...page.text, content: html },
+                });
             } else {
                 await updateJournal(journal._id, { content: html });
             }
@@ -73,30 +119,13 @@ export default function JournalModal() {
     const canEdit = !isShared && (isGM || (journal?.ownership?.[currentUserId] || 0) >= 3);
     const canShare = isGM && !isShared;
 
-    const currentPage = journal?.pages?.[activePageIndex];
+    const currentPage = orderedPages[activePageIndex];
     const rawContent = currentPage?.text?.content || journal?.content || '';
 
-    // Sanitize content: Prefix relative Foundry URLs with foundryUrl
-    const content = React.useMemo(() => {
-        if (!rawContent || !foundryUrl) return rawContent;
-        // Prefix relative image/media/link paths
-        return rawContent.replace(
-            /(src|href)="([^"]+)"/g,
-            (match: string, attr: string, path: string) => {
-                if (path.startsWith('http') || path.startsWith('data:') || path.startsWith('/') || path.startsWith('#')) {
-                    return match;
-                }
-                return `${attr}="${foundryUrl}/${path}"`;
-            }
-        ).replace(
-            /(src|href)='([^']+)'/g,
-            (match: string, attr: string, path: string) => {
-                if (path.startsWith('http') || path.startsWith('data:') || path.startsWith('/') || path.startsWith('#')) {
-                    return match;
-                }
-                return `${attr}='${foundryUrl}/${path}'`;
-            }
-        );
+    // Keep editor input raw for round-tripping; only display content receives
+    // the SafeHtml brand and Foundry-relative URL transformation.
+    const displayContent = React.useMemo(() => {
+        return sanitizeRichHtml(rawContent, { foundryBaseUrl: foundryUrl ?? undefined });
     }, [rawContent, foundryUrl]);
 
     if (!activeJournalId) return null;
@@ -118,9 +147,9 @@ export default function JournalModal() {
                             <h2 className="font-bold text-lg text-white leading-tight truncate">
                                 {journal?.name || 'Loading Journal...'}
                             </h2>
-                            {journal?.pages && journal.pages.length > 0 && (
+                            {orderedPages.length > 0 && (
                                 <p className="text-[10px] text-zinc-500 uppercase font-bold tracking-widest mt-0.5">
-                                    Page {activePageIndex + 1} of {journal.pages.length} {currentPage?.name ? `• ${currentPage.name}` : ''}
+                                    Page {activePageIndex + 1} of {orderedPages.length} {currentPage?.name ? `• ${currentPage.name}` : ''}
                                 </p>
                             )}
                         </div>
@@ -155,7 +184,7 @@ export default function JournalModal() {
                             {isEditing ? (
                                 <div className="flex-1 overflow-hidden h-full">
                                     <RichTextEditor
-                                        content={content}
+                                        content={rawContent}
                                         onSave={handleSave}
                                     />
                                 </div>
@@ -166,10 +195,10 @@ export default function JournalModal() {
                                             <h2 className="text-xl sm:text-3xl m-0 text-white font-cinzel leading-relaxed">{currentPage.name}</h2>
                                         </div>
                                     )}
-                                    {content ? (
-                                        <div
+                                    {rawContent ? (
+                                        <SafeHtmlContent
                                             className="journal-content-render"
-                                            dangerouslySetInnerHTML={{ __html: content }}
+                                            html={displayContent}
                                         />
                                     ) : (
                                         <div className="flex flex-col items-center justify-center h-full opacity-20 py-20">
@@ -195,11 +224,11 @@ export default function JournalModal() {
                 </div>
 
                 {/* Footer / Pagination */}
-                {journal?.pages && journal.pages.length > 1 && !isEditing && (
+                {orderedPages.length > 1 && !isEditing && (
                     <div className="p-4 bg-black/40 border-t border-white/5 flex items-center justify-between">
                         <button
                             disabled={activePageIndex === 0}
-                            onClick={() => setActivePageIndex(p => p - 1)}
+                            onClick={() => selectPageAtIndex(activePageIndex - 1)}
                             className="flex items-center gap-2 text-xs font-black text-zinc-500 hover:text-white disabled:opacity-10 transition-colors uppercase tracking-widest"
                         >
                             <ChevronLeft className="w-5 h-5 font-bold" />
@@ -207,10 +236,10 @@ export default function JournalModal() {
                         </button>
 
                         <div className="hidden sm:flex gap-2">
-                            {journal.pages.map((_, i) => (
+                            {orderedPages.map((page, i) => (
                                 <button
-                                    key={i}
-                                    onClick={() => setActivePageIndex(i)}
+                                    key={getJournalPageId(page) ?? i}
+                                    onClick={() => selectPageAtIndex(i)}
                                     className={`w-2 h-2 rounded-full transition-all hover:scale-125 ${i === activePageIndex ? 'bg-amber-500 w-6' : 'bg-white/10 hover:bg-white/30'}`}
                                     title={`Go to page ${i + 1}`}
                                 />
@@ -218,12 +247,12 @@ export default function JournalModal() {
                         </div>
 
                         <div className="sm:hidden text-[10px] font-black text-zinc-600">
-                            {activePageIndex + 1} / {journal.pages.length}
+                            {activePageIndex + 1} / {orderedPages.length}
                         </div>
 
                         <button
-                            disabled={activePageIndex === journal.pages.length - 1}
-                            onClick={() => setActivePageIndex(p => p + 1)}
+                            disabled={activePageIndex === orderedPages.length - 1}
+                            onClick={() => selectPageAtIndex(activePageIndex + 1)}
                             className="flex items-center gap-2 text-xs font-black text-zinc-500 hover:text-white disabled:opacity-10 transition-colors uppercase tracking-widest"
                         >
                             Next

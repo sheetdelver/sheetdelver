@@ -1,13 +1,37 @@
+import { resolveDataDir, initDataDir, checkLegacyPaths, getDataDir } from '@core/paths';
 import { loadConfig } from '@core/config';
 import { logger } from '@shared/utils/logger';
 import { initializeRegistry } from '@modules/registry/server';
-import { systemService } from '@core/system/SystemService';
+import { systemService } from '@server/services/world';
+import { initAdminCredentialStore } from '@server/security/adminCredentialStore';
+import { adminSessionManager } from '@server/security/adminSessionService';
 import { createApp } from '@server/app/createApp';
 import { registerMiddleware } from '@server/app/registerMiddleware';
 import { registerSockets } from '@server/app/registerSockets';
 import { registerRoutes } from '@server/app/registerRoutes';
+import { registerHttpErrorHandlers } from '@server/security/httpRequestSecurity';
+import { FoundryUserConnectionService } from '@server/services/foundry';
+import { worldLifecycleStore } from '@server/core/world/WorldLifecycleStore';
+import type { WorldLifecycleTransition } from '@server/core/world/WorldLifecycleStore';
+import { userStore } from '@server/core/documents/primary/users/UserStore';
+import {
+    createFoundrySessionStoreFromEnvironment,
+    getDefaultFoundrySessionKeyPath,
+} from '@server/security/foundrySessionStore';
 
 async function startServer() {
+    // Resolve and initialize the data directory before anything else.
+    // All path getters (getCacheDir, getConfigFilePath, etc.) depend on this.
+    const dataDir = resolveDataDir(process.argv);
+    initDataDir(dataDir);
+    logger.info(`Core Service | Data directory: ${getDataDir()}`);
+
+    // Check for legacy data paths and warn the operator
+    const legacyWarnings = checkLegacyPaths();
+    for (const msg of legacyWarnings) {
+        logger.warn(msg);
+    }
+
     const config = await loadConfig();
     if (!config) {
         logger.error('Core Service | Could not load configuration. Exiting.');
@@ -17,6 +41,12 @@ async function startServer() {
     // Initialize Universal Logger with configured level
     logger.setLevel(config.debug.level);
     logger.info(`Core Service | Logger initialized at level: ${config.debug.level}`);
+
+    // Initialize Admin Credential Store with optional pepper
+    initAdminCredentialStore(config.security.adminPepper);
+
+    // Initialize Admin Session Manager
+    adminSessionManager.initialize();
 
     // Boot-Time System Discovery
     initializeRegistry();
@@ -41,35 +71,82 @@ async function startServer() {
     const { app, httpServer, io } = createApp(config);
     registerMiddleware(app);
 
-    // Initialize Session Manager with Service Account
-    const { SessionManager } = await import('@core/session/SessionManager');
-    const sessionManager = new SessionManager({
-        ...config.foundry
+    // Initialize Foundry user connection orchestration outside core transports.
+    const foundryUserConnections = new FoundryUserConnectionService(
+        { ...config.foundry },
+        {
+            sessionStore: createFoundrySessionStoreFromEnvironment({
+                env: {
+                    APP_FOUNDRY_SESSION_KEY: config.security.foundrySessionKey,
+                    APP_FOUNDRY_SESSION_PREVIOUS_KEY: config.security.foundrySessionPreviousKey,
+                },
+                // Existing installations regain encrypted restart persistence
+                // without rewriting settings; explicit configured keys win.
+                autoKeyFilePath: getDefaultFoundrySessionKeyPath(),
+                dataDir,
+            }),
+        },
+    );
+
+    // User deletion retires authority entirely. A role update instead rebinds
+    // matching Foundry sockets so elevations and downgrades take effect without
+    // retaining the authorization snapshot captured at socket connection time.
+    userStore.on('documentChanged', (event) => {
+        if (event.action === 'delete') {
+            void foundryUserConnections.destroySessionsForUser(event.id).catch((error: unknown) => {
+                logger.error('Core Service | Failed to retire deleted-user sessions:', error);
+            });
+        } else if (event.action === 'update') {
+            void foundryUserConnections.refreshSessionsForUserAuthorization(event.id).catch((error: unknown) => {
+                logger.error('Core Service | Failed to refresh changed-user authorization:', error);
+            });
+        }
     });
 
     // Start System Provider
     await systemService.initialize(config.foundry);
 
-    // Register realtime pipelines before route mounts so lifecycle events are ready at startup.
-    const { getSystemStatusPayload } = registerSockets({ io, sessionManager, config });
+    // Wire readiness and world lifecycle policy from the composition root.
+    foundryUserConnections.setSystemReadinessProbe(() => systemService.isReady());
+    const invalidateSetupSessions = () => {
+        void foundryUserConnections.handleWorldEnteredSetup().catch((error: unknown) => {
+            logger.error('Core Service | Failed to invalidate sessions after entering setup:', error);
+        });
+    };
+    worldLifecycleStore.on('transition', (transition: WorldLifecycleTransition) => {
+        if (transition.to === 'setup') invalidateSetupSessions();
+    });
 
-    // Initialize Session storage in background
-    sessionManager.initialize().catch(err => {
-        logger.error(`Core Service | SessionManager initialization failed: ${err.message}`);
+    // initialize() may already have detected setup before this listener was
+    // attached, so reconcile the current lifecycle snapshot once after wiring.
+    if (worldLifecycleStore.isState('setup')) {
+        invalidateSetupSessions();
+    }
+
+    // Register realtime pipelines before route mounts so lifecycle events are ready at startup.
+    const { getSystemStatusPayload } = registerSockets({ io, foundryUserConnections, config });
+
+    // Initialize Foundry user connection storage in background.
+    foundryUserConnections.initialize().catch(err => {
+        logger.error(`Core Service | Foundry user connection initialization failed: ${err.message}`);
     });
 
     // Compose all HTTP route domains (public/protected/debug/module/admin) with preserved mount order.
     registerRoutes({
         app,
         config,
-        sessionManager,
-        getSystemStatusPayload
+        foundryUserConnections,
+        getSystemStatusPayload,
+        io,
     });
+    // Parser failures and uncaught route errors receive the same public envelope.
+    registerHttpErrorHandlers(app);
 
-    httpServer.listen(corePort, '0.0.0.0', () => {
-        logger.info(`Core Service | Silent Daemon running on http://127.0.0.1:${corePort}`);
-        logger.info(`Core Service | App API: http://127.0.0.1:${corePort}/api`);
-        logger.info(`Core Service | Admin API: http://127.0.0.1:${corePort}/admin (Localhost Only)`);
+    const coreHost = '127.0.0.1';
+    httpServer.listen(corePort, coreHost, () => {
+        logger.info(`Core Service | Silent Daemon running on http://${coreHost}:${corePort}`);
+        logger.info(`Core Service | App API: http://${coreHost}:${corePort}/api`);
+        logger.info(`Core Service | Admin API: http://${coreHost}:${corePort}/admin (Origin + Network Restricted)`);
     });
 }
 

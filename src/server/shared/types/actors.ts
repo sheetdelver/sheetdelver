@@ -1,17 +1,29 @@
 import type { FoundryClientLike } from '@server/shared/types/foundry';
-import type { RollMode } from '@shared/interfaces';
+import type { RollMode } from '@shared/sdk';
 
-export interface RawItem {
+/**
+ * Foundry Item document shape. Shared between embedded-on-Actor items and
+ * world-level items — same Foundry document type with or without a parent.
+ * World-level fields (`folder`, `img`, `sort`, `ownership`, `flags`, `_stats`)
+ * are no-op on embedded items and load-bearing on world items.
+ */
+export interface ItemDocument {
     id?: string;
     _id?: string;
     name?: string;
     type?: string;
+    img?: string | null;
+    folder?: string | null;
     system?: Record<string, unknown>;
     effects?: unknown[];
+    sort?: number;
+    ownership?: Record<string, number>;
+    flags?: Record<string, unknown>;
+    _stats?: Record<string, unknown>;
     [key: string]: unknown;
 }
 
-export interface RawActor {
+export interface ActorDocument {
     id?: string;
     _id?: string;
     name?: string;
@@ -24,8 +36,8 @@ export interface RawActor {
             src?: string;
         };
     };
-    items?: RawItem[];
-    categorizedItems?: Record<string, RawItem[]>;
+    items?: ItemDocument[];
+    categorizedItems?: Record<string, ItemDocument[]>;
     computed?: {
         resolvedNames?: Record<string, string>;
         [key: string]: unknown;
@@ -65,11 +77,16 @@ export interface ActorServiceClientLike extends FoundryClientLike {
     url?: string;
 
     getSystem(): Promise<{ id: string }>;
-    getActors(): Promise<RawActor[]>;
-    getActor(actorId: string): Promise<(RawActor & { error?: string }) | null | undefined>;
-    getActorRaw(actorId: string): Promise<(RawActor & { error?: string }) | null | undefined>;
+    getActors(): Promise<ActorDocument[]>;
+    /** Full Actor read; route clients require OBSERVER-level access. */
+    getActor(actorId: string): Promise<(ActorDocument & { error?: string }) | null | undefined>;
+    /** Restricted Actor source used only to build the module-defined LIMITED card projection. */
+    getActorCardSource(actorId: string): Promise<(ActorDocument & { error?: string }) | null | undefined>;
+    getActorRaw(actorId: string): Promise<(ActorDocument & { error?: string }) | null | undefined>;
 
-    createActor(actorData: Record<string, unknown>): Promise<RawActor | null | undefined>;
+    createActor(
+        actorData: Record<string, unknown> | Array<Record<string, unknown>>
+    ): Promise<ActorDocument | ActorDocument[] | null | undefined>;
     deleteActor(actorId: string): Promise<void>;
     updateActor(actorId: string, payload: Record<string, unknown>): Promise<unknown>;
     dispatchDocument(

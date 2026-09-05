@@ -10,6 +10,11 @@ Tests are organized by functionality and numbered for execution order:
 2. **02-system-info.test.ts** - System information retrieval
 3. **03-actor-access.test.ts** - Actor data access
 4. **04-users-compendia.test.ts** - User lists and compendium access
+5. **05-write-operations.test.ts** - Safe CRUD/write operations
+6. **09-rolling.test.ts** - Rolling operations
+7. **10-batch-operations.test.ts** - Batch document operations
+
+`run-all.ts` self-checks this directory: every root `*.test.ts` file must be registered in the runner. Exploratory, hard-coded, or interactive scripts belong in `manual/*.manual.ts`.
 
 ## Running Tests
 
@@ -24,7 +29,20 @@ npm run test:socket:connection  # Test 1: Connection
 npm run test:socket:system      # Test 2: System Info
 npm run test:socket:actors      # Test 3: Actor Access
 npm run test:socket:users       # Test 4: Users & Compendia
+npm run test:socket:write       # Test 5: Write operations
+npm run test:socket:rolling     # Test 9: Rolling operations
+npm run test:socket:batch       # Test 10: Batch operations
 ```
+
+### Manual Probes
+
+Manual socket probes live in `src/tests/socket/manual`. Run them directly with `npx tsx` when investigating a live Foundry instance:
+
+```bash
+npx tsx src/tests/socket/manual/03-world-transition.manual.ts
+```
+
+Manual probes may prompt for input, write debug output under `temp/`, or depend on hard-coded world/module data. They are not part of `npm run test:socket`.
 
 ## Prerequisites
 
@@ -44,10 +62,11 @@ Note: `security.service-token` / `APP_SERVICE_TOKEN` is for internal privileged 
 - ✅ User lists
 - ✅ Compendium indices
 
-### Phase 2: Write Operations (Not Yet Implemented)
-- ⏳ Actor creation
-- ⏳ Actor updates
-- ⏳ Item manipulation
+### Phase 2: Write Operations
+- ✅ Actor creation
+- ✅ Actor updates
+- ✅ Item manipulation
+- ✅ Batch document operations
 
 ## Safety Notes
 

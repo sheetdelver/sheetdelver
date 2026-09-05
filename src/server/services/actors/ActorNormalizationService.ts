@@ -1,5 +1,5 @@
 import { getAdapter } from '@modules/registry/server';
-import type { ActorServiceClientLike, RawActor } from '@server/shared/types/actors';
+import type { ActorServiceClientLike, ActorDocument } from '@server/shared/types/actors';
 
 interface NormalizedActor {
     derived?: Record<string, unknown>;
@@ -8,37 +8,30 @@ interface NormalizedActor {
 
 interface ActorNormalizationDeps {
     getAdapterBySystemId?: typeof getAdapter;
-    getCompendiumCache?: () => Promise<unknown>;
 }
 
 export function createActorNormalizationService(deps: ActorNormalizationDeps = {}) {
     const getAdapterBySystemId = deps.getAdapterBySystemId || getAdapter;
-    const getCompendiumCache = deps.getCompendiumCache || (async () => {
-        const { CompendiumCache } = await import('@core/foundry/compendium-cache');
-        return CompendiumCache.getInstance();
-    });
 
     // Shared actor projection used by actor and combat services for UI-ready payloads.
-    const normalizeActors = async (actorList: RawActor[], client: ActorServiceClientLike) => {
+    // Per ADR-0027, `normalizeActorData` is pure projection (no client); adapters that
+    // need declared-pack data read it through `runtime.compendium` (resolveActorNames removed).
+    const normalizeActors = async (actorList: ActorDocument[], client: ActorServiceClientLike) => {
         const systemInfo = await client.getSystem();
         const adapter = await getAdapterBySystemId(systemInfo.id.toLowerCase());
         if (!adapter) throw new Error(`Adapter for ${systemInfo.id} not found`);
 
-        const cache = await getCompendiumCache();
-
         return Promise.all(actorList.map(async (actor) => {
             if (!actor.computed) actor.computed = {};
-            if (!actor.computed.resolvedNames) actor.computed.resolvedNames = {};
-            if (adapter.resolveActorNames) await adapter.resolveActorNames(actor, cache);
 
             if (actor.img) actor.img = client.resolveUrl(actor.img);
             if (actor.prototypeToken?.texture?.src) {
                 actor.prototypeToken.texture.src = client.resolveUrl(actor.prototypeToken.texture.src);
             }
 
-            const normalized = adapter.normalizeActorData(actor, client) as NormalizedActor;
+            const normalized = adapter.normalizeActorData(actor as any) as NormalizedActor;
             if (adapter.computeActorData) {
-                normalized.derived = adapter.computeActorData(normalized) as Record<string, unknown>;
+                normalized.derived = adapter.computeActorData(normalized as any) as Record<string, unknown>;
             }
 
             return normalized;

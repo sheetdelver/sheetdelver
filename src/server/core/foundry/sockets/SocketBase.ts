@@ -8,13 +8,15 @@ type HeadersWithSetCookie = Headers & {
     getSetCookie?: () => string[];
 };
 
+export const FOUNDRY_LOGOUT_TIMEOUT_MS = 5_000;
+
 export abstract class SocketBase extends EventEmitter {
     protected socket: Socket | null = null;
     protected cookieMap = new Map<string, string>();
     protected sessionCookie: string | null = null;
+    protected foundryVersion: string | null = null;
     public isSocketConnected: boolean = false;
     protected config: FoundryConfig;
-    protected sharedContent: any | null = null;
 
     constructor(config: FoundryConfig) {
         super();
@@ -90,6 +92,10 @@ export abstract class SocketBase extends EventEmitter {
 
         const status = await statusRes.json();
 
+        // The world-login request changed in Foundry 14.366. Retain the version
+        // discovered by this handshake so authentication can use its wire contract.
+        this.foundryVersion = typeof status.version === 'string' ? status.version : null;
+
         // If the backend returned a set-cookie (less likely on /api/status, but just in case)
         const setCookie = this.getSetCookieHeader(statusRes.headers);
 
@@ -110,12 +116,25 @@ export abstract class SocketBase extends EventEmitter {
     protected async performLogin(baseUrl: string, userId: string, csrfToken: string | null): Promise<void> {
         logger.info(`[${this.constructor.name}] Performing POST Login (User: ${userId})...`);
 
-        // V13 allows programmatic login to /join via application/json without a CSRF token
-        const payload: any = {
-            userid: userId,
+        const [foundryGeneration = 0, foundryBuild = 0] = (this.foundryVersion || '')
+            .split('.')
+            .map((part) => Number.parseInt(part, 10));
+        const usesUsernameLogin = foundryGeneration > 14
+            || (foundryGeneration === 14 && foundryBuild >= 366);
+        const payload: Record<string, string> = {
             password: this.config.password || '',
             action: 'join'
         };
+
+        if (usesUsernameLogin) {
+            // V14 build 366 replaced the user selector with username autocomplete;
+            // its /join contract submits both the visible name and resolved ID.
+            payload.username = this.config.username || '';
+            payload.userId = userId;
+        } else {
+            // Builds before 14.366 submit the selected ID under lowercase `userid`.
+            payload.userid = userId;
+        }
 
         // If the server explicitly required one from an older caching flow, pass it (usually ignored in v13)
         if (csrfToken) {
@@ -156,6 +175,27 @@ export abstract class SocketBase extends EventEmitter {
             }
         }
         return undefined;
+    }
+
+    protected hydrateCookieHeader(cookie: string, options: { replace?: boolean } = {}): void {
+        // Restored-session cookies arrive as a browser Cookie header, not as
+        // Set-Cookie response headers. Keep the parsing here because cookie
+        // header state is transport mechanics shared by user/socket clients.
+        if (options.replace !== false) {
+            this.cookieMap.clear();
+        }
+
+        for (const part of cookie.split(';')) {
+            const trimmed = part.trim();
+            const separatorIndex = trimmed.indexOf('=');
+            if (separatorIndex <= 0) continue;
+
+            const key = trimmed.slice(0, separatorIndex).trim();
+            const value = trimmed.slice(separatorIndex + 1).trim();
+            if (key) this.cookieMap.set(key, value);
+        }
+
+        this.sessionCookie = Array.from(this.cookieMap.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
     }
 
     protected async probeWorldState(baseUrl: string): Promise<any> {
@@ -257,6 +297,10 @@ export abstract class SocketBase extends EventEmitter {
             logger.info(`[${this.constructor.name}] Attempting explicit logout from Foundry via POST /logout...`);
             const response = await fetch(`${baseUrl}/logout`, {
                 method: 'POST',
+                // Foundry teardown is best-effort after local authority has
+                // already been retired; bound an unavailable upstream so the
+                // browser cannot remain in its logging-out state indefinitely.
+                signal: AbortSignal.timeout(FOUNDRY_LOGOUT_TIMEOUT_MS),
                 headers: {
                     'Cookie': this.sessionCookie || '',
                     'Content-Type': 'application/json'
@@ -287,85 +331,20 @@ export abstract class SocketBase extends EventEmitter {
         return this.isSocketConnected;
     }
 
-    public getSharedContent() {
-        return this.sharedContent;
-    }
-
     protected setupSharedContentListeners(socket: Socket) {
         socket.on('shareImage', (data: any) => {
             logger.info(`[${this.constructor.name}] Received shared image: ${data.image}`);
-            this.sharedContent = {
-                type: 'image',
-                data: {
-                    url: data.image,
-                    title: data.title
-                },
-                timestamp: Date.now()
-            };
-            this.emit('sharedContentUpdate', this.sharedContent);
+            this.emit('foundry:shareImage', { data });
         });
 
         socket.on('showEntry', (uuid: string, ...args: any[]) => {
             logger.info(`[${this.constructor.name}] Received shared entry: ${uuid}`);
-            const parts = uuid.split('.');
-            if (parts.length >= 2 && parts[0] === 'JournalEntry') {
-                this.sharedContent = {
-                    type: 'journal',
-                    data: {
-                        id: parts[1],
-                        uuid: uuid
-                    },
-                    timestamp: Date.now()
-                };
-                this.emit('sharedContentUpdate', this.sharedContent);
-            }
+            this.emit('foundry:showEntry', { uuid, args });
         });
     }
 
     public get url(): string {
         return this.getBaseUrl();
-    }
-
-    /**
-     * Resolves a relative path into an absolute Foundry URL.
-     */
-    public resolveUrl(path: string): string {
-        if (!path) return path;
-        // If already absolute or data URI, return as-is
-        if (path.startsWith('http') || path.startsWith('data:')) return path;
-
-        const baseUrl = this.url;
-        const cleanPath = path.startsWith('/') ? path.slice(1) : path;
-        const cleanBase = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
-
-        return `${cleanBase}/${cleanPath}`;
-    }
-
-    /**
-     * Processes HTML content to resolve relative image and link paths.
-     */
-    public resolveHtml(html: string): string {
-        if (!html) return '';
-        let processed = html;
-
-        const baseUrl = this.url;
-        const cleanBase = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
-
-        // Fix image src
-        processed = processed.replace(/src="([^"]+)"/g, (match, src) => {
-            if (src.startsWith('http') || src.startsWith('data:')) return match;
-            const cleanPath = src.startsWith('/') ? src.slice(1) : src;
-            return `src="${cleanBase}${cleanPath}"`;
-        });
-
-        // Fix anchor href
-        processed = processed.replace(/href="([^"]+)"/g, (match, href) => {
-            if (href.startsWith('http') || href.startsWith('data:') || href.startsWith('#')) return match;
-            const cleanPath = href.startsWith('/') ? href.slice(1) : href;
-            return `href="${cleanBase}${cleanPath}"`;
-        });
-
-        return processed;
     }
 
     abstract connect(): Promise<void>;

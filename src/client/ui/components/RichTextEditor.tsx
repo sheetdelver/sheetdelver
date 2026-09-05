@@ -22,8 +22,6 @@ export interface RichTextTheme {
     editButton: string;
 }
 
-// SHADOWDARK_THEME moved to @modules/shadowdark/ui/themes/shadowdark.ts
-
 export const DASHBOARD_THEME: RichTextTheme = {
     container: 'relative group h-full flex flex-col bg-neutral-950/50 border border-neutral-800 rounded-lg overflow-hidden',
     toolbar: {
@@ -34,7 +32,7 @@ export const DASHBOARD_THEME: RichTextTheme = {
         actionButton: 'px-3 py-1 text-xs font-medium text-neutral-400 hover:text-white hover:bg-neutral-800 rounded-md mr-2',
         saveButton: 'px-3 py-1 text-xs font-medium bg-emerald-600 text-white hover:bg-emerald-500 rounded-md flex items-center gap-1 shadow-sm'
     },
-    editor: 'prose prose-invert prose-sm max-w-none focus:outline-none min-h-[300px] p-4 font-sans',
+    editor: 'max-w-none focus:outline-none min-h-[300px] p-4 font-sans',
     editButton: 'bg-neutral-800 text-neutral-200 px-4 py-2 text-sm font-medium rounded-md hover:bg-neutral-700 hover:text-white transition-colors flex items-center gap-2 shadow-sm border border-neutral-700/50 backdrop-blur-sm'
 };
 
@@ -81,7 +79,9 @@ export default function RichTextEditor({
         editable: isEditing,
         editorProps: {
             attributes: {
-                class: theme.editor,
+                // Tailwind preflight flattens semantic headings and list markers;
+                // this stable class restores them without coupling module themes to Core CSS.
+                class: `${theme.editor} rich-text-content`,
             },
         },
         immediatelyRender: false,

@@ -1,5 +1,13 @@
 import { CoreSocket } from '@core/foundry/sockets/CoreSocket';
-import { loadConfig } from '@core/config';
+import { compendiumStore } from '@core/compendium';
+import { CompendiumService } from '@server/services/compendium';
+import { userStore } from '@server/core/documents/primary/users/UserStore';
+import { worldStateStore } from '@core/world/WorldStateStore';
+import {
+    bootstrapSocketTestWorld,
+    loadSocketTestConfig,
+    resetSocketTestWorld,
+} from './socket-test-runtime';
 
 /**
  * Test 4: User and Compendium Data
@@ -8,52 +16,60 @@ import { loadConfig } from '@core/config';
 export async function testUsersAndCompendia() {
     logger.info('🧪 Test 4: Users & Compendium Data\n');
 
-    const config = await loadConfig();
-    if (!config) {
-        throw new Error('Failed to load configuration');
-    }
+    const config = await loadSocketTestConfig();
 
     const client = new CoreSocket(config.foundry);
     const results: any = { tests: [] };
 
     try {
         await client.connect();
+        await bootstrapSocketTestWorld(client);
         logger.info('✅ Connected\n');
+        // Compendium service is no longer needed for this user-roster test path,
+        // but instantiating it confirms its constructor still works.
+        new CompendiumService({
+            transport: client,
+            store: compendiumStore,
+        });
 
-        // Test 4a: getUsers()
-        logger.info('4a. Testing getUsers()...');
+        // Test 4a: UserStore roster
+        logger.info('4a. Testing UserStore roster...');
         try {
-            const users = await client.getUsers();
+            const users = userStore.listWithPresence();
             logger.info(`   ✅ Found ${users.length} users`);
             users.forEach((u: any) => {
                 logger.info(`      - ${u.name}: Role ${u.role} (${typeof u.role})`);
             });
-            results.tests.push({ name: 'getUsers', success: true, data: { count: users.length } });
+            results.tests.push({ name: 'UserStore roster', success: true, data: { count: users.length } });
         } catch (error: any) {
             logger.info(`   ❌ Failed: ${error.message}`);
-            results.tests.push({ name: 'getUsers', success: false, error: error.message });
+            results.tests.push({ name: 'UserStore roster', success: false, error: error.message });
         }
 
-        // Test 4b: getUsersDetails()
-        logger.info('\n4b. Testing getUsersDetails()...');
+        // Test 4b: world snapshot users from WorldStateStore
+        logger.info('\n4b. Testing WorldStateStore users snapshot...');
         try {
-            await client.getGameData()['users'];
+            const gameData = worldStateStore.getGameDataSnapshot();
+            if (!gameData?.users) throw new Error('gameData users snapshot unavailable');
             logger.info(`   ✅ Retrieved detailed user info`);
-            results.tests.push({ name: 'getUsersDetails', success: true });
+            results.tests.push({ name: 'WorldStateStore users snapshot', success: true });
         } catch (error: any) {
             logger.info(`   ❌ Failed: ${error.message}`);
-            results.tests.push({ name: 'getUsersDetails', success: false, error: error.message });
+            results.tests.push({ name: 'WorldStateStore users snapshot', success: false, error: error.message });
         }
 
-        // Test 4c: getAllCompendiumIndices()
-        logger.info('\n4c. Testing getAllCompendiumIndices()...');
+        // Test 4c: passive pack metadata seed from game.data.packs
+        logger.info('\n4c. Testing passive pack metadata seed...');
         try {
-            const indices = await client.getAllCompendiumIndices();
-            logger.info(`   ✅ Found ${indices.length} compendium packs`);
-            results.tests.push({ name: 'getAllCompendiumIndices', success: true, data: { count: indices.length } });
+            const gameData = worldStateStore.getGameDataSnapshot();
+            if (!gameData) throw new Error('gameData unavailable');
+            compendiumStore.seedPackMetadataFromGameData(gameData, 'socket-test');
+            const inventory = compendiumStore.listPackMetadata();
+            logger.info(`   ✅ Seeded ${inventory.length} pack records`);
+            results.tests.push({ name: 'compendiumStore.seedPackMetadataFromGameData', success: true, data: { count: inventory.length } });
         } catch (error: any) {
             logger.info(`   ❌ Failed: ${error.message}`);
-            results.tests.push({ name: 'getAllCompendiumIndices', success: false, error: error.message });
+            results.tests.push({ name: 'compendiumStore.seedPackMetadataFromGameData', success: false, error: error.message });
         }
 
         const successCount = results.tests.filter((t: any) => t.success).length;
@@ -66,6 +82,7 @@ export async function testUsersAndCompendia() {
         logger.error('❌ Test suite failed:', error.message);
         return { success: false, error: error.message };
     } finally {
+        resetSocketTestWorld();
         await client.disconnect();
         logger.info('📡 Disconnected\n');
     }

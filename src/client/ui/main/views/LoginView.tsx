@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import type { AppSystemInfo, User } from '@shared/interfaces';
 import { Theme } from '../hooks/useTheme';
+import { sanitizeRichHtml } from '@shared/security/safeHtml';
+import { SafeHtmlContent } from '@client/ui/components/SafeHtmlContent';
 
 interface LoginViewProps {
     users: User[];
@@ -13,6 +15,10 @@ interface LoginViewProps {
 export const LoginView = ({ users, system, theme, onLogin, loading }: LoginViewProps) => {
     const [selectedUser, setSelectedUser] = useState('');
     const [password, setPassword] = useState('');
+    const worldDescription = useMemo(
+        () => sanitizeRichHtml(system?.worldDescription ?? ''),
+        [system?.worldDescription],
+    );
 
     const handleLoginClick = () => {
         onLogin(selectedUser, password);
@@ -29,8 +35,9 @@ export const LoginView = ({ users, system, theme, onLogin, loading }: LoginViewP
                 )}
 
                 {system?.worldDescription && (
-                    <div className="prose prose-invert prose-sm max-w-none opacity-80 mb-6"
-                        dangerouslySetInnerHTML={{ __html: system.worldDescription }}
+                    <SafeHtmlContent
+                        className="prose prose-invert prose-sm max-w-none opacity-80 mb-6"
+                        html={worldDescription}
                     />
                 )}
 
@@ -66,8 +73,7 @@ export const LoginView = ({ users, system, theme, onLogin, loading }: LoginViewP
                             >
                                 <option value="" disabled>-- Select Player --</option>
                                 {users.map((u: User, idx: number) => {
-                                    const isGamemaster = u.name === 'Gamemaster';
-                                    const isDisabled = u.active || isGamemaster;
+                                    const isDisabled = u.canLogin === false || u.active === true;
                                     return (
                                         <option
                                             key={u.name || idx}
@@ -75,7 +81,7 @@ export const LoginView = ({ users, system, theme, onLogin, loading }: LoginViewP
                                             disabled={isDisabled}
                                             className={`bg-neutral-900 text-white ${isDisabled ? 'text-white/30 bg-neutral-800' : ''}`}
                                         >
-                                            {u.name} {u.active ? ' (Logged In)' : (isGamemaster ? ' (Restricted)' : '')}
+                                            {u.name} {u.active ? ' (Logged In)' : (u.canLogin === false ? ' (Restricted)' : '')}
                                         </option>
                                     );
                                 })}

@@ -2,75 +2,105 @@ import type {
     JournalClientLike,
     JournalMutationBody,
     JournalDeleteQuery,
-    RawJournal,
-    RawFolder,
-    DocumentSocketResponse,
+    JournalEntryDocument,
+    FolderDocument,
 } from '@server/shared/types/documents';
 import type {
     JournalListPayload,
     JournalEntryDto,
     JournalErrorPayload,
 } from '@shared/contracts/journals';
+import {
+    DOCUMENT_VISIBILITY,
+    isAssistantGM,
+} from '@server/core/documents/primary/base/ownership';
+import { FolderRepository } from '@server/core/documents/primary/folders/FolderRepository';
+import { folderStore } from '@server/core/documents/primary/folders/FolderStore';
+import { JournalRepository } from '@server/core/documents/primary/journals/JournalRepository';
+import { journalStore } from '@server/core/documents/primary/journals/JournalStore';
+import { PrimaryDocumentCacheNotReadyError } from '@server/core/documents/primary/errors';
+import { userStore } from '@server/core/documents/primary/users/UserStore';
 
 export function createJournalService() {
     const getStringField = (value: unknown, fallback = ''): string => typeof value === 'string' ? value : fallback;
     const getNullableStringField = (value: unknown): string | null => typeof value === 'string' ? value : null;
     const getNumberField = (value: unknown, fallback = 0): number => typeof value === 'number' ? value : fallback;
+    const createFolderRepository = (client: JournalClientLike): FolderRepository => new FolderRepository({
+        dispatchDocument: (
+            type: string,
+            action: string,
+            operation?: unknown,
+            parent?: { type: string; id: string },
+        ) => client.dispatchDocument(type, action, operation, parent),
+    });
+    const createJournalRepository = (client: JournalClientLike): JournalRepository => new JournalRepository({
+        dispatchDocument: (
+            type: string,
+            action: string,
+            operation?: unknown,
+            parent?: { type: string; id: string },
+        ) => client.dispatchDocument(type, action, operation, parent),
+    });
 
-    const toJournalDto = (journal: RawJournal): JournalEntryDto => ({
+    const toJournalDto = (journal: JournalEntryDocument): JournalEntryDto => ({
         ...journal,
         _id: String(journal._id || journal.id || ''),
         name: getStringField(journal.name),
         folder: (journal.folder ?? null) as string | null,
     });
 
-    const toFolderDto = (folder: RawFolder) => ({
+    const toJournalListDto = (journal: JournalEntryDocument): JournalEntryDto => ({
+        // Foundry's journal directory exposes metadata, not embedded page bodies.
+        // Selecting fields here prevents the service-account cache from placing
+        // page text, flags, or other full-document data in a list response.
+        id: typeof journal.id === 'string' ? journal.id : undefined,
+        _id: String(journal._id || journal.id || ''),
+        name: getStringField(journal.name),
+        folder: (journal.folder ?? null) as string | null,
+        ownership: journal.ownership,
+        sort: journal.sort,
+    });
+
+    const toFolderDto = (folder: FolderDocument) => ({
         ...folder,
         _id: String(folder._id || folder.id || ''),
         name: String(folder.name || ''),
         type: String(folder.type || ''),
-        folder: (folder.folder ?? null) as string | null,
+        // FolderStore normally supplies parent; the canonical Foundry field is
+        // retained as a defensive fallback for mixed/bootstrap payloads.
+        parent: (folder.parent ?? folder.folder ?? null) as string | null,
         sort: getNumberField(folder['sort']),
+        sorting: folder.sorting === 'm' ? 'm' as const : 'a' as const,
         color: getNullableStringField(folder['color']),
     });
 
     // Journal list projection with Foundry visibility filtering and folder ancestry pruning.
     const listJournals = async (client: JournalClientLike): Promise<JournalListPayload> => {
+        if (!folderStore.isReady()) throw new PrimaryDocumentCacheNotReadyError('Folder');
+        if (!journalStore.isReady()) throw new PrimaryDocumentCacheNotReadyError('JournalEntry');
+
         const currentUserId = client.userId;
-        const allJournals = await client.getJournals();
-        const allFolders = await client.getFolders('JournalEntry');
+        const subject = userStore.createAccessSubject(currentUserId);
+        // ASSISTANT-GM and above see every folder regardless of contents; players
+        // only see folders that ancestor at least one journal they can read.
+        const isAssistantGm = !!subject && isAssistantGM(subject);
 
-        const users = await client.getUsers();
-        const currentUser = users.find((u) => (u._id || u.id) === currentUserId);
-        const isGM = (currentUser?.role || 0) >= 3;
-        const resolvedUserId = currentUserId || undefined;
+        const allFolders = folderStore.listByType('JournalEntry');
+        const visibleJournals = subject
+            // LIMITED journals are map-note/image hints in Foundry, not journal
+            // directory entries. Directory listing therefore begins at OBSERVER.
+            ? journalStore.list({ subject, minOwnership: DOCUMENT_VISIBILITY.DETAIL_VISIBLE })
+            : [];
 
-        const visibleJournals = allJournals.filter((j) => {
-            if (isGM) return true;
-            const level = (resolvedUserId ? j.ownership?.[resolvedUserId] : undefined) ?? j.ownership?.default ?? 0;
-            return level >= 2;
-        });
-
-        const getFolderIdsWithVisibleJournals = (): Set<string> => {
-            const folderIds = new Set<string>();
-            visibleJournals.forEach((j) => {
-                if (j.folder) {
-                    let currentFolderId: string | null = j.folder;
-                    while (currentFolderId) {
-                        folderIds.add(currentFolderId);
-                        const folder = allFolders.find((f) => f._id === currentFolderId);
-                        currentFolderId = folder?.folder || null;
-                    }
-                }
-            });
-            return folderIds;
-        };
-
-        const visibleFolderIds = getFolderIdsWithVisibleJournals();
-        const visibleFolders = allFolders.filter((f) => isGM || (!!f._id && visibleFolderIds.has(f._id)));
+        const visibleFolderIds = new Set(folderStore.getFolderTreeIdsForFolders(
+            visibleJournals
+                .map(j => j.folder)
+                .filter((folderId): folderId is string => typeof folderId === 'string' && folderId.length > 0),
+        ));
+        const visibleFolders = allFolders.filter((f) => isAssistantGm || (!!f._id && visibleFolderIds.has(f._id)));
 
         return {
-            journals: visibleJournals.map(toJournalDto),
+            journals: visibleJournals.map(toJournalListDto),
             folders: visibleFolders.map(toFolderDto),
         };
     };
@@ -78,45 +108,55 @@ export function createJournalService() {
     // Journal create orchestration (JournalEntry and Folder document types).
     const createJournal = async (client: JournalClientLike, body: JournalMutationBody) => {
         const { type, data } = body;
-        const result = await client.dispatchDocumentSocket(type || 'JournalEntry', 'create', {
-            data: [data],
-            broadcast: true
-        });
-        return result;
+        if (type === 'Folder') return createFolderRepository(client).create(data);
+        return createJournalRepository(client).create(data);
     };
 
-    // Journal detail fetch by document ID.
+    // Journal detail fetch — reads from JournalStore with ownership filtering.
+    // Shared-content `showEntry` sends a UUID reference and the client hydrates
+    // through this route; ownership is enforced here.
     const getJournalById = async (
         client: JournalClientLike,
         journalId: string
     ): Promise<JournalEntryDto | JournalErrorPayload> => {
-        const response = await client.dispatchDocumentSocket('JournalEntry', 'get', {
-            query: { _id: journalId },
-            broadcast: false
-        }) as DocumentSocketResponse<RawJournal>;
-        const doc = response.result?.[0];
-
+        if (!journalStore.isReady()) throw new PrimaryDocumentCacheNotReadyError('JournalEntry');
+        const subject = userStore.createAccessSubject(client.userId);
+        const doc = subject
+            ? journalStore.get(journalId, { subject, minOwnership: DOCUMENT_VISIBILITY.DETAIL_VISIBLE })
+            : null;
         if (!doc) return { error: 'Journal not found', status: 404 };
+
+        // Filter embedded pages to the subset the subject can read.
+        if (subject) {
+            doc.pages = journalStore.visiblePages(journalId, subject, DOCUMENT_VISIBILITY.DETAIL_VISIBLE);
+        }
+
         return toJournalDto(doc);
     };
 
     const updateJournal = async (client: JournalClientLike, journalId: string, body: JournalMutationBody) => {
         const { type, data } = body;
-        const result = await client.dispatchDocumentSocket(type || 'JournalEntry', 'update', {
-            updates: [{ ...data, _id: journalId }],
-            broadcast: true
-        });
-        return result;
+        if (type === 'Folder') return createFolderRepository(client).update(journalId, data);
+        return createJournalRepository(client).update(journalId, data);
+    };
+
+    const updateJournalPage = async (
+        client: JournalClientLike,
+        journalId: string,
+        pageId: string,
+        body: JournalMutationBody,
+    ) => {
+        // JournalEntryPage is an embedded document in Foundry v13 and v14;
+        // preserve that boundary so cache mirroring merges a child delta.
+        return createJournalRepository(client).updatePage(journalId, pageId, body.data);
     };
 
     const deleteJournal = async (client: JournalClientLike, journalId: string, query: JournalDeleteQuery) => {
         const { type } = query;
         const resolvedType = Array.isArray(type) ? type[0] : type;
-        const result = await client.dispatchDocumentSocket(resolvedType || 'JournalEntry', 'delete', {
-            ids: [journalId],
-            broadcast: true
-        });
-        return result;
+        if (resolvedType === 'Folder') return createFolderRepository(client).delete(journalId);
+        await createJournalRepository(client).delete(journalId);
+        return { _id: journalId };
     };
 
     return {
@@ -124,6 +164,7 @@ export function createJournalService() {
         createJournal,
         getJournalById,
         updateJournal,
+        updateJournalPage,
         deleteJournal
     };
 }

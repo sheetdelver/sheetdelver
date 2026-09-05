@@ -1,0 +1,426 @@
+import { strict as assert } from 'node:assert';
+import {
+    PrimaryDocumentStore,
+    appendCreatedById,
+    getDeletionIds,
+    type ModifyDocumentAction,
+    type DocumentChangedEvent,
+    type DocumentListInvalidatedEvent,
+    type PrimaryDocumentType,
+} from '@server/core/documents/primary/base/PrimaryDocumentStore';
+import {
+    DocumentOwnershipLevel,
+    FoundryUserRole,
+    getEffectiveOwnership,
+    type DocumentAccessSubject,
+    type DocumentOwnershipMap,
+    type ResolvedDocumentOwnershipLevel,
+} from '@server/core/documents/primary/base/ownership';
+import {
+    ALL_DOCUMENT_AUDIENCE,
+    NO_DOCUMENT_AUDIENCE,
+    documentAudienceForUsers,
+    documentAudienceIncludes,
+    unionDocumentAudiences,
+} from '@server/core/documents/primary/base/audience';
+
+/**
+ * Mock document type and Store used for generic base-contract verification.
+ * Shape mirrors the standard Foundry primary doc (id + ownership map).
+ */
+interface MockDoc {
+    _id?: string;
+    id?: string;
+    name?: string;
+    ownership?: DocumentOwnershipMap;
+    system?: Record<string, unknown>;
+    [key: string]: unknown;
+}
+
+class MockStore extends PrimaryDocumentStore<MockDoc> {
+    public readonly documentType: PrimaryDocumentType = 'Cards'; // borrow an unused type for the mock
+
+    protected resolveOwnership(
+        doc: MockDoc,
+        subject: DocumentAccessSubject,
+    ): ResolvedDocumentOwnershipLevel {
+        return getEffectiveOwnership(doc.ownership, subject);
+    }
+}
+
+export async function run() {
+    runDocumentAudienceContract();
+    await runSeedAndCloning();
+    await runOwnershipFilteredReads();
+    await runUpsertEmitsOnlyOnChange();
+    await runPatchDottedKeys();
+    await runDeleteIdempotency();
+    await runNoEmissionDuringSeeding();
+    await runListInvalidationOnOwnershipCrossing();
+    await runFoundryFieldOperatorUpdates();
+    await runGenericPrimaryDocumentChangedEvent();
+    await runApplyModifyDocumentRoutes();
+    runAppendCreatedByIdIdempotency();
+    runGetDeletionIdsShapes();
+    await runBroadcastShapedSelfDelete();
+    console.log('  - PrimaryDocumentStore<T> base: all checks passed');
+}
+
+// The explicit three-state contract prevents an empty recipient set from
+// becoming an accidental broadcast at the realtime gateway.
+function runDocumentAudienceContract() {
+    const users = documentAudienceForUsers(['p2', 'p1', 'p2']);
+    assert.deepEqual(users, { kind: 'users', userIds: ['p1', 'p2'] });
+    assert.deepEqual(documentAudienceForUsers([]), NO_DOCUMENT_AUDIENCE);
+    assert.deepEqual(
+        unionDocumentAudiences(NO_DOCUMENT_AUDIENCE, users),
+        users,
+    );
+    assert.deepEqual(
+        unionDocumentAudiences(users, ALL_DOCUMENT_AUDIENCE),
+        ALL_DOCUMENT_AUDIENCE,
+    );
+    assert.equal(documentAudienceIncludes(users, 'p1'), true);
+    assert.equal(documentAudienceIncludes(users, 'outsider'), false);
+    assert.equal(documentAudienceIncludes(NO_DOCUMENT_AUDIENCE, 'p1'), false);
+}
+
+// Foundry delete broadcasts carry deleted ids in `result` as plain strings;
+// `operation.ids` is only reliable on the initiator-mirror path. The union
+// helper must accept both shapes so no store's delete can silently no-op
+// (ADR-0031).
+function runGetDeletionIdsShapes() {
+    // Broadcast shape: string ids in result, no operation.ids.
+    assert.deepEqual(getDeletionIds({ modifiedTime: 1 }, ['a', 'b'], []), ['a', 'b']);
+    // Mirror shape: operation.ids present, result may hold documents.
+    assert.deepEqual(getDeletionIds({ ids: ['a'] }, [{ _id: 'a' }], [{ _id: 'a' }]), ['a']);
+    // Union without duplicates when both are present.
+    assert.deepEqual(getDeletionIds({ ids: ['a'] }, ['a', 'b'], []).sort(), ['a', 'b']);
+    // Document-array fallback when neither ids nor string results exist.
+    assert.deepEqual(getDeletionIds(undefined, null, [{ _id: 'c' }]), ['c']);
+    // Nothing resolvable → empty, never throws.
+    assert.deepEqual(getDeletionIds(undefined, null, []), []);
+}
+
+async function runBroadcastShapedSelfDelete() {
+    const store = new MockStore();
+    await store.seed(async () => [{ _id: 'a' }, { _id: 'b' }, { _id: 'c' }]);
+
+    const events: DocumentChangedEvent[] = [];
+    store.on('documentChanged', e => events.push(e as DocumentChangedEvent));
+
+    // Broadcast shape: result carries id strings, operation has no ids.
+    store.applyModifyDocument('Cards', 'delete', ['a'], { modifiedTime: Date.now() });
+    assert.equal(store.get('a'), null, 'broadcast-shaped delete applies from result ids');
+    assert.equal(events.filter(e => e.action === 'delete').length, 1);
+
+    // deleteAll with no resolvable ids wipes the remaining cached documents.
+    store.applyModifyDocument('Cards', 'delete', [], { deleteAll: true });
+    assert.equal(store.list().length, 0, 'deleteAll fallback clears the cache');
+    assert.equal(events.filter(e => e.action === 'delete').length, 3);
+}
+
+// The shared embedded-create helper every store routes through (items/effects/combatants/
+// cards/sounds/pages/results). Guards the idempotency that prevents a mirror + broadcast
+// double-apply from duplicating one added child (ADR-0012).
+function runAppendCreatedByIdIdempotency() {
+    const existing: MockDoc[] = [{ _id: 'a', name: 'A' }];
+
+    // Re-applying the same created child is a no-op (deduped by _id).
+    const once = appendCreatedById(existing, [{ _id: 'b', name: 'B' }]);
+    const twice = appendCreatedById(once, [{ _id: 'b', name: 'B' }]);
+    assert.deepEqual(twice.map(d => d._id), ['a', 'b'], 'same _id is not appended twice');
+
+    // Distinct ids still append; cloned (not the same reference).
+    const more = appendCreatedById(twice, [{ _id: 'c', name: 'C' }]);
+    assert.deepEqual(more.map(d => d._id), ['a', 'b', 'c']);
+
+    // Children with no id have no key to dedupe on — appended as-is.
+    const noId = appendCreatedById<MockDoc>([], [{ name: 'x' }, { name: 'y' }]);
+    assert.equal(noId.length, 2, 'id-less children are appended');
+
+    // Undefined existing is treated as empty.
+    assert.deepEqual(appendCreatedById(undefined, [{ _id: 'z' }]).map(d => d._id), ['z']);
+}
+
+async function runSeedAndCloning() {
+    const store = new MockStore();
+    const docs: MockDoc[] = [
+        { _id: 'a', name: 'Alpha', ownership: { default: DocumentOwnershipLevel.OBSERVER } },
+        { _id: 'b', name: 'Beta', ownership: { default: DocumentOwnershipLevel.OWNER } },
+    ];
+    await store.seed(async () => docs);
+
+    assert.equal(store.isReady(), true);
+    assert.equal(store.list().length, 2);
+
+    // Clone-on-read: mutating the returned doc must not affect the cache.
+    const a = store.get('a')!;
+    a.name = 'Mutated';
+    assert.equal(store.get('a')?.name, 'Alpha');
+}
+
+async function runOwnershipFilteredReads() {
+    const store = new MockStore();
+    const gm: DocumentAccessSubject = { userId: 'gm', role: FoundryUserRole.GAMEMASTER };
+    const player: DocumentAccessSubject = { userId: 'p1', role: FoundryUserRole.PLAYER };
+
+    await store.seed(async () => [
+        { _id: 'public', ownership: { default: DocumentOwnershipLevel.OBSERVER } },
+        { _id: 'private', ownership: { default: DocumentOwnershipLevel.NONE } },
+        { _id: 'mine', ownership: { default: DocumentOwnershipLevel.NONE, p1: DocumentOwnershipLevel.OWNER } },
+    ]);
+
+    // Player sees public + mine
+    const playerList = store.list({ subject: player }).map(d => d._id).sort();
+    assert.deepEqual(playerList, ['mine', 'public']);
+
+    // GM sees everything regardless of map
+    const gmList = store.list({ subject: gm }).map(d => d._id).sort();
+    assert.deepEqual(gmList, ['mine', 'private', 'public']);
+
+    // get returns null on denied access
+    assert.equal(store.get('private', { subject: player }), null);
+    assert.equal(store.get('mine', { subject: player })?._id, 'mine');
+
+    // canReadDocument matches the boolean form
+    assert.equal(store.canReadDocument('private', player), false);
+    assert.equal(store.canReadDocument('mine', player), true);
+    assert.equal(store.canReadDocument('private', gm), true);
+    assert.equal(store.canReadDocument('missing', player), false);
+}
+
+async function runUpsertEmitsOnlyOnChange() {
+    const store = new MockStore();
+    await store.seed(async () => []);
+
+    const events: DocumentChangedEvent[] = [];
+    store.on('documentChanged', (e: DocumentChangedEvent) => events.push(e));
+
+    store.upsert({ _id: 'x', name: 'X' });
+    assert.equal(events.length, 1);
+    assert.equal(events[0].action, 'create');
+
+    // Same doc again → no event
+    store.upsert({ _id: 'x', name: 'X' });
+    assert.equal(events.length, 1);
+
+    // Mutation → event
+    store.upsert({ _id: 'x', name: 'X-mod' });
+    assert.equal(events.length, 2);
+    assert.equal(events[1].action, 'update');
+}
+
+async function runPatchDottedKeys() {
+    const store = new MockStore();
+    await store.seed(async () => [
+        { _id: 'a', system: { attributes: { hp: { value: 10, max: 10 } } } },
+    ]);
+
+    const events: DocumentChangedEvent[] = [];
+    store.on('documentChanged', e => events.push(e as DocumentChangedEvent));
+
+    store.patch('a', { 'system.attributes.hp.value': 5 });
+    const doc = store.get('a')!;
+    assert.equal((doc.system as any).attributes.hp.value, 5);
+    assert.equal((doc.system as any).attributes.hp.max, 10); // siblings preserved
+    assert.equal(events.length, 1);
+
+    // Idempotent: same patch twice → one event total
+    store.patch('a', { 'system.attributes.hp.value': 5 });
+    assert.equal(events.length, 1);
+
+    // Missing doc → markStale, no event
+    store.patch('missing', { name: 'ghost' });
+    assert.equal(events.length, 1);
+}
+
+async function runFoundryFieldOperatorUpdates() {
+    const v13Store = new MockStore();
+    await v13Store.seed(async () => [{
+        _id: 'v13',
+        ownership: {
+            default: DocumentOwnershipLevel.NONE,
+            retained: DocumentOwnershipLevel.OWNER,
+            removed: DocumentOwnershipLevel.OBSERVER,
+        },
+        system: { retained: true, removed: true },
+    }]);
+
+    // Foundry v13 emits the legacy replacement-key form. The omitted user
+    // must be removed instead of surviving an ordinary recursive merge.
+    v13Store.applyModifyDocument('Cards', 'update', [{
+        _id: 'v13',
+        '==ownership': {
+            default: DocumentOwnershipLevel.NONE,
+            retained: DocumentOwnershipLevel.OWNER,
+        },
+        '-=system.removed': null,
+    }]);
+    assert.deepEqual(v13Store.get('v13')?.ownership, {
+        default: DocumentOwnershipLevel.NONE,
+        retained: DocumentOwnershipLevel.OWNER,
+    });
+    assert.deepEqual(v13Store.get('v13')?.system, { retained: true });
+
+    const v14Store = new MockStore();
+    await v14Store.seed(async () => [{
+        _id: 'v14',
+        ownership: {
+            default: DocumentOwnershipLevel.NONE,
+            retained: DocumentOwnershipLevel.OBSERVER,
+            removed: DocumentOwnershipLevel.OWNER,
+        },
+        system: { retained: true, removed: true },
+    }]);
+    const invalidations: DocumentListInvalidatedEvent[] = [];
+    v14Store.on('documentListInvalidated', event => {
+        invalidations.push(event as DocumentListInvalidatedEvent);
+    });
+
+    // Foundry v14 serializes DataFieldOperator instances before transport.
+    // Replacement and deletion semantics must be applied generically, and
+    // the operator envelope itself must never become cached document data.
+    v14Store.applyModifyDocument('Cards', 'update', [{
+        _id: 'v14',
+        ownership: {
+            '__$OPERATOR$__': 'ForcedReplacement',
+            value: {
+                default: DocumentOwnershipLevel.NONE,
+                retained: DocumentOwnershipLevel.OWNER,
+            },
+        },
+        system: {
+            removed: { '__$OPERATOR$__': 'ForcedDeletion' },
+        },
+    }]);
+
+    assert.deepEqual(v14Store.get('v14')?.ownership, {
+        default: DocumentOwnershipLevel.NONE,
+        retained: DocumentOwnershipLevel.OWNER,
+    });
+    assert.deepEqual(v14Store.get('v14')?.system, { retained: true });
+    assert.deepEqual(
+        invalidations.find(event => event.reason === 'ownership-user-changed')?.audience,
+        { kind: 'users', userIds: ['removed', 'retained'] },
+    );
+}
+
+async function runDeleteIdempotency() {
+    const store = new MockStore();
+    await store.seed(async () => [{ _id: 'a' }, { _id: 'b' }]);
+
+    const events: DocumentChangedEvent[] = [];
+    store.on('documentChanged', e => events.push(e as DocumentChangedEvent));
+
+    store.delete('a');
+    assert.equal(events.length, 1);
+    assert.equal(events[0].action, 'delete');
+
+    // Delete the same id again → no event
+    store.delete('a');
+    assert.equal(events.length, 1);
+}
+
+async function runNoEmissionDuringSeeding() {
+    const store = new MockStore();
+    const events: DocumentChangedEvent[] = [];
+    store.on('documentChanged', e => events.push(e as DocumentChangedEvent));
+
+    await store.seed(async () => [
+        { _id: 'a' }, { _id: 'b' }, { _id: 'c' },
+    ]);
+
+    // Seeding 3 docs must emit nothing — events fire only after isReady() === true.
+    assert.equal(events.length, 0);
+
+    // After seed, mutations DO emit.
+    store.upsert({ _id: 'd' });
+    assert.equal(events.length, 1);
+}
+
+async function runListInvalidationOnOwnershipCrossing() {
+    const store = new MockStore();
+    await store.seed(async () => [
+        { _id: 'a', ownership: { default: DocumentOwnershipLevel.NONE, p1: DocumentOwnershipLevel.OWNER } },
+    ]);
+
+    const invalidations: DocumentListInvalidatedEvent[] = [];
+    store.on('documentListInvalidated', e => invalidations.push(e as DocumentListInvalidatedEvent));
+
+    // Add a new user with OWNER access — list visibility transitions for p2.
+    store.applyModifyDocument('Cards', 'update', [
+        { _id: 'a', ownership: { default: DocumentOwnershipLevel.NONE, p1: DocumentOwnershipLevel.OWNER, p2: DocumentOwnershipLevel.OBSERVER } },
+    ]);
+
+    const crossing = invalidations.find(e => e.reason === 'ownership-user-changed');
+    assert.ok(crossing, 'expected ownership-user-changed invalidation');
+    assert.deepEqual(crossing?.audience, { kind: 'users', userIds: ['p2'] });
+
+    // Move p2 within the visible range. The document changes from read-only to
+    // owned projection, so this must invalidate even though it stays listed.
+    invalidations.length = 0;
+    store.applyModifyDocument('Cards', 'update', [
+        { _id: 'a', ownership: { default: DocumentOwnershipLevel.NONE, p1: DocumentOwnershipLevel.OWNER, p2: DocumentOwnershipLevel.OWNER } },
+    ]);
+    const projectionChange = invalidations.find(e => e.reason === 'ownership-user-changed');
+    assert.deepEqual(projectionChange?.audience, { kind: 'users', userIds: ['p2'] });
+
+    // Drop p2 below visibility threshold — another listInvalidated.
+    invalidations.length = 0;
+    store.applyModifyDocument('Cards', 'update', [
+        { _id: 'a', ownership: { default: DocumentOwnershipLevel.NONE, p1: DocumentOwnershipLevel.OWNER, p2: DocumentOwnershipLevel.NONE } },
+    ]);
+    const downward = invalidations.find(e => e.reason === 'ownership-user-changed');
+    assert.deepEqual(downward?.audience, { kind: 'users', userIds: ['p2'] });
+
+    // Default flips to visible-by-default, so every authenticated user must refresh.
+    invalidations.length = 0;
+    store.applyModifyDocument('Cards', 'update', [
+        { _id: 'a', ownership: { default: DocumentOwnershipLevel.OBSERVER, p1: DocumentOwnershipLevel.OWNER, p2: DocumentOwnershipLevel.NONE } },
+    ]);
+    const defaultFlip = invalidations.find(e => e.reason === 'ownership-default-changed');
+    assert.ok(defaultFlip, 'expected ownership-default-changed invalidation');
+    assert.deepEqual(defaultFlip?.audience, ALL_DOCUMENT_AUDIENCE);
+}
+
+async function runGenericPrimaryDocumentChangedEvent() {
+    const store = new MockStore();
+    await store.seed(async () => []);
+
+    const typed: DocumentChangedEvent[] = [];
+    const generic: DocumentChangedEvent[] = [];
+    store.on('documentChanged', e => typed.push(e as DocumentChangedEvent));
+    store.on('primaryDocumentChanged', e => generic.push(e as DocumentChangedEvent));
+
+    store.upsert({ _id: 'a' });
+
+    // Both per-type and cross-cutting events fire from a single state change.
+    assert.equal(typed.length, 1);
+    assert.equal(generic.length, 1);
+    assert.equal(generic[0].type, 'Cards');
+    assert.equal(generic[0].id, 'a');
+    assert.equal(generic[0].action, 'create');
+}
+
+async function runApplyModifyDocumentRoutes() {
+    // Self-type routes through applySelfChange (default behavior verified above).
+    // Embedded-type routes through the subclass hook. Build a Store that overrides
+    // applyEmbeddedChange to confirm dispatch.
+    let embeddedCalls = 0;
+    class EmbeddedStore extends MockStore {
+        protected applyEmbeddedChange(_type: string, _action: ModifyDocumentAction): void {
+            embeddedCalls += 1;
+        }
+    }
+    const store = new EmbeddedStore();
+    await store.seed(async () => []);
+
+    // Same-type event — does NOT invoke embedded handler.
+    store.applyModifyDocument('Cards', 'create', [{ _id: 'a' }]);
+    assert.equal(embeddedCalls, 0);
+
+    // Different-type event — invokes embedded handler.
+    store.applyModifyDocument('Card', 'create', [{ _id: 'inner' }], { parentUuid: 'Cards.a' });
+    assert.equal(embeddedCalls, 1);
+}

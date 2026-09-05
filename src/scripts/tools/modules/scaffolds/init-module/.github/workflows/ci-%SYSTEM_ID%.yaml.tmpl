@@ -1,0 +1,77 @@
+name: Build Module
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/**'
+      - 'module/**'
+      - 'info.json'
+      - 'package.json'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'src/**'
+      - 'module/**'
+      - 'info.json'
+      - 'package.json'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      SHEET_DELVER_DATA: ./data
+    defaults:
+      run:
+        working-directory: ./
+    steps:
+      # Checkout the Sheet Delver platform into the workspace root
+      - name: Checkout Sheet Delver Repository
+        uses: actions/checkout@v3
+        with:
+          repository: sheetdelver/sheet-delver
+          path: ./
+
+      # Checkout this module into the platform's local modules data directory
+      - name: Checkout %SYSTEM_ID% Module
+        uses: actions/checkout@v3
+        with:
+          repository: ${{ github.repository }}
+          path: ${{ env.SHEET_DELVER_DATA }}/local/modules/%SYSTEM_ID%
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Generate config
+        run: |
+          cat > settings.yaml << EOF
+          app:
+              host: localhost
+              port: 3000
+              api-port: 3001
+              protocol: http
+              chat-history: 100
+          foundry:
+              host: localhost
+              port: 30000
+              protocol: http
+              connector: socket
+              username: gamemaster
+              password: gamemaster
+              allow-live-compendium-uuid-fallback: false
+              foundryDataDirectory: foundryData
+          debug:
+              enabled: true
+              level: 3
+          EOF
+
+      - name: Build module
+        run: npm run build

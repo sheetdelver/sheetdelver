@@ -1,5 +1,10 @@
 import { CoreSocket } from '@core/foundry/sockets/CoreSocket';
-import { loadConfig } from '@core/config';
+import { createSystemRouteFoundryClient } from '@server/shared/utils/createRouteFoundryClient';
+import {
+    bootstrapSocketTestWorld,
+    loadSocketTestConfig,
+    resetSocketTestWorld,
+} from './socket-test-runtime';
 
 /**
  * Test 3: Actor Data Access
@@ -8,22 +13,21 @@ import { loadConfig } from '@core/config';
 export async function testActorAccess() {
     logger.info('🧪 Test 3: Actor Data Access\n');
 
-    const config = await loadConfig();
-    if (!config) {
-        throw new Error('Failed to load configuration');
-    }
+    const config = await loadSocketTestConfig();
 
     const client = new CoreSocket(config.foundry);
     const results: any = { tests: [] };
 
     try {
         await client.connect();
+        await bootstrapSocketTestWorld(client);
+        const routeClient = createSystemRouteFoundryClient(client);
         logger.info('✅ Connected\n');
 
         // Test 3a: getActors()
         logger.info('3a. Testing getActors()...');
         try {
-            const actors = await client.getActors();
+            const actors = await routeClient.getActors();
             logger.info(`   ✅ Found ${actors.length} actors`);
             if (actors.length > 0) {
                 logger.info(`   First actor: ${actors[0].name} (${actors[0]._id})`);
@@ -41,7 +45,8 @@ export async function testActorAccess() {
             const testActorId = results.actors[0]._id;
             logger.info(`\n3b. Testing getActor('${testActorId}')...`);
             try {
-                const actor = await client.getActor(testActorId);
+                const actor = await routeClient.getActor(testActorId);
+                if (!actor) throw new Error(`Actor ${testActorId} not found`);
                 logger.info(`   ✅ Retrieved: ${actor.name}`);
                 logger.info(`   Type: ${actor.type}`);
                 results.tests.push({ name: 'getActor', success: true, data: { name: actor.name, type: actor.type } });
@@ -63,6 +68,7 @@ export async function testActorAccess() {
         logger.error('❌ Test suite failed:', error.message);
         return { success: false, error: error.message };
     } finally {
+        resetSocketTestWorld();
         await client.disconnect();
         logger.info('📡 Disconnected\n');
     }

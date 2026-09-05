@@ -1,12 +1,12 @@
 import express from 'express';
+import type { Server as SocketIOServer } from 'socket.io';
 import type { AppConfig } from '@shared/interfaces';
-import type { SessionManager } from '@core/session/SessionManager';
-import { systemService } from '@core/system/SystemService';
-import { SetupManager } from '@core/foundry/SetupManager';
+import { systemService } from '@server/services/world';
+import { SetupManager } from '@core/world/SetupManager';
 import { createAuthenticateSession } from '@server/middleware/authenticateSession';
 import { createTryAuthenticateSession } from '@server/middleware/tryAuthenticateSession';
 import { createEnsureInitialized } from '@server/middleware/ensureInitialized';
-import { createLoginLimiter } from '@server/middleware/rateLimiters';
+import { createCspReportLimiter, createLoginLimiter } from '@server/middleware/rateLimiters';
 import { registerPublicRoutes } from '@server/routes/public/registerPublicRoutes';
 import { registerSystemRoutes } from '@server/routes/protected/registerSystemRoutes';
 import { registerActorRoutes } from '@server/routes/protected/registerActorRoutes';
@@ -20,24 +20,29 @@ import { createAdminRouter } from '@server/routes/admin/createAdminRouter';
 import { createActorNormalizationService } from '@server/services/actors/ActorNormalizationService';
 import { createSystemRouteFoundryClient } from '@server/shared/utils/createRouteFoundryClient';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
+import { readRequestSessionCredential } from '@server/security/playerSessionCookie';
 import { logger } from '@shared/utils/logger';
-import { getAdapter } from '@modules/registry/server';
+import { SystemStatusPayload } from '@/shared/contracts/status';
+import { projectPublicStatus } from '@server/services/status/StatusService';
+import type { FoundryUserConnectionServiceLike } from '@server/shared/types/foundry';
 
-type GetSystemStatusPayload = () => Promise<any>;
+type GetSystemStatusPayload = () => Promise<SystemStatusPayload>;
 
 interface RegisterRoutesDeps {
     app: express.Express;
     config: AppConfig;
-    sessionManager: SessionManager;
+    foundryUserConnections: FoundryUserConnectionServiceLike;
     getSystemStatusPayload: GetSystemStatusPayload;
+    io: SocketIOServer;
 }
 
 export function registerRoutes(deps: RegisterRoutesDeps): void {
     // Build middleware instances once, then compose them in deterministic order.
-    const authenticateSession = createAuthenticateSession(deps.sessionManager, deps.config);
-    const tryAuthenticateSession = createTryAuthenticateSession(deps.sessionManager, deps.config);
-    const ensureInitialized = createEnsureInitialized(deps.sessionManager);
+    const authenticateSession = createAuthenticateSession(deps.foundryUserConnections, deps.config);
+    const tryAuthenticateSession = createTryAuthenticateSession(deps.foundryUserConnections, deps.config);
+    const ensureInitialized = createEnsureInitialized(deps.foundryUserConnections);
     const loginLimiter = createLoginLimiter(deps.config);
+    const cspReportLimiter = createCspReportLimiter(deps.config);
 
     const appRouter = express.Router();
 
@@ -50,10 +55,9 @@ export function registerRoutes(deps: RegisterRoutesDeps): void {
 
             let isAuthenticated = false;
             let userSession = null;
-            const authHeader = req.headers.authorization;
-            if (authHeader && authHeader.startsWith('Bearer ')) {
-                const token = authHeader.split(' ')[1];
-                userSession = await deps.sessionManager.getOrRestoreSession(token);
+            const token = readRequestSessionCredential(req);
+            if (token) {
+                userSession = await deps.foundryUserConnections.getOrRestoreSession(token);
                 if (userSession && userSession.client.userId) {
                     isAuthenticated = true;
                 }
@@ -61,10 +65,18 @@ export function registerRoutes(deps: RegisterRoutesDeps): void {
 
             const basePayload = await deps.getSystemStatusPayload();
 
+            if (!isAuthenticated) {
+                return res.json({
+                    ...projectPublicStatus(basePayload),
+                    isAuthenticated: false,
+                    currentUserId: null,
+                });
+            }
+
             res.json({
                 ...basePayload,
-                isAuthenticated,
-                currentUserId: userSession?.userId || null
+                isAuthenticated: true,
+                currentUserId: userSession?.userId || null,
             });
         } catch (error: unknown) {
             logger.error(`Status Handler Error: ${getErrorMessage(error)}`);
@@ -86,9 +98,11 @@ export function registerRoutes(deps: RegisterRoutesDeps): void {
             const cache = await SetupManager.loadCache();
             return { isConfigured: !!(cache.currentWorldId && cache.worlds[cache.currentWorldId]) };
         },
+        cspReportLimiter,
         loginLimiter,
-        createSession: (username, password) => deps.sessionManager.createSession(username, password),
-        destroySession: (token) => deps.sessionManager.destroySession(token)
+        createSession: (username, password) => deps.foundryUserConnections.createSession(username, password),
+        destroySession: (token) => deps.foundryUserConnections.destroySession(token),
+        securePlayerCookie: deps.config.app.protocol === 'https',
     });
 
     // Preserve existing guard and auth order: init gate first, then protected route auth.
@@ -101,7 +115,7 @@ export function registerRoutes(deps: RegisterRoutesDeps): void {
 
     registerSystemRoutes(appRouter, {
         getSystemClient: () => systemService.getSystemClient(),
-        getAdapter
+        getAdapter: (systemId) => systemService.getAdapter(systemId)
     });
 
     registerActorRoutes(appRouter, {
@@ -112,7 +126,7 @@ export function registerRoutes(deps: RegisterRoutesDeps): void {
     if (deps.config.debug.enabled) {
         // Debug routes remain opt-in via debug.enabled and still enforce session token auth.
         registerDebugRoutes(deps.app, {
-            getOrRestoreSession: (token) => deps.sessionManager.getOrRestoreSession(token)
+            getOrRestoreSession: (token) => deps.foundryUserConnections.getOrRestoreSession(token)
         });
     } else {
         logger.info('Core Service | Debug routes disabled (debug.enabled=false).');
@@ -122,15 +136,18 @@ export function registerRoutes(deps: RegisterRoutesDeps): void {
     registerCombatRoutes(appRouter, { normalizeActors });
     registerJournalRoutes(appRouter);
     registerUtilityRoutes(appRouter, {
-        getSystemUsers: async () => systemService.getSystemClient().getUsers(),
         getFallbackSharedContentClient: () => createSystemRouteFoundryClient(systemService.getSystemClient())
     });
 
     const moduleRouter = createModuleRouter({
-        tryAuthenticateSession,
-        getFallbackFoundryClient: () => createSystemRouteFoundryClient(systemService.getSystemClient())
+        tryAuthenticateSession
     });
-    const adminRouter = createAdminRouter({ getSystemStatusPayload: deps.getSystemStatusPayload });
+    // io is forwarded as a thin broadcast callback rather than the full Server object
+    // so the admin router stays decoupled from the socket layer.
+    const adminRouter = createAdminRouter({
+        getSystemStatusPayload: deps.getSystemStatusPayload,
+        broadcastToClients: (event, data) => deps.io.emit(event, data),
+    });
 
     // Preserve mount order to avoid changing auth scope or module-router permissive behavior.
     deps.app.use('/api/modules', moduleRouter);

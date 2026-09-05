@@ -1,13 +1,18 @@
 import { requestJson } from '@client/ui/api/http';
 import type { AuthenticatedStatusPayload } from '@shared/contracts/status';
 import type { ActorCardsPayload, ActorDetailPayload, ActorListPayload } from '@shared/contracts/actors';
-import type { CombatListPayload } from '@shared/contracts/combats';
+import type {
+    CombatListPayload,
+    CombatTurnSuccessPayload,
+    CombatInitiativeSuccessPayload,
+    CombatInitiativeRequestBody,
+} from '@shared/contracts/combats';
 import type { ChatLogPayload } from '@shared/contracts/chat';
 import type { RealtimeSharedContentPayload } from '@shared/contracts/realtime';
 
 interface LoginPayload {
     success: boolean;
-    token?: string;
+    userId?: string;
     error?: string;
 }
 
@@ -64,10 +69,49 @@ export function fetchActorCards(token: string): Promise<ActorCardsPayload> {
     return requestJson<ActorCardsPayload>('/api/actors/cards', { token });
 }
 
+export function fetchActorCardById(token: string, actorId: string): Promise<import('@shared/sdk').ActorCardData> {
+    return requestJson(`/api/actors/${actorId}/card`, { token });
+}
+
 export function fetchActorById(token: string, actorId: string): Promise<ActorDetailPayload> {
     return requestJson<ActorDetailPayload>(`/api/actors/${actorId}`, { token });
 }
 
+export function deleteActor(token: string | null, actorId: string): Promise<Record<string, unknown>> {
+    return requestJson<Record<string, unknown>>(`/api/actors/${actorId}`, {
+        method: 'DELETE',
+        token,
+    });
+}
+
 export function fetchCombats(token: string): Promise<CombatListPayload> {
     return requestJson<CombatListPayload>('/api/combats', { token });
+}
+
+// Combat actions (ADR-0028): typed helpers via requestJson so non-2xx
+// responses throw ApiError instead of being silently treated as success.
+export function postCombatNextTurn(token: string | null, combatId: string): Promise<CombatTurnSuccessPayload> {
+    return requestJson<CombatTurnSuccessPayload>(`/api/combats/${combatId}/next-turn`, {
+        method: 'POST',
+        token,
+    });
+}
+
+export function postCombatPreviousTurn(token: string | null, combatId: string): Promise<CombatTurnSuccessPayload> {
+    return requestJson<CombatTurnSuccessPayload>(`/api/combats/${combatId}/previous-turn`, {
+        method: 'POST',
+        token,
+    });
+}
+
+export function postCombatRollInitiative(
+    token: string | null,
+    combatId: string,
+    combatantId: string,
+    body: CombatInitiativeRequestBody,
+): Promise<CombatInitiativeSuccessPayload> {
+    return requestJson<CombatInitiativeSuccessPayload>(
+        `/api/combats/${combatId}/combatants/${combatantId}/roll-initiative`,
+        { method: 'POST', token, body },
+    );
 }

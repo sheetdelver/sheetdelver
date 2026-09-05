@@ -3,11 +3,16 @@ import fs from 'fs';
 import path from 'path';
 import yaml from 'js-yaml';
 import { io } from 'socket.io-client';
-import { logger } from '@shared/utils/logger';
+import { logger } from '../shared/utils/logger';
+import { resolveDataDir, initDataDir, getConfigFilePath } from '../server/core/paths';
 
-// Helper to load settings
+// Resolve data directory for config access
+const dataDir = resolveDataDir(process.argv);
+initDataDir(dataDir);
+
+// Helper to load settings from the data directory
 const loadSettings = () => {
-    const settingsPath = path.resolve(process.cwd(), 'settings.yaml');
+    const settingsPath = getConfigFilePath();
     const fileContents = fs.readFileSync(settingsPath, 'utf8');
     return yaml.load(fileContents) as any;
 };

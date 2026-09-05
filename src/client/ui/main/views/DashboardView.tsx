@@ -3,6 +3,7 @@ import { SharedContentModal } from '@client/ui/components/SharedContentModal';
 import { ConfirmationModal } from '@client/ui/components/ConfirmationModal';
 import SystemTools from '@client/ui/components/SystemTools';
 import { useNotifications } from '@client/ui/components/NotificationSystem';
+import * as foundryApi from '@client/ui/api/foundryApi';
 import { Theme } from '../hooks/useTheme';
 import { ActorCard } from '../components/ActorCard';
 import type { ActorDto, ActorListPayload } from '@shared/contracts/actors';
@@ -34,6 +35,7 @@ export const DashboardView = ({
     setLoginMessage
 }: DashboardViewProps) => {
     const { addNotification } = useNotifications();
+    const canDeleteActors = user?.canDeleteActors === true;
     const [confirmDelete, setConfirmDelete] = useState<{ isOpen: boolean, actorId: string, actorName: string }>({
         isOpen: false,
         actorId: '',
@@ -42,23 +44,25 @@ export const DashboardView = ({
 
     const handleDeleteActor = async () => {
         if (!confirmDelete.actorId) return;
+
+        // This is a courtesy guard for stale UI state. The authenticated
+        // Foundry transport remains the authority for every delete request.
+        if (!canDeleteActors) {
+            addNotification('Foundry does not permit your role to delete characters.', 'error');
+            setConfirmDelete({ isOpen: false, actorId: '', actorName: '' });
+            return;
+        }
+
         setLoading(true);
         setLoginMessage(`Deleting ${confirmDelete.actorName}...`);
 
         try {
-            const res = await fetch(`/api/actors/${confirmDelete.actorId}`, {
-                method: 'DELETE',
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            if (res.ok) {
-                addNotification(`Deleted ${confirmDelete.actorName}`, 'success');
-                await fetchActors();
-            } else {
-                const data = await res.json();
-                addNotification(`Failed to delete: ${data.error || 'Unknown error'}`, 'error');
-            }
-        } catch (e: any) {
-            addNotification(`Error: ${e.message}`, 'error');
+            await foundryApi.deleteActor(token, confirmDelete.actorId);
+            addNotification(`Deleted ${confirmDelete.actorName}`, 'success');
+            await fetchActors();
+        } catch (e) {
+            const message = e instanceof Error ? e.message : 'Unknown error';
+            addNotification(`Error: ${message}`, 'error');
         } finally {
             setLoading(false);
             setLoginMessage('');
@@ -67,6 +71,7 @@ export const DashboardView = ({
     };
 
     const confirmDeletion = (id: string, name: string) => {
+        if (!canDeleteActors) return;
         setConfirmDelete({
             isOpen: true,
             actorId: id,
@@ -146,6 +151,7 @@ export const DashboardView = ({
                                 actor={actor}
                                 index={idx}
                                 theme={theme}
+                                canDelete={canDeleteActors}
                                 onDelete={confirmDeletion}
                             />
                         ))}

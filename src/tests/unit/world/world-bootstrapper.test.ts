@@ -1,0 +1,640 @@
+import { strict as assert } from 'node:assert';
+import {
+    UnsupportedFoundryVersionError,
+    WorldBootstrapper,
+} from '@server/services/world';
+import type { SystemAdapter } from '@modules/registry/types';
+import type { ModuleRuntime } from '@shared/sdk/runtime';
+import { logger } from '@shared/utils/logger';
+
+function adapter(id: string): SystemAdapter {
+    return {
+        systemId: id,
+        normalizeActorData: (actor) => ({ ...actor, systemId: id } as any),
+        match: () => true,
+        validateUpdate: () => true,
+    };
+}
+
+const markLifecycleActive = () => undefined;
+const MISSING_GENERATION = Symbol('missing-generation');
+
+function deferred(): { promise: Promise<void>; resolve(): void } {
+    let resolve!: () => void;
+    const promise = new Promise<void>((done) => {
+        resolve = done;
+    });
+    return { promise, resolve };
+}
+
+function createBootstrapSnapshot(generation: unknown = 13): any {
+    const release = generation === MISSING_GENERATION ? {} : { generation };
+
+    return {
+        gameData: {
+            world: { id: 'world-1', title: 'Synthetic World' },
+            system: { id: 'SyntheticSystem' },
+            release,
+            userId: 'gm-user',
+            users: [{ _id: 'user-1', name: 'Player', role: 1, active: true }],
+            activeUsers: ['user-1'],
+        },
+        sceneData: {
+            scene1: { background: { src: 'worlds/synthetic/scene.webp' } },
+        },
+    };
+}
+
+function createCompatibilityBootstrapper(
+    getGeneration: () => unknown,
+    events: string[],
+): WorldBootstrapper {
+    let currentSystem: { id?: string } | null = null;
+
+    return new WorldBootstrapper({
+        getBootstrapSnapshot: async () => {
+            const generation = getGeneration();
+            events.push(`snapshot:${String(generation)}`);
+            return createBootstrapSnapshot(generation);
+        },
+        seedWorldSnapshot: (snapshot) => {
+            events.push(`seed-world:${snapshot.gameData.system?.id}`);
+            currentSystem = { id: snapshot.gameData.system?.id };
+        },
+        seedUserSnapshot: async (snapshot) => {
+            const count = Array.isArray(snapshot.gameData.users) ? snapshot.gameData.users.length : 0;
+            events.push(`seed-users:${count}`);
+        },
+        createCompendiumService: () => ({
+            seedPackMetadataFromGameData: () => undefined,
+            hydratePacks: async () => ({ manifest: { systemId: '', _instanceId: '', packs: {} }, hydrated: 0, skipped: 0, missing: 0 }),
+            getPackEntries: async () => [],
+        }) as any,
+        seedPackMetadata: () => {
+            events.push('seed-metadata');
+        },
+        getSystem: () => currentSystem,
+        getRegisteredModules: () => [],
+        loadAdapter: async (systemId) => {
+            events.push(`load-adapter:${systemId}`);
+            return null;
+        },
+        seedDocuments: async () => {
+            events.push('seed-docs');
+        },
+        markLifecycleActive: (systemId) => {
+            events.push(`active:${systemId}`);
+        },
+        markLifecycleClosed: (reason) => {
+            events.push(`closed:${reason}`);
+        },
+        now: () => 123456,
+    });
+}
+
+async function runActiveAdapterLoadAndReuse() {
+    const calls: string[] = [];
+    const shadowdark = adapter('shadowdark');
+    const bootstrapper = new WorldBootstrapper({
+        loadAdapter: async (systemId) => {
+            calls.push(systemId);
+            return shadowdark;
+        },
+    });
+
+    assert.equal(await bootstrapper.loadActiveAdapter(' Shadowdark '), shadowdark);
+    assert.equal(await bootstrapper.loadActiveAdapter('shadowdark'), shadowdark);
+    assert.deepEqual(calls, ['shadowdark']);
+    assert.equal(bootstrapper.getActiveAdapter(), shadowdark);
+    assert.equal(bootstrapper.getActiveSystemId(), 'shadowdark');
+}
+
+async function runActiveAdapterClearAndReload() {
+    const calls: string[] = [];
+    const bootstrapper = new WorldBootstrapper({
+        loadAdapter: async (systemId) => {
+            calls.push(systemId);
+            return adapter(systemId);
+        },
+    });
+
+    const first = await bootstrapper.loadActiveAdapter('system-a');
+    bootstrapper.clearActiveAdapter('test-clear');
+    const second = await bootstrapper.loadActiveAdapter('system-a');
+
+    assert.notEqual(first, second);
+    assert.deepEqual(calls, ['system-a', 'system-a']);
+}
+
+async function runLoadFailureLeavesNoActiveAdapter() {
+    const bootstrapper = new WorldBootstrapper({
+        loadAdapter: async () => {
+            throw new Error('adapter load failed');
+        },
+    });
+
+    assert.equal(await bootstrapper.loadActiveAdapter('broken-system'), null);
+    assert.equal(bootstrapper.getActiveAdapter(), null);
+    assert.equal(bootstrapper.getActiveSystemId(), 'broken-system');
+
+    bootstrapper.clearActiveAdapter('test-cleanup');
+    assert.equal(bootstrapper.getActiveSystemId(), null);
+}
+
+async function runBootstrapOrderingAndReadyCallback() {
+    const order: string[] = [];
+    const initializingAdapter: SystemAdapter = {
+        ...adapter('syntheticsystem'),
+        initialize: async () => {
+            order.push('adapter-initialize');
+        },
+    };
+
+    const bootstrapper = new WorldBootstrapper({
+        getBootstrapSnapshot: async () => createBootstrapSnapshot(),
+        seedWorldSnapshot: () => undefined,
+        seedUserSnapshot: async () => undefined,
+        createCompendiumService: () => ({
+            seedPackMetadataFromGameData: () => undefined,
+            hydratePacks: async () => ({ manifest: { systemId: '', _instanceId: '', packs: {} }, hydrated: 0, skipped: 0, missing: 0 }),
+            getPackEntries: async () => [],
+        }) as any,
+        seedPackMetadata: () => {
+            order.push('seed-metadata');
+        },
+        getSystem: () => ({ id: 'SyntheticSystem' }),
+        getRegisteredModules: () => [{
+            id: 'syntheticsystem',
+            compendiumPacks: { packs: [] },
+        } as any],
+        loadAdapter: async (systemId) => {
+            order.push(`load-adapter:${systemId}`);
+            return initializingAdapter;
+        },
+        hydrateCompendiumPacks: async (systemId) => {
+            order.push(`sync:${systemId}`);
+        },
+        seedDocuments: async () => {
+            order.push('seed');
+        },
+        createModuleRuntime: async (systemId) => {
+            order.push(`context:${systemId}`);
+            return {} as ModuleRuntime;
+        },
+        markLifecycleActive,
+    });
+
+    const result = await bootstrapper.bootstrap({} as any, {
+        onReady: ({ systemId }) => {
+            order.push(`ready:${systemId}`);
+        },
+    });
+
+    assert.deepEqual(order, [
+        'seed-metadata',
+        'load-adapter:syntheticsystem',
+        'sync:syntheticsystem',
+        'seed',
+        'context:syntheticsystem',
+        'adapter-initialize',
+        'ready:SyntheticSystem',
+    ]);
+    assert.deepEqual(result, { ready: true, systemId: 'SyntheticSystem' });
+    assert.equal(bootstrapper.isReady(), true);
+    assert.equal(bootstrapper.getActiveAdapter(), initializingAdapter);
+
+    const repeatedResult = await bootstrapper.bootstrap({} as any);
+    assert.deepEqual(repeatedResult, { ready: true, systemId: 'SyntheticSystem' });
+}
+
+async function runBootstrapAcceptsSnapshotBeforeServiceWork() {
+    const order: string[] = [];
+    let currentSystem: { id?: string } | null = null;
+
+    const bootstrapper = new WorldBootstrapper({
+        getBootstrapSnapshot: async () => {
+            order.push('snapshot');
+            return createBootstrapSnapshot(13);
+        },
+        seedWorldSnapshot: (snapshot) => {
+            order.push(`seed-world:${snapshot.gameData.system?.id}`);
+            currentSystem = { id: snapshot.gameData.system?.id };
+        },
+        seedUserSnapshot: async (snapshot) => {
+            const count = Array.isArray(snapshot.gameData.users) ? snapshot.gameData.users.length : 0;
+            order.push(`seed-users:${count}`);
+        },
+        createCompendiumService: () => ({
+            seedPackMetadataFromGameData: () => undefined,
+            hydratePacks: async () => ({ manifest: { systemId: '', _instanceId: '', packs: {} }, hydrated: 0, skipped: 0, missing: 0 }),
+            getPackEntries: async () => [],
+        }) as any,
+        seedPackMetadata: () => {
+            order.push('seed-metadata');
+        },
+        getSystem: () => currentSystem,
+        getRegisteredModules: () => [],
+        loadAdapter: async (systemId) => {
+            order.push(`load-adapter:${systemId}`);
+            return null;
+        },
+        seedDocuments: async () => {
+            order.push('seed-docs');
+        },
+        markLifecycleActive: (systemId) => {
+            order.push(`active:${systemId}`);
+        },
+    });
+
+    await bootstrapper.bootstrap({} as any, {
+        onReady: ({ systemId }) => {
+            order.push(`ready:${systemId}`);
+        },
+    });
+
+    assert.deepEqual(order, [
+        'snapshot',
+        'seed-world:SyntheticSystem',
+        'seed-users:1',
+        'seed-metadata',
+        'load-adapter:syntheticsystem',
+        'seed-docs',
+        'active:SyntheticSystem',
+        'ready:SyntheticSystem',
+    ]);
+}
+
+async function runBootstrapRejectsUnsupportedGenerationBeforeStoreSeeding() {
+    let generation: unknown = 12;
+    const order: string[] = [];
+    const bootstrapper = createCompatibilityBootstrapper(() => generation, order);
+
+    await assert.rejects(
+        () => bootstrapper.bootstrap({} as any),
+        (error) => {
+            assert.ok(error instanceof UnsupportedFoundryVersionError);
+            assert.equal(error.compatibility.status, 'unsupported');
+            assert.equal(error.compatibility.generation, 12);
+            return true;
+        },
+    );
+
+    assert.deepEqual(order, [
+        'snapshot:12',
+        'closed:unsupported-foundry-generation:12:min-13',
+    ]);
+    assert.equal(bootstrapper.isReady(), false);
+    const rejectedCompatibility = bootstrapper.getFoundryCompatibility();
+    assert.equal(rejectedCompatibility?.status, 'unsupported');
+    assert.equal(rejectedCompatibility?.generation, 12);
+    assert.equal(rejectedCompatibility?.checkedAt, 123456);
+
+    // The rejected run must not poison later retries.
+    order.length = 0;
+    generation = 13;
+    await bootstrapper.bootstrap({} as any);
+
+    assert.deepEqual(order, [
+        'snapshot:13',
+        'seed-world:SyntheticSystem',
+        'seed-users:1',
+        'seed-metadata',
+        'load-adapter:syntheticsystem',
+        'seed-docs',
+        'active:SyntheticSystem',
+    ]);
+    assert.equal(bootstrapper.isReady(), true);
+    assert.equal(bootstrapper.getFoundryCompatibility()?.status, 'supported');
+}
+
+async function runBootstrapWarnsAndProceedsForNewerAndUnknownGeneration() {
+    const warnings: string[] = [];
+    const originalWarn = logger.warn;
+
+    try {
+        logger.warn = ((message: string, ...args: unknown[]) => {
+            warnings.push([message, ...args.map(String)].join(' '));
+        }) as typeof logger.warn;
+
+        // Generation 14 is part of the supported window and must bootstrap
+        // without the newer-version warning formerly emitted for it.
+        const supportedOrder: string[] = [];
+        const supported = createCompatibilityBootstrapper(() => 14, supportedOrder);
+        await supported.bootstrap({} as any);
+
+        assert.equal(supported.isReady(), true);
+        assert.equal(supported.getFoundryCompatibility()?.status, 'supported');
+        assert.deepEqual(supportedOrder.slice(0, 3), [
+            'snapshot:14',
+            'seed-world:SyntheticSystem',
+            'seed-users:1',
+        ]);
+
+        const newerOrder: string[] = [];
+        const newer = createCompatibilityBootstrapper(() => 15, newerOrder);
+        await newer.bootstrap({} as any);
+
+        assert.equal(newer.isReady(), true);
+        assert.equal(newer.getFoundryCompatibility()?.status, 'newer-untested');
+        assert.deepEqual(newerOrder.slice(0, 3), [
+            'snapshot:15',
+            'seed-world:SyntheticSystem',
+            'seed-users:1',
+        ]);
+        assert.equal(
+            warnings.some((entry) => entry.includes('generation 15') && entry.includes('newer than known maximum')),
+            true,
+        );
+
+        const unknownOrder: string[] = [];
+        const unknown = createCompatibilityBootstrapper(() => MISSING_GENERATION, unknownOrder);
+        await unknown.bootstrap({} as any);
+
+        assert.equal(unknown.isReady(), true);
+        assert.equal(unknown.getFoundryCompatibility()?.status, 'unknown');
+        assert.deepEqual(unknownOrder.slice(0, 3), [
+            `snapshot:${String(MISSING_GENERATION)}`,
+            'seed-world:SyntheticSystem',
+            'seed-users:1',
+        ]);
+        assert.equal(
+            warnings.some((entry) => entry.includes('generation is unavailable or invalid')),
+            true,
+        );
+    } finally {
+        logger.warn = originalWarn;
+    }
+}
+
+async function runBootstrapSharesConcurrentPromise() {
+    let releaseDiscover: (() => void) | undefined;
+    const discoverGate = new Promise<void>((resolve) => {
+        releaseDiscover = resolve;
+    });
+    let discoverCalls = 0;
+    let readyCalls = 0;
+
+    const bootstrapper = new WorldBootstrapper({
+        getBootstrapSnapshot: async () => createBootstrapSnapshot(),
+        seedWorldSnapshot: () => undefined,
+        seedUserSnapshot: async () => undefined,
+        createCompendiumService: () => ({
+            seedPackMetadataFromGameData: () => undefined,
+            hydratePacks: async () => ({ manifest: { systemId: '', _instanceId: '', packs: {} }, hydrated: 0, skipped: 0, missing: 0 }),
+            getPackEntries: async () => [],
+        }) as any,
+        seedPackMetadata: () => {
+            discoverCalls += 1;
+        },
+        getSystem: () => ({ id: 'synthetic' }),
+        getRegisteredModules: () => [],
+        loadAdapter: async () => {
+            await discoverGate;
+            return null;
+        },
+        seedDocuments: async () => undefined,
+        markLifecycleActive,
+    });
+
+    const options = {
+        onReady: () => {
+            readyCalls += 1;
+        },
+    };
+    const firstBootstrap = bootstrapper.bootstrap({} as any, options);
+    const secondBootstrap = bootstrapper.bootstrap({} as any, options);
+
+    assert.equal(firstBootstrap, secondBootstrap);
+    // Wait long enough for the snapshot/user/seed-metadata awaits to drain
+    // before the gated loadAdapter halts progress.
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+    assert.equal(discoverCalls, 1);
+    releaseDiscover?.();
+
+    await firstBootstrap;
+    assert.equal(readyCalls, 1);
+    assert.equal(bootstrapper.isReady(), true);
+
+    await bootstrapper.bootstrap({} as any, options);
+    assert.equal(readyCalls, 1);
+    assert.equal(discoverCalls, 1);
+}
+
+async function runBootstrapFailureResetsForRetry() {
+    let seedAttempts = 0;
+    let readyCalls = 0;
+    const teardownReasons: string[] = [];
+    const bootstrapper = new WorldBootstrapper({
+        createCompendiumService: () => ({
+            seedPackMetadataFromGameData: () => undefined,
+            hydratePacks: async () => ({ manifest: { systemId: '', _instanceId: '', packs: {} }, hydrated: 0, skipped: 0, missing: 0 }),
+            getPackEntries: async () => [],
+        }) as any,
+        seedPackMetadata: () => undefined,
+        getSystem: () => ({ id: 'synthetic' }),
+        getRegisteredModules: () => [],
+        loadAdapter: async () => null,
+        seedDocuments: async () => {
+            seedAttempts += 1;
+            if (seedAttempts === 1) throw new Error('seed failed');
+        },
+        clearWorldRuntimeState: (reason) => {
+            teardownReasons.push(reason);
+        },
+        markLifecycleActive,
+    });
+
+    await assert.rejects(
+        () => bootstrapper.bootstrap({} as any, {
+            onReady: () => {
+                readyCalls += 1;
+            },
+        }),
+        /seed failed/,
+    );
+
+    assert.equal(bootstrapper.isReady(), false);
+    assert.equal(readyCalls, 0);
+    assert.deepEqual(teardownReasons, ['world-bootstrap-failed']);
+
+    await bootstrapper.bootstrap({} as any, {
+        onReady: () => {
+            readyCalls += 1;
+        },
+    });
+
+    assert.equal(seedAttempts, 2);
+    assert.equal(readyCalls, 1);
+    assert.equal(bootstrapper.isReady(), true);
+}
+
+async function runTeardownSerializesReplacementBootstrap() {
+    const firstSeedGate = deferred();
+    const events: string[] = [];
+    let snapshotNumber = 0;
+    let currentSystemId: string | null = null;
+
+    const bootstrapper = new WorldBootstrapper({
+        getBootstrapSnapshot: async () => {
+            snapshotNumber += 1;
+            const systemId = snapshotNumber === 1 ? 'world-a-system' : 'world-b-system';
+            events.push(`snapshot:${systemId}`);
+            return {
+                gameData: {
+                    ...createBootstrapSnapshot().gameData,
+                    world: { id: `world-${snapshotNumber}`, title: `World ${snapshotNumber}` },
+                    system: { id: systemId },
+                },
+            };
+        },
+        seedWorldSnapshot: (snapshot) => {
+            currentSystemId = snapshot.gameData.system?.id || null;
+            events.push(`seed-world:${currentSystemId}`);
+        },
+        seedUserSnapshot: async () => undefined,
+        createCompendiumService: () => ({
+            seedPackMetadataFromGameData: () => undefined,
+            hydratePacks: async () => ({ manifest: { systemId: '', _instanceId: '', packs: {} }, hydrated: 0, skipped: 0, missing: 0 }),
+            getPackEntries: async () => [],
+        }) as any,
+        seedPackMetadata: () => undefined,
+        getSystem: () => currentSystemId ? { id: currentSystemId } : null,
+        getRegisteredModules: () => [],
+        loadAdapter: async () => null,
+        seedDocuments: async () => {
+            if (currentSystemId === 'world-a-system') {
+                events.push('seed-docs:world-a-start');
+                await firstSeedGate.promise;
+                events.push('seed-docs:world-a-finish');
+                return;
+            }
+            events.push('seed-docs:world-b');
+        },
+        clearWorldRuntimeState: (reason) => {
+            events.push(`teardown:${reason}`);
+            currentSystemId = null;
+        },
+        markLifecycleActive: (systemId) => {
+            events.push(`active:${systemId}`);
+        },
+    });
+
+    const first = bootstrapper.bootstrap({} as any);
+    while (!events.includes('seed-docs:world-a-start')) await Promise.resolve();
+
+    bootstrapper.reset('world-a-departed');
+    const second = bootstrapper.bootstrap({} as any);
+
+    // The replacement cannot seed until the invalidated run has stopped.
+    await Promise.resolve();
+    assert.equal(snapshotNumber, 1);
+    firstSeedGate.resolve();
+
+    await assert.rejects(first, /superseded by a runtime teardown/);
+    const result = await second;
+
+    assert.deepEqual(result, { ready: true, systemId: 'world-b-system' });
+    assert.equal(bootstrapper.isReady(), true);
+    assert.deepEqual(events, [
+        'snapshot:world-a-system',
+        'seed-world:world-a-system',
+        'seed-docs:world-a-start',
+        'teardown:world-a-departed',
+        'seed-docs:world-a-finish',
+        'snapshot:world-b-system',
+        'seed-world:world-b-system',
+        'seed-docs:world-b',
+        'active:world-b-system',
+    ]);
+}
+
+async function runResetClearsReadinessAndAdapter() {
+    const activeAdapter = adapter('synthetic');
+    const bootstrapper = new WorldBootstrapper({
+        createCompendiumService: () => ({
+            seedPackMetadataFromGameData: () => undefined,
+            hydratePacks: async () => ({ manifest: { systemId: '', _instanceId: '', packs: {} }, hydrated: 0, skipped: 0, missing: 0 }),
+            getPackEntries: async () => [],
+        }) as any,
+        seedPackMetadata: () => undefined,
+        getSystem: () => ({ id: 'synthetic' }),
+        getRegisteredModules: () => [],
+        loadAdapter: async () => activeAdapter,
+        seedDocuments: async () => undefined,
+        markLifecycleActive,
+    });
+
+    await bootstrapper.bootstrap({} as any);
+
+    assert.equal(bootstrapper.isReady(), true);
+    assert.equal(bootstrapper.getActiveAdapter(), activeAdapter);
+
+    bootstrapper.reset('unit-test-reset');
+
+    assert.equal(bootstrapper.isReady(), false);
+    assert.equal(bootstrapper.getActiveAdapter(), null);
+    assert.equal(bootstrapper.getActiveSystemId(), null);
+}
+
+// ADR-0027 decision 22: clearing the active adapter calls the courtesy
+// `adapter.dispose(runtime)` once, with the same runtime instance initialize received.
+async function runDisposeCalledOnClear() {
+    let disposedWith: ModuleRuntime | null = null;
+    const runtime = { moduleId: 'syntheticsystem' } as unknown as ModuleRuntime;
+    const disposingAdapter: SystemAdapter = {
+        ...adapter('syntheticsystem'),
+        initialize: async () => undefined,
+        dispose: (rt) => { disposedWith = rt; },
+    };
+
+    const bootstrapper = new WorldBootstrapper({
+        getBootstrapSnapshot: async () => createBootstrapSnapshot(),
+        seedWorldSnapshot: () => undefined,
+        seedUserSnapshot: async () => undefined,
+        createCompendiumService: () => ({
+            seedPackMetadataFromGameData: () => undefined,
+            hydratePacks: async () => ({ manifest: { systemId: '', _instanceId: '', packs: {} }, hydrated: 0, skipped: 0, missing: 0 }),
+            getPackEntries: async () => [],
+        }) as any,
+        seedPackMetadata: () => undefined,
+        getSystem: () => ({ id: 'SyntheticSystem' }),
+        getRegisteredModules: () => [{ id: 'syntheticsystem', compendiumPacks: { packs: [] } } as any],
+        loadAdapter: async () => disposingAdapter,
+        hydrateCompendiumPacks: async () => undefined,
+        seedDocuments: async () => undefined,
+        createModuleRuntime: async () => runtime,
+        markLifecycleActive,
+    });
+
+    await bootstrapper.bootstrap({} as any);
+    assert.equal(disposedWith, null, 'dispose not called before teardown');
+
+    bootstrapper.reset('unit-test-dispose');
+    // Fire-and-forget: dispose runs synchronously here since the handler is sync.
+    assert.equal(disposedWith, runtime, 'dispose called with the initialize runtime on teardown');
+}
+
+export async function run() {
+    await runActiveAdapterLoadAndReuse();
+    await runActiveAdapterClearAndReload();
+    await runLoadFailureLeavesNoActiveAdapter();
+    await runBootstrapOrderingAndReadyCallback();
+    await runBootstrapAcceptsSnapshotBeforeServiceWork();
+    await runBootstrapRejectsUnsupportedGenerationBeforeStoreSeeding();
+    await runBootstrapWarnsAndProceedsForNewerAndUnknownGeneration();
+    await runBootstrapSharesConcurrentPromise();
+    await runBootstrapFailureResetsForRetry();
+    await runTeardownSerializesReplacementBootstrap();
+    await runResetClearsReadinessAndAdapter();
+    await runDisposeCalledOnClear();
+    console.log('  - WorldBootstrapper: all checks passed');
+}
+
+if (import.meta.url === `file://${process.argv[1]}`) {
+    run()
+        .then(() => console.log('world-bootstrapper.test.ts passed'))
+        .catch((error) => {
+            console.error(error);
+            process.exit(1);
+        });
+}

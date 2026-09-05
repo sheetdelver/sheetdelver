@@ -2,8 +2,8 @@ import type { AppConfig } from '@shared/interfaces';
 import { logger } from '@shared/utils/logger';
 import { getAdapter, getMatchingAdapter } from '@modules/registry/server';
 import type {
-    RawActor,
-    RawItem,
+    ActorDocument,
+    ItemDocument,
     ActorCard,
     ActorRollPayload,
     ActorServiceClientLike,
@@ -14,6 +14,11 @@ import type {
     ActorDetailPayload,
     ActorErrorPayload,
 } from '@shared/contracts/actors';
+import {
+    DocumentOwnershipLevel,
+    getEffectiveOwnership,
+} from '@server/core/documents/primary/base/ownership';
+import { userStore } from '@server/core/documents/primary/users/UserStore';
 
 interface ActorProjection extends ActorDetailPayload {
     foundryUrl?: string;
@@ -42,11 +47,27 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
     typeof value === 'object' && value !== null;
 
 interface ActorServiceDeps {
-    normalizeActors: (actorList: RawActor[], client: ActorServiceClientLike) => Promise<ActorProjection[]>;
+    normalizeActors: (actorList: ActorDocument[], client: ActorServiceClientLike) => Promise<ActorProjection[]>;
     config: AppConfig;
 }
 
 export function createActorService(deps: ActorServiceDeps) {
+    // Dashboard list and card data are derived from the same actor list. Keep the
+    // card projection here so `/api/actors` does not force a second actor read.
+    const buildActorCards = (
+        actors: ActorDocument[],
+        adapter: { getActorCardData?: (actor: any) => unknown } | null | undefined,
+    ): ActorCardsPayload => {
+        if (!adapter?.getActorCardData) return {};
+
+        const cards: Record<string, ActorCard> = {};
+        for (const actor of actors) {
+            const id = actor._id || actor.id;
+            if (id) cards[id] = adapter.getActorCardData(actor as any) as ActorCard;
+        }
+        return cards;
+    };
+
     // Actor list projection: owned/read-only partition + normalized payload.
     const listActors = async (client: ActorServiceClientLike): Promise<ActorListPayload> => {
         const systemInfo = await client.getSystem();
@@ -54,7 +75,7 @@ export function createActorService(deps: ActorServiceDeps) {
         if (!adapter) throw new Error(`Adapter for ${systemInfo.id} not found`);
 
         const rawActors = await client.getActors();
-        const normalize = async (actorList: RawActor[]) => deps.normalizeActors(actorList, client);
+        const normalize = async (actorList: ActorDocument[]) => deps.normalizeActors(actorList, client);
         const currentUserId = client.userId;
 
         const actorTypes = new Set(rawActors.map((a) => a.type));
@@ -62,16 +83,22 @@ export function createActorService(deps: ActorServiceDeps) {
         logger.info(`Core Service | Actor types found: ${Array.from(actorTypes).join(', ')}`);
         logger.info(`Core Service | Actor folders found: ${Array.from(actorFolders).join(', ')}`);
 
-        const owned = rawActors.filter((a) =>
-            a.ownership?.[currentUserId!] === 3 || a.ownership?.default === 3
-        );
+        const subject = userStore.createAccessSubject(currentUserId);
+        const permissionFor = (actor: ActorDocument) => {
+            if (subject) return getEffectiveOwnership(actor.ownership, subject);
+            const explicit = currentUserId ? actor.ownership?.[currentUserId] : undefined;
+            return explicit ?? actor.ownership?.default ?? DocumentOwnershipLevel.NONE;
+        };
+
+        const owned = rawActors.filter((actor) => permissionFor(actor) >= DocumentOwnershipLevel.OWNER);
 
         const observable = rawActors.filter((a) => {
             const isOwned = owned.includes(a);
             if (isOwned) return false;
 
-            const userPermission = a.ownership?.[currentUserId!] || a.ownership?.default || 0;
-            const isObservable = userPermission >= 1;
+            // Full read-only actor DTOs require OBSERVER. LIMITED actors are
+            // represented only by adapter-produced cards below.
+            const isObservable = permissionFor(a) >= DocumentOwnershipLevel.OBSERVER;
             const actorType = (a.type || '').toLowerCase();
             const isNPC = actorType === 'npc' || actorType === 'monster' || actorType === 'vehicle';
 
@@ -90,6 +117,13 @@ export function createActorService(deps: ActorServiceDeps) {
             actors: await normalize(ownedCharacters),
             ownedActors: await normalize(ownedCharacters),
             readOnlyActors: await normalize(observable),
+            // LIMITED actors may contribute only the adapter-owned card projection.
+            // Recheck visibility here so alternate clients cannot project hidden cache rows.
+            actorCards: buildActorCards(rawActors.filter((a) => {
+                const actorType = (a.type || '').toLowerCase();
+                const isNPC = actorType === 'npc' || actorType === 'monster' || actorType === 'vehicle';
+                return permissionFor(a) >= DocumentOwnershipLevel.LIMITED && !isNPC;
+            }), adapter),
             system: systemInfo.id
         };
     };
@@ -102,24 +136,14 @@ export function createActorService(deps: ActorServiceDeps) {
             return {};
         }
 
-        const rawActors = await client.getActors();
-        const cards: Record<string, ActorCard> = {};
-
-        for (const actor of rawActors) {
-            const id = actor._id || actor.id;
-            if (id) {
-                cards[id] = adapter.getActorCardData(actor) as ActorCard;
-            }
-        }
-
-        return cards;
+        return buildActorCards(await client.getActors(), adapter);
     };
 
     const getActorCardById = async (
         client: ActorServiceClientLike,
         actorId: string
     ): Promise<ActorCard | ActorErrorPayload | Record<string, never>> => {
-        const actor = await client.getActor(actorId);
+        const actor = await client.getActorCardSource(actorId);
         if (!actor || actor.error) {
             return {
                 error: actor?.error || 'Actor not found',
@@ -133,7 +157,7 @@ export function createActorService(deps: ActorServiceDeps) {
             return {};
         }
 
-        return adapter.getActorCardData(actor) as ActorCard;
+        return adapter.getActorCardData!(actor as any) as ActorCard;
     };
 
     // Actor detail resolver: UUID resolution + adapter normalization + derived data.
@@ -149,14 +173,17 @@ export function createActorService(deps: ActorServiceDeps) {
             };
         }
 
-        const { CompendiumCache } = await import('@core/foundry/compendium-cache');
-        const cache = CompendiumCache.getInstance();
+        const { compendiumStore } = await import('@core/compendium');
 
+        // Per ADR-0021, compendium UUID name resolution comes from declared
+        // pack rows held in CompendiumStore. UUIDs whose pack is undeclared,
+        // not pre-filed, or not yet hydrated stay unresolved (no live
+        // fallback to Foundry).
         const resolveUUIDs = (obj: unknown): unknown => {
             if (typeof obj === 'string') {
                 if (obj.startsWith('Compendium.')) {
-                    const name = cache.getName(obj);
-                    return name || obj;
+                    const lookup = compendiumStore.findIndexEntry(obj);
+                    return lookup?.entry.name || obj;
                 }
                 return obj;
             }
@@ -169,27 +196,25 @@ export function createActorService(deps: ActorServiceDeps) {
             return obj;
         };
 
-        const resolvedActor = resolveUUIDs(actor) as RawActor;
+        const resolvedActor = resolveUUIDs(actor) as ActorDocument;
 
         const systemInfo = await client.getSystem();
-        let adapter = await getAdapter(systemInfo.id.toLowerCase());
+        const adapter = await getAdapter(systemInfo.id.toLowerCase())
+            ?? await getMatchingAdapter(resolvedActor);
 
-        if (!adapter || (adapter.match && !adapter.match(resolvedActor))) {
-            adapter = await getMatchingAdapter(resolvedActor);
-        }
         if (!adapter) throw new Error(`Adapter for ${systemInfo.id} not found`);
 
-        const normalizedActor: ActorProjection = adapter.normalizeActorData(resolvedActor, client);
+        const normalizedActor: ActorProjection = adapter.normalizeActorData(resolvedActor as any);
 
         if (adapter.computeActorData) {
             normalizedActor.derived = {
                 ...(normalizedActor.derived || {}),
-                ...(adapter.computeActorData(normalizedActor) as Record<string, unknown>)
+                ...(adapter.computeActorData(normalizedActor as any) as Record<string, unknown>)
             };
         }
 
         if (adapter.categorizeItems) {
-            normalizedActor.categorizedItems = adapter.categorizeItems(normalizedActor) as Record<string, unknown>;
+            normalizedActor.categorizedItems = adapter.categorizeItems(normalizedActor as any) as Record<string, unknown>;
         }
 
         if (normalizedActor.img) {
@@ -203,6 +228,11 @@ export function createActorService(deps: ActorServiceDeps) {
             ...normalizedActor,
             foundryUrl: client.url,
             systemId: adapter.systemId,
+            // The Foundry system ID is always the real game system regardless of
+            // whether that system's module is enabled. The client
+            // uses this to stay subscribed to moduleStateChanged events even when
+            // the module is disabled and systemId falls back to 'generic'.
+            foundrySystemId: systemInfo.id.toLowerCase(),
             debugLevel: deps.config.debug?.level ?? 1
         };
     };
@@ -210,7 +240,7 @@ export function createActorService(deps: ActorServiceDeps) {
     // Actor write operations and item mutation helpers.
     const createActor = async (client: ActorServiceClientLike, actorData: Record<string, unknown>) => {
         if (actorData.items && Array.isArray(actorData.items)) {
-            actorData.items.forEach((item: RawItem) => {
+            actorData.items.forEach((item: ItemDocument) => {
                 if (item.effects && Array.isArray(item.effects)) {
                     if (item.effects.length > 0 && typeof item.effects[0] === 'string') {
                         logger.warn(`Core Service | Clearing invalid string effects for ${item.name} during creation`);
@@ -229,7 +259,7 @@ export function createActorService(deps: ActorServiceDeps) {
         }
 
         logger.debug('Core Service | Create Actor:', actorData);
-        const newActor = await client.createActor(actorData);
+        const newActor = await client.createActor(actorData) as ActorDocument | null | undefined;
         if (!newActor) throw new Error('Failed to create actor');
 
         return { success: true, id: newActor._id || newActor.id, actor: newActor };
@@ -276,16 +306,15 @@ export function createActorService(deps: ActorServiceDeps) {
         let rollData: ActorRollData | undefined;
         if (type === 'formula') {
             rollData = { formula: key, label: 'Custom Roll' };
-        } else {
-            rollData = adapter.getRollData(actor, type, key, options) as ActorRollData;
+        } else if (adapter.getRollData) {
+            rollData = adapter.getRollData(actor as any, type, key, options) as ActorRollData;
         }
 
         if (!rollData) throw new Error('Cannot determine roll formula');
 
-        if (rollData.isAutomated && typeof adapter.performAutomatedSequence === 'function') {
-            const result = await adapter.performAutomatedSequence(client, actor, rollData, options);
-            return { success: true, result, label: rollData.label };
-        }
+        // performAutomatedSequence was removed from the adapter contract (ADR-0027):
+        // automated multi-roll sequences are now a module-authored route over req.runtime
+        // (rolls.roll + documents + parseRollResult), not a core-invoked adapter hook.
 
         if (!rollData.formula) {
             throw new Error(`No roll formula for type "${type}" key "${key}"`);

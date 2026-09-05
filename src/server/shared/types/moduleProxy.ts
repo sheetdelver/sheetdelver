@@ -1,6 +1,8 @@
 import type { IncomingHttpHeaders } from 'node:http';
-import type { UserSessionLike } from '@server/shared/types/foundry';
+import type { FoundryUserConnectionLike } from '@server/shared/types/foundry';
 import type { RouteFoundryClient } from '@server/shared/types/requestContext';
+import type { UserSession } from '@shared/sdk/contracts';
+import type { ModuleAccessContext, ModuleRequestRuntime } from '@shared/sdk/runtime';
 
 export interface ModuleProxyDispatchRequest {
     path: string;
@@ -8,8 +10,9 @@ export interface ModuleProxyDispatchRequest {
     url: string;
     headers: IncomingHttpHeaders;
     body: unknown;
-    foundryClient?: RouteFoundryClient;
-    userSession?: UserSessionLike;
+    /** User-bound route transport used only to bind req.runtime; never exposed to module handlers. */
+    transportClient?: RouteFoundryClient;
+    userSession?: FoundryUserConnectionLike;
 }
 
 export interface ModuleRouteParams {
@@ -21,8 +24,9 @@ export interface ModuleRouteRequest {
     method: string;
     url: string;
     headers: IncomingHttpHeaders;
-    foundryClient: RouteFoundryClient;
-    userSession?: UserSessionLike;
+    runtime: ModuleRequestRuntime;
+    userSession?: UserSession;
+    getAccessContext(): ModuleAccessContext;
 }
 
 export interface ModuleProxyDispatchResult {

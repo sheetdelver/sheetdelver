@@ -1,0 +1,19 @@
+import { error, json, type ModuleRouteTable } from '@sheet-delver/sdk/server';
+
+const apiRoutes: ModuleRouteTable = {
+    'actors/[id]/items': async (req, { params }) => {
+        const { route } = await params;
+        const actorId = route[1];
+        if (!actorId) return error('validation', 'Missing actor id');
+
+        const itemData = await req.json<Record<string, unknown>>();
+        // Runtime document ops default to the calling user and enforce parent ownership.
+        const item = await req.runtime.documents.items.create(
+            { type: 'Actor', id: actorId },
+            itemData,
+        );
+        return json({ success: true, item }, { status: 201 });
+    },
+};
+
+export { apiRoutes };

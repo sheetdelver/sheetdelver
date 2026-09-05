@@ -10,6 +10,33 @@ interface ActorRouteDeps {
     config: AppConfig;
 }
 
+function getErrorStatus(error: unknown, fallback = 500): number {
+    if (typeof error !== 'object' || error === null) return fallback;
+    const status = (error as { status?: unknown }).status;
+    return typeof status === 'number' ? status : fallback;
+}
+
+/**
+ * Actor route registrar — ownership-threshold contract (ADR-0013):
+ *
+ *   GET    /actors                  → OWNER/OBSERVER full DTOs; LIMITED card projections only
+ *   GET    /actors/cards            → LIST_VISIBLE (via actorStore.listActors)
+ *   GET    /actors/:id/card         → CARD_VISIBLE restricted projection
+ *   GET    /actors/:id              → DETAIL_VISIBLE
+ *   POST   /actors                  → no courtesy gate; Foundry enforces on dispatch
+ *   PATCH  /actors/:id              → no courtesy gate; Foundry enforces on dispatch
+ *   DELETE /actors/:id              → no courtesy gate; Foundry enforces on dispatch
+ *   POST   /actors/:id/roll         → no courtesy gate
+ *   POST   /actors/:id/items        → no courtesy gate
+ *   PUT    /actors/:id/items        → no courtesy gate
+ *   DELETE /actors/:id/items        → no courtesy gate
+ *   POST   /actors/:id/update       → no courtesy gate
+ *
+ * Write endpoints intentionally lack a Sheet Delver-side WRITEABLE courtesy
+ * gate; Foundry is the authoritative permission check on writes (the original
+ * ADR text called the WRITEABLE check a "courtesy reject" — it remains a
+ * future addition, not a regression). Phase 2 documents this as a known gap.
+ */
 export function registerActorRoutes(appRouter: express.Router, deps: ActorRouteDeps) {
     // Actor domain service: displaced business logic for actor list/detail/cards/rolls and mutations.
     const actorService = createActorService(deps);
@@ -22,7 +49,7 @@ export function registerActorRoutes(appRouter: express.Router, deps: ActorRouteD
         } catch (error: unknown) {
             const message = getErrorMessage(error);
             logger.error(`Core Service | Actors fetch failed: ${message}`);
-            res.status(500).json({ error: message });
+            res.status(getErrorStatus(error)).json({ error: message });
         }
     });
 
@@ -34,7 +61,7 @@ export function registerActorRoutes(appRouter: express.Router, deps: ActorRouteD
         } catch (error: unknown) {
             const message = getErrorMessage(error);
             logger.error(`Core Service | Actor cards bulk fetch failed: ${message}`);
-            res.status(500).json({ error: message });
+            res.status(getErrorStatus(error)).json({ error: message });
         }
     });
 
@@ -49,7 +76,7 @@ export function registerActorRoutes(appRouter: express.Router, deps: ActorRouteD
         } catch (error: unknown) {
             const message = getErrorMessage(error);
             logger.error(`Core Service | Actor card fetch failed: ${message}`);
-            res.status(500).json({ error: message });
+            res.status(getErrorStatus(error)).json({ error: message });
         }
     });
 
@@ -64,7 +91,7 @@ export function registerActorRoutes(appRouter: express.Router, deps: ActorRouteD
         } catch (error: unknown) {
             const message = getErrorMessage(error);
             logger.error(`Core Service | Actor detail fetch failed: ${message}`);
-            res.status(500).json({ error: message });
+            res.status(getErrorStatus(error)).json({ error: message });
         }
     });
 
@@ -87,11 +114,12 @@ export function registerActorRoutes(appRouter: express.Router, deps: ActorRouteD
             const payload = await actorService.deleteActor(client, req.params.id);
             res.json(payload);
         } catch (error: unknown) {
-            const msg = getErrorMessage(error);
-            if (msg.toLowerCase().includes('permission')) {
-                return res.json({ success: true, warning: 'Permission denied, actor may remain' });
-            }
-            res.status(500).json({ error: msg });
+            const message = getErrorMessage(error);
+            const status = message.toLowerCase().includes('permission') ? 403 : getErrorStatus(error);
+
+            // Foundry authorizes this user-scoped write; preserve its rejection
+            // as a failure instead of reporting that the Actor was deleted.
+            res.status(status).json({ success: false, error: message });
         }
     });
 

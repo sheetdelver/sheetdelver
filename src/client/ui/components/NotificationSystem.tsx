@@ -1,6 +1,8 @@
 'use client';
 
 import { useState, useRef, useCallback, createContext, useContext, ReactNode } from 'react';
+import { sanitizeRichHtml, type SafeHtml } from '@shared/security/safeHtml';
+import { SafeHtmlContent } from './SafeHtmlContent';
 
 export type NotificationType = 'info' | 'success' | 'error';
 
@@ -8,7 +10,7 @@ export interface Notification {
     id: number;
     content: string;
     type: NotificationType;
-    html?: boolean;
+    safeHtml?: SafeHtml;
 }
 
 interface NotificationOptions {
@@ -32,7 +34,10 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
         const id = ++notificationIdRef.current;
         const duration = options?.duration || 5000;
 
-        setNotifications(prev => [...prev, { id, content, type, html: options?.html }]);
+        // HTML notifications are sanitized at the host boundary even when an
+        // SDK caller already passed branded output; defense does not rely on it.
+        const safeHtml = options?.html ? sanitizeRichHtml(content) : undefined;
+        setNotifications(prev => [...prev, { id, content, type, safeHtml }]);
 
         // Auto-dismiss
         setTimeout(() => {
@@ -83,8 +88,8 @@ export const NotificationContainer = ({ notifications, removeNotification }: { n
                     <div
                         className="text-sm pr-6 break-words [&_img]:max-h-16 [&_img]:w-auto [&_img]:object-contain [&_img]:rounded [&_img]:inline-block [&_img]:mr-2 [&_img]:align-middle [&_header]:font-bold [&_header]:mb-1 [&_header]:border-b [&_header]:border-white/20 [&_h3]:inline [&_h3]:m-0 [&_p]:m-0"
                     >
-                        {n.html ? (
-                            <div dangerouslySetInnerHTML={{ __html: n.content }} />
+                        {n.safeHtml ? (
+                            <SafeHtmlContent html={n.safeHtml} />
                         ) : (
                             <p className="font-medium">{n.content}</p>
                         )}

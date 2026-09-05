@@ -9,6 +9,7 @@ const eslintConfig = defineConfig([
   globalIgnores([
     // Default ignores of eslint-config-next:
     ".next/**",
+    "**/.next/**",
     "out/**",
     "build/**",
     "next-env.d.ts",
@@ -16,7 +17,9 @@ const eslintConfig = defineConfig([
     "temp-shadowdark/**",
     "src/tests/**",
     "scripts/**",
-    "src/scripts/**"
+    "src/scripts/**",
+    // External module repos — linted by their own configs, excluded from platform tsconfig
+    "data/**"
   ]),
   {
     rules: {

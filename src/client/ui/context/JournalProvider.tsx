@@ -1,15 +1,21 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { useSession } from './SessionContext';
+import { useRealtime } from '@client/ui/context/RealtimeContext';
 import { logger } from '@shared/utils/logger';
 import { UnauthorizedApiError } from '@client/ui/api/http';
 import * as journalApi from '@client/ui/api/journalApi';
 import type {
     JournalEntryDto,
     JournalFolderDto,
-    JournalListPayload,
+    JournalPageDto,
 } from '@shared/contracts/journals';
+import { createCoalescedFetch, type CoalescedFetch } from '@client/ui/context/coalescedFetch';
+import type {
+    RealtimeJournalChangedPayload,
+    RealtimeJournalListInvalidatedPayload,
+} from '@shared/contracts/realtime';
 
 // Walkthrough/Changelog Notes:
 // - **Permissions**: "Edit" & "Share" buttons are now hidden for shared content and non-authorized users. Journals are now restricted to users with `Observer` level or higher.
@@ -25,10 +31,13 @@ interface JournalContextType {
     folders: Folder[];
     loading: boolean;
     error: string | null;
+    journalRevisions: Record<string, number>;
+    journalGlobalRevision: number;
     fetchJournals: () => Promise<void>;
     getJournal: (id: string) => Promise<JournalEntry | null>;
     createJournal: (name: string, folderId?: string) => Promise<void>;
     updateJournal: (id: string, data: Partial<JournalEntry>) => Promise<void>;
+    updateJournalPage: (journalId: string, pageId: string, data: Partial<JournalPageDto>) => Promise<void>;
     deleteJournal: (id: string) => Promise<void>;
     createFolder: (name: string, parentId?: string) => Promise<void>;
 }
@@ -37,28 +46,50 @@ const JournalContext = createContext<JournalContextType | undefined>(undefined);
 
 export function JournalProvider({ children }: { children: React.ReactNode }) {
     const { token, step } = useSession();
+    const { appSocket } = useRealtime();
     const [journals, setJournals] = useState<JournalEntry[]>([]);
     const [folders, setFolders] = useState<Folder[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [journalRevisions, setJournalRevisions] = useState<Record<string, number>>({});
+    const [journalGlobalRevision, setJournalGlobalRevision] = useState(0);
+    const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const listFetcherRef = useRef<{ token: string; fetch: CoalescedFetch<void> } | null>(null);
+    const detailFetchersRef = useRef(new Map<string, CoalescedFetch<JournalEntry | null>>());
 
     const fetchJournals = useCallback(async () => {
         if (!token) return;
-        setLoading(true);
-        try {
-            const data = await journalApi.fetchJournals(token);
-            setJournals(data.journals || []);
-            setFolders(data.folders || []);
-        } catch (err: any) {
-            if (err instanceof UnauthorizedApiError) {
-                return;
-            }
-            logger.error('JournalProvider | Fetch failed:', err);
-            setError(err.message);
-        } finally {
-            setLoading(false);
+        if (listFetcherRef.current?.token !== token) {
+            listFetcherRef.current = {
+                token,
+                // Folder/Journal invalidations observed during this request
+                // guarantee one post-change list read.
+                fetch: createCoalescedFetch<void>(async () => {
+                    setLoading(true);
+                    try {
+                        const data = await journalApi.fetchJournals(token);
+                        setJournals(data.journals || []);
+                        setFolders(data.folders || []);
+                    } catch (err: any) {
+                        if (err instanceof UnauthorizedApiError) return;
+                        logger.error('JournalProvider | Fetch failed:', err);
+                        setError(err.message);
+                    } finally {
+                        setLoading(false);
+                    }
+                }),
+            };
         }
+        return listFetcherRef.current.fetch();
     }, [token]);
+
+    const requestJournalsRefresh = useCallback(() => {
+        if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+        refreshTimerRef.current = setTimeout(() => {
+            refreshTimerRef.current = null;
+            void fetchJournals();
+        }, 75);
+    }, [fetchJournals]);
 
     useEffect(() => {
         // Only fetch journals when we're in the dashboard state
@@ -68,14 +99,67 @@ export function JournalProvider({ children }: { children: React.ReactNode }) {
         }
     }, [token, step, fetchJournals]);
 
+    useEffect(() => () => {
+        if (refreshTimerRef.current) {
+            clearTimeout(refreshTimerRef.current);
+            refreshTimerRef.current = null;
+        }
+    }, []);
+
+    // FolderStore and JournalStore broadcast through the system bridge. The
+    // /api/journals payload includes both, so any folder rename/move/permission
+    // change or journal entry/page mutation triggers a debounced re-fetch.
+    useEffect(() => {
+        if (!appSocket) return;
+        const handleFolderChanged = () => { requestJournalsRefresh(); };
+        const handleFolderListInvalidated = () => { requestJournalsRefresh(); };
+        const invalidateJournalDetail = (journalId?: string) => {
+            if (!journalId) {
+                setJournalGlobalRevision(revision => revision + 1);
+                return;
+            }
+            setJournalRevisions(revisions => ({
+                ...revisions,
+                [journalId]: (revisions[journalId] ?? 0) + 1,
+            }));
+        };
+        const handleJournalChanged = (data: RealtimeJournalChangedPayload) => {
+            invalidateJournalDetail(data.journalId);
+            requestJournalsRefresh();
+        };
+        const handleJournalListInvalidated = (data: RealtimeJournalListInvalidatedPayload) => {
+            invalidateJournalDetail(data.journalId);
+            requestJournalsRefresh();
+        };
+
+        appSocket.on('folderChanged', handleFolderChanged);
+        appSocket.on('folderListInvalidated', handleFolderListInvalidated);
+        appSocket.on('journalChanged', handleJournalChanged);
+        appSocket.on('journalListInvalidated', handleJournalListInvalidated);
+        return () => {
+            appSocket.off('folderChanged', handleFolderChanged);
+            appSocket.off('folderListInvalidated', handleFolderListInvalidated);
+            appSocket.off('journalChanged', handleJournalChanged);
+            appSocket.off('journalListInvalidated', handleJournalListInvalidated);
+        };
+    }, [appSocket, requestJournalsRefresh]);
+
     const getJournal = useCallback(async (id: string) => {
         if (!token) return null;
-        try {
-            return await journalApi.fetchJournalById(token, id);
-        } catch (err) {
-            logger.error(`JournalProvider | Get detail failed for ${id}:`, err);
-            return null;
+        const key = `${token}:${id}`;
+        let fetcher = detailFetchersRef.current.get(key);
+        if (!fetcher) {
+            fetcher = createCoalescedFetch<JournalEntry | null>(async () => {
+                try {
+                    return await journalApi.fetchJournalById(token, id);
+                } catch (err) {
+                    logger.error(`JournalProvider | Get detail failed for ${id}:`, err);
+                    return null;
+                }
+            });
+            detailFetchersRef.current.set(key, fetcher);
         }
+        return (await fetcher()) ?? null;
     }, [token]);
 
     const createJournal = async (name: string, folderId?: string) => {
@@ -94,6 +178,16 @@ export function JournalProvider({ children }: { children: React.ReactNode }) {
         } catch (err) {
             logger.error(`JournalProvider | Update failed for ${id}:`, err);
         }
+    };
+
+    const updateJournalPage = async (
+        journalId: string,
+        pageId: string,
+        data: Partial<JournalPageDto>,
+    ) => {
+        // Keep page writes on Foundry's embedded-document path. The resulting
+        // JournalEntryPage event invalidates the parent journal detail.
+        await journalApi.updateJournalPage(token, journalId, pageId, data);
     };
 
     const deleteJournal = async (id: string) => {
@@ -116,16 +210,17 @@ export function JournalProvider({ children }: { children: React.ReactNode }) {
 
     return (
         <JournalContext.Provider value={{
-            journals, folders, loading, error,
-            fetchJournals, getJournal, createJournal, updateJournal, deleteJournal, createFolder
+            journals, folders, loading, error, journalRevisions, journalGlobalRevision,
+            fetchJournals, getJournal, createJournal, updateJournal, updateJournalPage,
+            deleteJournal, createFolder
         }}>
             {children}
         </JournalContext.Provider>
     );
 }
 
-export const useJournals = () => {
+export const useJournal = () => {
     const context = useContext(JournalContext);
-    if (!context) throw new Error('useJournals must be used within a JournalProvider');
+    if (!context) throw new Error('useJournal must be used within a JournalProvider');
     return context;
 };

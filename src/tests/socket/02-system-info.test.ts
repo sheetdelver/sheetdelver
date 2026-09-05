@@ -1,5 +1,10 @@
 import { CoreSocket } from '@core/foundry/sockets/CoreSocket';
-import { loadConfig } from '@core/config';
+import { worldStateStore } from '@core/world/WorldStateStore';
+import {
+    bootstrapSocketTestWorld,
+    loadSocketTestConfig,
+    resetSocketTestWorld,
+} from './socket-test-runtime';
 
 /**
  * Test 2: System Information Retrieval
@@ -8,52 +13,38 @@ import { loadConfig } from '@core/config';
 export async function testSystemInfo() {
     logger.info('🧪 Test 2: System Information\n');
 
-    const config = await loadConfig();
-    if (!config) {
-        throw new Error('Failed to load configuration');
-    }
+    const config = await loadSocketTestConfig();
 
     const client = new CoreSocket(config.foundry);
     const results: any = { tests: [] };
 
     try {
         await client.connect();
+        await bootstrapSocketTestWorld(client);
         logger.info('✅ Connected\n');
 
-        // Test 2a: getSystem()
-        logger.info('2a. Testing getSystem()...');
+        // Test 2a: system metadata from WorldStateStore
+        logger.info('2a. Testing WorldStateStore.getSystem()...');
         try {
-            const system = await client.getSystem();
+            const system = worldStateStore.getSystem();
+            if (!system) throw new Error('System metadata unavailable');
             logger.info(`   ✅ System: ${system.id} v${system.version}`);
-            results.tests.push({ name: 'getSystem', success: true, data: system });
+            results.tests.push({ name: 'WorldStateStore.getSystem', success: true, data: system });
         } catch (error: any) {
             logger.info(`   ❌ Failed: ${error.message}`);
-            results.tests.push({ name: 'getSystem', success: false, error: error.message });
+            results.tests.push({ name: 'WorldStateStore.getSystem', success: false, error: error.message });
         }
 
-        // Test 2b: getSystemData()
-        logger.info('\n2b. Testing getSystemData()...');
+        // Test 2b: world snapshot from WorldStateStore
+        logger.info('\n2b. Testing WorldStateStore.getGameDataSnapshot()...');
         try {
-            await client.getGameData();
+            const gameData = worldStateStore.getGameDataSnapshot();
+            if (!gameData) throw new Error('Game data snapshot unavailable');
             logger.info('   ✅ Retrieved system data\n');
-            results.tests.push({ name: 'getSystemData', success: true });
+            results.tests.push({ name: 'WorldStateStore.getGameDataSnapshot', success: true });
         } catch (error: any) {
             logger.info(`   ❌ Failed: ${error.message}`);
-            results.tests.push({ name: 'getSystemData', success: false, error: error.message });
-        }
-
-        // Test 2c: evaluate() for world info
-        logger.info('\n2c. Testing evaluate() for world info...');
-        try {
-            // @ts-ignore
-            const worldId = await client.evaluate(() => (world as any).id);
-            // @ts-ignore
-            const worldTitle = await client.evaluate(() => (world as any).title);
-            logger.info(`   ✅ World: ${worldTitle} (${worldId})`);
-            results.tests.push({ name: 'evaluate-world', success: true, data: { worldId, worldTitle } });
-        } catch (error: any) {
-            logger.info(`   ❌ Failed: ${error.message}`);
-            results.tests.push({ name: 'evaluate-world', success: false, error: error.message });
+            results.tests.push({ name: 'WorldStateStore.getGameDataSnapshot', success: false, error: error.message });
         }
 
         const successCount = results.tests.filter((t: any) => t.success).length;
@@ -66,6 +57,7 @@ export async function testSystemInfo() {
         logger.error('❌ Test suite failed:', error.message);
         return { success: false, error: error.message };
     } finally {
+        resetSocketTestWorld();
         await client.disconnect();
         logger.info('📡 Disconnected\n');
     }

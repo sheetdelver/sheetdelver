@@ -37,7 +37,7 @@ export interface ScrapedWorldData {
     users: ScrapedUser[];
 }
 
-type RawScrapedUser = {
+type ScrapedUserRecord = {
     _id?: unknown;
     name?: unknown;
     role?: unknown;
@@ -46,7 +46,7 @@ type RawScrapedUser = {
 function toScrapedUser(value: unknown): ScrapedUser | null {
     if (!value || typeof value !== 'object') return null;
 
-    const user = value as RawScrapedUser;
+    const user = value as ScrapedUserRecord;
     if (typeof user.name !== 'string' || user.name.length === 0) return null;
 
     return {

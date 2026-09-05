@@ -4,6 +4,7 @@ import React, { createContext, useContext, useEffect, useMemo, useState } from '
 import { io, Socket } from 'socket.io-client';
 import { logger } from '@shared/utils/logger';
 import { useSession } from '@client/ui/context/SessionContext';
+import type { RealtimeSessionInvalidatedPayload } from '@shared/contracts/realtime';
 
 interface RealtimeContextType {
     appSocket: Socket | null;
@@ -12,12 +13,14 @@ interface RealtimeContextType {
 const RealtimeContext = createContext<RealtimeContextType | undefined>(undefined);
 
 export function RealtimeProvider({ children }: { children: React.ReactNode }) {
-    const { token } = useSession();
+    const { token, invalidateLocalSession, isExplicitLogoutPending } = useSession();
     const [appSocket, setAppSocket] = useState<Socket | null>(null);
 
     useEffect(() => {
         const socket = io({
-            auth: token ? { token } : {},
+            // Socket.IO sends the HttpOnly session cookie during polling and
+            // websocket upgrade; no reusable token enters handshake.auth.
+            withCredentials: true,
             reconnectionAttempts: 10,
             reconnectionDelay: 2000,
             reconnectionDelayMax: 5000,
@@ -43,13 +46,28 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
             }
         });
 
+        socket.on('sessionInvalidated', (payload: RealtimeSessionInvalidatedPayload) => {
+            logger.info(`RealtimeContext | Server session invalidated (${payload.reason}).`);
+            if (isExplicitLogoutPending()) {
+                // The gateway has already removed authenticated authority and
+                // moved this transport into the public status room. Keep it
+                // long enough to observe Foundry's logout presence update.
+                return;
+            }
+            // Stop this authenticated transport before clearing React state so
+            // no queued world-backed event can arrive during the rerender. The
+            // token transition creates a fresh public-status socket.
+            socket.disconnect();
+            invalidateLocalSession(payload.reason);
+        });
+
         setAppSocket(socket);
 
         return () => {
             socket.disconnect();
             setAppSocket(null);
         };
-    }, [token]);
+    }, [invalidateLocalSession, isExplicitLogoutPending, token]);
 
     const value = useMemo(() => ({ appSocket }), [appSocket]);
 

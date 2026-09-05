@@ -1,33 +1,33 @@
 
 import { CoreSocket } from '@core/foundry/sockets/CoreSocket';
-import { loadConfig } from '@core/config';
+import { createSystemRouteFoundryClient } from '@server/shared/utils/createRouteFoundryClient';
 import { fileURLToPath } from 'url';
 import { logger } from '@shared/utils/logger';
+import {
+    bootstrapSocketTestWorld,
+    loadSocketTestConfig,
+    resetSocketTestWorld,
+} from './socket-test-runtime';
 
 export async function testRolling() {
     logger.info('🧪 Test 9: Rolling Functionality\n');
 
-    // Setup - mimics behavior in 01-connection.test.ts
-    const configLine = await loadConfig(); // Note: loadConfig likely returns { foundry: ... } or similar based on usage
-    // loadConfig implementation check needed? 01-connection uses it directly.
-    // Let's assume standard behavior:
-    if (!configLine) {
-        throw new Error('Failed to load configuration');
-    }
-    const config = configLine.foundry || configLine; // Robustness
+    const config = (await loadSocketTestConfig()).foundry;
 
     const client = new CoreSocket(config);
 
     try {
         logger.info('📡 Connecting...');
         await client.connect();
+        await bootstrapSocketTestWorld(client);
 
         // Wait for ready state if needed, though connect() usually handles it
         if (!client.isConnected) throw new Error('Failed to connect');
+        const routeClient = createSystemRouteFoundryClient(client);
 
         // 1. Roll Basic Dice
         logger.info('\n--- Part 1: Basic Roll (1d6) ---');
-        const roll1 = await client.roll('1d6', 'Test Roll 1');
+        const roll1 = await routeClient.roll('1d6', 'Test Roll 1') as any;
         logger.info('Result:', JSON.stringify(roll1, null, 2));
 
         if (!roll1 || !roll1._id) {
@@ -42,9 +42,9 @@ export async function testRolling() {
         // We want to test if we can send a roll that has been pre-determined
         // e.g. entering '2' in the dialog should result in '2 + bonuses'
         // For this test, let's see if we can pass a 'manual' flag or if it needs to be the formula
-        const roll3 = await client.roll('2', 'Manual Test (Result 2)', {
+        const roll3 = await routeClient.roll('2', 'Manual Test (Result 2)', {
             displayChat: true
-        });
+        }) as any;
         logger.info('Result:', JSON.stringify(roll3, null, 2));
 
         if (!roll3 || roll3.content !== '2') {
@@ -58,6 +58,7 @@ export async function testRolling() {
         logger.error('❌ Test failed:', error.message);
         return { success: false, error: error.message };
     } finally {
+        resetSocketTestWorld();
         if (client.isConnected) {
             await client.disconnect();
             logger.info('📡 Disconnected\n');

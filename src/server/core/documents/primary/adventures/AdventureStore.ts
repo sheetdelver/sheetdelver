@@ -1,0 +1,31 @@
+import type { AdventureDocument } from '@server/shared/types/documents';
+import {
+    PrimaryDocumentStore,
+    type PrimaryDocumentType,
+} from '../base/PrimaryDocumentStore';
+import {
+    DocumentOwnershipLevel,
+    isGM,
+    type DocumentAccessSubject,
+    type ResolvedDocumentOwnershipLevel,
+} from '../base/ownership';
+
+/**
+ * Stub Adventure Store (ADR-0011 Phase 7). Shape uniformity only — not
+ * registered with `PrimaryDocumentCacheCoordinator` or `modifyDocumentRouter`.
+ *
+ * Adventure is an import/export container in Foundry. GM-only placeholder
+ * until a future round actually wires the subsystem and validates the shape.
+ */
+export class AdventureStore extends PrimaryDocumentStore<AdventureDocument> {
+    public readonly documentType: PrimaryDocumentType = 'Adventure';
+
+    protected resolveOwnership(
+        _adventure: AdventureDocument,
+        subject: DocumentAccessSubject,
+    ): ResolvedDocumentOwnershipLevel {
+        return isGM(subject) ? DocumentOwnershipLevel.OWNER : DocumentOwnershipLevel.NONE;
+    }
+}
+
+export const adventureStore = new AdventureStore();

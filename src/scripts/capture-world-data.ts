@@ -1,6 +1,7 @@
 
 import { CoreSocket } from '@core/foundry/sockets/CoreSocket';
 import { loadConfig } from '@core/config';
+import { worldStateStore } from '@core/world/WorldStateStore';
 import { logger } from '@shared/utils/logger';
 import fs from 'fs';
 import path from 'path';
@@ -14,7 +15,7 @@ async function captureWorldData() {
         await core.connect();
         logger.info('CoreSocket connected and authenticated.');
 
-        const gameData = core.getGameData();
+        const gameData = worldStateStore.getGameDataSnapshot();
         if (gameData) {
             const tempDir = path.resolve(process.cwd(), 'temp');
             if (!fs.existsSync(tempDir)) {

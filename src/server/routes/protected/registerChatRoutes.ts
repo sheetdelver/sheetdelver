@@ -8,6 +8,16 @@ interface ChatRouteDeps {
     config: AppConfig;
 }
 
+/**
+ * Chat route registrar — ownership-threshold contract (ADR-0013):
+ *
+ *   GET  /chat       → LIST_VISIBLE (via chatMessageStore.list; whisper/blind/
+ *                      author dispatch lives in ChatMessageStore.resolveOwnership)
+ *   POST /chat/send  → no courtesy gate; Foundry enforces on dispatch
+ *
+ * Verified by `runChatLogListThresholdIsListVisible` in
+ * `src/tests/unit/routing/route-ownership-thresholds.test.ts`.
+ */
 export function registerChatRoutes(appRouter: express.Router, deps: ChatRouteDeps) {
     // Chat domain service: displaced logic for feed reads and send/roll command handling.
     const chatService = createChatService(deps);

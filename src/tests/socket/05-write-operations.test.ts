@@ -1,5 +1,11 @@
 import { CoreSocket } from '@core/foundry/sockets/CoreSocket';
-import { loadConfig } from '@core/config';
+import { createSystemRouteFoundryClient } from '@server/shared/utils/createRouteFoundryClient';
+import { worldStateStore } from '@core/world/WorldStateStore';
+import {
+    bootstrapSocketTestWorld,
+    loadSocketTestConfig,
+    resetSocketTestWorld,
+} from './socket-test-runtime';
 
 /**
  * Test 5: Write Operations (Safe CRUD)
@@ -8,23 +14,21 @@ import { loadConfig } from '@core/config';
 export async function testWriteOperations() {
     logger.info('🧪 Test 5: Write Operations (Safe CRUD)\n');
 
-    const config = await loadConfig();
-    if (!config) {
-        throw new Error('Failed to load configuration');
-    }
+    const config = await loadSocketTestConfig();
 
     const client = new CoreSocket(config.foundry);
     const results: any = { tests: [] };
     let tempActorId: string | null = null;
     let tempItemId: string | null = null;
+    let routeClient: ReturnType<typeof createSystemRouteFoundryClient> | null = null;
 
     const resolveValidActorType = async (): Promise<string> => {
-        const existingActors = await client.getActors();
+        const existingActors = await routeClient!.getActors();
         const actorTypeFromWorld = existingActors.find((actor: any) => typeof actor?.type === 'string' && actor.type.length > 0)?.type;
         if (actorTypeFromWorld) return actorTypeFromWorld;
 
         try {
-            const systemData = await client.getSystem();
+            const systemData = worldStateStore.getSystem();
             const actorTypeKeys = Object.keys(systemData?.documentTypes?.Actor || {});
             if (actorTypeKeys.length > 0) {
                 return actorTypeKeys[0];
@@ -39,6 +43,8 @@ export async function testWriteOperations() {
 
     try {
         await client.connect();
+        await bootstrapSocketTestWorld(client);
+        routeClient = createSystemRouteFoundryClient(client);
         logger.info('✅ Connected\n');
 
         // Test 5a: Create Temporary Actor
@@ -51,7 +57,8 @@ export async function testWriteOperations() {
                 type: actorType,
                 img: "icons/svg/mystery-man.svg"
             };
-            const createdActor = await client.createActor(actorData);
+            const createdActor = await routeClient.createActor(actorData) as Record<string, any> | null | undefined;
+            if (!createdActor?._id) throw new Error('Actor creation returned no document id');
             tempActorId = createdActor._id;
             logger.info(`   ✅ Created actor: ${createdActor.name} (${tempActorId})`);
             results.tests.push({ name: 'createActor', success: true, data: { id: tempActorId } });
@@ -70,11 +77,11 @@ export async function testWriteOperations() {
                     name: "UPDATED_TEST_ACTOR_" + Date.now(),
                     "system.details.biography": "<p>Updated via socket test</p>"
                 };
-                await client.updateActor(tempActorId, updateData);
+                await routeClient.updateActor(tempActorId, updateData);
 
                 // Verify update
-                const updatedActor = await client.getActor(tempActorId);
-                if (updatedActor.name.startsWith("UPDATED_TEST_ACTOR")) {
+                const updatedActor = await routeClient.getActor(tempActorId);
+                if (updatedActor?.name?.startsWith("UPDATED_TEST_ACTOR")) {
                     logger.info(`   ✅ Updated actor name to: ${updatedActor.name}`);
                     results.tests.push({ name: 'updateActor', success: true });
                 } else {
@@ -99,7 +106,7 @@ export async function testWriteOperations() {
                 // Using 'Item' as a broad guess, or we can try to inspect system types if we had them.
                 // Let's try to be generic.
 
-                tempItemId = await client.createActorItem(tempActorId, itemData);
+                tempItemId = await routeClient.createActorItem(tempActorId, itemData) as string;
                 logger.info(`   ✅ Created item: ${tempItemId}`);
                 results.tests.push({ name: 'createActorItem', success: true, data: { id: tempItemId } });
             } catch (error: any) {
@@ -113,12 +120,16 @@ export async function testWriteOperations() {
         // Test 5d: Chat Message
         logger.info('\n5d. Sending test chat message...');
         try {
-            await client.sendMessage("🧪 Socket Test: Write Operations Verified");
+            await routeClient.createChatMessage({
+                content: "🧪 Socket Test: Write Operations Verified",
+                style: 1,
+                author: client.userId,
+            });
             logger.info(`   ✅ Sent chat message`);
-            results.tests.push({ name: 'sendMessage', success: true });
+            results.tests.push({ name: 'createChatMessage', success: true });
         } catch (error: any) {
             logger.info(`   ❌ Failed: ${error.message}`);
-            results.tests.push({ name: 'sendMessage', success: false, error: error.message });
+            results.tests.push({ name: 'createChatMessage', success: false, error: error.message });
         }
 
         const successCount = results.tests.filter((t: any) => t.success).length;
@@ -135,12 +146,13 @@ export async function testWriteOperations() {
         if (tempActorId) {
             logger.info('\n🧹 Cleaning up: Deleting temporary actor...');
             try {
-                await client.deleteActor(tempActorId);
+                await routeClient?.deleteActor(tempActorId);
                 logger.info('   ✅ cleanup successful');
             } catch (cleanupError: any) {
                 logger.error(`   ⚠️ Cleanup failed: ${cleanupError.message}. Please manually delete actor ${tempActorId}`);
             }
         }
+        resetSocketTestWorld();
         await client.disconnect();
         logger.info('📡 Disconnected\n');
     }

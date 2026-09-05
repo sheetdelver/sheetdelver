@@ -3,6 +3,21 @@ import { createJournalService } from '@server/services/journals/JournalService';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
 import { isErrorPayload } from '@server/shared/utils/isErrorPayload';
 
+/**
+ * Journal route registrar — ownership-threshold contract (ADR-0013):
+ *
+ *   GET    /journals       → DETAIL_VISIBLE metadata-only directory projection
+ *                            Folder list filtered to ancestors of any visible
+ *                            journal; ASSISTANT-GM bypasses to see all folders.
+ *   GET    /journals/:id   → DETAIL_VISIBLE on entry + per-page (visiblePages)
+ *                            Full entry with per-page ownership filtering.
+ *   POST   /journals       → no courtesy gate; Foundry enforces on dispatch
+ *   PATCH  /journals/:id   → no courtesy gate
+ *   DELETE /journals/:id   → no courtesy gate
+ *
+ * Verified by `runJournalListVsDetailThresholdsDiverge` in
+ * `src/tests/unit/routing/route-ownership-thresholds.test.ts`.
+ */
 export function registerJournalRoutes(appRouter: express.Router) {
     // Journal domain service: displaced logic for visibility-filtered listing and CRUD operations.
     const journalService = createJournalService();
@@ -44,6 +59,23 @@ export function registerJournalRoutes(appRouter: express.Router) {
         try {
             const client = req.foundryClient;
             const payload = await journalService.updateJournal(client, req.params.id, req.body);
+            res.json(payload);
+        } catch (error: unknown) {
+            res.status(500).json({ error: getErrorMessage(error) });
+        }
+    });
+
+    appRouter.patch('/journals/:id/pages/:pageId', async (req, res) => {
+        try {
+            const client = req.foundryClient;
+            // Page edits use Foundry's embedded JournalEntryPage mutation so
+            // the parent cache retains page ownership and metadata.
+            const payload = await journalService.updateJournalPage(
+                client,
+                req.params.id,
+                req.params.pageId,
+                req.body,
+            );
             res.json(payload);
         } catch (error: unknown) {
             res.status(500).json({ error: getErrorMessage(error) });

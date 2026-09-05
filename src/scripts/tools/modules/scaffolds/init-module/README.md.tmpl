@@ -1,0 +1,32 @@
+# %SYSTEM_NAME% Module: %SYSTEM_ID%
+
+This module is designed for the %SYSTEM_NAME% system. It includes SDK-conforming scaffolding for UI, logic, and server components.
+
+## Directory Structure
+
+- `module/`: Public logic, UI, and server entry points.
+- `assets/`: Static assets and hand-authored stylesheets served through the module asset route.
+- `src/logic/`: Implement your module's logic and data transformations here.
+- `src/ui/`: Create the presentational actor sheet and other React surfaces here.
+- `src/server/`: Add system-specific API routes over the request runtime here.
+- `src/styles/tailwind.css`: Your Tailwind entry — see Styling below.
+
+## Styling
+
+Two paths, freely mixed (ADR-0027 section M):
+
+- **Tailwind utility classes** in your components (`className="flex gap-2 text-2xl"`). At package time these compile from `src/styles/tailwind.css` into `assets/%SYSTEM_ID%.tailwind.css`, scoped under `.sdk-module--%SYSTEM_ID%`. In local dev the host scans your source directly, so utilities just work. Extend the entry with `@theme`, `@layer components { … @apply … }`, or `@font-face` as needed. (If your module uses no utilities at all, delete `src/styles/tailwind.css`.)
+- **Hand-authored CSS** in `assets/styles.css`, declared via `stylesheet` in `module/ui.tsx`. Use semantic class names; keep selectors under `.sdk-module--%SYSTEM_ID%` (the checker enforces this).
+
+The compiled Tailwind artifact and your declared stylesheets load as separate `<link>`s and compose via the cascade — they are never merged.
+
+## Getting Started
+
+1. Implement your adapter projections in the `src/logic/` directory.
+2. Build your actor sheet over `ActorSheetProps` in the `src/ui/` directory.
+3. Add system-specific server routes using `req.runtime` in the `src/server/` directory.
+4. Run `npm run module:check %SYSTEM_ID%` before packaging.
+
+Refer to the [Sheet Delver Module Manifest documentation](https://github.com/sheetdelver/sheet-delver/blob/main/docs/MODULE_MANIFEST.md) for detailed API usage and examples.
+
+Happy developing!

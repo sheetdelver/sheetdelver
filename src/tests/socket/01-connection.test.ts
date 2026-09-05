@@ -1,5 +1,5 @@
 import { CoreSocket } from '@core/foundry/sockets/CoreSocket';
-import { loadConfig } from '@core/config';
+import { loadSocketTestConfig } from './socket-test-runtime';
 
 /**
  * Test 1: Basic Connection and Authentication
@@ -8,10 +8,7 @@ import { loadConfig } from '@core/config';
 export async function testConnection() {
     logger.info('🧪 Test 1: Connection & Authentication\n');
 
-    const config = await loadConfig();
-    if (!config) {
-        throw new Error('Failed to load configuration');
-    }
+    const config = await loadSocketTestConfig();
 
     const client = new CoreSocket(config.foundry);
 

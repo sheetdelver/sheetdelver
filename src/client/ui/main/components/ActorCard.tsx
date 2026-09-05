@@ -1,8 +1,10 @@
 import React from 'react';
 import { Trash2 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import { Theme } from '../hooks/useTheme';
 import { useActorCombat } from '@client/ui/context/ActorCombatContext';
-import { ActorCardBlock } from '@shared/interfaces';
+import { useConfig } from '@client/ui/context/ConfigContext';
+import { ActorCardBlock } from '@shared/sdk';
 import type { ActorDto } from '@shared/contracts/actors';
 
 interface ActorCardProps {
@@ -10,6 +12,7 @@ interface ActorCardProps {
     index: number;
     theme: Theme;
     clickable?: boolean;
+    canDelete?: boolean;
     onDelete: (id: string, name: string) => void;
 }
 
@@ -18,10 +21,13 @@ export const ActorCard = ({
     index,
     theme,
     clickable = true,
+    canDelete = false,
     onDelete
 }: ActorCardProps) => {
 
+    const router = useRouter();
     const { actorCards } = useActorCombat();
+    const { resolveImageUrl } = useConfig();
     const actorId = actor.id || actor._id || '';
     const actorName = actor.name || 'Unknown Actor';
     const actorRecord = actor as Record<string, any>;
@@ -29,14 +35,15 @@ export const ActorCard = ({
 
     const handleClick = () => {
         if (!clickable || !actorId) return;
-        window.location.href = `/actors/${actorId}`;
+        // Keep actor drill-ins inside the Next player layout so the shared
+        // RealtimeProvider socket is not torn down on every page transition.
+        router.push(`/actors/${actorId}`);
     };
 
-    const activeAdapter = null; // No adapter in frontend per architectural goal
-
     const displayName = customData.name || actor.name;
-    const displayImg = customData.img || actor.img || '/icons/svg/mystery-man.svg';
+    const displayImg = resolveImageUrl(customData.img || actor.img || 'icons/svg/mystery-man.svg');
     const displaySubtext = customData.subtext || actor.type;
+    const deleteEnabled = canDelete && Boolean(actorId);
 
     return (
         <div
@@ -55,9 +62,7 @@ export const ActorCard = ({
                         src={displayImg}
                         alt={displayName}
                         className="w-16 h-16 rounded-lg bg-black/40 object-cover border border-white/10 group-hover:border-amber-500/30 transition-colors"
-                        onError={(e) => {
-                            (e.target as HTMLImageElement).src = '/icons/svg/mystery-man.svg';
-                        }}
+
                     />
                     {clickable && (
                         <div className="absolute inset-0 bg-amber-500/0 group-hover:bg-amber-500/5 transition-colors rounded-lg"></div>
@@ -67,10 +72,19 @@ export const ActorCard = ({
                     <button
                         onClick={(e) => {
                             e.stopPropagation();
+                            if (!deleteEnabled) return;
                             onDelete(actorId, actorName);
                         }}
-                        className="absolute -top-1 -right-1 p-2 rounded-lg bg-black/20 hover:bg-red-500/20 text-white/20 hover:text-red-500 backdrop-blur-md border border-white/5 hover:border-red-500/50 transition-all duration-300 group/delete z-10"
-                        title="Delete Character"
+                        disabled={!deleteEnabled}
+                        aria-label="Delete Character"
+                        className={`absolute -top-1 -right-1 p-2 rounded-lg bg-black/20 backdrop-blur-md border border-white/5 transition-all duration-300 group/delete z-10 ${deleteEnabled
+                            ? 'hover:bg-red-500/20 text-white/20 hover:text-red-500 hover:border-red-500/50'
+                            : 'text-white/10 cursor-not-allowed opacity-50'
+                        }`}
+                        title={deleteEnabled
+                            ? 'Delete Character'
+                            : 'Foundry requires an Assistant or Gamemaster role to delete characters'
+                        }
                     >
                         <Trash2 className="w-4 h-4 transition-transform group-hover/delete:scale-110" />
                     </button>
@@ -120,9 +134,9 @@ export const ActorCard = ({
                             </>
                         )}
                     </div>
-                    {customData.footer && (
+                    {!!customData.footer && (
                         <div className="mt-2 text-xs opacity-70 border-t border-white/10 pt-2">
-                            {customData.footer}
+                            {String(customData.footer)}
                         </div>
                     )}
                 </div>

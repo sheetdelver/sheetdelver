@@ -1,11 +1,7 @@
-import type { ActorServiceClientLike } from '@server/shared/types/actors';
-import type { UserSessionLike } from '@server/shared/types/foundry';
+import type { FoundryUserConnectionLike } from '@server/shared/types/foundry';
+import { createSessionRouteFoundryClient } from '@server/shared/utils/createRouteFoundryClient';
 
-type DebugSession = UserSessionLike & {
-    client: ActorServiceClientLike;
-};
-
-type GetOrRestoreSession = (token: string) => Promise<DebugSession | undefined>;
+type GetOrRestoreSession = (token: string) => Promise<FoundryUserConnectionLike | undefined>;
 
 interface DebugServiceDeps {
     getOrRestoreSession: GetOrRestoreSession;
@@ -28,7 +24,7 @@ export function createDebugService(deps: DebugServiceDeps) {
             throw err;
         }
 
-        return session.client.getActor(actorId);
+        return createSessionRouteFoundryClient(session.client, session.username).getActor(actorId);
     };
 
     return {
