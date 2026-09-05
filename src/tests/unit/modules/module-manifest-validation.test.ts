@@ -1,8 +1,13 @@
 import { strict as assert } from 'node:assert';
 import { evaluateModuleCompatibility, validateModuleInfoShape } from '@modules/registry/validation';
+import { getCoreContractRegistry } from '@modules/registry/security/contractRegistry';
+import { API_CONTRACT_VERSIONS } from '@shared/sdk';
 import type { SystemModuleInfo } from '@modules/registry/types';
 
 export function run() {
+    // Lifecycle validation and the public SDK must advertise one canonical map.
+    assert.deepEqual(getCoreContractRegistry(), API_CONTRACT_VERSIONS);
+
     const validManifest: SystemModuleInfo = {
         id: 'shadowdark',
         title: 'Shadowdark RPG',
@@ -114,7 +119,7 @@ export function run() {
         compatibility: {
             apiContracts: {
                 'module-api': '>=1.0.0 <2.0.0',
-                'ui-extension-api': '=1.0.0',
+                'ui-extension-api': '=1.1.0',
             },
         },
     }, '0.7.0');

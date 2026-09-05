@@ -104,10 +104,4 @@ export type { SdkCapability } from './capabilities';
 // Version constants — matched against info.json compatibility.apiContracts
 // ---------------------------------------------------------------------------
 
-export const SDK_VERSION = '1.0.0';
-
-export const API_CONTRACT_VERSIONS = {
-    'module-api': '1.0.0',
-    'ui-extension-api': '1.0.0',
-    'roll-engine-api': '1.0.0',
-} as const;
+export { SDK_VERSION, API_CONTRACT_VERSIONS } from './contractVersions';

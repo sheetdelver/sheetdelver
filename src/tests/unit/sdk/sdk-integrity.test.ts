@@ -387,15 +387,15 @@ function runClientSdkTests() {
 // ---------------------------------------------------------------------------
 
 function runVersionTests() {
-    assert.equal(typeof SDK_VERSION, 'string');
-    assert.ok(SDK_VERSION.length > 0);
-    assert.ok('module-api' in API_CONTRACT_VERSIONS);
-    assert.ok('ui-extension-api' in API_CONTRACT_VERSIONS);
-    assert.ok('roll-engine-api' in API_CONTRACT_VERSIONS);
+    assert.equal(SDK_VERSION, '1.1.0');
+    assert.equal(API_CONTRACT_VERSIONS['module-api'], '1.0.0');
+    assert.equal(API_CONTRACT_VERSIONS['ui-extension-api'], '1.1.0');
+    assert.equal(API_CONTRACT_VERSIONS['roll-engine-api'], '1.0.0');
 
     // Capability detection (decision 23)
     assert.equal(capabilities.supports('combat'), true);
     assert.equal(capabilities.supports('documents'), true);
+    assert.equal(capabilities.supports('navigation'), true);
     assert.equal(capabilities.supports('events'), true);
     assert.equal(capabilities.supports('nonexistent-capability'), false);
     assert.ok(capabilities.list().includes('rolls'));

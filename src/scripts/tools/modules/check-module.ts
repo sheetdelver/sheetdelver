@@ -83,6 +83,7 @@ export type ModuleCheckIssueKind =
     | 'compatibility'
     | 'import-boundary'
     | 'logging'
+    | 'navigation'
     | 'typecheck'
     | 'bundle'
     | 'style-scope'
@@ -320,6 +321,33 @@ function checkLoggingDiscipline(ctx: CheckContext): void {
     }
 
     if (issueCount === 0) pass(ctx, `logging discipline clean (${files.length} source files scanned)`);
+}
+
+// Internal module navigation must stay on the host router so application providers
+// and their realtime transports survive route changes. External destinations belong
+// in ordinary links and must not be sent through this application-navigation API.
+const HARD_INTERNAL_NAVIGATION = /\bwindow\s*\.\s*location\s*(?:\.\s*href\s*=|\.\s*(?:assign|replace)\s*\()/;
+
+function checkNavigationDiscipline(ctx: CheckContext): void {
+    const files = collectUiBundleFiles(ctx);
+    let issueCount = 0;
+
+    for (const filePath of files) {
+        if (isTestFile(filePath)) continue;
+        const source = stripComments(fs.readFileSync(filePath, 'utf8'));
+        source.split('\n').forEach((line, idx) => {
+            if (!HARD_INTERNAL_NAVIGATION.test(line)) return;
+            fail(
+                ctx,
+                'navigation',
+                `${path.relative(ctx.modulePath, filePath)}:${idx + 1} performs hard browser navigation`,
+                'Use navigate() or replace() from useSDK(); internal routes must preserve the host application shell.',
+            );
+            issueCount += 1;
+        });
+    }
+
+    if (issueCount === 0) pass(ctx, `navigation boundary clean (${files.size} UI source files scanned)`);
 }
 
 function walkCssFiles(root: string): string[] {
@@ -755,6 +783,7 @@ export async function checkModule(moduleId: string, options: ModuleCheckOptions 
     checkCompatibility(ctx);
     checkImportBoundaries(ctx);
     checkLoggingDiscipline(ctx);
+    checkNavigationDiscipline(ctx);
     checkStyleScoping(ctx);
     checkStaticCssAssets(ctx);
     checkTypeScript(ctx);

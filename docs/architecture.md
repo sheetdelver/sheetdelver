@@ -141,6 +141,18 @@ External modules consume the platform via the public SDK entry points in `src/sh
 - React hooks from `@sheet-delver/sdk/react`
 - Server route helpers and user-bound request runtime services from `@sheet-delver/sdk/server`
 
+SDK compatibility is versioned independently from the Sheet Delver application
+release and from individual module releases. The canonical runtime values live
+in `src/shared/sdk/contractVersions.ts`:
+
+- `SDK_VERSION` identifies the aggregate public SDK.
+- `module-api` versions server runtime and route contracts.
+- `ui-extension-api` versions React and client extension contracts.
+- `roll-engine-api` versions roll-engine contracts.
+
+The public SDK barrel re-exports these values. Lifecycle compatibility
+validation consumes the same canonical map, preventing registry/SDK drift.
+
 See `docs/MODULE_MANIFEST.md` for the full module authoring reference.
 
 ---

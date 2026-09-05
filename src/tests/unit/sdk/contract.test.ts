@@ -80,8 +80,21 @@ function runRealtimeContract() {
     assert.deepEqual(seen, [{ type: 'Actor', id: 'a1' }]);
 }
 
+function runNavigationContract() {
+    const seen: string[] = [];
+    const context = createMockSdkContext({
+        overrides: {
+            navigate: (target) => seen.push(`push:${target}`),
+            replace: (target) => seen.push(`replace:${target}`),
+        },
+    });
+    context.navigate('/tools/mock/generator');
+    context.replace('/actors/a1');
+    assert.deepEqual(seen, ['push:/tools/mock/generator', 'replace:/actors/a1']);
+}
+
 function runCapabilityContract() {
-    for (const cap of ['documents', 'rolls', 'compendium', 'settings', 'assets', 'events'] as const) {
+    for (const cap of ['documents', 'rolls', 'compendium', 'settings', 'assets', 'navigation', 'events'] as const) {
         assert.equal(capabilities.supports(cap), true, `capability ${cap} supported`);
     }
 }
@@ -90,6 +103,7 @@ export async function run() {
     await runServerRuntimeContract();
     runRenderSheetContract();
     runRealtimeContract();
+    runNavigationContract();
     runCapabilityContract();
     console.log('  - SDK contract (mock host + fixture module): all checks passed');
 }

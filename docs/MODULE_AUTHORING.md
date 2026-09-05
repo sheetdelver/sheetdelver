@@ -112,6 +112,20 @@ Do not import from Sheet Delver internals such as `@shared/*`, `@client/*`, `@se
 
 Keep `id` aligned with the Foundry system id. The manifest paths are relative to the module root.
 
+The module `version` and API contract ranges describe different things.
+`version` is the module's own release. Each
+`compatibility.apiContracts` entry declares which host contract versions the
+module can consume. Declare only ranges the module actually supports, and raise
+the minimum version when adopting a newly added SDK method.
+
+Contract versions follow semantic versioning: patches preserve the public
+shape, minors add backward-compatible behavior, and majors may break existing
+consumers. They are independent of the Sheet Delver application version and the
+module version. The host's canonical values are maintained in
+`src/shared/sdk/contractVersions.ts` and exposed publicly through
+`SDK_VERSION` and `API_CONTRACT_VERSIONS` from `@sheet-delver/sdk`;
+modules must not import the host's internal source file.
+
 ## Adapter
 
 The logic entry exports an adapter class. Override only the methods the system needs.
@@ -202,6 +216,24 @@ const { assetUrl } = useSDK();
 ```
 
 `assetUrl(path)` is bound to the current module's id; outside a component, `buildModuleAssetUrl(moduleId, path)` from `@sheet-delver/sdk` produces the same `/api/modules/<id>/assets/<path>` URL. The module's declared `stylesheet` is injected by the platform via that same route. Core serves assets from the registry-selected source, so local development cannot accidentally borrow files from an older managed package. Author CSS scoped under the surface root (`.sdk-module--<id>`); the checker fails on global selector leaks, remote runtime CSS/font dependencies, and missing or escaping asset references. Self-host runtime CSS dependencies beneath `assets/`.
+
+### Internal navigation
+
+Module UI must use the host-owned router for Sheet Delver routes. This preserves
+the application shell, SDK providers, and realtime connection across navigation:
+
+```tsx
+const { navigate, replace } = useSDK();
+
+navigate('/tools/my-system/generator'); // add browser history
+replace('/');                            // redirect without a stale back entry
+```
+
+Targets must be root-relative paths on the current Sheet Delver origin. Use a
+normal anchor for an external destination. Do not assign `window.location.href`
+or call `window.location.assign()` / `replace()` for internal routes;
+`module:check` rejects those hard-navigation forms. Modules using this surface
+must require `ui-extension-api: ">=1.1.0 <2.0.0"` in `info.json`.
 
 ## Server Routes
 

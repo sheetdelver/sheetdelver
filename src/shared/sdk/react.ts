@@ -43,6 +43,11 @@ export interface SDKContextValue {
     /** Resolve a module static asset to its platform URL (ADR-0027 decision 27). */
     assetUrl: (assetPath: string) => string;
 
+    // Host-owned application navigation. Targets are root-relative Sheet Delver
+    // routes; modules do not import the host framework or hard-reload the page.
+    navigate: (target: string) => void;
+    replace: (target: string) => void;
+
     // Notifications
     addNotification: (
         message: string,

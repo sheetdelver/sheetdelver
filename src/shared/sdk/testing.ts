@@ -213,6 +213,8 @@ export function createMockSdkContext(opts: MockSdkContextOptions = {}): SDKConte
         foundryUrl: opts.foundryUrl ?? 'http://localhost:30000',
         resolveImageUrl: (p) => p,
         assetUrl: (p) => buildModuleAssetUrl(moduleId, p),
+        navigate: () => {},
+        replace: () => {},
         addNotification: () => {},
         isDiceTrayOpen: false,
         toggleDiceTray: () => {},

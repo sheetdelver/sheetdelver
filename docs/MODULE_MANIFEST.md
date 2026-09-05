@@ -170,6 +170,16 @@ is compiled by `module:package` into the reserved artifact
 }
 ```
 
+`version` is the module release and is independent from
+`compatibility.coreVersion` and the named API contract ranges. Contract
+versions use semantic versioning per surface: patch releases preserve the
+contract, minor releases add backward-compatible capabilities, and major
+releases may break consumers. A module that adopts a new capability must raise
+the corresponding minimum range. The host keeps one authoritative contract map
+in `src/shared/sdk/contractVersions.ts`, re-exported by
+`@sheet-delver/sdk`; module manifests declare compatible ranges rather than
+copying the host's current version as an exact requirement.
+
 | Field | Required | Description |
 |---|---|---|
 | `id` | Yes | Lowercase system identifier. It should match Foundry's system id. |
@@ -659,3 +669,6 @@ works.
 9. Resolve images with `resolveImage(path, foundryUrl)` or
    `useSDK().resolveImageUrl(path)`.
 10. Run `npm run module:check <systemId>` before packaging.
+11. Use `useSDK().navigate()` / `replace()` for internal application routes;
+    modules using these UI-extension 1.1 methods must declare
+    `ui-extension-api: ">=1.1.0 <2.0.0"`.

@@ -61,6 +61,42 @@ The registry (`src/modules/registry/core/server.ts`) scans these directories at 
 See `docs/MODULE_MANIFEST.md` for the full authoring reference including SDK surface, module runtime services, compendium pack configuration, and build setup.
 For the shorter end-to-end workflow, see [Module Authoring Guide](MODULE_AUTHORING.md).
 
+## SDK and Contract Versioning
+
+Sheet Delver maintains four independent version domains:
+
+- The root `package.json` version is the Sheet Delver application release.
+- A module's `info.json.version` is that module's release.
+- `SDK_VERSION` identifies the aggregate public SDK surface.
+- Each entry in `API_CONTRACT_VERSIONS` identifies one named compatibility
+  surface: `module-api`, `ui-extension-api`, or `roll-engine-api`.
+
+`src/shared/sdk/contractVersions.ts` is the sole runtime authority for SDK and
+named contract versions. The public `@sheet-delver/sdk` barrel re-exports those
+values, and the module lifecycle registry consumes the same object. Do not add
+version literals to registry or runtime code. Test fixtures and documentation
+examples may contain versions, but they are not authoritative.
+
+Use semantic versioning for each affected surface:
+
+- Patch: implementation corrections that preserve the public contract.
+- Minor: backward-compatible additions.
+- Major: removals, incompatible signatures, or changed required behavior.
+
+Only advance contracts affected by a change. For example, adding a React SDK
+navigation method advances `ui-extension-api`, but does not advance
+`module-api` or `roll-engine-api`. Advance `SDK_VERSION` whenever the
+aggregate public SDK changes.
+
+When changing a contract:
+
+1. Update `src/shared/sdk/contractVersions.ts`.
+2. Update the minimum range in every module that adopts the new surface.
+3. Update module-facing documentation and scaffold defaults when the baseline
+   for newly generated modules changes.
+4. Run SDK integrity, compatibility, module checker, and package/build tests.
+5. Do not derive SDK versions from the root application `package.json`.
+
 ## Adding a New System
 
 Use the scaffolded module workflow:

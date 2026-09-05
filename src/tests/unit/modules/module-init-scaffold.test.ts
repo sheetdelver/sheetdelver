@@ -101,6 +101,21 @@ export async function run() {
     assert.ok(assetFailure, invalidAssetResult.failures.map((issue) => issue.message).join('\n'));
     fs.writeFileSync(path.join(modulePath, 'assets', 'styles.css'), stylesSource, 'utf8');
 
+    // A hard internal navigation tears down the host providers and proxied
+    // realtime socket. Modules must use the host-owned SDK router instead.
+    fs.writeFileSync(
+        sheetPath,
+        sheetSource.replace('return (', `window.location.href = '/tools/sdk-check-test/generator';\n    return (`),
+        'utf8',
+    );
+    const hardNavigationResult = await checkModule(moduleId, { dataDir: testDataDir, silent: true });
+    const navigationFailure = hardNavigationResult.failures.find((issue) =>
+        issue.kind === 'navigation'
+        && issue.message.includes('performs hard browser navigation')
+    );
+    assert.ok(navigationFailure, hardNavigationResult.failures.map((issue) => issue.message).join('\n'));
+    fs.writeFileSync(sheetPath, sheetSource, 'utf8');
+
     // A plain TypeScript helper becomes UI-side when the declared UI entry imports it.
     // The checker must reject server-only SDK imports anywhere in that browser graph.
     const helpersDir = path.join(modulePath, 'src', 'helpers');

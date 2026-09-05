@@ -16,6 +16,7 @@ export const SDK_CAPABILITIES = [
     'combat',      // Combat is a primary document (document:changed { type: 'Combat' })
     'settings',    // useModuleSettings
     'assets',      // assetUrl()
+    'navigation',  // navigate() / replace()
     'events',      // SDK.events signal bus
 ] as const;
 

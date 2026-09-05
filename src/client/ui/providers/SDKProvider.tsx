@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useMemo, useCallback, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { SDKContext, SDKComponentsContext } from '@shared/sdk/react';
 import { useFoundry } from '@client/ui/context/FoundryContext';
 import { useUI } from '@client/ui/context/UIContext';
@@ -20,6 +21,19 @@ import type { SdkEvents } from '@shared/sdk/events';
 import { buildModuleAssetUrl, setModuleLogSink } from '@shared/sdk';
 import { logger as platformLogger } from '@shared/utils/logger';
 
+/** Keep module navigation inside the current Sheet Delver origin. */
+function resolveInternalNavigationTarget(target: string): string | null {
+    if (typeof window === 'undefined' || !target.startsWith('/') || target.startsWith('//')) return null;
+
+    try {
+        const resolved = new URL(target, window.location.origin);
+        if (resolved.origin !== window.location.origin) return null;
+        return `${resolved.pathname}${resolved.search}${resolved.hash}`;
+    } catch {
+        return null;
+    }
+}
+
 /**
  * SDKProvider bridges the platform's internal contexts and components into
  * the stable SDK surface that external modules consume via useSDK() and
@@ -29,6 +43,7 @@ import { logger as platformLogger } from '@shared/utils/logger';
  * surfaces that resolve a specific module pass it explicitly (ADR-0027 decision 19).
  */
 export function SDKProvider({ children, moduleId }: { children: React.ReactNode; moduleId?: string }) {
+    const router = useRouter();
     const { token, currentUser, system, worldId, step, appSocket } = useFoundry();
     const { isDiceTrayOpen, toggleDiceTray, isChatOpen, setChatOpen } = useUI();
     const { foundryUrl, resolveImageUrl } = useConfig();
@@ -96,6 +111,24 @@ export function SDKProvider({ children, moduleId }: { children: React.ReactNode;
         [resolvedModuleId],
     );
 
+    const navigate = useCallback((target: string) => {
+        const resolved = resolveInternalNavigationTarget(target);
+        if (!resolved) {
+            platformLogger.warn(`[SDK] Rejected non-internal navigation target: ${target}`);
+            return;
+        }
+        router.push(resolved);
+    }, [router]);
+
+    const replace = useCallback((target: string) => {
+        const resolved = resolveInternalNavigationTarget(target);
+        if (!resolved) {
+            platformLogger.warn(`[SDK] Rejected non-internal replacement target: ${target}`);
+            return;
+        }
+        router.replace(resolved);
+    }, [router]);
+
     const logger = useMemo(() => ({
         debug: (...args: unknown[]) => platformLogger.debug('[module]', ...args),
         info:  (...args: unknown[]) => platformLogger.info('[module]',  ...args),
@@ -132,6 +165,8 @@ export function SDKProvider({ children, moduleId }: { children: React.ReactNode;
         foundryUrl:     foundryUrl ?? '',
         resolveImageUrl,
         assetUrl,
+        navigate,
+        replace,
         addNotification,
         isDiceTrayOpen,
         toggleDiceTray,
@@ -143,7 +178,7 @@ export function SDKProvider({ children, moduleId }: { children: React.ReactNode;
     }), [
         token, currentUser, system, isConnected,
         resolvedModuleId, worldId, documents,
-        foundryUrl, resolveImageUrl, assetUrl, addNotification,
+        foundryUrl, resolveImageUrl, assetUrl, navigate, replace, addNotification,
         isDiceTrayOpen, toggleDiceTray, isChatOpen, setChatOpen,
         fetchWithAuth, eventsPublic, logger,
     ]);
