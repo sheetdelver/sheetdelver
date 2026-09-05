@@ -404,6 +404,106 @@ function checkStyleScoping(ctx: CheckContext): void {
     }
 }
 
+function extractCssUrls(value: string): string[] {
+    const urls: string[] = [];
+    const urlPattern = /url\(\s*(?:"([^"]*)"|'([^']*)'|([^)]*))\s*\)/gi;
+    let match: RegExpExecArray | null;
+    while ((match = urlPattern.exec(value)) !== null) {
+        urls.push((match[1] ?? match[2] ?? match[3] ?? '').trim());
+    }
+    return urls;
+}
+
+function isPathInside(root: string, candidate: string): boolean {
+    const relative = path.relative(root, candidate);
+    return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative));
+}
+
+/**
+ * Validate dependencies used by hand-authored CSS that is copied directly into a
+ * managed package. Build-time CSS imports elsewhere in the source tree are handled
+ * by the Tailwind compiler check instead.
+ */
+function checkStaticCssAssets(ctx: CheckContext): void {
+    const assetsRoot = path.join(ctx.modulePath, 'assets');
+    const cssFiles = walkCssFiles(assetsRoot);
+    if (cssFiles.length === 0) return;
+
+    const issues: string[] = [];
+    let referenceCount = 0;
+
+    const validateReference = (file: string, rawReference: string): void => {
+        const reference = rawReference.trim();
+        if (!reference || reference.startsWith('#') || /^(?:data|blob):/i.test(reference)) return;
+        referenceCount += 1;
+
+        const rel = path.relative(ctx.modulePath, file);
+        if (/^(?:https?:)?\/\//i.test(reference)) {
+            issues.push(`${rel}: remote dependency "${reference}"`);
+            return;
+        }
+
+        const withoutSuffix = reference.split(/[?#]/, 1)[0];
+        const assetRoutePrefix = `/api/modules/${ctx.moduleId}/assets/`;
+        let candidate: string;
+        if (withoutSuffix.startsWith('/')) {
+            if (!withoutSuffix.startsWith(assetRoutePrefix)) {
+                issues.push(`${rel}: non-module root path "${reference}"`);
+                return;
+            }
+            candidate = path.resolve(assetsRoot, withoutSuffix.slice(assetRoutePrefix.length));
+        } else {
+            candidate = path.resolve(path.dirname(file), withoutSuffix);
+        }
+
+        if (!isPathInside(assetsRoot, candidate)) {
+            issues.push(`${rel}: asset path escapes assets/ ("${reference}")`);
+            return;
+        }
+
+        try {
+            if (!fs.statSync(candidate).isFile()) throw new Error('not a file');
+        } catch {
+            issues.push(`${rel}: referenced asset is missing ("${reference}")`);
+        }
+    };
+
+    for (const file of cssFiles) {
+        let root: postcss.Root;
+        try {
+            root = postcss.parse(fs.readFileSync(file, 'utf8'), { from: file });
+        } catch {
+            // Style scoping reports the parse failure with its parser diagnostics.
+            continue;
+        }
+
+        root.walkAtRules('import', (rule) => {
+            const urls = extractCssUrls(rule.params);
+            if (urls.length > 0) {
+                urls.forEach((url) => validateReference(file, url));
+                return;
+            }
+            const quoted = rule.params.trim().match(/^(?:"([^"]+)"|'([^']+)')/);
+            if (quoted) validateReference(file, quoted[1] ?? quoted[2]);
+        });
+        root.walkDecls((declaration) => {
+            extractCssUrls(declaration.value).forEach((url) => validateReference(file, url));
+        });
+    }
+
+    if (issues.length > 0) {
+        const sample = issues.slice(0, 6).join('; ') + (issues.length > 6 ? ` … (+${issues.length - 6} more)` : '');
+        fail(
+            ctx,
+            'package',
+            `module CSS has ${issues.length} unpackageable asset reference(s)`,
+            `Self-host runtime assets beneath assets/ and reference them relatively or through the module asset API. Issues: ${sample}`,
+        );
+    } else {
+        pass(ctx, `module CSS asset references packageable (${referenceCount} reference(s))`);
+    }
+}
+
 function checkPackageIncludes(ctx: CheckContext): void {
     const includes = ctx.info.package?.include ?? [];
     let issueCount = 0;
@@ -656,6 +756,7 @@ export async function checkModule(moduleId: string, options: ModuleCheckOptions 
     checkImportBoundaries(ctx);
     checkLoggingDiscipline(ctx);
     checkStyleScoping(ctx);
+    checkStaticCssAssets(ctx);
     checkTypeScript(ctx);
     await checkTailwind(ctx);
     await dryBundle(ctx);

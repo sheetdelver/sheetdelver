@@ -13,6 +13,7 @@ import {
     parseModuleUiHealthSource,
     sanitizeModuleUiHealthText,
 } from '@server/security/moduleUiHealthPolicy';
+import { ModuleSourceCategory } from '@shared/types/modules';
 import {
     readWildcardPath,
     resolveConfinedDirectory,
@@ -22,19 +23,27 @@ import {
 
 interface ModuleRouterDeps {
     tryAuthenticateSession: express.RequestHandler;
+    /** Test seam for proving source-aware asset routing without mutating registry state. */
+    getModuleAssetSource?: (moduleId: string) => ModuleSourceCategory | undefined;
 }
 
 /**
- * Resolve a module's base directory, checking installed modules first
- * (`<DATA_DIR>/modules/<id>`) then local-dev modules (`<DATA_DIR>/local/modules/<id>`).
- * Per ADR-0027 decision 27, the asset URL must resolve identically in dev and packaged.
+ * Resolve only the registry-selected source. Falling through to the other source
+ * can combine one module's code with another version's assets.
  */
-function resolveModuleBaseDir(moduleId: string): string | null {
-    for (const root of [getModulesDataDir(), getLocalModulesDataDir()]) {
-        const candidate = resolveModuleDirectory(root, moduleId);
-        if (candidate) return candidate;
-    }
-    return null;
+function resolveModuleBaseDir(moduleId: string, source: ModuleSourceCategory | undefined): string | null {
+    const root = source === ModuleSourceCategory.Local
+        ? getLocalModulesDataDir()
+        : source === ModuleSourceCategory.Managed
+            ? getModulesDataDir()
+            : null;
+    return root ? resolveModuleDirectory(root, moduleId) : null;
+}
+
+function getEnabledModuleAssetSource(moduleId: string): ModuleSourceCategory | undefined {
+    const lifecycle = getModuleLifecycleState().find((record) => record.moduleId === moduleId);
+    // Disabled or undiscovered modules must not expose an inactive source as a fallback.
+    return lifecycle?.enabled ? lifecycle.activeSource : undefined;
 }
 
 function recordModuleUiFailure(moduleId: string, message: string, source?: string): void {
@@ -49,6 +58,7 @@ export function createModuleRouter(deps: ModuleRouterDeps) {
     // Mounted before the global auth middleware to allow module-specific permissive routes
     const moduleRouter = express.Router();
     const uiHealthLimiter = new ModuleUiHealthRateLimiter();
+    const getModuleAssetSource = deps.getModuleAssetSource ?? getEnabledModuleAssetSource;
     moduleRouter.use(deps.tryAuthenticateSession);
 
     /**
@@ -176,10 +186,10 @@ export function createModuleRouter(deps: ModuleRouterDeps) {
     /**
      * GET /api/modules/:id/assets/*
      *
-     * Serves static assets for a module from its `assets/` directory, resolving both
-     * installed (<DATA_DIR>/modules/:id) and local-dev (<DATA_DIR>/local/modules/:id)
-     * modules so `assetUrl()` resolves identically in dev and packaged (ADR-0027
-     * decision 27). Includes path traversal protection.
+     * Serves static assets from the registry-selected source. The URL remains identical
+     * for local development and managed packages (ADR-0027 decision 27), while source
+     * selection prevents code from one version being paired with another version's assets.
+     * Includes path traversal protection.
      */
     moduleRouter.get('/:id/assets/{*assetPath}', async (req, res) => {
         const moduleId = parseModuleId(req.params.id);
@@ -191,7 +201,7 @@ export function createModuleRouter(deps: ModuleRouterDeps) {
             return res.status(400).json({ error: 'Invalid asset path', code: 'invalid-asset-path' });
         }
 
-        const baseDir = resolveModuleBaseDir(moduleId);
+        const baseDir = resolveModuleBaseDir(moduleId, getModuleAssetSource(moduleId));
 
         if (!baseDir) {
             return res.status(404).json({ error: `Module "${moduleId}" not found` });

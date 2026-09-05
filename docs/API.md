@@ -280,8 +280,10 @@ server-side session/module each minute.
 
 Auth: none.
 
-Serves files from a module's `assets/` directory. The route resolves both local
-dev and managed module roots using the configured data directory.
+Serves files from the enabled module's `assets/` directory. Core resolves the
+registry-selected source, so local development and managed packages use the same
+URL without mixing files between source versions. Disabled or inactive sources
+are not used as fallbacks.
 
 ---
 

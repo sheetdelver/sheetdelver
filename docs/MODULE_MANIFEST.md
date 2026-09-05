@@ -541,8 +541,10 @@ It checks:
 4. SDK import boundaries. Module code imports public SDK entry points only.
 5. Logger discipline. Module code uses SDK/platform loggers instead of `console.*`.
 6. TypeScript with the module's `tsconfig.json`, when present.
-7. Tailwind setup and CSS scope safety.
-8. Dry esbuild bundles using the same externals and loaders as packaging.
+7. Tailwind setup, CSS scope safety, and packageable static CSS dependencies.
+8. Static CSS under `assets/` does not use remote HTTP(S) dependencies and every
+   local or module-asset-API reference resolves beneath `assets/`.
+9. Dry esbuild bundles using the same externals and loaders as packaging.
 
 When it finds legacy imports, it prints migration hints such as:
 

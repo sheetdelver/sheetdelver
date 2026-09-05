@@ -1,4 +1,5 @@
 import { strict as assert } from 'node:assert';
+import fs from 'node:fs';
 import path from 'node:path';
 import type { RequestHandler } from 'express';
 import { registerSystemRoutes } from '@server/routes/protected/registerSystemRoutes';
@@ -8,7 +9,13 @@ import { registerAdminWorldRoutes } from '@server/routes/admin/registerAdminWorl
 import { registerAdminModuleRoutes } from '@server/routes/admin/registerAdminModuleRoutes';
 import { createModuleRouter } from '@server/routes/modules/createModuleRouter';
 import { worldStateStore } from '@server/core/world/WorldStateStore';
-import { getDataDir, initDataDir, resolveDataDir } from '@server/core/paths';
+import {
+    getDataDir,
+    getLocalModulesDataDir,
+    getModulesDataDir,
+    initDataDir,
+    resolveDataDir,
+} from '@server/core/paths';
 import { ModuleSourceCategory } from '@shared/types/modules';
 import {
     REMOTE_MODULE_DISTRIBUTION_ERROR_CODE,
@@ -341,6 +348,44 @@ async function runModuleRouterSmokeTests() {
         error: 'Authentication required',
         code: 'authentication-required',
     });
+
+    const moduleId = 'asset-source-test';
+    const managedModuleDir = path.join(getModulesDataDir(), moduleId);
+    const localModuleDir = path.join(getLocalModulesDataDir(), moduleId);
+    const assetRelativePath = path.join('assets', 'theme.css');
+
+    try {
+        // Both copies intentionally contain the same URL so this catches the old
+        // managed-first behavior when the registry has selected local development.
+        fs.mkdirSync(path.dirname(path.join(managedModuleDir, assetRelativePath)), { recursive: true });
+        fs.mkdirSync(path.dirname(path.join(localModuleDir, assetRelativePath)), { recursive: true });
+        fs.writeFileSync(path.join(managedModuleDir, assetRelativePath), '/* managed */', 'utf8');
+        fs.writeFileSync(path.join(localModuleDir, assetRelativePath), '/* local */', 'utf8');
+
+        const invokeAssetRoute = async (source: ModuleSourceCategory | undefined) => {
+            const sourceRouter = createModuleRouter({
+                tryAuthenticateSession: ((_req, _res, next) => next()) as RequestHandler,
+                getModuleAssetSource: () => source,
+            }) as any;
+            const handler = getExpressRouteHandler(sourceRouter, '/:id/assets/{*assetPath}', 'get');
+            const response = createResponseStub();
+            await handler({ params: { id: moduleId, assetPath: ['theme.css'] } } as any, response, (() => undefined) as any);
+            return response;
+        };
+
+        const localAsset = await invokeAssetRoute(ModuleSourceCategory.Local);
+        assert.equal(localAsset.filePath, fs.realpathSync(path.join(localModuleDir, assetRelativePath)));
+
+        const managedAsset = await invokeAssetRoute(ModuleSourceCategory.Managed);
+        assert.equal(managedAsset.filePath, fs.realpathSync(path.join(managedModuleDir, assetRelativePath)));
+
+        const inactiveAsset = await invokeAssetRoute(undefined);
+        assert.equal(inactiveAsset.statusCode, 404);
+        assert.deepEqual(inactiveAsset.payload, { error: `Module "${moduleId}" not found` });
+    } finally {
+        fs.rmSync(managedModuleDir, { recursive: true, force: true });
+        fs.rmSync(localModuleDir, { recursive: true, force: true });
+    }
 }
 
 export async function run() {

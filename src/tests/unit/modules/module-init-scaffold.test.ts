@@ -87,6 +87,20 @@ export async function run() {
     assert.ok(result.passes.includes('logic entry exports Adapter'));
     assert.ok(result.passes.includes('server entry exports apiRoutes'));
 
+    // Static CSS is copied into managed artifacts without a rewrite. The package
+    // checker must reject dependencies that would disappear or violate host CSP.
+    const stylesWithInvalidAssets = `${stylesSource}\n@import url("https://fonts.example.invalid/module.css");\n@font-face { font-family: "Missing"; src: url("./fonts/missing.woff2"); }\n`;
+    fs.writeFileSync(path.join(modulePath, 'assets', 'styles.css'), stylesWithInvalidAssets, 'utf8');
+    const invalidAssetResult = await checkModule(moduleId, { dataDir: testDataDir, silent: true });
+    const assetFailure = invalidAssetResult.failures.find((issue) =>
+        issue.kind === 'package'
+        && issue.message.includes('unpackageable asset reference')
+        && issue.hint?.includes('remote dependency')
+        && issue.hint.includes('referenced asset is missing')
+    );
+    assert.ok(assetFailure, invalidAssetResult.failures.map((issue) => issue.message).join('\n'));
+    fs.writeFileSync(path.join(modulePath, 'assets', 'styles.css'), stylesSource, 'utf8');
+
     // A plain TypeScript helper becomes UI-side when the declared UI entry imports it.
     // The checker must reject server-only SDK imports anywhere in that browser graph.
     const helpersDir = path.join(modulePath, 'src', 'helpers');

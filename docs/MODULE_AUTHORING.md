@@ -201,7 +201,7 @@ const { assetUrl } = useSDK();
 <div style={{ backgroundImage: `url(${assetUrl('grunge.png')})` }} />
 ```
 
-`assetUrl(path)` is bound to the current module's id; outside a component, `buildModuleAssetUrl(moduleId, path)` from `@sheet-delver/sdk` produces the same `/api/modules/<id>/assets/<path>` URL. The module's declared `stylesheet` is injected by the platform via that same route. Author CSS scoped under the surface root (`.sdk-module--<id>`); the checker fails on global selector leaks.
+`assetUrl(path)` is bound to the current module's id; outside a component, `buildModuleAssetUrl(moduleId, path)` from `@sheet-delver/sdk` produces the same `/api/modules/<id>/assets/<path>` URL. The module's declared `stylesheet` is injected by the platform via that same route. Core serves assets from the registry-selected source, so local development cannot accidentally borrow files from an older managed package. Author CSS scoped under the surface root (`.sdk-module--<id>`); the checker fails on global selector leaks, remote runtime CSS/font dependencies, and missing or escaping asset references. Self-host runtime CSS dependencies beneath `assets/`.
 
 ## Server Routes
 
@@ -249,6 +249,7 @@ The checker validates:
 | Entry resolution | Missing logic, UI, or server entry files. |
 | Export shape | Missing adapter, UI manifest, or server route exports. |
 | SDK boundaries | Internal platform imports that should move to `@sheet-delver/sdk`. |
+| Static CSS assets | Remote runtime dependencies and missing, escaping, or non-module asset paths. |
 | TypeScript | Type errors in the module source. |
 | Dry bundle | Packaging failures before creating an archive. |
 
