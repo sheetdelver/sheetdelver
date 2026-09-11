@@ -88,6 +88,22 @@ function updateSourceState(
     };
 }
 
+function disableInactiveSource(record: ModuleLifecycleRecord, activeSource: ModuleSourceCategory): void {
+    const inactiveSource = activeSource === ModuleSourceCategory.Local
+        ? ModuleSourceCategory.Managed
+        : ModuleSourceCategory.Local;
+    if (inactiveSource === ModuleSourceCategory.Local) record.localEnabled = false;
+    else record.managedEnabled = false;
+
+    if (record.sourceStates?.[inactiveSource]) {
+        updateSourceState(record, inactiveSource, {
+            status: ModuleLifecycleStatus.Disabled,
+            enabled: false,
+            reason: 'Inactive module source',
+        });
+    }
+}
+
 function markActiveSourceBlocked(record: ModuleLifecycleRecord, block: SourceBlock): void {
     // A failed enable of the active source should leave both the top-level record
     // and its source card in the same blocked state.
@@ -134,27 +150,24 @@ export function switchModuleSource(moduleId: string, source: ModuleSourceCategor
         return { success: false, error: targetBlock.reason };
     }
 
-    // Persist the current enabled state for the source we're leaving
-    if (record.activeSource === ModuleSourceCategory.Local) {
-        record.localEnabled = record.enabled;
-    } else {
-        record.managedEnabled = record.enabled;
-    }
+    const moduleWasEnabled = record.enabled;
 
     if (source === ModuleSourceCategory.Local) {
         const localDirectory = record.localDirectory;
         if (!localDirectory) return { success: false, error: 'No local dev version available for this module' };
         record.directory    = localDirectory;
         record.activeSource = ModuleSourceCategory.Local;
-        // Restore the saved enabled state for local, defaulting to true on first switch
-        record.enabled = record.localEnabled ?? true;
+        record.enabled = moduleWasEnabled;
     } else {
         const managedDir = path.join(getModulesDataDir(), id);
         record.directory    = managedDir;
         record.activeSource = ModuleSourceCategory.Managed;
-        // Restore the saved enabled state for managed, defaulting to true on first switch
-        record.enabled = record.managedEnabled ?? true;
+        record.enabled = moduleWasEnabled;
     }
+
+    if (record.activeSource === ModuleSourceCategory.Local) record.localEnabled = record.enabled;
+    else record.managedEnabled = record.enabled;
+    disableInactiveSource(record, record.activeSource);
 
     record.status    = record.enabled ? 'validated' : 'disabled';
     record.reason    = record.enabled ? undefined : 'Module disabled in persisted lifecycle state';
@@ -256,6 +269,7 @@ export function enableModule(moduleId: string, source?: ModuleSourceCategory): b
 
     if (record.activeSource === ModuleSourceCategory.Local) record.localEnabled   = true;
     else                                 record.managedEnabled = true;
+    if (record.activeSource) disableInactiveSource(record, record.activeSource);
     updateSourceState(record, record.activeSource, {
         status: record.status,
         enabled: true,

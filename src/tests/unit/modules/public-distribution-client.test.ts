@@ -130,6 +130,25 @@ export async function run() {
     ]);
 
     await expectCode(
+        () => fetchPublicDistributionResource('https://assets.example.com/catalog.json', {
+            accept: 'application/json', maxBytes: 1024, contentType: 'json',
+        }, policy, dependencies([
+            { statusCode: 200, headers: { 'content-type': 'application/octet-stream' }, body: '{}' },
+        ], [])),
+        'content-type-error',
+    );
+
+    const releaseManifestAsset = await fetchPublicDistributionResource(
+        'https://assets.example.com/sheet-delver-manifest.json',
+        { accept: 'application/json', maxBytes: 1024, contentType: 'release-manifest' },
+        policy,
+        dependencies([
+            { statusCode: 200, headers: { 'content-type': 'application/octet-stream' }, body: '{}' },
+        ], []),
+    );
+    assert.equal(releaseManifestAsset.contentType, 'application/octet-stream');
+
+    await expectCode(
         () => fetchPublicDistributionResource('https://releases.example.com/manifest.json', {
             accept: 'application/json', maxBytes: 1024, contentType: 'json',
         }, policy, dependencies([

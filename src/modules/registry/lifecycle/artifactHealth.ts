@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { isBuiltin } from 'node:module';
 import path from 'node:path';
 import type { SystemModuleInfo } from '../core/types';
 import type { ModuleArtifactHealthDiagnostic } from './lifecycle';
@@ -183,6 +184,7 @@ function checkNodeImports(
 ): void {
     for (const specifier of extractImportSpecifiers(source)) {
         if (specifier.startsWith('.') || specifier.startsWith('/')) continue;
+        if (isBuiltin(specifier)) continue;
         if (specifier === '@sheet-delver/sdk' || specifier.startsWith('@sheet-delver/sdk/')) continue;
         if (NODE_PRIVATE_IMPORT_PREFIXES.some(prefix => specifier.startsWith(prefix))) {
             // Private imports are an authoring violation, but Node may still resolve a

@@ -206,6 +206,7 @@ export async function inspectPublicModuleRelease(
         input.policy,
         validateModuleReleaseManifest,
         dependencies,
+        { allowOctetStream: true },
     );
     if (manifest.module.id !== expectedModuleId) {
         throw new Error(`Release manifest module id "${manifest.module.id}" does not match expected id "${expectedModuleId}"`);
