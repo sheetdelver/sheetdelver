@@ -4,6 +4,7 @@ import { BlockList, isIP, type LookupFunction } from 'node:net';
 import type { IncomingHttpHeaders } from 'node:http';
 
 const JSON_CONTENT_TYPE = /^(?:application\/json|application\/[a-z0-9!#$&^_.+-]+\+json)(?:\s*;|$)/i;
+const RELEASE_MANIFEST_CONTENT_TYPE = /^(?:application\/json|application\/[a-z0-9!#$&^_.+-]+\+json|application\/octet-stream)(?:\s*;|$)/i;
 const ARCHIVE_CONTENT_TYPE = /^(?:application\/(?:gzip|x-gzip|octet-stream)|binary\/octet-stream)(?:\s*;|$)/i;
 
 export const PUBLIC_DISTRIBUTION_LIMITS = Object.freeze({
@@ -51,7 +52,11 @@ export interface PublicDistributionPolicy {
 export interface PublicDistributionFetchOptions {
     accept: string;
     maxBytes: number;
-    contentType: 'json' | 'archive';
+    contentType: 'json' | 'release-manifest' | 'archive';
+}
+
+export interface PublicDistributionJsonOptions {
+    allowOctetStream?: boolean;
 }
 
 export interface PublicDistributionResponse {
@@ -354,7 +359,11 @@ async function fetchOnce(
         }
 
         const contentType = singleHeader(response.headers, 'content-type') || '';
-        const contentTypePattern = options.contentType === 'json' ? JSON_CONTENT_TYPE : ARCHIVE_CONTENT_TYPE;
+        const contentTypePattern = options.contentType === 'json'
+            ? JSON_CONTENT_TYPE
+            : options.contentType === 'release-manifest'
+                ? RELEASE_MANIFEST_CONTENT_TYPE
+                : ARCHIVE_CONTENT_TYPE;
         if (!contentTypePattern.test(contentType)) {
             throw new PublicDistributionError(
                 'content-type-error',
@@ -421,11 +430,12 @@ export async function fetchPublicDistributionJson<T>(
     policy: PublicDistributionPolicy,
     validate: (value: unknown) => { valid: boolean; errors: string[] },
     injected: PublicDistributionDependencies = {},
+    options: PublicDistributionJsonOptions = {},
 ): Promise<{ response: PublicDistributionResponse; value: T }> {
     const response = await fetchPublicDistributionResource(url, {
         accept: 'application/json',
         maxBytes: PUBLIC_DISTRIBUTION_LIMITS.maxJsonBytes,
-        contentType: 'json',
+        contentType: options.allowOctetStream ? 'release-manifest' : 'json',
     }, policy, injected);
     let value: unknown;
     try {

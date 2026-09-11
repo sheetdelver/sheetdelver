@@ -11,7 +11,9 @@ import {
     initializeRegistry,
     listModules,
     refreshRegistry,
+    switchModuleSource,
 } from '@modules/registry/server';
+import { ModuleSourceCategory } from '@shared/types/modules';
 
 function mkTempStateFilePath() {
     return path.join(os.tmpdir(), `sheet-delver-registry-state-${Date.now()}-${Math.random().toString(16).slice(2)}.json`);
@@ -211,6 +213,22 @@ export async function run() {
 
         const localAdapter = await getAdapter('dualsource');
         assert.equal((localAdapter as unknown as { source?: string }).source, 'local');
+
+        const managedSwitch = switchModuleSource('dualsource', ModuleSourceCategory.Managed);
+        assert.equal(managedSwitch.success, true);
+        const managedActive = listModules({ includeExperimental: true, includeDisabled: true })
+            .find((entry) => entry.info.id === 'dualsource');
+        assert.equal(managedActive?.lifecycle.activeSource, 'managed');
+        assert.equal(managedActive?.lifecycle.managedEnabled, true);
+        assert.equal(managedActive?.lifecycle.localEnabled, false);
+
+        const localEnable = enableModule('dualsource', ModuleSourceCategory.Local);
+        assert.equal(localEnable, true);
+        const localActiveAgain = listModules({ includeExperimental: true, includeDisabled: true })
+            .find((entry) => entry.info.id === 'dualsource');
+        assert.equal(localActiveAgain?.lifecycle.activeSource, 'local');
+        assert.equal(localActiveAgain?.lifecycle.localEnabled, true);
+        assert.equal(localActiveAgain?.lifecycle.managedEnabled, false);
 
         fs.rmSync(localDualDir, { recursive: true, force: true });
         refreshRegistry();

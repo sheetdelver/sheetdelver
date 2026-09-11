@@ -67,7 +67,7 @@ function publicDependencies(manifest: unknown, archive: Buffer): PublicDistribut
             if (url.href === MANIFEST_URL) {
                 return {
                     statusCode: 200,
-                    headers: { 'content-type': 'application/json' },
+                    headers: { 'content-type': 'application/octet-stream' },
                     body: Buffer.from(JSON.stringify(manifest)),
                 };
             }

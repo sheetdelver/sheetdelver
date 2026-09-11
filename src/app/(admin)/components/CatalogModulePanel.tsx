@@ -17,6 +17,7 @@ import {
     type ModuleLifecycleInfo,
     type PublicReleaseSummary,
 } from '../lib/adminApi';
+import { isInstalledReleaseCurrent } from '../lib/catalogReleaseState';
 import Button from './ui/Button';
 import Drawer from './ui/Drawer';
 import EmptyState from './ui/EmptyState';
@@ -167,7 +168,7 @@ export default function CatalogModulePanel({ mode }: { mode: CatalogMode }) {
             })
             .filter((row) => {
                 if (!row.listing || !row.source || row.releaseState?.loading || row.releaseState?.error) return true;
-                return row.releaseState?.release?.version !== row.installed?.artifact?.version;
+                return !isInstalledReleaseCurrent(row.releaseState?.release, row.installed?.artifact);
             })
             .sort((left, right) => left.title.localeCompare(right.title));
     }, [catalog, mode, modules, releaseStates]);
@@ -384,8 +385,8 @@ function CatalogOperationPanel({
     const previewIsCurrent = Boolean(preview && previewApprovals
         && previewApprovals.trust === trustApproved
         && previewApprovals.permissions === permissionsApproved);
-    const sameVersion = operation === 'upgrade'
-        && release?.version === row.installed?.artifact?.version;
+    const currentRelease = operation === 'upgrade'
+        && isInstalledReleaseCurrent(release, row.installed?.artifact);
 
     return (
         <div className="space-y-5">
@@ -458,14 +459,14 @@ function CatalogOperationPanel({
             )}
 
             <div className="flex flex-wrap gap-2 border-t border-[var(--admin-border)] pt-4">
-                {sameVersion && (
+                {currentRelease && (
                     <p className="w-full text-sm text-[var(--admin-text-muted)]">The current release is already installed.</p>
                 )}
-                <Button onClick={() => void runPreview()} disabled={releaseLoading || !release || previewLoading || sameVersion}>
+                <Button onClick={() => void runPreview()} disabled={releaseLoading || !release || previewLoading || currentRelease}>
                     <ShieldCheck className="mr-2 h-4 w-4" />
                     {previewLoading ? 'Checking...' : preview && !previewIsCurrent ? 'Re-run checks' : 'Run dry-run'}
                 </Button>
-                <Button variant="primary" onClick={() => void apply()} disabled={!preview?.wouldProceed || !previewIsCurrent || applying || sameVersion}>
+                <Button variant="primary" onClick={() => void apply()} disabled={!preview?.wouldProceed || !previewIsCurrent || applying || currentRelease}>
                     <Download className="mr-2 h-4 w-4" />
                     {applying ? 'Applying...' : operation === 'install' ? 'Install' : 'Update'}
                 </Button>

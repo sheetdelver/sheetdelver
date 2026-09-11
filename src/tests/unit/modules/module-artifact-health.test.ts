@@ -82,6 +82,40 @@ export function run(): void {
         }
     }
 
+    {
+        const moduleDir = mkModuleDir();
+        try {
+            writeFile(moduleDir, 'dist/ui.js', "import React from 'react'; export default React;");
+            writeFile(
+                moduleDir,
+                'dist/logic.js',
+                "import fs from 'fs'; import path from 'node:path'; import yaml from 'yaml'; export { fs, path, yaml };",
+            );
+            writeFile(
+                moduleDir,
+                'dist/server.js',
+                "import { fileURLToPath } from 'node:url'; export { fileURLToPath };",
+            );
+
+            const result = validatePackagedModuleArtifact(moduleDir, baseInfo({
+                manifest: {
+                    ui: 'dist/ui.js',
+                    logic: 'dist/logic.js',
+                    server: 'dist/server.js',
+                },
+            }));
+            const externalImports = result.diagnostics
+                .filter(diagnostic => diagnostic.code.endsWith('.external-import'))
+                .map(diagnostic => diagnostic.message);
+
+            assert.deepEqual(externalImports, [
+                'Packaged logic imports external module "yaml"; verify the host can resolve it.',
+            ]);
+        } finally {
+            fs.rmSync(moduleDir, { recursive: true, force: true });
+        }
+    }
+
     console.log('module-artifact-health: PASS');
 }
 

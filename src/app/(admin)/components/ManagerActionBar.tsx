@@ -36,7 +36,7 @@ function getAvailableActions(
     activeSource?: ModuleSourceCategory,
     localDirectory?: string,
     cardSource?: ModuleSourceCategory,
-): Array<typeof ManagerAction.Install | typeof ManagerAction.Uninstall | typeof ManagerAction.Upgrade | typeof ManagerAction.Validate> {
+): Array<typeof ManagerAction.Install | typeof ManagerAction.Uninstall | typeof ManagerAction.Validate> {
     // Manager operations only apply to managed installs (<DATA_DIR>/modules/).
     if (!managed) return [];
 
@@ -56,9 +56,9 @@ function getAvailableActions(
             return [ManagerAction.Install];
         case ModuleLifecycleStatus.Validated:
         case ModuleLifecycleStatus.Enabled:
-            return [ManagerAction.Upgrade, ManagerAction.Validate, ManagerAction.Uninstall];
+            return [ManagerAction.Validate, ManagerAction.Uninstall];
         case ModuleLifecycleStatus.Disabled:
-            return [ManagerAction.Upgrade, ManagerAction.Validate, ManagerAction.Uninstall];
+            return [ManagerAction.Validate, ManagerAction.Uninstall];
         case ModuleLifecycleStatus.Errored:
         case ModuleLifecycleStatus.Incompatible:
             return [ManagerAction.Validate, ManagerAction.Uninstall];
@@ -73,7 +73,6 @@ function getAvailableActions(
 const ACTION_LABELS: Record<string, string> = {
     [ManagerAction.Install]: 'Install',
     [ManagerAction.Uninstall]: 'Uninstall',
-    [ManagerAction.Upgrade]: 'Upgrade',
     [ManagerAction.Validate]: 'Re-validate',
 };
 
@@ -81,7 +80,6 @@ const ACTION_LABELS: Record<string, string> = {
 const ACTION_STYLES: Record<string, string> = {
     [ManagerAction.Install]: 'bg-[var(--admin-accent)] text-white hover:bg-[var(--admin-accent-strong)]',
     [ManagerAction.Uninstall]: 'bg-[var(--admin-danger-button)] text-white hover:bg-[var(--admin-danger-button-strong)]',
-    [ManagerAction.Upgrade]: 'bg-[var(--admin-accent)] text-white hover:bg-[var(--admin-accent-strong)]',
     [ManagerAction.Validate]: 'border border-[var(--admin-border)] bg-[var(--admin-surface)] text-[var(--admin-text-primary)] hover:bg-[var(--admin-surface-hover)]',
 };
 
@@ -91,9 +89,13 @@ export default function ManagerActionBar({ module, cardSource, onOperationComple
     const [dryRunLoading, setDryRunLoading] = useState(false);
     const [executing, setExecuting] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [escalationApproved, setEscalationApproved] = useState(false);
-
-    const actions = getAvailableActions(module.status, module.managed, module.activeSource, module.localDirectory, cardSource);
+    const actions = getAvailableActions(
+        module.status,
+        module.managed,
+        module.activeSource,
+        module.localDirectory,
+        cardSource,
+    );
     const locked = module.artifact?.updatePolicy?.locked === true;
 
     if (actions.length === 0) return null;
@@ -103,18 +105,17 @@ export default function ManagerActionBar({ module, cardSource, onOperationComple
         setConfirmAction(action);
         setDryRunResult(null);
         setError(null);
-        setEscalationApproved(false);
     };
 
-    /** Runs a dry-run preview for install/upgrade. */
+    /** Runs a dry-run preview for installation. */
     const handleDryRun = async () => {
-        if (confirmAction !== ManagerAction.Install && confirmAction !== ManagerAction.Upgrade) return;
+        if (confirmAction !== ManagerAction.Install) return;
 
         try {
             setDryRunLoading(true);
             setError(null);
 
-            const result = await postDryRun(module.moduleId, confirmAction as typeof ManagerAction.Install | typeof ManagerAction.Upgrade);
+            const result = await postDryRun(module.moduleId, ManagerAction.Install);
 
             if (result.sessionExpired) {
                 onSessionExpired();
@@ -142,18 +143,10 @@ export default function ManagerActionBar({ module, cardSource, onOperationComple
             setExecuting(true);
             setError(null);
 
-            const body: Record<string, unknown> = {};
-
-            // The legacy API field records owner acknowledgement of a declared-
-            // access change; it does not grant the module runtime capabilities.
-            if (confirmAction === ManagerAction.Upgrade && escalationApproved) {
-                body.approvePermissionEscalation = true;
-            }
-
             const result = await postManagerAction(
                 module.moduleId,
-                confirmAction as typeof ManagerAction.Install | typeof ManagerAction.Uninstall | typeof ManagerAction.Upgrade | typeof ManagerAction.Validate,
-                body
+                confirmAction as typeof ManagerAction.Install | typeof ManagerAction.Uninstall | typeof ManagerAction.Validate,
+                {},
             );
 
             if (result.sessionExpired) {
@@ -169,7 +162,7 @@ export default function ManagerActionBar({ module, cardSource, onOperationComple
             setConfirmAction(null);
             setDryRunResult(null);
             onOperationComplete();
-            // No restart required — install/upgrade/uninstall all call refreshRegistry()
+            // No restart required — install/uninstall call refreshRegistry()
             // on the server, which immediately updates the in-memory adapter registry.
             // The UI is served via GET /api/modules/:id/ui for runtime-installed modules.
         } catch (err) {
@@ -186,7 +179,6 @@ export default function ManagerActionBar({ module, cardSource, onOperationComple
         setConfirmAction(null);
         setDryRunResult(null);
         setError(null);
-        setEscalationApproved(false);
     };
 
     return (
@@ -202,9 +194,9 @@ export default function ManagerActionBar({ module, cardSource, onOperationComple
                         <button
                             key={action}
                             onClick={() => handleActionClick(action)}
-                            disabled={locked && (action === ManagerAction.Upgrade || action === ManagerAction.Uninstall)}
-                            title={locked && (action === ManagerAction.Upgrade || action === ManagerAction.Uninstall)
-                                ? 'Unlock the module before updating or uninstalling it'
+                            disabled={locked && action === ManagerAction.Uninstall}
+                            title={locked && action === ManagerAction.Uninstall
+                                ? 'Unlock the module before uninstalling it'
                                 : undefined}
                             className={`rounded-xl px-3 py-1.5 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${ACTION_STYLES[action]}`}
                         >
@@ -233,8 +225,8 @@ export default function ManagerActionBar({ module, cardSource, onOperationComple
                         </div>
                     )}
 
-                    {/* Dry-run preview (for install/upgrade only) */}
-                    {(confirmAction === 'install' || confirmAction === 'upgrade') && (
+                    {/* Dry-run preview for installation. */}
+                    {confirmAction === 'install' && (
                         <>
                             {!dryRunResult && (
                                 <button
@@ -246,11 +238,7 @@ export default function ManagerActionBar({ module, cardSource, onOperationComple
                                 </button>
                             )}
                             {dryRunResult && (
-                                <DryRunPreview
-                                    preview={dryRunResult}
-                                    onApproveEscalation={setEscalationApproved}
-                                    escalationApproved={escalationApproved}
-                                />
+                                <DryRunPreview preview={dryRunResult} />
                             )}
                         </>
                     )}
@@ -259,7 +247,7 @@ export default function ManagerActionBar({ module, cardSource, onOperationComple
                     <div className="flex items-center gap-2 pt-1">
                         <button
                             onClick={handleConfirm}
-                            disabled={executing || !!(dryRunResult && !dryRunResult.allowed && !escalationApproved)}
+                            disabled={executing || !!(dryRunResult && !dryRunResult.allowed)}
                             className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
                                 confirmAction === 'uninstall'
                                     ? 'bg-[var(--admin-danger-button)] text-white hover:bg-[var(--admin-danger-button-strong)]'

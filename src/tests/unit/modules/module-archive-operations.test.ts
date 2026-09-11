@@ -96,6 +96,13 @@ export async function run() {
 
         const stateAfterInstall = JSON.parse(fs.readFileSync(path.join(getModulesDataDir(), 'state.json'), 'utf8'));
         assert.equal(stateAfterInstall.modules['collision-module'].activeSource, 'local');
+        assert.equal(stateAfterInstall.modules['collision-module'].localEnabled, true);
+        assert.equal(
+            stateAfterInstall.modules['collision-module'].managedEnabled,
+            false,
+            'installing beside an active local source leaves the managed package dormant',
+        );
+        assert.equal(stateAfterInstall.modules['collision-module'].sourceStates.managed.enabled, false);
 
         const v2Archive = createArchive(tempRoot, '2.0.0', true);
         const lockedArtifact = updateManagedModulePolicy('collision-module', { locked: true });

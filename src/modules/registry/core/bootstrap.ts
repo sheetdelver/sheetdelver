@@ -301,10 +301,12 @@ export function initializeRegistry() {
                     : source === ModuleSourceCategory.Managed
                         ? existingLifecycle?.managedEnabled
                         : undefined;
-                const enabled = sourceEnabled
-                    ?? sourceState?.enabled
-                    ?? (source === activeSource ? existingLifecycle?.enabled : undefined)
-                    ?? true;
+                const enabled = source === activeSource
+                    ? sourceEnabled
+                        ?? sourceState?.enabled
+                        ?? existingLifecycle?.enabled
+                        ?? true
+                    : false;
                 const compat = evaluateModuleCompatibility(plugin.info, coreVersion);
                 const artifactHealth = artifactHealthBySource.get(id)?.get(source);
                 const entryPathError = entryPathErrors.get(id)?.get(source);
