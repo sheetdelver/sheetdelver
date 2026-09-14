@@ -15,7 +15,7 @@ import {
     type ModuleArtifactStore,
     getArtifact,
 } from '@modules/registry/artifactStore';
-import { __resetDataDirForTests, initDataDir, resolveDataDir } from '@server/core/paths';
+import { __resetDataDirForTests, getDataDir, initDataDir } from '@server/core/paths';
 import {
     REMOTE_MODULE_DISTRIBUTION_ERROR_CODE,
     REMOTE_MODULE_DISTRIBUTION_ERROR_MESSAGE,
@@ -65,6 +65,7 @@ function stubSaveArtifact(_store: ModuleArtifactStore): void { /* no-op in tests
 // ---------------------------------------------------------------------------
 
 export async function run(): Promise<void> {
+    const originalDataDir = getDataDir();
 
     const invalidIdResult = uninstallModule('../secret', makeLifecycleStore(baseRecord()), makeArtifactStore());
     assert.equal(invalidIdResult.success, false);
@@ -115,6 +116,7 @@ export async function run(): Promise<void> {
             assert.equal(artifact?.moduleId, 'test-module');
         } finally {
             process.chdir(origCwd);
+            __resetDataDirForTests(originalDataDir);
             rmSync(tmpDir, { recursive: true, force: true });
         }
     }
@@ -138,6 +140,7 @@ export async function run(): Promise<void> {
             assert.equal(lifecycle.modules['ghost'].status, 'validated');
         } finally {
             process.chdir(origCwd);
+            __resetDataDirForTests(originalDataDir);
             rmSync(tmpDir, { recursive: true, force: true });
         }
     }
@@ -180,6 +183,7 @@ export async function run(): Promise<void> {
             assert.ok(result.error?.includes('upgrading'), 'Error should mention transient state');
         } finally {
             process.chdir(origCwd);
+            __resetDataDirForTests(originalDataDir);
             rmSync(tmpDir, { recursive: true, force: true });
         }
     }
@@ -211,6 +215,7 @@ export async function run(): Promise<void> {
             assert.equal(getArtifact(artifacts, 'test-module'), undefined, 'Artifact should be removed');
         } finally {
             process.chdir(origCwd);
+            __resetDataDirForTests(originalDataDir);
             rmSync(tmpDir, { recursive: true, force: true });
         }
     }
@@ -232,6 +237,7 @@ export async function run(): Promise<void> {
             assert.equal(result.success, false, 'Cannot uninstall enabled module');
         } finally {
             process.chdir(origCwd);
+            __resetDataDirForTests(originalDataDir);
             rmSync(tmpDir, { recursive: true, force: true });
         }
     }
@@ -289,6 +295,7 @@ export async function run(): Promise<void> {
             assert.equal(artifact?.version, '2.0.0', 'Artifact version should be updated');
         } finally {
             process.chdir(origCwd);
+            __resetDataDirForTests(originalDataDir);
             rmSync(tmpDir, { recursive: true, force: true });
         }
     }
@@ -316,6 +323,7 @@ export async function run(): Promise<void> {
             assert.equal(result.newStatus, 'validated');
         } finally {
             process.chdir(origCwd);
+            __resetDataDirForTests(originalDataDir);
             rmSync(tmpDir, { recursive: true, force: true });
         }
     }
@@ -339,6 +347,7 @@ export async function run(): Promise<void> {
             assert.ok(result.error?.includes('not found'));
         } finally {
             process.chdir(origCwd);
+            __resetDataDirForTests(originalDataDir);
             rmSync(tmpDir, { recursive: true, force: true });
         }
     }
@@ -401,28 +410,38 @@ export async function run(): Promise<void> {
             updatePolicy: { locked: false, pinnedVersion: '2.0.0' },
         };
 
-        const mismatch = await upgradeModule(
-            'test-module',
-            { source: 'local://test', targetVersion: '3.0.0' },
-            lifecycle,
-            artifacts,
-            NOW + 1,
-        );
-        assert.equal(mismatch.success, false);
-        assert.equal(mismatch.errorCode, 'update-policy-blocked');
-        assert.match(mismatch.error || '', /pinned to v2\.0\.0/);
+        const { mkdtempSync, rmSync } = await import('node:fs');
+        const { join } = await import('node:path');
+        const tmpDir = mkdtempSync(join(process.cwd(), '.tmp-manager-test-'));
 
-        const matching = await upgradeModule(
-            'test-module',
-            { source: 'local://test', targetVersion: '2.0.0' },
-            lifecycle,
-            artifacts,
-            NOW + 2,
-        );
-        assert.equal(matching.success, true);
-        const upgraded = getArtifact(artifacts, 'test-module');
-        assert.equal(upgraded?.sourceProfileId, 'official-catalog');
-        assert.deepEqual(upgraded?.updatePolicy, { locked: false, pinnedVersion: '2.0.0' });
+        try {
+            const mismatch = await upgradeModule(
+                'test-module',
+                { source: 'local://test', targetVersion: '3.0.0' },
+                lifecycle,
+                artifacts,
+                NOW + 1,
+            );
+            assert.equal(mismatch.success, false);
+            assert.equal(mismatch.errorCode, 'update-policy-blocked');
+            assert.match(mismatch.error || '', /pinned to v2\.0\.0/);
+
+            const matching = await upgradeModule(
+                'test-module',
+                { source: 'local://test', targetVersion: '2.0.0' },
+                lifecycle,
+                artifacts,
+                NOW + 2,
+                join(tmpDir, 'state.json'),
+                join(tmpDir, 'artifacts.json'),
+            );
+            assert.equal(matching.success, true);
+            const upgraded = getArtifact(artifacts, 'test-module');
+            assert.equal(upgraded?.sourceProfileId, 'official-catalog');
+            assert.deepEqual(upgraded?.updatePolicy, { locked: false, pinnedVersion: '2.0.0' });
+        } finally {
+            rmSync(tmpDir, { recursive: true, force: true });
+        }
     }
 
     // ── ManagerOperationError ────────────────────────────────────────────────
@@ -469,6 +488,7 @@ export async function run(): Promise<void> {
             assert.equal(reloaded.artifacts['alpha']?.version, '1.0.0');
         } finally {
             process.chdir(origCwd);
+            __resetDataDirForTests(originalDataDir);
             rmSync(tmpDir, { recursive: true, force: true });
         }
     }

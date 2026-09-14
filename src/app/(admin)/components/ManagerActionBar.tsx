@@ -18,6 +18,7 @@ import {
     type DryRunPreviewResult,
 } from '../lib/adminApi';
 import DryRunPreview from './DryRunPreview';
+import { useAdminRuntimeRestart } from '../context/AdminRuntimeRestartContext';
 
 interface ManagerActionBarProps {
     module: ModuleLifecycleInfo;
@@ -84,6 +85,7 @@ const ACTION_STYLES: Record<string, string> = {
 };
 
 export default function ManagerActionBar({ module, cardSource, onOperationComplete, onSessionExpired }: ManagerActionBarProps) {
+    const { beginRuntimeRestart } = useAdminRuntimeRestart();
     const [confirmAction, setConfirmAction] = useState<string | null>(null);
     const [dryRunResult, setDryRunResult] = useState<DryRunPreviewResult | null>(null);
     const [dryRunLoading, setDryRunLoading] = useState(false);
@@ -161,10 +163,10 @@ export default function ManagerActionBar({ module, cardSource, onOperationComple
             logger.info(`Module ${module.moduleId} ${confirmAction} completed successfully`);
             setConfirmAction(null);
             setDryRunResult(null);
-            onOperationComplete();
-            // No restart required — install/uninstall call refreshRegistry()
-            // on the server, which immediately updates the in-memory adapter registry.
-            // The UI is served via GET /api/modules/:id/ui for runtime-installed modules.
+            if (result.data?.restartScheduled) beginRuntimeRestart();
+            else onOperationComplete();
+            // Runtime-affecting module operations return before a supervised restart.
+            // Avoid attempting to coordinate executable adapter replacement in this tab.
         } catch (err) {
             const message = err instanceof Error ? err.message : 'Unknown error';
             logger.error(`Failed to ${confirmAction} module:`, err);

@@ -1,6 +1,7 @@
 import { strict as assert } from 'node:assert';
 import { ApiError } from '@client/ui/api/http';
 import { determineConnectionStep } from '@client/ui/context/foundryConnectionStep';
+import { isRuntimeRestartReady } from '@shared/runtime/fullStackRestart';
 import {
     getStatusBootstrapRetryDelayMs,
     isStatusBootstrapUnavailable,
@@ -125,6 +126,10 @@ function runStatusBootstrapRetryCases() {
         [500, 1_000, 2_000, 4_000, 5_000, 5_000],
         'status bootstrap retries use capped exponential backoff',
     );
+
+    assert.equal(isRuntimeRestartReady({ connected: true, initialized: true }), true);
+    assert.equal(isRuntimeRestartReady({ connected: true, initialized: false }), false);
+    assert.equal(isRuntimeRestartReady({ connected: false, initialized: true }), false);
 
     assert.equal(
         shouldDiscardWorldSession({ isAuthenticated: false, system: { id: null, status: 'setup' } }),

@@ -25,6 +25,7 @@ import Button from './ui/Button';
 import EmptyState from './ui/EmptyState';
 import ErrorState from './ui/ErrorState';
 import Drawer from './ui/Drawer';
+import { useAdminRuntimeRestart } from '../context/AdminRuntimeRestartContext';
 
 // ─── Status styling ────────────────────────────────────────────────
 
@@ -125,6 +126,7 @@ function buildCardEntries(modules: ModuleLifecycleInfo[]): CardEntry[] {
 export default function ModuleLifecycleControl({ onModulesLoaded }: {
     onModulesLoaded?: (modules: ModuleLifecycleInfo[]) => void;
 }) {
+    const { beginRuntimeRestart } = useAdminRuntimeRestart();
     const { isAuthenticated, csrfToken, logout } = useAdminAuth();
     const [modules, setModules] = useState<ModuleLifecycleInfo[]>([]);
     const [loading, setLoading] = useState(true);
@@ -181,10 +183,10 @@ export default function ModuleLifecycleControl({ onModulesLoaded }: {
             if (result.sessionExpired) { setError('Session expired. Please log in again.'); logout(); return; }
             if (!result.ok) throw new Error(result.error || `Failed to ${action} module`);
 
-            // Core broadcasts the lifecycle/source change to each player tab,
-            // where that tab invalidates its own module cache. An admin tab
-            // cannot invalidate another browsing context's module-level cache.
-            await loadModules();
+            // Executable lifecycle changes schedule a supervised restart. Only
+            // refresh in place for operations that explicitly remain live.
+            if (result.data?.restartScheduled) beginRuntimeRestart();
+            else await loadModules();
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Unknown error');
             logger.error('Failed to toggle module:', err);

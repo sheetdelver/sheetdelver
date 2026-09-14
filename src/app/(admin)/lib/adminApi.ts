@@ -177,6 +177,7 @@ export interface ManagerOperationResult {
     newStatus?: string;
     error?: string;
     errorCode?: string;
+    restartScheduled?: boolean;
     violations?: Array<{ code: string; message: string }>;
 }
 
@@ -639,7 +640,7 @@ export function postLogout() {
 
 /** Triggers a graceful Core Service restart. The process supervisor (PM2, systemd, etc.) restarts it. */
 export function postServerRestart() {
-    return adminFetch<{ success: boolean; message?: string }>('/server/restart', {
+    return adminFetch<{ success: boolean; message?: string; restartScheduled?: boolean }>('/server/restart', {
         method: 'POST',
     });
 }

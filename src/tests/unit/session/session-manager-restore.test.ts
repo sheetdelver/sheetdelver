@@ -694,6 +694,84 @@ async function runFailedRoleRefreshRevokesSession() {
     await resetState();
 }
 
+async function runNoneRoleRevokesSessionBeforeKickRoleRestoration() {
+    await resetState();
+    seedActiveWorld();
+    await userStore.seed(async () => [
+        { _id: 'user-1', name: 'ptest', role: FoundryUserRole.PLAYER },
+    ]);
+    await writeCachedSession();
+
+    let disconnectCalls = 0;
+    let logoutCalls = 0;
+    let reconnectCalls = 0;
+    let releaseLogout!: () => void;
+    let logoutStarted!: () => void;
+    const logoutGate = new Promise<void>((resolve) => {
+        releaseLogout = resolve;
+    });
+    const logoutStartedSignal = new Promise<void>((resolve) => {
+        logoutStarted = resolve;
+    });
+    const fakeClient = {
+        userId: 'user-1',
+        getSessionCookie: () => 'session=kick-test',
+        disconnect: () => { disconnectCalls += 1; },
+        logout: async () => {
+            logoutCalls += 1;
+            logoutStarted();
+            await logoutGate;
+        },
+        connectWithRestoredCredential: async () => { reconnectCalls += 1; },
+    } as unknown as ClientSocket;
+    const manager = createManager();
+    const invalidations: FoundrySessionInvalidationEvent[] = [];
+    manager.onSessionInvalidated(event => invalidations.push(event));
+    (manager as any).connections.set(SESSION_TOKEN, {
+        id: SESSION_TOKEN,
+        client: fakeClient,
+        userId: 'user-1',
+        username: 'ptest',
+        lastActive: 0,
+        worldId: WORLD_ID,
+        cookie: 'session=kick-test',
+        authorizationRole: FoundryUserRole.PLAYER,
+    });
+
+    await userStore.seed(async () => [
+        { _id: 'user-1', name: 'ptest', role: FoundryUserRole.NONE },
+    ]);
+    const revoke = manager.refreshSessionsForUserAuthorization('user-1');
+    await logoutStartedSignal;
+
+    assert.equal(
+        (await sessionStore.load())[SESSION_TOKEN],
+        undefined,
+        'restore credential must be gone before Foundry logout begins',
+    );
+    const restoredDuringLogout = await manager.getOrRestoreSession(SESSION_TOKEN);
+    assert.equal(restoredDuringLogout, undefined, 'browser reconnect must not restore a retiring session');
+    assert.equal(reconnectCalls, 0);
+
+    // Foundry's Kick restores the prior role immediately after assigning NONE.
+    await userStore.seed(async () => [
+        { _id: 'user-1', name: 'ptest', role: FoundryUserRole.PLAYER },
+    ]);
+    releaseLogout();
+    await revoke;
+    await manager.refreshSessionsForUserAuthorization('user-1');
+
+    assert.equal(manager.isValidSession(SESSION_TOKEN), false);
+    assert.equal(reconnectCalls, 0, 'NONE must revoke rather than rebind the Foundry transport');
+    assert.equal(logoutCalls, 1);
+    assert.equal(disconnectCalls, 1);
+    assert.equal((await sessionStore.load())[SESSION_TOKEN], undefined);
+    assert.deepEqual(invalidations, [{
+        scope: 'session', sessionId: SESSION_TOKEN, reason: 'revoked',
+    }]);
+    await resetState();
+}
+
 export async function run() {
     await runConcurrentRestoreDedupesTransport();
     await runWorldMismatchPurgesWithoutTransportConnect();
@@ -711,6 +789,7 @@ export async function run() {
     await runWorldInvalidationWinsAgainstInFlightRestore();
     await runRoleChangeRebindsLiveAuthorization();
     await runFailedRoleRefreshRevokesSession();
+    await runNoneRoleRevokesSessionBeforeKickRoleRestoration();
     console.log('  - FoundryUserConnectionService restore: all checks passed');
 }
 

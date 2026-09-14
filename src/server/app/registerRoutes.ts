@@ -40,7 +40,10 @@ export function registerRoutes(deps: RegisterRoutesDeps): void {
     // Build middleware instances once, then compose them in deterministic order.
     const authenticateSession = createAuthenticateSession(deps.foundryUserConnections, deps.config);
     const tryAuthenticateSession = createTryAuthenticateSession(deps.foundryUserConnections, deps.config);
-    const ensureInitialized = createEnsureInitialized(deps.foundryUserConnections);
+    const ensureInitialized = createEnsureInitialized(
+        deps.foundryUserConnections,
+        () => systemService.isReady(),
+    );
     const loginLimiter = createLoginLimiter(deps.config);
     const cspReportLimiter = createCspReportLimiter(deps.config);
 

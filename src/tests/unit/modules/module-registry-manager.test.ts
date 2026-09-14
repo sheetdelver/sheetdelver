@@ -14,6 +14,7 @@ import {
     switchModuleSource,
 } from '@modules/registry/server';
 import { ModuleSourceCategory } from '@shared/types/modules';
+import { loadLifecycleStore } from '@modules/registry/lifecycle';
 
 function mkTempStateFilePath() {
     return path.join(os.tmpdir(), `sheet-delver-registry-state-${Date.now()}-${Math.random().toString(16).slice(2)}.json`);
@@ -106,7 +107,16 @@ export async function run() {
     // Create dummy adapter file
     const adapterPath = path.join(shadowdarkDir, 'src', 'server', 'ShadowdarkAdapter.ts');
     fs.mkdirSync(path.dirname(adapterPath), { recursive: true });
-    fs.writeFileSync(adapterPath, 'export default class ShadowdarkAdapter {}', 'utf8');
+    fs.writeFileSync(
+        adapterPath,
+        `export default class ShadowdarkAdapter {
+            async initialize() {
+                globalThis.__registryManagerAdapterInitializeCalls =
+                    (globalThis.__registryManagerAdapterInitializeCalls || 0) + 1;
+            }
+        }`,
+        'utf8',
+    );
     const uiPath = path.join(shadowdarkDir, 'src', 'ui', 'index.tsx');
     fs.mkdirSync(path.dirname(uiPath), { recursive: true });
     fs.writeFileSync(uiPath, 'export default function ShadowdarkSheet() { return null; }', 'utf8');
@@ -222,11 +232,26 @@ export async function run() {
         assert.equal(managedActive?.lifecycle.managedEnabled, true);
         assert.equal(managedActive?.lifecycle.localEnabled, false);
 
+        assert.equal(disableModule('dualsource'), true);
+        assert.equal(enableModule('dualsource', ModuleSourceCategory.Managed), true);
+        const persistedManagedEnable = loadLifecycleStore(stateFilePath).modules.dualsource;
+        assert.equal(persistedManagedEnable?.activeSource, 'managed');
+        assert.equal(persistedManagedEnable?.enabled, true, 'same-source enable is persisted before restart');
+        assert.equal(persistedManagedEnable?.managedEnabled, true);
+        assert.equal(persistedManagedEnable?.localEnabled, false);
+
+        assert.equal(disableModule('dualsource'), true);
         const localEnable = enableModule('dualsource', ModuleSourceCategory.Local);
         assert.equal(localEnable, true);
+        const persistedLocalEnable = loadLifecycleStore(stateFilePath).modules.dualsource;
+        assert.equal(persistedLocalEnable?.activeSource, 'local');
+        assert.equal(persistedLocalEnable?.enabled, true, 'source-targeted enable is persisted after registry refresh');
+        assert.equal(persistedLocalEnable?.localEnabled, true);
+        assert.equal(persistedLocalEnable?.managedEnabled, false);
         const localActiveAgain = listModules({ includeExperimental: true, includeDisabled: true })
             .find((entry) => entry.info.id === 'dualsource');
         assert.equal(localActiveAgain?.lifecycle.activeSource, 'local');
+        assert.equal(localActiveAgain?.enabled, true, 'source-targeted enable completes after registry refresh');
         assert.equal(localActiveAgain?.lifecycle.localEnabled, true);
         assert.equal(localActiveAgain?.lifecycle.managedEnabled, false);
 
@@ -254,6 +279,11 @@ export async function run() {
 
         const enabledAdapter = await getAdapter('shadowdark');
         assert.ok(enabledAdapter);
+        assert.equal(
+            (globalThis as any).__registryManagerAdapterInitializeCalls || 0,
+            0,
+            'registry resolution must not initialize adapters before world bootstrap readiness',
+        );
         const enabledServer = await getServerModule('shadowdark');
         assert.ok(enabledServer?.apiRoutes?.index, 'extensionless manifest.server resolves module/server.ts');
 
@@ -269,6 +299,7 @@ export async function run() {
         const genericDisable = disableModule('generic', 'should fail');
         assert.equal(genericDisable, false);
     } finally {
+        delete (globalThis as any).__registryManagerAdapterInitializeCalls;
         __resetRegistryForTests();
         if (previousStateFile) {
             process.env.SHEET_DELVER_MODULE_STATE_FILE = previousStateFile;

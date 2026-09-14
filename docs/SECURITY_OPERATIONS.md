@@ -66,8 +66,12 @@ security boundary.
 Admin browser sessions are in-memory, revocable, and valid for 15 minutes. The
 opaque credential is held only in an HttpOnly, SameSite=Strict cookie scoped to
 `/api/admin`; `Secure` follows the configured admin origin's HTTPS scheme.
-Browser code retains only the CSRF token in module memory. Restart
-revokes all admin sessions. On the first Phase 3 admin load, the exact legacy
+Browser code retains only the CSRF token in module memory. Cold and unplanned
+restarts revoke all admin sessions. A successful supervised module-runtime
+restart uses a two-minute, single-use owner-only handoff containing one-way
+opaque-token digests and server-side claims; the browser cookie value is never
+written to disk. The replacement process consumes and deletes that handoff.
+On the first Phase 3 admin load, the exact legacy
 `admin-token` and `admin-csrf` local-storage entries are removed without reading
 or clearing unrelated preferences.
 

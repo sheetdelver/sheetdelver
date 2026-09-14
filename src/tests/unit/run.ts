@@ -4,6 +4,9 @@ import { resolveDataDir, initDataDir } from '../../server/core/paths';
 // ── utils ────────────────────────────────────────────────────────────────────
 import { run as runFoundryUrl } from './utils/foundry-url.test';
 
+// ── runtime ──────────────────────────────────────────────────────────────────
+import { run as runFullStackRestart } from './runtime/full-stack-restart.test';
+
 // ── documentation ─────────────────────────────────────────────────────────────
 import { run as runAdrMetadata } from './docs/adr-metadata.test';
 
@@ -156,9 +159,11 @@ async function runAllUnitTests() {
     if (fs.existsSync(testDataDir)) {
         fs.rmSync(testDataDir, { recursive: true, force: true });
     }
+    process.env.SHEET_DELVER_DATA = testDataDir;
     initDataDir(resolveDataDir(['--data-dir', testDataDir]));
 
     runFoundryUrl();
+    runFullStackRestart();
     runAdrMetadata();
     await runSensitiveFilePermissions();
     runSafeHtml();

@@ -243,7 +243,7 @@ export function enableModule(moduleId: string, source?: ModuleSourceCategory): b
     if (!isInitialized()) initializeRegistry();
     const id = parseModuleId(moduleId);
     if (!id) return false;
-    const record = getLifecycleRecord(id);
+    let record = getLifecycleRecord(id);
     if (!record) return false;
 
     // If the operator is targeting a source that isn't currently active, switch
@@ -251,6 +251,10 @@ export function enableModule(moduleId: string, source?: ModuleSourceCategory): b
     if (source && source !== record.activeSource) {
         const switchResult = switchModuleSource(id, source);
         if (!switchResult.success) return false;
+        // switchModuleSource refreshes the registry and replaces lifecycle
+        // records. Continue against the freshly loaded target-source record.
+        record = getLifecycleRecord(id);
+        if (!record) return false;
     }
 
     const block = getSourceBlock(record, record.activeSource);

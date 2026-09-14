@@ -294,16 +294,19 @@ export abstract class SocketBase extends EventEmitter {
     public async logout(): Promise<void> {
         try {
             const baseUrl = this.getBaseUrl();
-            logger.info(`[${this.constructor.name}] Attempting explicit logout from Foundry via POST /logout...`);
-            const response = await fetch(`${baseUrl}/logout`, {
-                method: 'POST',
+            logger.info(`[${this.constructor.name}] Attempting explicit logout from Foundry via GET /join...`);
+            // Foundry v13 and v14 retire the current world assignment when an
+            // authenticated client opens /join; neither exposes POST /logout.
+            const response = await fetch(`${baseUrl}/join`, {
+                method: 'GET',
+                redirect: 'manual',
                 // Foundry teardown is best-effort after local authority has
                 // already been retired; bound an unavailable upstream so the
                 // browser cannot remain in its logging-out state indefinitely.
                 signal: AbortSignal.timeout(FOUNDRY_LOGOUT_TIMEOUT_MS),
                 headers: {
                     'Cookie': this.sessionCookie || '',
-                    'Content-Type': 'application/json'
+                    'Accept': 'text/html'
                 }
             });
             if (response.ok) {

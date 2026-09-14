@@ -170,6 +170,9 @@ The restart prompt was confirmed obsolete by reading the module-UI serving path:
 
 Action taken: removed the obsolete, install-centric `RestartModal` — which was already dead code (`setRestartOperation` was never invoked, so the prompt never rendered) — and its mount/state in `admin/page.tsx`. The `POST /admin/server/restart` route and its `postServerRestart` client wrapper are retained as a legitimate manual-restart capability, decoupled from the (non-existent) install-restart requirement. No ADR-0006 correction was needed: its restart references describe only the production Next.js rebuild for the local-dev/build path, which remains accurate.
 
+
+**Revision (September 14, 2026):** Runtime validation later showed that this conclusion covered managed UI artifact loading but not server adapter initialization. An adapter can build derived state from hydrated compendiums and must not be replaced independently of world bootstrap. ADR-0036 therefore revises this Phase 6 conclusion: successful executable module mutations now use a supervised full-stack restart.
+
 ## Non-Goals
 
 - No change to the localhost-only trust boundary or the single-account local admin model (ADR-0001 Option B stays).
