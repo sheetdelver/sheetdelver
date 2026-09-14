@@ -247,6 +247,10 @@ function getMigrationHint(specifier: string): string | null {
     return IMPORT_MIGRATION_HINTS.find((entry) => entry.test.test(specifier))?.hint ?? null;
 }
 
+function isHostFrameworkImport(specifier: string): boolean {
+    return specifier === 'next' || specifier.startsWith('next/');
+}
+
 function checkImportBoundaries(ctx: CheckContext): void {
     const files = walkFiles(ctx.modulePath);
     const uiBundleFiles = collectUiBundleFiles(ctx);
@@ -258,6 +262,16 @@ function checkImportBoundaries(ctx: CheckContext): void {
         // component, a plain TypeScript helper, or a lazy dynamic import.
         const isUiFile = uiBundleFiles.has(path.resolve(filePath));
         for (const specifier of extractImportSpecifiers(source)) {
+            if (isHostFrameworkImport(specifier)) {
+                fail(
+                    ctx,
+                    'import-boundary',
+                    `${path.relative(ctx.modulePath, filePath)} imports host framework dependency "${specifier}"`,
+                    'Managed module UI loads outside the Next.js build. Use React, browser APIs, or @sheet-delver/sdk/react instead.',
+                );
+                issueCount += 1;
+            }
+
             const forbidden = FORBIDDEN_IMPORT_PREFIXES.find((prefix) => specifier === prefix.slice(0, -1) || specifier.startsWith(prefix));
             if (forbidden) {
                 const hint = getMigrationHint(specifier);
