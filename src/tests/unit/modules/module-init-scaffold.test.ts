@@ -140,6 +140,29 @@ export async function run() {
     assert.ok(navigationFailure, hardNavigationResult.failures.map((issue) => issue.message).join('\n'));
     fs.writeFileSync(sheetPath, sheetSource, 'utf8');
 
+    // Managed UI artifacts execute as native browser ESM outside Next's build graph.
+    // Importing host framework helpers can bundle CommonJS dynamic requires that fail
+    // only after installation, so the checker must reject the coupling at source.
+    fs.writeFileSync(
+        sheetPath,
+        sheetSource.replace(
+            `import { useSDK } from '@sheet-delver/sdk/react';`,
+            `import { useSDK } from '@sheet-delver/sdk/react';\nimport dynamic from 'next/dynamic';`,
+        ),
+        'utf8',
+    );
+    const frameworkImportResult = await checkModule(moduleId, { dataDir: testDataDir, silent: true });
+    const frameworkImportFailure = frameworkImportResult.failures.find((issue) =>
+        issue.kind === 'import-boundary'
+        && issue.message.includes('host framework dependency "next/dynamic"')
+        && issue.hint?.includes('outside the Next.js build')
+    );
+    assert.ok(
+        frameworkImportFailure,
+        frameworkImportResult.failures.map((issue) => issue.message).join('\n'),
+    );
+    fs.writeFileSync(sheetPath, sheetSource, 'utf8');
+
     // A plain TypeScript helper becomes UI-side when the declared UI entry imports it.
     // The checker must reject server-only SDK imports anywhere in that browser graph.
     const helpersDir = path.join(modulePath, 'src', 'helpers');

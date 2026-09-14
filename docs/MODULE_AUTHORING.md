@@ -96,6 +96,7 @@ import { json, error } from '@sheet-delver/sdk/server';
 ```
 
 The checker rejects `@sheet-delver/sdk/server` imports from UI (`.tsx`) source — server helpers must not reach the client bundle.
+Managed module UI runs as native browser ESM outside the host Next.js build. Module source must not import `next` or `next/*`; use React, browser APIs, or `@sheet-delver/sdk/react` instead. `module:check` rejects this host-framework coupling before packaging.
 
 Do not import from Sheet Delver internals such as `@shared/*`, `@client/*`, `@server/*`, `@core/*`, or `@modules/*`. If a module needs something that is not in the SDK, treat that as either a missing SDK surface or module-specific code that should live inside the module.
 
