@@ -1,4 +1,11 @@
 # Releases
+## 0.9.2
+- Fixed GitHub manifest downloads
+- Corrected same-version module updates
+- Enforced exclusive module sources
+- Refined module lifecycle controls
+- Updated vulnerable dependencies
+
 ## 0.9.1
 - Fixed module release workflow
 
