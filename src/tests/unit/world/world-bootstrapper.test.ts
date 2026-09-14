@@ -143,9 +143,13 @@ async function runLoadFailureLeavesNoActiveAdapter() {
 
 async function runBootstrapOrderingAndReadyCallback() {
     const order: string[] = [];
+    let packsHydrated = false;
+    let initializeCalls = 0;
     const initializingAdapter: SystemAdapter = {
         ...adapter('syntheticsystem'),
         initialize: async () => {
+            assert.equal(packsHydrated, true, 'adapter initialization must observe hydrated compendium packs');
+            initializeCalls++;
             order.push('adapter-initialize');
         },
     };
@@ -173,6 +177,7 @@ async function runBootstrapOrderingAndReadyCallback() {
         },
         hydrateCompendiumPacks: async (systemId) => {
             order.push(`sync:${systemId}`);
+            packsHydrated = true;
         },
         seedDocuments: async () => {
             order.push('seed');
@@ -200,11 +205,13 @@ async function runBootstrapOrderingAndReadyCallback() {
         'ready:SyntheticSystem',
     ]);
     assert.deepEqual(result, { ready: true, systemId: 'SyntheticSystem' });
+    assert.equal(initializeCalls, 1, 'adapter initializes exactly once per world epoch');
     assert.equal(bootstrapper.isReady(), true);
     assert.equal(bootstrapper.getActiveAdapter(), initializingAdapter);
 
     const repeatedResult = await bootstrapper.bootstrap({} as any);
     assert.deepEqual(repeatedResult, { ready: true, systemId: 'SyntheticSystem' });
+    assert.equal(initializeCalls, 1, 'idempotent bootstrap must not reinitialize the active adapter');
 }
 
 async function runBootstrapAcceptsSnapshotBeforeServiceWork() {

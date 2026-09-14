@@ -1,6 +1,11 @@
 import { strict as assert } from 'node:assert';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import type { Response } from 'express';
 import {
+    ADMIN_RESTART_HANDOFF_LIFETIME_MS,
+    AdminSessionManager,
     createAdminSessionClaims,
     isSessionValid,
     getSessionRemainingMs,
@@ -111,6 +116,42 @@ async function runAdminSessionServiceTests(): Promise<void> {
     adminSessionManager.revokeAllForAdmin('admin-456');
     for (const token of adminTokens) {
         assert.equal(adminSessionManager.getSession(token), null);
+    }
+
+    const handoffDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sheet-delver-admin-handoff-'));
+    const handoffPath = path.join(handoffDir, 'handoff.json');
+    try {
+        const oldManager = new AdminSessionManager();
+        const restartClaims = createAdminSessionClaims('restart-admin', durationMs);
+        const restartToken = oldManager.storeSession(restartClaims);
+        assert.equal(oldManager.prepareSupervisedRestartHandoff(handoffPath), 1);
+
+        const onDisk = fs.readFileSync(handoffPath, 'utf8');
+        assert.doesNotMatch(onDisk, new RegExp(restartToken));
+
+        const replacementManager = new AdminSessionManager();
+        assert.equal(replacementManager.restoreSupervisedRestartHandoff(handoffPath), 1);
+        assert.equal(fs.existsSync(handoffPath), false);
+        assert.equal(replacementManager.getSession(restartToken)?.adminId, 'restart-admin');
+        assert.equal(replacementManager.restoreSupervisedRestartHandoff(handoffPath), 0);
+
+        const expiredPath = path.join(handoffDir, 'expired.json');
+        const expiredManager = new AdminSessionManager();
+        const expiredToken = expiredManager.storeSession(createAdminSessionClaims('expired-restart', durationMs));
+        const preparedAt = Date.now();
+        assert.equal(expiredManager.prepareSupervisedRestartHandoff(expiredPath, preparedAt), 1);
+        const coldManager = new AdminSessionManager();
+        assert.equal(
+            coldManager.restoreSupervisedRestartHandoff(
+                expiredPath,
+                preparedAt + ADMIN_RESTART_HANDOFF_LIFETIME_MS + 1,
+            ),
+            0,
+        );
+        assert.equal(coldManager.getSession(expiredToken), null);
+        assert.equal(fs.existsSync(expiredPath), false);
+    } finally {
+        fs.rmSync(handoffDir, { recursive: true, force: true });
     }
 
     adminSessionManager.shutdown();

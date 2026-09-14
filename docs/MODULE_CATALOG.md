@@ -59,6 +59,11 @@ another catalog. Operators may lock an installed module, which prevents update
 and uninstall, or pin an exact allowed update version. See
 [API.md](API.md#module-update-policy).
 
+Successful install and upgrade operations schedule a supervised application
+restart. Player requests briefly return an initializing response while Core
+rehydrates compendiums, reseeds world documents, and initializes the selected
+adapter. Dry-run and release inspection do not interrupt the running application.
+
 ## Refresh Behavior
 
 Catalog responses are cached for five minutes under

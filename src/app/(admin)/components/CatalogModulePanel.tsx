@@ -22,6 +22,7 @@ import Button from './ui/Button';
 import Drawer from './ui/Drawer';
 import EmptyState from './ui/EmptyState';
 import ErrorState from './ui/ErrorState';
+import { useAdminRuntimeRestart } from '../context/AdminRuntimeRestartContext';
 
 type CatalogMode = 'available' | 'updates';
 
@@ -302,6 +303,7 @@ function CatalogOperationPanel({
     onComplete: () => void | Promise<void>;
     onSessionExpired: () => void;
 }) {
+    const { beginRuntimeRestart } = useAdminRuntimeRestart();
     const { addToast } = useAdminToast();
     const listing = row.listing!;
     const sources = [listing.source, ...listing.alternatives];
@@ -376,7 +378,8 @@ function CatalogOperationPanel({
             return;
         }
         addToast(`${row.title} ${operation === 'install' ? 'installed' : 'updated'}.`, 'success');
-        await onComplete();
+        if (result.data?.restartScheduled) beginRuntimeRestart();
+        else await onComplete();
         setApplying(false);
     };
 

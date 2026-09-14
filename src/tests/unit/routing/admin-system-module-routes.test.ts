@@ -8,6 +8,7 @@ import { registerAdminStatusRoutes } from '@server/routes/admin/registerAdminSta
 import { registerAdminWorldRoutes } from '@server/routes/admin/registerAdminWorldRoutes';
 import { registerAdminModuleRoutes } from '@server/routes/admin/registerAdminModuleRoutes';
 import { createModuleRouter } from '@server/routes/modules/createModuleRouter';
+import { createEnsureInitialized } from '@server/middleware/ensureInitialized';
 import { worldStateStore } from '@server/core/world/WorldStateStore';
 import {
     getDataDir,
@@ -206,6 +207,35 @@ async function runAdminWorldRouteSmokeTests() {
     assert.deepEqual(failureRes.payload, { error: 'Foundry rejected request' });
 }
 
+function runWorldRuntimeReadinessGate() {
+    const invoke = (cacheReady: boolean, worldReady: boolean) => {
+        let statusCode = 200;
+        let payload: unknown;
+        let nextCalls = 0;
+        const response = {
+            status(code: number) { statusCode = code; return this; },
+            json(value: unknown) { payload = value; return this; },
+        };
+        createEnsureInitialized(
+            { isCacheReady: () => cacheReady },
+            () => worldReady,
+        )({} as any, response as any, () => { nextCalls += 1; });
+        return { statusCode, payload, nextCalls };
+    };
+
+    assert.deepEqual(invoke(false, false), {
+        statusCode: 503,
+        payload: { status: 'initializing', message: 'Compendium cache is warming up, please wait.' },
+        nextCalls: 0,
+    });
+    assert.deepEqual(invoke(true, false), {
+        statusCode: 503,
+        payload: { status: 'initializing', message: 'World runtime is initializing or restarting, please wait.' },
+        nextCalls: 0,
+    });
+    assert.deepEqual(invoke(true, true), { statusCode: 200, payload: undefined, nextCalls: 1 });
+}
+
 async function runAdminModuleRouteSmokeTests() {
     // The remote-install assertion enters the manager facade, which initializes
     // registry state even though policy denial occurs before artifact handling.
@@ -215,7 +245,7 @@ async function runAdminModuleRouteSmokeTests() {
     registerAdminModuleRoutes({
         adminRouter: createRouterStub(routeMap) as any,
         requireAdminAccountExists: requireAdminAccountExists as any,
-        broadcastToClients: (event, data) => broadcasts.push({ event, data }),
+        requestServerRestart: (reason, detail) => broadcasts.push({ event: 'serverRestarting', data: { reason, ...detail } }),
     });
 
     assert.equal(routeMap.get.has('/lifecycle'), true);
@@ -424,6 +454,17 @@ async function runAdminModuleRouteSmokeTests() {
         errorCode: 'invalid-module-id',
     });
     assert.deepEqual(broadcasts, []);
+    const restartRes = await invokeHandler(getLastHandler(routeMap, 'post', '/server/restart'), {});
+    assert.equal(restartRes.statusCode, 200);
+    assert.deepEqual(restartRes.payload, {
+        success: true,
+        message: 'Server is restarting',
+        restartScheduled: true,
+    });
+    assert.deepEqual(broadcasts, [{
+        event: 'serverRestarting',
+        data: { reason: 'admin-requested-restart' },
+    }]);
 }
 
 function getExpressRouteHandler(router: any, path: string, method: string): RequestHandler {
@@ -508,6 +549,7 @@ export async function run() {
     await runAdminAuthRouteSmokeTests();
     await runAdminStatusRouteSmokeTests();
     await runAdminWorldRouteSmokeTests();
+    runWorldRuntimeReadinessGate();
     await runAdminModuleRouteSmokeTests();
     await runModuleRouterSmokeTests();
     console.log('  - Admin/System/Module route smoke: all checks passed');

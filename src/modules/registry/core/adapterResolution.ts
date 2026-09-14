@@ -8,20 +8,15 @@
  * `./internals`. Bootstrap and fallback adapter ownership live in dedicated
  * registry modules to avoid satellite imports back through `./server`.
  */
-import path from 'node:path';
 import { logger } from '@shared/utils/logger';
-import { hasInitialize, type SystemAdapter } from './types';
+import type { SystemAdapter } from './types';
 import {
     pluginMap,
     adapterInstances,
-    adapterMtimes,
     lifecycleStore,
     isInitialized,
-    IS_DEV,
 } from './state';
 import {
-    resolveLogicPath,
-    getLogicMtime,
     isModuleEnabledForRuntime,
     getLifecycleStateFilePathOverride,
 } from './internals';
@@ -59,18 +54,7 @@ export async function getAdapter(systemId: string): Promise<SystemAdapter | null
         return FALLBACK_ADAPTER;
     }
 
-    // In dev mode, check whether the adapter file has changed since it was last loaded.
-    // If so, evict the cached instance so we re-import with the new code.
-    if (IS_DEV && adapterInstances.has(id)) {
-        const currentMtime = getLogicMtime(plugin);
-        if (currentMtime && currentMtime !== adapterMtimes.get(id)) {
-            logger.info(`Registry | Dev hot-reload: adapter ${id} changed, evicting cache`);
-            adapterInstances.delete(id);
-            adapterMtimes.delete(id);
-        } else {
-            return adapterInstances.get(id)!;
-        }
-    } else if (adapterInstances.has(id)) {
+    if (adapterInstances.has(id)) {
         return adapterInstances.get(id)!;
     }
 
@@ -81,19 +65,7 @@ export async function getAdapter(systemId: string): Promise<SystemAdapter | null
     }
 
     try {
-        // In dev mode, use a mtime-stamped URL so the ESM module cache is bypassed when
-        // the file changes. The query parameter makes each version a distinct cache entry.
-        let logicModule: any;
-        if (IS_DEV) {
-            const { pathToFileURL } = await import('node:url');
-            const logicBase = path.join(plugin.directory, plugin.info.manifest.logic);
-            const resolved = resolveLogicPath(logicBase);
-            const mtime = getLogicMtime(plugin);
-            const url = pathToFileURL(resolved).href + (mtime ? `?v=${mtime}` : '');
-            logicModule = await import(url);
-        } else {
-            logicModule = await plugin.getLogic();
-        }
+        const logicModule = await plugin.getLogic();
         const AdapterClass = logicModule.Adapter || logicModule.default;
 
         if (!AdapterClass) {
@@ -103,18 +75,11 @@ export async function getAdapter(systemId: string): Promise<SystemAdapter | null
             return FALLBACK_ADAPTER;
         }
 
+        // Registry resolution only imports and instantiates adapters. WorldBootstrapper
+        // owns runtime initialization after compendium hydration and document seeding.
         const adapter = new AdapterClass();
 
-        // Optional initialization hook: inject ModuleRuntime so adapters have
-        // a namespaced logger, scoped data store, and declared compendium pack reader.
-        if (hasInitialize(adapter)) {
-            const { createModuleRuntime } = await import('@server/shared/utils/createModuleRuntime');
-            const runtime = await createModuleRuntime(pluginId);
-            await adapter.initialize(runtime);
-        }
-
         adapterInstances.set(id, adapter);
-        if (IS_DEV) adapterMtimes.set(id, getLogicMtime(plugin));
         return adapter;
     } catch (e) {
         logger.error(`Registry | Failed to JIT load adapter for ${id}:`, e);
@@ -161,11 +126,9 @@ export function unloadSystemModules(systemId?: string) {
         if (!id) return;
         logger.info(`Registry | Unloading modules for ${id}`);
         adapterInstances.delete(id);
-        adapterMtimes.delete(id);
     } else {
         logger.info('Registry | Purging all active module instances');
         adapterInstances.clear();
-        adapterMtimes.clear();
     }
 }
 

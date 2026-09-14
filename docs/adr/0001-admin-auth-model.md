@@ -81,6 +81,12 @@ two failed-attempt controls for owner iteration. An absent or unknown
 `NODE_ENV` fails closed by enforcing them. Successful admin sessions remain
 15-minute, in-memory, revocable sessions in every mode.
 
+**Amendment (September 14, 2026 - supervised restart continuity):**
+ADR-0036 preserves valid admin sessions only across an explicitly supervised
+module-runtime restart using a two-minute, single-use, owner-only handoff of
+opaque-token digests and server-side claims. Cold and unplanned restarts retain
+the original fail-closed behavior and invalidate all sessions.
+
 ### Recovery and Reset
 
 - Local-only reset command runnable by server operator.

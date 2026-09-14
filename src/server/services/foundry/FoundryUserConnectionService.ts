@@ -204,11 +204,12 @@ export class FoundryUserConnectionService {
         reason: FoundrySessionInvalidationReason = 'revoked',
     ): Promise<void> {
         const connection = this.retireSessionAuthority(sessionId, reason);
-        if (connection) await this.destroyLiveConnection(connection);
-        // Logout must also purge a protected record when this process has not
-        // restored its ClientSocket yet; otherwise the cleared browser cookie
-        // leaves a reusable server-side credential behind.
+        // Remove restorable authority before any best-effort upstream work.
+        // A browser may reconnect as soon as it receives sessionInvalidated;
+        // retaining this record until Foundry logout settles would let that
+        // request recreate the connection being retired.
         await this.clearSession(sessionId);
+        if (connection) await this.destroyLiveConnection(connection);
     }
 
     /** Retire every live or persisted session bound to one deleted Foundry user. */
@@ -268,6 +269,16 @@ export class FoundryUserConnectionService {
         if (!connection) return;
         const nextRole = userStore.getRole(connection.userId);
         if (connection.authorizationRole === nextRole) return;
+
+        // Foundry implements both Kick and Ban by assigning the User role
+        // NONE. Its browser client treats any self-role change as a logout;
+        // our transport has no browser lifecycle, so mirror the authoritative
+        // NONE transition here. Retire before awaiting Foundry logout so the
+        // immediate role restoration used by Kick cannot rebind this session.
+        if (nextRole === FoundryUserRole.NONE) {
+            await this.destroySession(sessionId, 'revoked');
+            return;
+        }
 
         const refresh = this.rebindSessionAuthorization(connection, nextRole);
         this.authorizationRefreshPromises.set(sessionId, refresh);

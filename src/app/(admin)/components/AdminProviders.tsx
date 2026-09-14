@@ -4,15 +4,18 @@ import React from 'react';
 import { AdminAuthProvider } from '../context/AdminAuthContext';
 import { AdminThemeProvider, useAdminTheme } from '../context/AdminThemeContext';
 import { AdminToastProvider } from '../context/AdminToastContext';
+import { AdminRuntimeRestartProvider } from '../context/AdminRuntimeRestartContext';
 
 export default function AdminProviders({ children }: { children: React.ReactNode }) {
   return (
     <AdminThemeProvider>
       <AdminShell>
         <AdminAuthProvider>
-          <AdminToastProvider>
-            {children}
-          </AdminToastProvider>
+          <AdminRuntimeRestartProvider>
+            <AdminToastProvider>
+              {children}
+            </AdminToastProvider>
+          </AdminRuntimeRestartProvider>
         </AdminAuthProvider>
       </AdminShell>
     </AdminThemeProvider>

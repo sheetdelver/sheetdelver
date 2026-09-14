@@ -19,6 +19,9 @@ import { registerAdminAuthRoutes } from './registerAdminAuthRoutes';
 import { registerAdminStatusRoutes } from './registerAdminStatusRoutes';
 import { registerAdminWorldRoutes } from './registerAdminWorldRoutes';
 import { registerAdminModuleRoutes } from './registerAdminModuleRoutes';
+import { adminSessionManager } from '@server/security/adminSessionService';
+import { worldBootstrapper } from '@server/services/world';
+import { requestFullStackRestart } from '@shared/runtime/fullStackRestart';
 
 interface AdminRouterDeps {
     getSystemStatusPayload: () => Promise<any>;
@@ -38,6 +41,24 @@ export function createAdminRouter(deps: AdminRouterDeps) {
     // Admin domain service: displaced operational logic for status, worlds, cache, and world actions.
     const adminService = createAdminService(deps);
     const adminLoginLimiter = createAdminLoginLimiter(getConfig());
+    let restartScheduled = false;
+    const requestServerRestart = (reason: string, detail: Record<string, unknown> = {}) => {
+        if (restartScheduled) return;
+        restartScheduled = true;
+        try {
+            adminSessionManager.prepareSupervisedRestartHandoff();
+        } catch (error) {
+            // Runtime replacement remains authoritative even if admin continuity
+            // cannot be prepared. The operator can authenticate again afterward.
+            logger.warn('Admin | Could not prepare supervised-restart session handoff', error);
+        }
+        worldBootstrapper.reset(reason);
+        deps.broadcastToClients('serverRestarting', { reason, ...detail });
+        setTimeout(() => {
+            logger.info(`Admin | ${reason} - signalling manager for full-stack restart`);
+            requestFullStackRestart();
+        }, 500);
+    };
 
     // Verify local request
     adminRouter.use(requireAdminNetwork);
@@ -79,7 +100,7 @@ export function createAdminRouter(deps: AdminRouterDeps) {
     registerAdminModuleRoutes({
         adminRouter,
         requireAdminAccountExists,
-        broadcastToClients: deps.broadcastToClients,
+        requestServerRestart,
     });
 
     return adminRouter;

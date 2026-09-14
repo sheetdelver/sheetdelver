@@ -7,6 +7,13 @@ export interface RealtimeSessionInvalidatedPayload {
     reason: string;
 }
 
+/** Notice that an executable runtime change is crossing a supervised restart boundary. */
+export interface RealtimeServerRestartingPayload {
+    reason: string;
+    moduleId?: string;
+    operation?: string;
+}
+
 // Actor socket events are invalidation hints; clients refetch instead of applying diffs.
 export interface RealtimeActorChangedPayload {
     actorId: string;

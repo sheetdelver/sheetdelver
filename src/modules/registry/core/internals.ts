@@ -7,9 +7,9 @@
  *
  * Not exported from `@modules/registry/server` — these are internals.
  */
+import fs from 'node:fs';
 import path from 'node:path';
 import { parseModuleId } from '@shared/security/moduleId';
-import fs from 'node:fs';
 import { getConfig } from '@server/core/config';
 import {
     getDefaultModuleTrustPolicy,
@@ -21,7 +21,6 @@ import {
     type ModuleSourceResolution,
     type SourceResolutionContext,
 } from '../distribution/sourceAdapters';
-import type { SystemPlugin } from './types';
 import type { ModuleLifecycleRecord } from '../lifecycle/lifecycle';
 import { lifecycleStore } from './state';
 import {
@@ -35,23 +34,6 @@ export const MANIFEST_FAIL_OPEN_ENV = 'SHEET_DELVER_MANIFEST_FAIL_OPEN';
 /** Historical test/config name retained so old settings fail closed, not open. */
 export const MODULE_INDEX_FILE_ENV = 'SHEET_DELVER_MODULE_INDEX_FILE';
 
-/** Resolve the actual file path for a module logic entry (adds extension if needed). */
-export function resolveLogicPath(base: string): string {
-    for (const ext of ['.ts', '.tsx', '.js', '.mjs']) {
-        if (fs.existsSync(base + ext)) return base + ext;
-    }
-    return base;
-}
-
-/** Return the mtime (ms) of a logic file, 0 if unresolvable. */
-export function getLogicMtime(plugin: SystemPlugin): number {
-    try {
-        const resolved = resolveLogicPath(path.join(plugin.directory, plugin.info.manifest.logic));
-        return fs.statSync(resolved).mtimeMs;
-    } catch {
-        return 0;
-    }
-}
 
 export function getLifecycleStateFilePathOverride(): string | undefined {
     const value = process.env[LIFECYCLE_STATE_FILE_ENV];

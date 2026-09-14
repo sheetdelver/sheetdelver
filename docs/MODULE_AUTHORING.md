@@ -178,7 +178,9 @@ export class Adapter extends BaseSystemAdapter {
 export default Adapter;
 ```
 
-If the adapter needs setup, implement `initialize?(runtime: ModuleRuntime)`. The `ModuleRuntime` is a flat, module-scoped handle (no `platform` wrapper): `runtime.logger`, `runtime.foundryUrl`, `runtime.dataStore` (durable backend persistence), `runtime.compendium` (read surface for declared packs), and `runtime.documents` (read-only `get`/`list`/`fetchByUuid`). Use those fields instead of importing platform services directly. An optional `dispose?(runtime)` is called on world teardown.
+If the adapter needs setup, implement `initialize?(runtime: ModuleRuntime)`. Core calls it exactly once per active-world epoch, after declared compendium packs are hydrated and primary document Stores are seeded. Registry discovery and adapter resolution never initialize module code. The `ModuleRuntime` is a flat, module-scoped handle (no `platform` wrapper): `runtime.logger`, `runtime.foundryUrl`, `runtime.dataStore` (durable backend persistence), `runtime.compendium` (read surface for declared packs), and `runtime.documents` (read-only `get`/`list`/`fetchByUuid`). Use those fields instead of importing platform services directly. An optional `dispose?(runtime)` is called on world teardown with the same runtime instance.
+
+Changes to executable module state (enable, disable, source switch, install, upgrade, or uninstall) use a supervised application restart so the next adapter instance enters through that complete bootstrap sequence. The application shell may still refresh local UI code during development, but changes to server adapter logic require restarting `npm run dev`.
 
 Adapter projection methods (`normalizeActorData(actor)`, `getActorCardData`, `computeActorData`, `categorizeItems`) receive a hydrated actor document and must be deterministic from it — they take **no** client/runtime argument. Build full image URLs with `resolveImage(img, runtime.foundryUrl)`. The broad Foundry client, the adapter `client` parameters, and `resolveActorNames` were removed; document reads outside projection happen through `runtime.documents`.
 

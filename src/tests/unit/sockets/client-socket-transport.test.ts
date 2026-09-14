@@ -172,7 +172,11 @@ async function runVersionedLoginContractTests() {
 async function runLogoutUsesBoundedRequest() {
     const originalFetch = globalThis.fetch;
     const requestSignals: Array<AbortSignal | null> = [];
-    globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+    let requestUrl = '';
+    let requestMethod = '';
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+        requestUrl = input instanceof Request ? input.url : String(input);
+        requestMethod = init?.method || 'GET';
         requestSignals.push(init?.signal ?? null);
         return new Response('{}', { status: 200 });
     }) as typeof fetch;
@@ -181,6 +185,8 @@ async function runLogoutUsesBoundedRequest() {
         const client = new ClientSocket({ url: 'http://foundry.example', username: 'player' });
         await client.logout();
 
+        assert.equal(requestUrl, 'http://foundry.example/join');
+        assert.equal(requestMethod, 'GET');
         // A concrete bound documents the operator-visible maximum wait and
         // verifies the transport request cannot remain pending indefinitely.
         assert.equal(FOUNDRY_LOGOUT_TIMEOUT_MS, 5_000);

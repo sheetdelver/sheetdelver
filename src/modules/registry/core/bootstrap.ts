@@ -19,7 +19,6 @@ import { evaluateModuleCompatibility, validateModuleInfoShape } from '../lifecyc
 import { getModulesDataDir, getLocalModulesDir } from '@/server/core/paths';
 import {
     adapterInstances,
-    adapterMtimes,
     isInitialized,
     lifecycleStore,
     pluginMap,
@@ -349,7 +348,6 @@ export function initializeRegistry() {
  */
 export function refreshRegistry(): void {
     adapterInstances.clear();
-    adapterMtimes.clear();
     setInitialized(false);
     initializeRegistry();
 }

@@ -7,7 +7,7 @@
  *   - POST   /modules/:id/enable, /modules/:id/disable, /modules/:id/switch-source
  *   - POST   /modules/install, /modules/upgrade, /modules/uninstall, /modules/validate
  *   - POST   /modules/dry-run-install, /modules/dry-run-upgrade
- *   - POST   /admin/restart-server
+ *   - POST   /server/restart
  *   - GET    /sources, /sources/:id/modules
  *   - POST   /sources, /sources/:id/test
  *   - PUT    /sources/:id
@@ -33,14 +33,20 @@ import { getConfig } from '@server/core/config';
 export interface RegisterAdminModuleRoutesOptions {
     adminRouter: express.Router;
     requireAdminAccountExists: express.RequestHandler;
-    broadcastToClients: (event: string, data: unknown) => void;
+    requestServerRestart: (reason: string, detail?: Record<string, unknown>) => void;
 }
 
 export function registerAdminModuleRoutes(opts: RegisterAdminModuleRoutesOptions): void {
     const { adminRouter, requireAdminAccountExists } = opts;
-    // Inline alias keeps the extracted handlers unchanged from their original
-    // shape — they reference `deps.broadcastToClients` literally.
-    const deps = { broadcastToClients: opts.broadcastToClients };
+    function respondWithRuntimeRestart(
+        res: express.Response,
+        payload: object,
+        moduleId: string,
+        operation: string,
+    ): void {
+        res.json({ ...payload, restartScheduled: true });
+        opts.requestServerRestart(`module-${operation}:${moduleId}`, { moduleId, operation });
+    }
 
     /** Reject decoded separators and other non-slug IDs before registry mutation. */
     function readRequestModuleId(req: express.Request, res: express.Response): string | null {
@@ -212,13 +218,11 @@ export function registerAdminModuleRoutes(opts: RegisterAdminModuleRoutesOptions
                 }
 
                 logger.info(`[Admin] Module enabled: ${moduleId}`);
-                // Notify clients so open actor pages can re-resolve their module UI.
-                deps.broadcastToClients('moduleStateChanged', { moduleId, enabled: true });
-                res.json({
+                respondWithRuntimeRestart(res, {
                     success: true,
                     message: `Module ${moduleId} enabled`,
                     moduleId,
-                });
+                }, moduleId, 'enable');
             } catch (error: unknown) {
                 logger.error(`Failed to enable module ${req.params.moduleId}`, error);
                 res.status(500).json({ error: getErrorMessage(error) });
@@ -265,14 +269,12 @@ export function registerAdminModuleRoutes(opts: RegisterAdminModuleRoutesOptions
                 }
 
                 logger.info(`[Admin] Module disabled: ${moduleId} (reason: ${reason})`);
-                // Notify clients so open actor pages fall back to generic immediately.
-                deps.broadcastToClients('moduleStateChanged', { moduleId, enabled: false });
-                res.json({
+                respondWithRuntimeRestart(res, {
                     success: true,
                     message: `Module ${moduleId} disabled`,
                     moduleId,
                     reason,
-                });
+                }, moduleId, 'disable');
             } catch (error: unknown) {
                 logger.error(`Failed to disable module ${req.params.moduleId}`, error);
                 res.status(500).json({ error: getErrorMessage(error) });
@@ -284,10 +286,8 @@ export function registerAdminModuleRoutes(opts: RegisterAdminModuleRoutesOptions
      * POST /admin/api/lifecycle/:moduleId/switch-source
      * Switch a module between its local dev version and managed install.
      *
-     * After the registry is updated server-side, a 'moduleSourceChanged' socket
-     * event is broadcast to all connected clients. Any client currently viewing
-     * an actor whose system matches this moduleId will automatically re-resolve
-     * and reload its module UI from the new source without a page refresh.
+     * Source switching changes executable runtime ownership and therefore uses
+     * the same supervised restart boundary as install, upgrade, and uninstall.
      */
     adminRouter.post(
         '/lifecycle/:moduleId/switch-source',
@@ -308,11 +308,12 @@ export function registerAdminModuleRoutes(opts: RegisterAdminModuleRoutesOptions
                 if (!result.success) {
                     return res.status(400).json({ success: false, error: result.error });
                 }
-                // Push the change to all connected clients. Clients use this to
-                // invalidate their cached source-map and reload the module UI if
-                // they are currently rendering an actor for this system.
-                deps.broadcastToClients('moduleSourceChanged', { moduleId, source });
-                res.json({ success: true, moduleId, activeSource: source });
+                respondWithRuntimeRestart(
+                    res,
+                    { success: true, moduleId, activeSource: source },
+                    moduleId,
+                    'switch-source',
+                );
             } catch (error: unknown) {
                 res.status(500).json({ error: getErrorMessage(error) });
             }
@@ -427,8 +428,8 @@ export function registerAdminModuleRoutes(opts: RegisterAdminModuleRoutesOptions
                         return res.status(managerErrorStatusCode(result.errorCode)).json(result);
                     }
 
-                    deps.broadcastToClients('moduleRegistryChanged', { moduleId, operation });
-                    return res.json(result);
+                    respondWithRuntimeRestart(res, result, moduleId, operation);
+                    return;
                 } catch (error: unknown) {
                     const message = getErrorMessage(error);
                     if (error instanceof TypeError) {
@@ -521,8 +522,8 @@ export function registerAdminModuleRoutes(opts: RegisterAdminModuleRoutesOptions
                     if (!result.success) {
                         return res.status(managerErrorStatusCode(result.errorCode)).json(result);
                     }
-                    deps.broadcastToClients('moduleRegistryChanged', { moduleId, operation });
-                    return res.json(result);
+                    respondWithRuntimeRestart(res, result, moduleId, operation);
+                    return;
                 } catch (error: unknown) {
                     const message = getErrorMessage(error);
                     if (error instanceof TypeError) {
@@ -719,15 +720,13 @@ export function registerAdminModuleRoutes(opts: RegisterAdminModuleRoutesOptions
                     });
                 }
 
-                // Bust client source-map cache so getUIModule picks up the new install.
-                deps.broadcastToClients('moduleRegistryChanged', { moduleId, operation: 'install' });
-                res.json({
+                respondWithRuntimeRestart(res, {
                     success: true,
                     moduleId,
                     operation: 'install',
                     previousStatus: result.previousStatus,
                     newStatus: result.newStatus,
-                });
+                }, moduleId, 'install');
             } catch (error: unknown) {
                 logger.error(`Failed to install module ${req.params.moduleId}`, error);
                 res.status(500).json({ error: getErrorMessage(error) });
@@ -763,14 +762,13 @@ export function registerAdminModuleRoutes(opts: RegisterAdminModuleRoutesOptions
                     });
                 }
 
-                deps.broadcastToClients('moduleRegistryChanged', { moduleId, operation: 'uninstall' });
-                res.json({
+                respondWithRuntimeRestart(res, {
                     success: true,
                     moduleId,
                     operation: 'uninstall',
                     previousStatus: result.previousStatus,
                     newStatus: result.newStatus,
-                });
+                }, moduleId, 'uninstall');
             } catch (error: unknown) {
                 logger.error(`Failed to uninstall module ${req.params.moduleId}`, error);
                 res.status(500).json({ error: getErrorMessage(error) });
@@ -822,14 +820,13 @@ export function registerAdminModuleRoutes(opts: RegisterAdminModuleRoutesOptions
                     });
                 }
 
-                deps.broadcastToClients('moduleRegistryChanged', { moduleId, operation: 'upgrade' });
-                res.json({
+                respondWithRuntimeRestart(res, {
                     success: true,
                     moduleId,
                     operation: 'upgrade',
                     previousStatus: result.previousStatus,
                     newStatus: result.newStatus,
-                });
+                }, moduleId, 'upgrade');
             } catch (error: unknown) {
                 logger.error(`Failed to upgrade module ${req.params.moduleId}`, error);
                 res.status(500).json({ error: getErrorMessage(error) });
@@ -1113,8 +1110,8 @@ export function registerAdminModuleRoutes(opts: RegisterAdminModuleRoutesOptions
                     if (!result.success) {
                         return res.status(managerErrorStatusCode(result.errorCode)).json({ ...result, sourceId });
                     }
-                    deps.broadcastToClients('moduleRegistryChanged', { moduleId, operation });
-                    return res.json({ ...result, sourceId });
+                    respondWithRuntimeRestart(res, { ...result, sourceId }, moduleId, operation);
+                    return;
                 } catch (error: unknown) {
                     const message = getErrorMessage(error);
                     if (error instanceof TypeError) {
@@ -1142,10 +1139,8 @@ export function registerAdminModuleRoutes(opts: RegisterAdminModuleRoutesOptions
      * Clients should watch for socket reconnection and reload the page once
      * the server is back up — the admin panel handles this automatically.
      *
-     * Note: this restarts the Core Service (API + adapters) only. In production,
-     * the Next.js build process is separate; newly installed module UIs require
-     * a Next.js rebuild for their webpack chunks to be included. In development
-     * mode Turbopack handles this lazily without a restart.
+     * Exit code 75 is handled by start-server.ts as a full managed-stack restart,
+     * covering both Core adapter code and the application shell.
      */
     adminRouter.post(
         '/server/restart',
@@ -1154,23 +1149,8 @@ export function registerAdminModuleRoutes(opts: RegisterAdminModuleRoutesOptions
         requireAdminCsrf,
         auditAdminAction,
         (_req, res) => {
-            // Notify all connected clients that a restart is imminent so they
-            // can show a reconnecting state immediately rather than waiting for
-            // the socket to time out.
-            deps.broadcastToClients('serverRestarting', {});
-
-            // Flush the response before exiting so the browser receives 200.
-            res.json({ success: true, message: 'Server is restarting' });
-            res.end();
-
-            // Short delay gives express time to flush the response buffer.
-            // Exit code 75 is the restart signal — start-server.ts watches for
-            // this specific code and restarts both the Core Service and Next.js
-            // rather than propagating a full shutdown.
-            setTimeout(() => {
-                logger.info('Admin | Server restart requested by admin — signalling manager for restart (exit 75)');
-                process.exit(75);
-            }, 500);
+            res.json({ success: true, message: 'Server is restarting', restartScheduled: true });
+            opts.requestServerRestart('admin-requested-restart');
         }
     );
 

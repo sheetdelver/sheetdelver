@@ -6,6 +6,11 @@ import { config as loadDotEnv } from 'dotenv';
 import { spawn, ChildProcess } from 'child_process';
 import { resolveDataDir, initDataDir, getConfigFilePath, getCacheDir, getDataDir } from '../server/core/paths';
 import { resolveAdminOrigin } from '../shared/security/adminOrigin';
+import {
+    FULL_STACK_RESTART_EXIT_CODE,
+    FULL_STACK_RESTART_SIGNAL,
+    MANAGER_PID_ENV,
+} from '../shared/runtime/fullStackRestart';
 
 // The manager is the parent of both Core and Next, so it must load project-root
 // secrets before either child is spawned. Existing process variables retain priority.
@@ -83,39 +88,105 @@ if (command !== 'build' && command !== MANAGED_CONFIG_COMMAND) {
 
 let coreProcess: ChildProcess | null = null;
 let shellProcess: ChildProcess | null = null;
+const expectedCoreStops = new WeakSet<ChildProcess>();
 const expectedShellStops = new WeakSet<ChildProcess>();
+let restartInProgress = false;
 
-// Exit code 75 means the Core Service is requesting a full stack restart
-// (e.g. triggered by the admin "Restart Now" button after a module install).
-// The manager catches this code, kills Next.js, and relaunches both services
-// so new adapter code and — in dev mode — newly installed module UI files are
-// picked up without the user having to touch the terminal.
-const RESTART_EXIT_CODE = 75;
+// Core signals this manager for runtime-affecting module changes. Exit code 75
+// remains the fallback when Core is launched without a manager. Both paths
+// cycle Core and Next so adapter code and module UI stay in one generation.
+const CHILD_STOP_TIMEOUT_MS = 5000;
+const USE_CHILD_PROCESS_GROUPS = process.platform !== 'win32';
 
-// When the terminal sends a signal, all processes in the same group receive it.
-// Skip explicit child kills in that case to avoid sending a duplicate signal.
-function cleanup(skipChildSignals = false) {
+function signalChild(child: ChildProcess, signal: NodeJS.Signals): boolean {
+    try {
+        if (USE_CHILD_PROCESS_GROUPS && child.pid) {
+            return process.kill(-child.pid, signal);
+        }
+        return child.kill(signal);
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
+        return false;
+    }
+}
+
+function stopChild(child: ChildProcess, label: string): Promise<void> {
+    return new Promise((resolve) => {
+        if (child.exitCode !== null || child.signalCode !== null) {
+            resolve();
+            return;
+        }
+
+        const timeout = setTimeout(() => {
+            logger.warn(`[Manager] ${label} did not stop after ${CHILD_STOP_TIMEOUT_MS}ms; forcing shutdown.`);
+            signalChild(child, 'SIGKILL');
+        }, CHILD_STOP_TIMEOUT_MS);
+
+        child.once('close', () => {
+            clearTimeout(timeout);
+            resolve();
+        });
+        signalChild(child, 'SIGINT');
+    });
+}
+
+async function cycleServices(source: string): Promise<void> {
+    if (restartInProgress) return;
+    restartInProgress = true;
+    logger.info(`[Manager] Full-stack restart requested by ${source}; cycling all services...`);
+
+    const oldCore = coreProcess;
+    const oldShell = shellProcess;
+    coreProcess = null;
+    shellProcess = null;
+
+    const stops: Promise<void>[] = [];
+    if (oldCore) {
+        expectedCoreStops.add(oldCore);
+        stops.push(stopChild(oldCore, 'Core Service'));
+    }
+    if (oldShell) {
+        expectedShellStops.add(oldShell);
+        stops.push(stopChild(oldShell, 'Application Shell Service'));
+    }
+
+    try {
+        await Promise.all(stops);
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        await start();
+    } catch (error) {
+        logger.error('[Manager] Failed to restart services:', error);
+        cleanup();
+        process.exit(1);
+    } finally {
+        restartInProgress = false;
+    }
+}
+
+process.on(FULL_STACK_RESTART_SIGNAL, () => {
+    void cycleServices(`Core signal ${FULL_STACK_RESTART_SIGNAL}`);
+});
+
+function cleanup() {
     logger.info('\n[Manager] Shutting down services...');
-    if (!skipChildSignals) {
-        if (coreProcess) {
-            logger.info('[Manager] Stopping Core Service...');
-            coreProcess.kill('SIGINT');
-        }
-        if (shellProcess) {
-            logger.info('[Manager] Stopping Application Shell Service...');
-            shellProcess.kill('SIGINT');
-        }
+    if (coreProcess) {
+        logger.info('[Manager] Stopping Core Service...');
+        signalChild(coreProcess, 'SIGINT');
+    }
+    if (shellProcess) {
+        logger.info('[Manager] Stopping Application Shell Service...');
+        signalChild(shellProcess, 'SIGINT');
     }
 }
 
 // Handle termination signals
 process.on('SIGINT', () => {
-    cleanup(true);
+    cleanup();
     process.exit(0);
 });
 
 process.on('SIGTERM', () => {
-    cleanup(true);
+    cleanup();
     process.exit(0);
 });
 
@@ -168,45 +239,39 @@ async function start() {
     // We pass the API_PORT via env var as usual, but specific naming might be needed depending on server/index.ts
     // server/index.ts reads config.app.apiPort mostly, but falls back to env.PORT or env.API_PORT
     //
-    // In dev, use `tsx watch` so a source change anywhere under src/ (or the
-    // referenced module dirs) reloads the entire Core process. This clears
-    // Node's ESM cache wholesale and avoids the "transitive import stays
-    // cached" footgun in the registry's per-file mtime cache-bust. In any
-    // non-dev command (start, build) we stick with a single-shot tsx run.
+    // In dev, use `tsx watch` so source changes reload the entire Core process.
+    // Server adapters share that process boundary; the registry does not try to
+    // replace initialized adapters in place. Non-dev commands use one tsx run.
     const coreArgs = command === 'dev'
         ? ['-y', 'tsx', 'watch', 'src/server/index.ts']
         : ['-y', 'tsx', 'src/server/index.ts'];
 
     coreProcess = spawn('npx', coreArgs, {
         stdio: 'inherit',
+        detached: USE_CHILD_PROCESS_GROUPS,
         env: {
             ...process.env,
             NODE_ENV: runtimeNodeEnv,
             PORT: apiPort.toString(),
             API_PORT: apiPort.toString(),
             SHEET_DELVER_DATA: getDataDir(),
+            [MANAGER_PID_ENV]: process.pid.toString(),
         }
     });
 
-    coreProcess.on('error', (err) => {
+    const coreChild = coreProcess;
+    coreChild.on('error', (err) => {
         logger.error('[Manager] Core Service failed to start:', err);
         cleanup();
         process.exit(1);
     });
 
-    coreProcess.on('close', (code) => {
-        if (code === RESTART_EXIT_CODE) {
-            // Admin-requested restart: Core and the application shell reload so
-            // API and module code cannot drift across generations.
-            logger.info('[Manager] Core Service requested restart — cycling all services...');
-            if (shellProcess) {
-                expectedShellStops.add(shellProcess);
-                shellProcess.kill('SIGINT');
-                shellProcess = null;
-            }
-            coreProcess = null;
-            // Brief pause lets ports free up before relaunching.
-            setTimeout(() => start(), 1500);
+    coreChild.on('close', (code) => {
+        if (expectedCoreStops.delete(coreChild)) return;
+        if (coreProcess === coreChild) coreProcess = null;
+
+        if (code === FULL_STACK_RESTART_EXIT_CODE) {
+            void cycleServices(`Core exit ${FULL_STACK_RESTART_EXIT_CODE}`);
             return;
         }
 
@@ -245,6 +310,7 @@ async function start() {
 
     shellProcess = spawn(nextCmd, nextArgs, {
         stdio: 'inherit',
+        detached: USE_CHILD_PROCESS_GROUPS,
         env
     });
 
