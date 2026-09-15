@@ -37,6 +37,17 @@ compatibility, or trust tier. Those release facts come from the generated
 release manifest and archive `info.json`. Trust is assigned by the local source
 profile, never by catalog content.
 
+The stable manifest URL also anchors module-owned release history. Sheet Delver
+looks for `sheet-delver-releases.json` beside `sheet-delver-manifest.json` and
+uses it to discover immutable manifests for earlier releases. The central
+catalog does not list or copy those versions.
+
+Only releases whose declared Sheet Delver core and SDK contract constraints
+match the running application are offered. A catalog module is omitted from the
+Available view when none of its published releases are compatible. Missing or
+invalid history is a supported legacy state: the module remains latest-only if
+its latest release is compatible, and the admin review displays a warning.
+
 ## Source Policy
 
 Sheet Delver creates two protected profiles:
@@ -64,6 +75,12 @@ restart. Player requests briefly return an initializing response while Core
 rehydrates compendiums, reseeds world documents, and initializes the selected
 adapter. Dry-run and release inspection do not interrupt the running application.
 
+When more than one compatible release is published, the admin review allows an
+operator to select a version. Moving to an earlier version uses the existing
+upgrade transaction but is labeled as a downgrade and requires explicit
+acknowledgement. Version selection does not create a pin; existing locks and
+exact-version pins remain authoritative.
+
 ## Refresh Behavior
 
 Catalog responses are cached for five minutes under
@@ -81,8 +98,10 @@ mode does not bypass these controls.
 
 Catalog changes should be schema-validated in CI before GitHub Pages publishes
 `catalog.json`. Module repositories publish their own archive and generated
-`sheet-delver-manifest.json`; updating a module release therefore does not
-require editing the catalog.
+`sheet-delver-manifest.json` and `sheet-delver-releases.json`; updating a module
+release therefore does not require editing the catalog. The reusable release
+workflow rebuilds history from up to 100 existing non-draft, non-prerelease
+releases that contain a Sheet Delver release manifest.
 
 See [MODULE_MANIFEST.md](MODULE_MANIFEST.md) for release-manifest fields,
 [RELEASING.md](RELEASING.md) for release assets, [CONFIGURATION.md](CONFIGURATION.md)

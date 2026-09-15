@@ -511,6 +511,7 @@ export function registerAdminModuleRoutes(opts: RegisterAdminModuleRoutesOptions
                         },
                         approveTrustOverride: readBooleanBody(req, 'approveTrustOverride'),
                         approvePermissionEscalation: readBooleanBody(req, 'approvePermissionEscalation'),
+                        approveDowngrade: readBooleanBody(req, 'approveDowngrade'),
                     };
 
                     if (dryRun) {
@@ -1019,6 +1020,45 @@ export function registerAdminModuleRoutes(opts: RegisterAdminModuleRoutesOptions
         }
     });
 
+    async function resolveCatalogRelease(
+        sourceId: string,
+        moduleId: string,
+        selectedVersion?: string,
+    ) {
+        const { getSourceProfile } = await import('@modules/registry/distribution/sourceProfiles');
+        const { fetchPublicCatalog } = await import('@modules/registry/distribution/publicCatalogService');
+        const releaseOperations = await import('@modules/registry/server');
+        const profile = getSourceProfile(sourceId);
+        if (!profile) throw new RangeError('Source profile not found');
+
+        const catalog = await fetchPublicCatalog(profile, configuredCatalogPolicy());
+        if (!catalog.index) {
+            throw new Error(catalog.error || 'Catalog is unavailable');
+        }
+        const entry = catalog.index.modules[moduleId];
+        if (!entry) throw new RangeError('Module not found in source catalog');
+
+        const baseInput = {
+            manifestUrl: entry.manifest,
+            expectedModuleId: moduleId,
+            policy: configuredCatalogPolicy(),
+            sourceTrustTier: profile.trustTier || ModuleTrustTier.Unverified,
+            sourceProfileId: profile.id,
+        };
+        const history = await releaseOperations.inspectPublicModuleReleaseHistory(baseInput);
+        const target = releaseOperations.resolvePublicModuleReleaseTarget(history, selectedVersion);
+        const input = {
+            ...baseInput,
+            manifestUrl: target.manifest,
+            expectedVersion: target.version,
+        };
+        const inspected = target.version === history.latest.version
+            ? { summary: history.latest }
+            : await releaseOperations.inspectPublicModuleRelease(input);
+
+        return { history, input, profile, release: inspected.summary };
+    }
+
     adminRouter.get(
         '/sources/:sourceId/modules/:moduleId/release',
         requireAdminAccountExists,
@@ -1028,33 +1068,22 @@ export function registerAdminModuleRoutes(opts: RegisterAdminModuleRoutesOptions
             if (!moduleId) return;
             try {
                 const sourceId = String(req.params.sourceId || '');
-                const { getSourceProfile } = await import('@modules/registry/distribution/sourceProfiles');
-                const { fetchPublicCatalog } = await import('@modules/registry/distribution/publicCatalogService');
-                const releaseOperations = await import('@modules/registry/server');
-                const profile = getSourceProfile(sourceId);
-                if (!profile) return res.status(404).json({ error: 'Source profile not found' });
-
-                const catalog = await fetchPublicCatalog(profile, configuredCatalogPolicy());
-                if (!catalog.index) {
-                    return res.status(422).json({
-                        success: false,
-                        error: catalog.error || 'Catalog is unavailable',
-                        source: catalog,
-                    });
-                }
-                const entry = catalog.index.modules[moduleId];
-                if (!entry) return res.status(404).json({ error: 'Module not found in source catalog' });
-
-                const inspected = await releaseOperations.inspectPublicModuleRelease({
-                    manifestUrl: entry.manifest,
-                    expectedModuleId: moduleId,
-                    policy: configuredCatalogPolicy(),
-                    sourceTrustTier: profile.trustTier || ModuleTrustTier.Unverified,
-                    sourceProfileId: profile.id,
+                const selectedVersion = typeof req.query?.version === 'string'
+                    ? req.query.version
+                    : undefined;
+                const resolved = await resolveCatalogRelease(sourceId, moduleId, selectedVersion);
+                return res.json({
+                    success: true,
+                    sourceId,
+                    release: resolved.release,
+                    historyAvailable: resolved.history.historyAvailable,
+                    historyUrl: resolved.history.historyUrl,
+                    historyError: resolved.history.historyError,
+                    releases: resolved.history.compatibleReleases.map((entry) => ({ version: entry.version })),
                 });
-                return res.json({ success: true, sourceId, release: inspected.summary });
             } catch (error: unknown) {
-                return res.status(422).json({ success: false, error: getErrorMessage(error) });
+                const status = error instanceof RangeError ? 404 : 422;
+                return res.status(status).json({ success: false, error: getErrorMessage(error) });
             }
         },
     );
@@ -1075,32 +1104,17 @@ export function registerAdminModuleRoutes(opts: RegisterAdminModuleRoutesOptions
                 if (!moduleId) return;
                 try {
                     const sourceId = String(req.params.sourceId || '');
-                    const { getSourceProfile } = await import('@modules/registry/distribution/sourceProfiles');
-                    const { fetchPublicCatalog } = await import('@modules/registry/distribution/publicCatalogService');
-                    const releaseOperations = await import('@modules/registry/server');
-                    const profile = getSourceProfile(sourceId);
-                    if (!profile) return res.status(404).json({ error: 'Source profile not found' });
-
-                    const catalog = await fetchPublicCatalog(profile, configuredCatalogPolicy());
-                    if (!catalog.index) {
-                        return res.status(422).json({
-                            success: false,
-                            error: catalog.error || 'Catalog is unavailable',
-                            source: catalog,
-                        });
-                    }
-                    const entry = catalog.index.modules[moduleId];
-                    if (!entry) return res.status(404).json({ error: 'Module not found in source catalog' });
-
+                    const selectedVersion = typeof req.body?.version === 'string'
+                        ? req.body.version
+                        : undefined;
+                    const resolved = await resolveCatalogRelease(sourceId, moduleId, selectedVersion);
                     const input = {
-                        manifestUrl: entry.manifest,
-                        expectedModuleId: moduleId,
-                        policy: configuredCatalogPolicy(),
-                        sourceTrustTier: profile.trustTier || ModuleTrustTier.Unverified,
-                        sourceProfileId: profile.id,
+                        ...resolved.input,
                         approveTrustOverride: readBooleanBody(req, 'approveTrustOverride'),
                         approvePermissionEscalation: readBooleanBody(req, 'approvePermissionEscalation'),
+                        approveDowngrade: readBooleanBody(req, 'approveDowngrade'),
                     };
+                    const releaseOperations = await import('@modules/registry/server');
                     if (dryRun) {
                         const preview = await releaseOperations.dryRunPublicModuleRelease(operation, input);
                         return res.json({ ...preview, sourceId });
@@ -1114,10 +1128,11 @@ export function registerAdminModuleRoutes(opts: RegisterAdminModuleRoutesOptions
                     return;
                 } catch (error: unknown) {
                     const message = getErrorMessage(error);
-                    if (error instanceof TypeError) {
-                        return res.status(400).json({ success: false, error: message, errorCode: 'invalid-request' });
+                    if (error instanceof TypeError || error instanceof RangeError) {
+                        const status = error instanceof RangeError ? 404 : 400;
+                        return res.status(status).json({ success: false, error: message, errorCode: 'invalid-request' });
                     }
-                    return res.status(500).json({ error: message });
+                    return res.status(422).json({ success: false, error: message });
                 }
             },
         );

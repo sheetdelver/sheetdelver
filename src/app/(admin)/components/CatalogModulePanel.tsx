@@ -17,6 +17,7 @@ import {
     type ModuleLifecycleInfo,
     type PublicReleaseSummary,
 } from '../lib/adminApi';
+import { compareReleaseVersions } from '@shared/utils/releaseVersion';
 import { isInstalledReleaseCurrent } from '../lib/catalogReleaseState';
 import Button from './ui/Button';
 import Drawer from './ui/Drawer';
@@ -53,10 +54,6 @@ function matchingCatalogSource(
     if (!recordedSource) return listing.source;
     return sources.find((source) => source.id === recordedSource)
         || (allowPriorityFallback ? listing.source : undefined);
-}
-
-function compareVersions(left: string, right: string): number {
-    return left.localeCompare(right, undefined, { numeric: true, sensitivity: 'base' });
 }
 
 function releaseKey(moduleId: string, sourceId: string): string {
@@ -99,37 +96,33 @@ export default function CatalogModulePanel({ mode }: { mode: CatalogMode }) {
         setCatalog(nextCatalog);
         setModules(nextModules);
 
-        if (mode === 'updates') {
-            const inspections = Object.values(nextCatalog.modules).flatMap((listing) => {
-                const installed = nextModules.find((item) => (
-                    item.moduleId === listing.moduleId && item.managed && item.artifact
-                ));
-                const source = matchingCatalogSource(listing, installed);
-                if (!installed || !source) return [];
-                return [{ listing, source }];
-            });
-            setReleaseStates(Object.fromEntries(inspections.map(({ listing, source }) => [
-                releaseKey(listing.moduleId, source.id),
-                { loading: true },
-            ])));
-            const inspected = await Promise.all(inspections.map(async ({ listing, source }) => {
-                const result = await fetchCatalogRelease(source.id, listing.moduleId);
-                return {
-                    key: releaseKey(listing.moduleId, source.id),
-                    state: result.ok && result.data
-                        ? { loading: false, release: result.data.release }
-                        : { loading: false, error: result.error || 'Release inspection failed.' },
-                    sessionExpired: result.sessionExpired,
-                };
-            }));
-            if (inspected.some((result) => result.sessionExpired)) {
-                logout();
-                return;
-            }
-            setReleaseStates(Object.fromEntries(inspected.map(({ key, state }) => [key, state])));
-        } else {
-            setReleaseStates({});
+        const inspections = Object.values(nextCatalog.modules).flatMap((listing) => {
+            const installed = nextModules.find((item) => (
+                item.moduleId === listing.moduleId && item.managed && item.artifact
+            ));
+            const source = matchingCatalogSource(listing, installed, mode === 'available');
+            if (!source || (mode === 'updates' && !installed)) return [];
+            return [{ listing, source }];
+        });
+        setReleaseStates(Object.fromEntries(inspections.map(({ listing, source }) => [
+            releaseKey(listing.moduleId, source.id),
+            { loading: true },
+        ])));
+        const inspected = await Promise.all(inspections.map(async ({ listing, source }) => {
+            const result = await fetchCatalogRelease(source.id, listing.moduleId);
+            return {
+                key: releaseKey(listing.moduleId, source.id),
+                state: result.ok && result.data
+                    ? { loading: false, release: result.data.release }
+                    : { loading: false, error: result.error || 'No compatible release is available.' },
+                sessionExpired: result.sessionExpired,
+            };
+        }));
+        if (inspected.some((result) => result.sessionExpired)) {
+            logout();
+            return;
         }
+        setReleaseStates(Object.fromEntries(inspected.map(({ key, state }) => [key, state])));
         setLoading(false);
     }, [logout, mode]);
 
@@ -156,7 +149,9 @@ export default function CatalogModulePanel({ mode }: { mode: CatalogMode }) {
             };
         });
         if (mode === 'available') {
-            return catalogRows.sort((left, right) => left.title.localeCompare(right.title));
+            return catalogRows
+                .filter((row) => Boolean(row.releaseState?.release))
+                .sort((left, right) => left.title.localeCompare(right.title));
         }
 
         const byId = new Map(catalogRows.map((row) => [row.moduleId, row]));
@@ -250,7 +245,7 @@ function CatalogRowItem({ row, mode, onOpen }: { row: CatalogRow; mode: CatalogM
     const currentVersion = row.installed?.artifact?.version;
     const nextVersion = row.releaseState?.release?.version;
     const changed = currentVersion && nextVersion && currentVersion !== nextVersion;
-    const direction = changed && compareVersions(nextVersion, currentVersion) < 0 ? 'Earlier release' : 'Update';
+    const direction = changed && compareReleaseVersions(nextVersion, currentVersion) < 0 ? 'Earlier release' : 'Update';
 
     return (
         <div className="rounded-md border border-[var(--admin-border)] bg-[var(--admin-surface)] p-4">
@@ -310,12 +305,16 @@ function CatalogOperationPanel({
     const operation = row.installed ? 'upgrade' : 'install';
     const [sourceId, setSourceId] = useState(initialSourceId);
     const [release, setRelease] = useState<PublicReleaseSummary | null>(null);
+    const [availableVersions, setAvailableVersions] = useState<string[]>([]);
+    const [selectedVersion, setSelectedVersion] = useState('');
+    const [historyWarning, setHistoryWarning] = useState<string | null>(null);
     const [releaseLoading, setReleaseLoading] = useState(true);
     const [preview, setPreview] = useState<CatalogDryRunResult | null>(null);
     const [previewLoading, setPreviewLoading] = useState(false);
     const [applying, setApplying] = useState(false);
     const [trustApproved, setTrustApproved] = useState(false);
     const [permissionsApproved, setPermissionsApproved] = useState(false);
+    const [downgradeApproved, setDowngradeApproved] = useState(false);
     const [previewApprovals, setPreviewApprovals] = useState<{ trust: boolean; permissions: boolean } | null>(null);
     const [error, setError] = useState<string | null>(null);
 
@@ -323,10 +322,14 @@ function CatalogOperationPanel({
         let active = true;
         setReleaseLoading(true);
         setRelease(null);
+        setAvailableVersions([]);
+        setSelectedVersion('');
+        setHistoryWarning(null);
         setPreview(null);
         setPreviewApprovals(null);
         setTrustApproved(false);
         setPermissionsApproved(false);
+        setDowngradeApproved(false);
         setError(null);
         void fetchCatalogRelease(sourceId, row.moduleId).then((result) => {
             if (!active) return;
@@ -334,12 +337,41 @@ function CatalogOperationPanel({
                 onSessionExpired();
                 return;
             }
-            if (result.ok && result.data) setRelease(result.data.release);
-            else setError(result.error || 'Failed to inspect release.');
+            if (result.ok && result.data) {
+                setRelease(result.data.release);
+                setAvailableVersions(result.data.releases.map((entry) => entry.version));
+                setSelectedVersion(result.data.release.version);
+                setHistoryWarning(result.data.historyError || null);
+            } else {
+                setError(result.error || 'Failed to inspect release.');
+            }
             setReleaseLoading(false);
         });
         return () => { active = false; };
     }, [onSessionExpired, row.moduleId, sourceId]);
+
+    const selectRelease = async (version: string) => {
+        setSelectedVersion(version);
+        setReleaseLoading(true);
+        setRelease(null);
+        setPreview(null);
+        setPreviewApprovals(null);
+        setDowngradeApproved(false);
+        setError(null);
+        const result = await fetchCatalogRelease(sourceId, row.moduleId, version);
+        if (result.sessionExpired) {
+            onSessionExpired();
+            return;
+        }
+        if (result.ok && result.data) {
+            setRelease(result.data.release);
+            setAvailableVersions(result.data.releases.map((entry) => entry.version));
+            setHistoryWarning(result.data.historyError || null);
+        } else {
+            setError(result.error || 'Failed to inspect selected release.');
+        }
+        setReleaseLoading(false);
+    };
 
     const runPreview = async () => {
         setPreviewLoading(true);
@@ -347,6 +379,8 @@ function CatalogOperationPanel({
         const result = await postCatalogDryRun(sourceId, row.moduleId, operation, {
             approveTrustOverride: trustApproved,
             approvePermissionEscalation: permissionsApproved,
+            approveDowngrade: downgradeApproved,
+            version: selectedVersion,
         });
         if (result.sessionExpired) {
             onSessionExpired();
@@ -367,6 +401,8 @@ function CatalogOperationPanel({
         const result = await postCatalogOperation(sourceId, row.moduleId, operation, {
             approveTrustOverride: trustApproved,
             approvePermissionEscalation: permissionsApproved,
+            approveDowngrade: downgradeApproved,
+            version: selectedVersion,
         });
         if (result.sessionExpired) {
             onSessionExpired();
@@ -377,7 +413,7 @@ function CatalogOperationPanel({
             setApplying(false);
             return;
         }
-        addToast(`${row.title} ${operation === 'install' ? 'installed' : 'updated'}.`, 'success');
+        addToast(`${row.title} ${operation === 'install' ? 'installed' : isDowngrade ? 'downgraded' : 'updated'}.`, 'success');
         if (result.data?.restartScheduled) beginRuntimeRestart();
         else await onComplete();
         setApplying(false);
@@ -390,6 +426,17 @@ function CatalogOperationPanel({
         && previewApprovals.permissions === permissionsApproved);
     const currentRelease = operation === 'upgrade'
         && isInstalledReleaseCurrent(release, row.installed?.artifact);
+    const installedVersion = row.installed?.artifact?.version;
+    const isDowngrade = Boolean(
+        release
+        && installedVersion
+        && compareReleaseVersions(release.version, installedVersion) < 0,
+    );
+    const actionLabel = operation === 'install'
+        ? 'Install'
+        : isDowngrade
+            ? 'Downgrade'
+            : 'Update';
 
     return (
         <div className="space-y-5">
@@ -406,6 +453,31 @@ function CatalogOperationPanel({
                         ))}
                     </select>
                 </label>
+            )}
+
+            {availableVersions.length > 1 && (
+                <label className="block text-sm text-[var(--admin-text-secondary)]">
+                    <span className="mb-1 block text-xs font-bold uppercase text-[var(--admin-text-muted)]">Release version</span>
+                    <select
+                        value={selectedVersion}
+                        onChange={(event) => void selectRelease(event.target.value)}
+                        disabled={releaseLoading}
+                        className="w-full rounded-md border border-[var(--admin-border)] bg-[var(--admin-surface)] px-3 py-2 text-[var(--admin-text-primary)]"
+                    >
+                        {availableVersions.map((version) => (
+                            <option key={version} value={version}>
+                                v{version}{version === row.installed?.artifact?.version ? ' (installed)' : ''}
+                            </option>
+                        ))}
+                    </select>
+                </label>
+            )}
+
+            {historyWarning && (
+                <div className="flex items-start gap-2 rounded-md border border-[var(--admin-warning-border)] bg-[var(--admin-warning-bg)] p-3 text-sm text-[var(--admin-warning-text)]">
+                    <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+                    <span>Release history is unavailable; only the latest compatible release can be selected. {historyWarning}</span>
+                </div>
             )}
 
             <DetailSection title="Release">
@@ -461,6 +533,22 @@ function CatalogOperationPanel({
                 </label>
             )}
 
+            {isDowngrade && (
+                <label className="flex items-start gap-2 text-sm text-[var(--admin-text-primary)]">
+                    <input
+                        type="checkbox"
+                        checked={downgradeApproved}
+                        onChange={(event) => {
+                            setDowngradeApproved(event.target.checked);
+                            setPreview(null);
+                            setPreviewApprovals(null);
+                        }}
+                        className="mt-0.5"
+                    />
+                    Acknowledge downgrade from v{installedVersion} to v{release?.version}
+                </label>
+            )}
+
             <div className="flex flex-wrap gap-2 border-t border-[var(--admin-border)] pt-4">
                 {currentRelease && (
                     <p className="w-full text-sm text-[var(--admin-text-muted)]">The current release is already installed.</p>
@@ -469,9 +557,13 @@ function CatalogOperationPanel({
                     <ShieldCheck className="mr-2 h-4 w-4" />
                     {previewLoading ? 'Checking...' : preview && !previewIsCurrent ? 'Re-run checks' : 'Run dry-run'}
                 </Button>
-                <Button variant="primary" onClick={() => void apply()} disabled={!preview?.wouldProceed || !previewIsCurrent || applying || currentRelease}>
+                <Button
+                    variant="primary"
+                    onClick={() => void apply()}
+                    disabled={!preview?.wouldProceed || !previewIsCurrent || applying || currentRelease || (isDowngrade && !downgradeApproved)}
+                >
                     <Download className="mr-2 h-4 w-4" />
-                    {applying ? 'Applying...' : operation === 'install' ? 'Install' : 'Update'}
+                    {applying ? 'Applying...' : actionLabel}
                 </Button>
             </div>
         </div>

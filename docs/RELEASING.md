@@ -135,8 +135,13 @@ creates a GitHub Release containing:
 
 - `<moduleId>-<version>.tgz`
 - `sheet-delver-manifest.json`
+- `sheet-delver-releases.json`
 - `<moduleId>-<version>.sha256`
 
 The fixed manifest asset name allows the static module catalog to follow the
-latest release without editing the catalog for every module version. A release
-workflow refuses to overwrite an existing GitHub Release.
+latest release without editing the catalog for every module version. The release
+history asset records up to 100 immutable manifests from existing non-draft,
+non-prerelease releases, allowing compatible historical versions to be selected
+without querying GitHub at application runtime. Releases made before adopting
+this workflow join history only when they contain `sheet-delver-manifest.json`.
+A release workflow refuses to overwrite an existing GitHub Release.

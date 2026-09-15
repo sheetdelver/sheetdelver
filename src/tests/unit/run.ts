@@ -141,6 +141,7 @@ import { run as runPublicCatalogService } from './modules/public-catalog-service
 import { run as runPublicCatalogProfiles } from './modules/public-catalog-profiles.test';
 import { run as runModuleIndexModel } from './modules/module-index-model.test';
 import { run as runModuleReleaseManifest } from './modules/module-release-manifest.test';
+import { run as runModuleReleaseHistory } from './modules/module-release-history.test';
 import { run as runModuleSourceAdapters } from './modules/module-source-adapters.test';
 import { run as runModuleManagerDryRun } from './modules/module-manager-dry-run.test';
 import { run as runModuleManagerTelemetry } from './modules/module-manager-telemetry.test';
@@ -269,6 +270,7 @@ async function runAllUnitTests() {
     runPublicCatalogProfiles();
     runModuleIndexModel();
     runModuleReleaseManifest();
+    runModuleReleaseHistory();
     runModuleSourceAdapters();
     await runModuleManagerDryRun();
     await runModuleManagerTelemetry();

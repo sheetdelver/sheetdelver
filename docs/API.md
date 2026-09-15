@@ -568,7 +568,8 @@ Send JSON containing exactly one source:
 {
   "manifestUrl": "https://example.org/releases/v1.2.0/sheet-delver-manifest.json",
   "approveTrustOverride": true,
-  "approvePermissionEscalation": false
+  "approvePermissionEscalation": false,
+  "approveDowngrade": false
 }
 ```
 
@@ -592,6 +593,8 @@ local archive transaction runs.
 Successful public release operations install only to
 `<DATA_DIR>/modules/<moduleId>`. They never write to
 `<DATA_DIR>/local/modules` or silently change an active local source.
+Replacing an installed release with an earlier version requires
+`approveDowngrade: true`; the server enforces this independently of the admin UI.
 
 ### `POST /admin/manager/:moduleId/install`
 
@@ -648,6 +651,7 @@ DELETE /admin/sources/:id
 POST   /admin/sources/:id/test
 GET    /admin/sources/:id/modules
 GET    /admin/catalog?refresh=true
+GET    /admin/sources/:sourceId/modules/:moduleId/release?version=1.2.0
 ```
 
 Custom source creation accepts `name`, `baseUrl`, optional `enabled`, and
@@ -671,9 +675,13 @@ POST /admin/sources/:sourceId/modules/:moduleId/dry-run/upgrade
 POST /admin/sources/:sourceId/modules/:moduleId/upgrade
 ```
 
-The JSON body may contain `approveTrustOverride` and
-`approvePermissionEscalation`. The server resolves the module manifest from the
-selected catalog; clients cannot substitute an archive URL or trust tier.
+The JSON body may contain `version`, `approveTrustOverride`,
+`approvePermissionEscalation`, and `approveDowngrade`. The release inspection
+response lists only versions compatible with the running Sheet Delver core and
+SDK contracts. Omitting `version` selects the newest compatible release. The
+server resolves the selected immutable manifest from validated module-owned
+history; clients cannot substitute an archive URL or trust tier. A missing or
+invalid history asset falls back to the compatible latest release only.
 
 The generic manager's `index://` and arbitrary HTTP(S) source references remain
 disabled with `remote-module-distribution-disabled`. Public network acquisition

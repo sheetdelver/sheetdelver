@@ -342,8 +342,12 @@ npm run module:package <moduleId>
 
 For a release, update and commit `info.json` first, then create a tag whose value
 without the leading `v` exactly matches the module version. The workflow creates
-a GitHub Release containing the package archive, checksum, and stable
-`sheet-delver-manifest.json`. Ordinary CI never publishes a release.
+a GitHub Release containing the package archive, checksum, stable
+`sheet-delver-manifest.json`, and generated `sheet-delver-releases.json` history.
+The history copies each release's compatibility declaration, so only versions
+compatible with the running Sheet Delver core and SDK contracts are offered in
+the catalog. Authors do not maintain the history file by hand. Ordinary CI never
+publishes a release.
 
 The Sheet Delver repository keeps CI focused on SDK integrity, scaffold
 integrity, and platform tests. Module repositories own their validation and

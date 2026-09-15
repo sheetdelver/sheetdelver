@@ -172,10 +172,13 @@ export {
     applyPublicModuleRelease,
     dryRunPublicModuleRelease,
     inspectPublicModuleRelease,
+    inspectPublicModuleReleaseHistory,
     resolvePublicGithubRepositoryManifestUrl,
+    resolvePublicModuleReleaseTarget,
     type ApplyPublicModuleReleaseResult,
     type DryRunPublicModuleReleaseResult,
     type InspectedPublicModuleRelease,
+    type PublicModuleReleaseHistorySummary,
     type PublicModuleReleaseInput,
     type PublicModuleReleaseSummary,
 } from '../distribution/publicReleaseOperations';
