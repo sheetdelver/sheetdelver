@@ -95,6 +95,35 @@ GitHub redirects that URL to the selected version-specific release. The sibling
 archive reference is resolved against the final URL, keeping each selected
 artifact immutable.
 
+The reusable release workflow also publishes `sheet-delver-releases.json` next
+to the stable manifest. It uses schema `sheet-delver-release-history.v1` and
+points each version to its immutable release manifest:
+
+```json
+{
+  "schemaVersion": "sheet-delver-release-history.v1",
+  "moduleId": "my-system",
+  "generatedAt": 1788739200000,
+  "releases": [
+    {
+      "version": "1.2.0",
+      "manifest": "https://github.com/example/my-system/releases/download/v1.2.0/sheet-delver-manifest.json",
+      "compatibility": {
+        "coreVersion": ">=0.9.0 <1.0.0",
+        "apiContracts": {
+          "module-api": ">=1.0.0 <2.0.0"
+        }
+      }
+    }
+  ]
+}
+```
+
+Compatibility is copied from each version's release manifest so Sheet Delver
+can omit unsupported versions before offering installation. History contains at
+most 100 unique versions and public HTTPS manifest URLs. Module authors should
+not edit it manually.
+
 `module:init` generates a tag-triggered caller for this workflow alongside the
 module's validation workflow. Both pin the same explicit Sheet Delver core ref;
 the module tag without its leading `v` must match `info.json` `version`.

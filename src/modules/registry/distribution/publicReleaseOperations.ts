@@ -5,6 +5,7 @@ import { getDistArchivesDir } from '@core/paths';
 import { ModuleTrustTier, type ModuleTrustTier as ModuleTrustTierValue } from '@shared/types/modules';
 import { parseModuleId } from '@shared/security/moduleId';
 import { logger } from '@shared/utils/logger';
+import { compareReleaseVersions } from '@shared/utils/releaseVersion';
 import {
     applyLocalModuleArchive,
     dryRunLocalModuleArchive,
@@ -12,6 +13,9 @@ import {
     type ModuleArchiveOperation,
 } from '../core/archiveOperations';
 import { operationFailure, type ManagerOperationResult } from '../core/manager';
+import { getArtifact, loadArtifactStore } from './artifactStore';
+import { getCoreVersion } from '../core/internals';
+import { evaluateModuleCompatibility } from '../lifecycle/validation';
 import { DEFAULT_MODULE_ARCHIVE_LIMITS } from './archiveTransaction';
 import {
     PublicDistributionError,
@@ -25,15 +29,23 @@ import {
     validateModuleReleaseManifest,
     type ModuleReleaseManifest,
 } from './releaseManifest';
+import {
+    resolveModuleReleaseHistoryEntry,
+    validateModuleReleaseHistory,
+    type ModuleReleaseHistoryDocument,
+    type ModuleReleaseHistoryEntry,
+} from './releaseHistory';
 
 export interface PublicModuleReleaseInput {
     manifestUrl: string;
     expectedModuleId: string;
+    expectedVersion?: string;
     policy: PublicDistributionPolicy;
     sourceTrustTier?: ModuleTrustTierValue;
     sourceProfileId?: string;
     approveTrustOverride?: boolean;
     approvePermissionEscalation?: boolean;
+    approveDowngrade?: boolean;
 }
 
 export interface PublicModuleReleaseSummary {
@@ -69,6 +81,15 @@ interface AcquiredPublicRelease {
 export interface InspectedPublicModuleRelease {
     manifest: ModuleReleaseManifest;
     summary: PublicModuleReleaseSummary;
+}
+
+export interface PublicModuleReleaseHistorySummary {
+    historyAvailable: boolean;
+    historyUrl: string;
+    historyError?: string;
+    releases: ModuleReleaseHistoryEntry[];
+    compatibleReleases: ModuleReleaseHistoryEntry[];
+    latest: PublicModuleReleaseSummary;
 }
 
 function ensureArchiveStagingDirectory(): string {
@@ -135,6 +156,30 @@ export function resolvePublicGithubRepositoryManifestUrl(repository: string): st
         throw new PublicDistributionError('invalid-url', 'GitHub owner or repository name is invalid');
     }
     return `https://github.com/${owner}/${name}/releases/latest/download/sheet-delver-manifest.json`;
+}
+
+export function resolvePublicModuleReleaseHistoryUrl(manifestUrl: string): string {
+    try {
+        return new URL('sheet-delver-releases.json', manifestUrl).href;
+    } catch {
+        throw new PublicDistributionError('invalid-url', 'Release manifest URL is invalid');
+    }
+}
+
+function getDowngradeBlockReason(
+    release: PublicModuleReleaseSummary,
+    approved: boolean | undefined,
+): string | undefined {
+    const artifact = getArtifact(loadArtifactStore(), release.moduleId);
+    if (
+        artifact
+        && compareReleaseVersions(release.version, artifact.version) < 0
+        && approved !== true
+    ) {
+        return 'Downgrade from v' + artifact.version + ' to v' + release.version
+            + ' requires explicit approval';
+    }
+    return undefined;
 }
 
 function removeStagedArchive(archivePath?: string): void {
@@ -211,6 +256,11 @@ export async function inspectPublicModuleRelease(
     if (manifest.module.id !== expectedModuleId) {
         throw new Error(`Release manifest module id "${manifest.module.id}" does not match expected id "${expectedModuleId}"`);
     }
+    if (input.expectedVersion && manifest.module.version !== input.expectedVersion) {
+        throw new Error(
+            `Release manifest version "${manifest.module.version}" does not match selected version "${input.expectedVersion}"`,
+        );
+    }
     if (manifest.artifact.size > DEFAULT_MODULE_ARCHIVE_LIMITS.maxArchiveBytes) {
         throw new PublicDistributionError(
             'response-too-large',
@@ -232,6 +282,108 @@ export async function inspectPublicModuleRelease(
             trustTier: input.sourceTrustTier || ModuleTrustTier.Unverified,
         },
     };
+}
+
+function isReleaseCompatible(entry: ModuleReleaseHistoryEntry): boolean {
+    return evaluateModuleCompatibility({
+        id: 'release-history-entry',
+        title: 'Release history entry',
+        manifest: { ui: 'dist/ui.js', logic: 'dist/logic.js' },
+        compatibility: entry.compatibility,
+    }, getCoreVersion()).compatible;
+}
+
+export async function inspectPublicModuleReleaseHistory(
+    input: PublicModuleReleaseInput,
+    dependencies: PublicDistributionDependencies = {},
+): Promise<PublicModuleReleaseHistorySummary> {
+    const latest = await inspectPublicModuleRelease(
+        { ...input, expectedVersion: undefined },
+        dependencies,
+    );
+    const historyUrl = resolvePublicModuleReleaseHistoryUrl(input.manifestUrl);
+    try {
+        const { value: history } = await fetchPublicDistributionJson<ModuleReleaseHistoryDocument>(
+            historyUrl,
+            input.policy,
+            validateModuleReleaseHistory,
+            dependencies,
+            { allowOctetStream: true },
+        );
+        if (history.moduleId !== latest.summary.moduleId) {
+            throw new Error(
+                `Release history module id "${history.moduleId}" does not match expected id "${latest.summary.moduleId}"`,
+            );
+        }
+        if (!resolveModuleReleaseHistoryEntry(history, latest.summary.version)) {
+            throw new Error(
+                `Release history does not include current release "${latest.summary.version}"`,
+            );
+        }
+
+        const latestEntry: ModuleReleaseHistoryEntry = {
+            version: latest.summary.version,
+            manifest: latest.summary.manifestUrl,
+            ...(latest.manifest.module.compatibility
+                ? { compatibility: latest.manifest.module.compatibility }
+                : {}),
+        };
+        const releases = [
+            latestEntry,
+            ...history.releases.filter((entry) => entry.version !== latest.summary.version),
+        ];
+        return {
+            historyAvailable: true,
+            historyUrl,
+            releases,
+            compatibleReleases: releases.filter(isReleaseCompatible),
+            latest: latest.summary,
+        };
+    } catch (error) {
+        return {
+            historyAvailable: false,
+            historyUrl,
+            historyError: error instanceof Error ? error.message : String(error),
+            releases: [{
+                version: latest.summary.version,
+                manifest: latest.summary.manifestUrl,
+                ...(latest.manifest.module.compatibility
+                    ? { compatibility: latest.manifest.module.compatibility }
+                    : {}),
+            }],
+            compatibleReleases: latest.manifest.module.compatibility
+                && !isReleaseCompatible({
+                    version: latest.summary.version,
+                    manifest: latest.summary.manifestUrl,
+                    compatibility: latest.manifest.module.compatibility,
+                })
+                ? []
+                : [{
+                    version: latest.summary.version,
+                    manifest: latest.summary.manifestUrl,
+                    ...(latest.manifest.module.compatibility
+                        ? { compatibility: latest.manifest.module.compatibility }
+                        : {}),
+                }],
+            latest: latest.summary,
+        };
+    }
+}
+
+export function resolvePublicModuleReleaseTarget(
+    history: PublicModuleReleaseHistorySummary,
+    version?: string,
+): ModuleReleaseHistoryEntry {
+    const selected = version
+        ? history.compatibleReleases.find((release) => release.version === version)
+        : history.compatibleReleases[0];
+    if (!selected) {
+        const detail = version ? `version "${version}"` : 'any published version';
+        throw new Error(
+            `Module "${history.latest.moduleId}" does not provide ${detail} compatible with this Sheet Delver release`,
+        );
+    }
+    return selected;
 }
 
 function archiveInput(input: PublicModuleReleaseInput, acquired: AcquiredPublicRelease) {
@@ -257,11 +409,18 @@ export async function dryRunPublicModuleRelease(
     try {
         acquired = await acquirePublicRelease(input, dependencies);
         const preview = await dryRunLocalModuleArchive(operation, archiveInput(input, acquired));
+        const downgradeBlock = operation === 'upgrade'
+            ? getDowngradeBlockReason(acquired.summary, input.approveDowngrade)
+            : undefined;
+        const blockingReasons = [
+            ...preview.blockingReasons,
+            ...(downgradeBlock ? [downgradeBlock] : []),
+        ];
         return {
             success: true,
             operation: preview.operation,
-            wouldProceed: preview.wouldProceed,
-            blockingReasons: preview.blockingReasons,
+            wouldProceed: preview.wouldProceed && !downgradeBlock,
+            blockingReasons,
             release: acquired.summary,
             archive: preview.archive,
             governance: preview.governance,
@@ -286,6 +445,18 @@ export async function applyPublicModuleRelease(
     let acquired: AcquiredPublicRelease | undefined;
     try {
         acquired = await acquirePublicRelease(input, dependencies);
+        const downgradeBlock = operation === 'upgrade'
+            ? getDowngradeBlockReason(acquired.summary, input.approveDowngrade)
+            : undefined;
+        if (downgradeBlock) {
+            return operationFailure(
+                acquired.summary.moduleId,
+                operation,
+                downgradeBlock,
+                undefined,
+                'precondition-failed',
+            );
+        }
         const result = await applyLocalModuleArchive(operation, archiveInput(input, acquired));
         return { ...result, release: acquired.summary };
     } catch (error) {

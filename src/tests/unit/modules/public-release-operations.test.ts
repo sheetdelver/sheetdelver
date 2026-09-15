@@ -15,12 +15,15 @@ import {
     applyPublicModuleRelease,
     dryRunPublicModuleRelease,
     inspectPublicModuleRelease,
+    inspectPublicModuleReleaseHistory,
     resolvePublicGithubRepositoryManifestUrl,
+    resolvePublicModuleReleaseTarget,
 } from '@modules/registry/server';
 import {
     getArtifact,
     getArtifactVerification,
     loadArtifactStore,
+    saveArtifactStore,
 } from '@modules/registry/distribution/artifactStore';
 import { createModuleReleaseManifest } from '@modules/registry/distribution/releaseManifest';
 import type { PublicDistributionDependencies } from '@modules/registry/distribution/publicDistributionClient';
@@ -28,6 +31,7 @@ import type { PublicDistributionDependencies } from '@modules/registry/distribut
 const MODULE_ID = 'public-release-test';
 const MANIFEST_URL = `https://github.com/example/${MODULE_ID}/releases/download/v1.0.0/sheet-delver-manifest.json`;
 const ARCHIVE_URL = `https://github.com/example/${MODULE_ID}/releases/download/v1.0.0/${MODULE_ID}-1.0.0.tgz`;
+const HISTORY_URL = `https://github.com/example/${MODULE_ID}/releases/latest/download/sheet-delver-releases.json`;
 
 function createPackage(root: string) {
     const source = path.join(root, 'source');
@@ -126,6 +130,71 @@ export async function run() {
         assert.equal(inspected.summary.version, '1.0.0');
         assert.equal(inspected.summary.artifactUrl, ARCHIVE_URL);
         assert.equal(inspectedUrls.includes(ARCHIVE_URL), false, 'inspection must not download the archive');
+        await assert.rejects(
+            inspectPublicModuleRelease(
+                { ...input, expectedVersion: '0.9.0' },
+                publicDependencies(manifest, body),
+            ),
+            /does not match selected version/,
+        );
+
+        const historyDocument = {
+            schemaVersion: 'sheet-delver-release-history.v1',
+            moduleId: MODULE_ID,
+            generatedAt: Date.now(),
+            releases: [
+                {
+                    version: '1.0.0',
+                    manifest: MANIFEST_URL,
+                    compatibility: { coreVersion: '>=0.8.0 <1.0.0' },
+                },
+                {
+                    version: '2.0.0',
+                    manifest: `https://github.com/example/${MODULE_ID}/releases/download/v2.0.0/sheet-delver-manifest.json`,
+                    compatibility: { coreVersion: '>=99.0.0' },
+                },
+            ],
+        };
+        const historyDependencies = publicDependencies(manifest, body);
+        const historyRequestHop = historyDependencies.requestHop!;
+        historyDependencies.requestHop = async (url, address, options) => {
+            if (url.href === HISTORY_URL) {
+                return {
+                    statusCode: 200,
+                    headers: { 'content-type': 'application/octet-stream' },
+                    body: Buffer.from(JSON.stringify(historyDocument)),
+                };
+            }
+            return historyRequestHop(url, address, options);
+        };
+        const history = await inspectPublicModuleReleaseHistory(input, historyDependencies);
+        assert.equal(history.historyAvailable, true);
+        assert.deepEqual(history.compatibleReleases.map((entry) => entry.version), ['1.0.0']);
+        assert.equal(resolvePublicModuleReleaseTarget(history).version, '1.0.0');
+        assert.throws(
+            () => resolvePublicModuleReleaseTarget(history, '2.0.0'),
+            /does not provide version.*compatible/,
+        );
+
+        const incompleteHistoryDependencies = publicDependencies(manifest, body);
+        const incompleteHistoryRequestHop = incompleteHistoryDependencies.requestHop!;
+        incompleteHistoryDependencies.requestHop = async (url, address, options) => {
+            if (url.href === HISTORY_URL) {
+                return {
+                    statusCode: 200,
+                    headers: { 'content-type': 'application/json' },
+                    body: Buffer.from(JSON.stringify({
+                        ...historyDocument,
+                        releases: historyDocument.releases.slice(1),
+                    })),
+                };
+            }
+            return incompleteHistoryRequestHop(url, address, options);
+        };
+        const incompleteHistory = await inspectPublicModuleReleaseHistory(input, incompleteHistoryDependencies);
+        assert.equal(incompleteHistory.historyAvailable, false);
+        assert.match(incompleteHistory.historyError || '', /does not include current release/);
+        assert.deepEqual(incompleteHistory.compatibleReleases.map((entry) => entry.version), ['1.0.0']);
 
         const preview = await dryRunPublicModuleRelease(
             'install',
@@ -155,6 +224,26 @@ export async function run() {
         const verification = getArtifactVerification(artifactStore, MODULE_ID);
         assert.equal(verification?.status, 'verified');
         assert.equal(verification?.signature, undefined);
+
+        const downgradeStore = loadArtifactStore();
+        downgradeStore.artifacts[MODULE_ID].version = '2.0.0';
+        saveArtifactStore(downgradeStore);
+        const downgradeBlocked = await dryRunPublicModuleRelease(
+            'upgrade',
+            input,
+            publicDependencies(manifest, body),
+        );
+        assert.equal(downgradeBlocked.wouldProceed, false);
+        assert.equal(
+            downgradeBlocked.blockingReasons.some((reason) => reason.includes('requires explicit approval')),
+            true,
+        );
+        const downgradeApproved = await dryRunPublicModuleRelease(
+            'upgrade',
+            { ...input, approveDowngrade: true },
+            publicDependencies(manifest, body),
+        );
+        assert.equal(downgradeApproved.wouldProceed, true, downgradeApproved.blockingReasons.join(' | '));
 
         const invalidManifest = {
             ...manifest,

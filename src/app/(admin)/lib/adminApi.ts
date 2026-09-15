@@ -306,6 +306,10 @@ export interface CatalogReleaseResponse {
     success: boolean;
     sourceId: string;
     release: PublicReleaseSummary;
+    historyAvailable: boolean;
+    historyUrl: string;
+    historyError?: string;
+    releases: Array<{ version: string }>;
 }
 
 export interface CatalogDryRunResult {
@@ -585,9 +589,10 @@ export function fetchCatalog(refresh = false) {
     return adminFetch<CatalogResponse>(`/catalog${refresh ? '?refresh=true' : ''}`);
 }
 
-export function fetchCatalogRelease(sourceId: string, moduleId: string) {
+export function fetchCatalogRelease(sourceId: string, moduleId: string, version?: string) {
+    const query = version ? `?version=${encodeURIComponent(version)}` : '';
     return adminFetch<CatalogReleaseResponse>(
-        `/sources/${encodeURIComponent(sourceId)}/modules/${encodeURIComponent(moduleId)}/release`,
+        `/sources/${encodeURIComponent(sourceId)}/modules/${encodeURIComponent(moduleId)}/release${query}`,
     );
 }
 

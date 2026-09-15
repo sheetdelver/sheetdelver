@@ -99,6 +99,53 @@ jobs:
           echo "MODULE_RELEASE_MANIFEST=$PUBLIC_MANIFEST" >> "$GITHUB_ENV"
           echo "MODULE_CHECKSUM=$CHECKSUM" >> "$GITHUB_ENV"
 
+      - name: Collect prior release manifests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PREVIOUS_RELEASES="$RUNNER_TEMP/module-release-history"
+          mkdir -p "$PREVIOUS_RELEASES"
+          gh release list \
+            --repo "$GITHUB_REPOSITORY" \
+            --limit 100 \
+            --json tagName,isDraft,isPrerelease \
+            --jq '.[] | select(.isDraft == false and .isPrerelease == false) | .tagName' |
+          while IFS= read -r TAG; do
+            VERSION="${TAG#v}"
+            if [[ "$TAG" != v* || ! "$VERSION" =~ ^[0-9A-Za-z]([0-9A-Za-z.+-]*[0-9A-Za-z])?$ ]]; then
+              echo "Skipping release with unsupported tag: $TAG"
+              continue
+            fi
+            TARGET="$PREVIOUS_RELEASES/$TAG"
+            mkdir -p "$TARGET"
+            if ! gh release download "$TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --pattern sheet-delver-manifest.json \
+              --dir "$TARGET"; then
+              echo "Skipping $TAG because it has no Sheet Delver release manifest."
+              find "$TARGET" -type f -delete
+              rmdir "$TARGET"
+            fi
+          done
+          echo "MODULE_PREVIOUS_RELEASES=$PREVIOUS_RELEASES" >> "$GITHUB_ENV"
+
+      - name: Generate release history
+        working-directory: sheet-delver-core
+        env:
+          MODULE_ID: ${{ inputs.module_id }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          REPOSITORY_URL: https://github.com/${{ github.repository }}
+        run: |
+          RELEASE_HISTORY="$SHEET_DELVER_DATA/dist/modules/sheet-delver-releases.json"
+          npx tsx src/scripts/tools/modules/generate-release-history.ts \
+            --module-id "$MODULE_ID" \
+            --repository "$REPOSITORY_URL" \
+            --current-manifest "$MODULE_RELEASE_MANIFEST" \
+            --current-tag "$RELEASE_TAG" \
+            --previous-directory "$MODULE_PREVIOUS_RELEASES" \
+            --output "$RELEASE_HISTORY"
+          echo "MODULE_RELEASE_HISTORY=$RELEASE_HISTORY" >> "$GITHUB_ENV"
+
       - name: Retain packaged release assets
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -106,6 +153,7 @@ jobs:
           path: |
             ${{ env.MODULE_ARCHIVE }}
             ${{ env.MODULE_RELEASE_MANIFEST }}
+            ${{ env.MODULE_RELEASE_HISTORY }}
             ${{ env.MODULE_CHECKSUM }}
           if-no-files-found: error
           retention-days: 14
@@ -123,6 +171,7 @@ jobs:
           gh release create "$RELEASE_TAG" \
             "$MODULE_ARCHIVE" \
             "$MODULE_RELEASE_MANIFEST" \
+            "$MODULE_RELEASE_HISTORY" \
             "$MODULE_CHECKSUM" \
             --repo "$GITHUB_REPOSITORY" \
             --title "$MODULE_ID $RELEASE_TAG" \
