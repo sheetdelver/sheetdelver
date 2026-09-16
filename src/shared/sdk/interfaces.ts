@@ -45,7 +45,9 @@ export interface ActorCardBlock {
 }
 
 export interface ActorCardData {
+    /** Presentation override; Core supplies the prepared Actor name when omitted. */
     name?: string;
+    /** Presentation override; Core supplies the prepared Actor image when omitted. */
     img?: string;
     subtext?: string;
     blocks?: ActorCardBlock[];

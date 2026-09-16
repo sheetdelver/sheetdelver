@@ -1,4 +1,7 @@
 # Releases
+## 0.10.2
+- Fixed realtime Actor card identity
+
 ## 0.10.1
 - Fixed realtime startup subscriptions
 

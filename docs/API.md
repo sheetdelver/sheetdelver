@@ -157,16 +157,18 @@ returns `503`.
 
 Auth: protected.
 
-Returns adapter-produced dashboard card projections for visible Actors. Card
-hooks receive the same prepared Actor revision used by detail, roll, and
-initiative reads.
+Returns dashboard card projections for visible Actors. Card hooks receive
+the same prepared Actor revision used by detail, roll, and initiative reads.
+Core fills omitted `name` and `img` from that revision; adapters may supply
+system-specific fields and explicit identity presentation overrides.
 
 ### `GET /api/actors/:id/card`
 
 Auth: protected.
 
 Returns one authorization-bounded card projection. The source Actor establishes
-visibility; the active adapter receives its matching prepared revision.
+visibility; the active adapter receives its matching prepared revision. Core
+fills omitted `name` and `img` from that revision, matching the bulk-card response.
 
 ### `GET /api/actors/:id`
 

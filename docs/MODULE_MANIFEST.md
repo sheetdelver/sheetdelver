@@ -365,7 +365,7 @@ export default Adapter;
 | `dispose(runtime)` | World teardown or adapter clear | No-op. |
 | `getSystemData(options?)` | `/system/data` route | Returns `{}`. |
 | `getCompendiumPackConfig()` | World-ready sync | Returns empty pack list. |
-| `getActorCardData(actor)` | Dashboard card render from prepared Actor | Returns name and image. |
+| `getActorCardData(actor)` | Dashboard card projection from prepared Actor | Returns name and image. Core also supplies prepared-Actor identity when a module override omits it. |
 | `computeActorData(actor)` | SDK 1.x compatibility preparation | Returns `{}`. |
 | `categorizeItems(actor)` | SDK 1.x compatibility preparation | Returns `{ all: actor.items }`. |
 | `getRollData(actor, type, key, options?)` | Roll dispatch from prepared Actor | Returns `null`. |

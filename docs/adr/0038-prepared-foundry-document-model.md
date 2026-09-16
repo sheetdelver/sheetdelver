@@ -221,3 +221,19 @@ numbers are not duplicated in the prepared Store.
       Actor updates, embedded Item updates, and ownership loss/restoration.
 - [x] Complete generation 13 live acceptance for startup preparation, direct
       Actor updates, embedded Item updates, and ownership loss/restoration.
+
+## Post-Release Correction: Card Identity Convergence
+
+Live dashboard testing after `v0.10.1` exposed a projection gap in the targeted
+Actor-card refresh path. Some adapters return only system-specific card fields,
+such as subtext and stat blocks. The initial Actor list could supply the omitted
+name and image, but a later `actorChanged` refresh replaced only the card
+projection and therefore continued rendering stale list identity until a full
+page reload.
+
+Core now merges canonical `name` and `img` values from the current prepared
+Actor revision into every bulk and single-card response when the adapter omits
+them. Adapters remain free to provide presentation overrides. This keeps
+identity ownership in the prepared model, preserves the bounded single-card
+realtime refresh, and avoids requiring each module to duplicate generic Actor
+fields.
