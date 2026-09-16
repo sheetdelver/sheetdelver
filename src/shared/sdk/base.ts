@@ -93,7 +93,7 @@ export class BaseSystemAdapter implements SystemAdapter {
         return { packs: [] };
     }
 
-    getActorCardData(actor: FoundryActor): ActorCardData {
+    getActorCardData(actor: PreparedActorData): ActorCardData {
         return {
             name: actor.name,
             img: resolveImage(actor.img ?? '', this.foundryUrl),
@@ -108,11 +108,11 @@ export class BaseSystemAdapter implements SystemAdapter {
         return { all: actor.items ?? [] };
     }
 
-    getRollData(_actor: FoundryActor, _type: string, _key: string, _options?: RollDataOptions): RollData | null {
+    getRollData(_actor: PreparedActorData, _type: string, _key: string, _options?: RollDataOptions): RollData | null {
         return null;
     }
 
-    getInitiativeFormula(_actor: FoundryActor): string {
+    getInitiativeFormula(_actor: PreparedActorData): string {
         return '1d20';
     }
 

@@ -492,6 +492,12 @@ possible:
 | `useModuleSettings(info)` | Read and persist client settings declared in `info.json`. |
 | `createActorPage(Component)` | Wrap a sheet component in the standard actor-page shell. |
 
+`ActorSheetProps`, `UseActorSheetResult`, `useActorSheet`, and `createActorPage`
+default their Actor type to `PreparedActorData`. The host authorizes against the
+source Actor before caching this prepared projection. Generic document hooks and
+`runtime.documents` remain source-shaped unless their endpoint explicitly states
+otherwise.
+
 ---
 
 ## `module/server.ts` - Server API Routes

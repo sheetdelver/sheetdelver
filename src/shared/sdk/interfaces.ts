@@ -371,11 +371,14 @@ export interface SystemAdapter {
     /** Read-only system data the adapter produces for the /system/data route; sources from its runtime. */
     getSystemData?(options?: { minimal?: boolean }): Promise<unknown>;
     getCompendiumPackConfig?(): CompendiumPackConfig;
-    getActorCardData?(actor: FoundryActor): ActorCardData;
+    /** Build a dashboard projection from the current prepared Actor revision. */
+    getActorCardData?(actor: PreparedActorData): ActorCardData;
     computeActorData?(actor: ActorSheetData): Record<string, unknown>;
     categorizeItems?(actor: ActorSheetData): Record<string, FoundryItem[]>;
-    getRollData?(actor: FoundryActor, type: string, key: string, options?: RollDataOptions): RollData | null;
-    getInitiativeFormula?(actor: FoundryActor): string;
+    /** Resolve a roll from the same prepared Actor revision used by cards and sheets. */
+    getRollData?(actor: PreparedActorData, type: string, key: string, options?: RollDataOptions): RollData | null;
+    /** Resolve initiative from the current prepared Actor revision. */
+    getInitiativeFormula?(actor: PreparedActorData): string;
     validateUpdate?(path: string, value: unknown): boolean;
     // performAutomatedSequence + resolveActorNames removed (ADR-0027): automated rolls are a
     // module-authored route over req.runtime; name resolution flows through runtime.compendium.

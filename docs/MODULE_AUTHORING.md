@@ -242,7 +242,10 @@ export default function Sheet({ actor, onRoll, onUpdate }: ActorSheetProps) {
 }
 ```
 
-A presentational sheet receives `ActorSheetProps` from the host; a custom `actorPage` instead calls `useActorSheet(actorId)` itself to drive load / roll / update through the host-owned cache.
+A presentational sheet receives `ActorSheetProps` from the host; its `actor` is
+the authorization-bounded projection of the current `PreparedActorData` revision.
+A custom `actorPage` instead calls `useActorSheet(actorId)` itself to drive the
+same prepared read plus roll / update through the host-owned cache.
 
 ### Assets
 
