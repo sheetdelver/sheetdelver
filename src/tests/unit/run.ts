@@ -57,6 +57,7 @@ import { run as runSocketImportBoundary } from './sockets/socket-import-boundary
 // ── actors ────────────────────────────────────────────────────────────────────
 import { run as runActorCombatSmoke } from './actors/actor-combat-smoke.test';
 import { run as runActorStore } from './actors/actor-store.test';
+import { run as runPreparedActorStore } from './actors/prepared-actor-store.test';
 import { run as runActorNormalization } from './actors/actor-normalization.test';
 
 // ── combat ────────────────────────────────────────────────────────────────────
@@ -191,6 +192,7 @@ async function runAllUnitTests() {
     await runAuthStatusSmoke();
     await runActorCombatSmoke();
     await runActorStore();
+    await runPreparedActorStore();
     await runPrimaryDocumentBase();
     await runChatMessageStore();
     await runFolderStore();

@@ -166,9 +166,10 @@ async function runBootstrapOrderingAndReadyCallback() {
         seedPackMetadata: () => {
             order.push('seed-metadata');
         },
-        getSystem: () => ({ id: 'SyntheticSystem' }),
+        getSystem: () => ({ id: 'SyntheticSystem', version: '5.2.0' }),
         getRegisteredModules: () => [{
             id: 'syntheticsystem',
+            version: '1.3.0',
             compendiumPacks: { packs: [] },
         } as any],
         loadAdapter: async (systemId) => {
@@ -186,6 +187,18 @@ async function runBootstrapOrderingAndReadyCallback() {
             order.push(`context:${systemId}`);
             return {} as ModuleRuntime;
         },
+        prepareActors: (activeAdapter, context) => {
+            assert.equal(activeAdapter, initializingAdapter);
+            assert.deepEqual(context, {
+                worldEpoch: 0,
+                systemId: 'syntheticsystem',
+                systemVersion: '5.2.0',
+                moduleId: 'syntheticsystem',
+                moduleVersion: '1.3.0',
+            });
+            order.push('prepare-actors');
+            return { prepared: 2, failed: 0 };
+        },
         markLifecycleActive,
     });
 
@@ -202,6 +215,7 @@ async function runBootstrapOrderingAndReadyCallback() {
         'seed',
         'context:syntheticsystem',
         'adapter-initialize',
+        'prepare-actors',
         'ready:SyntheticSystem',
     ]);
     assert.deepEqual(result, { ready: true, systemId: 'SyntheticSystem' });

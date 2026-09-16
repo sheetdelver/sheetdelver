@@ -4,6 +4,7 @@ import { resolveImage } from './utils';
 import {
     SystemAdapter,
     ActorSheetData,
+    ActorPreparationContext,
     ActorCardData,
     CompendiumPackConfig,
     RollData,
@@ -12,6 +13,7 @@ import {
     SystemComponentStyles,
     FoundryActor,
     FoundryItem,
+    PreparedActorData,
 } from './interfaces';
 
 /**
@@ -41,6 +43,31 @@ export class BaseSystemAdapter implements SystemAdapter {
             items: actor.items ?? [],
             effects: actor.effects ?? [],
             derived: {},
+        };
+    }
+
+    prepareActorData(
+        actor: FoundryActor,
+        _context: Readonly<ActorPreparationContext>,
+    ): PreparedActorData {
+        const normalized = this.normalizeActorData(actor);
+        const derived = this.computeActorData(normalized);
+
+        return {
+            ...actor,
+            ...normalized,
+            _id: actor._id,
+            id: normalized.id || actor._id,
+            name: normalized.name || actor.name,
+            type: normalized.type || actor.type,
+            img: normalized.img || resolveImage(actor.img ?? '', this.foundryUrl),
+            system: normalized.system ?? actor.system ?? {},
+            items: normalized.items ?? actor.items ?? [],
+            effects: normalized.effects ?? actor.effects ?? [],
+            derived: {
+                ...(normalized.derived ?? {}),
+                ...derived,
+            },
         };
     }
 

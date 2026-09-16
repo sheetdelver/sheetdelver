@@ -7,6 +7,11 @@ import {
 } from '@modules/registry/types';
 import { compendiumStore } from '@server/core/compendium';
 import { primaryDocumentCacheCoordinator } from '@server/core/documents/primary/PrimaryDocumentCacheCoordinator';
+import {
+    preparedActorStore,
+    type PreparedActorRebuildResult,
+    type PreparedActorStoreContext,
+} from '@server/core/documents/prepared/actors/PreparedActorStore';
 import { userPresence } from '@server/core/documents/primary/users/UserPresence';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
 import type { CoreSocket } from '@server/core/foundry/sockets/CoreSocket';
@@ -37,7 +42,7 @@ export interface WorldBootstrapperDeps {
     seedUserSnapshot?: (snapshot: WorldBootstrapSnapshot) => Promise<void>;
     createCompendiumService?: (transport: WorldBootstrapTransport) => CompendiumService;
     seedPackMetadata?: (gameData: GameData) => void;
-    getSystem?: () => { id?: string | null } | null;
+    getSystem?: () => { id?: string | null; version?: string | null } | null;
     getRegisteredModules?: () => SystemModuleInfo[];
     hydrateCompendiumPacks?: (
         systemId: string,
@@ -45,6 +50,10 @@ export interface WorldBootstrapperDeps {
         compendiumService: CompendiumService,
     ) => Promise<void>;
     seedDocuments?: (transport: WorldBootstrapTransport) => Promise<void>;
+    prepareActors?: (
+        adapter: SystemAdapter | null,
+        context: PreparedActorStoreContext,
+    ) => PreparedActorRebuildResult;
     createModuleRuntime?: (systemId: string) => Promise<ModuleRuntime>;
     markLifecycleActive?: (systemId?: string) => void;
     markLifecycleClosed?: (reason: string) => void;
@@ -95,7 +104,7 @@ export class WorldBootstrapper {
     private readonly seedUserSnapshot: (snapshot: WorldBootstrapSnapshot) => Promise<void>;
     private readonly createCompendiumService: (transport: WorldBootstrapTransport) => CompendiumService;
     private readonly seedPackMetadata: (gameData: GameData) => void;
-    private readonly getSystem: () => { id?: string | null } | null;
+    private readonly getSystem: () => { id?: string | null; version?: string | null } | null;
     private readonly getRegisteredModules: () => SystemModuleInfo[];
     private readonly hydrateCompendiumPacks: (
         systemId: string,
@@ -103,6 +112,10 @@ export class WorldBootstrapper {
         compendiumService: CompendiumService,
     ) => Promise<void>;
     private readonly seedDocuments: (transport: WorldBootstrapTransport) => Promise<void>;
+    private readonly prepareActors: (
+        adapter: SystemAdapter | null,
+        context: PreparedActorStoreContext,
+    ) => PreparedActorRebuildResult;
     private readonly createModuleRuntime: (systemId: string) => Promise<ModuleRuntime>;
     private readonly markLifecycleActive: (systemId?: string) => void;
     private readonly markLifecycleClosed: (reason: string) => void;
@@ -167,6 +180,10 @@ export class WorldBootstrapper {
             await compendiumService.hydratePacks(systemId, config);
         });
         this.seedDocuments = deps.seedDocuments ?? ((transport) => primaryDocumentCacheCoordinator.seedAll(transport as CoreSocket));
+        this.prepareActors = deps.prepareActors ?? ((adapter, context) => {
+            preparedActorStore.configure(adapter, context);
+            return preparedActorStore.rebuildAll();
+        });
         this.createModuleRuntime = deps.createModuleRuntime ?? (async (systemId) => {
             const { createModuleRuntime } = await import('@server/shared/utils/createModuleRuntime');
             return createModuleRuntime(systemId);
@@ -181,6 +198,7 @@ export class WorldBootstrapper {
         this.clearWorldRuntimeState = deps.clearWorldRuntimeState ?? ((reason) => {
             // Runtime teardown deliberately preserves SetupManager's world list,
             // while clearing every value derived from the departed active world.
+            preparedActorStore.clear(reason);
             primaryDocumentCacheCoordinator.clearAll(reason);
             compendiumStore.clear(reason);
             sharedContentStore.clear(reason);
@@ -318,6 +336,18 @@ export class WorldBootstrapper {
                     await adapter.initialize(runtime);
                     this.assertCurrentEpoch(epoch);
                 }
+
+                const preparedActors = this.prepareActors(adapter, {
+                    worldEpoch: epoch,
+                    systemId: sysId,
+                    systemVersion: sysInfo.version ?? undefined,
+                    moduleId: moduleInfo?.id,
+                    moduleVersion: moduleInfo?.version,
+                });
+                logger.info(
+                    `WorldBootstrapper | Prepared ${preparedActors.prepared} actors for ${sysId}`
+                    + (preparedActors.failed > 0 ? ` (${preparedActors.failed} failed).` : '.'),
+                );
 
                 this.assertCurrentEpoch(epoch);
                 this.ready = true;

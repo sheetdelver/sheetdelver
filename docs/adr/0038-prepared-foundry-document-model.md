@@ -202,10 +202,10 @@ numbers are not duplicated in the prepared Store.
 
 ## Implementation Plan
 
-- [ ] Add prepared Actor SDK types and the adapter preparation contract.
-- [ ] Implement the core `PreparedActorStore` with revisions, epochs,
+- [x] Add prepared Actor SDK types and the adapter preparation contract.
+- [x] Implement the core `PreparedActorStore` with revisions, epochs,
       diagnostics, teardown, and source-event binding.
-- [ ] Rebuild prepared Actors after adapter initialization and before world
+- [x] Rebuild prepared Actors after adapter initialization and before world
       readiness.
 - [ ] Move Actor list, detail, card, roll, and initiative reads to prepared
       Actors while retaining source authorization.
