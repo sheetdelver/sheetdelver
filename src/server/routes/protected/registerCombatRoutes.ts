@@ -3,6 +3,12 @@ import { createCombatService } from '@server/services/combats/CombatService';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
 import { isErrorPayload } from '@server/shared/utils/isErrorPayload';
 
+function getErrorStatus(error: unknown, fallback = 500): number {
+    if (typeof error !== 'object' || error === null) return fallback;
+    const status = (error as { status?: unknown }).status;
+    return typeof status === 'number' ? status : fallback;
+}
+
 interface CombatRouteDeps {
     normalizeActors: (actorList: any[], client: any) => Promise<any[]>;
 }
@@ -76,7 +82,7 @@ export function registerCombatRoutes(appRouter: express.Router, deps: CombatRout
             }
             res.json(payload);
         } catch (error: unknown) {
-            res.status(500).json({ error: getErrorMessage(error) });
+            res.status(getErrorStatus(error)).json({ error: getErrorMessage(error) });
         }
     });
 }

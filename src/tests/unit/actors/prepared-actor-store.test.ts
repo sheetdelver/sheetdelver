@@ -66,12 +66,31 @@ async function createStore(adapter: SystemAdapter | null = new TestAdapter()) {
 }
 
 export async function run() {
+    await runUnconfiguredSourceEventsIgnored();
     await runInitialPreparationAndCloneSafety();
     await runRevisionAndEventOrdering();
     await runEmbeddedChangeAndDelete();
     await runFailureIsolation();
     await runLegacyAdapterBridge();
     console.log('  - PreparedActorStore: all checks passed');
+}
+
+async function runUnconfiguredSourceEventsIgnored() {
+    const source = new ActorStore();
+    await source.seed(async () => ([{
+        _id: 'actor-unconfigured',
+        name: 'Unconfigured',
+        type: 'character',
+        system: {},
+        items: [],
+    }]));
+    const prepared = new PreparedActorStore();
+    prepared.bind(source);
+
+    source.patch('actor-unconfigured', { name: 'Changed before configure' });
+
+    assert.equal(prepared.getEntry('actor-unconfigured'), null);
+    assert.equal(prepared.isReady(), false);
 }
 
 async function runInitialPreparationAndCloneSafety() {
@@ -89,6 +108,7 @@ async function runInitialPreparationAndCloneSafety() {
     const actor = prepared.getRequired('actor-1');
     assert.equal(actor.name, 'Prepared One');
     assert.equal(actor.derived.hpDouble, 8);
+    assert.equal(actor.categorizedItems?.all[0]?.name, 'Sword');
     assert.equal(actor.ownership?.default, DocumentOwnershipLevel.OWNER,
         'prepared data retains the complete source shape');
     assert.equal(source.get('actor-1')?.name, 'One',
@@ -170,6 +190,7 @@ async function runFailureIsolation() {
     assert.throws(
         () => prepared.getRequired('actor-1'),
         (error: unknown) => error instanceof PreparedActorUnavailableError
+            && error.status === 503
             && error.diagnostic?.code === 'PREPARATION_FAILED'
             && error.message.includes('intentional preparation failure'),
     );
@@ -196,13 +217,18 @@ async function runLegacyAdapterBridge() {
             computeCalls += 1;
             return { computed: true };
         },
+        categorizeItems(actor: ActorSheetData) {
+            return { legacy: actor.items };
+        },
     };
     const { prepared } = await createStore(legacyAdapter);
     prepared.rebuildAll();
 
     assert.equal(computeCalls, 1);
-    assert.deepEqual(prepared.getRequired('actor-1').derived, {
+    const actor = prepared.getRequired('actor-1');
+    assert.deepEqual(actor.derived, {
         normalized: true,
         computed: true,
     });
+    assert.equal(actor.categorizedItems?.legacy[0]?.name, 'Sword');
 }

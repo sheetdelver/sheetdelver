@@ -5,6 +5,7 @@ import type { CoreSocket } from '@server/core/foundry/sockets/CoreSocket';
 import type { WorldTransportController } from '@server/services/world';
 import { worldLifecycleStore } from '@server/core/world/WorldLifecycleStore';
 import { worldStateStore } from '@server/core/world/WorldStateStore';
+import { preparedActorStore } from '@server/core/documents/prepared/actors/PreparedActorStore';
 
 function createFakeTransport(): CoreSocket {
     return new EventEmitter() as CoreSocket;
@@ -89,6 +90,21 @@ async function runInitializeWiringTest() {
     assert.equal(controllerState.disposeCalls, 0);
     assert.equal(service.getSystemClient(), fakeTransport);
     assert.equal(worldStateStore.getCachedWorldData()?.worldId, 'cached-world');
+
+    const actorChanges: unknown[] = [];
+    fakeTransport.on('actorChanged', (event) => actorChanges.push(event));
+    preparedActorStore.emit('preparedActorChanged', {
+        actorId: 'actor-ready',
+        action: 'update',
+        audience: { kind: 'all' },
+        sourceRevision: 2,
+        status: 'ready',
+    });
+    assert.deepEqual(actorChanges, [{
+        actorId: 'actor-ready',
+        action: 'update',
+        audience: { kind: 'all' },
+    }]);
 
     const emitStatusUpdate = statusUpdate as (() => void) | null;
     assert.ok(emitStatusUpdate);

@@ -10,6 +10,7 @@ import { worldStateStore } from '@server/core/world/WorldStateStore';
 import { worldLifecycleStore } from '@server/core/world/WorldLifecycleStore';
 import { SetupManager } from '@server/core/world/SetupManager';
 import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
+import { preparedActorStore, type PreparedActorChangedEvent } from '@server/core/documents/prepared/actors/PreparedActorStore';
 import { chatMessageStore } from '@server/core/documents/primary/chat-messages/ChatMessageStore';
 import { combatStore } from '@server/core/documents/primary/combats/CombatStore';
 import { folderStore } from '@server/core/documents/primary/folders/FolderStore';
@@ -56,13 +57,13 @@ export class SystemService extends EventEmitter {
 
     private constructor(private readonly deps: SystemServiceDeps = defaultSystemServiceDeps) {
         super();
-        // ActorStore is the single actor-change source; SystemService bridges it onto
+        // PreparedActorStore is the actor-change source; SystemService bridges it onto
         // the realtime wire event. Phase 7 closure renamed the legacy `actorUpdate`
         // wire event to `actorChanged` so every primary doc type uses uniform
         // `<type>Changed` / `<type>ListInvalidated` names.
-        actorStore.on('documentChanged', (event: DocumentChangedEvent) => {
+        preparedActorStore.on('preparedActorChanged', (event: PreparedActorChangedEvent) => {
             this.systemClient?.emit('actorChanged', {
-                actorId: event.id, action: event.action, audience: event.audience,
+                actorId: event.actorId, action: event.action, audience: event.audience,
             });
         });
         actorStore.on('documentListInvalidated', (event: DocumentListInvalidatedEvent) => {

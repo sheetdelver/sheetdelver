@@ -203,17 +203,18 @@ numbers are not duplicated in the prepared Store.
 ## Implementation Plan
 
 - [x] Add prepared Actor SDK types and the adapter preparation contract.
+      This additive surface advances SDK_VERSION to 1.2.0 and module-api to 1.1.0.
 - [x] Implement the core `PreparedActorStore` with revisions, epochs,
       diagnostics, teardown, and source-event binding.
 - [x] Rebuild prepared Actors after adapter initialization and before world
       readiness.
-- [ ] Move Actor list, detail, card, roll, and initiative reads to prepared
+- [x] Move Actor list, detail, card, roll, and initiative reads to prepared
       Actors while retaining source authorization.
-- [ ] Order Actor realtime invalidation after prepared publication.
-- [ ] Add unit and integration coverage for source immutability, updates,
+- [x] Order Actor realtime invalidation after prepared publication.
+- [x] Add unit and integration coverage for source immutability, updates,
       embedded changes, deletion, failures, epoch rejection, authorization,
       and realtime ordering.
-- [ ] Update module-authoring and architecture documentation.
+- [x] Update module-authoring and architecture documentation.
 - [ ] Migrate and parity-test the D&D 5e module.
 - [ ] Migrate and parity-test the Shadowdark and Mork Borg modules.
 - [ ] Complete generation 13 and generation 14 live acceptance before closeout.

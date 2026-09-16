@@ -72,7 +72,7 @@ contains the SHA-256 digest:
     "version": "1.2.0",
     "compatibility": {
       "apiContracts": {
-        "module-api": ">=1.0.0 <2.0.0"
+        "module-api": ">=1.1.0 <2.0.0"
       }
     }
   },
@@ -111,7 +111,7 @@ points each version to its immutable release manifest:
       "compatibility": {
         "coreVersion": ">=0.9.0 <1.0.0",
         "apiContracts": {
-          "module-api": ">=1.0.0 <2.0.0"
+          "module-api": ">=1.1.0 <2.0.0"
         }
       }
     }
@@ -237,7 +237,7 @@ is compiled by `module:package` into the reserved artifact
   "compatibility": {
     "coreVersion": ">=1.0.0",
     "apiContracts": {
-      "module-api": ">=1.0.0 <2.0.0",
+      "module-api": ">=1.1.0 <2.0.0",
       "ui-extension-api": ">=1.0.0 <2.0.0",
       "roll-engine-api": ">=1.0.0 <2.0.0"
     }
@@ -319,8 +319,9 @@ Export a class named `Adapter` that extends `BaseSystemAdapter`.
 ```ts
 import {
     BaseSystemAdapter,
-    type ActorSheetData,
+    type ActorPreparationContext,
     type FoundryActor,
+    type PreparedActorData,
 } from '@sheet-delver/sdk';
 import type { ModuleRuntime } from '@sheet-delver/sdk/server';
 
@@ -331,17 +332,11 @@ export class Adapter extends BaseSystemAdapter {
         return actor._stats?.systemId === this.systemId;
     }
 
-    normalizeActorData(actor: FoundryActor): ActorSheetData {
-        return {
-            id: actor._id,
-            name: actor.name,
-            type: actor.type,
-            img: actor.img ?? '',
-            system: actor.system ?? {},
-            items: actor.items ?? [],
-            effects: actor.effects ?? [],
-            derived: {},
-        };
+    prepareActorData(
+        actor: FoundryActor,
+        context: Readonly<ActorPreparationContext>,
+    ): PreparedActorData {
+        return super.prepareActorData(actor, context);
     }
 
     async initialize(runtime: ModuleRuntime): Promise<void> {
@@ -364,20 +359,27 @@ export default Adapter;
 | Method | When called | Default |
 |---|---|---|
 | `match(actor)` | Actor dispatch | Returns `false`. |
-| `normalizeActorData(actor)` | Actor projection | Raw passthrough with image resolution. |
+| `prepareActorData(actor, context)` | Bootstrap and each source Actor revision | Composes the SDK 1.x compatibility hooks. |
+| `normalizeActorData(actor)` | Compatibility preparation stage | Raw passthrough with image resolution. |
 | `initialize(runtime)` | Adapter activation | Stores the runtime and wires the SDK logger sink. |
 | `dispose(runtime)` | World teardown or adapter clear | No-op. |
 | `getSystemData(options?)` | `/system/data` route | Returns `{}`. |
 | `getCompendiumPackConfig()` | World-ready sync | Returns empty pack list. |
-| `getActorCardData(actor)` | Dashboard card render | Returns name and image. |
-| `computeActorData(actor)` | After normalization | Returns `{}`. |
-| `categorizeItems(actor)` | After normalization | Returns `{ all: actor.items }`. |
-| `getRollData(actor, type, key, options?)` | Roll dispatch | Returns `null`. |
-| `getInitiativeFormula(actor)` | Combat initiative | Returns `'1d20'`. |
+| `getActorCardData(actor)` | Dashboard card render from prepared Actor | Returns name and image. |
+| `computeActorData(actor)` | SDK 1.x compatibility preparation | Returns `{}`. |
+| `categorizeItems(actor)` | SDK 1.x compatibility preparation | Returns `{ all: actor.items }`. |
+| `getRollData(actor, type, key, options?)` | Roll dispatch from prepared Actor | Returns `null`. |
+| `getInitiativeFormula(actor)` | Combat initiative from prepared Actor | Returns `'1d20'`. |
 | `validateUpdate(path, value)` | Client update validation | Returns `true`. |
 
-Adapter methods are pure projection unless they explicitly use the injected
-`ModuleRuntime`. The removed broad client surface is not available:
+`prepareActorData` is synchronous, deterministic, and user-invariant. It receives
+a defensive source clone and immutable revision/epoch context. Use
+`initialize(runtime)` to preload stable dependencies; do not perform runtime reads,
+transport, clock, random, or session-specific work during preparation.
+`BaseSystemAdapter` retains `normalizeActorData`, `computeActorData`, and
+`categorizeItems` only as a bounded SDK 1.x compatibility composition.
+
+The removed broad client surface is not available:
 `ModuleFoundryClient`, adapter `client` parameters, `performAutomatedSequence`,
 and `resolveActorNames` are not module APIs. Automated workflows belong in
 module-authored server routes over `req.runtime`.
@@ -762,8 +764,8 @@ works.
 
 1. Move source to `<DATA_DIR>/local/modules/<systemId>/`.
 2. Replace internal platform imports with public SDK entry points.
-3. Extend `BaseSystemAdapter` and implement `match(actor)` plus
-   `normalizeActorData(actor)`.
+3. Extend `BaseSystemAdapter` and implement `match(actor)` plus the canonical
+   `prepareActorData(actor, context)` hook.
 4. Replace `ModuleContext` with `ModuleRuntime`; use `runtime.dataStore`,
    `runtime.compendium`, and read-only `runtime.documents`.
 5. Replace `req.foundryClient` with `req.runtime` services in server routes.

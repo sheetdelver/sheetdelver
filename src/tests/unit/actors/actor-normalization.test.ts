@@ -1,118 +1,66 @@
 import { strict as assert } from 'node:assert';
 import { createActorNormalizationService } from '@server/services/actors/ActorNormalizationService';
+import type { PreparedActorData } from '@shared/sdk';
+
+function preparedActor(id: string): PreparedActorData {
+    return {
+        _id: id,
+        id,
+        name: `Prepared ${id}`,
+        type: 'character',
+        img: `/${id}.png`,
+        system: { prepared: true },
+        items: [],
+        effects: [],
+        derived: { score: 12 },
+        prototypeToken: { texture: { src: `/token-${id}.png` } },
+    };
+}
 
 export async function run() {
-    const baseClient = {
-        getSystem: async () => ({ id: 'shadowdark' }),
+    const lookups: string[] = [];
+    const prepared = new Map([
+        ['a1', preparedActor('a1')],
+        ['a2', preparedActor('a2')],
+    ]);
+    const service = createActorNormalizationService({
+        getPreparedActor: (actorId) => {
+            lookups.push(actorId);
+            const actor = prepared.get(actorId);
+            if (!actor) throw new Error(`Missing prepared Actor ${actorId}`);
+            return structuredClone(actor);
+        },
+    });
+    const client = {
         resolveUrl: (value?: string) => `resolved:${value || ''}`,
     } as any;
 
-    const missingAdapterService = createActorNormalizationService({
-        getAdapterBySystemId: async () => null as any,
-    });
+    const normalized = await service.normalizeActors([
+        { _id: 'a1', name: 'Source Alpha' },
+        { id: 'a2', name: 'Source Beta' },
+    ] as any, client);
 
-    let missingError: Error | null = null;
-    try {
-        await missingAdapterService.normalizeActors([], baseClient);
-    } catch (error) {
-        missingError = error as Error;
-    }
-    assert.ok(missingError);
-    assert.ok(missingError?.message.includes('shadowdark'));
+    assert.deepEqual(lookups, ['a1', 'a2']);
+    assert.equal(normalized[0].name, 'Prepared a1');
+    assert.deepEqual(normalized[0].derived, { score: 12 });
+    assert.equal(normalized[0].img, 'resolved:/a1.png');
+    assert.equal((normalized[0].prototypeToken as any)?.texture?.src, 'resolved:/token-a1.png');
 
-    // Per ADR-0027, `normalizeActorData` is pure projection (no client) and
-    // `resolveActorNames` is removed — adapters read declared packs via `runtime.compendium`.
-    const normalizeCalls: Array<{ actorId: string; argCount: number }> = [];
-    const computeCalls: Array<{ actorId: string }> = [];
+    // Request projection mutates only the clone returned by the prepared store.
+    assert.equal(prepared.get('a1')?.img, '/a1.png');
+    assert.equal((prepared.get('a1')?.prototypeToken as any)?.texture?.src, '/token-a1.png');
 
-    const adapterWithCompute = {
-        normalizeActorData: (...args: any[]) => {
-            const actor = args[0];
-            normalizeCalls.push({ actorId: String(actor._id || actor.id), argCount: args.length });
-            return {
-                _id: actor._id,
-                id: actor.id,
-                img: actor.img,
-                prototypeToken: actor.prototypeToken,
-                normalized: true,
-            };
-        },
-        computeActorData: (actor: any) => {
-            computeCalls.push({ actorId: String(actor._id || actor.id) });
-            return { power: 'high' };
-        },
-    } as any;
+    const empty = await service.normalizeActors([], client);
+    assert.deepEqual(empty, []);
 
-    const serviceWithCompute = createActorNormalizationService({
-        getAdapterBySystemId: async () => adapterWithCompute,
-    });
-
-    const actors = [
-        {
-            _id: 'a1',
-            id: 'a1',
-            name: 'Alpha',
-            img: '/alpha.png',
-            computed: undefined,
-            prototypeToken: { texture: { src: '/token-alpha.png' } },
-        },
-        {
-            _id: 'a2',
-            id: 'a2',
-            name: 'Beta',
-            computed: {},
-        },
-    ] as any[];
-
-    const normalizedWithCompute = await serviceWithCompute.normalizeActors(actors as any, baseClient);
-    assert.equal(normalizedWithCompute.length, 2);
-    assert.equal(normalizeCalls.length, 2);
-    // Projection receives the actor only — no client argument.
-    assert.equal(normalizeCalls[0].argCount, 1);
-    assert.equal(normalizeCalls[1].argCount, 1);
-    assert.equal(computeCalls.length, 2);
-    assert.deepEqual((normalizedWithCompute[0] as any).derived, { power: 'high' });
-    assert.equal((actors[0] as any).img, 'resolved:/alpha.png');
-    assert.equal((actors[0] as any).prototypeToken.texture.src, 'resolved:/token-alpha.png');
-
-    const normalizeOnlyCalls: string[] = [];
-    const adapterWithoutOptionalMethods = {
-        normalizeActorData: (actor: any) => {
-            normalizeOnlyCalls.push(String(actor._id || actor.id));
-            return {
-                _id: actor._id,
-                id: actor.id,
-            };
-        },
-    } as any;
-
-    const serviceWithoutOptionalMethods = createActorNormalizationService({
-        getAdapterBySystemId: async () => adapterWithoutOptionalMethods,
-    });
-
-    const normalizedWithoutOptional = await serviceWithoutOptionalMethods.normalizeActors([
-        { _id: 'a3', id: 'a3', name: 'Gamma' },
-    ] as any, baseClient);
-
-    assert.equal(normalizeOnlyCalls.length, 1);
-    assert.equal(normalizedWithoutOptional.length, 1);
-    assert.equal(Object.prototype.hasOwnProperty.call(normalizedWithoutOptional[0], 'derived'), false);
-
-    const emptyCalls: string[] = [];
-    const emptyAdapter = {
-        normalizeActorData: (actor: any) => {
-            emptyCalls.push(String(actor._id || actor.id));
-            return actor;
-        },
-    } as any;
-
-    const emptyService = createActorNormalizationService({
-        getAdapterBySystemId: async () => emptyAdapter,
-    });
-
-    const emptyResult = await emptyService.normalizeActors([], baseClient);
-    assert.deepEqual(emptyResult, []);
-    assert.equal(emptyCalls.length, 0);
+    await assert.rejects(
+        () => service.normalizeActors([{ name: 'No id' }] as any, client),
+        /without an id/,
+    );
+    await assert.rejects(
+        () => service.normalizeActors([{ _id: 'missing' }] as any, client),
+        /Missing prepared Actor missing/,
+    );
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

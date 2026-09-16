@@ -67,6 +67,7 @@ export interface PreparedActorRebuildResult {
 
 export class PreparedActorUnavailableError extends Error {
     public readonly code = 'PREPARED_ACTOR_UNAVAILABLE';
+    public readonly status = 503;
 
     public constructor(
         public readonly actorId: string,
@@ -91,6 +92,7 @@ export class PreparedActorStore extends EventEmitter {
     private ready = false;
 
     private readonly onSourceChanged = (event: DocumentChangedEvent): void => {
+        if (!this.context) return;
         const sourceRevision = (this.sourceRevisions.get(event.id) ?? 0) + 1;
         this.sourceRevisions.set(event.id, sourceRevision);
 
@@ -257,13 +259,17 @@ export class PreparedActorStore extends EventEmitter {
         const normalized = this.adapter?.normalizeActorData(cloneDocument(actor))
             ?? defaultActorSheetData(actor);
         const derived = this.adapter?.computeActorData?.(cloneDocument(normalized)) ?? {};
-        return normalizePreparedActor(actor, {
+        const prepared = normalizePreparedActor(actor, {
             ...actor,
             ...normalized,
             _id: actor._id,
             id: normalized.id || actor._id,
             derived: { ...(normalized.derived ?? {}), ...derived },
         });
+        if (this.adapter?.categorizeItems) {
+            prepared.categorizedItems = this.adapter.categorizeItems(cloneDocument(prepared));
+        }
+        return prepared;
     }
 
     private assertConfigured(): PreparedActorStoreContext {

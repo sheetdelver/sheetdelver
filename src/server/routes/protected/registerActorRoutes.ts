@@ -142,7 +142,7 @@ export function registerActorRoutes(appRouter: express.Router, deps: ActorRouteD
             }
             res.json(payload);
         } catch (error: unknown) {
-            res.status(500).json({ error: getErrorMessage(error) });
+            res.status(getErrorStatus(error)).json({ error: getErrorMessage(error) });
         }
     });
 

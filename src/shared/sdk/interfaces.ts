@@ -86,6 +86,7 @@ export interface PreparedActorData extends FoundryActor {
     id: string;
     img: string;
     derived: Record<string, unknown>;
+    categorizedItems?: Record<string, FoundryItem[]>;
 }
 
 // ---------------------------------------------------------------------------

@@ -55,6 +55,7 @@ The registry (`src/modules/registry/core/server.ts`) scans these directories at 
 *   **SDK import surface**: All platform APIs are accessed via the `@sheet-delver/sdk` entry-point family. Use `@sheet-delver/sdk` for shared adapter/types/utilities, `@sheet-delver/sdk/react` for client hooks, and `@sheet-delver/sdk/server` for route/runtime types. Do not import from `@core/*`, `@server/*`, `@client/*`, or `@modules/*` internal aliases.
 *   **Isolation**: Do not import code from other system modules.
 *   **Adapter contract**: Extend `BaseSystemAdapter` from `@sheet-delver/sdk`. Override only the methods you need — defaults are provided for everything.
+*   **Prepared Actors**: Put deterministic, user-invariant Actor rules in `prepareActorData(actor, context)`. Preload stable dependencies in `initialize(runtime)`; never perform request/session work during shared preparation.
 *   **Context injection**: The platform wraps every module component in `SDKProvider`, which injects contexts and shared components via `useSDK()` and `useSDKComponents()` from `@sheet-delver/sdk/react`.
 *   **Shared components**: Access platform UI components (`LoadingModal`, `RollDialog`, `ConfirmationModal`, `RichTextEditor`, `SharedContentModal`) via `useSDKComponents()` — do not import them from `@client/ui/components/` directly.
 
@@ -142,6 +143,7 @@ SheetDelver uses a persistent cache to store metadata and improve resolution rel
 *   **Setup Scraper Cache**: Discovery data for worlds and users is stored in `.sheet-delver/cache.json`.
 *   **Compendium Pack Rows**: Module-declared packs are indexed or hydrated locally before module initialization. Hydrated pack rows are the normal source for compendium `fetchByUuid` reads.
 *   **Primary Documents**: Long-lived Foundry primary document caches live under `src/server/core/documents/primary/`. Actor caching is implemented by `ActorStore` and seeded by `seedDocumentCache()` during bootstrap. New primary document types should follow that structure instead of adding one-off socket-local caches.
+*   **Prepared Actors**: `PreparedActorStore` is a derived, revisioned read model. Source authorization and writes remain in `ActorStore`; routes consume prepared data only after source visibility checks.
 
 ### High-Reliability Resolution: `fetchByUuid`
 

@@ -20,6 +20,12 @@ import {
 } from '@server/core/documents/primary/base/ownership';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
 
+import {
+    preparedActorStore,
+    PreparedActorUnavailableError,
+} from '@server/core/documents/prepared/actors/PreparedActorStore';
+import type { PreparedActorData } from '@shared/sdk';
+
 interface ActorProjection extends ActorDetailPayload {
     foundryUrl?: string;
     systemId?: string;
@@ -48,10 +54,14 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 interface ActorServiceDeps {
     normalizeActors: (actorList: ActorDocument[], client: ActorServiceClientLike) => Promise<ActorProjection[]>;
+    getPreparedActor?: (actorId: string) => PreparedActorData;
     config: AppConfig;
 }
 
 export function createActorService(deps: ActorServiceDeps) {
+    const getPreparedActor = deps.getPreparedActor
+        ?? ((actorId: string) => preparedActorStore.getRequired(actorId));
+
     // Dashboard list and card data are derived from the same actor list. Keep the
     // card projection here so `/api/actors` does not force a second actor read.
     const buildActorCards = (
@@ -63,9 +73,43 @@ export function createActorService(deps: ActorServiceDeps) {
         const cards: Record<string, ActorCard> = {};
         for (const actor of actors) {
             const id = actor._id || actor.id;
-            if (id) cards[id] = adapter.getActorCardData(actor as any) as ActorCard;
+            if (!id) continue;
+            try {
+                cards[id] = adapter.getActorCardData(getPreparedActor(id)) as ActorCard;
+            } catch (error) {
+                if (error instanceof PreparedActorUnavailableError) {
+                    logger.warn('Core Service | Skipping unavailable prepared Actor card', {
+                        actorId: id,
+                        diagnostic: error.diagnostic?.message,
+                    });
+                    continue;
+                }
+                throw error;
+            }
         }
         return cards;
+    };
+
+    const normalizeAvailableActors = async (
+        actors: ActorDocument[],
+        client: ActorServiceClientLike,
+    ): Promise<ActorProjection[]> => {
+        const projected = await Promise.all(actors.map(async (actor) => {
+            const actorId = actor._id || actor.id;
+            try {
+                return (await deps.normalizeActors([actor], client))[0] ?? null;
+            } catch (error) {
+                if (error instanceof PreparedActorUnavailableError) {
+                    logger.warn('Core Service | Skipping unavailable prepared Actor projection', {
+                        actorId,
+                        diagnostic: error.diagnostic?.message,
+                    });
+                    return null;
+                }
+                throw error;
+            }
+        }));
+        return projected.filter((actor): actor is ActorProjection => actor !== null);
     };
 
     // Actor list projection: owned/read-only partition + normalized payload.
@@ -75,7 +119,6 @@ export function createActorService(deps: ActorServiceDeps) {
         if (!adapter) throw new Error(`Adapter for ${systemInfo.id} not found`);
 
         const rawActors = await client.getActors();
-        const normalize = async (actorList: ActorDocument[]) => deps.normalizeActors(actorList, client);
         const currentUserId = client.userId;
 
         const actorTypes = new Set(rawActors.map((a) => a.type));
@@ -113,10 +156,14 @@ export function createActorService(deps: ActorServiceDeps) {
 
         logger.info(`Core Service | Filtered actors - Owned: ${ownedCharacters.length}, Observable: ${observable.length}, Total raw: ${rawActors.length}`);
 
+        const [preparedOwned, preparedReadOnly] = await Promise.all([
+            normalizeAvailableActors(ownedCharacters, client),
+            normalizeAvailableActors(observable, client),
+        ]);
         return {
-            actors: await normalize(ownedCharacters),
-            ownedActors: await normalize(ownedCharacters),
-            readOnlyActors: await normalize(observable),
+            actors: preparedOwned,
+            ownedActors: preparedOwned,
+            readOnlyActors: preparedReadOnly,
             // LIMITED actors may contribute only the adapter-owned card projection.
             // Recheck visibility here so alternate clients cannot project hidden cache rows.
             actorCards: buildActorCards(rawActors.filter((a) => {
@@ -157,10 +204,11 @@ export function createActorService(deps: ActorServiceDeps) {
             return {};
         }
 
-        return adapter.getActorCardData!(actor as any) as ActorCard;
+        const preparedActorId = actor._id || actor.id || actorId;
+        return adapter.getActorCardData!(getPreparedActor(preparedActorId)) as ActorCard;
     };
 
-    // Actor detail resolver: UUID resolution + adapter normalization + derived data.
+    // Actor detail resolver: source authorization + prepared projection + UUID resolution.
     const getActorById = async (
         client: ActorServiceClientLike,
         actorId: string
@@ -172,6 +220,8 @@ export function createActorService(deps: ActorServiceDeps) {
                 status: actor?.error ? 503 : 404
             };
         }
+
+        const preparedActor = getPreparedActor(actorId);
 
         const { compendiumStore } = await import('@core/compendium');
 
@@ -196,36 +246,23 @@ export function createActorService(deps: ActorServiceDeps) {
             return obj;
         };
 
-        const resolvedActor = resolveUUIDs(actor) as ActorDocument;
+        const resolvedActor = resolveUUIDs(preparedActor) as ActorProjection;
 
         const systemInfo = await client.getSystem();
         const adapter = await getAdapter(systemInfo.id.toLowerCase())
-            ?? await getMatchingAdapter(resolvedActor);
+            ?? await getMatchingAdapter(resolvedActor as ActorDocument);
 
         if (!adapter) throw new Error(`Adapter for ${systemInfo.id} not found`);
 
-        const normalizedActor: ActorProjection = adapter.normalizeActorData(resolvedActor as any);
-
-        if (adapter.computeActorData) {
-            normalizedActor.derived = {
-                ...(normalizedActor.derived || {}),
-                ...(adapter.computeActorData(normalizedActor as any) as Record<string, unknown>)
-            };
+        if (resolvedActor.img) {
+            resolvedActor.img = client.resolveUrl(resolvedActor.img);
         }
-
-        if (adapter.categorizeItems) {
-            normalizedActor.categorizedItems = adapter.categorizeItems(normalizedActor as any) as Record<string, unknown>;
-        }
-
-        if (normalizedActor.img) {
-            normalizedActor.img = client.resolveUrl(normalizedActor.img);
-        }
-        if (normalizedActor.prototypeToken?.texture?.src) {
-            normalizedActor.prototypeToken.texture.src = client.resolveUrl(normalizedActor.prototypeToken.texture.src);
+        if (resolvedActor.prototypeToken?.texture?.src) {
+            resolvedActor.prototypeToken.texture.src = client.resolveUrl(resolvedActor.prototypeToken.texture.src);
         }
 
         return {
-            ...normalizedActor,
+            ...resolvedActor,
             foundryUrl: client.url,
             systemId: adapter.systemId,
             // The Foundry system ID is always the real game system regardless of
@@ -278,8 +315,15 @@ export function createActorService(deps: ActorServiceDeps) {
     // Roll orchestration with adapter-aware automated sequence fallback.
     const rollActor = async (client: ActorServiceClientLike, actorId: string, payload: ActorRollPayload) => {
         const { type, key, options } = payload;
-        const actor = await client.getActor(actorId);
-        if (!actor) return { error: 'Actor not found', status: 404 };
+        const sourceActor = await client.getActor(actorId);
+        if (!sourceActor || sourceActor.error) {
+            return {
+                error: sourceActor?.error || 'Actor not found',
+                status: sourceActor?.error ? 503 : 404,
+            };
+        }
+
+        const actor = getPreparedActor(actorId);
 
         const systemInfo = await client.getSystem();
         const adapter = await getAdapter(systemInfo.id.toLowerCase());
@@ -295,7 +339,8 @@ export function createActorService(deps: ActorServiceDeps) {
                     ...(actor.categorizedItems?.uncategorized || [])
                 ];
                 const found = allItems.find((i) => i.name === key);
-                const foundId = found?._id || found?.id;
+                const foundId = found?._id
+                    || (typeof found?.id === 'string' ? found.id : undefined);
                 if (foundId) itemId = foundId;
             }
             if (!itemId) throw new Error('Could not resolve item id');

@@ -53,7 +53,7 @@ export class BaseSystemAdapter implements SystemAdapter {
         const normalized = this.normalizeActorData(actor);
         const derived = this.computeActorData(normalized);
 
-        return {
+        const prepared: PreparedActorData = {
             ...actor,
             ...normalized,
             _id: actor._id,
@@ -69,6 +69,8 @@ export class BaseSystemAdapter implements SystemAdapter {
                 ...derived,
             },
         };
+        prepared.categorizedItems = this.categorizeItems(prepared);
+        return prepared;
     }
 
     match(_actor: FoundryActor): boolean {

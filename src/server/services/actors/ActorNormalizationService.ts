@@ -1,44 +1,37 @@
-import { getAdapter } from '@modules/registry/server';
+import { preparedActorStore } from '@server/core/documents/prepared/actors/PreparedActorStore';
 import type { ActorServiceClientLike, ActorDocument } from '@server/shared/types/actors';
-
-interface NormalizedActor {
-    derived?: Record<string, unknown>;
-    [key: string]: unknown;
-}
+import type { PreparedActorData } from '@shared/sdk';
 
 interface ActorNormalizationDeps {
-    getAdapterBySystemId?: typeof getAdapter;
+    getPreparedActor?: (actorId: string) => PreparedActorData;
 }
 
+/**
+ * Clone-safe projection of authorized Actor ids onto their current prepared
+ * revisions. The request client remains responsible for source visibility;
+ * this service adds only URL projection and never re-runs system preparation.
+ */
 export function createActorNormalizationService(deps: ActorNormalizationDeps = {}) {
-    const getAdapterBySystemId = deps.getAdapterBySystemId || getAdapter;
+    const getPreparedActor = deps.getPreparedActor
+        ?? ((actorId: string) => preparedActorStore.getRequired(actorId));
 
-    // Shared actor projection used by actor and combat services for UI-ready payloads.
-    // Per ADR-0027, `normalizeActorData` is pure projection (no client); adapters that
-    // need declared-pack data read it through `runtime.compendium` (resolveActorNames removed).
-    const normalizeActors = async (actorList: ActorDocument[], client: ActorServiceClientLike) => {
-        const systemInfo = await client.getSystem();
-        const adapter = await getAdapterBySystemId(systemInfo.id.toLowerCase());
-        if (!adapter) throw new Error(`Adapter for ${systemInfo.id} not found`);
+    const normalizeActors = async (
+        actorList: ActorDocument[],
+        client: ActorServiceClientLike,
+    ): Promise<PreparedActorData[]> => actorList.map((sourceActor) => {
+        const actorId = sourceActor._id || sourceActor.id;
+        if (!actorId) throw new Error('Cannot project an Actor without an id');
 
-        return Promise.all(actorList.map(async (actor) => {
-            if (!actor.computed) actor.computed = {};
+        const prepared = getPreparedActor(actorId);
+        if (prepared.img) prepared.img = client.resolveUrl(prepared.img);
+        const prototypeToken = prepared.prototypeToken as {
+            texture?: { src?: string };
+        } | undefined;
+        if (prototypeToken?.texture?.src) {
+            prototypeToken.texture.src = client.resolveUrl(prototypeToken.texture.src);
+        }
+        return prepared;
+    });
 
-            if (actor.img) actor.img = client.resolveUrl(actor.img);
-            if (actor.prototypeToken?.texture?.src) {
-                actor.prototypeToken.texture.src = client.resolveUrl(actor.prototypeToken.texture.src);
-            }
-
-            const normalized = adapter.normalizeActorData(actor as any) as NormalizedActor;
-            if (adapter.computeActorData) {
-                normalized.derived = adapter.computeActorData(normalized as any) as Record<string, unknown>;
-            }
-
-            return normalized;
-        }));
-    };
-
-    return {
-        normalizeActors
-    };
+    return { normalizeActors };
 }

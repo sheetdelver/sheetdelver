@@ -15,6 +15,11 @@ import { PrimaryDocumentCacheNotReadyError } from '@server/core/documents/primar
 import { CombatRepository } from '@server/core/documents/primary/combats/CombatRepository';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
 import { getDocumentId } from '@server/core/documents/primary/base/PrimaryDocumentStore';
+import {
+    preparedActorStore,
+    PreparedActorUnavailableError,
+} from '@server/core/documents/prepared/actors/PreparedActorStore';
+import type { PreparedActorData } from '@shared/sdk';
 import { buildCombatTrackerDto } from './CombatTrackerProjection';
 import type {
     CombatTrackerDto,
@@ -27,11 +32,12 @@ import type {
 } from '@shared/contracts/combats';
 
 interface AdapterWithInitiativeFormula {
-    getInitiativeFormula?: (actor: ActorDocument) => string;
+    getInitiativeFormula?: (actor: PreparedActorData) => string;
 }
 
 interface CombatServiceDeps {
     normalizeActors: (actorList: ActorDocument[], client: CombatClientLike) => Promise<ActorDocument[]>;
+    getPreparedActor?: (actorId: string) => PreparedActorData;
 }
 
 function resolveSubject(userId: string | null | undefined): DocumentAccessSubject | null {
@@ -44,6 +50,31 @@ const projectionDeps = {
 };
 
 export function createCombatService(deps: CombatServiceDeps) {
+    const getPreparedActor = deps.getPreparedActor
+        ?? ((actorId: string) => preparedActorStore.getRequired(actorId));
+
+    const normalizeAvailableActors = async (
+        actors: ActorDocument[],
+        client: CombatClientLike,
+    ): Promise<ActorDocument[]> => {
+        const projected = await Promise.all(actors.map(async (actor) => {
+            const actorId = actor._id || actor.id;
+            try {
+                return (await deps.normalizeActors([actor], client))[0] ?? null;
+            } catch (error) {
+                if (error instanceof PreparedActorUnavailableError) {
+                    logger.warn('CombatService | Skipping unavailable prepared Actor projection', {
+                        actorId,
+                        diagnostic: error.diagnostic?.message,
+                    });
+                    return null;
+                }
+                throw error;
+            }
+        }));
+        return projected.filter((actor): actor is ActorDocument => actor !== null);
+    };
+
     const createCombatRepository = (client: CombatClientLike): CombatRepository => new CombatRepository({
         dispatchDocument: (
             type: string,
@@ -60,9 +91,9 @@ export function createCombatService(deps: CombatServiceDeps) {
     /**
      * Attach the minimal actor roll payload to rows the subject may roll for,
      * and resolve display image paths against the Foundry URL prefix. Actor
-     * data is fetched through the subject-scoped `client.getActor`, so a row
-     * only carries an actor the caller could read in full anyway; it is then
-     * whitelisted to id/name/img/system (no ownership, no raw spread).
+     * source authorization is checked through subject-scoped `client.getActor`;
+     * the matching prepared revision is then whitelisted to id/name/img/system
+     * (no ownership and no raw source spread).
      */
     const enrichTrackerDto = async (dto: CombatTrackerDto, client: CombatClientLike): Promise<CombatTrackerDto> => {
         const rollableActorIds = [...new Set(
@@ -76,12 +107,12 @@ export function createCombatService(deps: CombatServiceDeps) {
         await Promise.all(rollableActorIds.map(async (actorId) => {
             try {
                 const actor = await client.getActor(actorId);
-                if (actor) fetched.push(actor);
+                if (actor && !actor.error) fetched.push(actor);
             } catch {
                 logger.error(`Failed to fetch actor ${actorId} for combat ${dto.id}`);
             }
         }));
-        const normalized = await deps.normalizeActors(fetched, client);
+        const normalized = await normalizeAvailableActors(fetched, client);
         for (const actor of normalized) {
             const id = actor._id || actor.id;
             if (!id) continue;
@@ -305,8 +336,15 @@ export function createCombatService(deps: CombatServiceDeps) {
         const adapter = await getAdapter(systemInfo.id.toLowerCase());
         if (!adapter) throw new Error(`Adapter ${systemInfo.id} not found`);
 
-        const actor = await client.getActor(combatant.actorId);
-        if (!actor) return { error: 'Actor not found', status: 404 };
+        const sourceActor = await client.getActor(combatant.actorId);
+        if (!sourceActor || sourceActor.error) {
+            return {
+                error: sourceActor?.error || 'Actor not found',
+                status: sourceActor?.error ? 503 : 404,
+            };
+        }
+
+        const actor = getPreparedActor(combatant.actorId);
 
         let finalFormula = formula;
         if (!finalFormula) {
