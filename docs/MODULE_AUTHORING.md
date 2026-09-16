@@ -200,7 +200,11 @@ and LIMITED/OBSERVER/OWNER projection remain host concerns outside preparation.
 composing `normalizeActorData`, `computeActorData`, and `categorizeItems`.
 Existing modules may inherit that bridge, but new module logic should treat
 `prepareActorData` as the single rules-preparation entry point. Card and roll hooks
-receive the resulting prepared Actor. Build full image URLs with
+receive the resulting prepared Actor. `getActorCardData` may return only
+system-specific subtext, stat blocks, and footer content: Core fills omitted
+`name` and `img` from the same prepared revision so targeted realtime card
+refreshes do not depend on stale list data. Explicit name/image presentation
+overrides remain supported. Build full image URLs with
 `resolveImage(img, runtime.foundryUrl)` when a module owns image projection.
 
 Use `fetchByUuid` or compendium lookups only for exceptional linked references that are not already embedded in the actor. Compendium UUID reads are cache-required by default: add the pack to `info.json` under `compendiumPacks.packs` with `hydrate: true` when module code needs full documents. Missing or non-hydrated pack rows return `null` and log a warning. The `foundry.allow-live-compendium-uuid-fallback` / `APP_ALLOW_LIVE_COMPENDIUM_UUID_FALLBACK` setting is a diagnostic operator escape hatch, not a module contract.

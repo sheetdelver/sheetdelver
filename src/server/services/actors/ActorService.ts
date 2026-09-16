@@ -52,6 +52,25 @@ interface ActorRollData {
 const isRecord = (value: unknown): value is Record<string, unknown> =>
     typeof value === 'object' && value !== null;
 
+export function buildActorCardProjection(
+    actor: PreparedActorData,
+    adapter: { getActorCardData?: (actor: PreparedActorData) => unknown } | null | undefined,
+): ActorCard {
+    const projected = adapter?.getActorCardData?.(actor);
+    const card = isRecord(projected) ? projected : {};
+    const projectedName = typeof card.name === 'string' && card.name.trim() ? card.name : null;
+    const projectedImage = typeof card.img === 'string' && card.img.trim() ? card.img : null;
+
+    // Identity belongs to the prepared Actor model. Modules may override its
+    // presentation, but a partial system card must remain independently
+    // refreshable when the dashboard receives an actorChanged invalidation.
+    return {
+        ...card,
+        name: projectedName ?? actor.name,
+        img: projectedImage ?? actor.img,
+    } as ActorCard;
+}
+
 interface ActorServiceDeps {
     normalizeActors: (actorList: ActorDocument[], client: ActorServiceClientLike) => Promise<ActorProjection[]>;
     getPreparedActor?: (actorId: string) => PreparedActorData;
@@ -66,16 +85,14 @@ export function createActorService(deps: ActorServiceDeps) {
     // card projection here so `/api/actors` does not force a second actor read.
     const buildActorCards = (
         actors: ActorDocument[],
-        adapter: { getActorCardData?: (actor: any) => unknown } | null | undefined,
+        adapter: { getActorCardData?: (actor: PreparedActorData) => unknown } | null | undefined,
     ): ActorCardsPayload => {
-        if (!adapter?.getActorCardData) return {};
-
         const cards: Record<string, ActorCard> = {};
         for (const actor of actors) {
             const id = actor._id || actor.id;
             if (!id) continue;
             try {
-                cards[id] = adapter.getActorCardData(getPreparedActor(id)) as ActorCard;
+                cards[id] = buildActorCardProjection(getPreparedActor(id), adapter);
             } catch (error) {
                 if (error instanceof PreparedActorUnavailableError) {
                     logger.warn('Core Service | Skipping unavailable prepared Actor card', {
@@ -179,10 +196,6 @@ export function createActorService(deps: ActorServiceDeps) {
     const getActorCards = async (client: ActorServiceClientLike): Promise<ActorCardsPayload> => {
         const systemInfo = await client.getSystem();
         const adapter = await getAdapter(systemInfo.id.toLowerCase());
-        if (!adapter || !adapter.getActorCardData) {
-            return {};
-        }
-
         return buildActorCards(await client.getActors(), adapter);
     };
 
@@ -200,12 +213,8 @@ export function createActorService(deps: ActorServiceDeps) {
 
         const systemInfo = await client.getSystem();
         const adapter = await getAdapter(systemInfo.id.toLowerCase());
-        if (!adapter || !adapter.getActorCardData) {
-            return {};
-        }
-
         const preparedActorId = actor._id || actor.id || actorId;
-        return adapter.getActorCardData!(getPreparedActor(preparedActorId)) as ActorCard;
+        return buildActorCardProjection(getPreparedActor(preparedActorId), adapter);
     };
 
     // Actor detail resolver: source authorization + prepared projection + UUID resolution.

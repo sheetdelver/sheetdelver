@@ -29,7 +29,6 @@ export const ActorCard = ({
     const { actorCards } = useActorCombat();
     const { resolveImageUrl } = useConfig();
     const actorId = actor.id || actor._id || '';
-    const actorName = actor.name || 'Unknown Actor';
     const actorRecord = actor as Record<string, any>;
     const customData = actorId ? (actorCards[actorId] || {}) : {};
 
@@ -40,7 +39,7 @@ export const ActorCard = ({
         router.push(`/actors/${actorId}`);
     };
 
-    const displayName = customData.name || actor.name;
+    const displayName = customData.name || actor.name || 'Unknown Actor';
     const displayImg = resolveImageUrl(customData.img || actor.img || 'icons/svg/mystery-man.svg');
     const displaySubtext = customData.subtext || actor.type;
     const deleteEnabled = canDelete && Boolean(actorId);
@@ -73,7 +72,7 @@ export const ActorCard = ({
                         onClick={(e) => {
                             e.stopPropagation();
                             if (!deleteEnabled) return;
-                            onDelete(actorId, actorName);
+                            onDelete(actorId, displayName);
                         }}
                         disabled={!deleteEnabled}
                         aria-label="Delete Character"

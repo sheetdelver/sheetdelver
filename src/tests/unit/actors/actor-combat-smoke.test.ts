@@ -1,5 +1,8 @@
 import { strict as assert } from 'node:assert';
-import { createActorService } from '@server/services/actors/ActorService';
+import {
+    buildActorCardProjection,
+    createActorService,
+} from '@server/services/actors/ActorService';
 import { createCombatService } from '@server/services/combats/CombatService';
 import { combatStore } from '@server/core/documents/primary/combats/CombatStore';
 import { settingStore } from '@server/core/documents/primary/settings/SettingStore';
@@ -37,6 +40,32 @@ async function runActorReadWriteSmoke() {
             derived: {},
         } as any;
     };
+
+    const partialAdapter = {
+        getActorCardData: () => ({ subtext: 'System-specific summary' }),
+    };
+    const partialCard = buildActorCardProjection(getPreparedActor('actor-owned'), partialAdapter);
+    assert.equal(partialCard.name, 'Owned Hero');
+    assert.equal(partialCard.img, '');
+    assert.equal(partialCard.subtext, 'System-specific summary');
+
+    const renamedActor = {
+        ...getPreparedActor('actor-owned'),
+        name: 'Renamed Hero',
+        img: 'portraits/renamed.webp',
+    };
+    const refreshedCard = buildActorCardProjection(renamedActor, partialAdapter);
+    assert.equal(refreshedCard.name, 'Renamed Hero');
+    assert.equal(refreshedCard.img, 'portraits/renamed.webp');
+    assert.equal(refreshedCard.subtext, partialCard.subtext);
+    assert.equal(buildActorCardProjection(renamedActor, null).name, 'Renamed Hero');
+
+    const overrideCard = buildActorCardProjection(renamedActor, {
+        getActorCardData: () => ({ name: 'Display Alias', img: 'portraits/alias.webp' }),
+    });
+    assert.equal(overrideCard.name, 'Display Alias');
+    assert.equal(overrideCard.img, 'portraits/alias.webp');
+    assert.equal(renamedActor.name, 'Renamed Hero');
 
     const actorService = createActorService({
         normalizeActors: async (actorList) => {
