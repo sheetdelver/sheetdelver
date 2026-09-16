@@ -215,6 +215,6 @@ numbers are not duplicated in the prepared Store.
       embedded changes, deletion, failures, epoch rejection, authorization,
       and realtime ordering.
 - [x] Update module-authoring and architecture documentation.
-- [ ] Migrate and parity-test the D&D 5e module.
-- [ ] Migrate and parity-test the Shadowdark and Mork Borg modules.
+- [x] Migrate and parity-test the D&D 5e module.
+- [x] Migrate and parity-test the Shadowdark and Mork Borg modules.
 - [ ] Complete generation 13 and generation 14 live acceptance before closeout.
