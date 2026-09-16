@@ -316,6 +316,10 @@ export function registerAppSocketGateway({
                 // don't attach world-backed listeners to a dead socket.
                 logger.debug(`App Socket | Deferring per-user listeners for ${socket.id} until world:ready`);
                 const onWorldReady = () => {
+                    // Readiness can change after the initial check but before
+                    // this listener is installed. The reconciliation below may
+                    // therefore call us directly; keep that path idempotent.
+                    if (!cancelDeferredWorldAttach) return;
                     cancelDeferredWorldAttach?.();
                     cancelDeferredWorldAttach = null;
                     attachWorldBackedListeners(foundryClient);
@@ -330,6 +334,10 @@ export function registerAppSocketGateway({
                 };
                 systemService.once('world:ready', onWorldReady);
                 socket.on('disconnect', onSocketDisconnect);
+
+                // Close the check-then-subscribe race. Otherwise a socket that
+                // misses `world:ready` stays status-only until it reconnects.
+                if (systemService.isReady()) onWorldReady();
             }
         }
     });
