@@ -7,6 +7,7 @@ import { run as runCoalescedFetch } from './coalesced-fetch.test';
 import { run as runCombatHudState } from './combat-hud-state.test';
 import { run as runJournalOrdering } from './journal-ordering.test';
 import { run as runGenericSheetFieldState } from './generic-sheet-field-state.test';
+import { run as runGenericSheet } from './generic-sheet.test';
 import { run as runCatalogReleaseState } from './catalog-release-state.test';
 
 export async function run() {
@@ -19,6 +20,7 @@ export async function run() {
     runCombatHudState();
     runJournalOrdering();
     runGenericSheetFieldState();
+    runGenericSheet();
     runCatalogReleaseState();
 }
 

@@ -2,7 +2,8 @@
 
 import React, { useState } from 'react';
 
-import { LayoutGrid, Package, Sparkles, AlertCircle } from 'lucide-react';
+import { LayoutGrid, Package, Sparkles, AlertCircle, ChevronRight } from 'lucide-react';
+import { resolveImage } from '@shared/sdk/utils';
 import {
     beginPrimitiveEdit,
     commitPrimitiveEdit,
@@ -14,17 +15,19 @@ import {
 
 interface GenericSheetProps {
     actor: any;
+    foundryUrl?: string;
     onRoll?: (type: string, key: string, options?: any) => void;
     onUpdate?: (path: string, value: any) => void;
 }
 
-export default function GenericSheet({ actor, onUpdate }: GenericSheetProps) {
+export default function GenericSheet({ actor, foundryUrl, onUpdate }: GenericSheetProps) {
     const [activeTab, setActiveTab] = useState<'system' | 'items' | 'effects'>('system');
 
     // Safe accessors
     const systemId = actor.systemId || actor.system?.details?.system || 'unknown';
     const items = actor.items || [];
     const effects = actor.effects || [];
+    const imageBaseUrl = foundryUrl || actor.foundryUrl;
 
     return (
         <div className={`flex flex-col h-[100dvh] w-full bg-neutral-50 text-neutral-900 $"font-inter"`}>
@@ -33,7 +36,7 @@ export default function GenericSheet({ actor, onUpdate }: GenericSheetProps) {
                 <div className="flex items-center gap-4 max-w-3xl mx-auto">
                     <div className="w-16 h-16 rounded-full overflow-hidden bg-neutral-200 border-2 border-white shadow-md shrink-0">
                         <img
-                            src={actor.img || '/icons/svg/mystery-man.svg'}
+                            src={resolveImage(actor.img || 'icons/svg/mystery-man.svg', imageBaseUrl)}
                             alt={actor.name}
                             className="w-full h-full object-cover"
                         />
@@ -73,15 +76,7 @@ export default function GenericSheet({ actor, onUpdate }: GenericSheetProps) {
                                 <EmptyState icon={<Package size={48} />} label="No Items Found" />
                             ) : (
                                 items.map((item: any) => (
-                                    <div key={item.id} className="bg-white p-3 rounded-lg border border-neutral-200 shadow-sm flex items-center gap-3 active:scale-[0.99] transition-transform">
-                                        <div className="w-10 h-10 bg-neutral-100 rounded border border-neutral-200 overflow-hidden shrink-0">
-                                            <img src={item.img} alt={item.name} className="w-full h-full object-cover" />
-                                        </div>
-                                        <div className="flex-1 min-w-0">
-                                            <div className="font-semibold text-sm truncate">{item.name}</div>
-                                            <div className="text-xs text-neutral-400 capitalize">{item.type}</div>
-                                        </div>
-                                    </div>
+                                    <GenericItemDetails key={item._id || item.id} item={item} foundryUrl={imageBaseUrl} />
                                 ))
                             )}
                         </div>
@@ -93,12 +88,12 @@ export default function GenericSheet({ actor, onUpdate }: GenericSheetProps) {
                                 <EmptyState icon={<Sparkles size={48} />} label="No Effects Active" />
                             ) : (
                                 effects.map((effect: any) => (
-                                    <div key={effect.id} className="bg-white p-3 rounded-lg border border-neutral-200 shadow-sm flex items-center gap-3 opacity-90 hover:opacity-100">
+                                    <div key={effect._id || effect.id} className="bg-white p-3 rounded-lg border border-neutral-200 shadow-sm flex items-center gap-3 opacity-90 hover:opacity-100">
                                         <div className="w-10 h-10 bg-purple-50 rounded border border-purple-100 flex items-center justify-center shrink-0 text-purple-600">
-                                            {effect.icon ? <img src={effect.icon} className="w-full h-full object-cover" alt="" /> : <Sparkles size={20} />}
+                                            {effect.img || effect.icon ? <img src={resolveImage(effect.img || effect.icon, imageBaseUrl)} className="w-full h-full object-cover" alt="" /> : <Sparkles size={20} />}
                                         </div>
                                         <div className="flex-1 min-w-0">
-                                            <div className="font-semibold text-sm truncate">{effect.label}</div>
+                                            <div className="font-semibold text-sm truncate">{effect.name || effect.label}</div>
                                             <div className="text-xs text-neutral-400">{effect.disabled ? 'Disabled' : 'Active'}</div>
                                         </div>
                                         <div className={`w-2 h-2 rounded-full ${effect.disabled ? 'bg-neutral-300' : 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]'}`} />
@@ -139,6 +134,26 @@ export default function GenericSheet({ actor, onUpdate }: GenericSheetProps) {
     );
 }
 
+export function GenericItemDetails({ item, foundryUrl }: { item: any; foundryUrl?: string }) {
+    return (
+        <details className="group bg-white rounded-lg border border-neutral-200 shadow-sm overflow-hidden">
+            <summary className="list-none p-3 flex items-center gap-3 cursor-pointer [&::-webkit-details-marker]:hidden">
+                <div className="w-10 h-10 bg-neutral-100 rounded border border-neutral-200 overflow-hidden shrink-0">
+                    <img src={resolveImage(item.img || 'icons/svg/item-bag.svg', foundryUrl)} alt={item.name} className="w-full h-full object-cover" />
+                </div>
+                <div className="flex-1 min-w-0">
+                    <div className="font-semibold text-sm break-words">{item.name}</div>
+                    <div className="text-xs text-neutral-500 capitalize">{item.type}</div>
+                </div>
+                <ChevronRight size={18} aria-hidden="true" className="shrink-0 text-neutral-500 transition-transform group-open:rotate-90" />
+            </summary>
+            <div className="border-t border-neutral-200 p-3 text-sm">
+                <DataProperty label="System Data" data={item.system || {}} path={`items.${item._id || item.id}.system`} />
+            </div>
+        </details>
+    );
+}
+
 function NavButton({ active, onClick, icon, label, count }: any) {
     return (
         <button
@@ -176,11 +191,21 @@ function DataProperty({ label, data, path, onUpdate, root }: any) {
         return <PrimitiveField label={label} value={data} path={path} onUpdate={onUpdate} />;
     }
 
+    if (isArray) {
+        return (
+            <div className="space-y-2">
+                {data.length === 0 ? <span className="text-xs text-neutral-400">None</span> : data.map((value: any, index: number) => (
+                    <DataProperty key={index} label={String(index + 1)} data={value} path={`${path}.${index}`} onUpdate={onUpdate} />
+                ))}
+            </div>
+        );
+    }
+
     if (root) {
         return (
             <>
                 {Object.entries(data).map(([key, value]) => (
-                    <div key={key} className="bg-white rounded-xl border border-neutral-200 shadow-sm overflow-hidden text-sm">
+                    <div key={key} className="bg-white rounded-lg border border-neutral-200 shadow-sm overflow-hidden text-sm">
                         <div className="px-4 py-2 bg-neutral-50 border-b border-neutral-200 font-bold text-neutral-500 uppercase tracking-widest text-[10px] flex items-center gap-2">
                             <AlertCircle size={12} />
                             {key}
@@ -231,6 +256,15 @@ function PrimitiveField({ label, value, path, onUpdate }: any) {
         setIsEditing(false);
     };
 
+    if (typeof value === 'boolean') {
+        return (
+            <label className="flex items-center justify-between gap-3 py-1.5">
+                <span className="text-xs text-neutral-500 font-medium break-words capitalize">{label}</span>
+                <input type="checkbox" aria-label={label} checked={value} disabled={!onUpdate} onChange={(event) => onUpdate?.(path, event.target.checked)} className="h-4 w-4 shrink-0 accent-blue-600" />
+            </label>
+        );
+    }
+
     if (isEditing) {
         const useMultiline = shouldUseMultilineField(value, path);
         return (
@@ -270,10 +304,10 @@ function PrimitiveField({ label, value, path, onUpdate }: any) {
     return (
         <div
             onClick={() => onUpdate && beginEditing()}
-            className="group flex items-center justify-between py-1.5 px-2 -mx-2 rounded hover:bg-neutral-50 cursor-pointer transition-colors"
+            className={`group flex items-start justify-between gap-3 py-1.5 px-2 -mx-2 rounded transition-colors ${onUpdate ? 'hover:bg-neutral-50 cursor-pointer' : ''}`}
         >
-            <span className="text-xs text-neutral-500 font-medium mr-4 truncate capitalize opacity-70 group-hover:opacity-100 transition-opacity">{label}</span>
-            <span className="text-sm font-semibold text-neutral-800 text-right truncate max-w-[200px]">
+            <span className="text-xs text-neutral-500 font-medium min-w-0 break-words capitalize opacity-70 group-hover:opacity-100 transition-opacity">{label}</span>
+            <span className="text-sm font-semibold text-neutral-800 text-right min-w-0 flex-1 whitespace-pre-wrap break-words">
                 {String(value)}
             </span>
         </div>
