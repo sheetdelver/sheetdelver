@@ -1,4 +1,7 @@
 # Releases
+## 0.10.1
+- Fixed realtime startup subscriptions
+
 ## 0.10.0
 - Added compatible module selection
 - Stabilized module restart boundaries
