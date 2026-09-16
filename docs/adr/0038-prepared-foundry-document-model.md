@@ -217,4 +217,6 @@ numbers are not duplicated in the prepared Store.
 - [x] Update module-authoring and architecture documentation.
 - [x] Migrate and parity-test the D&D 5e module.
 - [x] Migrate and parity-test the Shadowdark and Mork Borg modules.
-- [ ] Complete generation 13 and generation 14 live acceptance before closeout.
+- [x] Complete generation 14 live acceptance for startup preparation, direct
+      Actor updates, embedded Item updates, and ownership loss/restoration.
+- [ ] Complete generation 13 live acceptance before closeout.
