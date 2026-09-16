@@ -1,4 +1,13 @@
 # Releases
+## 0.10.0
+- Added compatible module selection
+- Stabilized module restart boundaries
+- Hardened packaged module loading
+- Added prepared actor lifecycle
+- Unified actor projections
+- Improved generic item inspection
+- Expanded synchronization coverage
+
 ## 0.9.2
 - Fixed GitHub manifest downloads
 - Corrected same-version module updates

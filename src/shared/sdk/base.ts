@@ -4,6 +4,7 @@ import { resolveImage } from './utils';
 import {
     SystemAdapter,
     ActorSheetData,
+    ActorPreparationContext,
     ActorCardData,
     CompendiumPackConfig,
     RollData,
@@ -12,6 +13,7 @@ import {
     SystemComponentStyles,
     FoundryActor,
     FoundryItem,
+    PreparedActorData,
 } from './interfaces';
 
 /**
@@ -44,6 +46,33 @@ export class BaseSystemAdapter implements SystemAdapter {
         };
     }
 
+    prepareActorData(
+        actor: FoundryActor,
+        _context: Readonly<ActorPreparationContext>,
+    ): PreparedActorData {
+        const normalized = this.normalizeActorData(actor);
+        const derived = this.computeActorData(normalized);
+
+        const prepared: PreparedActorData = {
+            ...actor,
+            ...normalized,
+            _id: actor._id,
+            id: normalized.id || actor._id,
+            name: normalized.name || actor.name,
+            type: normalized.type || actor.type,
+            img: normalized.img || resolveImage(actor.img ?? '', this.foundryUrl),
+            system: normalized.system ?? actor.system ?? {},
+            items: normalized.items ?? actor.items ?? [],
+            effects: normalized.effects ?? actor.effects ?? [],
+            derived: {
+                ...(normalized.derived ?? {}),
+                ...derived,
+            },
+        };
+        prepared.categorizedItems = this.categorizeItems(prepared);
+        return prepared;
+    }
+
     match(_actor: FoundryActor): boolean {
         // Never matches specifically — only used as the fallback
         return false;
@@ -64,7 +93,7 @@ export class BaseSystemAdapter implements SystemAdapter {
         return { packs: [] };
     }
 
-    getActorCardData(actor: FoundryActor): ActorCardData {
+    getActorCardData(actor: PreparedActorData): ActorCardData {
         return {
             name: actor.name,
             img: resolveImage(actor.img ?? '', this.foundryUrl),
@@ -79,11 +108,11 @@ export class BaseSystemAdapter implements SystemAdapter {
         return { all: actor.items ?? [] };
     }
 
-    getRollData(_actor: FoundryActor, _type: string, _key: string, _options?: RollDataOptions): RollData | null {
+    getRollData(_actor: PreparedActorData, _type: string, _key: string, _options?: RollDataOptions): RollData | null {
         return null;
     }
 
-    getInitiativeFormula(_actor: FoundryActor): string {
+    getInitiativeFormula(_actor: PreparedActorData): string {
         return '1d20';
     }
 

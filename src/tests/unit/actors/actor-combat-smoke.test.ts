@@ -4,23 +4,46 @@ import { createCombatService } from '@server/services/combats/CombatService';
 import { combatStore } from '@server/core/documents/primary/combats/CombatStore';
 import { settingStore } from '@server/core/documents/primary/settings/SettingStore';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
+import { PreparedActorUnavailableError } from '@server/core/documents/prepared/actors/PreparedActorStore';
 import type { CombatDocument } from '@server/shared/types/documents';
 import type { ActorDocument } from '@server/shared/types/actors';
 
 async function runActorReadWriteSmoke() {
     const normalizeCalls: Array<{ ids: string[] }> = [];
     const createActorCalls: Array<Record<string, unknown>> = [];
+    const preparedNames: Record<string, string> = {
+        'actor-owned': 'Owned Hero',
+        'actor-readonly': 'Observed Ally',
+        'actor-limited': 'Limited Contact',
+        'actor-hidden': 'Hidden Contact',
+        'actor-npc': 'Observed NPC',
+    };
+    const getPreparedActor = (actorId: string) => {
+        if (actorId === 'actor-broken') {
+            throw new PreparedActorUnavailableError(actorId, {
+                code: 'PREPARATION_FAILED',
+                message: 'intentional fixture failure',
+            });
+        }
+        return {
+            _id: actorId,
+            id: actorId,
+            name: preparedNames[actorId] || actorId,
+            type: actorId === 'actor-npc' ? 'npc' : 'character',
+            img: '',
+            system: {},
+            items: [],
+            effects: [],
+            derived: {},
+        } as any;
+    };
 
     const actorService = createActorService({
         normalizeActors: async (actorList) => {
             normalizeCalls.push({ ids: actorList.map((actor) => String(actor._id || actor.id)) });
-            return actorList.map((actor) => ({
-                _id: actor._id,
-                id: actor.id,
-                name: actor.name,
-                type: actor.type,
-            }));
+            return actorList.map((actor) => getPreparedActor(String(actor._id || actor.id)));
         },
+        getPreparedActor,
         config: {
             debug: { enabled: false, level: 2 },
         } as any,
@@ -35,6 +58,13 @@ async function runActorReadWriteSmoke() {
                 _id: 'actor-owned',
                 id: 'actor-owned',
                 name: 'Owned Hero',
+                type: 'character',
+                ownership: { 'user-1': 3, default: 0 },
+            },
+            {
+                _id: 'actor-broken',
+                id: 'actor-broken',
+                name: 'Broken Hero',
                 type: 'character',
                 ownership: { 'user-1': 3, default: 0 },
             },
@@ -86,6 +116,7 @@ async function runActorReadWriteSmoke() {
     assert.equal(listPayload.actorCards?.['actor-readonly']?.name, 'Observed Ally');
     assert.equal(listPayload.actorCards?.['actor-limited']?.name, 'Limited Contact');
     assert.equal(listPayload.actorCards?.['actor-hidden'], undefined);
+    assert.equal(listPayload.actorCards?.['actor-broken'], undefined);
     assert.equal(listPayload.actorCards?.['actor-npc'], undefined);
     // LIMITED actors are card-only and must never reach the full DTO normalizer.
     assert.equal(normalizeCalls.flatMap((call) => call.ids).includes('actor-limited'), false);
@@ -124,11 +155,28 @@ async function runCombatReadActionSmoke() {
     // the same production visibility dependency explicitly for this fixture.
     combatStore.bindActorVisibilityBridge(actorStore);
 
+    const getPreparedActor = (actorId: string) => {
+        const sourceActor = actorStore.get(actorId);
+        if (!sourceActor) throw new Error(`Missing prepared Actor fixture ${actorId}`);
+        return {
+            ...sourceActor,
+            _id: actorId,
+            id: actorId,
+            name: sourceActor.name || `Actor ${actorId}`,
+            type: sourceActor.type || 'character',
+            img: sourceActor.img || '',
+            system: sourceActor.system || {},
+            items: sourceActor.items || [],
+            effects: [],
+            derived: {},
+        } as any;
+    };
     const combatService = createCombatService({
         normalizeActors: async (actorList) => {
             normalizeCalls.push({ ids: actorList.map((actor) => String(actor._id || actor.id)) });
-            return actorList.map((actor) => ({ ...actor, normalized: true }));
+            return actorList.map((actor) => getPreparedActor(String(actor._id || actor.id)));
         },
+        getPreparedActor,
     });
 
     await userStore.seed(async () => [
@@ -212,7 +260,7 @@ async function runCombatReadActionSmoke() {
     assert.deepEqual(listedCombat.combatants.map((c) => c.id), ['c1', 'c2'], 'server-ordered by initiative');
     assert.equal(listedCombat.combatants[0].name, 'Actor actor-a', 'display identity from actor fallback');
     assert.equal(listedCombat.combatants[0].actor?.name, 'Actor actor-a', 'GM rows carry the roll-actor payload');
-    assert.equal(normalizeCalls.length, 1);
+    assert.equal(normalizeCalls.length, 2);
 
     const turnResult = await combatService.advanceTurn(initial.client, 'combat-1');
     if ('error' in turnResult) {

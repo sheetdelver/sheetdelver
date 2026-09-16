@@ -89,6 +89,8 @@ export async function run() {
     assert.match(logicEntrySource, /export \{ SdkCheckTestAdapter as Adapter \}/);
     assert.match(adapterSource, /export class SdkCheckTestAdapter extends BaseSystemAdapter/);
     assert.match(adapterSource, /systemId = 'sdk-check-test'/);
+    assert.match(adapterSource, /prepareActorData/);
+    assert.equal(info.compatibility.apiContracts['module-api'], '>=1.1.0 <2.0.0');
     assert.doesNotMatch(adapterSource, /return \{\};/);
     assert.match(uiEntrySource, /import type \{ ModuleInfo, UIModuleManifest \} from '@sheet-delver\/sdk'/);
     assert.doesNotMatch(uiEntrySource, /^\s*actorPage:/m);

@@ -29,6 +29,8 @@ export type {
 
 export type {
     ActorSheetData,
+    ActorPreparationContext,
+    PreparedActorData,
     ActorCardData,
     ActorCardBlock,
 } from './interfaces';

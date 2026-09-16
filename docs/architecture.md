@@ -171,12 +171,17 @@ See `docs/MODULE_MANIFEST.md` for the full module authoring reference.
 4.  After Foundry accepts the login, Core sets an opaque HttpOnly player-session cookie. Restored sessions reconnect with the encrypted upstream cookie and do not repeat `/join`.
 5.  `FoundryContext` transitions to `'authenticating'` until the next status poll confirms the specific socket session is ready.
 
-### 6.3 Data Normalization & Computation
-All data returned by the API passes through a **System Adapter**.
-1.  **Cached Actor Document**: Actor routes start from the hydrated actor document held by the platform actor store.
-2.  **Normalization**: Converts raw Foundry data to a UI-friendly shape.
-3.  **Computation**: The adapter's `computeActorData` method calculates derived stats (e.g., Shadowdark inventory slots, HP totals) before the UI receives the data.
-4.  **Categorization**: Items are grouped (e.g., "Spells", "Weapons") via `categorizeItems`.
+### 6.3 Source, Prepared, and Projected Actor Data
+Actor data has three explicit layers (ADR-0038):
+1.  **Source**: `ActorStore` mirrors authoritative Foundry source documents and remains the ownership/write boundary.
+2.  **Prepared**: after adapter initialization, `PreparedActorStore` synchronously runs the active adapter's `prepareActorData(actor, context)` once per source revision. Entries retain epoch, revision, system/module provenance, and bounded failure diagnostics.
+3.  **Projection**: routes authorize against source data, then shape the matching prepared revision for lists, LIMITED cards, sheets, rolls, and combat tracker/initiative consumers.
+
+Prepared data never writes back to Foundry automatically. Embedded Item and Active
+Effect changes update the source Actor first, then atomically replace its prepared
+revision before `actorChanged` reaches clients. `runtime.documents` remains a
+source-document SDK surface; module initialization preloads stable preparation
+dependencies.
 
 ---
 

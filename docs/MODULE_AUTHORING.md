@@ -116,7 +116,7 @@ Do not import from Sheet Delver internals such as `@shared/*`, `@client/*`, `@se
   },
   "compatibility": {
     "apiContracts": {
-      "module-api": ">=1.0.0 <2.0.0",
+      "module-api": ">=1.1.0 <2.0.0",
       "ui-extension-api": ">=1.0.0 <2.0.0",
       "roll-engine-api": ">=1.0.0 <2.0.0"
     }
@@ -150,8 +150,9 @@ The logic entry exports an adapter class. Override only the methods the system n
 ```ts
 import {
     BaseSystemAdapter,
-    type ActorSheetData,
+    type ActorPreparationContext,
     type FoundryActor,
+    type PreparedActorData,
 } from '@sheet-delver/sdk';
 
 export class Adapter extends BaseSystemAdapter {
@@ -161,16 +162,17 @@ export class Adapter extends BaseSystemAdapter {
         return actor._stats?.systemId === this.systemId;
     }
 
-    normalizeActorData(actor: FoundryActor): ActorSheetData {
+    prepareActorData(
+        actor: FoundryActor,
+        context: Readonly<ActorPreparationContext>,
+    ): PreparedActorData {
+        const prepared = super.prepareActorData(actor, context);
         return {
-            id: actor._id,
-            name: actor.name,
-            type: actor.type,
-            img: actor.img ?? '',
-            system: actor.system,
-            items: actor.items,
-            effects: actor.effects,
-            derived: {},
+            ...prepared,
+            derived: {
+                ...prepared.derived,
+                itemCount: prepared.items.length,
+            },
         };
     }
 }
@@ -182,7 +184,24 @@ If the adapter needs setup, implement `initialize?(runtime: ModuleRuntime)`. Cor
 
 Changes to executable module state (enable, disable, source switch, install, upgrade, or uninstall) use a supervised application restart so the next adapter instance enters through that complete bootstrap sequence. The application shell may still refresh local UI code during development, but changes to server adapter logic require restarting `npm run dev`.
 
-Adapter projection methods (`normalizeActorData(actor)`, `getActorCardData`, `computeActorData`, `categorizeItems`) receive a hydrated actor document and must be deterministic from it — they take **no** client/runtime argument. Build full image URLs with `resolveImage(img, runtime.foundryUrl)`. The broad Foundry client, the adapter `client` parameters, and `resolveActorNames` were removed; document reads outside projection happen through `runtime.documents`.
+`prepareActorData(actor, context)` is the canonical Actor preparation hook. Core
+calls it synchronously once per source Actor revision, after adapter initialization,
+and shares that prepared revision with actor lists, cards, sheets, rolls, and combat
+initiative. The input is a defensive source clone and the context is immutable.
+Preparation must be deterministic and user-invariant: do not perform transport,
+filesystem, clock, random, session, or request-specific work in this hook.
+
+Load compendium/configuration dependencies during `initialize(runtime)` and retain
+stable module state for preparation. `runtime.documents` remains explicitly
+source-shaped; it does not expose Foundry client-prepared documents. Authorization
+and LIMITED/OBSERVER/OWNER projection remain host concerns outside preparation.
+
+`BaseSystemAdapter.prepareActorData` provides the SDK 1.x compatibility bridge by
+composing `normalizeActorData`, `computeActorData`, and `categorizeItems`.
+Existing modules may inherit that bridge, but new module logic should treat
+`prepareActorData` as the single rules-preparation entry point. Card and roll hooks
+receive the resulting prepared Actor. Build full image URLs with
+`resolveImage(img, runtime.foundryUrl)` when a module owns image projection.
 
 Use `fetchByUuid` or compendium lookups only for exceptional linked references that are not already embedded in the actor. Compendium UUID reads are cache-required by default: add the pack to `info.json` under `compendiumPacks.packs` with `hydrate: true` when module code needs full documents. Missing or non-hydrated pack rows return `null` and log a warning. The `foundry.allow-live-compendium-uuid-fallback` / `APP_ALLOW_LIVE_COMPENDIUM_UUID_FALLBACK` setting is a diagnostic operator escape hatch, not a module contract.
 
@@ -223,7 +242,10 @@ export default function Sheet({ actor, onRoll, onUpdate }: ActorSheetProps) {
 }
 ```
 
-A presentational sheet receives `ActorSheetProps` from the host; a custom `actorPage` instead calls `useActorSheet(actorId)` itself to drive load / roll / update through the host-owned cache.
+A presentational sheet receives `ActorSheetProps` from the host; its `actor` is
+the authorization-bounded projection of the current `PreparedActorData` revision.
+A custom `actorPage` instead calls `useActorSheet(actorId)` itself to drive the
+same prepared read plus roll / update through the host-owned cache.
 
 ### Assets
 

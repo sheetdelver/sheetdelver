@@ -1,6 +1,7 @@
 import { strict as assert } from 'node:assert';
 import { EventEmitter } from 'node:events';
 import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
+import { preparedActorStore } from '@server/core/documents/prepared/actors/PreparedActorStore';
 import { adventureStore } from '@server/core/documents/primary/adventures/AdventureStore';
 import { fogExplorationStore } from '@server/core/documents/primary/fog-explorations/FogExplorationStore';
 import {
@@ -17,6 +18,7 @@ import { PLAYER_SESSION_COOKIE_NAME } from '@server/security/playerSessionCookie
 import type { FoundrySessionInvalidationEvent } from '@server/shared/types/foundry';
 import { engagementService, FoundryEventIngress, systemService } from '@server/services/world';
 import type { SystemStatusPayload } from '@shared/contracts/status';
+import { BaseSystemAdapter } from '@shared/sdk';
 
 type EventHandler = (...args: unknown[]) => void;
 
@@ -210,6 +212,12 @@ async function runIngressToAuthorizedBrowserHarness() {
                 },
             },
         ]);
+        preparedActorStore.configure(new BaseSystemAdapter(), {
+            worldEpoch: 1,
+            systemId: 'synthetic',
+        });
+        assert.deepEqual(preparedActorStore.rebuildAll(), { prepared: 2, failed: 0 });
+
         await sceneStore.seed(async () => [{
             _id: 'scene-sync',
             name: 'Before Scene',
@@ -283,6 +291,7 @@ async function runIngressToAuthorizedBrowserHarness() {
         });
 
         assert.equal(actorStore.get('actor-sync')?.name, 'After');
+        assert.equal(preparedActorStore.getRequired('actor-sync').name, 'After');
         assert.equal(
             ownerBrowser.emitted.some((entry) => entry.event === 'actorChanged'),
             true,
@@ -324,6 +333,7 @@ async function runIngressToAuthorizedBrowserHarness() {
                 && payload.action === 'delete';
         });
         assert.equal(actorStore.get('actor-delete'), null);
+        assert.equal(preparedActorStore.get('actor-delete'), null);
         assert.equal(receivedDeletedActor(ownerBrowser.emitted, priorActorEvents.get('owner')!), true);
         assert.equal(receivedDeletedActor(gmBrowser.emitted, priorActorEvents.get('gm')!), true);
         assert.equal(
@@ -532,6 +542,7 @@ async function runIngressToAuthorizedBrowserHarness() {
         otherBrowser.disconnect();
         gmBrowser.disconnect();
         detachIngress();
+        preparedActorStore.clear('document-sync-characterization');
         actorStore.clear('document-sync-characterization');
         userStore.clear('document-sync-characterization');
         sceneStore.clear('document-sync-characterization');

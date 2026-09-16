@@ -1,7 +1,8 @@
 import {
     BaseSystemAdapter,
+    type ActorPreparationContext,
     type FoundryActor,
-    type ActorSheetData,
+    type PreparedActorData,
 } from '@sheet-delver/sdk';
 
 export class %CLASS_PREFIX%Adapter extends BaseSystemAdapter {
@@ -11,16 +12,10 @@ export class %CLASS_PREFIX%Adapter extends BaseSystemAdapter {
         return actor._stats?.systemId === this.systemId;
     }
 
-    normalizeActorData(actor: FoundryActor): ActorSheetData {
-        return {
-            id: actor._id,
-            name: actor.name,
-            type: actor.type,
-            img: actor.img ?? '',
-            system: actor.system ?? {},
-            items: actor.items ?? [],
-            effects: actor.effects ?? [],
-            derived: {},
-        };
+    prepareActorData(
+        actor: FoundryActor,
+        context: Readonly<ActorPreparationContext>,
+    ): PreparedActorData {
+        return super.prepareActorData(actor, context);
     }
 }

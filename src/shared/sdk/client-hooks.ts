@@ -3,7 +3,7 @@ import type { ComponentType } from 'react';
 import { useSDK, useSDKComponents } from './react';
 import { processHtmlContent } from './utils';
 import type { DocumentSnapshot, ClientDocumentMutations } from './client-documents';
-import type { FoundryActor, ModuleSettingDeclaration } from './interfaces';
+import type { ModuleSettingDeclaration, PreparedActorData } from './interfaces';
 
 /**
  * Client data hooks (ADR-0027 decisions 16/17/25).
@@ -49,8 +49,12 @@ export function useDocumentMutation(type: string): ClientDocumentMutations {
 // Actor sheet SDK (decision 16)
 // ---------------------------------------------------------------------------
 
-/** Props a presentational module `Sheet` receives. The module writes the view; the host owns mechanics. */
-export interface ActorSheetProps<TActor = FoundryActor> {
+/**
+ * Props a presentational module `Sheet` receives. The default Actor type is the
+ * authorization-bounded prepared revision; the module writes the view while the
+ * host owns read, roll, update, and refresh mechanics.
+ */
+export interface ActorSheetProps<TActor = PreparedActorData> {
     actor: TActor;
     isOwner: boolean;
     foundryUrl?: string;
@@ -65,8 +69,8 @@ export interface ActorPageProps {
     token?: string | null;
 }
 
-/** The controller returned by `useActorSheet` — actor-focused (load/roll/update/refresh). */
-export interface UseActorSheetResult<TActor = FoundryActor> {
+/** The prepared-Actor controller returned by `useActorSheet` (load/roll/update/refresh). */
+export interface UseActorSheetResult<TActor = PreparedActorData> {
     actor: TActor | null;
     loading: boolean;
     notFound: boolean;
@@ -80,11 +84,11 @@ export interface UseActorSheetResult<TActor = FoundryActor> {
 const ROLL_MODE_STORAGE_KEY = 'sheetdelver_roll_mode';
 
 /**
- * Actor-focused sheet controller (decision 16). Reads the actor through the host cache,
+ * Actor-focused sheet controller (decision 16). Reads the authorized prepared Actor through the host cache,
  * and centralizes the roll/update mechanics modules used to hand-roll (rollMode + speaker
  * defaults, html notifications) so a module ships only a presentational `Sheet`.
  */
-export function useActorSheet<TActor = FoundryActor>(
+export function useActorSheet<TActor = PreparedActorData>(
     actorId: string,
 ): UseActorSheetResult<TActor> {
     const { documents, fetchWithAuth, addNotification, foundryUrl } = useSDK();
@@ -232,7 +236,7 @@ export function useModuleSettings(schema?: ModuleSettingDeclaration[]): ModuleSe
  * load / not-found through the platform components; the module owns only the visual sheet.
  * A module may instead ship a custom `actorPage` as the escape hatch.
  */
-export function createActorPage<TActor = FoundryActor>(
+export function createActorPage<TActor = PreparedActorData>(
     Sheet: ComponentType<ActorSheetProps<TActor>>,
 ): ComponentType<ActorPageProps> {
     function PlatformActorPage({ actorId }: ActorPageProps) {

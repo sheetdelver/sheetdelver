@@ -131,10 +131,10 @@ export async function run(): Promise<void> {
         const stored = readJson<StoredLifecycle>(stateFilePath);
         const record = stored.modules[moduleId];
         assert.equal(record.status, 'incompatible');
-        assert.equal(record.reason?.includes('Contract module-api 1.0.0 does not satisfy constraint >=2.0.0'), true);
+        assert.equal(record.reason?.includes('Contract module-api 1.1.0 does not satisfy constraint >=2.0.0'), true);
         assert.equal(record.validation?.compatible, false);
         assert.equal(record.validation?.requiredApiContracts?.['module-api'], '>=2.0.0 <3.0.0');
-        assert.equal(record.validation?.providedApiContracts?.['module-api'], '1.0.0');
+        assert.equal(record.validation?.providedApiContracts?.['module-api'], '1.1.0');
         assert.equal(
             record.validation?.contractDiagnostics?.some((entry) => entry.contract === 'module-api' && entry.compatible === false),
             true,

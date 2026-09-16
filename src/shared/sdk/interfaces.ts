@@ -64,6 +64,31 @@ export interface ActorSheetData {
     [key: string]: unknown;
 }
 
+/**
+ * Immutable inputs supplied by core while preparing one Actor source revision
+ * (ADR-0038). Preparation must remain deterministic and user-invariant.
+ */
+export interface ActorPreparationContext {
+    worldEpoch: number;
+    sourceRevision: number;
+    systemId: string;
+    systemVersion?: string;
+    moduleId?: string;
+    moduleVersion?: string;
+}
+
+/**
+ * Core-cached Actor model produced by a system adapter. The complete Foundry
+ * source shape is retained so card and roll hooks can consume the same model
+ * as sheets, while normalized and derived fields have one canonical home.
+ */
+export interface PreparedActorData extends FoundryActor {
+    id: string;
+    img: string;
+    derived: Record<string, unknown>;
+    categorizedItems?: Record<string, FoundryItem[]>;
+}
+
 // ---------------------------------------------------------------------------
 // Roll types
 // ---------------------------------------------------------------------------
@@ -325,6 +350,16 @@ export interface SystemAdapter {
     normalizeActorData(actor: FoundryActor): ActorSheetData;
     match(actor: FoundryActor): boolean;
 
+    /**
+     * Canonical Actor preparation entry point (ADR-0038). Optional during the
+     * SDK 1.x migration so already-packaged modules can use the host's bounded
+     * normalizeActorData + computeActorData compatibility bridge.
+     */
+    prepareActorData?(
+        actor: FoundryActor,
+        context: Readonly<ActorPreparationContext>,
+    ): PreparedActorData;
+
     // --- Optional: core calls if present (all verified by runtime grep) ---
     initialize?(runtime: ModuleRuntime): Promise<void>;
     /**
@@ -336,11 +371,14 @@ export interface SystemAdapter {
     /** Read-only system data the adapter produces for the /system/data route; sources from its runtime. */
     getSystemData?(options?: { minimal?: boolean }): Promise<unknown>;
     getCompendiumPackConfig?(): CompendiumPackConfig;
-    getActorCardData?(actor: FoundryActor): ActorCardData;
+    /** Build a dashboard projection from the current prepared Actor revision. */
+    getActorCardData?(actor: PreparedActorData): ActorCardData;
     computeActorData?(actor: ActorSheetData): Record<string, unknown>;
     categorizeItems?(actor: ActorSheetData): Record<string, FoundryItem[]>;
-    getRollData?(actor: FoundryActor, type: string, key: string, options?: RollDataOptions): RollData | null;
-    getInitiativeFormula?(actor: FoundryActor): string;
+    /** Resolve a roll from the same prepared Actor revision used by cards and sheets. */
+    getRollData?(actor: PreparedActorData, type: string, key: string, options?: RollDataOptions): RollData | null;
+    /** Resolve initiative from the current prepared Actor revision. */
+    getInitiativeFormula?(actor: PreparedActorData): string;
     validateUpdate?(path: string, value: unknown): boolean;
     // performAutomatedSequence + resolveActorNames removed (ADR-0027): automated rolls are a
     // module-authored route over req.runtime; name resolution flows through runtime.compendium.

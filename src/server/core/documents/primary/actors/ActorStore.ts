@@ -26,8 +26,8 @@ import {
 
 /**
  * Discriminated-union event payload re-emitted alongside the base
- * documentChanged / documentListInvalidated events so any existing subscribers
- * (e.g., SystemService's actorChanged bridge) keep working unchanged.
+ * documentChanged / documentListInvalidated events so legacy
+ * `onActorStoreEvent` subscribers keep working unchanged.
  */
 export type ActorStoreEvent =
     | { type: 'actorChanged'; actorId: string; action: ChangeAction; audience: DocumentAudience }
@@ -99,8 +99,8 @@ export class ActorStore extends PrimaryDocumentStore<ActorDocument> {
     protected emitChanged(actorId: string, action: ChangeAction, audience?: DocumentAudience): void {
         const resolvedAudience = audience ?? this.audienceForDocumentId(actorId);
         super.emitChanged(actorId, action, resolvedAudience);
-        // Round 01 compatibility: re-emit on the discriminated-union event so
-        // existing subscribers (SystemService.actorChanged bridge) keep working.
+        // Round 01 compatibility: retain the discriminated-union event for
+        // legacy `onActorStoreEvent` subscribers.
         this.emit('actorStoreEvent', {
             type: 'actorChanged', actorId, action, audience: resolvedAudience,
         } satisfies ActorStoreEvent);

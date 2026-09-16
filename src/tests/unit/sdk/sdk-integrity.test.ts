@@ -8,6 +8,7 @@ import {
     type UIModuleManifest,
     type FoundryActor,
     type FoundryItem,
+    type PreparedActorData,
     capabilities,
     parseRollResult,
     SDK_VERSION,
@@ -68,17 +69,25 @@ async function runAdapterTests() {
     assert.equal(normalized.name, 'Test Actor');
     assert.deepEqual(normalized.derived, { test: 'value' });
 
+    const prepared = adapter.prepareActorData(rawActor, {
+        worldEpoch: 1,
+        sourceRevision: 1,
+        systemId: 'mock',
+    });
+    assert.equal(prepared.id, '123');
+    assert.deepEqual(prepared.derived, { test: 'value' });
+
     // match — always false from BaseSystemAdapter
     assert.equal(adapter.match({ type: 'anything' } as any), false);
 
     // getInitiativeFormula default
-    assert.equal(adapter.getInitiativeFormula!(rawActor), '1d20');
+    assert.equal(adapter.getInitiativeFormula!(prepared), '1d20');
 
     // validateUpdate default
     assert.equal(adapter.validateUpdate!('system.hp', 10), true);
 
     // getRollData default
-    assert.equal(adapter.getRollData!(rawActor, 'stat', 'str'), null);
+    assert.equal(adapter.getRollData!(prepared, 'stat', 'str'), null);
 
     // getCompendiumPackConfig default
     const packs = adapter.getCompendiumPackConfig!();
@@ -86,7 +95,7 @@ async function runAdapterTests() {
     assert.equal(packs.packs.length, 0);
 
     // getActorCardData default
-    const card = adapter.getActorCardData!(rawActor);
+    const card = adapter.getActorCardData!(prepared);
     assert.equal(card.name, 'Test Actor');
 
     // computeActorData default
@@ -351,7 +360,7 @@ function runUIPropTests() {
 function runClientSdkTests() {
     // Sheet/page prop shapes compile and compose.
     const _sheetProps: ActorSheetProps = {
-        actor: {} as FoundryActor,
+        actor: {} as PreparedActorData,
         isOwner: true,
         onRoll: async () => {},
         onUpdate: async () => {},
@@ -394,8 +403,8 @@ function runClientSdkTests() {
 // ---------------------------------------------------------------------------
 
 function runVersionTests() {
-    assert.equal(SDK_VERSION, '1.1.0');
-    assert.equal(API_CONTRACT_VERSIONS['module-api'], '1.0.0');
+    assert.equal(SDK_VERSION, '1.2.0');
+    assert.equal(API_CONTRACT_VERSIONS['module-api'], '1.1.0');
     assert.equal(API_CONTRACT_VERSIONS['ui-extension-api'], '1.1.0');
     assert.equal(API_CONTRACT_VERSIONS['roll-engine-api'], '1.0.0');
 

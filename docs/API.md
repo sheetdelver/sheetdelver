@@ -78,7 +78,7 @@ seeding.
     "worldTitle": "Example World"
   },
   "url": "http://foundry.example",
-  "appVersion": "0.9.2"
+  "appVersion": "0.10.0"
 }
 ```
 
@@ -129,40 +129,99 @@ the module runtime, not from a broad module-facing client.
 
 ## Actors
 
+Actor reads have three stages (ADR-0038):
+
+1. Source Actors authorize the requesting Foundry user.
+2. The active adapter prepares one deterministic, user-invariant Actor snapshot per
+   source revision.
+3. Routes project the authorized prepared revision for the requested surface.
+
+A direct read returns `503` when its prepared revision is unavailable. List reads
+omit only the unavailable Actor and retain a bounded server diagnostic. Writes
+remain source-shaped and are authorized by Foundry; after Foundry acknowledges a
+mutation, Core updates the source Actor and publishes its replacement prepared
+revision before notifying realtime clients.
+
 ### `GET /api/actors`
 
 Auth: protected.
 
-Returns actors visible to the current user, separated into owned and read-only
-sets. Reads resolve from the platform primary document stores after bootstrap.
-Before bootstrap completes, the route returns `503`.
+Returns visible non-NPC Actors partitioned into `ownedActors` and
+`readOnlyActors`, with `actors` retained as the owned compatibility alias.
+OBSERVER and OWNER entries are authorized from source and projected from the
+prepared Store. LIMITED visibility contributes only adapter-produced
+`actorCards`. Before world and prepared-state bootstrap completes, the route
+returns `503`.
+
+### `GET /api/actors/cards`
+
+Auth: protected.
+
+Returns adapter-produced dashboard card projections for visible Actors. Card
+hooks receive the same prepared Actor revision used by detail, roll, and
+initiative reads.
+
+### `GET /api/actors/:id/card`
+
+Auth: protected.
+
+Returns one authorization-bounded card projection. The source Actor establishes
+visibility; the active adapter receives its matching prepared revision.
 
 ### `GET /api/actors/:id`
 
 Auth: protected.
 
-Returns normalized actor sheet data for one actor visible to the current user.
-The platform reads the hydrated actor document, then applies the active adapter's
-projection methods.
+Returns the authorized prepared Actor projection used by module and generic
+sheets. The response retains the complete source shape and adds canonical
+normalized/derived fields, `foundryUrl`, the active adapter `systemId`, and
+the actual `foundrySystemId`. Declared hydrated compendium UUID values are
+resolved before projection.
+
+### `POST /api/actors`
+
+Auth: protected.
+
+Creates an Actor through the requesting user's Foundry transport.
 
 ### `PATCH /api/actors/:id`
 
 Auth: protected.
 
-Updates actor-level data using dot notation. Writes run through the user's
-Foundry transport and are mirrored into platform stores.
+Updates Actor-level source data using dot notation through the requesting user's
+Foundry transport.
+
+### `DELETE /api/actors/:id`
+
+Auth: protected.
+
+Deletes the Actor through the requesting user's Foundry transport. Foundry is
+the authoritative permission check.
 
 ### `POST /api/actors/:id/update`
 
 Auth: protected.
 
-Routes hybrid actor updates, including supported embedded item/effect paths.
+Routes hybrid Actor updates, including supported embedded Item and Active Effect
+paths.
+
+### `POST /api/actors/:id/items`
+
+### `PUT /api/actors/:id/items`
+
+### `DELETE /api/actors/:id/items?itemId=<itemId>`
+
+Auth: protected.
+
+Creates, updates, or deletes an embedded Item through the requesting user's
+Foundry transport. Embedded acknowledgements rebuild the owning Actor's prepared
+revision.
 
 ### `POST /api/actors/:id/roll`
 
 Auth: protected.
 
-Executes a platform-supported actor roll.
+Executes an adapter-supported roll from the current prepared Actor revision.
 
 Example body:
 
@@ -337,7 +396,11 @@ Module-authored server routes are mounted under:
 
 The route table and behavior are defined by the module's `module/server.ts`.
 Module handlers receive a `ModuleServerRequest` with `req.runtime` as the only
-document, roll, table, and chat surface.
+document, roll, table, and chat surface. `req.runtime.documents` is intentionally
+source-shaped and user-authorized; it does not expose the shared prepared Actor
+Store. Standard card, detail, roll, and initiative behavior should use the
+platform Actor routes and adapter hooks so every consumer receives the same
+prepared revision.
 
 Module routes should use SDK response helpers from `@sheet-delver/sdk/server`:
 

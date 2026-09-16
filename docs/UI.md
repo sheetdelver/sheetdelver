@@ -32,7 +32,7 @@ The UI state is split into focused providers and hooks:
 | Area | Responsibility |
 |---|---|
 | Auth/status | Login, current user, world status, connection readiness. |
-| Documents | Host-owned document cache consumed by SDK hooks such as `useDocument()` and `useActorSheet()`. |
+| Documents | Host-owned document cache. Generic `useDocument()` reads endpoint-defined document DTOs; `useActorSheet()` reads the authorization-bounded prepared Actor projection. |
 | Journals | Journal/folder browsing, pagination, and shared journal content. |
 | Chat | Chat message cache, dice tray state, and message submission. |
 | Combat | Combat tracker projections (`CombatTrackerDto`), realtime refresh, and combat HUD state. |
@@ -40,7 +40,9 @@ The UI state is split into focused providers and hooks:
 
 Module UI should prefer SDK hooks over direct REST calls when a hook exists. The
 host cache deduplicates reads, refreshes on realtime invalidation, and keeps
-permission checks centralized in server routes.
+permission checks centralized in server routes. Actor invalidations are emitted
+only after Core publishes the replacement prepared revision, so card and sheet
+refreshes cannot observe the older source revision.
 
 ---
 
