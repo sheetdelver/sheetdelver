@@ -407,6 +407,10 @@ Phase 5 prevents browser connections during `startup` from restarting transport 
 - [x] Gate authenticated `AppSocketGateway` world-backed listener attachment on `SystemService.isReady()`.
   Files: `src/server/realtime/AppSocketGateway.ts`, realtime tests.
 
+- [x] Reconcile readiness immediately after registering the deferred `world:ready` listener so a browser cannot miss the event between the readiness check and subscription and remain status-only until refresh.
+  Follow-up correction: September 16, 2026.
+  Files: `src/server/realtime/AppSocketGateway.ts`, `src/tests/unit/sockets/app-socket-gateway.test.ts`.
+
 - [x] Defer `SessionManager` per-user `ClientSocket` restore while lifecycle is `startup` or otherwise not ready.
   Files: `src/server/core/session/SessionManager.ts`, session restore tests.
 

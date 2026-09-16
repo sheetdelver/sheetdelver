@@ -495,6 +495,31 @@ async function runDeferredAttachWhenNotReady() {
         systemService.emit('world:ready', { systemId: 'shadowdark' });
 
         assert.equal(systemAttachedHandlers.length, 0);
+
+        // Reconcile readiness changing between the initial check and the
+        // world:ready subscription without requiring a browser refresh.
+        let readinessChecks = 0;
+        (systemService as any).isReady = () => {
+            readinessChecks += 1;
+            return readinessChecks > 1;
+        };
+        const raceSocket: MockSocket = {
+            id: 'socket-ready-between-check-and-subscribe',
+            handshake: { headers: { cookie: `${PLAYER_SESSION_COOKIE_NAME}=valid-token` } },
+            rooms: new Set(),
+            connected: true,
+            join(room: string) { this.rooms.add(room); },
+            leave(room: string) { this.rooms.delete(room); },
+            emit: () => undefined,
+            on: () => undefined,
+            off: () => undefined,
+        };
+
+        await authMiddleware!(raceSocket, () => undefined);
+        await connectionHandler!(raceSocket);
+
+        assert.equal(readinessChecks, 2);
+        assert.equal(systemAttachedHandlers.length, 26);
     } finally {
         (systemService as any).getSystemClient = originalGetSystemClient;
         (systemService as any).isReady = originalIsReady;
