@@ -1,6 +1,6 @@
 # ADR-0038: Prepared Foundry Document Model
 
-**Status:** Accepted - In Progress
+**Status:** Accepted - Implemented
 **Date:** September 16, 2026
 **Supersedes:** None
 **Revises:** ADR-0027 (actor normalization lifecycle)
@@ -219,4 +219,5 @@ numbers are not duplicated in the prepared Store.
 - [x] Migrate and parity-test the Shadowdark and Mork Borg modules.
 - [x] Complete generation 14 live acceptance for startup preparation, direct
       Actor updates, embedded Item updates, and ownership loss/restoration.
-- [ ] Complete generation 13 live acceptance before closeout.
+- [x] Complete generation 13 live acceptance for startup preparation, direct
+      Actor updates, embedded Item updates, and ownership loss/restoration.
