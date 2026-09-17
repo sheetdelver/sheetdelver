@@ -86,6 +86,6 @@ jobs:
           gh release create "$RELEASE_TAG" \
             "$RUNNER_TEMP/sheet-delver-$RELEASE_TAG.cdx.json" \
             "$RUNNER_TEMP/SHA256SUMS" \
-            --title "Sheet Delver $RELEASE_TAG" \
+            --title "SheetDelver $RELEASE_TAG" \
             --notes-file "$RUNNER_TEMP/release-notes.md" \
             --verify-tag
