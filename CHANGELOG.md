@@ -1,4 +1,7 @@
 # Releases
+## 0.11.1
+- Unify notifications and chat presentation
+
 ## 0.11.0
 - Added shared 3D dice
 - Added player settings panel
