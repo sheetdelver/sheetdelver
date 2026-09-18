@@ -396,3 +396,21 @@ in the current presentation implementation.
 
 See [3D Dice Presentation](dice-presentation.md) and
 [ADR-0039](adr/0039-client-dice-presentation.md).
+
+
+## Notifications and Chat Feedback
+
+Use `useSDK().addNotification(message, type, { html })` for application feedback
+(info, success or error). Text is literal by default; opt-in HTML is sanitized
+by the host. Do not implement module-owned toast queues or chat previews.
+
+Post conversations and rolls through the existing request-bound runtime chat
+and roll APIs. The host displays authorized ChatMessage documents in the log
+and live previews; a notification is not a persisted chat message. Avoid an
+additional success toast for a roll already posted to chat. The host's
+useActorSheet helper recognizes persisted chat acknowledgements; non-chat
+responses and errors retain feedback.
+
+Warning, progress, update handles and persistence are currently host-only,
+not new SDK guarantees. SDK contract versions are unchanged. See
+[Notifications and Chat](NOTIFICATIONS.md) for ownership and lifecycle details.

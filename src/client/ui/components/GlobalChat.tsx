@@ -136,6 +136,7 @@ export default function GlobalChat(props: GlobalChatProps) {
                     </div>
                     <div className={`flex-1 min-h-0 ${!isChatOpen ? 'hidden' : ''}`}>
                         <ChatTab
+                            active={isChatOpen}
                             messages={messages || []}
                             onSend={onSend}
                             foundryUrl={foundryUrl}

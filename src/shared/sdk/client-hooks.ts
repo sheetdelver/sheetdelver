@@ -1,6 +1,7 @@
 import { createElement, Fragment, useCallback, useEffect, useMemo, useSyncExternalStore } from 'react';
 import type { ComponentType } from 'react';
 import { useSDK, useSDKComponents } from './react';
+import { isPostedChatMessage } from '@shared/utils/postedChatMessage';
 import { processHtmlContent } from './utils';
 import type { DocumentSnapshot, ClientDocumentMutations } from './client-documents';
 import type { ModuleSettingDeclaration, PreparedActorData } from './interfaces';
@@ -114,6 +115,7 @@ export function useActorSheet<TActor = PreparedActorData>(
             });
             const data = await res.json();
             if (data.success) {
+                if (isPostedChatMessage(data.result)) return;
                 if (data.html) addNotification(processHtmlContent(data.html, resolvedFoundryUrl ?? ''), 'success', { html: true });
                 else if (data.result?.total !== undefined) addNotification(`Rolled ${data.label || 'Result'}: ${data.result.total}`, 'success');
             } else {

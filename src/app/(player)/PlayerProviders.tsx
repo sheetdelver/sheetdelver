@@ -12,6 +12,8 @@ import { ChatProvider } from '@client/ui/context/ChatContext';
 import { PlayerSettingsDialog } from '@client/ui/components/Settings/PlayerSettingsDialog';
 import { DicePresentationProvider } from '@client/ui/context/DicePresentationContext';
 import { JournalProvider } from '@client/ui/context/JournalProvider';
+import { NotificationSessionBoundary } from '@client/ui/components/Notifications/NotificationSessionBoundary';
+import { ChatPreview } from '@client/ui/components/Chat/ChatPreview';
 import SDKGlobalProvider from '@client/ui/providers/SDKGlobalProvider';
 
 export default function PlayerProviders({ children }: { children: ReactNode }) {
@@ -25,6 +27,8 @@ export default function PlayerProviders({ children }: { children: ReactNode }) {
                 <ActorCombatProvider>
                   <ChatProvider>
                     <FoundryProvider>
+                      <NotificationSessionBoundary />
+                      <ChatPreview />
                       <JournalProvider>
                         <DicePresentationProvider>{children}<PlayerSettingsDialog /></DicePresentationProvider>
                       </JournalProvider>

@@ -8,6 +8,7 @@ import { useFoundry } from '@client/ui/context/FoundryContext';
 import { useUI } from '@client/ui/context/UIContext';
 import { useConfig } from '@client/ui/context/ConfigContext';
 import type { RealtimeActorChangedPayload } from '@shared/contracts/realtime';
+import { isPostedChatMessage } from '@shared/utils/postedChatMessage';
 import { processHtmlContent } from '@modules/registry/client';
 import { useNotifications } from '@client/ui/components/NotificationSystem';
 import LoadingModal from '@client/ui/components/LoadingModal';
@@ -40,9 +41,9 @@ export default function GenericActorPage({ actorId }: GenericActorPageProps) {
     const foundryUrlRef = useRef(foundryUrl);
     useEffect(() => { foundryUrlRef.current = foundryUrl; }, [foundryUrl]);
 
-    const addNotification = useCallback((message: string, type: 'info' | 'success' | 'error' = 'info') => {
-        const content = processHtmlContent(message, foundryUrlRef.current);
-        addToast(content, type, { html: true });
+    const addNotification = useCallback((message: string, type: 'info' | 'success' | 'error' = 'info', options?: { html?: boolean }) => {
+        const content = options?.html ? processHtmlContent(message, foundryUrlRef.current) : message;
+        addToast(content, type, options);
     }, [addToast]);
 
     const actorFetcherRef = useRef<{
@@ -160,7 +161,8 @@ export default function GenericActorPage({ actorId }: GenericActorPageProps) {
             });
             const data = await res.json();
             if (data.success) {
-                if (data.html) addNotification(data.html, 'success');
+                if (isPostedChatMessage(data.result)) return;
+                if (data.html) addNotification(data.html, 'success', { html: true });
                 else if (data.result?.total !== undefined) addNotification(`Rolled ${data.label || 'Result'}: ${data.result.total}`, 'success');
                 else addNotification(`${data.label || 'Item'} used`, 'success');
             } else {
