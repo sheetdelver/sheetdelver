@@ -1,4 +1,11 @@
 # Releases
+## 0.11.0
+- Added shared 3D dice
+- Added player settings panel
+- Added configurable chat notifications
+- Refined private roll visibility
+- Stabilized realtime menu navigation
+
 ## 0.10.2
 - Fixed realtime Actor card identity
 
