@@ -37,7 +37,8 @@
     "module:check": "npx tsx src/scripts/tools/modules/check-module.ts",
     "module:package": "npx tsx src/scripts/tools/modules/package-module.ts",
     "module:archive": "npx tsx src/scripts/tools/modules/manage-module-archive.ts",
-    "server:mock-module-server": "npx tsx src/scripts/tools/server/mock-index-server.ts"
+    "server:mock-module-server": "npx tsx src/scripts/tools/server/mock-index-server.ts",
+    "release:tag": "npx tsx src/scripts/tools/releases/tag-release.ts"
   },
   "dependencies": {
     "@3d-dice/dice-box-threejs": "0.0.12",

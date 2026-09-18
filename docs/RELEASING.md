@@ -1,6 +1,6 @@
 # Release Process
 
-Sheet Delver releases are published by `.github/workflows/release.yml` when a
+SheetDelver releases are published by `.github/workflows/release.yml` when a
 stable semantic-version tag such as `v0.9.1` is pushed.
 
 The root `package.json` version is the application release authority. The
@@ -10,48 +10,75 @@ named API contract versions remain independent and are maintained in
 
 ## Prepare the Release
 
-1. Start from a clean release branch based on the current `main`.
-2. Update the application version without creating a tag:
+After the feature is merged, check out and update `main`. No release branch is
+needed. Fetch tags first so the local duplicate-tag check includes published
+releases. The helper itself never fetches, pulls, switches branches, or pushes.
 
-   ```bash
-   npm version 0.9.0 --no-git-tag-version
-   ```
+Use the local release command to preview a new version and short changelog
+bullets (the version below is illustrative):
 
-3. Add an exact `## 0.9.0` section to `CHANGELOG.md`. Keep release entries
-   concise and include at least one bullet.
-4. Validate the version and release notes locally:
+```bash
+npm run release:tag -- 0.11.1 --note "Fixed example issue" --dry-run
+```
 
-   ```bash
-   npm run release:prepare -- v0.9.0 /tmp/sheet-delver-v0.9.0-notes.md
-   ```
+Repeat without `--dry-run` to prepare it. Add multiple `--note` arguments for
+multiple terse bullets. Alternatively, manually write the exact
+`## 0.11.1` changelog section and omit `--note`.
 
-5. Run the release gates:
+The command:
 
-   ```bash
-   export SHEET_DELVER_DATA="${TMPDIR:-/tmp}/sheet-delver-release-data"
-   npm ci
-   npm run managed:generate
-   npm audit --omit=dev --audit-level=high
-   npm run lint
-   npx tsc --noEmit
-   npm run test:unit
-   npm run test:integration
-   npm run ci:fixture
-   npm run build
-   ```
+- Requires `main`, a newer stable version, matching current package/lock
+  versions, and no existing local tag with the requested name.
+- Refuses unrelated staged, unstaged, or untracked work and unfinished Git
+  operations. Only a hand-written `CHANGELOG.md` edit may be pending.
+- Shows the package version changes, changelog section, commit, and tag.
+- Updates `package.json`, both root version fields in `package-lock.json`,
+  and the changelog entry without changing dependencies or SDK versions.
+- Commits only those three release files and creates an annotated tag on that
+  commit. It never replaces tags, creates branches, or performs remote writes.
+- Prints the push commands for you to run.
 
-6. Commit and merge the version, changelog, and any release changes. Confirm
-   the normal CI workflow passes on `main` before tagging.
+`--dry-run` performs the same validation and prints the plan without changing
+files, the index, commits, or tags. Blockers produce a nonzero exit status.
+Run `npm run release:tag -- --help` for the argument summary.
+
+Commit the helper itself and other implementation work before using it for a
+real release. The command does not run the entire test/build pipeline. Run the
+appropriate local gates before preparing, and wait for main CI before pushing
+the tag:
+
+```bash
+export SHEET_DELVER_DATA="${TMPDIR:-/tmp}/sheet-delver-release-data"
+npm ci
+npm run managed:generate
+npm audit --omit=dev --audit-level=high
+npm run lint
+npx tsc --noEmit
+npm run test:unit
+npm run test:integration
+npm run ci:fixture
+npm run build
+```
+
+The existing `release:prepare` command remains the read-only metadata validator
+and notes extractor used by release CI; it does not commit or tag:
+
+```bash
+npm run release:prepare -- v0.11.1 /tmp/sheet-delver-v0.11.1-notes.md
+```
 
 ## Publish the Release
 
-Create the tag from the verified commit on `main`, then push only that tag:
+The helper has already created the local tag. Push the release commit first:
 
 ```bash
-git switch main
-git pull --ff-only
-git tag -a v0.9.0 -m "Sheet Delver v0.9.0"
-git push origin v0.9.0
+git push origin main
+```
+
+After main CI passes, push only the intended release tag:
+
+```bash
+git push origin v0.11.1
 ```
 
 The release workflow repeats the dependency audit, lint, type checking, tests,
@@ -62,13 +89,19 @@ fixture validation, and production build against the tagged commit. It then:
 - Generates a CycloneDX production dependency SBOM.
 - Publishes the SBOM and its SHA-256 checksum with the GitHub Release.
 
-GitHub automatically provides source archives for the tag. Sheet Delver does
+GitHub automatically provides source archives for the tag. SheetDelver does
 not currently publish a deployment ZIP because a complete deployment includes
 the application shell, Core service, manager scripts, dependencies, and module
 layout. Production deployments should check out the release tag and use the
 documented install, build, and start process.
 
 ## Monitor and Recover
+
+If preparation fails during a commit hook or signing operation, the helper
+stops without pushing or resetting your work. Inspect `git status` and
+`git log -1`; a successful commit may exist even if tagging failed. Fix the
+reported problem, verify the release metadata, then finish the commit/tag
+manually. Do not rerun with a different version just to bypass the failure.
 
 With GitHub CLI installed and authenticated:
 
@@ -86,7 +119,7 @@ An unpushed local tag may be deleted and recreated at the intended commit:
 
 ```bash
 git tag -d v0.9.0
-git tag -a v0.9.0 -m "Sheet Delver v0.9.0"
+git tag -a v0.9.0 -m "SheetDelver v0.9.0"
 ```
 
 Never move or replace a tag that has already been pushed or published. Release
@@ -122,13 +155,13 @@ jobs:
       core_ref: v0.9.0
 ```
 
-Pin both the workflow call and `core_ref` to the same tested Sheet Delver
+Pin both the workflow call and `core_ref` to the same tested SheetDelver
 release tag. The explicit toolchain ref prevents a later change on `main` from
 altering an older module's release build.
 The module tag without its leading `v` must exactly match the version in
 `info.json`.
 
-The reusable workflow checks out the module and the pinned Sheet Delver
+The reusable workflow checks out the module and the pinned SheetDelver
 toolchain into the GitHub runner, stages the module under an isolated temporary
 data directory, runs `module:check`, packages it, verifies the checksum, and
 creates a GitHub Release containing:
