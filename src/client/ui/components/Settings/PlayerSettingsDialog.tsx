@@ -69,11 +69,11 @@ function SettingsDialog({ onClose }: { onClose: () => void }) {
                 <section aria-label="Chat notifications" style={{ borderBottom: '1px solid #46494d', paddingBottom: 20, marginBottom: 20 }}>
                     <h3 style={{ fontSize: 16, margin: '0 0 12px' }}>Chat</h3>
                     <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14 }}>
-                        <input type="checkbox" checked={toastSettings.enabled} onChange={event => setToastSettings({ ...toastSettings, enabled: event.target.checked })} />Chat toasts
+                        <input type="checkbox" checked={toastSettings.enabled} onChange={event => setToastSettings({ ...toastSettings, enabled: event.target.checked })} />Chat previews
                     </label>
                     <label style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginTop: 12, fontSize: 14 }}>
-                        Toast duration
-                        <input type="range" aria-label="Toast duration" min={1000} max={15000} step={500}
+                        Preview duration
+                        <input type="range" aria-label="Preview duration" min={1000} max={15000} step={500}
                             style={{ width: 100, maxWidth: '100%' }} value={toastSettings.durationMs} disabled={!toastSettings.enabled}
                             onChange={event => setToastSettings({ ...toastSettings, durationMs: Number(event.target.value) })} />
                         <output style={{ minWidth: 44, fontVariantNumeric: 'tabular-nums' }}>{(toastSettings.durationMs / 1000).toFixed(1)}s</output>

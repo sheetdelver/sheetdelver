@@ -9,7 +9,7 @@ import { useSession } from '@client/ui/context/SessionContext';
 import { useRealtime } from '@client/ui/context/RealtimeContext';
 import { useUI } from './UIContext';
 import { LiveChatInbox } from './liveChatInbox';
-import { chatToastContent, defaultChatToastSettings, normalizeChatToastSettings, type ChatToastSettings } from './chatToast';
+import { defaultChatToastSettings, normalizeChatToastSettings, type ChatToastSettings } from './chatToast';
 import { createCoalescedFetch, type CoalescedFetch } from '@client/ui/context/coalescedFetch';
 import type { ChatMessageDto } from '@shared/contracts/chat';
 import type {
@@ -19,10 +19,13 @@ import type {
 
 interface ChatContextType {
     messages: ChatMessageDto[];
+    preview: ChatMessageDto | null;
+    hasUnread: boolean;
+    dismissPreview: () => void;
     toastSettings: ChatToastSettings;
     setToastSettings: (settings: ChatToastSettings) => void;
     fetchChat: () => Promise<void>;
-    handleChatSend: (message: string, options?: { rollMode?: string; speaker?: string }) => Promise<void>;
+    handleChatSend: (message: string, options?: { rollMode?: string; speaker?: string; throwOnError?: boolean }) => Promise<void>;
     resetChatState: () => void;
 }
 
@@ -31,18 +34,20 @@ const ChatContext = createContext<ChatContextType | undefined>(undefined);
 export function ChatProvider({ children }: { children: React.ReactNode }) {
     const { token, setToken, step, registerLogoutCleanup } = useSession();
     const { appSocket } = useRealtime();
-    const { addNotification, removeNotification } = useNotifications();
+    const { addNotification } = useNotifications();
     const { isChatOpen } = useUI();
     const [toastSettings, updateToastSettings] = useState(defaultChatToastSettings);
     const toastPreferences = useRef({ settings: toastSettings, isChatOpen });
     const toastInbox = useRef(new LiveChatInbox<ChatMessageDto>());
-    const activeToast = useRef<{ notificationId: number; messageId: string } | null>(null);
+    const [previewId, setPreviewId] = useState<string | null>(null);
+    const [hasUnread, setHasUnread] = useState(false);
+    const activePreviewId = useRef<string | null>(null);
     const latestMessages = useRef<ChatMessageDto[]>([]);
     const clearChatToast = useCallback(() => {
-        if (activeToast.current) removeNotification(activeToast.current.notificationId);
-        activeToast.current = null;
-    }, [removeNotification]);
-    const resetLiveToasts = useCallback(() => { toastInbox.current.reset(); clearChatToast(); }, [clearChatToast]);
+        activePreviewId.current = null;
+        setPreviewId(null);
+    }, []);
+    const resetLiveToasts = useCallback(() => { toastInbox.current.reset(); clearChatToast(); setHasUnread(false); }, [clearChatToast]);
     const setToastSettings = useCallback((settings: ChatToastSettings) => {
         const normalized = normalizeChatToastSettings(settings);
         updateToastSettings(normalized);
@@ -54,20 +59,21 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     useEffect(() => {
         toastPreferences.current = { settings: toastSettings, isChatOpen };
         if (!toastSettings.enabled || isChatOpen) clearChatToast();
+        if (isChatOpen) setHasUnread(false);
     }, [toastSettings, isChatOpen, clearChatToast]);
     const notifyLatest = useCallback((chat: ChatMessageDto[]) => {
         const fresh = toastInbox.current.consume(chat);
         const message = fresh.sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0)).at(-1);
         const { settings, isChatOpen } = toastPreferences.current;
+        if (fresh.length && !isChatOpen) setHasUnread(true);
         if (!message || !settings.enabled || isChatOpen || document.visibilityState !== 'visible') return;
         clearChatToast();
-        const toast = chatToastContent(message);
-        activeToast.current = {
-            notificationId: addNotification(toast.content, 'info', { title: toast.title, duration: settings.durationMs }),
-            messageId: (message._id ?? message.id)!,
-        };
-    }, [addNotification, clearChatToast]);
+        activePreviewId.current = (message._id ?? message.id)!;
+        setPreviewId(activePreviewId.current);
+    }, [clearChatToast]);
     const [messages, setMessages] = useState<ChatMessageDto[]>([]);
+    // A preview is a reference into the current authorized read, never its own message cache.
+    const preview = messages.find(message => (message._id ?? message.id) === previewId) ?? null;
     const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const fetcherRef = useRef<{ token: string; fetch: CoalescedFetch<void> } | null>(null);
 
@@ -111,7 +117,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         }, 75);
     }, [fetchChat]);
 
-    const handleChatSend = useCallback(async (message: string, options?: { rollMode?: string; speaker?: string }) => {
+    const handleChatSend = useCallback(async (message: string, options?: { rollMode?: string; speaker?: string; throwOnError?: boolean }) => {
         try {
             const data = await foundryApi.sendChat(token, {
                 message,
@@ -121,11 +127,12 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             if (data.success) {
                 requestChatRefresh();
             } else {
-                addNotification('Failed: ' + data.error, 'error');
+                throw new Error(data.error || 'Chat send failed');
             }
         } catch (error: unknown) {
             const messageText = error instanceof Error ? error.message : 'Unknown chat error';
             addNotification('Error: ' + messageText, 'error');
+            if (options?.throwOnError) throw error;
         }
     }, [addNotification, requestChatRefresh, token]);
 
@@ -166,7 +173,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
                 notifyLatest(latestMessages.current);
             } else {
                 toastInbox.current.invalidated(data.messageId);
-                if (activeToast.current?.messageId === data.messageId) clearChatToast();
+                if (activePreviewId.current === data.messageId) clearChatToast();
             }
             requestChatRefresh();
         };
@@ -193,11 +200,11 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     }, [messages, token, step, notifyLatest]);
 
     const value = useMemo(() => ({
-        messages, toastSettings, setToastSettings,
+        messages, preview, hasUnread, dismissPreview: clearChatToast, toastSettings, setToastSettings,
         fetchChat,
         handleChatSend,
         resetChatState,
-    }), [messages, toastSettings, setToastSettings, fetchChat, handleChatSend, resetChatState]);
+    }), [messages, preview, hasUnread, clearChatToast, toastSettings, setToastSettings, fetchChat, handleChatSend, resetChatState]);
 
     return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;
 }

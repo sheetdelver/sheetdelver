@@ -15,7 +15,7 @@ export default function FloatingHUD() {
         isJournalOpen, setJournalOpen,
         isPlayerListOpen, setPlayerListOpen
     } = useUI();
-    const { messages } = useChat();
+    const { hasUnread } = useChat();
     const { users, step } = useSession();
     const [isMinimized, setIsMinimized] = useState(true);
     const pathname = usePathname();
@@ -152,10 +152,11 @@ export default function FloatingHUD() {
                             <button
                                 onClick={() => toggleTool('chat')}
                                 className={`h-10 w-10 shrink-0 sm:h-12 sm:w-12 p-2 sm:p-3 rounded-xl transition-all relative ${isChatOpen ? 'bg-amber-500 text-black' : 'text-white/60 hover:bg-white/5 hover:text-white'}`}
-                                title="Game Chat"
+                                title={hasUnread ? "Game Chat: new messages" : "Game Chat"}
+                                aria-label={hasUnread ? "Game Chat: new messages" : "Game Chat"}
                             >
                                 <MessageSquare className="w-6 h-6" />
-                                {messages && messages.length > 0 && (
+                                {hasUnread && (
                                     <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border border-black animate-pulse" />
                                 )}
                             </button>

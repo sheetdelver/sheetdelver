@@ -77,7 +77,6 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
             const data = await foundryApi.login(username, password);
 
             if (!data.success) {
-                addNotification('Login failed: ' + data.error, 'error');
                 throw new Error(data.error);
             }
 

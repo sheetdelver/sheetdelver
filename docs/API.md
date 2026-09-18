@@ -770,3 +770,17 @@ Module manifests can declare dependencies and conflicts:
 
 Enable validates dependencies and conflicts before changing lifecycle state.
 Disable rejects when another enabled module depends on the target.
+
+
+## Chat Presentation and Notifications
+
+ChatMessage remains a primary Foundry document mirrored by Core. The existing
+chat endpoint supplies permission-filtered DTOs; realtime chat hints cause
+authorized reads, not direct rendering of raw document events. Chat logs,
+previews and 3D dice must respect this projection, including private-roll
+placeholders and omitted private text.
+
+System notifications are browser-local application feedback. They have no
+document endpoint, secondary store or automatic broadcast. Dismissing a chat
+preview does not delete its source ChatMessage. No new transport or API version
+is introduced by ADR-0040. See [Notifications and Chat](NOTIFICATIONS.md).

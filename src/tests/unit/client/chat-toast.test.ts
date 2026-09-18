@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { LiveChatInbox } from '../../../client/ui/context/liveChatInbox';
-import { chatToastContent, defaultChatToastSettings, normalizeChatToastSettings } from '../../../client/ui/context/chatToast';
+import { defaultChatToastSettings, normalizeChatToastSettings } from '../../../client/ui/context/chatToast';
 
 export function run() {
     for (const value of [null, undefined, 'bad', {}, { durationMs: NaN }, { durationMs: Infinity }]) {
@@ -9,9 +9,6 @@ export function run() {
     assert.deepEqual(normalizeChatToastSettings({ enabled: false, durationMs: 50 }), { enabled: false, durationMs: 1000 });
     assert.equal(normalizeChatToastSettings({ durationMs: 20000 }).durationMs, 15000);
     assert.equal(normalizeChatToastSettings({ durationMs: 2600 }).durationMs, 2500);
-    assert.deepEqual(chatToastContent({ user: 'Player', isContentVisible: false, rollTotal: 20, rollFormula: 'SECRET', content: 'SECRET' }),
-        { title: 'Player', content: 'Privately rolled dice. ???' }, 'redaction takes precedence over any supplied content');
-    assert.deepEqual(chatToastContent({ user: 'Player', rollTotal: 0, rollFormula: '1d6-1' }), { title: 'Player', content: '1d6-1 = 0' });
 
     const inbox = new LiveChatInbox<{ _id?: string; id?: string }>();
     const a = { _id: 'a' }, b = { id: 'b' };

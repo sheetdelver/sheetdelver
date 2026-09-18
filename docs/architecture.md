@@ -104,10 +104,15 @@ For actors, the platform performs one system-client fetch during bootstrap, seed
 - **FoundryProvider**: The heart of the application. Manages the connection step (`init` -> `login` -> `dashboard`), authenticates users, and polls for real-time state updates (actors, users, system info).
 - **JournalProvider**: Manages journal entry loading, folder hierarchies, and pagination logic.
 - **UIProvider**: Manages the state of global overlays like the sidebars, floating HUD, and shared content modals.
-- **ChatProvider**: Owns the authorized chat projection and browser-local chat-toast
-  preferences. Live create hints are paired with existing API reads; history alone
-  never creates a notification. The existing NotificationSystem displays only the
-  latest chat summary when chat is closed.
+- **ChatProvider**: Owns authorized chat DTOs, live-message indication and
+  browser-local preview preferences. Create hints are paired with authorized
+  API reads; history alone never creates a preview. ChatMessageCard renders the
+  chronological log and the latest transient preview using the same sanitizer.
+  ChatMessageStore remains primary; previews are not secondary documents.
+- **NotificationProvider**: Owns transient application feedback, independently
+  from chat. Its bounded browser queue supports update, progress, persistence,
+  pause and teardown. Chat previews share its display viewport, not its queue.
+  See [Notifications and Chat](NOTIFICATIONS.md) and [ADR-0040](adr/0040-unified-player-notifications.md).
 - **PlayerSettingsDialog**: Lives in `components/Settings/`, with open state owned
   by UIProvider. Chat & Rolls composes chat controls and the dice panel; General
   and Themes are reserved tabs. It mounts only in the player provider tree.
