@@ -6,6 +6,8 @@ export interface ChatMessageDto {
     flavor?: string;
     timestamp?: number;
     isRoll?: boolean;
+    /** False for a server-redacted private-roll placeholder. */
+    isContentVisible?: boolean;
     rollTotal?: number;
     rollFormula?: string;
     isCritical?: boolean;

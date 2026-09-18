@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react';
 import { SystemAdapter, RollMode } from '@shared/sdk';
 import { Globe, UserRoundSearch, EyeOff, User } from 'lucide-react';
 
+import { DicePresentationPreference } from './Dice/DicePresentationPreference';
+
 interface DiceTrayProps {
     onSend: (message: string, options?: { rollMode?: RollMode; speaker?: string }) => void;
     hideHeader?: boolean;
@@ -162,8 +164,9 @@ export default function DiceTray({ onSend, hideHeader = false, speaker }: DiceTr
     };
 
     return (
-        <div className={s.container}>
+        <div className={`${s.container} [&>*]:shrink-0`} style={{ maxHeight: 'calc(100dvh - 12rem)', overflowY: 'auto' }}>
             {!hideHeader && <h3 className={s.header}>Dice Tray</h3>}
+            <DicePresentationPreference />
 
             {/* Roll Mode Selector */}
             {/* @ts-ignore - Use the new theme extension if available */}

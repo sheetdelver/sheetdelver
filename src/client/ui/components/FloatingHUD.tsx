@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Home, MessageSquare, Users, Book, ChevronUp, ChevronDown, ChevronLeft, X } from 'lucide-react';
+import { Home, MessageSquare, Users, Book, ChevronUp, ChevronLeft, X } from 'lucide-react';
+import { PlayerSettingsButton } from './Settings/PlayerSettingsButton';
 import { useUI } from '@client/ui/context/UIContext';
 import { useChat } from '@client/ui/context/ChatContext';
 import { useSession } from '@client/ui/context/SessionContext';
@@ -101,7 +102,7 @@ export default function FloatingHUD() {
                     : 'left-1/2 -translate-x-1/2 sm:left-auto sm:right-6 sm:translate-x-0'
                 }`}
         >
-            <div className={`flex items-center gap-1 sm:gap-2 p-2 rounded-2xl shadow-2xl backdrop-blur-2xl border transition-all duration-500
+            <div className={`flex items-center gap-0 sm:gap-2 p-2 rounded-2xl shadow-2xl backdrop-blur-2xl border transition-all duration-500
                 ${isMinimized
                     ? 'bg-black/80 border-white/10 rounded-full'
                     : 'bg-black/90 border-white/20 sm:flex-row-reverse'
@@ -109,6 +110,7 @@ export default function FloatingHUD() {
             >
                 {/* Trigger / Collapse Button */}
                 <button
+                    aria-label={anyToolOpen ? 'Back to menu' : isMinimized ? 'Open menu' : 'Close menu'}
                     onClick={() => {
                         if (anyToolOpen) {
                             closeAll();
@@ -116,7 +118,7 @@ export default function FloatingHUD() {
                             setIsMinimized(!isMinimized);
                         }
                     }}
-                    className={`p-3 rounded-full transition-all duration-500 flex items-center justify-center
+                    className={`h-10 w-10 shrink-0 sm:h-12 sm:w-12 p-2 sm:p-3 rounded-full transition-all duration-500 flex items-center justify-center
                         ${isMinimized ? 'text-amber-500 hover:scale-110' : 'text-white/40 hover:text-white rotate-[360deg]'}
                     `}
                 >
@@ -131,7 +133,7 @@ export default function FloatingHUD() {
                 </button>
 
                 {!isMinimized && (
-                    <div className="flex items-center gap-1 sm:gap-2 animate-in fade-in zoom-in-95 duration-300">
+                    <div className="flex items-center gap-0 sm:gap-2 animate-in fade-in zoom-in-95 duration-300">
                         {/* If a tool is open, we show ONLY that tool's icon in a consolidated view? 
                             The user said "consolidate the ui bar just to the current open item".
                             This implies if I open Journals, the other buttons disappear. */}
@@ -139,7 +141,7 @@ export default function FloatingHUD() {
                         {(isJournalOpen || !anyToolOpen) && (
                             <button
                                 onClick={() => toggleTool('journal')}
-                                className={`p-3 rounded-xl transition-all relative ${isJournalOpen ? 'bg-blue-600 text-white' : 'text-white/60 hover:bg-white/5 hover:text-white'}`}
+                                className={`h-10 w-10 shrink-0 sm:h-12 sm:w-12 p-2 sm:p-3 rounded-xl transition-all relative ${isJournalOpen ? 'bg-blue-600 text-white' : 'text-white/60 hover:bg-white/5 hover:text-white'}`}
                                 title="Journals"
                             >
                                 <Book className="w-6 h-6" />
@@ -149,7 +151,7 @@ export default function FloatingHUD() {
                         {(isChatOpen || !anyToolOpen) && (
                             <button
                                 onClick={() => toggleTool('chat')}
-                                className={`p-3 rounded-xl transition-all relative ${isChatOpen ? 'bg-amber-500 text-black' : 'text-white/60 hover:bg-white/5 hover:text-white'}`}
+                                className={`h-10 w-10 shrink-0 sm:h-12 sm:w-12 p-2 sm:p-3 rounded-xl transition-all relative ${isChatOpen ? 'bg-amber-500 text-black' : 'text-white/60 hover:bg-white/5 hover:text-white'}`}
                                 title="Game Chat"
                             >
                                 <MessageSquare className="w-6 h-6" />
@@ -162,7 +164,7 @@ export default function FloatingHUD() {
                         {(isDiceTrayOpen || !anyToolOpen) && (
                             <button
                                 onClick={() => toggleTool('dice')}
-                                className={`p-3 rounded-xl transition-all flex items-center justify-center ${isDiceTrayOpen ? 'bg-rose-600 text-white' : 'text-white/60 hover:bg-white/5 hover:text-white'}`}
+                                className={`h-10 w-10 shrink-0 sm:h-12 sm:w-12 p-2 sm:p-3 rounded-xl transition-all flex items-center justify-center ${isDiceTrayOpen ? 'bg-rose-600 text-white' : 'text-white/60 hover:bg-white/5 hover:text-white'}`}
                                 title="Dice Tray"
                             >
                                 <img
@@ -176,7 +178,7 @@ export default function FloatingHUD() {
                         {(isPlayerListOpen || !anyToolOpen) && (
                             <button
                                 onClick={() => toggleTool('players')}
-                                className={`p-3 rounded-xl transition-all relative ${isPlayerListOpen ? 'bg-emerald-600 text-white' : 'text-white/60 hover:bg-white/5 hover:text-white'}`}
+                                className={`h-10 w-10 shrink-0 sm:h-12 sm:w-12 p-2 sm:p-3 rounded-xl transition-all relative ${isPlayerListOpen ? 'bg-emerald-600 text-white' : 'text-white/60 hover:bg-white/5 hover:text-white'}`}
                                 title="Player List"
                             >
                                 <Users className="w-6 h-6" />
@@ -190,10 +192,11 @@ export default function FloatingHUD() {
 
                         {!anyToolOpen && (
                             <>
+                                <PlayerSettingsButton className="h-10 w-10 shrink-0 sm:h-12 sm:w-12 p-2 sm:p-3 rounded-xl transition-all text-white/60 hover:bg-white/5 hover:text-white" />
                                 <div className="w-px h-8 bg-white/10 mx-1 hidden sm:block" />
                                 <button
                                     onClick={() => { router.push('/'); setIsMinimized(true); }}
-                                    className={`p-3 rounded-xl transition-all ${pathname === '/' ? 'bg-amber-500 text-black' : 'text-white/60 hover:bg-white/5 hover:text-white'}`}
+                                    className={`h-10 w-10 shrink-0 sm:h-12 sm:w-12 p-2 sm:p-3 rounded-xl transition-all ${pathname === '/' ? 'bg-amber-500 text-black' : 'text-white/60 hover:bg-white/5 hover:text-white'}`}
                                     title="Dashboard"
                                 >
                                     <Home className="w-6 h-6" />

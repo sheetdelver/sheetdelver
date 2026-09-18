@@ -175,6 +175,12 @@ export default function ChatTab({ messages, onSend, foundryUrl, onRoll, hideDice
                                 <span className={s.user}>{msg.user}</span>
                                 <span className={s.time}>{getTimeAgo(msg.timestamp ?? now, now)}</span>
                             </div>
+                            {msg.isContentVisible === false ? (
+                                <div className="text-center">
+                                    <p className={s.flavor}>{msg.user} privately rolled dice.</p>
+                                    <div className={s.rollTotal}>???</div>
+                                </div>
+                            ) : <>
                             {msg.flavor && (
                                 <SafeHtmlContent
                                     className={s.flavor}
@@ -199,6 +205,7 @@ export default function ChatTab({ messages, onSend, foundryUrl, onRoll, hideDice
                                     </div>
                                 </div>
                             )}
+                            </>}
                         </div>
                     ))}
                     {messages.length === 0 && <div className="text-center text-slate-500 italic mt-10">No messages yet...</div>}

@@ -1,3 +1,10 @@
+import { run as runDiceDisposal } from './dice-disposal.test';
+import { run as runChatToast } from './chat-toast.test';
+import { run as runUiContextStability } from './ui-context-stability.test';
+import { run as runDiceBehavior } from './dice-behavior.test';
+import { run as runDiceAppearance } from './dice-appearance.test';
+import { run as runDiceAudio } from './dice-audio.test';
+import { run as runDicePresentation } from './dice-presentation.test';
 import { run as runFoundryStateHelpers } from './foundry-state-helpers.test';
 import { run as runRuntimeSurface } from './runtime-surface.test';
 import { run as runSharedContentRealtime } from './shared-content-realtime.test';
@@ -11,6 +18,9 @@ import { run as runGenericSheet } from './generic-sheet.test';
 import { run as runCatalogReleaseState } from './catalog-release-state.test';
 
 export async function run() {
+    runDiceDisposal();
+    runChatToast();
+    runUiContextStability();
     runFoundryStateHelpers();
     runRuntimeSurface();
     runSharedContentRealtime();
@@ -22,6 +32,10 @@ export async function run() {
     runGenericSheetFieldState();
     runGenericSheet();
     runCatalogReleaseState();
+    runDicePresentation();
+    runDiceAppearance();
+    runDiceBehavior();
+    await runDiceAudio();
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

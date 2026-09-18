@@ -1,7 +1,7 @@
 import type { AppConfig } from '@shared/interfaces';
 import type { ChatClientLike, ChatSendBody, ChatMessageDocument } from '@server/shared/types/documents';
 import type { ChatLogPayload, ChatSendSuccessPayload, ChatErrorPayload, ChatMessageDto } from '@shared/contracts/chat';
-import { chatMessageStore } from '@server/core/documents/primary/chat-messages/ChatMessageStore';
+import { chatMessageStore, hasChatRolls } from '@server/core/documents/primary/chat-messages/ChatMessageStore';
 import {
     DOCUMENT_VISIBILITY,
     FoundryUserRole,
@@ -34,21 +34,42 @@ function projectChatMessage(message: ChatMessageDocument, subject: DocumentAcces
     const roll = rolls[0] as { total?: number; formula?: string } | undefined;
     // Foundry v13+ stores roll semantics in `rolls`; retain the old numeric
     // check only for cache rows created before the canonical payload migration.
-    const isRoll = rolls.length > 0 || message.type === 5;
+    const isRoll = hasChatRolls(message);
     const isBlind = message.blind === true;
-    // No subject means the caller is the system account / privileged path
-    // (already the existing semantics via `FoundryUserRole.GAMEMASTER` fallback);
-    // treat it as GM-equivalent so blind/whisper masking is bypassed.
+    // GM-like authors can see their own blind results. Non-author viewers
+    // still need to be listed recipients of private rolls.
     const isAssistantGm = subject ? isAssistantGM(subject) : true;
     const subjectUserId = subject?.userId ?? null;
     const isAuthor = typeof message.author === 'string' && message.author === subjectUserId;
-    const shouldMask = isBlind && !isAssistantGm && !isAuthor;
+    const whisper = Array.isArray(message.whisper) ? message.whisper : [];
+    // Match Foundry's separate message/content visibility. A GM who is not a
+    // recipient does not gain the contents of another user's self roll.
+    const shouldMask = isRoll
+        ? (isAuthor ? isBlind && !isAssistantGm
+            : whisper.length > 0 ? !whisper.includes(subjectUserId) : isBlind)
+        : isBlind && !isAssistantGm && !isAuthor;
     const author = typeof message.author === 'string'
         ? userStore.get(message.author)
         : null;
 
+    if (isRoll && shouldMask) {
+        // Allowlist only: content, flavor, flags, speaker, formulas and results
+        // can all contain secrets. Never spread a hidden source document.
+        return {
+            _id: message._id,
+            author: typeof message.author === 'string' ? message.author : undefined,
+            user: author?.name || 'Unknown',
+            timestamp: typeof message.timestamp === 'number' ? message.timestamp : 0,
+            isRoll: true,
+            isContentVisible: false,
+            content: '',
+            rolls: [],
+        };
+    }
+
     return {
         ...message,
+        isContentVisible: true,
         user: author?.name || (typeof message.alias === 'string' ? message.alias : undefined) || 'Unknown',
         timestamp: typeof message.timestamp === 'number' ? message.timestamp : Date.now(),
         isRoll,
@@ -64,8 +85,9 @@ export function createChatService(deps: ChatServiceDeps) {
      * Chat history read model used by the chat feed endpoint.
      *
      * Phase 1: reads from {@link ChatMessageStore} (full mirror of Foundry's chat
-     * log per ADR-0011). Whisper / blind / world-visible filtering happens at
-     * the Store via `resolveOwnership` (ADR-0013). Display cap from
+     * log per ADR-0011). Non-roll message access uses Store ownership; rolls
+     * are projected here into authorized content or allowlisted placeholders.
+     * Display cap from
      * `config.app.chatHistory` is applied here at the service boundary — the
      * data model itself is uncapped.
      */
@@ -85,9 +107,12 @@ export function createChatService(deps: ChatServiceDeps) {
             throw new PrimaryDocumentCacheNotReadyError('ChatMessage');
         }
 
-        const visible = subject
-            ? chatMessageStore.list({ subject, minOwnership: DOCUMENT_VISIBILITY.LIST_VISIBLE })
-            : chatMessageStore.list();
+        // The service can read the mirror, but must project before returning.
+        // Private rolls have public placeholders; ordinary whispers stay omitted.
+        const visible = chatMessageStore.list().filter(message => hasChatRolls(message)
+            || !subject || (typeof message._id === 'string' && chatMessageStore.canReadDocument(
+                message._id, subject, DOCUMENT_VISIBILITY.LIST_VISIBLE,
+            )));
         const sorted = [...visible].sort((a, b) => ((a.timestamp as number) || 0) - ((b.timestamp as number) || 0));
         const rawMessages = sorted.slice(Math.max(sorted.length - limit, 0));
         const messages = rawMessages.map(message => projectChatMessage(message, subject));
@@ -126,6 +151,11 @@ export function createChatService(deps: ChatServiceDeps) {
             if (!chatData.author && client.userId) chatData.author = client.userId;
             if (!chatData.author) throw new Error('Cannot send message: Author ID missing');
             const response = await client.createChatMessage(chatData);
+            // Do not leak a blind result back to its author through the write response.
+            if (chatData.blind === true && !isAssistantGM(createDocumentAccessSubject(
+                client.userId ?? 'system',
+                client.userId ? userStore.getRole(client.userId) : FoundryUserRole.GAMEMASTER,
+            )!)) return { success: true, type: 'roll' };
             return { success: true, type: 'roll', result: isRecord(response) ? response.result ?? response : response };
         }
 

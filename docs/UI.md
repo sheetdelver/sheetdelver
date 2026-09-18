@@ -169,3 +169,24 @@ under the `SurfaceHost` root:
 
 Module CSS must scope selectors under `.sdk-module--<id>` unless the checker
 explicitly allows the construct, such as `@font-face` or `@keyframes`.
+
+---
+
+## Dice Presentation and Player Settings
+
+The player shell owns one shared 3D dice presentation provider. It consumes
+live chat create hints paired with authorized chat DTOs, not raw Foundry data.
+Tray, actor-sheet, SDK, and Foundry-originated rolls use this same path when
+they contain supported evaluated dice terms. Modules must not add their own
+renderer or animation socket subscription.
+
+The bottom-menu Settings dialog lives in `components/Settings/`. Its Chat &
+Rolls tab contains browser-local chat toast and dice preferences; General and
+Themes are reserved disabled tabs. Dice components stay in `components/Dice/`.
+Chat toasts reuse NotificationSystem with a title, plain-text body, configurable
+duration, and one replaceable message above the bottom menu. A broader
+notification-system redesign is deferred.
+
+See [3D Dice Presentation](dice-presentation.md) and
+[ADR-0039](adr/0039-client-dice-presentation.md) for supported terms, privacy,
+resource cleanup, and architecture boundaries.
