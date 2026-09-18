@@ -4,9 +4,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
-import { parseReleaseOptions, planLocalRelease, runLocalRelease } from '../../../scripts/tools/releases/tag-release';
+import { parseReleaseOptions, planLocalRelease, runLocalRelease, runReleaseCommand, type ReleasePublishIO } from '../../../scripts/tools/releases/tag-release';
 
-export function run() {
+export async function run() {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sheet-delver-release-tag-'));
     const git = (...args: string[]) => execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
     const read = (file: string) => fs.readFileSync(path.join(root, file), 'utf8');
@@ -25,7 +25,13 @@ export function run() {
         const initial = git('rev-parse', 'HEAD');
         const original = ['package.json', 'package-lock.json', 'CHANGELOG.md'].map(read);
         const messages: string[] = [];
-        runLocalRelease(root, { ...options, dryRun: true }, line => messages.push(line));
+        const forbiddenIO: ReleasePublishIO = {
+            confirm: async () => { throw new Error('Unexpected prompt'); },
+            command: () => { throw new Error('Unexpected publish command'); },
+            sleep: async () => { throw new Error('Unexpected workflow wait'); },
+            now: () => { throw new Error('Unexpected workflow clock'); },
+        };
+        await runReleaseCommand(root, { ...options, dryRun: true }, forbiddenIO, line => messages.push(line));
         assert.equal(git('rev-parse', 'HEAD'), initial);
         assert.equal(git('tag'), ''); assert.equal(git('status', '--porcelain'), '');
         assert.deepEqual(['package.json', 'package-lock.json', 'CHANGELOG.md'].map(read), original);
@@ -36,6 +42,7 @@ export function run() {
             assert.throws(() => parseReleaseOptions(args));
         }
         assert.equal(parseReleaseOptions(['0.11.0']).tag, 'v0.11.0');
+        assert.equal(parseReleaseOptions(['0.11.0', '--no-push']).noPush, true);
         assert.throws(() => planLocalRelease(root, { ...options, tag: 'v0.10.2' }), /must be newer/);
         assert.throws(() => planLocalRelease(root, { ...options, tag: 'v0.9.9' }), /must be newer/);
         assert.throws(() => planLocalRelease(root, { ...options, notes: [] }), /missing the exact heading/);
@@ -60,7 +67,7 @@ export function run() {
         const manual = { ...options, notes: [] };
         assert.deepEqual(planLocalRelease(root, manual).blockers, []);
         assert.throws(() => planLocalRelease(root, options), /omit --note/);
-        runLocalRelease(root, manual, line => messages.push(line));
+        await runReleaseCommand(root, { ...manual, noPush: true }, forbiddenIO, line => messages.push(line));
         assert.equal(git('branch', '--show-current'), 'main');
         assert.equal(git('branch', '--format=%(refname:short)'), 'main');
         assert.equal(git('cat-file', '-t', 'v0.11.0'), 'tag');
@@ -69,17 +76,29 @@ export function run() {
         assert.equal(git('status', '--porcelain'), '');
         assert.deepEqual(JSON.parse(read('package.json')), { ...pkg, version: '0.11.0' });
         assert.deepEqual(JSON.parse(read('package-lock.json')), { ...lock, version: '0.11.0', packages: { ...lock.packages, '': { ...lock.packages[''], version: '0.11.0' } } });
-        assert.ok(messages.join('\n').includes('git push origin main\ngit push origin v0.11.0'));
+        assert.ok(messages.join('\n').includes('Prepared v0.11.0 locally'));
         assert.equal(git('remote'), '', 'release succeeds offline without remote operations');
+
+        const cliOutput = execFileSync(process.execPath, [
+            path.resolve('node_modules/tsx/dist/cli.mjs'),
+            path.resolve('src/scripts/tools/releases/tag-release.ts'),
+            '0.11.1', '--note', 'Fixed fixture',
+        ], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 30_000 });
+        assert.ok(cliOutput.includes('git push --no-follow-tags origin main'));
+        assert.ok(cliOutput.includes('git push --no-follow-tags origin v0.11.1'));
+        assert.ok(!cliOutput.includes('[y/N]'), 'noninteractive CLI stays offline without prompting');
+        assert.equal(git('cat-file', '-t', 'v0.11.1'), 'tag');
 
         fs.writeFileSync(path.join(root, '.git', 'hooks', 'pre-commit'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
         const head = git('rev-parse', 'HEAD');
-        assert.throws(() => runLocalRelease(root, parseReleaseOptions(['0.11.1', '--note', 'Fixed test fixture']), () => {}), /preparation stopped/);
+        assert.throws(() => runLocalRelease(root, parseReleaseOptions(['0.11.2', '--note', 'Fixed test fixture']), () => {}), /preparation stopped/);
         assert.equal(git('rev-parse', 'HEAD'), head);
-        assert.equal(git('tag', '--list', 'v0.11.1'), '', 'a failed commit must not create a tag');
-        assert.equal(JSON.parse(read('package.json')).version, '0.11.1', 'failed work is preserved for inspection');
+        assert.equal(git('tag', '--list', 'v0.11.2'), '', 'a failed commit must not create a tag');
+        assert.equal(JSON.parse(read('package.json')).version, '0.11.2', 'failed work is preserved for inspection');
         console.log('  - local release tagging: all checks passed');
     } finally { fs.rmSync(root, { recursive: true, force: true }); }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) run();
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+    run().catch(error => { console.error(error); process.exitCode = 1; });
+}

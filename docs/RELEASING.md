@@ -12,7 +12,8 @@ named API contract versions remain independent and are maintained in
 
 After the feature is merged, check out and update `main`. No release branch is
 needed. Fetch tags first so the local duplicate-tag check includes published
-releases. The helper itself never fetches, pulls, switches branches, or pushes.
+releases. The helper never fetches, pulls, or switches branches. Remote pushes
+require explicit confirmation after local preparation.
 
 Use the local release command to preview a new version and short changelog
 bullets (the version below is illustrative):
@@ -35,11 +36,16 @@ The command:
 - Updates `package.json`, both root version fields in `package-lock.json`,
   and the changelog entry without changing dependencies or SDK versions.
 - Commits only those three release files and creates an annotated tag on that
-  commit. It never replaces tags, creates branches, or performs remote writes.
-- Prints the push commands for you to run.
+  commit. Local preparation never replaces tags, creates branches, or writes
+  to a remote.
+- In an interactive terminal, offers separate default-No push confirmations,
+  with main CI required before the tag push. Otherwise prints the remaining
+  manual commands.
 
 `--dry-run` performs the same validation and prints the plan without changing
-files, the index, commits, or tags. Blockers produce a nonzero exit status.
+files, the index, commits, or tags. It never prompts or contacts a remote.
+Use `--no-push` to prepare locally and print manual commands without prompts.
+Noninteractive runs also stay local. Blockers produce a nonzero exit status.
 Run `npm run release:tag -- --help` for the argument summary.
 
 Commit the helper itself and other implementation work before using it for a
@@ -69,16 +75,37 @@ npm run release:prepare -- v0.11.1 /tmp/sheet-delver-v0.11.1-notes.md
 
 ## Publish the Release
 
-The helper has already created the local tag. Push the release commit first:
+After preparing locally in an interactive terminal, the helper asks:
+
+1. `Push the prepared main commit to origin? [y/N]`
+2. Once main CI passes, whether to push the tag and start the release.
+
+Only `y` or `yes` approves a push. Enter or any other answer declines.
+Declining the main push skips the tag prompt and prints both manual commands.
+Approving main but declining the tag prints only the remaining tag command.
+
+Automatic publishing requires GitHub CLI (`gh`) installed and authenticated
+for origin's push repository. The helper checks the exact prepared commit,
+push event, and branch/tag in `ci.yml` and `release.yml`, polling every ten
+seconds for up to thirty minutes per workflow. It also waits for the release
+workflow after an approved tag push. Failure, API errors, or timeout stop the
+sequence and print remaining steps; they never authorize the next push.
+
+Both pushes use `--no-follow-tags` so Git configuration cannot publish the tag
+during the main push. Only the intended ref is pushed; no force pushes are used.
+Changed local release refs or origin stop publishing.
+
+For manual publishing (`--no-push`, a noninteractive run, or a declined
+prompt), the helper has already created the local tag. Push the commit first:
 
 ```bash
-git push origin main
+git push --no-follow-tags origin main
 ```
 
 After main CI passes, push only the intended release tag:
 
 ```bash
-git push origin v0.11.1
+git push --no-follow-tags origin v0.11.1
 ```
 
 The release workflow repeats the dependency audit, lint, type checking, tests,
@@ -102,6 +129,12 @@ stops without pushing or resetting your work. Inspect `git status` and
 `git log -1`; a successful commit may exist even if tagging failed. Fix the
 reported problem, verify the release metadata, then finish the commit/tag
 manually. Do not rerun with a different version just to bypass the failure.
+
+If local preparation succeeded but publishing stopped or was declined, do not
+rerun preparation for that version. Its commit and tag already exist. Follow
+the printed remaining commands after checking CI for the prepared commit.
+A failed push may have reached the remote, so inspect remote state before
+retrying. A published tag must never be moved or replaced.
 
 With GitHub CLI installed and authenticated:
 

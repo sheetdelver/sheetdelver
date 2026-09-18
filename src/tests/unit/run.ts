@@ -25,6 +25,7 @@ import { run as runRollFormulaSecurity } from './security/roll-formula-security.
 
 // ── releases ──────────────────────────────────────────────────────────────────
 import { run as runReleaseMetadata } from './releases/release-metadata.test';
+import { run as runReleasePublish } from './releases/tag-release-publish.test';
 import { run as runLocalReleaseTag } from './releases/tag-release.test';
 
 // ── services ──────────────────────────────────────────────────────────────────
@@ -180,7 +181,8 @@ async function runAllUnitTests() {
     runCiDataFixture();
     await runRollFormulaSecurity();
     runReleaseMetadata();
-    runLocalReleaseTag();
+    await runLocalReleaseTag();
+    await runReleasePublish();
     runStatusSanitize();
     runLocalhostPolicy();
     runSyncTokenService();
