@@ -104,6 +104,38 @@ For actors, the platform performs one system-client fetch during bootstrap, seed
 - **FoundryProvider**: The heart of the application. Manages the connection step (`init` -> `login` -> `dashboard`), authenticates users, and polls for real-time state updates (actors, users, system info).
 - **JournalProvider**: Manages journal entry loading, folder hierarchies, and pagination logic.
 - **UIProvider**: Manages the state of global overlays like the sidebars, floating HUD, and shared content modals.
+- **ChatProvider**: Owns the authorized chat projection and browser-local chat-toast
+  preferences. Live create hints are paired with existing API reads; history alone
+  never creates a notification. The existing NotificationSystem displays only the
+  latest chat summary when chat is closed.
+- **PlayerSettingsDialog**: Lives in `components/Settings/`, with open state owned
+  by UIProvider. Chat & Rolls composes chat controls and the dice panel; General
+  and Themes are reserved tabs. It mounts only in the player provider tree.
+- **DicePresentationProvider**: Owns browser-local dice preferences and the bounded
+  animation queue. It consumes authorized chat projections and existing app
+  realtime hints; it does not fetch from Foundry or evaluate game rolls.
+
+### 4.2 Dice Presentation Boundary
+
+Decision record: [ADR-0039](adr/0039-client-dice-presentation.md).
+
+Dice UI and rendering helpers live under `src/client/ui/components/Dice/`;
+the provider lives under `src/client/ui/context/` and mounts only in the player
+provider tree. Core remains responsible for roll evaluation, chat visibility,
+and persistence. The browser animates recorded faces and may narrow which
+authorized rolls it displays, but never grants access or writes animation results
+back to game state. Browser physics is visual simulation, not a game-rule engine.
+
+Chat roll existence can produce metadata-only refresh hints for all authenticated
+players, matching Foundry's private-roll placeholders. `ChatService` separates
+message visibility from result visibility and returns an allowlisted placeholder
+for hidden results; raw document access remains restricted. Dice presentation
+never animates a redacted placeholder.
+
+See [3D Dice Presentation](dice-presentation.md) for supported terms and cleanup
+behavior. Scoped lint rules reject Node/server imports in this feature. This
+follows the existing surface isolation and client-state boundaries in ADR-0002
+and ADR-0024; it does not revise those decisions.
 
 ---
 

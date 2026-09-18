@@ -11,6 +11,7 @@ import type { DocumentChangedEvent } from '@server/core/documents/primary/base/P
 
 export async function run() {
     await runWorldVisibleMessages();
+    await runPrivateRollRefreshHints();
     await runWhisperRestrictsVisibility();
     await runBlindRollHidesFromOthersButAuthor();
     await runBlindRollOverridesWhisperRecipients();
@@ -192,4 +193,30 @@ async function runRepositoryNormalizesLegacyCreateTypes() {
             style: 3,
         },
     ]);
+}
+
+async function runPrivateRollRefreshHints() {
+    const store = new ChatMessageStore();
+    store.bindAudienceSubjects(() => [author, recipient, bystander, gm]);
+    await store.seed(async () => []);
+    const events: DocumentChangedEvent[] = [];
+    store.on('documentChanged', event => events.push(event as DocumentChangedEvent));
+    store.applyModifyDocument('ChatMessage', 'create', [{
+        _id: 'self-roll', author: 'p-author', whisper: ['p-author'],
+        rolls: ['{"total":17}'], content: 'SECRET',
+    }]);
+    assert.deepEqual(events[0], {
+        type: 'ChatMessage', id: 'self-roll', action: 'create', audience: { kind: 'all' },
+    }, 'all players receive only a metadata hint for the roll placeholder');
+    assert.equal(store.canReadDocument('self-roll', bystander, DOCUMENT_VISIBILITY.LIST_VISIBLE), false,
+        'placeholder hints never grant access to the raw private document');
+    store.applyModifyDocument('ChatMessage', 'update', [{ _id: 'self-roll', content: 'updated' }]);
+    assert.deepEqual(events[1].audience, { kind: 'all' });
+    store.applyModifyDocument('ChatMessage', 'delete', null, { ids: ['self-roll'] });
+    assert.deepEqual(events[2].audience, { kind: 'all' }, 'placeholder removal reaches every viewer');
+    store.applyModifyDocument('ChatMessage', 'create', [{
+        _id: 'private-text', author: 'p-author', whisper: ['p-author'], content: 'SECRET',
+    }]);
+    assert.deepEqual(events[3].audience, { kind: 'users', userIds: ['gm-1', 'p-author'] },
+        'ordinary whispers still have targeted hints');
 }

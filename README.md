@@ -14,7 +14,7 @@ A modern, external character sheet interface for [Foundry VTT](https://foundryvt
 ## Commonly Shared Features
 - **Dashboard**: Initial view and shared amongst all supported systems. It will display a users owned actors and additional tools (if implemented) such as for creating or importing characters.
 - **Chat**: A common chat interface for all systems. It will display a users chat messages and allow them to send messages to the GM. It will also display a list of active players and their connection status.
-- **Dice Roller**: Universal dice roller modeled after the dice tray module for Foundry VTT. 
+- **Dice Roller**: Universal dice roller modeled after the dice tray module for Foundry VTT. Optional [3D dice](docs/dice-presentation.md) animate recorded results without changing roll evaluation.
 - **Combat Tracker**: Combat tracker HUD that displays at top whenever the system detects an active combat. It allows for rolling initiative and ending turn.
 
 <img src="images/dashboard.png" width="25%">

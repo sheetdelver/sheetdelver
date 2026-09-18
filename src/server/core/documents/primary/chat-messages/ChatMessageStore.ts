@@ -1,3 +1,4 @@
+import { ALL_DOCUMENT_AUDIENCE, type DocumentAudience } from '../base/audience';
 import type { ChatMessageDocument } from '@server/shared/types/documents';
 import {
     PrimaryDocumentStore,
@@ -9,6 +10,10 @@ import {
     type DocumentAccessSubject,
     type ResolvedDocumentOwnershipLevel,
 } from '../base/ownership';
+
+export function hasChatRolls(message: ChatMessageDocument): boolean {
+    return (Array.isArray(message.rolls) && message.rolls.length > 0) || message.type === 5;
+}
 
 /**
  * ChatMessage primary-document Store. Full hydration + bootstrap seed:
@@ -28,6 +33,13 @@ import {
  */
 export class ChatMessageStore extends PrimaryDocumentStore<ChatMessageDocument> {
     public readonly documentType: PrimaryDocumentType = 'ChatMessage';
+
+    protected audienceForDocument(message: ChatMessageDocument | null | undefined): DocumentAudience {
+        // Roll existence is public in Foundry; only metadata refresh hints use this audience.
+        // Raw document reads remain restricted below; ChatService redacts hidden results.
+        if (message && hasChatRolls(message)) return ALL_DOCUMENT_AUDIENCE;
+        return super.audienceForDocument(message);
+    }
 
     protected resolveOwnership(
         message: ChatMessageDocument,

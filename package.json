@@ -40,6 +40,7 @@
     "server:mock-module-server": "npx tsx src/scripts/tools/server/mock-index-server.ts"
   },
   "dependencies": {
+    "@3d-dice/dice-box-threejs": "0.0.12",
     "@tiptap/core": "^3.31.3",
     "@tiptap/extension-image": "^3.31.3",
     "@tiptap/extension-link": "^3.31.3",

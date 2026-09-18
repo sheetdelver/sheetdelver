@@ -1,8 +1,10 @@
 'use client';
 
-import React, { createContext, useContext, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
 
 interface UIContextType {
+    isSettingsOpen: boolean;
+    setSettingsOpen: (open: boolean) => void;
     isChatOpen: boolean;
     setChatOpen: (open: boolean) => void;
     isDiceTrayOpen: boolean;
@@ -24,6 +26,7 @@ interface UIContextType {
 const UIContext = createContext<UIContextType | undefined>(undefined);
 
 export function UIProvider({ children }: { children: ReactNode }) {
+    const [isSettingsOpen, setSettingsOpen] = useState(false);
     const [isChatOpen, setChatOpen] = useState(false);
     const [isDiceTrayOpen, setDiceTrayOpen] = useState(false);
     const [isJournalOpen, setJournalOpen] = useState(false);
@@ -31,20 +34,23 @@ export function UIProvider({ children }: { children: ReactNode }) {
     const [activeJournalId, setActiveJournalId] = useState<string | null>(null);
     const [sharedJournalId, setSharedJournalId] = useState<string | null>(null);
 
-    const toggleDiceTray = () => setDiceTrayOpen(prev => !prev);
-    const toggleJournal = () => setJournalOpen(prev => !prev);
-    const togglePlayerList = () => setPlayerListOpen(prev => !prev);
+    const toggleDiceTray = useCallback(() => setDiceTrayOpen(prev => !prev), []);
+    const toggleJournal = useCallback(() => setJournalOpen(prev => !prev), []);
+    const togglePlayerList = useCallback(() => setPlayerListOpen(prev => !prev), []);
 
-    const resetUI = () => {
+    // Session invalidation depends on this callback; UI changes must not recreate its socket.
+    const resetUI = useCallback(() => {
+        setSettingsOpen(false);
         setChatOpen(false);
         setDiceTrayOpen(false);
         setJournalOpen(false);
         setPlayerListOpen(false);
         setActiveJournalId(null);
         setSharedJournalId(null);
-    };
+    }, []);
 
     const contextValue = React.useMemo(() => ({
+        isSettingsOpen, setSettingsOpen,
         isChatOpen, setChatOpen,
         isDiceTrayOpen, setDiceTrayOpen, toggleDiceTray,
         isJournalOpen, setJournalOpen, toggleJournal,
@@ -53,8 +59,9 @@ export function UIProvider({ children }: { children: ReactNode }) {
         sharedJournalId, setSharedJournalId,
         resetUI
     }), [
-        isChatOpen, isDiceTrayOpen, isJournalOpen, isPlayerListOpen,
-        activeJournalId, sharedJournalId
+        isSettingsOpen, isChatOpen, isDiceTrayOpen, isJournalOpen, isPlayerListOpen,
+        activeJournalId, sharedJournalId,
+        toggleDiceTray, toggleJournal, togglePlayerList, resetUI
     ]);
 
     return (

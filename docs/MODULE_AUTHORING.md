@@ -378,3 +378,21 @@ publishes a release.
 The Sheet Delver repository keeps CI focused on SDK integrity, scaffold
 integrity, and platform tests. Module repositories own their validation and
 release runs.
+
+## Shared Dice Presentation
+
+3D dice are a host-owned presentation feature, not a module responsibility.
+Continue using the host roll API/SDK components or request-bound
+`runtime.rolls` and `runtime.chat`. The player shell animates supported evaluated
+terms from authorized, live ChatMessage projections; no module animation call,
+renderer import, or raw socket listener is needed.
+
+For a silent `runtime.rolls.roll`, preserve its serialized `rolls` when posting
+through `runtime.chat.send`. Formula/total summaries alone cannot reproduce
+individual faces and remain chat-only. The existing `ChatCard.rolls` summary
+shape is not interchangeable with serialized `RollResult.rolls`; do not cast
+between them to request animation. Self rolls and blind rolls remain chat-only
+in the current presentation implementation.
+
+See [3D Dice Presentation](dice-presentation.md) and
+[ADR-0039](adr/0039-client-dice-presentation.md).

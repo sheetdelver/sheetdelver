@@ -9,6 +9,8 @@ import { SessionProvider } from '@client/ui/context/SessionContext';
 import { ActorCombatProvider } from '@client/ui/context/ActorCombatContext';
 import { RealtimeProvider } from '@client/ui/context/RealtimeContext';
 import { ChatProvider } from '@client/ui/context/ChatContext';
+import { PlayerSettingsDialog } from '@client/ui/components/Settings/PlayerSettingsDialog';
+import { DicePresentationProvider } from '@client/ui/context/DicePresentationContext';
 import { JournalProvider } from '@client/ui/context/JournalProvider';
 import SDKGlobalProvider from '@client/ui/providers/SDKGlobalProvider';
 
@@ -24,7 +26,7 @@ export default function PlayerProviders({ children }: { children: ReactNode }) {
                   <ChatProvider>
                     <FoundryProvider>
                       <JournalProvider>
-                        {children}
+                        <DicePresentationProvider>{children}<PlayerSettingsDialog /></DicePresentationProvider>
                       </JournalProvider>
                     </FoundryProvider>
                   </ChatProvider>
