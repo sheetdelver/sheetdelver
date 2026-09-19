@@ -254,8 +254,10 @@ export interface ChatCard {
     flavor?: string;
     /** Pre-rendered HTML/text body. */
     content?: string;
-    /** Structured rolls rendered with `componentStyles.chat.rollResult/rollFormula/rollTotal`. */
+    /** Display-only summaries. Never sent as native ChatMessage rolls or used to animate dice. */
     rolls?: ChatCardRoll[];
+    /** Recorded RollResult.rolls JSON strings, posted unchanged as native ChatMessage rolls. */
+    evaluatedRolls?: string[];
     /** Interactive buttons rendered with `componentStyles.chat.button*`. */
     buttons?: ChatCardButton[];
     [key: string]: unknown;

@@ -21,6 +21,16 @@ export function run() {
     assert.deepEqual(messageRolls({ rollTotal: 0, rollFormula: 'legacy' }), [{ formula: 'legacy', total: 0 }]);
     const rendered = renderToStaticMarkup(React.createElement(ChatMessageCard, { message }));
     assert.ok(rendered.includes('Fighter') && rendered.includes('1d6-1') && rendered.includes('2d6'));
+    const summary = { flags: { sheetDelver: { chatCard: { rolls: [
+        { formula: 'Summary', total: 0 }, { formula: '<img src=x onerror=bad()>', total: 7 },
+        { formula: 'Invalid', total: Infinity },
+    ] } } } };
+    assert.deepEqual(messageRolls(summary), [{ formula: 'Summary', total: 0 }, { formula: '<img src=x onerror=bad()>', total: 7 }]);
+    assert.deepEqual(messageRolls({ ...summary, ...secret }), [], 'hidden flags cannot reveal summaries');
+    assert.deepEqual(messageRolls({ ...summary, rolls: [{ formula: 'Native', total: 4 }] }), [{ formula: 'Native', total: 4 }], 'native rolls take precedence without duplicates');
+    const summaryHtml = renderToStaticMarkup(React.createElement(ChatMessageCard, { message: summary }));
+    assert.ok(summaryHtml.includes('Summary'));
+    assert.ok(!summaryHtml.includes('<img'), 'summary formula remains escaped text');
     const formatted = String(formatChatContent('[[/roll 1d20]] [[/r 2d6]] <img src="icons/test.webp" onerror="bad()">', 'https://foundry.example'));
     assert.ok(formatted.includes('data-formula="1d20"'));
     assert.ok(!formatted.includes('data-formula="oll 1d20"'));

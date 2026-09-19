@@ -1,3 +1,4 @@
+import { createChatCardMessage } from '@shared/sdk/chatCard';
 /**
  * Server-side backing for `ModuleRuntime.documents` (ADR-0027 decisions 5/6).
  *
@@ -529,16 +530,7 @@ export function createChatRuntime(
         },
         card: async (card, options) => {
             await ensureReady();
-            // Serialize the structured ChatCard into a ChatMessage: the rendered body goes
-            // to `content`, and the full card rides a flag so a client renderer (decision 28
-            // componentStyles.chat) can present rolls/buttons richly. Modules that pre-render
-            // HTML pass it as `card.content`.
-            const message: Record<string, unknown> = {
-                content: String(card.content ?? card.flavor ?? card.title ?? ''),
-                flags: { sheetDelver: { chatCard: card } },
-            };
-            if (card.flavor) message.flavor = card.flavor;
-            if (Array.isArray(card.rolls) && card.rolls.length) message.rolls = card.rolls;
+            const message = createChatCardMessage(card);
             return c.createChatMessage(await applyVisibility(message, options));
         },
         useItem: async (actorId, itemId) => {

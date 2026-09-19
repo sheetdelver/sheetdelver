@@ -27,6 +27,18 @@ export function messageRolls(message: ChatMessageDto): { formula: string; total:
     if (!rolls.length && typeof message.rollTotal === 'number' && Number.isFinite(message.rollTotal)) {
         rolls.push({ formula: message.rollFormula || 'Roll', total: message.rollTotal });
     }
+    if (!rolls.length) {
+        const flags = message.flags as { sheetDelver?: { chatCard?: { rolls?: unknown } } } | undefined;
+        const summaries = flags?.sheetDelver?.chatCard?.rolls;
+        if (Array.isArray(summaries)) {
+            for (const summary of summaries) {
+                if (summary && typeof summary.formula === 'string'
+                    && typeof summary.total === 'number' && Number.isFinite(summary.total)) {
+                    rolls.push({ formula: summary.formula, total: summary.total });
+                }
+            }
+        }
+    }
     return rolls;
 }
 

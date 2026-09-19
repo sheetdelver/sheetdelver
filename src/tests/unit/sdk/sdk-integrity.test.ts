@@ -403,8 +403,8 @@ function runClientSdkTests() {
 // ---------------------------------------------------------------------------
 
 function runVersionTests() {
-    assert.equal(SDK_VERSION, '1.2.0');
-    assert.equal(API_CONTRACT_VERSIONS['module-api'], '1.1.0');
+    assert.equal(SDK_VERSION, '1.3.0');
+    assert.equal(API_CONTRACT_VERSIONS['module-api'], '1.2.0');
     assert.equal(API_CONTRACT_VERSIONS['ui-extension-api'], '1.1.0');
     assert.equal(API_CONTRACT_VERSIONS['roll-engine-api'], '1.0.0');
 

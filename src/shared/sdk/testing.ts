@@ -16,6 +16,7 @@ import type {
 } from './runtime';
 import type { DrawResult } from './utils';
 import { buildModuleAssetUrl } from './utils';
+import { createChatCardMessage } from './chatCard';
 import { SDKContext, SDKComponentsContext } from './react';
 import type { SDKContextValue, SDKComponentsValue } from './react';
 import type { ClientDocumentSource, DocumentSnapshot } from './client-documents';
@@ -140,7 +141,7 @@ export function createMockModuleRuntime(opts: MockRuntimeOptions = {}): ModuleRe
         },
         chat: {
             async send(message) { return documents.create('ChatMessage', message); },
-            async card(card) { return documents.create('ChatMessage', { content: String(card.content ?? ''), flags: { sheetDelver: { chatCard: card } } }); },
+            async card(card) { return documents.create('ChatMessage', createChatCardMessage(card)); },
             async useItem(actorId, itemId) { return { actorId, itemId, used: true }; },
         },
     };

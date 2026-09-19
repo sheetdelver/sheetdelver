@@ -64,8 +64,8 @@ export interface RollResult {
     dice?: number[];
     /**
      * The evaluated roll(s) serialized as Foundry `Roll.toJSON()` strings. Attach these to a
-     * `chat.card({ rolls })` / `chat.send({ rolls })` message so Foundry registers the roll
-     * and animates the dice (e.g. Dice So Nice) even when the roll was evaluated without
+     * `chat.card({ evaluatedRolls: rolls })` / `chat.send({ rolls })` message so Foundry registers the roll
+     * for authorized chat/dice presentation even when it was evaluated without
      * `displayChat` — the structured result drives the module's own card, these drive the dice.
      */
     rolls?: string[];
@@ -125,10 +125,11 @@ export interface DocumentStore extends ReadonlyDocumentStore {
  */
 export interface RollOptions {
     /**
-     * Post the roll to Foundry as a real roll message — registering it and triggering the dice
-     * animation (e.g. Dice So Nice). Default `false`: the roll is evaluated and returned but
+     * Post the roll to Foundry as a real roll message. Presentation depends on visibility
+     * and user settings. Default `false`: the roll is evaluated and returned but
      * nothing is posted, so a module can render its own card and (optionally) pass the result's
-     * `rolls` to `chat.card`/`chat.send` to surface the dice. Set `true` for a plain posted roll.
+     * `rolls` to `chat.card({ evaluatedRolls })` or `chat.send({ rolls })` to surface the dice.
+     * Set `true` for a plain posted roll; do not also post a card with the same rolls.
      */
     displayChat?: boolean;
     /** Visibility when posted (decision 7): `publicroll` / `gmroll` / `blindroll` / `selfroll`. */
