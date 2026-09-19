@@ -387,12 +387,35 @@ Continue using the host roll API/SDK components or request-bound
 terms from authorized, live ChatMessage projections; no module animation call,
 renderer import, or raw socket listener is needed.
 
-For a silent `runtime.rolls.roll`, preserve its serialized `rolls` when posting
-through `runtime.chat.send`. Formula/total summaries alone cannot reproduce
-individual faces and remain chat-only. The existing `ChatCard.rolls` summary
-shape is not interchangeable with serialized `RollResult.rolls`; do not cast
-between them to request animation. Self rolls and blind rolls remain chat-only
-in the current presentation implementation.
+For a silent `runtime.rolls.roll`, pass its serialized `rolls` to raw
+`runtime.chat.send({ rolls: result.rolls, ... })`, or use a structured card:
+
+```ts
+const result = await req.runtime.rolls.roll('1d20 + 3', 'Ability check');
+await req.runtime.chat.card({
+    title: 'Ability check',
+    evaluatedRolls: result.rolls,
+}, { rollMode: 'publicroll', speaker: { actor: actorId } });
+```
+
+`ChatCard.evaluatedRolls` requires `module-api >=1.2.0 <2.0.0` (SDK 1.3.0).
+Only adopters need to raise their minimum contract. Do not use
+`displayChat: true` and also post the same roll as a card: that creates two
+independent messages.
+
+`ChatCard.rolls` remains display-only formula/total summaries. They stay in
+card flags, never native ChatMessage rolls, and cannot animate dice. Native
+rolls take display precedence when both fields are present. Summary-only cards
+follow ordinary chat visibility, not native-roll placeholders.
+
+Evaluated rolls require JSON strings with class, formula, finite total,
+`evaluated: true`, and a terms array. Invalid card data raises SDK `validation`
+before sending. Core never re-evaluates terms or invents faces.
+`parseRollResult` normalizes valid transport objects/strings into
+`RollResult.rolls`; malformed/summary input supplies no evaluated rolls.
+The mock host shares card serialization; its numeric roll stub does not invent
+evaluated terms. Self and Blind remain chat-only in the current presenter.
+See [ADR-0041](adr/0041-sdk-chat-card-roll-contract.md) for the contract decision.
 
 See [3D Dice Presentation](dice-presentation.md) and
 [ADR-0039](adr/0039-client-dice-presentation.md).

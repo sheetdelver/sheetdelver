@@ -166,11 +166,13 @@ it has no destroy API. A small compatibility correction clears its cached
 simulated d4 result after forcing the recorded face. Recheck forced face values,
 resize/unmount cleanup, and desktop/mobile rendering before changing this pin.
 
-This does not add a general plugin loader or change SDK roll contracts. Existing
-modules that produce supported chat rolls use the same presentation path.
+This does not add a general plugin loader. Existing modules that produce
+supported chat rolls use the same presentation path.
 
 The decision and deferred work are recorded in
-[ADR-0039](adr/0039-client-dice-presentation.md). In particular, summary-only
-`ChatCard.rolls` entries are not evaluated dice terms. Use the existing
-`runtime.chat.send` serialized-roll path when posting a silent SDK roll;
-reconciling the card and roll contract shapes is separate follow-up work.
+[ADR-0039](adr/0039-client-dice-presentation.md). The later
+[SDK card alignment](adr/0041-sdk-chat-card-roll-contract.md) adds
+`runtime.chat.card({ evaluatedRolls: result.rolls })` (module-api 1.2.0).
+Raw `runtime.chat.send({ rolls: result.rolls })` remains supported.
+Summary-only `ChatCard.rolls` entries remain chat-only; the host never
+reconstructs die faces from totals.

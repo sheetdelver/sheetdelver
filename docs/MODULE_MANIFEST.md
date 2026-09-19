@@ -284,6 +284,12 @@ in `src/shared/sdk/contractVersions.ts`, re-exported by
 `@sheet-delver/sdk`; module manifests declare compatible ranges rather than
 copying the host's current version as an exact requirement.
 
+For example, adopting `ChatCard.evaluatedRolls` requires
+`compatibility.apiContracts["module-api"]: ">=1.2.0 <2.0.0"`.
+Existing modules and scaffolds that do not use that field retain their current
+minimums. See [Shared Dice Presentation](MODULE_AUTHORING.md#shared-dice-presentation)
+for posting recorded rolls without changing the display-summary contract.
+
 | Field | Required | Description |
 |---|---|---|
 | `id` | Yes | Lowercase system identifier. It should match Foundry's system id. |

@@ -151,6 +151,7 @@ import { run as runModuleManagerTelemetry } from './modules/module-manager-telem
 import { run as runModuleInitScaffold } from './modules/module-init-scaffold.test';
 
 // ── sdk ───────────────────────────────────────────────────────────────────────
+import { run as runChatCardContract } from './sdk/chat-card.test';
 import { run as runSdkIntegrity } from './sdk/sdk-integrity.test';
 import { run as runModuleDocumentStore } from './sdk/module-document-store.test';
 import { run as runModuleDataStore } from './sdk/module-datastore.test';
@@ -281,6 +282,7 @@ async function runAllUnitTests() {
     await runModuleManagerDryRun();
     await runModuleManagerTelemetry();
     await runSdkIntegrity();
+    await runChatCardContract();
     await runModuleDocumentStore();
     await runModuleDataStore();
     await runSdkContract();

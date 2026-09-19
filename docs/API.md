@@ -423,6 +423,14 @@ export const apiRoutes: ModuleRouteTable = {
 Writes through `req.runtime.documents`, `req.runtime.chat`, `req.runtime.rolls`,
 and `req.runtime.tables` are bound to the requesting Foundry user.
 
+Structured cards separate display summaries (`ChatCard.rolls`) from native
+evaluated Roll JSON strings (`ChatCard.evaluatedRolls`, module-api 1.2.0).
+Pass `RollResult.rolls` as `evaluatedRolls` to `req.runtime.chat.card`, or as
+`rolls` to raw `req.runtime.chat.send`. Only evaluated rolls become native
+ChatMessage rolls; invalid card data fails before dispatch. Author, speaker,
+visibility and existing chat delivery remain unchanged. See the
+[authoring example](MODULE_AUTHORING.md#shared-dice-presentation).
+
 ---
 
 ## Admin API

@@ -1,3 +1,5 @@
+import type { RollResult } from './runtime';
+import { serializeEvaluatedRolls } from './chatCard';
 import { sanitizeRichHtml, type SafeHtml } from '@shared/security/safeHtml';
 
 // ---------------------------------------------------------------------------
@@ -116,7 +118,7 @@ export interface DrawResultRow {
 export function parseRollResult(
     raw: unknown,
     fallbackFormula = '',
-): { formula: string; total: number; terms?: unknown[]; dice?: number[]; [key: string]: unknown } {
+): RollResult {
     const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
 
     // Route-backed rolls may carry the evaluated Roll inside a ChatMessage. Foundry
@@ -163,8 +165,17 @@ export function parseRollResult(
         if (collected.length) dice = collected;
     }
 
+    // Preserve only genuinely evaluated rolls as canonical JSON strings. A summary or
+    // malformed vendor payload can still supply display fields, but never dice faces.
+    let rolls: string[] | undefined;
+    const recorded = r.rolls ?? (r.roll !== undefined ? [r.roll] : r.evaluated === true ? [r] : undefined);
+    if (recorded !== undefined) {
+        try { rolls = serializeEvaluatedRolls(recorded); } catch { /* Display-only result. */ }
+    }
+
     return {
         ...r,
+        rolls,
         formula,
         total,
         ...(terms ? { terms } : {}),
