@@ -1,4 +1,7 @@
 # Releases
+## 0.12.0
+- Standardized SDK roll cards
+
 ## 0.11.1
 - Unify notifications and chat presentation
 
