@@ -16,7 +16,11 @@ new messages when the reader is scrolled away from the latest entry.
 NotificationProvider owns a separate transient queue for errors, warnings,
 success, information and progress. It is not a Foundry document collection.
 Both surfaces share a bounded bottom-right viewport above the HUD to avoid
-overlap. Inline form/admin feedback stays inline.
+overlap. When a dice tray is open, its measured bounds reserve clearance above
+the panel for this shared viewport. Resize and close update the clearance;
+long stacks scroll within the remaining space. This is internal UI layout, not
+an SDK contract or a change to message visibility. Inline form/admin feedback
+stays inline.
 
 ## Host Usage
 

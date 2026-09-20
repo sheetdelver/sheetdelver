@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useRef, useEffect } from 'react';
 import ChatTab from './ChatTab';
 import DiceTray from './DiceTray';
+import { useDiceTrayFeedbackAnchor } from './Notifications/NotificationProvider';
 
-import { MessageSquare } from 'lucide-react';
-import { SystemAdapter, RollMode } from '@shared/sdk';
+import { X } from 'lucide-react';
+
 
 
 
@@ -21,7 +22,7 @@ interface GlobalChatProps {
 }
 
 export default function GlobalChat(props: GlobalChatProps) {
-    const { hideDice, speaker } = props;
+    const diceFeedbackAnchor = useDiceTrayFeedbackAnchor();
     const { messages, handleChatSend: onSend } = useChat();
     const { system } = useFoundry();
     const { step } = useSession();
@@ -65,18 +66,25 @@ export default function GlobalChat(props: GlobalChatProps) {
                 // Only close if we are actually open
                 if (isChatOpen) setChatOpen(false);
 
-                // Close controlled or local
-                if (isDiceOpen) setDiceTrayOpen(false);
             }
         };
 
-        if (isChatOpen || isDiceOpen) {
+        if (isChatOpen) {
             document.addEventListener('mousedown', handleClickOutside);
         }
         return () => {
             document.removeEventListener('mousedown', handleClickOutside);
         };
-    }, [isChatOpen, isDiceOpen, setChatOpen, setDiceTrayOpen]);
+    }, [isChatOpen, setChatOpen]);
+
+    useEffect(() => {
+        if (!isDiceOpen) return;
+        const handleEscape = (event: KeyboardEvent) => {
+            if (event.key === 'Escape' && !event.defaultPrevented) setDiceTrayOpen(false);
+        };
+        document.addEventListener('keydown', handleEscape);
+        return () => document.removeEventListener('keydown', handleEscape);
+    }, [isDiceOpen, setDiceTrayOpen]);
 
     return (
         <div
@@ -90,7 +98,7 @@ export default function GlobalChat(props: GlobalChatProps) {
 
                 {/* Dice Window (Conditional) */}
                 {!props.hideDice && (
-                    <div className={`
+                    <div ref={isDiceOpen ? diceFeedbackAnchor : undefined} className={`
                         ${s.window}
                         w-[calc(100vw-2rem)] max-w-[400px]
                         transition-all duration-300 origin-bottom
@@ -103,11 +111,11 @@ export default function GlobalChat(props: GlobalChatProps) {
                             <>
                                 <div className={s.header || "flex justify-between items-center bg-white/5 p-3 border-b border-white/5"}>
                                     <span className={s.title || "text-[10px] font-bold uppercase text-white/40 pl-2 tracking-widest"}>Dice Tray</span>
-                                    <button onClick={toggleDice} className={`${s.closeBtn} px-2`}>✕</button>
+                                    <button onClick={toggleDice} aria-label="Close dice tray" title="Close dice tray" className={`${s.closeBtn} px-2`}><X size={18} /></button>
                                 </div>
                                 <div className="p-0">
                                     <DiceTray
-                                        onSend={(msg, options) => { onSend(msg, { ...options, speaker: options?.speaker || props.speaker }); toggleDice(); }}
+                                        onSend={(msg, options) => { onSend(msg, { ...options, speaker: options?.speaker || props.speaker }); }}
                                         hideHeader={true}
                                         speaker={props.speaker}
                                     />

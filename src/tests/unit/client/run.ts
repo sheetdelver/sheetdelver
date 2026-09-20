@@ -1,3 +1,5 @@
+import { run as runDiceTrayLifecycle } from './dice-tray-lifecycle.test';
+import { run as runDiceFollowups } from './dice-followups.test';
 import { run as runDiceDisposal } from './dice-disposal.test';
 import { run as runChatToast } from './chat-toast.test';
 import { run as runUiContextStability } from './ui-context-stability.test';
@@ -38,6 +40,8 @@ export async function run() {
     runGenericSheet();
     runCatalogReleaseState();
     runDicePresentation();
+    runDiceFollowups();
+    runDiceTrayLifecycle();
     runDiceAppearance();
     runDiceBehavior();
     await runDiceAudio();

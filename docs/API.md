@@ -219,6 +219,10 @@ Creates, updates, or deletes an embedded Item through the requesting user's
 Foundry transport. Embedded acknowledgements rebuild the owning Actor's prepared
 revision.
 
+Host-evaluated formulas share the bounded [roll grammar](dice-presentation.md#host-formula-evaluation)
+across chat commands, actor helpers and the roll SDK. Unsupported formulas fail
+without creating fallback chat; invalid `/api/chat/send` formulas return HTTP 400.
+
 ### `POST /api/actors/:id/roll`
 
 Auth: protected.
@@ -786,7 +790,10 @@ ChatMessage remains a primary Foundry document mirrored by Core. The existing
 chat endpoint supplies permission-filtered DTOs; realtime chat hints cause
 authorized reads, not direct rendering of raw document events. Chat logs,
 previews and 3D dice must respect this projection, including private-roll
-placeholders and omitted private text.
+placeholders and omitted private text. Blind dice presentation requires explicit
+`isContentVisible: true`; a client role is not an authorization override. Nested
+recorded terms are presentation-only and do not introduce a new endpoint or SDK
+contract. See [ADR-0042](adr/0042-dice-presentation-followups.md).
 
 System notifications are browser-local application feedback. They have no
 document endpoint, secondary store or automatic broadcast. Dismissing a chat

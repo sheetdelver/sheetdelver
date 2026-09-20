@@ -382,6 +382,10 @@ release runs.
 ## Shared Dice Presentation
 
 3D dice are a host-owned presentation feature, not a module responsibility.
+Host evaluation supports the bounded [formula grammar](dice-presentation.md#host-formula-evaluation),
+including parentheses, pools and min/max. Invalid input rejects instead of
+returning zero or posting fallback chat. Do not duplicate this evaluator in modules.
+
 Continue using the host roll API/SDK components or request-bound
 `runtime.rolls` and `runtime.chat`. The player shell animates supported evaluated
 terms from authorized, live ChatMessage projections; no module animation call,
@@ -414,7 +418,11 @@ before sending. Core never re-evaluates terms or invents faces.
 `parseRollResult` normalizes valid transport objects/strings into
 `RollResult.rolls`; malformed/summary input supplies no evaluated rolls.
 The mock host shares card serialization; its numeric roll stub does not invent
-evaluated terms. Self and Blind remain chat-only in the current presenter.
+evaluated terms. Self remains chat-only. Blind results animate only for viewers
+whose server-projected DTO explicitly permits content visibility. Native recorded
+pool, parenthetical and function children use the same bounded host presenter;
+modules must not flatten, reroll or implement their own animation hooks.
+See [ADR-0042](adr/0042-dice-presentation-followups.md) for supported shapes and limits.
 See [ADR-0041](adr/0041-sdk-chat-card-roll-contract.md) for the contract decision.
 
 See [3D Dice Presentation](dice-presentation.md) and
