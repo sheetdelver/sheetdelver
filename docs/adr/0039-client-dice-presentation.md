@@ -141,3 +141,10 @@ timers. Opening chat, logout, disconnect, and disabling clear the current toast.
 
 See [3D Dice Presentation](../dice-presentation.md) for settings and operational
 limits.
+
+## Follow-up
+
+[ADR-0042](0042-dice-presentation-followups.md) extends this first slice with
+explicitly authorized blind-result animation and bounded recorded nested terms.
+Its decision replaces the blanket blind/nested suppression described above;
+Self remains chat-only, and extensible skins remain deferred.

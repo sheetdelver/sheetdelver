@@ -135,7 +135,10 @@ Chat roll existence can produce metadata-only refresh hints for all authenticate
 players, matching Foundry's private-roll placeholders. `ChatService` separates
 message visibility from result visibility and returns an allowlisted placeholder
 for hidden results; raw document access remains restricted. Dice presentation
-never animates a redacted placeholder.
+never animates a redacted placeholder. Blind results require explicit positive
+content visibility from that DTO. Nested terms are bounded traversal of recorded
+faces, not formula evaluation; see [ADR-0042](adr/0042-dice-presentation-followups.md).
+No module callback, new socket or SDK version is required.
 
 See [3D Dice Presentation](dice-presentation.md) for supported terms and cleanup
 behavior. Scoped lint rules reject Node/server imports in this feature. This

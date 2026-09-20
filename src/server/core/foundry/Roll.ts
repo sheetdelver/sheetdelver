@@ -1,248 +1,158 @@
+import { Dice, Modifiers, NumberGenerator, Parser, Results, RollGroup } from '@dice-roller/rpg-dice-roller';
+
 const MAX_FORMULA_LENGTH = 256;
-const MAX_ARITHMETIC_TOKENS = 128;
+const MAX_TERMS = 128;
+const MAX_DEPTH = 16;
 const MAX_DICE_PER_TERM = 100;
+const MAX_DICE = 1000;
 const MAX_DIE_FACES = 1_000_000;
-const MAX_NUMERIC_LITERAL = 1_000_000_000;
+const MAX_NUMBER = 1_000_000_000;
+const operators = new Set(['+', '-', '*', '/']);
+const syntax = new Set([...operators, '(', ')', ',', 'max(', 'min(', 'abs(', 'floor(', 'ceil(']);
 
-function evaluateArithmeticTokens(tokens: Array<number | string>): number | null {
-    if (tokens.length === 0 || tokens.length > MAX_ARITHMETIC_TOKENS) return null;
+type Token = number | string | Dice.StandardDice | RollGroup;
+type Result = number | string | Results.RollResults | Results.ResultGroup;
+type Term = Record<string, any>;
+type RecordedRoll = { class: 'Roll'; options: object; formula: string; terms: Term[]; dice: Term[]; total: number; evaluated: true };
 
-    const normalized = [...tokens];
-    if (normalized[0] === '+' || normalized[0] === '-') normalized.unshift(0);
-    if (normalized.length % 2 === 0) return null;
-
-    // Collapse multiplication/division first, then apply addition/subtraction.
-    // This preserves the helper's arithmetic behavior without dynamic code.
-    const additiveValues: number[] = [];
-    const additiveOperators: string[] = [];
-    let current = normalized[0];
-    if (typeof current !== 'number' || !Number.isFinite(current)) return null;
-
-    for (let index = 1; index < normalized.length; index += 2) {
-        const operator = normalized[index];
-        const right = normalized[index + 1];
-        if (typeof operator !== 'string' || typeof right !== 'number' || !Number.isFinite(right)) return null;
-
-        if (operator === '*') {
-            current *= right;
-        } else if (operator === '/') {
-            if (right === 0) return null;
-            current /= right;
-        } else if (operator === '+' || operator === '-') {
-            additiveValues.push(current);
-            additiveOperators.push(operator);
-            current = right;
-        } else {
-            return null;
-        }
-
-        if (!Number.isFinite(current)) return null;
+export class RollFormulaError extends Error {
+    readonly status = 400;
+    constructor(message = 'Invalid or unsupported dice formula.') {
+        super(message);
+        this.name = 'RollFormulaError';
     }
-
-    additiveValues.push(current);
-    let total = additiveValues[0];
-    for (let index = 0; index < additiveOperators.length; index += 1) {
-        total = additiveOperators[index] === '+'
-            ? total + additiveValues[index + 1]
-            : total - additiveValues[index + 1];
-        if (!Number.isFinite(total)) return null;
-    }
-    return total;
 }
 
-/**
- * Lightweight Foundry Roll stand-in used by server route helpers.
- *
- * ADR-0014 Phase 4 only flattened the file out of the one-file `classes/`
- * directory. The evaluator remains intentionally minimal until a future dice
- * or Foundry-runtime pass replaces it.
- */
+function finite(value: number): number {
+    if (typeof value !== 'number' || !Number.isFinite(value) || Math.abs(value) > Number.MAX_SAFE_INTEGER) {
+        throw new RollFormulaError('Dice formula produced an invalid or excessively large result.');
+    }
+    return value;
+}
+
+function parse(formula: string): Token[] {
+    if (typeof formula !== 'string' || !formula.trim() || formula.length > MAX_FORMULA_LENGTH
+        || !/^[\da-zA-Z\s.+*/(){},-]+$/.test(formula)) throw new RollFormulaError();
+    // Bound nesting before invoking the library's recursive grammar.
+    let depth = 0;
+    for (const char of formula) {
+        if ((char === '(' || char === '{') && ++depth > MAX_DEPTH) throw new RollFormulaError('Dice formula is nested too deeply.');
+        if ((char === ')' || char === '}') && --depth < 0) throw new RollFormulaError();
+    }
+    if (depth !== 0) throw new RollFormulaError();
+    // Foundry defaults bare keep-highest/lowest to one; the library requires a count.
+    const normalized = formula.trim().replace(/^([+-])/, '0$1').replace(/k([hl])(?!\d)/g, (_, mode) => `k${mode}1`);
+    const tokens: Token[] = Parser.parse(normalized);
+    let terms = 0;
+    let dice = 0;
+    function validate(list: (Token | Token[])[]) {
+        for (const token of list) {
+            if (++terms > MAX_TERMS) throw new RollFormulaError('Dice formula has too many terms.');
+            if (typeof token === 'number') {
+                if (!Number.isFinite(token) || Math.abs(token) > MAX_NUMBER) throw new RollFormulaError();
+            } else if (typeof token === 'string') {
+                if (!syntax.has(token)) throw new RollFormulaError();
+            } else if (token instanceof Dice.StandardDice || token instanceof RollGroup) {
+                if (token.description) throw new RollFormulaError();
+                const count = token instanceof RollGroup ? token.expressions.length : token.qty;
+                for (const modifier of token.modifiers?.values() ?? []) {
+                    if (!(modifier instanceof Modifiers.KeepModifier) || modifier instanceof Modifiers.DropModifier
+                        || modifier.qty < 1 || modifier.qty > count) throw new RollFormulaError('Only kh/kl keep modifiers are supported.');
+                }
+                if (token instanceof RollGroup) validate(token.expressions);
+                else {
+                    if (token.name !== 'standard' || !Number.isSafeInteger(token.sides) || token.sides < 1 || token.sides > MAX_DIE_FACES
+                        || !Number.isSafeInteger(token.qty) || token.qty < 1 || token.qty > MAX_DICE_PER_TERM
+                        || (dice += token.qty) > MAX_DICE) throw new RollFormulaError('Dice quantity or faces exceed the supported limits.');
+                }
+            } else if (Array.isArray(token)) validate(token);
+            else throw new RollFormulaError();
+        }
+    }
+    validate(tokens);
+    return tokens;
+}
+
+const notation = (tokens: Token[]): string => tokens.map(token =>
+    typeof token === 'object' ? token.notation : String(token)).join('');
+const numeric = (number: number): Term => ({ class: 'NumericTerm', number, options: {}, evaluated: true });
+
+/** Adapt evaluated library results, never re-roll or ask the browser to evaluate. */
+function record(tokens: Token[], results: Result[], formula = notation(tokens)): RecordedRoll {
+    const total = finite(new Results.ResultGroup(results).value);
+    const terms: Term[] = [];
+    const allDice: Term[] = [];
+    const compound = tokens.some(token => typeof token === 'string' && !operators.has(token));
+    tokens.forEach((token, index) => {
+        const result = results[index];
+        if (typeof token === 'number') terms.push(numeric(token));
+        else if (typeof token === 'string') {
+            if (operators.has(token)) terms.push({ class: 'OperatorTerm', operator: token, options: {} });
+        } else if (token instanceof Dice.StandardDice && result instanceof Results.RollResults) {
+            const term: Term = {
+                class: 'Die', number: token.qty, faces: token.sides, formula: token.notation,
+                modifiers: [...(token.modifiers?.values() ?? [])].map(modifier => modifier.notation),
+                results: result.rolls.map(roll => ({ result: roll.value, active: roll.useInTotal, discarded: !roll.useInTotal })),
+                options: {}, evaluated: true,
+            };
+            terms.push(term);
+            allDice.push(term);
+        } else if (token instanceof RollGroup && result instanceof Results.ResultGroup) {
+            const children = result.results as Results.ResultGroup[];
+            const rolls = token.expressions.map((expression, i) => record(expression, children[i].results));
+            terms.push({ class: 'PoolTerm', terms: rolls.map(roll => roll.formula), rolls,
+                modifiers: [...(token.modifiers?.values() ?? [])].map(modifier => modifier.notation),
+                results: children.map(child => ({ result: finite(child.value), active: child.useInTotal, discarded: !child.useInTotal })),
+                options: {}, evaluated: true });
+            for (const roll of rolls) collectDice(roll, allDice);
+        } else throw new RollFormulaError();
+    });
+    // Like native intermediate-term reduction, retain inner dice separately from
+    // the evaluated arithmetic. Simple rolls/pools keep their normal term structure.
+    return { class: 'Roll', options: {}, formula, total, evaluated: true,
+        terms: compound ? [numeric(total)] : terms, dice: compound ? allDice : [] };
+}
+
+function collectDice(roll: RecordedRoll, target: Term[]) {
+    target.push(...roll.dice);
+    for (const term of roll.terms) {
+        if (term.class === 'Die') target.push(term);
+        else if (term.class === 'PoolTerm') for (const child of term.rolls) collectDice(child, target);
+    }
+}
+
+/** Shared, server-only bounded evaluator used by tray, actor routes and the SDK. */
 export class Roll {
-    private _formula: string;
-    private _data: any;
-    private _total: number | undefined;
-    private _evaluated: boolean = false;
-    private _terms: any[] = [];
-
-    constructor(formula: string, data: any = {}) {
-        this._formula = formula;
-        this._data = data;
-    }
-
-    get total(): number | undefined {
-        return this._total;
-    }
-
-    get formula(): string {
-        return this._formula;
-    }
+    private evaluated?: RecordedRoll;
+    constructor(private readonly _formula: string, _data: unknown = {}) {}
+    get total(): number | undefined { return this.evaluated?.total; }
+    get formula(): string { return this._formula; }
 
     async evaluate({ minimize = false, maximize = false } = {}): Promise<Roll> {
-        if (this._evaluated) return this;
-
-        // basic parser: split by space for now, improve regex later if needed
-        // handling simple "NdX + M" or "NdX"
-        // Update: Added support for kh (keep highest) and kl (keep lowest)
-
-        this._terms = [];
-        // Regex to match: (Dice: 1d6[kh|kl]?) OR (Operator: + - * /) OR (Number: 5)
-        // Group 1: Dice (e.g. 1d6, 2d20, 2d20kh1, 2d20kl1)
-        // Group 2: Operator
-        // Group 3: Number
-        const regex = /([0-9]+d[0-9]+(?:kh[0-9]*|kl[0-9]*)?)|([+\-*\/])|([0-9]+)/g;
-
-        const rejectFormula = () => {
-            this._terms = [];
-            this._total = 0;
-            this._evaluated = true;
+        if (this.evaluated) return this;
+        const previousEngine = NumberGenerator.generator.engine;
+        try {
+            const tokens = parse(this._formula);
+            // No await while the library's shared RNG is temporarily selected.
+            if (maximize) NumberGenerator.generator.engine = NumberGenerator.engines.max;
+            else if (minimize) NumberGenerator.generator.engine = NumberGenerator.engines.min;
+            const results = tokens.map(token => {
+                if (token instanceof RollGroup && token.expressions.length === 1) {
+                    // Foundry keeps pool entries, not dice inside the sole entry.
+                    return new RollGroup(token.expressions).roll();
+                }
+                return typeof token === 'object' ? token.roll() : token;
+            });
+            this.evaluated = record(tokens, results, this._formula);
             return this;
-        };
-
-        // Formula and term limits prevent a compact authenticated request from
-        // turning the local fallback roller into a CPU or memory exhaustion path.
-        if (typeof this._formula !== 'string' || this._formula.length > MAX_FORMULA_LENGTH) {
-            return rejectFormula();
+        } catch (error) {
+            throw error instanceof RollFormulaError ? error : new RollFormulaError();
+        } finally {
+            NumberGenerator.generator.engine = previousEngine;
         }
-
-        // Whitespace normalization happens only after the raw input is bounded.
-        const cleanFormula = this._formula.replace(/\s/g, '');
-        if (cleanFormula.length === 0 || cleanFormula.length > MAX_FORMULA_LENGTH) {
-            return rejectFormula();
-        }
-
-        let match;
-        let lastIndex = 0;
-
-        // Simple arithmetic evaluator tokens
-        const evalTokens: (number | string)[] = [];
-
-        while ((match = regex.exec(cleanFormula)) !== null) {
-            // The old tokenizer silently skipped unsupported text. Requiring
-            // contiguous matches makes the accepted grammar explicit.
-            if (match.index !== lastIndex) return rejectFormula();
-            lastIndex = regex.lastIndex;
-
-            // Dice Term
-            if (match[1]) {
-                const termStr = match[1];
-                let keepMode = 'sum'; // sum, kh, kl
-                let keepCount = 1; // Default keep 1
-                let cleanDice = termStr;
-
-                // Match kh or kl with optional number
-                const khMatch = termStr.match(/kh([0-9]*)/);
-                const klMatch = termStr.match(/kl([0-9]*)/);
-
-                if (khMatch) {
-                    keepMode = 'kh';
-                    keepCount = khMatch[1] ? parseInt(khMatch[1]) : 1;
-                    cleanDice = termStr.replace(/kh[0-9]*/, '');
-                } else if (klMatch) {
-                    keepMode = 'kl';
-                    keepCount = klMatch[1] ? parseInt(klMatch[1]) : 1;
-                    cleanDice = termStr.replace(/kl[0-9]*/, '');
-                }
-
-                const parts = cleanDice.split('d');
-                const count = parseInt(parts[0], 10);
-                const faces = parseInt(parts[1], 10);
-                if (
-                    !Number.isSafeInteger(count) || count < 1 || count > MAX_DICE_PER_TERM ||
-                    !Number.isSafeInteger(faces) || faces < 1 || faces > MAX_DIE_FACES ||
-                    !Number.isSafeInteger(keepCount) || keepCount < 1 || keepCount > count
-                ) {
-                    return rejectFormula();
-                }
-                const results = [];
-                let subTotal = 0;
-
-                for (let i = 0; i < count; i++) {
-                    let res = Math.floor(Math.random() * faces) + 1;
-                    // logger.info(`[Roll] DEBUG: 1d${faces} raw result: ${res} (min:${minimize}, max:${maximize})`);
-                    if (minimize) res = 1;
-                    if (maximize) res = faces;
-                    results.push({ result: res, active: true });
-                }
-
-                // Apply Keep Logic
-                if (keepMode === 'kh') {
-                    // Keep Highest N
-                    results.sort((a, b) => b.result - a.result); // Descending
-
-                    // Keep first keepCount, discard rest
-                    results.forEach((r, idx) => {
-                        if (idx >= keepCount) r.active = false;
-                    });
-
-                    subTotal = results.slice(0, keepCount).reduce((acc, r) => acc + r.result, 0);
-                } else if (keepMode === 'kl') {
-                    // Keep Lowest N
-                    results.sort((a, b) => a.result - b.result); // Ascending
-
-                    // Keep first keepCount, discard rest
-                    results.forEach((r, idx) => {
-                        if (idx >= keepCount) r.active = false;
-                    });
-
-                    subTotal = results.slice(0, keepCount).reduce((acc, r) => acc + r.result, 0);
-                } else {
-                    // Sum all
-                    subTotal = results.reduce((acc, r) => acc + r.result, 0);
-                }
-
-
-                this._terms.push({
-                    class: "Die",
-                    formula: termStr,
-                    number: count,
-                    faces: faces,
-                    results: results,
-                    options: { flavor: keepMode !== 'sum' ? keepMode : undefined }
-                });
-                evalTokens.push(subTotal);
-            }
-            // Operator Term
-            else if (match[2]) {
-                this._terms.push({
-                    class: "OperatorTerm",
-                    formula: match[2],
-                    operator: match[2],
-                    options: {}
-                });
-                evalTokens.push(match[2]);
-            }
-            // Numeric Term
-            else if (match[3]) {
-                const num = parseInt(match[3], 10);
-                if (!Number.isSafeInteger(num) || num > MAX_NUMERIC_LITERAL) return rejectFormula();
-                this._terms.push({
-                    class: "NumericTerm",
-                    formula: match[3],
-                    number: num,
-                    options: {}
-                });
-                evalTokens.push(num);
-            }
-
-            if (evalTokens.length > MAX_ARITHMETIC_TOKENS) return rejectFormula();
-        }
-
-        if (lastIndex !== cleanFormula.length) return rejectFormula();
-
-        this._total = evaluateArithmeticTokens(evalTokens) ?? 0;
-
-        this._evaluated = true;
-        return this;
     }
 
     toJSON(): any {
-        return {
-            class: "Roll",
-            options: {},
-            formula: this._formula,
-            terms: this._terms,
-            total: this._total,
-            evaluated: this._evaluated
-        };
+        return this.evaluated ?? { class: 'Roll', options: {}, formula: this._formula, terms: [], evaluated: false };
     }
 }

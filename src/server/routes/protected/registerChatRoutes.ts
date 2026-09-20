@@ -1,4 +1,5 @@
 import express from 'express';
+import { RollFormulaError } from '@server/core/foundry/Roll';
 import type { AppConfig } from '@shared/interfaces';
 import { createChatService } from '@server/services/chat/ChatService';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
@@ -41,7 +42,7 @@ export function registerChatRoutes(appRouter: express.Router, deps: ChatRouteDep
             }
             res.json(payload);
         } catch (error: unknown) {
-            res.status(500).json({ error: getErrorMessage(error) });
+            res.status(error instanceof RollFormulaError ? 400 : 500).json({ error: getErrorMessage(error) });
         }
     });
 }

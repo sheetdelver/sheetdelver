@@ -220,14 +220,7 @@ function createBaseRouteFoundryClient(
         } catch (error: unknown) {
             const message = getErrorMessage(error);
             logger.error(`RouteFoundryClient | Roll failed: ${message}`);
-            if (options?.displayChat !== false) {
-                const fallbackData = await createTextChatMessageData({
-                    content: `Rolling ${formula}: ${flavor || ''} (Error: ${message})`,
-                    author: client.userId,
-                    getGmUserIds: () => userStore.getGmUserIds(),
-                });
-                return createChatMessageDocument(fallbackData);
-            }
+            // Never turn a failed private roll into a public fallback chat message.
             throw error;
         }
     };

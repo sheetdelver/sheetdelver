@@ -66,6 +66,9 @@ export default function FloatingHUD() {
                 // Ignore clicks inside tool panels
                 if ((event.target as Element).closest('.hud-panel')) return;
 
+                // Dice stay open for repeated rolls until explicitly dismissed.
+                if (isDiceTrayOpen) return;
+
                 // Check if any tools are open - if so, just close tools and reopen HUD menu
                 if (anyToolOpen) {
                     setChatOpen(false);
@@ -81,7 +84,7 @@ export default function FloatingHUD() {
 
         document.addEventListener('mousedown', handleClickOutside);
         return () => document.removeEventListener('mousedown', handleClickOutside);
-    }, [anyToolOpen, isMinimized, setChatOpen, setDiceTrayOpen, setJournalOpen, setPlayerListOpen]);
+    }, [anyToolOpen, isDiceTrayOpen, isMinimized, setChatOpen, setDiceTrayOpen, setJournalOpen, setPlayerListOpen]);
 
     // Re-open menu when tool is closed manually
     useEffect(() => {

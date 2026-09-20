@@ -6,6 +6,8 @@ import { chatMessageStore } from '@server/core/documents/primary/chat-messages/C
 import { userStore } from '@server/core/documents/primary/users/UserStore';
 import { LiveDiceInbox, toDicePresentation } from '@client/ui/components/Dice/presentation';
 
+import { nestedDiceMessage } from '../client/fixtures/recorded-dice';
+
 /** Real host evaluation/serialization/projection, with only Foundry transport mocked. */
 export async function run() {
     await userStore.seed(async () => [{ _id: 'player', name: 'Player', role: 1 }, { _id: 'gm', name: 'GM', role: 4 }, { _id: 'other', name: 'Other', role: 1 }]);
@@ -69,13 +71,73 @@ export async function run() {
                     assert.ok(!JSON.stringify(message).includes('SECRET'));
                     assert.equal(toDicePresentation(message), null);
                 } else {
-                    assert.equal(!!toDicePresentation(message), mode === 'gmroll', 'Self and Blind presentation policy stays unchanged');
+                    assert.equal(!!toDicePresentation(message), mode !== 'selfroll', 'authorized GM and Blind results animate; Self remains chat-only');
                 }
             }
         }
         await client.roll('1d20', 'Self check', { rollMode: 'selfroll' });
         const self = (await service.getChatLog(client as any, 100)).messages.at(-1)!;
         assert.equal(toDicePresentation(self), null, 'self-roll suppression applies to actor rolls too');
+
+        for (const formula of ['(1d6+2)*2', '{1d4,1d6}kh', 'max(1d8,1d10)']) {
+            await service.sendChatMessage(client as any, { message: '/r ' + formula });
+            await client.roll(formula, 'Sheet nested roll', { rollMode: 'publicroll' });
+            await rolls.roll(formula, 'SDK nested roll', { displayChat: true });
+            const messages = (await service.getChatLog(client as any, 100)).messages.slice(-3);
+            assert.equal(messages.length, 3);
+            for (const message of messages) {
+                assert.ok(toDicePresentation(message), formula + ': every host entry point records animatable dice');
+                assert.ok((message.rolls as any[])[0].total > 0);
+            }
+        }
+        const beforeFailure = createdIds.length;
+        for (const mode of ['publicroll', 'selfroll', 'gmroll', 'blindroll'] as const) {
+            await assert.rejects(client.roll('1d6 + invalid', 'SECRET', { rollMode: mode }), /formula/i);
+            await assert.rejects(rolls.roll('1 / 0', 'SECRET', { rollMode: mode, displayChat: true }), /result/i);
+        }
+        await assert.rejects(service.sendChatMessage(client as any, { message: '/sr 1d6 + invalid' }), /formula/i);
+        assert.equal(createdIds.length, beforeFailure, 'failed rolls never create public fallback messages');
+
+        await userStore.seed(async () => [
+            { _id: 'player', role: 1 }, { _id: 'gm', role: 4 }, { _id: 'assistant', role: 3 },
+            { _id: 'other', role: 1 }, { _id: 'unlisted-gm', role: 4 },
+        ]);
+        const native = nestedDiceMessage();
+        const cases = [
+            { author: 'player', whisper: ['gm', 'assistant'], blind: true, visible: ['gm', 'assistant'] },
+            { author: 'gm', whisper: ['gm'], blind: true, visible: ['gm'] },
+            { author: 'assistant', whisper: ['assistant'], blind: true, visible: ['assistant'] },
+            { author: 'gm', whisper: ['assistant'], blind: true, visible: ['gm', 'assistant'] },
+            { author: 'player', whisper: ['other'], blind: true, visible: ['other'] },
+            { author: 'gm', whisper: [], blind: true, visible: ['gm'] },
+            { author: 'player', whisper: ['player'], blind: false, visible: ['player'] },
+        ];
+        for (const entry of cases) {
+            await chatMessageStore.seed(async () => [{
+                _id: 'native-nested', author: entry.author, whisper: entry.whisper, blind: entry.blind,
+                timestamp: 1, content: 'SECRET', flavor: 'SECRET', flags: { secret: 'SECRET' },
+                speaker: { alias: 'SECRET' }, rolls: native.rolls.map(value => JSON.stringify(value)),
+            }]);
+            for (const viewer of ['player', 'gm', 'assistant', 'other', 'unlisted-gm']) {
+                const projected = (await service.getChatLog({ userId: viewer } as any, 100)).messages[0];
+                const visible = entry.visible.includes(viewer);
+                assert.equal(projected.isContentVisible, visible, JSON.stringify({ entry, viewer }));
+                const animation = toDicePresentation(projected);
+                if (!visible) {
+                    assert.equal(animation, null);
+                    assert.deepEqual(projected.rolls, []);
+                    assert.ok(!JSON.stringify(projected).includes('SECRET'));
+                    assert.equal(projected.rollTotal, undefined);
+                    assert.equal(projected.rollFormula, undefined);
+                } else if (entry.blind) {
+                    assert.equal(animation?.notation, '1d6+1d6+1d20+1d100+1d10@2,5,17,40,2');
+                    assert.equal(animation?.privateRoll, true);
+                    assert.equal(animation?.authorId, entry.author);
+                } else {
+                    assert.equal(animation, null, 'authorized Self content stays chat-only');
+                }
+            }
+        }
     } finally {
         chatMessageStore.clear('dice-roll-path-test');
         userStore.clear('dice-roll-path-test');
