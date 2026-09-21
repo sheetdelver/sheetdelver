@@ -1,4 +1,7 @@
 # Releases
+## 0.12.1
+- Expose notification lifecycle controls to SDK
+
 ## 0.12.0
 - Standardized SDK roll cards
 
