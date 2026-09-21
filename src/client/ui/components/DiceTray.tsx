@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { SystemAdapter, RollMode } from '@shared/sdk';
+import type { RollMode } from '@shared/sdk';
 import { Globe, UserRoundSearch, EyeOff, User } from 'lucide-react';
 
 import { DicePresentationPreference } from './Dice/DicePresentationPreference';
@@ -13,7 +13,7 @@ interface DiceTrayProps {
 }
 
 const defaultStyles = {
-    container: "bg-black/60 backdrop-blur-md rounded-2xl border border-white/10 p-4 flex flex-col gap-4 h-full shadow-2xl",
+    container: "text-white bg-black/60 backdrop-blur-md rounded-2xl border border-white/10 p-4 flex flex-col gap-4 h-full shadow-2xl",
     header: "text-white/40 text-[10px] font-bold uppercase tracking-widest border-b border-white/10 pb-2",
     textarea: "w-full h-24 bg-white/5 border border-white/10 rounded-xl p-3 font-sans text-lg text-white placeholder-white/20 focus:border-amber-500/50 outline-none resize-none transition-all",
     clearBtn: "absolute top-2 right-2 text-[10px] text-white/20 hover:text-red-400/80 uppercase font-bold tracking-widest transition-colors",
@@ -164,7 +164,7 @@ export default function DiceTray({ onSend, hideHeader = false, speaker }: DiceTr
     };
 
     return (
-        <div className={`${s.container} [&>*]:shrink-0`} style={{ maxHeight: 'calc(100dvh - 12rem)', overflowY: 'auto' }}>
+        <div className={`${system?.id ? `sdk-module--${system.id}` : ''} ${s.container} flex flex-col gap-4 [&>*]:shrink-0`} style={{ maxHeight: 'calc(100dvh - 12rem)', overflowY: 'auto' }}>
             {!hideHeader && <h3 className={s.header}>Dice Tray</h3>}
             <DicePresentationPreference />
 
@@ -244,7 +244,7 @@ export default function DiceTray({ onSend, hideHeader = false, speaker }: DiceTr
                 </div>
 
                 {/* Modifiers & Roll */}
-                <div className="flex gap-2 items-center">
+                <div className="flex flex-wrap gap-2 items-center">
                     <div className={s.modGroup || defaultStyles.modGroup}>
                         <button onClick={() => addTerm('1')} className={s.modBtn || defaultStyles.modBtn}>+1</button>
                         <button onClick={() => addTerm('5')} className={s.modBtn || defaultStyles.modBtn}>+5</button>
@@ -274,7 +274,7 @@ export default function DiceTray({ onSend, hideHeader = false, speaker }: DiceTr
 
                     <button
                         onClick={roll}
-                        className={s.sendBtn || defaultStyles.sendBtn}
+                        className={`${s.sendBtn || defaultStyles.sendBtn} basis-full`}
                     >
                         Send
                     </button>

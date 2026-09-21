@@ -131,8 +131,8 @@ security:
             - 192.168.1.0/24 # Replace with the operator LAN/VPN subnet
     rate-limit:
         enabled: true           # Enable/disable login rate limiting
-        window-minutes: 15      # Time window in minutes
-        max-attempts: 5         # Maximum login attempts per window
+        window-minutes: 1       # Failed-login window; bypassed in development
+        max-attempts: 5         # Failed player logins per IP per window
     body-limit: 10mb            # Maximum JSON request body size (for large character imports)
     cors:
         allow-all-origins: false

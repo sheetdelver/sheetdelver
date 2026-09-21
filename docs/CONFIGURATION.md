@@ -108,9 +108,9 @@ ignored. Use `npm run admin:bootstrap` or `npm run admin:recover` instead.
 
 | Setting | Required/default | Purpose |
 | --- | --- | --- |
-| `security.rate-limit.enabled` | Optional; default `true` | Enables player-login rate limiting. Admin login has additional controls described in the security runbook. |
-| `security.rate-limit.window-minutes` | Optional; default `15` | Player-login rate-limit window. |
-| `security.rate-limit.max-attempts` | Optional; default `5` | Maximum player-login attempts in one window. |
+| `security.rate-limit.enabled` | Optional; default `true` | Enables player-login rate limiting outside explicit `NODE_ENV=development`. Admin login has additional controls described in the security runbook. |
+| `security.rate-limit.window-minutes` | Optional; default `1` | Failed-login window per IP, in minutes. Existing explicit values are preserved; change a migrated `15` to `1` to shorten it. |
+| `security.rate-limit.max-attempts` | Optional; default `5` | Maximum failed player-login attempts per IP in one window. Successful logins do not count. |
 | `security.body-limit` | Optional; default `10mb` | Upper JSON-body ceiling. Sensitive routes impose smaller route-specific limits. |
 | `security.cors.allow-all-origins` | Optional; default `false` | Explicitly permits every browser origin. Avoid in normal deployments. Override with `APP_CORS_ALLOW_ALL_ORIGINS`. |
 | `security.cors.allowed-origins` | Optional; defaults to the application origin | Browser origins accepted by Express and Socket.IO. Override with comma-separated `APP_CORS_ALLOWED_ORIGINS`. |

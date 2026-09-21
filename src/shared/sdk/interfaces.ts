@@ -285,6 +285,8 @@ export interface SystemComponentStyles {
     };
     diceTray?: {
         container?: string;
+        rollModeGroup?: string;
+        rollModeBtn?: (active: boolean) => string;
         header?: string;
         textarea?: string;
         clearBtn?: string;
@@ -398,6 +400,9 @@ export interface SystemAdapter {
 
 export interface UIModuleManifest {
     info: ModuleInfo;
+    /** Client-owned presentation; callbacks must not cross the JSON status boundary. */
+    theme?: SystemThemeColors;
+    componentStyles?: SystemComponentStyles;
     sheet: () => Promise<{ default: unknown }>;
     rollModal?: () => Promise<{ default: unknown }>;
     actorPage?: () => Promise<{ default: unknown }>;

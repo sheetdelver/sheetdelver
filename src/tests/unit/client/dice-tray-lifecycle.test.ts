@@ -16,7 +16,21 @@ export function run() {
             new URL(`../../../client/ui/components/${file}`, import.meta.url), 'utf8',
         ), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
         let checked = 0;
+        let sizedPanels = 0;
         function visit(node: ts.Node) {
+            if (file === 'GlobalChat.tsx' && ts.isJsxOpeningElement(node)
+                && node.attributes.properties.some(property => ts.isJsxAttribute(property)
+                    && property.name.getText(source) === 'data-sd-panel')) {
+                const style = node.attributes.properties.find(property =>
+                    ts.isJsxAttribute(property) && property.name.getText(source) === 'style');
+                assert.ok(style && ts.isJsxAttribute(style) && style.initializer && ts.isJsxExpression(style.initializer));
+                const object = style.initializer.expression;
+                assert.ok(object && ts.isObjectLiteralExpression(object));
+                const width = object.properties.find(property => ts.isPropertyAssignment(property) && property.name.getText(source) === 'width');
+                assert.ok(width && ts.isPropertyAssignment(width));
+                assert.equal(width.initializer.getText(source), '400', 'Viewport limit must not replace the desktop width');
+                sizedPanels++;
+            }
             if (ts.isJsxSelfClosingElement(node) && node.tagName.getText(source) === 'DiceTray') {
                 const attr = node.attributes.properties.find(property =>
                     ts.isJsxAttribute(property) && property.name.getText(source) === 'onSend');
@@ -34,5 +48,6 @@ export function run() {
         }
         visit(source);
         assert.equal(checked, 1, `${file}: checked the tray send handler`);
+        if (file === 'GlobalChat.tsx') assert.equal(sizedPanels, 2, 'Chat and dice tray both retain bounded widths');
     }
 }

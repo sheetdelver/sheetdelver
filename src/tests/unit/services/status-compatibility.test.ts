@@ -145,7 +145,33 @@ async function runAdminStatusProjectionTest() {
 export async function run() {
     await runStatusProjectionTests();
     await runAdminStatusProjectionTest();
+    await runBackgroundFallbackTests();
     console.log('  - Status compatibility diagnostics: all checks passed');
+}
+
+async function runBackgroundFallbackTests() {
+    const restore = patchStatusSingletons();
+    try {
+        const cases = [
+            { world: '', system: '', scene: '', expected: 'ui/backgrounds/setup.webp' },
+            { world: '', system: 'systems/test/art.webp', scene: '', expected: 'systems/test/art.webp' },
+            { world: '', system: '', scene: 'scenes/welcome.webp', expected: 'scenes/welcome.webp' },
+            { world: 'https://cdn.example/world.webp', system: 'system.webp', scene: '', expected: 'https://cdn.example/world.webp' },
+        ];
+        for (const test of cases) {
+            worldStateStore.seed({
+                world: { id: 'test', title: 'Test', background: test.world },
+                system: { id: '', background: test.system },
+            } as Parameters<typeof worldStateStore.seed>[0], {
+                sceneData: { NUEDEFAULTSCENE0: { background: { src: test.scene } } } as Parameters<typeof worldStateStore.setSceneData>[0],
+            });
+            const status = await projectCompatibility(null);
+            const expected = test.expected.startsWith('https:') ? test.expected : 'http://foundry.test/' + test.expected;
+            assert.equal(status.system.worldBackground || status.system.background, expected);
+        }
+    } finally {
+        restore();
+    }
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

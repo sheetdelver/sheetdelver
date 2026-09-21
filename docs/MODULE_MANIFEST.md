@@ -12,6 +12,14 @@ described below.
 
 ## Operating Modes
 
+The UI manifest can export optional `theme` and `componentStyles` with SDK
+1.5.0 / `ui-extension-api` 1.3.0. These are client presentation objects, including
+style callbacks; they are not serialized manifest JSON or server configuration.
+Core scopes shared chat, previews and dice trays to the selected module. Declare
+`"ui-extension-api": ">=1.3.0 <2.0.0"` when adopting these fields. See
+[Shared UI Themes](MODULE_AUTHORING.md#shared-ui-themes) and
+[ADR-0044](adr/0044-client-owned-module-presentation.md).
+
 Modules run in one of two source categories.
 
 **Mode A - Local dev source**
