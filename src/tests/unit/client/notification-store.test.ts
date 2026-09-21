@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import type { NotificationAPI } from '../../../shared/sdk/entry-react';
 import { NotificationStore, type NotificationClock } from '../../../client/ui/components/Notifications/notificationStore';
 
 class Clock implements NotificationClock {
@@ -31,6 +32,33 @@ export function run() {
     const clock = new Clock();
     const store = new NotificationStore(clock);
     const visible = () => store.getSnapshot().notifications;
+    const sdk: NotificationAPI = {
+        addNotification: store.add, updateNotification: store.update, removeNotification: store.remove,
+    };
+    const handle = sdk.addNotification('Importing', 'warning', { title: 'Module', progress: 0, permanent: true });
+    clock.tick(90_000);
+    assert.equal(visible()[0].id, handle);
+    sdk.updateNotification(handle, {
+        content: '<b>Done</b><script>bad()</script>', html: true,
+        type: 'success', permanent: false, progress: 1, duration: 1000,
+    });
+    assert.equal(visible()[0].title, 'Module', 'updates preserve unspecified options');
+    assert.equal(visible()[0].type, 'success');
+    assert.ok(!String(visible()[0].safeHtml).includes('script'));
+    clock.tick(999);
+    assert.equal(visible().length, 1);
+    clock.tick(1);
+    assert.equal(sdk.updateNotification(handle, {}), false);
+    sdk.removeNotification(handle);
+    const cleared = sdk.addNotification('Old session', 'info', { permanent: true });
+    store.clear();
+    const fresh = sdk.addNotification('New session');
+    assert.notEqual(fresh, cleared);
+    assert.equal(sdk.updateNotification(cleared, { content: 'Late completion' }), false);
+    sdk.removeNotification(cleared);
+    assert.equal(visible()[0].id, fresh);
+    sdk.removeNotification(fresh);
+
     const a = store.add('first'), b = store.add('second'), c = store.add('third');
     const d = store.add('queued');
     assert.equal(visible().length, 3);

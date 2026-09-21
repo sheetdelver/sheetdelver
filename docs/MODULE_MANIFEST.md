@@ -482,6 +482,16 @@ export default function MySheet({ actorId }: { actorId: string }) {
 }
 ```
 
+Notification feedback also flows through `useSDK()`: `addNotification` returns
+an ephemeral ID, `updateNotification(id, patch)` updates it, and
+`removeNotification(id)` dismisses it. Lifecycle methods, warning severity and
+title/duration/permanent/progress options require
+`compatibility.apiContracts["ui-extension-api"]` of `">=1.2.0 <2.0.0"`
+(SDK 1.4.0). Existing add-only consumers retain their current minimum. Server
+`module-api` and `roll-engine-api` requirements do not change for this UI feature.
+See [Notifications and Chat](NOTIFICATIONS.md) and the
+[module authoring example](MODULE_AUTHORING.md#notifications-and-chat-feedback).
+
 `useSDK().events` replaces the older actor-only `onActorChanged` callback. The
 stable signals are `world:ready`, `world:teardown`, `connection:changed`,
 `module:initialized`, `module:disposed`, `document:changed`,

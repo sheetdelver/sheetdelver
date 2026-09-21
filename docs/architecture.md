@@ -112,6 +112,10 @@ For actors, the platform performs one system-client fetch during bootstrap, seed
 - **NotificationProvider**: Owns transient application feedback, independently
   from chat. Its bounded browser queue supports update, progress, persistence,
   pause and teardown. Chat previews share its display viewport, not its queue.
+  SDKProvider forwards stable add/update/remove callbacks from this same store;
+  shared SDK types define the client contract without importing host UI or server
+  implementations. Queue clearing and viewport ownership remain host-only
+  ([ADR-0043](adr/0043-sdk-notification-lifecycle.md)).
   See [Notifications and Chat](NOTIFICATIONS.md) and [ADR-0040](adr/0040-unified-player-notifications.md).
 - **PlayerSettingsDialog**: Lives in `components/Settings/`, with open state owned
   by UIProvider. Chat & Rolls composes chat controls and the dice panel; General

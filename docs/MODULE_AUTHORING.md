@@ -431,9 +431,41 @@ See [3D Dice Presentation](dice-presentation.md) and
 
 ## Notifications and Chat Feedback
 
-Use `useSDK().addNotification(message, type, { html })` for application feedback
-(info, success or error). Text is literal by default; opt-in HTML is sanitized
-by the host. Do not implement module-owned toast queues or chat previews.
+Use `useSDK()` for application feedback. Text is literal by default; opt-in HTML
+is sanitized by the host. Do not implement module-owned toast queues or previews.
+There is no separate public `useNotifications()` hook.
+
+With SDK 1.4.0 / `ui-extension-api` 1.2.0, notifications support info, success,
+warning and error; options include title, html, duration (milliseconds),
+permanent and progress (0-1). Retain the returned ID to update or dismiss:
+
+```tsx
+const { addNotification, updateNotification, removeNotification } = useSDK();
+
+async function exportCharacter() {
+    const id = addNotification('Preparing export', 'info', { title: 'Export', progress: 0 });
+    try {
+        await saveExport();
+        updateNotification(id, { content: 'Export ready', type: 'success', progress: 1 });
+    } catch {
+        updateNotification(id, { content: 'Export failed', type: 'error', progress: 1 });
+    }
+    // For cancellation, use removeNotification(id).
+}
+```
+
+Declare `"ui-extension-api": ">=1.2.0 <2.0.0"` when using these additions.
+Existing add-only modules need no manifest change. Notification IDs are ephemeral;
+updates return false after expiry, dismissal or session cleanup. Do not recreate
+a notice after a late update fails. Incomplete progress pauses expiry; completion
+resumes it unless permanent is true. Only dismiss your own operation's notice.
+Host queue clearing, replacement keys and viewport controls are not module APIs.
+
+Tests can inject `createMockNotifications()` from `@sheet-delver/sdk/testing`
+via `createMockSdkContext({ overrides: ... })` using its three public methods.
+Inspect `getNotifications()` and call `clear()` to simulate cleanup. The fake
+records state only, without rendering, sanitization, queue limits or timers.
+The default mock SDK also supports IDs, updates and removal.
 
 Post conversations and rolls through the existing request-bound runtime chat
 and roll APIs. The host displays authorized ChatMessage documents in the log
@@ -442,6 +474,6 @@ additional success toast for a roll already posted to chat. The host's
 useActorSheet helper recognizes persisted chat acknowledgements; non-chat
 responses and errors retain feedback.
 
-Warning, progress, update handles and persistence are currently host-only,
-not new SDK guarantees. SDK contract versions are unchanged. See
-[Notifications and Chat](NOTIFICATIONS.md) for ownership and lifecycle details.
+See [Notifications and Chat](NOTIFICATIONS.md) for timing, sanitization and
+lifecycle details, and [ADR-0043](adr/0043-sdk-notification-lifecycle.md) for the
+contract decision. Notification calls are client-only, never server runtime APIs.
