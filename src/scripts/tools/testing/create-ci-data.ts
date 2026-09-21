@@ -36,7 +36,7 @@ export function createCiSettingsDocument() {
         security: {
             'rate-limit': {
                 enabled: true,
-                'window-minutes': 15,
+                'window-minutes': 1,
                 'max-attempts': 5,
             },
             'body-limit': '10mb',

@@ -272,7 +272,7 @@ export async function loadConfig(): Promise<AppConfig | null> {
                 security: {
                     rateLimit: {
                         enabled: rateLimit.enabled ?? true,
-                        windowMinutes: rateLimit['window-minutes'] ?? 15,
+                        windowMinutes: rateLimit['window-minutes'] ?? 1,
                         maxAttempts: rateLimit['max-attempts'] ?? 5,
                     },
                     bodyLimit: security['body-limit'] ?? '10mb',

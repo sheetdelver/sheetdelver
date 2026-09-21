@@ -29,6 +29,7 @@ import { run as runReleasePublish } from './releases/tag-release-publish.test';
 import { run as runLocalReleaseTag } from './releases/tag-release.test';
 
 // ── services ──────────────────────────────────────────────────────────────────
+import { run as runPlayerLoginLimiter } from './services/player-login-limiter.test';
 import { run as runStatusSanitize } from './services/status-sanitize.test';
 import { run as runLocalhostPolicy } from './services/localhost-policy.test';
 import { run as runAuthStatusSmoke } from './services/auth-status-smoke.test';
@@ -185,6 +186,7 @@ async function runAllUnitTests() {
     await runLocalReleaseTag();
     await runReleasePublish();
     runStatusSanitize();
+    await runPlayerLoginLimiter();
     runLocalhostPolicy();
     runSyncTokenService();
     await runEngagementService();

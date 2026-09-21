@@ -32,7 +32,7 @@ export default function GlobalChat(props: GlobalChatProps) {
     const onToggleDiceTray = () => setDiceTrayOpen(!isDiceTrayOpen);
     const setIsChatOpen = (open: boolean) => setChatOpen(open);
 
-    const s = system?.config?.componentStyles?.globalChat || {
+    const s = {
         window: "bg-neutral-900/95 backdrop-blur-xl border border-white/20 shadow-2xl rounded-xl",
         header: "flex justify-between items-center bg-white/10 p-3 border-b border-white/10",
         title: "text-[10px] font-bold uppercase text-white/60 pl-2 tracking-widest",
@@ -46,7 +46,8 @@ export default function GlobalChat(props: GlobalChatProps) {
                 : (isOpen ? 'bg-white/10 text-white rotate-90' : 'bg-amber-500 text-black hover:bg-amber-400')
             }
         `,
-        closeBtn: "text-white/40 hover:text-white transition-colors"
+        closeBtn: "text-white/40 hover:text-white transition-colors",
+        ...system?.config?.componentStyles?.globalChat,
     };
 
     // Use controlled state from context
@@ -90,7 +91,7 @@ export default function GlobalChat(props: GlobalChatProps) {
         <div
             ref={containerRef}
             data-step={step}
-            className={`fixed bottom-24 left-1/2 -translate-x-1/2 sm:left-auto sm:right-6 sm:translate-x-0 z-[100] flex flex-col items-center sm:items-end gap-4 pointer-events-none $"font-inter" `}
+            className={`${system?.id ? `sdk-module--${system.id}` : ''} fixed bottom-24 left-1/2 -translate-x-1/2 sm:left-auto sm:right-6 sm:translate-x-0 z-[100] flex flex-col items-center sm:items-end gap-4 pointer-events-none font-inter `}
         >
 
             {/* --- WINDOWS --- */}
@@ -98,9 +99,8 @@ export default function GlobalChat(props: GlobalChatProps) {
 
                 {/* Dice Window (Conditional) */}
                 {!props.hideDice && (
-                    <div ref={isDiceOpen ? diceFeedbackAnchor : undefined} className={`
+                    <div data-sd-panel="dice-tray" ref={isDiceOpen ? diceFeedbackAnchor : undefined} style={{ width: 400, maxWidth: 'calc(100vw - 2rem)' }} className={`
                         ${s.window}
-                        w-[calc(100vw-2rem)] max-w-[400px]
                         transition-all duration-300 origin-bottom
                         ${isDiceOpen
                             ? 'opacity-100 scale-100 pointer-events-auto'
@@ -126,10 +126,9 @@ export default function GlobalChat(props: GlobalChatProps) {
                 )}
 
                 {/* Chat Window */}
-                <div className={`
+                <div data-sd-panel="chat" style={{ width: 400, maxWidth: 'calc(100vw - 2rem)' }} className={`
                     ${s.window}
                     ${s.chatWindow}
-                    w-[calc(100vw-2rem)] max-w-[400px]
                     flex flex-col
                     transition-all duration-300 origin-bottom
                     ${isChatOpen

@@ -123,7 +123,8 @@ export function createStatusService(deps: StatusServiceDeps) {
                             const sceneData = worldStateStore.getSceneData();
                             return sceneData?.NUEDEFAULTSCENE0?.background?.src;
                         })() ||
-                        '',
+                        // Foundry v13/v14 supply this default in CSS, not world data.
+                        'ui/backgrounds/setup.webp',
                         systemClient.url
                     ),
                     nextSession: gameData.world?.nextSession,

@@ -13,9 +13,9 @@ import { ChatMessageCard, type ChatActions } from './ChatMessageCard';
 import { messageId } from './chatMessage';
 import type { defaultChatStyles } from './chatStyles';
 
-export function ChatPreviewCard({ message, duration, dismiss, openChat, foundryUrl, styles, actions }: {
+export function ChatPreviewCard({ message, duration, dismiss, openChat, foundryUrl, styles, actions, moduleId }: {
     message: ChatMessageDto; duration: number; dismiss: () => void; openChat: () => void;
-    actions?: ChatActions; foundryUrl?: string; styles?: Partial<typeof defaultChatStyles>;
+    moduleId?: string | null; actions?: ChatActions; foundryUrl?: string; styles?: Partial<typeof defaultChatStyles>;
 }) {
     const [hovered, setHovered] = useState(false);
     const [focused, setFocused] = useState(false);
@@ -35,7 +35,7 @@ export function ChatPreviewCard({ message, duration, dismiss, openChat, foundryU
         return () => { clearTimeout(timer); remaining.current = Math.max(0, remaining.current - (Date.now() - start)); };
     }, [duration, hovered, focused, hidden, dismiss]);
     return <section aria-label="New chat message" role="status" aria-atomic="true"
-        className="hud-panel pointer-events-auto shrink-0 rounded-md border border-neutral-600 bg-neutral-900 text-white shadow-lg max-h-[45dvh] overflow-auto"
+        className={`${moduleId ? `sdk-module--${moduleId}` : ''} hud-panel pointer-events-auto shrink-0 rounded-md border border-neutral-600 bg-neutral-900 text-white shadow-lg max-h-[45dvh] overflow-auto`}
         onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
         onFocusCapture={() => setFocused(true)}
         onBlurCapture={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocused(false); }}>
@@ -54,5 +54,5 @@ export function ChatPreview() {
     if (!viewport || !preview || !toastSettings.enabled || isChatOpen) return null;
     return createPortal(<ChatPreviewCard key={messageId(preview)} message={preview} duration={toastSettings.durationMs}
         dismiss={dismissPreview} openChat={() => setChatOpen(true)} foundryUrl={foundryUrl}
-        styles={system?.config?.componentStyles?.chat} actions={{ onSend: handleChatSend }} />, viewport);
+        moduleId={system?.id} styles={system?.config?.componentStyles?.chat} actions={{ onSend: handleChatSend }} />, viewport);
 }

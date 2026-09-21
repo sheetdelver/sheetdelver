@@ -18,6 +18,7 @@ import {
 import * as foundryApi from '@client/ui/api/foundryApi';
 import { useActorRealtime } from '@client/ui/hooks/useActorRealtime';
 import { useCombatRealtime } from '@client/ui/hooks/useCombatRealtime';
+import { applyModulePresentation } from './modulePresentation';
 import { useModuleHotReload } from '@client/ui/hooks/useModuleHotReload';
 import { useSharedContentRealtime } from '@client/ui/hooks/useSharedContentRealtime';
 import { useSystemStatusRealtime } from '@client/ui/hooks/useSystemStatusRealtime';
@@ -252,11 +253,13 @@ export function FoundryProvider({ children }: { children: ReactNode }) {
     useUserRosterRealtime({ appSocket, token, users, setUsers });
     useCombatRealtime({ appSocket, step, token, fetchCombats });
 
+    const presentedSystem = React.useMemo(() => applyModulePresentation(system, activeUIModule), [system, activeUIModule]);
+
     const contextValue = React.useMemo(() => ({
         step, setStep,
         token, setToken,
         users, currentUser,
-        system, worldId: lastWorldId, messages,
+        system: presentedSystem, worldId: lastWorldId, messages,
         appVersion,
         activeUIModule,
         actorCards,
@@ -268,7 +271,7 @@ export function FoundryProvider({ children }: { children: ReactNode }) {
         combats, fetchCombats,
         appSocket
     }), [
-        step, setStep, token, users, currentUser, system, lastWorldId, messages,
+        step, setStep, token, users, currentUser, presentedSystem, lastWorldId, messages,
         appVersion, activeUIModule, actorCards, ownedActors, readOnlyActors,
         sharedContent, combats, appSocket, isConfigured,
         fetchActorCards, handleLogin, handleChatSend, handleLogout, fetchActors, fetchCombats, setToken

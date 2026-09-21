@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useId, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { trackDiceViewport } from './viewport';
 import { logger } from '@shared/utils/logger';
 import { createRendererDisposer } from './disposeRenderer';
 import type DiceBox from '@3d-dice/dice-box-threejs';
@@ -18,6 +20,9 @@ export function DiceAnimation({ roll, sound = defaultDiceSound, appearance = def
     onError: (error: unknown) => void;
 }) {
     const id = `sd-dice-${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`;
+    const overlay = useRef<HTMLDivElement>(null);
+    const [portalHost, setPortalHost] = useState<HTMLElement | null>(null);
+    useEffect(() => { setPortalHost(document.body); }, []);
     // The component is keyed by roll ID: appearance is fixed for each throw, unlike live volume.
     const [throwAppearance] = useState(() => normalizeDiceAppearance(appearance));
     const [throwBehavior] = useState(() => normalizeDiceBehavior(behavior));
@@ -31,6 +36,8 @@ export function DiceAnimation({ roll, sound = defaultDiceSound, appearance = def
     useEffect(() => { callbacks.current = { onDone, onError }; }, [onDone, onError]);
 
     useEffect(() => {
+        if (!portalHost || !overlay.current) return;
+        const element = overlay.current;
         let cancelled = false;
         let box: DiceBox | undefined;
         let dispose: (() => void) | undefined;
@@ -44,14 +51,16 @@ export function DiceAnimation({ roll, sound = defaultDiceSound, appearance = def
             finish();
         }, 12_000);
         // End the current throw on a size change instead of retaining upstream resize listeners/resources.
-        window.addEventListener('resize', finish);
+        const stopTracking = trackDiceViewport(element, window, finish);
+        // A manual, non-modal popover sits above native dialogs without taking focus or clicks.
+        element.showPopover?.();
         void (async () => {
             logger.debug('DicePresentation | Loading renderer');
             const { default: Renderer } = await import('@3d-dice/dice-box-threejs');
             if (cancelled) return;
             box = new Renderer(`#${id}`, {
                 sounds: false, shadows: !throwBehavior.lowEffects,
-                ...diceAppearanceOptions(throwAppearance, window.innerWidth),
+                ...diceAppearanceOptions(throwAppearance, element.clientWidth),
             });
             dispose = createRendererDisposer(box);
             box.resizeWorld = () => {};
@@ -83,14 +92,16 @@ export function DiceAnimation({ roll, sound = defaultDiceSound, appearance = def
             cancelled = true;
             clearTimeout(timeout);
             clearTimeout(linger);
-            window.removeEventListener('resize', finish);
+            stopTracking();
+            element.hidePopover?.();
             audio.current?.dispose();
             audio.current = null;
             dispose?.();
         };
-    }, [id, roll, throwAppearance, throwBehavior]);
+    }, [id, roll, throwAppearance, throwBehavior, portalHost]);
 
-    return <div id={id} aria-hidden="true" data-dice-overlay="" data-dice-style={throwAppearance.style} data-dice-size={throwAppearance.size}
+    return portalHost ? createPortal(<div ref={overlay} id={id} popover="manual" aria-hidden="true" data-dice-overlay="" data-dice-style={throwAppearance.style} data-dice-size={throwAppearance.size}
         data-dice-low-effects={throwBehavior.lowEffects} data-dice-duration={throwBehavior.displayDurationMs}
-        style={{ position: 'fixed', inset: 0, zIndex: 90, pointerEvents: 'none', overflow: 'hidden' }} />;
+        style={{ position: 'fixed', inset: 'auto', margin: 0, padding: 0, border: 0, background: 'transparent',
+            zIndex: 10000, pointerEvents: 'none', overflow: 'hidden' }} />, portalHost) : null;
 }

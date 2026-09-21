@@ -5,12 +5,13 @@ export function createLoginLimiter(config: AppConfig) {
     return rateLimit({
         windowMs: config.security.rateLimit.windowMinutes * 60 * 1000,
         max: config.security.rateLimit.maxAttempts,
+        skipSuccessfulRequests: true,
         message: {
-            error: `Too many login attempts. Please try again after ${config.security.rateLimit.windowMinutes} minutes.`
+            error: `Too many failed login attempts. Please try again after ${config.security.rateLimit.windowMinutes} minutes.`
         },
         standardHeaders: true,
         legacyHeaders: false,
-        skip: () => !config.security.rateLimit.enabled,
+        skip: () => !config.security.rateLimit.enabled || process.env.NODE_ENV === 'development',
     });
 }
 

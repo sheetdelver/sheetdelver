@@ -143,6 +143,27 @@ module version. The host's canonical values are maintained in
 `SDK_VERSION` and `API_CONTRACT_VERSIONS` from `@sheet-delver/sdk`;
 modules must not import the host's internal source file.
 
+## Shared UI Themes
+
+SDK 1.5.0 / `ui-extension-api` 1.3.0 adds optional `theme` and
+`componentStyles` to the UI manifest. Export presentation there, not from the
+server adapter: callbacks such as `msgContainer`, `rollModeBtn` and `advBtn`
+cannot survive JSON status transport. The active UI manifest owns these
+callbacks, and Core applies the module's CSS scope to shared chat, previews and
+dice trays. Keep server imports out of this client entry.
+
+```ts
+const uiManifest: UIModuleManifest = {
+    info,
+    componentStyles: myTheme,
+    sheet: () => import('../src/ui/Sheet'),
+};
+```
+
+Adopters require `"ui-extension-api": ">=1.3.0 <2.0.0"` and must pin their
+CI/release tooling to a released Core that supports it. Existing modules that
+do not use these fields retain their minimums. See [ADR-0044](adr/0044-client-owned-module-presentation.md).
+
 ## Adapter
 
 The logic entry exports an adapter class. Override only the methods the system needs.

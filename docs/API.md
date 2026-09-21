@@ -12,6 +12,16 @@ Examples use abstract ids such as `<moduleId>`, `<actorId>`, and
 
 ## Authentication
 
+Player login throttling counts failed requests per IP, not successful logins.
+It is bypassed only in explicit development mode. The default window is one
+minute with five failures; a 429 response includes `Retry-After`. Explicit
+configuration values remain authoritative. See [Configuration](CONFIGURATION.md).
+
+Shared UI themes are a client SDK surface, not a REST payload. SDK 1.5.0 /
+`ui-extension-api` 1.3.0 loads `theme` and `componentStyles` from the UI manifest
+so executable style callbacks never need serialization. See
+[Shared UI Themes](MODULE_AUTHORING.md#shared-ui-themes).
+
 Browser login sets the `sheet-delver-session` HttpOnly, SameSite=Strict cookie;
 the reusable session credential is never returned to browser JavaScript.
 Trusted non-browser callers can instead present:

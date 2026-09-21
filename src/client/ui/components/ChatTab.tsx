@@ -65,8 +65,8 @@ export default function ChatTab({ messages, onSend, foundryUrl, onRoll, hideDice
         } catch { /* The caller owns error feedback; preserve the draft. */ }
         finally { setSending(false); }
     };
-    return <div className="flex flex-col h-full min-h-0 gap-3">
-        <div className={s.container + ' flex-1 min-h-0 overflow-hidden !rounded-md p-3'}>
+    return <div className={`${system?.id ? `sdk-module--${system.id}` : ''} flex flex-col h-full min-h-0 gap-3`}>
+        <div className={s.container + ' flex flex-col flex-1 min-h-0 overflow-hidden !rounded-md p-3'}>
             {!hideHeader && <h3 className={s.header}>Chat Log</h3>}
             <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto" aria-label="Chat messages"
                 onScroll={() => {
@@ -81,9 +81,9 @@ export default function ChatTab({ messages, onSend, foundryUrl, onRoll, hideDice
                 </div>
             </div>
             <div className="flex items-center justify-between py-2">
-                <button type="button" title="Oldest message" aria-label="Oldest message" className="p-2 rounded hover:bg-white/10"
+                <button type="button" title="Oldest message" aria-label="Oldest message" className={s.scrollButton + " p-2 rounded"}
                     onClick={() => { atBottom.current = false; scrollRef.current?.scrollTo({ top: 0 }); }}><ArrowUp size={18} /></button>
-                <button type="button" title="Latest message" aria-label="Latest message" className="flex items-center gap-2 p-2 rounded hover:bg-white/10"
+                <button type="button" title="Latest message" aria-label="Latest message" className={s.scrollButton + " flex items-center gap-2 p-2 rounded"}
                     onClick={scrollBottom}>{newMessages && <span className="text-xs text-amber-300">New messages</span>}<ArrowDown size={18} /></button>
             </div>
             <form className="flex gap-2" onSubmit={event => { event.preventDefault(); void send(); }}>
