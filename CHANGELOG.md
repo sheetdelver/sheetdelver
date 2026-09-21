@@ -1,4 +1,8 @@
 # Releases
+## 0.13.0
+- Align client module themes
+- Fixed mobile dice presentation
+
 ## 0.12.1
 - Expose notification lifecycle controls to SDK
 
