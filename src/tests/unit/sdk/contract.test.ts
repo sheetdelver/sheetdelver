@@ -4,12 +4,13 @@ import { renderToStaticMarkup } from 'react-dom/server';
 
 // A fixture module uses ONLY the public SDK surface (the three entry points), exercised
 // against @sheet-delver/sdk/testing — the contract test required by ADR-0027 decision 30.
-import { capabilities } from '../../../shared/sdk';
+import { capabilities, type NotificationAPI, type NotificationId, type NotificationOptions, type NotificationUpdate } from '../../../shared/sdk';
 import { useSDK, useActorSheet, createActorPage, type ActorSheetProps } from '../../../shared/sdk/entry-react';
 import {
     createMockModuleRuntime,
     createMockSdkContext,
     createMockSdkEvents,
+    createMockNotifications,
     MockSDKProvider,
 } from '../../../shared/sdk/testing';
 
@@ -93,8 +94,44 @@ function runNavigationContract() {
     assert.deepEqual(seen, ['push:/tools/mock/generator', 'replace:/actors/a1']);
 }
 
+function runNotificationContract() {
+    const notices = createMockNotifications();
+    const sdk = createMockSdkContext({ overrides: {
+        addNotification: notices.addNotification,
+        updateNotification: notices.updateNotification,
+        removeNotification: notices.removeNotification,
+    } });
+    const api: NotificationAPI = sdk;
+    const options: NotificationOptions = { title: 'Import', progress: 0, permanent: true };
+    const id: NotificationId = api.addNotification('Importing', 'warning', options);
+    const patch: NotificationUpdate = { content: 'Done', type: 'success', progress: 1, permanent: false };
+    assert.equal(api.updateNotification(id, patch), true);
+    assert.deepEqual(notices.getNotifications(), [{
+        id, content: 'Done', type: 'success', title: 'Import', progress: 1, permanent: false,
+    }]);
+    const copy = notices.getNotifications();
+    copy[0].content = 'should not mutate the fake';
+    assert.equal(notices.getNotifications()[0].content, 'Done');
+    api.removeNotification(id);
+    api.removeNotification(id);
+    assert.equal(api.updateNotification(id, patch), false);
+    const next = api.addNotification('Legacy add-only call');
+    assert.ok(next > id);
+    notices.clear();
+    assert.equal(api.updateNotification(next, patch), false);
+    assert.ok(api.addNotification('Next session') > next, 'clearing never reuses stale handles');
+
+    const defaults = createMockSdkContext();
+    const defaultId = defaults.addNotification('Default fake');
+    assert.equal(defaults.updateNotification(defaultId, { type: 'error' }), true);
+    defaults.removeNotification(defaultId);
+    assert.equal(defaults.updateNotification(defaultId, {}), false);
+    assert.equal('clearNotifications' in sdk, false);
+    assert.equal('getNotifications' in sdk, false);
+}
+
 function runCapabilityContract() {
-    for (const cap of ['documents', 'rolls', 'compendium', 'settings', 'assets', 'navigation', 'events'] as const) {
+    for (const cap of ['documents', 'rolls', 'compendium', 'settings', 'assets', 'navigation', 'events', 'notification-lifecycle'] as const) {
         assert.equal(capabilities.supports(cap), true, `capability ${cap} supported`);
     }
 }
@@ -105,6 +142,7 @@ export async function run() {
     runRealtimeContract();
     runNavigationContract();
     runCapabilityContract();
+    runNotificationContract();
     console.log('  - SDK contract (mock host + fixture module): all checks passed');
 }
 

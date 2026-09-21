@@ -2,7 +2,7 @@
 
 import React, { useMemo, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { SDKContext, SDKComponentsContext } from '@shared/sdk/react';
+import { SDKContext, SDKComponentsContext, type SDKContextValue } from '@shared/sdk/react';
 import { useFoundry } from '@client/ui/context/FoundryContext';
 import { useUI } from '@client/ui/context/UIContext';
 import { useConfig } from '@client/ui/context/ConfigContext';
@@ -47,15 +47,9 @@ export function SDKProvider({ children, moduleId }: { children: React.ReactNode;
     const { token, currentUser, system, worldId, step, appSocket } = useFoundry();
     const { isDiceTrayOpen, toggleDiceTray, isChatOpen, setChatOpen } = useUI();
     const { foundryUrl, resolveImageUrl } = useConfig();
-    const { addNotification: addToast } = useNotifications();
+    const { addNotification, updateNotification, removeNotification } = useNotifications();
 
     const isConnected = step === 'dashboard';
-
-    const addNotification = useCallback((
-        message: string,
-        type: 'info' | 'success' | 'error' = 'info',
-        options?: { html?: boolean },
-    ) => addToast(message, type, options), [addToast]);
 
     const fetchWithAuth = useCallback(async (
         input: string,
@@ -144,7 +138,7 @@ export function SDKProvider({ children, moduleId }: { children: React.ReactNode;
         return () => setModuleLogSink(null);
     }, [logger]);
 
-    const sdkValue = useMemo(() => ({
+    const sdkValue = useMemo<SDKContextValue>(() => ({
         token,
         currentUser: currentUser
             ? {
@@ -168,6 +162,8 @@ export function SDKProvider({ children, moduleId }: { children: React.ReactNode;
         navigate,
         replace,
         addNotification,
+        updateNotification,
+        removeNotification,
         isDiceTrayOpen,
         toggleDiceTray,
         isChatOpen,
@@ -179,6 +175,7 @@ export function SDKProvider({ children, moduleId }: { children: React.ReactNode;
         token, currentUser, system, isConnected,
         resolvedModuleId, worldId, documents,
         foundryUrl, resolveImageUrl, assetUrl, navigate, replace, addNotification,
+        updateNotification, removeNotification,
         isDiceTrayOpen, toggleDiceTray, isChatOpen, setChatOpen,
         fetchWithAuth, eventsPublic, logger,
     ]);

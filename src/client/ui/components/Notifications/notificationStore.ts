@@ -1,12 +1,14 @@
 import { sanitizeRichHtml, type SafeHtml } from '@shared/security/safeHtml';
 
-export type NotificationType = 'info' | 'success' | 'warning' | 'error';
-export interface NotificationOptions {
-    title?: string;
-    html?: boolean;
-    duration?: number;
-    permanent?: boolean;
-    progress?: number;
+import type {
+    NotificationOptions as SdkNotificationOptions,
+    NotificationType,
+    NotificationUpdate as SdkNotificationUpdate,
+} from '@shared/sdk/notifications';
+
+export type { NotificationType } from '@shared/sdk/notifications';
+export interface NotificationOptions extends SdkNotificationOptions {
+    /** Host-owned replacement key, not part of the public module API. */
     key?: string;
 }
 export interface Notification extends NotificationOptions {
@@ -17,7 +19,7 @@ export interface Notification extends NotificationOptions {
     permanent: boolean;
     safeHtml?: SafeHtml;
 }
-export type NotificationUpdate = NotificationOptions & { content?: string; type?: NotificationType };
+export type NotificationUpdate = SdkNotificationUpdate & Pick<NotificationOptions, 'key'>;
 export interface NotificationSnapshot { notifications: readonly Notification[]; queued: number }
 export const EMPTY_NOTIFICATIONS: NotificationSnapshot = { notifications: [], queued: 0 };
 export const MAX_VISIBLE_NOTIFICATIONS = 3;

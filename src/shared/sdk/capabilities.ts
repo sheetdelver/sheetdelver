@@ -17,6 +17,7 @@ export const SDK_CAPABILITIES = [
     'settings',    // useModuleSettings
     'assets',      // assetUrl()
     'navigation',  // navigate() / replace()
+    'notification-lifecycle', // useSDK notification handles, updates and dismissal
     'events',      // SDK.events signal bus
 ] as const;
 

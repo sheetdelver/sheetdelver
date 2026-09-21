@@ -62,3 +62,5 @@ export type {
     UseNotifications,
     UseConfig,
 } from './ui';
+
+export type { NotificationId, NotificationType, NotificationOptions, NotificationUpdate, NotificationAPI } from './notifications';

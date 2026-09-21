@@ -107,3 +107,5 @@ export type { SdkCapability } from './capabilities';
 // ---------------------------------------------------------------------------
 
 export { SDK_VERSION, API_CONTRACT_VERSIONS } from './contractVersions';
+
+export type { NotificationId, NotificationType, NotificationOptions, NotificationUpdate, NotificationAPI } from './notifications';

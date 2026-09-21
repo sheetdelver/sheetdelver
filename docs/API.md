@@ -798,4 +798,6 @@ contract. See [ADR-0042](adr/0042-dice-presentation-followups.md).
 System notifications are browser-local application feedback. They have no
 document endpoint, secondary store or automatic broadcast. Dismissing a chat
 preview does not delete its source ChatMessage. No new transport or API version
-is introduced by ADR-0040. See [Notifications and Chat](NOTIFICATIONS.md).
+is introduced by ADR-0040. ADR-0043 exposes client-only add/update/remove methods
+through `useSDK()` in SDK 1.4.0 / `ui-extension-api` 1.2.0; no REST endpoint or
+server contract changes. See [Notifications and Chat](NOTIFICATIONS.md).

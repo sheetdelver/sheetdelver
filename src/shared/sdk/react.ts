@@ -3,6 +3,7 @@ import type { ComponentType } from 'react';
 import type { RealtimeActorChangedPayload } from './contracts';
 import type { ClientDocumentSource } from './client-documents';
 import type { SdkEvents } from './events';
+import type { NotificationAPI } from './notifications';
 
 // ---------------------------------------------------------------------------
 // Logger — client-side, for use in module UI components
@@ -19,7 +20,7 @@ export interface ModuleClientLogger {
 // SDK context value — provided to all module components at runtime
 // ---------------------------------------------------------------------------
 
-export interface SDKContextValue {
+export interface SDKContextValue extends NotificationAPI {
     // Auth / identity
     /** @deprecated Non-secret session-readiness marker; use fetchWithAuth for requests. */
     token: string | null;
@@ -47,13 +48,6 @@ export interface SDKContextValue {
     // routes; modules do not import the host framework or hard-reload the page.
     navigate: (target: string) => void;
     replace: (target: string) => void;
-
-    // Notifications
-    addNotification: (
-        message: string,
-        type?: 'info' | 'success' | 'error',
-        options?: { html?: boolean },
-    ) => void;
 
     // Global UI state
     isDiceTrayOpen: boolean;

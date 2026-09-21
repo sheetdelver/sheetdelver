@@ -1,4 +1,5 @@
 import { strict as assert } from 'node:assert';
+import { API_CONTRACT_VERSIONS } from '../../../shared/sdk';
 import { resolveModuleCompatibility } from '@modules/registry/compatibilityResolver';
 
 export function run() {
@@ -8,6 +9,18 @@ export function run() {
         'ui-extension-api': '1.0.0',
         'roll-engine-api': '1.0.0',
     };
+
+    const lifecycleRequirement = { 'ui-extension-api': '>=1.2.0 <2.0.0' };
+    const lifecycleCompatibility = (provided: Record<string, string>) => resolveModuleCompatibility({
+        coreVersion: fixtureCoreVersion, providedApiContracts: provided,
+        requiredApiContracts: lifecycleRequirement,
+    });
+    assert.equal(lifecycleCompatibility({ ...API_CONTRACT_VERSIONS, 'ui-extension-api': '1.1.0' }).compatible, false);
+    assert.equal(lifecycleCompatibility(API_CONTRACT_VERSIONS).compatible, true);
+    assert.equal(resolveModuleCompatibility({
+        coreVersion: fixtureCoreVersion, providedApiContracts: API_CONTRACT_VERSIONS,
+        requiredApiContracts: { 'ui-extension-api': '>=1.0.0 <2.0.0' },
+    }).compatible, true, 'existing add-only modules remain compatible');
 
     const noRequirements = resolveModuleCompatibility({
         coreVersion: fixtureCoreVersion,

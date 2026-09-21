@@ -91,6 +91,12 @@ aggregate public SDK changes.
 
 When changing a contract:
 
+For example, notification lifecycle methods on `useSDK()` advance only the
+`ui-extension-api` contract and aggregate SDK version, not `module-api` or
+`roll-engine-api`. Keep shared signatures in `src/shared/sdk/notifications.ts`;
+the host and SDK mock implement them without a second production queue. See
+[Notifications and Chat](NOTIFICATIONS.md).
+
 1. Update `src/shared/sdk/contractVersions.ts`.
 2. Update the minimum range in every module that adopts the new surface.
 3. Update module-facing documentation and scaffold defaults when the baseline

@@ -121,7 +121,7 @@ export function run() {
         compatibility: {
             apiContracts: {
                 'module-api': '>=1.0.0 <2.0.0',
-                'ui-extension-api': '=1.1.0',
+                'ui-extension-api': '>=1.1.0 <2.0.0',
             },
         },
     }, fixtureCoreVersion);

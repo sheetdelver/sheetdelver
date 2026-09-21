@@ -1,3 +1,4 @@
+import type { NotificationAPI } from './notifications';
 import type { UserSession } from './contracts';
 import type { SystemComponentStyles } from './interfaces';
 
@@ -81,14 +82,8 @@ export interface UseUI {
     setChatOpen: (open: boolean) => void;
 }
 
-/** Describes what useNotifications() provides — the platform toast system. */
-export interface UseNotifications {
-    addNotification: (
-        message: string,
-        type?: 'info' | 'success' | 'error',
-        options?: { html?: boolean }
-    ) => void;
-}
+/** Notification methods supplied by useSDK(); there is no separate public hook. */
+export type UseNotifications = NotificationAPI;
 
 /**
  * Describes what useConfig() provides — the Foundry base URL and image resolver.

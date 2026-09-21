@@ -17,6 +17,7 @@ import type {
 import type { DrawResult } from './utils';
 import { buildModuleAssetUrl } from './utils';
 import { createChatCardMessage } from './chatCard';
+import type { NotificationAPI, NotificationId, NotificationOptions, NotificationType } from './notifications';
 import { SDKContext, SDKComponentsContext } from './react';
 import type { SDKContextValue, SDKComponentsValue } from './react';
 import type { ClientDocumentSource, DocumentSnapshot } from './client-documents';
@@ -191,6 +192,42 @@ export function createMockSdkEvents(): SdkEvents & { emit<S extends SdkSignal>(s
     };
 }
 
+export interface MockNotification extends NotificationOptions {
+    id: NotificationId;
+    content: string;
+    type: NotificationType;
+}
+
+/** Records lifecycle calls only: no rendering, sanitization, queue policy or timers. */
+export function createMockNotifications(): NotificationAPI & {
+    getNotifications(): MockNotification[];
+    clear(): void;
+} {
+    let nextId = 0;
+    const notices = new Map<NotificationId, MockNotification>();
+    return {
+        addNotification(content, type = 'info', options = {}) {
+            const id = ++nextId;
+            notices.set(id, { ...options, id, content, type });
+            return id;
+        },
+        updateNotification(id, patch) {
+            const previous = notices.get(id);
+            if (!previous) return false;
+            notices.set(id, {
+                ...previous, ...patch,
+                content: patch.content ?? previous.content,
+                type: patch.type ?? previous.type,
+                id,
+            });
+            return true;
+        },
+        removeNotification(id) { notices.delete(id); },
+        getNotifications() { return Array.from(notices.values(), notice => ({ ...notice })); },
+        clear() { notices.clear(); },
+    };
+}
+
 export interface MockSdkContextOptions {
     moduleId?: string;
     worldId?: string;
@@ -202,6 +239,7 @@ export interface MockSdkContextOptions {
 /** Build a mock `SDKContextValue` for rendering module UI. */
 export function createMockSdkContext(opts: MockSdkContextOptions = {}): SDKContextValue {
     const moduleId = opts.moduleId ?? 'mock';
+    const notifications = createMockNotifications();
     return {
         token: 'mock-token',
         currentUser: { id: 'u1', name: 'Tester', isGM: false, role: 1 },
@@ -216,7 +254,9 @@ export function createMockSdkContext(opts: MockSdkContextOptions = {}): SDKConte
         assetUrl: (p) => buildModuleAssetUrl(moduleId, p),
         navigate: () => {},
         replace: () => {},
-        addNotification: () => {},
+        addNotification: notifications.addNotification,
+        updateNotification: notifications.updateNotification,
+        removeNotification: notifications.removeNotification,
         isDiceTrayOpen: false,
         toggleDiceTray: () => {},
         isChatOpen: false,

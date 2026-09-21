@@ -54,11 +54,34 @@ read can produce a preview; no second document store is introduced.
 
 ## Modules and Boundaries
 
-The existing SDK addNotification(message, type, {html}) contract is unchanged.
-Additional host options are not exported as public SDK guarantees. A module
-posts chat via the existing runtime/API and lets the host render it. Avoid
-duplicating a posted roll with a separate success toast. Core's sheet helpers
-suppress success notices only for identifiable persisted chat acknowledgements.
+Modules use `useSDK()` from `@sheet-delver/sdk/react`. SDK 1.4.0 /
+`ui-extension-api` 1.2.0 exposes the existing host lifecycle:
+
+- `addNotification(message, type?, options?)` returns a browser-local numeric ID.
+- `updateNotification(id, patch)` returns false for an expired, dismissed or
+  cleared notice; otherwise it preserves unspecified options and resets expiry.
+- `removeNotification(id)` dismisses a notice. Missing IDs are harmless.
+- Types: info, success, warning, error. Options: title, html, duration, permanent,
+  progress. Updates additionally accept content and type.
+
+The timing and sanitization rules above apply identically to SDK calls. IDs are
+ephemeral: do not persist or transmit them, and only update/dismiss notices your
+operation created. Session cleanup may invalidate an ID before asynchronous work
+finishes; a false update result is not a reason to resurrect the notice.
+Permanent means until dismissal/cleanup, not persisted storage. Complete progress
+with `progress: 1` and, if previously set, `permanent: false` to resume expiry.
+User dismissal remains available even for permanent/progress notices.
+
+Modules adopting these additions declare
+`"ui-extension-api": ">=1.2.0 <2.0.0"`. Existing add-only calls still work and do
+not require a manifest change. The host retains replacement keys, queue clearing,
+pause controls, placement and session ownership; these are not public SDK APIs.
+The named server/roll contracts are unchanged. See
+[ADR-0043](adr/0043-sdk-notification-lifecycle.md).
+
+A module posts chat via the existing runtime/API and lets the host render it.
+Avoid duplicating a posted roll with a separate success toast. Core's sheet
+helpers suppress success notices only for identifiable persisted chat acknowledgements.
 
 Everything here is browser presentation or pure shared formatting. No server
 imports, Foundry execution environment, headless browser, new runtime dependency,
