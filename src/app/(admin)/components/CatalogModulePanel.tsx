@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CircleAlert, Download, RefreshCw, Search, ShieldCheck } from 'lucide-react';
 import { useAdminAuth } from '../context/AdminAuthContext';
-import { useAdminToast } from '../context/AdminToastContext';
+import { useAdminNotifications } from '../context/AdminNotificationContext';
 import {
     fetchCatalog,
     fetchCatalogRelease,
@@ -299,7 +299,7 @@ function CatalogOperationPanel({
     onSessionExpired: () => void;
 }) {
     const { beginRuntimeRestart } = useAdminRuntimeRestart();
-    const { addToast } = useAdminToast();
+    const { addNotification } = useAdminNotifications();
     const listing = row.listing!;
     const sources = [listing.source, ...listing.alternatives];
     const operation = row.installed ? 'upgrade' : 'install';
@@ -413,9 +413,11 @@ function CatalogOperationPanel({
             setApplying(false);
             return;
         }
-        addToast(`${row.title} ${operation === 'install' ? 'installed' : isDowngrade ? 'downgraded' : 'updated'}.`, 'success');
         if (result.data?.restartScheduled) beginRuntimeRestart();
-        else await onComplete();
+        else {
+            addNotification(`${row.title} ${operation === 'install' ? 'installed' : isDowngrade ? 'downgraded' : 'updated'}.`, 'success');
+            await onComplete();
+        }
         setApplying(false);
     };
 

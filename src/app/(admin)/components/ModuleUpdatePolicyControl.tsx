@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Lock, Pin } from 'lucide-react';
 import { updateModuleUpdatePolicy, type ModuleLifecycleInfo } from '../lib/adminApi';
-import { useAdminToast } from '../context/AdminToastContext';
+import { useAdminNotifications } from '../context/AdminNotificationContext';
 import Button from './ui/Button';
 
 export default function ModuleUpdatePolicyControl({
@@ -15,7 +15,7 @@ export default function ModuleUpdatePolicyControl({
     onChanged: () => void;
     onSessionExpired: () => void;
 }) {
-    const { addToast } = useAdminToast();
+    const { addNotification } = useAdminNotifications();
     const policy = module.artifact?.updatePolicy || { locked: false };
     const [locked, setLocked] = useState(policy.locked);
     const [pinnedVersion, setPinnedVersion] = useState(policy.pinnedVersion || '');
@@ -34,7 +34,7 @@ export default function ModuleUpdatePolicyControl({
             return false;
         }
         if (!result.ok || !result.data) {
-            addToast(result.error || 'Failed to update module policy.', 'error');
+            addNotification(result.error || 'Failed to update module policy.', 'error');
             return false;
         }
         setLocked(result.data.updatePolicy.locked);
@@ -47,7 +47,7 @@ export default function ModuleUpdatePolicyControl({
         const next = !locked;
         setSavingLock(true);
         if (await update({ locked: next })) {
-            addToast(next ? 'Module locked.' : 'Module unlocked.', 'success');
+            addNotification(next ? 'Module locked.' : 'Module unlocked.', 'success');
         }
         setSavingLock(false);
     };
@@ -56,7 +56,7 @@ export default function ModuleUpdatePolicyControl({
         setSavingPin(true);
         const value = pinnedVersion.trim();
         if (await update({ pinnedVersion: value || null })) {
-            addToast(value ? `Module pinned to v${value}.` : 'Version pin cleared.', 'success');
+            addNotification(value ? `Module pinned to v${value}.` : 'Version pin cleared.', 'success');
         }
         setSavingPin(false);
     };

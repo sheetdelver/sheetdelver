@@ -120,6 +120,15 @@ For actors, the platform performs one system-client fetch during bootstrap, seed
   implementations. Queue clearing and viewport ownership remain host-only
   ([ADR-0043](adr/0043-sdk-notification-lifecycle.md)).
   See [Notifications and Chat](NOTIFICATIONS.md) and [ADR-0040](adr/0040-unified-player-notifications.md).
+- **AdminNotificationProvider**: Binds the shared notification implementation to
+  admin authentication and maintenance. Admin owns a separate queue with a
+  bottom safe-area gutter, not player HUD clearance. Session revisions invalidate
+  late callbacks; logout, observed expiry, replacement and maintenance clear
+  feedback. Routine validation does not. Only the reviewed notification
+  presentation entry point crosses into admin; architecture tests check its
+  dependencies, and no player/Foundry/module providers are mounted there.
+  Inline validation and maintenance remain authoritative. This is host behavior,
+  not an SDK change ([ADR-0046](adr/0046-admin-notification-alignment.md)).
 - **PlayerSettingsDialog**: Lives in `components/Settings/`, with open state owned
   by UIProvider. Chat & Rolls composes chat controls and the dice panel; General
   and Themes are reserved tabs. It mounts only in the player provider tree.

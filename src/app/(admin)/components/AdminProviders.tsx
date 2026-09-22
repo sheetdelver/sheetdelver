@@ -3,7 +3,8 @@
 import React from 'react';
 import { AdminAuthProvider } from '../context/AdminAuthContext';
 import { AdminThemeProvider, useAdminTheme } from '../context/AdminThemeContext';
-import { AdminToastProvider } from '../context/AdminToastContext';
+import { NotificationProvider } from '@client/ui/components/NotificationSystem';
+import { AdminNotificationProvider } from '../context/AdminNotificationContext';
 import { AdminRuntimeRestartProvider } from '../context/AdminRuntimeRestartContext';
 
 export default function AdminProviders({ children }: { children: React.ReactNode }) {
@@ -12,9 +13,9 @@ export default function AdminProviders({ children }: { children: React.ReactNode
       <AdminShell>
         <AdminAuthProvider>
           <AdminRuntimeRestartProvider>
-            <AdminToastProvider>
-              {children}
-            </AdminToastProvider>
+            <NotificationProvider placement="admin">
+              <AdminNotificationProvider>{children}</AdminNotificationProvider>
+            </NotificationProvider>
           </AdminRuntimeRestartProvider>
         </AdminAuthProvider>
       </AdminShell>

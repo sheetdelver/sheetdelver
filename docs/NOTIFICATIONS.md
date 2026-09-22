@@ -22,7 +22,7 @@ long stacks scroll within the remaining space. This is internal UI layout, not
 an SDK contract or a change to message visibility. Inline form/admin feedback
 stays inline.
 
-## Host Usage
+## Player Host Usage
 
 Import from `@client/ui/components/NotificationSystem` inside client components:
 
@@ -60,6 +60,36 @@ messages and animation failures do not wait. This is browser-local presentation,
 not delayed Core delivery, and never delays system notices. See
 [dice preferences](dice-presentation.md#behavior) and
 [ADR-0045](adr/0045-dice-preferences-and-result-timing.md).
+
+## Admin Feedback
+
+Admin mounts its own instance of the same NotificationProvider and rendering
+components. The implementation is shared, not the queue or authentication scope.
+Its bottom-right viewport uses a one-rem safe-area gutter instead of reserving
+player HUD/tray space. Admin does not mount player Session, Foundry, Chat, Dice
+or SDK providers. Architecture tests restrict its client import to the reviewed
+`NotificationSystem` presentation entry point and check that entry's dependencies.
+
+Admin components use `useAdminNotifications()` from their route group's
+`context/AdminNotificationContext`, not the unscoped host hook. It exposes the
+same add/update/remove signatures. Callbacks are bound to the initiating admin
+session and become inert after logout, observed expiry, session replacement,
+maintenance or provider teardown. A retired add returns the inert handle `0`;
+updates return false and removal is harmless. Do not retry through a new callback
+to resurrect feedback from an earlier session. Routine validation of the same
+session, theme changes and navigation preserve valid feedback.
+
+The boundary clears the queue on those lifecycle transitions. Restarting module
+operations use the existing maintenance overlay, not a premature success notice
+above it. No notice is persisted or replayed after reload. This only governs
+feedback; it does not cancel server operations or change session authentication.
+
+Catalog source actions and module lock/pin/install feedback use this lifecycle.
+Login/setup validation, detailed dry-run blockers and contextual page errors
+remain inline. Keep existing loading indicators; only show numeric progress when
+an operation actually provides it. Queue limits, pause, dismissal, sanitization
+and five-second default lifetime are identical to player notifications. See
+[ADR-0046](adr/0046-admin-notification-alignment.md).
 
 ## Modules and Boundaries
 
@@ -104,3 +134,9 @@ sanitization, shared chat rendering, multi-roll totals, redaction and live-event
 deduplication. Browser tests are local development tools only, not application
 dependencies. Live acceptance must cover player/GM/private messages, sheet rolls,
 reconnection and world/session changes before ADR-0040 is closed.
+
+Admin coverage adds session-scoped callbacks and the presentation dependency
+boundary. Isolated browser fixtures exercise the real admin providers and action
+components with mocked endpoints, including late completions after relogin,
+maintenance, narrow screens and both admin themes. These checks do not perform
+real installs/restarts or replace live admin acceptance.

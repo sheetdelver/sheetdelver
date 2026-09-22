@@ -20,7 +20,7 @@ import {
     updateSourceProfile,
     type SourceProfile,
 } from '../lib/adminApi';
-import { useAdminToast } from '../context/AdminToastContext';
+import { useAdminNotifications } from '../context/AdminNotificationContext';
 import Button from './ui/Button';
 import EmptyState from './ui/EmptyState';
 import ErrorState from './ui/ErrorState';
@@ -33,7 +33,7 @@ function isProtected(profile: SourceProfile): boolean {
 }
 
 export default function SourceProfilePanel() {
-    const { addToast } = useAdminToast();
+    const { addNotification } = useAdminNotifications();
     const [profiles, setProfiles] = useState<SourceProfile[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -78,9 +78,9 @@ export default function SourceProfilePanel() {
             setNewName('');
             setNewUrl('');
             await loadProfiles();
-            addToast('Catalog source added.', 'success');
+            addNotification('Catalog source added.', 'success');
         } else {
-            addToast(result.error || 'Failed to add catalog source.', 'error');
+            addNotification(result.error || 'Failed to add catalog source.', 'error');
         }
         setCreating(false);
     };
@@ -103,9 +103,9 @@ export default function SourceProfilePanel() {
         if (result.ok) {
             setEditingId(null);
             await loadProfiles();
-            addToast('Catalog source updated.', 'success');
+            addNotification('Catalog source updated.', 'success');
         } else {
-            addToast(result.error || 'Failed to update catalog source.', 'error');
+            addNotification(result.error || 'Failed to update catalog source.', 'error');
         }
         setSavingId(null);
     };
@@ -113,19 +113,19 @@ export default function SourceProfilePanel() {
     const handleToggle = async (profile: SourceProfile) => {
         const result = await updateSourceProfile(profile.id, { enabled: !profile.enabled });
         if (result.ok) await loadProfiles();
-        else addToast(result.error || 'Failed to update catalog source.', 'error');
+        else addNotification(result.error || 'Failed to update catalog source.', 'error');
     };
 
     const handleTest = async (profile: SourceProfile) => {
         setTestingId(profile.id);
         const result = await testSourceProfile(profile.id);
         if (result.ok && result.data) {
-            addToast(
+            addNotification(
                 `${profile.name}: ${result.data.moduleCount ?? 0} modules (${result.data.state || 'ready'}).`,
                 'success',
             );
         } else {
-            addToast(result.error || 'Catalog test failed.', 'error');
+            addNotification(result.error || 'Catalog test failed.', 'error');
         }
         setTestingId(null);
     };
@@ -135,9 +135,9 @@ export default function SourceProfilePanel() {
         if (result.ok) {
             setDeleteId(null);
             await loadProfiles();
-            addToast('Catalog source deleted.', 'success');
+            addNotification('Catalog source deleted.', 'success');
         } else {
-            addToast(result.error || 'Failed to delete catalog source.', 'error');
+            addNotification(result.error || 'Failed to delete catalog source.', 'error');
         }
     };
 
@@ -151,7 +151,7 @@ export default function SourceProfilePanel() {
         const first = await updateSourceProfile(profile.id, { priority: other.priority });
         const second = await updateSourceProfile(other.id, { priority: profile.priority });
         if (first.ok && second.ok) await loadProfiles();
-        else addToast(first.error || second.error || 'Failed to reorder catalog sources.', 'error');
+        else addNotification(first.error || second.error || 'Failed to reorder catalog sources.', 'error');
     };
 
     if (loading && profiles.length === 0) {

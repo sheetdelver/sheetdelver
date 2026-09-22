@@ -1,6 +1,7 @@
 import { strict as assert } from 'node:assert';
 import fs from 'node:fs';
 import path from 'node:path';
+import ts from 'typescript';
 import {
     applyBrowserSecurityHeaders,
     createContentSecurityPolicy,
@@ -100,17 +101,51 @@ function runAdminIsolationArchitectureAssertions(): void {
     const forbiddenAdminImports: string[] = [];
     for (const file of walkSourceFiles(path.join(root, 'src/app/(admin)'))) {
         const source = fs.readFileSync(file, 'utf8');
-        if (/from\s+['"]@(?:client|modules|local-modules)\//.test(source)
+        const withoutNotifications = source.replace(/from\s+['"]@client\/ui\/components\/NotificationSystem['"]/g, '');
+        if (/from\s+['"]@(?:client|modules|local-modules)\//.test(withoutNotifications)
             || /from\s+['"]@\/app\/\(player\)/.test(source)) {
             forbiddenAdminImports.push(path.relative(root, file));
         }
     }
     assert.deepEqual(forbiddenAdminImports, [], 'Admin route graph imports player/module runtime source');
+    runSharedNotificationIsolationAssertions(root);
 
     const playerLayout = fs.readFileSync(path.join(root, 'src/app/(player)/layout.tsx'), 'utf8');
     const adminLayout = fs.readFileSync(path.join(root, 'src/app/(admin)/layout.tsx'), 'utf8');
     assert.match(playerLayout, /PlayerProviders/);
     assert.doesNotMatch(adminLayout, /PlayerProviders|GlobalChat|FloatingHUD/);
+}
+
+function runSharedNotificationIsolationAssertions(root: string): void {
+    // This presentation-only entry point is the sole permitted admin @client import.
+    const files = new Set([
+        'src/client/ui/components/NotificationSystem.tsx',
+        'src/client/ui/components/Notifications/NotificationProvider.tsx',
+        'src/client/ui/components/Notifications/NotificationContainer.tsx',
+        'src/client/ui/components/Notifications/notificationStore.ts',
+        'src/client/ui/components/Notifications/feedbackLayout.ts',
+        'src/client/ui/components/SafeHtmlContent.tsx',
+    ].map(file => path.join(root, file)));
+    const sharedImports = new Set(['react', 'lucide-react', '@shared/security/safeHtml', '@shared/sdk/notifications']);
+    for (const file of files) {
+        const source = ts.createSourceFile(file, fs.readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true);
+        const visit = (node: ts.Node): void => {
+            if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node))
+                && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
+                const specifier = node.moduleSpecifier.text;
+                const target = specifier.startsWith('.') && ['.ts', '.tsx'].map(extension =>
+                    path.resolve(path.dirname(file), specifier + extension)).find(candidate => files.has(candidate));
+                assert.ok(target || sharedImports.has(specifier), `${path.relative(root, file)} imports non-presentation dependency ${specifier}`);
+            }
+            if (ts.isCallExpression(node)) {
+                assert.ok(node.expression.kind !== ts.SyntaxKind.ImportKeyword
+                    && !(ts.isIdentifier(node.expression) && node.expression.text === 'require'),
+                `${path.relative(root, file)} dynamically imports outside the reviewed notification graph`);
+            }
+            ts.forEachChild(node, visit);
+        };
+        visit(source);
+    }
 }
 
 function runAdminCredentialArchitectureAssertions(): void {

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import { logger } from '@shared/utils/logger';
 import {
   adminApiPath,
@@ -12,6 +12,8 @@ interface AdminAuthContextType {
   csrfToken: string | null;
   adminId: string | null;
   isAuthenticated: boolean;
+  sessionRevision: number;
+  isCurrentSession: (revision: number) => boolean;
   loading: boolean;
   error: string | null;
   accountExists: boolean | null;
@@ -38,9 +40,19 @@ export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [accountExists, setAccountExists] = useState<boolean | null>(null);
   const [setupInProgress, setSetupInProgress] = useState(false);
+  const [sessionRevision, setSessionRevision] = useState(0);
+  const session = useRef({ revision: 0, csrfToken: null as string | null, adminId: null as string | null });
+  const isCurrentSession = useCallback((revision: number) =>
+    session.current.csrfToken !== null && session.current.revision === revision, []);
 
   const applySession = useCallback((data: AdminSessionResponse) => {
     const nextCsrf = typeof data.csrfToken === 'string' ? data.csrfToken : null;
+    const nextAdminId = data.adminId ?? null;
+    // Retire async UI feedback synchronously, including logout/login batched in one render.
+    if (session.current.csrfToken !== nextCsrf || session.current.adminId !== nextAdminId) {
+      session.current = { revision: session.current.revision + 1, csrfToken: nextCsrf, adminId: nextAdminId };
+      setSessionRevision(session.current.revision);
+    }
     setAdminCsrfToken(nextCsrf);
     setCsrfToken(nextCsrf);
     setAdminId(data.adminId ?? null);
@@ -48,6 +60,8 @@ export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const clearSession = useCallback(() => {
+    session.current = { revision: session.current.revision + 1, csrfToken: null, adminId: null };
+    setSessionRevision(session.current.revision);
     setAdminCsrfToken(null);
     setCsrfToken(null);
     setAdminId(null);
@@ -193,6 +207,8 @@ export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
     csrfToken,
     adminId,
     isAuthenticated,
+    sessionRevision,
+    isCurrentSession,
     loading,
     error,
     accountExists,

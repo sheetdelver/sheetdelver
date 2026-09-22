@@ -11,12 +11,13 @@ const severity = {
     error: { label: 'Error', Icon: CircleAlert, color: '#f3acb4', border: '#a55964', background: '#321e24' },
 };
 
-export function NotificationContainer({ notifications, queued, removeNotification, clearNotifications, pauseNotification }: {
+export function NotificationContainer({ notifications, queued, removeNotification, clearNotifications, pauseNotification, maxHeight = 'calc(100dvh - 11rem)' }: {
     notifications: readonly Notification[];
     queued: number;
     removeNotification: NotificationStore['remove'];
     clearNotifications: NotificationStore['clear'];
     pauseNotification: NotificationStore['pause'];
+    maxHeight?: string;
 }) {
     return <section aria-label="Notifications" className="pointer-events-none shrink-0" style={{ letterSpacing: 0 }}>
         {notifications.length + queued > 1 && <div className="flex items-center justify-end gap-2 mb-1">
@@ -26,7 +27,7 @@ export function NotificationContainer({ notifications, queued, removeNotificatio
                 <ListX size={18} aria-hidden="true" />
             </button>
         </div>}
-        <div className="flex flex-col gap-2 overflow-y-auto pointer-events-auto" style={{ maxHeight: 'calc(100dvh - 11rem)', scrollbarWidth: 'thin' }}>
+        <div className="flex flex-col gap-2 overflow-y-auto pointer-events-auto" style={{ maxHeight, scrollbarWidth: 'thin' }}>
             {notifications.map(notice => {
                 const { Icon, label, color, border, background } = severity[notice.type];
                 const title = notice.title || label;
