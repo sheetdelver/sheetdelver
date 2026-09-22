@@ -35,7 +35,7 @@ export function useDiceTrayFeedbackAnchor() {
     return useCallback((element: HTMLDivElement | null) => element ? register(element) : undefined, [register]);
 }
 
-export function NotificationProvider({ children }: { children: ReactNode }) {
+export function NotificationProvider({ children, placement = 'player' }: { children: ReactNode; placement?: 'player' | 'admin' }) {
     const value = useNotificationValue();
     const [viewport, setViewport] = useState<HTMLDivElement | null>(null);
     const [anchors, setAnchors] = useState<HTMLElement[]>([]);
@@ -73,8 +73,12 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
                 bottom: clearance ? `max(calc(6rem + env(safe-area-inset-bottom)), ${clearance.bottom}px)` : 'calc(6rem + env(safe-area-inset-bottom))',
                 width: 'min(420px, calc(100vw - 32px))',
                 maxHeight: clearance ? `min(calc(100dvh - 7rem), ${clearance.maxHeight}px)` : 'calc(100dvh - 7rem)',
+                ...(placement === 'admin' ? {
+                    bottom: 'calc(1rem + env(safe-area-inset-bottom))',
+                    maxHeight: 'calc(100dvh - 2rem - env(safe-area-inset-bottom))',
+                } : {}),
             }}>
-            <NotificationContainer {...value} />
+            <NotificationContainer {...value} maxHeight={placement === 'admin' ? 'calc(100dvh - 6rem - env(safe-area-inset-bottom))' : undefined} />
         </div>
     </NotificationContext.Provider></FeedbackAnchorContext.Provider>;
 }

@@ -1,19 +1,26 @@
 'use client';
 
-import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { fetchAdminStatus } from '../lib/adminApi';
 import { isRuntimeRestartReady } from '@shared/runtime/fullStackRestart';
 
 interface AdminRuntimeRestartContextValue {
     beginRuntimeRestart: () => void;
+    restarting: boolean;
+    isRuntimeRestarting: () => boolean;
 }
 
 const AdminRuntimeRestartContext = createContext<AdminRuntimeRestartContextValue | undefined>(undefined);
 
 export function AdminRuntimeRestartProvider({ children }: { children: React.ReactNode }) {
     const [restarting, setRestarting] = useState(false);
-    const beginRuntimeRestart = useCallback(() => setRestarting(true), []);
+    const restartRequested = useRef(false);
+    const isRuntimeRestarting = useCallback(() => restartRequested.current, []);
+    const beginRuntimeRestart = useCallback(() => {
+        restartRequested.current = true;
+        setRestarting(true);
+    }, []);
 
     useEffect(() => {
         if (!restarting) return;
@@ -45,7 +52,7 @@ export function AdminRuntimeRestartProvider({ children }: { children: React.Reac
     }, [restarting]);
 
     return (
-        <AdminRuntimeRestartContext.Provider value={{ beginRuntimeRestart }}>
+        <AdminRuntimeRestartContext.Provider value={{ beginRuntimeRestart, restarting, isRuntimeRestarting }}>
             {children}
             {restarting && (
                 <div
