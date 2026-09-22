@@ -110,6 +110,8 @@ For actors, the platform performs one system-client fetch during bootstrap, seed
   API reads; history alone never creates a preview. ChatMessageCard renders the
   chronological log and the latest transient preview using the same sanitizer.
   ChatMessageStore remains primary; previews are not secondary documents.
+  Dice admission runs before a new authorized read is published; held IDs filter
+  the shared visible log and preview until settlement. Core delivery is unchanged.
 - **NotificationProvider**: Owns transient application feedback, independently
   from chat. Its bounded browser queue supports update, progress, persistence,
   pause and teardown. Chat previews share its display viewport, not its queue.
@@ -122,8 +124,9 @@ For actors, the platform performs one system-client fetch during bootstrap, seed
   by UIProvider. Chat & Rolls composes chat controls and the dice panel; General
   and Themes are reserved tabs. It mounts only in the player provider tree.
 - **DicePresentationProvider**: Owns browser-local dice preferences and the bounded
-  animation queue. It consumes authorized chat projections and existing app
-  realtime hints; it does not fetch from Foundry or evaluate game rolls.
+  animation queue. It mounts above ChatProvider, receiving authorized reads and
+  hints from ChatContext's existing listeners. It exposes held IDs, not another
+  chat-body cache, and does not fetch from Foundry or evaluate game rolls.
 
 ### 4.2 Dice Presentation Boundary
 
@@ -144,6 +147,12 @@ never animates a redacted placeholder. Blind results require explicit positive
 content visibility from that DTO. Nested terms are bounded traversal of recorded
 faces, not formula evaluation; see [ADR-0042](adr/0042-dice-presentation-followups.md).
 No module callback, new socket or SDK version is required.
+
+Result reveal is coordinated per viewing browser, not by delaying persistence
+or broadcasting animation completion. Settlement releases the log and preview
+before linger/fade. Unsupported/skipped/failed animation leaves chat available;
+system notices never wait. Local test throws make no chat/API writes. See
+[ADR-0045](adr/0045-dice-preferences-and-result-timing.md).
 
 See [3D Dice Presentation](dice-presentation.md) for supported terms and cleanup
 behavior. Scoped lint rules reject Node/server imports in this feature. This

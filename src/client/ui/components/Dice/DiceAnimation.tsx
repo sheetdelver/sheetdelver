@@ -11,12 +11,13 @@ import { defaultDiceAppearance, normalizeDiceAppearance, diceAppearanceOptions, 
 import type { DicePresentation } from './presentation';
 import { defaultDiceBehavior, normalizeDiceBehavior, type DiceBehavior } from './behavior';
 
-export function DiceAnimation({ roll, sound = defaultDiceSound, appearance = defaultDiceAppearance, behavior = defaultDiceBehavior, onDone, onError }: {
+export function DiceAnimation({ roll, sound = defaultDiceSound, appearance = defaultDiceAppearance, behavior = defaultDiceBehavior, onSettled, onDone, onError }: {
     sound?: DiceSoundSettings;
     appearance?: DiceAppearance;
     behavior?: DiceBehavior;
     roll: DicePresentation;
     onDone: () => void;
+    onSettled?: () => void;
     onError: (error: unknown) => void;
 }) {
     const id = `sd-dice-${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`;
@@ -26,14 +27,15 @@ export function DiceAnimation({ roll, sound = defaultDiceSound, appearance = def
     // The component is keyed by roll ID: appearance is fixed for each throw, unlike live volume.
     const [throwAppearance] = useState(() => normalizeDiceAppearance(appearance));
     const [throwBehavior] = useState(() => normalizeDiceBehavior(behavior));
+    const [throwSurface] = useState(sound.surface);
     const audio = useRef<ReturnType<typeof createCollisionAudio> | null>(null);
     const latestSound = useRef(sound);
     useEffect(() => {
         latestSound.current = sound;
-        audio.current?.update(sound);
-    }, [sound]);
-    const callbacks = useRef({ onDone, onError });
-    useEffect(() => { callbacks.current = { onDone, onError }; }, [onDone, onError]);
+        audio.current?.update({ ...sound, surface: throwSurface });
+    }, [sound, throwSurface]);
+    const callbacks = useRef({ onSettled, onDone, onError });
+    useEffect(() => { callbacks.current = { onSettled, onDone, onError }; }, [onSettled, onDone, onError]);
 
     useEffect(() => {
         if (!portalHost || !overlay.current) return;
@@ -42,6 +44,7 @@ export function DiceAnimation({ roll, sound = defaultDiceSound, appearance = def
         let box: DiceBox | undefined;
         let dispose: (() => void) | undefined;
         let linger: ReturnType<typeof setTimeout> | undefined;
+        let fade: ReturnType<typeof setTimeout> | undefined;
         let finished = false;
         const finish = () => {
             if (!cancelled && !finished) { finished = true; callbacks.current.onDone(); }
@@ -77,7 +80,7 @@ export function DiceAnimation({ roll, sound = defaultDiceSound, appearance = def
             }
             if (cancelled) return;
             audio.current = createCollisionAudio(box);
-            audio.current.update(latestSound.current);
+            audio.current.update({ ...latestSound.current, surface: throwSurface });
             logger.debug('DicePresentation | Renderer initialized', {
                 width: box.renderer?.domElement.width, height: box.renderer?.domElement.height,
             });
@@ -85,20 +88,27 @@ export function DiceAnimation({ roll, sound = defaultDiceSound, appearance = def
             logger.debug('DicePresentation | Throw settled');
             if (!cancelled && !finished) {
                 clearTimeout(timeout);
-                linger = setTimeout(finish, throwBehavior.displayDurationMs);
+                callbacks.current.onSettled?.();
+                linger = setTimeout(() => {
+                    if (throwBehavior.hideEffect !== 'fade') { finish(); return; }
+                    element.style.transition = 'opacity 200ms ease-out';
+                    element.style.opacity = '0';
+                    fade = setTimeout(finish, 200);
+                }, throwBehavior.displayDurationMs);
             }
         })().catch(error => { if (!cancelled) callbacks.current.onError(error); });
         return () => {
             cancelled = true;
             clearTimeout(timeout);
             clearTimeout(linger);
+            clearTimeout(fade);
             stopTracking();
             element.hidePopover?.();
             audio.current?.dispose();
             audio.current = null;
             dispose?.();
         };
-    }, [id, roll, throwAppearance, throwBehavior, portalHost]);
+    }, [id, roll, throwAppearance, throwBehavior, throwSurface, portalHost]);
 
     return portalHost ? createPortal(<div ref={overlay} id={id} popover="manual" aria-hidden="true" data-dice-overlay="" data-dice-style={throwAppearance.style} data-dice-size={throwAppearance.size}
         data-dice-low-effects={throwBehavior.lowEffects} data-dice-duration={throwBehavior.displayDurationMs}

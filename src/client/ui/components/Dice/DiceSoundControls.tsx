@@ -1,7 +1,7 @@
 'use client';
 
 import { Volume2 } from 'lucide-react';
-import type { DiceSoundSettings } from './collisionAudio';
+import { diceSurfaces, type DiceSoundSettings } from './collisionAudio';
 
 export function DiceSoundControls({ value, onChange, disabled = false }: {
     value: DiceSoundSettings;
@@ -21,6 +21,13 @@ export function DiceSoundControls({ value, onChange, disabled = false }: {
                 disabled={disabled || !value.enabled}
                 onChange={event => onChange({ ...value, volume: Number(event.target.value) })} />
             <output style={{ width: 40, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{value.volume}%</output>
+        </label>
+        <label className="flex items-center gap-2">Surface
+            <select aria-label="Dice sound surface" value={value.surface ?? 'felt'} disabled={disabled}
+                style={{ background: '#303438', color: '#f2f4f5', padding: '6px 8px', borderRadius: 4, maxWidth: '100%' }}
+                onChange={event => onChange({ ...value, surface: event.target.value as DiceSoundSettings['surface'] })}>
+                {Object.entries(diceSurfaces).map(([id, surface]) => <option key={id} value={id}>{surface.label}</option>)}
+            </select>
         </label>
     </div>;
 }

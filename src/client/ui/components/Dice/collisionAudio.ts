@@ -1,7 +1,13 @@
 export interface DiceSoundSettings {
     enabled: boolean;
     volume: number;
+    surface?: keyof typeof diceSurfaces;
 }
+
+export const diceSurfaces = {
+    felt: { label: 'Felt', clips: 7 }, wood_table: { label: 'Wood table', clips: 7 },
+    wood_tray: { label: 'Wood tray', clips: 7 }, metal: { label: 'Metal', clips: 9 },
+} as const;
 
 export const defaultDiceSound: DiceSoundSettings = { enabled: false, volume: 50 };
 
@@ -11,6 +17,7 @@ export function normalizeDiceSound(value: unknown): DiceSoundSettings {
         enabled: data.enabled === true,
         volume: typeof data.volume === 'number' && Number.isFinite(data.volume)
             ? Math.max(0, Math.min(100, Math.round(data.volume))) : defaultDiceSound.volume,
+        ...(data.surface && Object.hasOwn(diceSurfaces, data.surface) ? { surface: data.surface } : {}),
     };
 }
 
@@ -30,10 +37,11 @@ export interface CollisionAudioTarget {
 
 type AudioElement = Pick<HTMLAudioElement, 'preload' | 'readyState' | 'volume' | 'play' | 'pause' | 'removeAttribute' | 'load'>;
 
-/** Keep upstream collision timing; load only the local felt/plastic clips we use. */
+/** Keep collision timing; lazily load only the selected local surface and plastic clips. */
 export function createCollisionAudio(target: CollisionAudioTarget, createAudio: (src: string) => AudioElement = src => new Audio(src)) {
     let settings = defaultDiceSound;
     let disposed = false;
+    let surface: keyof typeof diceSurfaces | undefined;
     const clips: { audio: AudioElement; voice: CollisionVoice }[] = [];
 
     const createVoice = (path: string): CollisionVoice => {
@@ -57,12 +65,13 @@ export function createCollisionAudio(target: CollisionAudioTarget, createAudio: 
         update(value: DiceSoundSettings) {
             if (disposed) return;
             settings = normalizeDiceSound(value);
+            surface ??= settings.surface ?? 'felt';
             target.sounds = settings.enabled && settings.volume > 0;
             target.volume = 100;
             if (target.sounds && !clips.length) {
-                target.surface = 'felt';
+                target.surface = surface;
                 target.sound_dieMaterial = 'plastic';
-                target.sounds_table.felt = Array.from({ length: 7 }, (_, i) => createVoice(`surfaces/surface_felt${i + 1}`));
+                target.sounds_table[surface] = Array.from({ length: diceSurfaces[surface].clips }, (_, i) => createVoice(`surfaces/surface_${surface}${i + 1}`));
                 target.sounds_dice.plastic = Array.from({ length: 15 }, (_, i) => createVoice(`dicehit/dicehit_plastic${i + 1}`));
             }
             for (const { audio, voice } of clips) {

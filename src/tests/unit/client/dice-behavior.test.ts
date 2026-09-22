@@ -10,6 +10,10 @@ export function run() {
     assert.equal(normalizeDiceBehavior({ displayDurationMs: -100 }).displayDurationMs, 500);
     assert.equal(normalizeDiceBehavior({ displayDurationMs: 20000 }).displayDurationMs, 5000);
     assert.equal(normalizeDiceBehavior({ displayDurationMs: 1860 }).displayDurationMs, 1900);
+    assert.equal(normalizeDiceBehavior({ showResultsImmediately: true }).showResultsImmediately, true);
+    assert.equal(normalizeDiceBehavior({ showResultsImmediately: 'true' }).showResultsImmediately, false);
+    assert.equal(normalizeDiceBehavior({ hideEffect: 'fade' }).hideEffect, 'fade');
+    assert.equal(normalizeDiceBehavior({ hideEffect: 'unknown' }).hideEffect, 'none');
     const own = { ...defaultDiceBehavior, ownRollsOnly: true };
     const message = {
         _id: 'mine', author: 'user-1', user: 'Display name', whisper: ['user-1', 'gm-1'],

@@ -28,4 +28,10 @@ export function run() {
     inbox.created('a', 11000);
     inbox.reset();
     assert.deepEqual(inbox.consume([a], 11001), [], 'logout/disconnect clears pending notices');
+    const held = new LiveChatInbox<typeof a>(60_000);
+    held.created('a', 0);
+    assert.deepEqual(held.consume([], 30_000), [], 'held results do not notify early');
+    assert.deepEqual(held.consume([a], 51_600), [a], 'preview survives three bounded throws');
+    held.reset(); held.created('a', 0);
+    assert.deepEqual(held.consume([a], 60_001), [], 'extended hints remain bounded');
 }

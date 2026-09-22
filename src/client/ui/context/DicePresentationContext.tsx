@@ -1,78 +1,94 @@
 'use client';
 
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { logger } from '@shared/utils/logger';
-import type { RealtimeChatMessageChangedPayload } from '@shared/contracts/realtime';
-import { useChat } from './ChatContext';
+import type { ChatMessageDto } from '@shared/contracts/chat';
 import { useSession } from './SessionContext';
-import { useRealtime } from './RealtimeContext';
-import { useFoundry } from './FoundryContext';
-import { allowsDicePresentation, defaultDiceBehavior, diceSoundForRoll, normalizeDiceBehavior, type DiceBehavior } from '../components/Dice/behavior';
+import { useUI } from './UIContext';
+import { defaultDiceBehavior, diceSoundForRoll, normalizeDiceBehavior, type DiceBehavior } from '../components/Dice/behavior';
 import { defaultDiceAppearance, normalizeDiceAppearance, type DiceAppearance } from '../components/Dice/appearance';
 import { defaultDiceSound, normalizeDiceSound, type DiceSoundSettings } from '../components/Dice/collisionAudio';
 import { DiceAnimation } from '../components/Dice/DiceAnimation';
-import { LiveDiceInbox, type DicePresentation } from '../components/Dice/presentation';
+import { DicePresentationQueue, type QueuedDice } from '../components/Dice/presentationQueue';
+import type { DicePresentation } from '../components/Dice/presentation';
 
 const preferenceKey = 'sheetdelver_3d_dice';
 const appearancePreferenceKey = 'sheetdelver_3d_dice_appearance';
 const behaviorPreferenceKey = 'sheetdelver_3d_dice_behavior';
 const soundPreferenceKey = 'sheetdelver_3d_dice_sound';
+const emptyIds: ReadonlySet<string> = new Set();
 const Context = createContext({
     resetSettings: () => {},
     behavior: defaultDiceBehavior, setBehavior: (_behavior: DiceBehavior) => {},
     enabled: false, setEnabled: (_enabled: boolean) => {},
     appearance: defaultDiceAppearance, setAppearance: (_appearance: DiceAppearance) => {},
     sound: defaultDiceSound, setSound: (_sound: DiceSoundSettings) => {},
+    heldMessageIds: emptyIds,
+    recordCreated: (_id: string) => {},
+    prepareMessages: (_messages: readonly ChatMessageDto[]) => {},
+    invalidateMessage: (_id: string) => {},
+    resetPresentation: () => {},
+    testDice: () => {},
+    cancelTest: () => {},
+    canTest: false, testing: false,
 });
+const sample: DicePresentation = { id: 'local-dice-preview', notation: '1d6+1d20+1d100+1d10@4,17,40,2' };
 
 export function DicePresentationProvider({ children }: { children: ReactNode }) {
-    const { messages } = useChat();
     const { token, step, currentUserId } = useSession();
-    const { worldId } = useFoundry();
-    const { appSocket } = useRealtime();
+    const { isSettingsOpen } = useUI();
     const [enabled, updateEnabled] = useState(false);
     const [appearance, updateAppearance] = useState(defaultDiceAppearance);
     const [sound, updateSound] = useState(defaultDiceSound);
     const [behavior, updateBehavior] = useState(defaultDiceBehavior);
-    const latestBehavior = useRef(behavior);
     const [available, setAvailable] = useState(false);
     const [failed, setFailed] = useState(false);
-    const [queue, setQueue] = useState<DicePresentation[]>([]);
-    const inbox = useRef(new LiveDiceInbox());
-    const latestMessages = useRef(messages);
-    useEffect(() => { latestMessages.current = messages; }, [messages]);
+    const [queue, setQueue] = useState<readonly QueuedDice[]>([]);
+    const [testing, setTesting] = useState(false);
+    const coordinator = useRef(new DicePresentationQueue());
+    const publish = useCallback(() => setQueue(coordinator.current.snapshot()), []);
     const active = enabled && available && !failed && !!token && step === 'dashboard';
 
     useEffect(() => {
-        latestBehavior.current = behavior;
-        setQueue(current => current.filter(roll => allowsDicePresentation(roll, behavior, currentUserId)));
-    }, [behavior, currentUserId]);
+        coordinator.current.configure(active, behavior, currentUserId);
+        publish();
+    }, [active, behavior, currentUserId, publish]);
 
-    const enqueue = useCallback((rolls: DicePresentation[]) => {
-        if (!rolls.length) return;
-        const accepted = rolls.filter(roll => allowsDicePresentation(roll, latestBehavior.current, currentUserId));
-        logger.debug('DicePresentation | Queue admission', { supported: rolls.length, accepted: accepted.length });
-        if (accepted.length) setQueue(current => [...current, ...accepted].slice(0, 3));
-    }, [currentUserId]);
+    const recordCreated = useCallback((id: string) => { coordinator.current.created(id); }, []);
+    const prepareMessages = useCallback((messages: readonly ChatMessageDto[]) => {
+        coordinator.current.read(messages);
+        publish();
+    }, [publish]);
+    const invalidateMessage = useCallback((id: string) => {
+        coordinator.current.invalidated(id);
+        publish();
+    }, [publish]);
+    const resetPresentation = useCallback(() => {
+        coordinator.current.reset();
+        publish();
+        setTesting(false);
+    }, [publish]);
+
+    useEffect(() => { resetPresentation(); }, [token, step, resetPresentation]);
+    useEffect(() => {
+        if (!available || !isSettingsOpen || queue.length) setTesting(false);
+    }, [available, isSettingsOpen, queue.length]);
 
     const setBehavior = useCallback((value: DiceBehavior) => {
         const normalized = normalizeDiceBehavior(value);
         updateBehavior(normalized);
         try { localStorage.setItem(behaviorPreferenceKey, JSON.stringify(normalized)); } catch { /* Optional preference. */ }
     }, []);
-
     const setEnabled = useCallback((value: boolean) => {
         updateEnabled(value);
         setFailed(false);
-        try { localStorage.setItem(preferenceKey, String(value)); } catch { /* Storage can be blocked. */ }
+        try { localStorage.setItem(preferenceKey, String(value)); } catch { /* Optional preference. */ }
     }, []);
-
     const setAppearance = useCallback((value: DiceAppearance) => {
         const normalized = normalizeDiceAppearance(value);
         updateAppearance(normalized);
         try { localStorage.setItem(appearancePreferenceKey, JSON.stringify(normalized)); } catch { /* Optional preference. */ }
     }, []);
-
     const setSound = useCallback((value: DiceSoundSettings) => {
         const normalized = normalizeDiceSound(value);
         updateSound(normalized);
@@ -95,65 +111,41 @@ export function DicePresentationProvider({ children }: { children: ReactNode }) 
         };
     }, []);
 
-    useEffect(() => {
-        const liveInbox = inbox.current;
-        liveInbox.reset();
-        setQueue([]);
-        logger.debug('DicePresentation | Subscription state', {
-            active, enabled, available, failed, authenticated: !!token, step, hasSocket: !!appSocket,
-        });
-        if (!active || !appSocket) return;
-        const changed = (event: RealtimeChatMessageChangedPayload) => {
-            logger.debug('DicePresentation | Chat change received', {
-                action: event.action, hasMessageId: !!event.messageId, visible: document.visibilityState === 'visible',
-            });
-            if (document.visibilityState !== 'visible') return;
-            if (event.action === 'create') {
-                liveInbox.created(event.messageId);
-                const rolls = liveInbox.consume(latestMessages.current);
-                enqueue(rolls);
-            } else {
-                liveInbox.invalidated(event.messageId);
-                setQueue(current => current.filter(roll => roll.id !== event.messageId));
-            }
-        };
-        const reset = () => { liveInbox.reset(); setQueue([]); };
-        appSocket.on('chatMessageChanged', changed);
-        appSocket.on('disconnect', reset);
-        appSocket.on('serverRestarting', reset);
-        return () => {
-            appSocket.off('chatMessageChanged', changed);
-            appSocket.off('disconnect', reset);
-            appSocket.off('serverRestarting', reset);
-            liveInbox.reset();
-        };
-    }, [active, appSocket, token, worldId, enqueue, enabled, available, failed, step]);
-
-    useEffect(() => {
-        if (!active) return;
-        const rolls = inbox.current.consume(messages);
-        enqueue(rolls);
-    }, [active, messages, enqueue]);
-
     const resetSettings = useCallback(() => {
+        resetPresentation();
         setEnabled(false); setAppearance(defaultDiceAppearance);
         setSound(defaultDiceSound); setBehavior(defaultDiceBehavior);
-    }, [setEnabled, setAppearance, setSound, setBehavior]);
+    }, [resetPresentation, setEnabled, setAppearance, setSound, setBehavior]);
+    const heldMessageIds = useMemo(() => new Set(queue.filter(roll => roll.held).map(roll => roll.id)), [queue]);
+    const canTest = available && !!token && step === 'dashboard' && isSettingsOpen && !queue.length && !testing;
+    const testDice = useCallback(() => { if (canTest) { setFailed(false); setTesting(true); } }, [canTest]);
+    const cancelTest = useCallback(() => setTesting(false), []);
+    const current = active ? queue[0] : undefined;
+    // Settlement changes queue metadata, not the renderer's immutable roll prop.
+    const id = current?.id, notation = current?.notation, authorId = current?.authorId, privateRoll = current?.privateRoll;
+    const roll = useMemo(() => id && notation ? { id, notation, authorId, privateRoll } : null,
+        [id, notation, authorId, privateRoll]);
 
-    return <Context.Provider value={{ enabled, setEnabled, sound, setSound, appearance, setAppearance, behavior, setBehavior, resetSettings }}>
+    return <Context.Provider value={{ enabled, setEnabled, sound, setSound, appearance, setAppearance, behavior, setBehavior, resetSettings,
+        heldMessageIds, recordCreated, prepareMessages, invalidateMessage, resetPresentation, testDice, cancelTest, canTest, testing }}>
         {children}
-        {active && queue[0] && allowsDicePresentation(queue[0], behavior, currentUserId) && <DiceAnimation
-            key={queue[0].id} roll={queue[0]} sound={diceSoundForRoll(sound, behavior, queue[0])}
+        {(roll || (testing && available && isSettingsOpen && !queue.length)) && <DiceAnimation
+            key={current?.sequence ?? 'preview'} roll={roll ?? sample}
+            sound={roll ? diceSoundForRoll(sound, behavior, roll) : sound}
             appearance={appearance} behavior={behavior}
-            onDone={() => setQueue(current => current.slice(1))}
+            onSettled={() => { if (current) { coordinator.current.settled(current.sequence); publish(); } }}
+            onDone={() => {
+                if (current) { coordinator.current.done(current.sequence); publish(); }
+                else setTesting(false);
+            }}
             onError={error => {
                 logger.warn('Dice presentation unavailable; chat remains authoritative.', error);
                 setFailed(true);
-                setQueue([]);
+                coordinator.current.configure(false, behavior, currentUserId);
+                publish();
+                setTesting(false);
             }} />}
     </Context.Provider>;
 }
 
-export function useDicePresentation() {
-    return useContext(Context);
-}
+export function useDicePresentation() { return useContext(Context); }
