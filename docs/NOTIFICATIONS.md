@@ -52,6 +52,15 @@ duration. A preview pauses for hover/focus/hidden tabs. Its own dismissal does
 not clear unrelated system feedback. Only a new live create with an authorized
 read can produce a preview; no second document store is introduced.
 
+For admitted live 3D throws, the log and preview wait for settlement unless
+**Show results immediately** is enabled in Chat & Rolls. Preview expiry starts
+on display, independently of dice linger/fade. An older settled roll cannot
+replace a newer preview; opening chat suppresses pending previews. Unanimated
+messages and animation failures do not wait. This is browser-local presentation,
+not delayed Core delivery, and never delays system notices. See
+[dice preferences](dice-presentation.md#behavior) and
+[ADR-0045](adr/0045-dice-preferences-and-result-timing.md).
+
 ## Modules and Boundaries
 
 Modules use `useSDK()` from `@sheet-delver/sdk/react`. SDK 1.4.0 /

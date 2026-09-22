@@ -6,10 +6,13 @@ export interface DiceBehavior {
     displayDurationMs: number;
     lowEffects: boolean;
     mutePrivateRolls: boolean;
+    showResultsImmediately: boolean;
+    hideEffect: 'none' | 'fade';
 }
 
 export const defaultDiceBehavior: DiceBehavior = {
     ownRollsOnly: false, displayDurationMs: 1800, lowEffects: false, mutePrivateRolls: true,
+    showResultsImmediately: false, hideEffect: 'none',
 };
 
 export function normalizeDiceBehavior(value: unknown): DiceBehavior {
@@ -21,6 +24,8 @@ export function normalizeDiceBehavior(value: unknown): DiceBehavior {
             ? Math.round(Math.max(500, Math.min(5000, data.displayDurationMs)) / 100) * 100 : 1800,
         lowEffects: data.lowEffects === true,
         mutePrivateRolls: data.mutePrivateRolls !== false,
+        showResultsImmediately: data.showResultsImmediately === true,
+        hideEffect: data.hideEffect === 'fade' ? 'fade' : 'none',
     };
 }
 

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { createCollisionAudio, normalizeDiceSound, type CollisionAudioTarget } from '../../../client/ui/components/Dice/collisionAudio';
+import { createCollisionAudio, normalizeDiceSound, diceSurfaces, type CollisionAudioTarget } from '../../../client/ui/components/Dice/collisionAudio';
 
 export async function run() {
     assert.deepEqual(normalizeDiceSound(null), { enabled: false, volume: 50 });
@@ -55,4 +55,23 @@ export async function run() {
     controller.update({ enabled: true, volume: 50 });
     assert.equal(clips[0].played, 1, 'late callbacks cannot play after teardown');
     assert.equal(target.sounds, false);
+    for (const surface of Object.keys(diceSurfaces) as (keyof typeof diceSurfaces)[]) {
+        const paths: string[] = [];
+        const audio = createCollisionAudio(target, src => {
+            paths.push(src);
+            assert.ok(existsSync(resolve('public', src.slice(1))), src);
+            return { preload: 'auto', readyState: 2, volume: 1, play: async () => {}, pause() {}, removeAttribute() {}, load() {} };
+        });
+        audio.update({ enabled: false, volume: 50, surface });
+        assert.equal(paths.length, 0);
+        audio.update({ enabled: true, volume: 50, surface });
+        assert.equal(paths.length, diceSurfaces[surface].clips + 15);
+        assert.equal(target.surface, surface);
+        assert.ok(paths.filter(path => path.includes('surfaces')).every(path => path.includes('surface_' + surface)));
+        audio.update({ enabled: true, volume: 10, surface: 'felt' });
+        assert.equal(target.surface, surface, 'surface changes apply to the next throw');
+        audio.dispose();
+    }
+    assert.equal(normalizeDiceSound({ surface: '__proto__' }).surface, undefined);
+    assert.equal(normalizeDiceSound({ surface: '../metal' }).surface, undefined);
 }

@@ -25,15 +25,17 @@ export default function PlayerProviders({ children }: { children: ReactNode }) {
             <SessionProvider>
               <RealtimeProvider>
                 <ActorCombatProvider>
-                  <ChatProvider>
-                    <FoundryProvider>
-                      <NotificationSessionBoundary />
-                      <ChatPreview />
-                      <JournalProvider>
-                        <DicePresentationProvider>{children}<PlayerSettingsDialog /></DicePresentationProvider>
-                      </JournalProvider>
-                    </FoundryProvider>
-                  </ChatProvider>
+                  <DicePresentationProvider>
+                    <ChatProvider>
+                      <FoundryProvider>
+                        <NotificationSessionBoundary />
+                        <ChatPreview />
+                        <JournalProvider>
+                          {children}<PlayerSettingsDialog />
+                        </JournalProvider>
+                      </FoundryProvider>
+                    </ChatProvider>
+                  </DicePresentationProvider>
                 </ActorCombatProvider>
               </RealtimeProvider>
             </SessionProvider>

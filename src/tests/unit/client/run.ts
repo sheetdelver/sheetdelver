@@ -1,4 +1,5 @@
 import { run as runModulePresentation } from './module-presentation.test';
+import { run as runDiceQueue } from './dice-queue.test';
 import { run as runDiceViewport } from './dice-viewport.test';
 import { run as runDiceTrayLifecycle } from './dice-tray-lifecycle.test';
 import { run as runDiceFollowups } from './dice-followups.test';
@@ -25,6 +26,7 @@ import { run as runNotifications } from './notification-store.test';
 import { run as runChatPresentation } from './chat-presentation.test';
 
 export async function run() {
+    runDiceQueue();
     runModulePresentation();
     runDiceViewport();
     runNotifications();
