@@ -1,3 +1,5 @@
+import type { DiceMaterial } from './appearance';
+
 export interface DiceSoundSettings {
     enabled: boolean;
     volume: number;
@@ -37,8 +39,8 @@ export interface CollisionAudioTarget {
 
 type AudioElement = Pick<HTMLAudioElement, 'preload' | 'readyState' | 'volume' | 'play' | 'pause' | 'removeAttribute' | 'load'>;
 
-/** Keep collision timing; lazily load only the selected local surface and plastic clips. */
-export function createCollisionAudio(target: CollisionAudioTarget, createAudio: (src: string) => AudioElement = src => new Audio(src)) {
+/** Keep collision timing; lazily load only the selected local surface and material. */
+export function createCollisionAudio(target: CollisionAudioTarget, createAudio: (src: string) => AudioElement = src => new Audio(src), material: DiceMaterial = 'plastic') {
     let settings = defaultDiceSound;
     let disposed = false;
     let surface: keyof typeof diceSurfaces | undefined;
@@ -70,9 +72,9 @@ export function createCollisionAudio(target: CollisionAudioTarget, createAudio: 
             target.volume = 100;
             if (target.sounds && !clips.length) {
                 target.surface = surface;
-                target.sound_dieMaterial = 'plastic';
+                target.sound_dieMaterial = material;
                 target.sounds_table[surface] = Array.from({ length: diceSurfaces[surface].clips }, (_, i) => createVoice(`surfaces/surface_${surface}${i + 1}`));
-                target.sounds_dice.plastic = Array.from({ length: 15 }, (_, i) => createVoice(`dicehit/dicehit_plastic${i + 1}`));
+                target.sounds_dice[material] = Array.from({ length: material === 'plastic' ? 15 : 12 }, (_, i) => createVoice(`dicehit/dicehit_${material}${i + 1}`));
             }
             for (const { audio, voice } of clips) {
                 audio.volume = voice.volume * settings.volume / 100;

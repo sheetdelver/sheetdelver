@@ -4,6 +4,7 @@ declare module '@3d-dice/dice-box-threejs' {
         initialize(): Promise<void>;
         roll(notation: string): Promise<unknown>;
         resizeWorld(): void;
+        setDimensions(dimensions?: unknown): void;
         swapDiceFace(die: { result: unknown[] }, value: number): void;
         sounds: boolean;
         volume: number;
@@ -14,6 +15,9 @@ declare module '@3d-dice/dice-box-threejs' {
         running: boolean | number;
         animateThrow: (...args: unknown[]) => void;
         animateAfterThrow: (...args: unknown[]) => void;
+        DiceColors: { getTexture(name: string): { material?: string; texture?: unknown; bump?: unknown } };
+        camera?: { zoom: number; updateProjectionMatrix(): void };
+        light?: { shadow: { map?: Disposable | null; mapSize: { width: number; height: number } } };
         scene: { traverse(visitor: (object: {
             geometry?: Disposable;
             material?: Material | Material[];
@@ -23,9 +27,11 @@ declare module '@3d-dice/dice-box-threejs' {
             render: (...args: unknown[]) => void;
             dispose(): void;
             forceContextLoss(): void;
+            setPixelRatio(ratio: number): void;
             domElement: HTMLCanvasElement;
         };
         DiceFactory: {
+            setBumpMapping(enabled: boolean): void;
             geometries: Record<string, Disposable>;
             materials_cache: Record<string, { composite?: Disposable; bump?: Disposable }>;
         };

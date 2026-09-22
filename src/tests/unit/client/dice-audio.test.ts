@@ -74,4 +74,20 @@ export async function run() {
     }
     assert.equal(normalizeDiceSound({ surface: '__proto__' }).surface, undefined);
     assert.equal(normalizeDiceSound({ surface: '../metal' }).surface, undefined);
+    for (const material of ['wood', 'metal'] as const) {
+        const paths: string[] = [];
+        const controller = createCollisionAudio(target, src => {
+            paths.push(src);
+            assert.ok(existsSync(resolve('public', src.slice(1))), src);
+            return { preload: 'auto', readyState: 2, volume: 1, play: async () => {}, pause() {}, removeAttribute() {}, load() {} };
+        }, material);
+        controller.update({ enabled: false, volume: 50, surface: 'metal' });
+        assert.equal(paths.length, 0);
+        controller.update({ enabled: true, volume: 50, surface: 'metal' });
+        assert.equal(paths.length, 21);
+        assert.equal(target.sound_dieMaterial, material);
+        assert.equal(target.sounds_dice[material].length, 12);
+        assert.ok(paths.filter(path => path.includes('dicehit')).every(path => path.includes(`dicehit_${material}`)));
+        controller.dispose(); assert.deepEqual(target.sounds_dice, {});
+    }
 }

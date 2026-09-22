@@ -1,5 +1,6 @@
 import type { DicePresentation } from './presentation';
 import type { DiceSoundSettings } from './collisionAudio';
+import { diceRegions, type DiceRegion } from './viewport';
 
 export interface DiceBehavior {
     ownRollsOnly: boolean;
@@ -8,6 +9,12 @@ export interface DiceBehavior {
     mutePrivateRolls: boolean;
     showResultsImmediately: boolean;
     hideEffect: 'none' | 'fade';
+    settlementEffect?: 'none' | 'highlight' | 'breathing' | 'crescendo';
+    throwForce?: 'soft' | 'normal' | 'strong';
+    shadowQuality?: 'low' | 'standard';
+    engravedLabels?: boolean;
+    highDpi?: boolean;
+    region?: DiceRegion;
 }
 
 export const defaultDiceBehavior: DiceBehavior = {
@@ -26,6 +33,14 @@ export function normalizeDiceBehavior(value: unknown): DiceBehavior {
         mutePrivateRolls: data.mutePrivateRolls !== false,
         showResultsImmediately: data.showResultsImmediately === true,
         hideEffect: data.hideEffect === 'fade' ? 'fade' : 'none',
+        ...(data.settlementEffect === 'highlight' || data.settlementEffect === 'breathing' || data.settlementEffect === 'crescendo'
+            ? { settlementEffect: data.settlementEffect } : {}),
+        ...(data.throwForce === 'soft' || data.throwForce === 'strong' ? { throwForce: data.throwForce } : {}),
+        ...(data.shadowQuality === 'low' ? { shadowQuality: 'low' as const } : {}),
+        ...(data.engravedLabels === false ? { engravedLabels: false } : {}),
+        ...(data.highDpi === true ? { highDpi: true } : {}),
+        ...(typeof data.region === 'string' && Object.hasOwn(diceRegions, data.region) && data.region !== 'full'
+            ? { region: data.region as DiceRegion } : {}),
     };
 }
 

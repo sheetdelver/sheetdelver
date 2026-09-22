@@ -8,7 +8,7 @@ export function run() {
             { class: 'OperatorTerm', operator: '+' }, { class: 'NumericTerm', number: 5 },
         ] }],
     };
-    assert.deepEqual(toDicePresentation(message), { id: 'roll-1', notation: '1d20+1d20@17,3' });
+    assert.deepEqual(toDicePresentation(message), { id: 'roll-1', physicalDiceCount: 2, notation: '1d20+1d20@17,3' });
     assert.equal(toDicePresentation({ ...message, blind: true }), null);
     assert.equal(toDicePresentation({ ...message, isContentVisible: false }), null,
         'redacted placeholders never animate, even if incorrectly supplied roll data');

@@ -32,7 +32,7 @@ const Context = createContext({
     cancelTest: () => {},
     canTest: false, testing: false,
 });
-const sample: DicePresentation = { id: 'local-dice-preview', notation: '1d6+1d20+1d100+1d10@4,17,40,2' };
+const sample: DicePresentation = { id: 'local-dice-preview', physicalDiceCount: 4, notation: '1d6+1d20+1d100+1d10@4,17,40,2' };
 
 export function DicePresentationProvider({ children }: { children: ReactNode }) {
     const { token, step, currentUserId } = useSession();
@@ -123,8 +123,9 @@ export function DicePresentationProvider({ children }: { children: ReactNode }) 
     const current = active ? queue[0] : undefined;
     // Settlement changes queue metadata, not the renderer's immutable roll prop.
     const id = current?.id, notation = current?.notation, authorId = current?.authorId, privateRoll = current?.privateRoll;
-    const roll = useMemo(() => id && notation ? { id, notation, authorId, privateRoll } : null,
-        [id, notation, authorId, privateRoll]);
+    const physicalDiceCount = current?.physicalDiceCount;
+    const roll = useMemo(() => id && notation ? { id, notation, authorId, privateRoll, physicalDiceCount } : null,
+        [id, notation, authorId, privateRoll, physicalDiceCount]);
 
     return <Context.Provider value={{ enabled, setEnabled, sound, setSound, appearance, setAppearance, behavior, setBehavior, resetSettings,
         heldMessageIds, recordCreated, prepareMessages, invalidateMessage, resetPresentation, testDice, cancelTest, canTest, testing }}>

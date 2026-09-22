@@ -10,6 +10,7 @@ import { createCollisionAudio, defaultDiceSound, type DiceSoundSettings } from '
 import { defaultDiceAppearance, normalizeDiceAppearance, diceAppearanceOptions, type DiceAppearance } from './appearance';
 import type { DicePresentation } from './presentation';
 import { defaultDiceBehavior, normalizeDiceBehavior, type DiceBehavior } from './behavior';
+import { configureDiceQuality, diceForces, prepareDiceRenderer, playDiceSettlementEffect } from './rendering';
 
 export function DiceAnimation({ roll, sound = defaultDiceSound, appearance = defaultDiceAppearance, behavior = defaultDiceBehavior, onSettled, onDone, onError }: {
     sound?: DiceSoundSettings;
@@ -45,6 +46,7 @@ export function DiceAnimation({ roll, sound = defaultDiceSound, appearance = def
         let dispose: (() => void) | undefined;
         let linger: ReturnType<typeof setTimeout> | undefined;
         let fade: ReturnType<typeof setTimeout> | undefined;
+        let settlementAnimation: Animation | undefined;
         let finished = false;
         const finish = () => {
             if (!cancelled && !finished) { finished = true; callbacks.current.onDone(); }
@@ -54,7 +56,7 @@ export function DiceAnimation({ roll, sound = defaultDiceSound, appearance = def
             finish();
         }, 12_000);
         // End the current throw on a size change instead of retaining upstream resize listeners/resources.
-        const stopTracking = trackDiceViewport(element, window, finish);
+        const stopTracking = trackDiceViewport(element, window, finish, throwBehavior.region);
         // A manual, non-modal popover sits above native dialogs without taking focus or clicks.
         element.showPopover?.();
         void (async () => {
@@ -63,9 +65,11 @@ export function DiceAnimation({ roll, sound = defaultDiceSound, appearance = def
             if (cancelled) return;
             box = new Renderer(`#${id}`, {
                 sounds: false, shadows: !throwBehavior.lowEffects,
-                ...diceAppearanceOptions(throwAppearance, element.clientWidth),
+                strength: diceForces[throwBehavior.throwForce ?? 'normal'],
+                ...diceAppearanceOptions(throwAppearance, element.clientWidth, element.clientHeight, roll.physicalDiceCount),
             });
             dispose = createRendererDisposer(box);
+            prepareDiceRenderer(box, throwBehavior, element.clientWidth, element.clientHeight, window.devicePixelRatio);
             box.resizeWorld = () => {};
             const swapFace = box.swapDiceFace.bind(box);
             box.swapDiceFace = (die, value) => {
@@ -79,7 +83,8 @@ export function DiceAnimation({ roll, sound = defaultDiceSound, appearance = def
                 if (cancelled) dispose();
             }
             if (cancelled) return;
-            audio.current = createCollisionAudio(box);
+            configureDiceQuality(box, throwBehavior);
+            audio.current = createCollisionAudio(box, undefined, throwAppearance.material);
             audio.current.update({ ...latestSound.current, surface: throwSurface });
             logger.debug('DicePresentation | Renderer initialized', {
                 width: box.renderer?.domElement.width, height: box.renderer?.domElement.height,
@@ -89,6 +94,7 @@ export function DiceAnimation({ roll, sound = defaultDiceSound, appearance = def
             if (!cancelled && !finished) {
                 clearTimeout(timeout);
                 callbacks.current.onSettled?.();
+                settlementAnimation = playDiceSettlementEffect(box.renderer?.domElement, throwBehavior);
                 linger = setTimeout(() => {
                     if (throwBehavior.hideEffect !== 'fade') { finish(); return; }
                     element.style.transition = 'opacity 200ms ease-out';
@@ -103,6 +109,7 @@ export function DiceAnimation({ roll, sound = defaultDiceSound, appearance = def
             clearTimeout(linger);
             clearTimeout(fade);
             stopTracking();
+            settlementAnimation?.cancel();
             element.hidePopover?.();
             audio.current?.dispose();
             audio.current = null;
@@ -112,6 +119,7 @@ export function DiceAnimation({ roll, sound = defaultDiceSound, appearance = def
 
     return portalHost ? createPortal(<div ref={overlay} id={id} popover="manual" aria-hidden="true" data-dice-overlay="" data-dice-style={throwAppearance.style} data-dice-size={throwAppearance.size}
         data-dice-low-effects={throwBehavior.lowEffects} data-dice-duration={throwBehavior.displayDurationMs}
+        data-dice-region={throwBehavior.region ?? 'full'} data-dice-material={throwAppearance.material ?? 'plastic'}
         style={{ position: 'fixed', inset: 'auto', margin: 0, padding: 0, border: 0, background: 'transparent',
             zIndex: 10000, pointerEvents: 'none', overflow: 'hidden' }} />, portalHost) : null;
 }
