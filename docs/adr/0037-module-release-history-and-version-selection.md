@@ -1,6 +1,6 @@
 # ADR-0037: Module Release History and Version Selection
 
-**Status:** Accepted - In Progress
+**Status:** Accepted - Implemented
 **Date:** September 14, 2026
 **Supersedes:** None
 **Revises:** ADR-0035 (historical remote version browsing)
@@ -80,5 +80,28 @@ promotion, and supervised restart behavior is unchanged.
 - [x] Add version selection and downgrade acknowledgement to the admin UI.
 - [x] Generate release history in reusable module release workflows.
 - [x] Update catalog, release, module-author, API, and architecture guidance.
-- [ ] Verify latest install, historical install, downgrade, upgrade, pin, lock,
-      and latest-only fallback behavior.
+- [x] Verify version selection, downgrade approval, upgrade policy, pin, lock
+      and latest-only fallback through automated checks and user release-workflow
+      acceptance; evidence and limits are recorded below.
+
+## Closeout (September 22, 2026)
+
+Implementation merged in `a1bfda2` (PR #22). Later module releases published
+history; the user confirmed the selector showed both releases and an available
+update, then reported "1-7 confirmed" for the acceptance sequence. The earlier
+latest-only HTTP 404 fallback was also observed before release history became
+available. These are user reports, not new agent-run production tests; the
+numbered prompt is not reproduced here as independently observed evidence for
+every individual interaction.
+
+The full unit suite passed again on September 22. Release-history and public
+release tests cover schema/identity checks, compatible-version filtering,
+selected-manifest validation, missing/incomplete history fallback, explicit
+downgrade approval and digest rejection. Archive-operation tests cover pins,
+locks, upgrade and preservation of the local source. Transaction tests cover
+rollback separately from selecting a historical release. Network behavior uses
+injected transport fixtures; no hosted Foundry instance was contacted.
+
+This closes the original implementation/acceptance task. Retain these cases as
+regression coverage, not an automatically recurring release blocker. A concrete
+new failure should be tracked as a new issue.

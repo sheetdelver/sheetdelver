@@ -12,12 +12,31 @@ untracked timers, no pause/update/progress lifecycle and a fixed-width top-right
 stack. It survived the transition to the login form, allowing old asynchronous
 operations to add feedback after logout or a later login.
 
-The deferred admin audit reviewed providers, authentication, maintenance and all
-three transient feedback consumers. Detailed validation, dry-run reports and
-login/setup errors are contextual and should remain inline. The audit is retained
-locally at `temp/audit-reports/admin-notification-alignment-2026-09-21.md`.
-This work follows the merged dice PR on a separate branch; dice behavior is not
-part of this decision.
+The review traced AdminProviders, authentication and restart contexts through
+SourceProfilePanel, ModuleUpdatePolicyControl and CatalogModulePanel, then
+compared them with the existing shared notification store and renderer:
+
+- AdminToastContext maintained an unbounded queue and untracked four-second
+  timers. It lacked hidden/hover/focus pauses, updates, progress and dismiss-all,
+  although those behaviors already existed in NotificationStore.
+- A fixed 320px-wide stack plus right spacing overflowed a 320px viewport. Admin
+  needed bounded placement without the player's HUD/tray clearance.
+- The provider survived the switch to the login form. Clearing visible notices
+  alone could not stop an old asynchronous callback from adding another notice
+  after logout or relogin; callbacks needed an initiating-session guard.
+- The toast layer sat above maintenance, and catalog operations announced
+  success immediately before requesting restart. An accepted operation does not
+  establish runtime readiness; maintenance must remain authoritative.
+- Detailed validation, dry-run reports and login/setup errors were already
+  contextual. Converting them all into transient notifications would lose useful
+  context, so only the three existing transient consumers were migrated.
+
+These findings justify reuse of shared presentation with a thin admin lifecycle
+boundary, not another store or a general theme framework. Dice behavior, server
+operations and authentication policy are outside this decision. The tracked
+[admin notification tests](../../src/tests/unit/client/admin-notifications.test.ts)
+and [browser-security architecture tests](../../src/tests/unit/security/browser-security.test.ts)
+retain callback-scope and presentation-dependency checks.
 
 ## Decision
 

@@ -13,9 +13,25 @@ terms. Core already projects authorized native chat contents, while Foundry
 functions. Neither gap requires another transport or module animation API.
 
 The user approved an audit-first follow-up, separately from notification SDK
-lifecycle work. The audit is retained locally under
-`temp/audit-reports/dice-presentation-followups-audit-2026-09-19.md`; this ADR
-records the durable decision and acceptance status.
+lifecycle work. Review of the presenter, authorized chat projection and native
+v13/v14 serialization identified three findings:
+
+- Blanket blind-roll suppression discarded results that Core had already
+  authorized for a recipient. Presentation should require an explicit positive
+  content-visibility flag, not infer permission from role or whisper membership.
+- The normalizer accepted flat Die terms but rejected recorded child Rolls in
+  pools, parentheses and functions. Their serializers retain the evaluated
+  children, so a bounded visitor can present faces without executing formulas.
+  Serialized Roll.dice contains retained inner dice, not the runtime getter's
+  aggregate; treating it as an aggregate would risk omissions or duplication.
+- Tray, sheet, SDK and Foundry-originated messages already converged through
+  live create hints and authorized chat reads. Fixing admission/normalization
+  did not require a second transport, module hook or SDK animation API.
+
+The [recorded-dice fixtures](../../src/tests/unit/client/fixtures/recorded-dice.ts)
+and [follow-up tests](../../src/tests/unit/client/dice-followups.test.ts) preserve
+the reviewed serialization shapes and regression coverage. They are synthetic
+fixtures, not captured live documents or vendored Foundry implementation.
 
 ## Decision
 
@@ -120,9 +136,9 @@ above; support is not claimed for every native or system-defined formula.
 - [x] User confirmed the formula and tray follow-up works as expected on
   September 20, 2026, after the requested live retest.
 
-Local visual harnesses stay ignored under `temp/`, using an already-installed
-external Playwright tool. Browser automation is not an application dependency
-or a backend runtime. No hosted Foundry operations were used for verification.
+Local visual verification used a development-only harness and an external
+Playwright installation. Browser automation is not an application dependency or
+a backend runtime. No hosted Foundry operations were used for verification.
 
 ## Live Acceptance
 

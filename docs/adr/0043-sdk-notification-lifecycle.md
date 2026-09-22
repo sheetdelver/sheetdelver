@@ -12,8 +12,19 @@ had an addNotification type returning void with narrower options than the actual
 host. Deferred lifecycle support can reuse the existing browser-owned store;
 neither a second notification queue nor ChatMessage changes are necessary.
 
-The pre-implementation audit is recorded in
-`temp/audit-reports/sdk-notification-lifecycle-2026-09-20.md`.
+The review traced NotificationStore through SDKProvider, SDKContextValue,
+UseNotifications and createMockSdkContext. The host already supported IDs,
+updates, progress, dismissal, bounded queues and expiry, but the SDK forwarded
+only addNotification. SDKContextValue and UseNotifications duplicated narrower
+signatures, hiding the returned handle and host options. The testing mock was
+a no-op, so module tests could not observe progress updates or dismissal.
+
+The missing capability was therefore the public contract and forwarding layer,
+not another store. A shared type definition and observable SDK fake close that
+gap while leaving session cleanup, placement and realtime ownership in the host.
+The tracked [SDK contract tests](../../src/tests/unit/sdk/contract.test.ts) and
+[host-store tests](../../src/tests/unit/client/notification-store.test.ts) cover
+their respective responsibilities.
 
 ## Decision
 
@@ -59,7 +70,7 @@ introduced. This extends, rather than reopens, the completed ADR-0040.
   320x568. It verified add/update/remove, completion, HTML sanitization, expiry,
   disconnect/world/logout cleanup, stable callbacks and socket subscriptions.
   External requests were blocked; no Foundry connection was used.
-- Desktop and mobile screenshots were inspected. Browser tooling remains a
-  local development tool under `temp/`, not an application dependency.
+- Desktop and mobile screenshots were inspected. Browser tooling was used only
+  for local development verification, not added as an application dependency.
 - User approved commit/merge on 2026-09-21. Core release and module adoption
   follow separately. Admin notification unification remains a separate follow-up.

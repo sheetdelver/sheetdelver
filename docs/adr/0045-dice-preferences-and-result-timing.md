@@ -11,11 +11,30 @@ preview and animation consumers cannot reliably synchronize first display using
 an arbitrary delay. The user requested individual result-timing control and a
 broader audit of Dice So Nice options, without adopting its Foundry runtime.
 
-The detailed local audit is retained in
-`temp/audit-reports/dice-preferences-requirements-2026-09-21.md`. It distinguishes
-timing, appearance, surface audio, rendering quality, profiles, filters and
-interactive-tabletop features. The selected slice uses supported capabilities
-of the existing renderer; this is not full Dice So Nice compatibility.
+The review compared Dice So Nice 6.3.1 settings and lifecycle with the installed
+`@3d-dice/dice-box-threejs@0.0.12` renderer and SheetDelver's chat/dice providers.
+Tagged definitions took precedence over newer online guide defaults. It found:
+
+- Result timing needs coordinated first display, not an arbitrary timeout:
+  independent chat and animation consumers otherwise reveal results too early.
+- Dice So Nice distinguishes world-level immediate-chat policy from user
+  preferences. SheetDelver stores these choices per browser; adopting similar
+  controls does not imply account/world synchronization.
+- The renderer already supports body, label, outline and edge colors. Its
+  packaged surface clips cover felt, wood table, wood tray and metal independently
+  of visual material, allowing bounded additions without a skin/plugin runtime.
+- Speed, fonts and quality are not interchangeable colorset settings. Physics
+  timestep is not playback speed; preset fonts, hardcoded antialiasing and shadow
+  resolution require separate adapter work before exposing reliable controls.
+- Same-message rolls already share one throw. Merging different messages,
+  parsing inline HTML rolls or animating newly appended rolls needs additional
+  identity, ordering and data handling, not just another preference toggle.
+- Preference changes must preserve stable subscriptions; recreating providers
+  or callbacks must not revive the earlier menu-triggered reconnect defect.
+
+The selected slice uses supported renderer capabilities and existing authorized
+chat delivery. It does not claim full Dice So Nice compatibility or support for
+third-party extensions.
 
 ## Decision
 
@@ -60,10 +79,24 @@ style pushed to other players. Users may see the same result at different times.
 No SDK contract/version, module changes, server runtime, package dependency or
 backend browser is introduced. Development-only browser fixtures remain ignored.
 
-Speed, materials, advanced lighting, inline/newly-appended rolls, profiles,
-custom regions, per-die styling, shared effects and interactive tabletop dice
-remain separately scoped. The audit records why each is deferred or excluded;
-this implementation does not imply they are impossible or all desirable.
+### Option Disposition
+
+These boundaries record the reviewed alternatives; deferred ideas are not
+unfinished requirements or promises that every option will be implemented.
+
+| Area | Disposition and rationale |
+| --- | --- |
+| Result timing, fade, four custom colors, surface audio, local test throw | Implemented using the current renderer and a bounded presentation lifecycle. |
+| Existing visibility, sound/volume, duration, presets, responsive sizing, low effects and reset | Retained rather than introducing competing controls or new defaults. |
+| Playback speed, force, materials, bump mapping and high-DPI rendering | Prototype separately; verify forced faces, framing, resource cleanup and GPU budgets. Physics timestep/force must not be mislabeled as playback speed. |
+| Fonts, texture libraries, advanced lighting, antialiasing/shadow quality and extra die models | Separate renderer/asset work; existing colorset support does not establish support for these capabilities. |
+| Larger dice, custom regions, spawn position and per-die appearance | Separate framing/adapter work. Regions must follow the visual viewport; current appearance is one choice per throw. |
+| Private/category/combat filters, per-actor/damage styling and result-triggered effects | Require documented authorized metadata. Filters may narrow visibility, never grant access or infer game rules from flavor text. |
+| Cross-message merging, sequential same-message throws and explicit dismissal | Require queue ownership, completion ordering and keyboard-interaction design. A user preference must not raise the 24-mesh safety limit. |
+| Inline HTML rolls, appended-roll updates and linked-card reveal | Require recorded-data and correlation contracts; do not evaluate message HTML, guess associations by timestamp or replay old dice. |
+| Named profiles, import/export and account/world synchronization | Separate storage/product scope. Any future import must use bounded versioned data, not arbitrary script-capable packages. |
+| Persistent/interactive dice, faceless hidden throws, shared effects, GM-enforced styles and effect macros | Excluded from this slice: they change interaction, privacy or local ownership, or introduce code execution rather than result presentation. |
+| Inactive-tab animation, reduced-motion override, Foundry interface-volume coupling and scene-darkness coupling | Not exposed: preserve accessibility/no-replay safeguards and independent browser audio/UI ownership. |
 
 ## Verification
 

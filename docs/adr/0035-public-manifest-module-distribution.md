@@ -1,6 +1,6 @@
 # ADR-0035: Public Manifest Module Distribution
 
-**Status:** Proposed
+**Status:** Accepted - Implemented
 **Date:** September 7, 2026
 **Supersedes:** None
 **Revises:** ADR-0007 (public unauthenticated sources and fail-closed host governance), ADR-0033 (bounded activation of remote module distribution)
@@ -328,6 +328,30 @@ catalog changes do not require a core release.
 **Exit:** The blanket remote-distribution denial is replaced only for the public
 paths in this ADR, official modules install and update through the catalog, and
 local and managed runtime behavior remains unchanged.
+
+## Closeout (September 22, 2026)
+
+This status correction records the already-shipped decision; it introduces no
+new distribution capability. Implementation merged in `eeec4df` (PR #14), with
+runtime restart and historical selection subsequently covered by ADR-0036 and
+ADR-0037. The user confirmed catalog installs/updates, uninstall/reinstall with
+disabled state preserved, source switching, maintenance recovery and production
+managed-module use during the subsequent release work.
+
+The full unit and local integration suites passed again on September 22. The
+archive tests exercise traversal/link/duplicate rejection, staging, promotion,
+rollback and preservation of local developer content. Public distribution tests
+exercise host/address/redirect policy, bounded responses, retry, digest checks,
+manifest selection and archive installation with injected DNS/request-hop
+fixtures. These are controlled transport tests, not live adversarial network
+tests or a fresh production deployment. Policy tests cover locks, pins and
+permission approval independently of the operator smoke confirmations.
+
+The manifest-driven public path is active. Legacy raw remote-source scaffolding
+remains denied intentionally; its `remote-module-distribution-disabled` errors
+are not an unfinished activation task. The original phase checklist is historical
+and should not be recreated as release work. Deferred capabilities below and
+under Out of scope require a separately approved use case.
 
 ## Tentative Follow-up
 

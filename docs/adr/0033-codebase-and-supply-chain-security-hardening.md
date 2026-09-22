@@ -844,7 +844,7 @@ the focused Phase 4 checks:
 - lint completed with zero errors and the one pre-existing
   `ShutdownWatcher.tsx` internal-navigation warning already recorded in Phase 1
 - the manager-driven Next.js 16.3.2 production build passed using
-  `/tmp/sheet-delver-phase4-build` as `SHEET_DELVER_DATA`; the fixture contained
+  a disposable fixture directory as `SHEET_DELVER_DATA`; the fixture contained
   no local-development or managed modules and the generated route manifest
   retained player and admin routes in the one application shell
 - a source inventory found no Core `status(500).send/end`, `sendStatus(500)`,

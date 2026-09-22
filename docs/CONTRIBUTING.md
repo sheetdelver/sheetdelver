@@ -46,6 +46,15 @@ SheetDelver follows a **Decoupled Core/Shell** architecture to ensure stability 
 - `src/scripts`: Tooling, build scripts, and the unified startup manager.
 - `src/tests`: Automated unit and integration tests.
 
+## Documentation and Decision Records
+
+Tracked documentation must be understandable from a clean checkout. Include an
+audit's relevant findings, rationale, decisions and verification limits directly
+in its ADR or guide; do not rely on ignored local reports, screenshots or
+machine-specific paths as references. Link to tracked tests or public primary
+sources for supporting detail. Temporary command examples are fine when they
+describe a file the reader creates, rather than unavailable historical evidence.
+
 ## Module Architecture
 
 Each RPG system is a **self-contained external module** discovered at runtime from the data directory. Modules live in `<DATA_DIR>/local/modules/<id>/` (local dev, Mode A source) or `<DATA_DIR>/modules/<id>/` (managed install, Mode B artifact). The data directory defaults to `./data/` and is configured via `--data-dir=<path>` or the `SHEET_DELVER_DATA` environment variable.
