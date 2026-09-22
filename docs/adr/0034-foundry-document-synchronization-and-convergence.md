@@ -741,10 +741,10 @@ rerouting a failed user write through the service account.
 
 **Automated acceptance evidence (September 3, 2026):** Full lint, TypeScript,
 unit, and isolated integration suites pass. The production build passes with
-`SHEET_DELVER_DATA` set to `/tmp/sheet-delver-lifecycle-build`; no real
+`SHEET_DELVER_DATA` set to a disposable fixture directory; no real
 `<DATA_DIR>` content was read or written. A CycloneDX 1.5 production SBOM was
-generated in `/tmp` with 199 components. The configured production dependency
-gate (`npm audit --omit=dev --audit-level=high`) passes. GitHub CI run 277 passed
+generated as a temporary test artifact with 199 components. The configured
+production dependency gate (`npm audit --omit=dev --audit-level=high`) passes. GitHub CI run 277 passed
 for implementation commit `fe7d1c0`, including dependency review in
 [GitHub CI run 277](https://github.com/sheetdelver/sheetdelver/actions/runs/33799430718).
 The eventual Phase 5 documentation commit still requires its own green CI run.

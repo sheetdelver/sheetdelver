@@ -329,7 +329,7 @@ baseline.
 
 **Phase 5 completed August 21, 2026.** All source, lint, type, unit,
 integration, architecture, and isolated-build gates pass. The isolated build
-used `/tmp/sheet-delver-phase5-build.DxxMtO` and did not read or write the
+used a disposable temporary data directory and did not read or write the
 checkout's configured data directory. Lint initially exposed an unnecessary
 blanket ESLint-disable directive in the generated module UI registry; the
 generator was corrected and a regenerated registry now lints cleanly.

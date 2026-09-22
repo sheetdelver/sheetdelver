@@ -79,10 +79,27 @@ documentation. These establish world-level chat documents, transient chat cards,
 and a separate application notification queue. No upstream UI code is imported.
 
 Trace: primary store -> authorized service DTO -> realtime hint/API refresh ->
-ChatContext -> log/preview -> SDK feedback callers. The completed audit is
-temp/audit-reports/completed/unified-notifications-2026-09-18.md. Test with deterministic
-clocks, existing security tests and an isolated browser fixture, never another
-Core process against the hosted Foundry configuration.
+ChatContext -> log/preview -> SDK feedback callers. The review found:
+
+- ChatMessageStore already owned synchronized world documents and authorization;
+  adding another document store would duplicate that responsibility.
+- Condensed chat summaries entered the generic toast queue, so log and preview
+  formatting diverged and unrelated messages competed for the same lifecycle.
+- System notices were unbounded and lacked progress, persistence and expiry
+  pauses. These needed one host-owned queue, not separate module implementations.
+- The log reversed chronology and used index-suffixed keys; reading-position
+  state was unused. The HUD indicated any history rather than new live arrivals.
+- Generic/SDK roll feedback could duplicate a persisted chat preview. Only an
+  identifiable ChatMessage acknowledgement justifies suppressing that feedback.
+- Login could emit duplicate errors, and generic actor feedback treated ordinary
+  text as HTML. Caller cleanup and explicit rich-content opt-in were required.
+
+These findings led to the separate chat/system lifecycles and shared rendering
+defined above. Verification used deterministic clocks, existing security tests
+and an isolated browser fixture, never another Core process against the hosted
+Foundry configuration. The tracked
+[notification-store tests](../../src/tests/unit/client/notification-store.test.ts)
+retain reproducible queue, timer, progress and sanitization coverage.
 
 ## Verification and Closeout
 
@@ -103,10 +120,12 @@ passed. Isolated real-component browser checks passed at 1440x900, 390x844 and
 progress, independent chat/system dismissal, rich/multi-roll rendering,
 redaction, current-authorized-read replacement, chronology, reader scroll
 preservation, deletion without a false new-message marker, and world/disconnect/
-logout cleanup including a late response. Screenshots and the development-only
-fixture are in temp/notification-preview/. No browser dependency was added to
-the application, no hosted Foundry connection was made, and no module repository
-was changed. The user accepted the visual result ("looks good"); implementation closeout is complete.
+logout cleanup including a late response. Desktop and narrow-screen screenshots
+were visually reviewed for readable title/body layout, wrapping, bounded stacks
+and independent chat/system dismissal. The browser fixture was development-only;
+no browser dependency was added to the application, no hosted Foundry connection
+was made, and no module repository was changed. The user accepted the visual
+result ("looks good"); implementation closeout is complete.
 
 This is not a port of Foundry's arbitrary chat-card JavaScript or its complete
 chat feature set. Existing supported inline controls remain host/API actions;
