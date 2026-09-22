@@ -15,7 +15,7 @@ operations to add feedback after logout or a later login.
 The deferred admin audit reviewed providers, authentication, maintenance and all
 three transient feedback consumers. Detailed validation, dry-run reports and
 login/setup errors are contextual and should remain inline. The audit is retained
-locally at `temp/audit-reports/admin-notification-alignment-2026-09-21.md`.
+locally at `temp/audit-reports/completed/admin-notification-alignment-2026-09-21.md`.
 This work follows the merged dice PR on a separate branch; dice behavior is not
 part of this decision.
 

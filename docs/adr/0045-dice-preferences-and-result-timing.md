@@ -12,7 +12,7 @@ an arbitrary delay. The user requested individual result-timing control and a
 broader audit of Dice So Nice options, without adopting its Foundry runtime.
 
 The detailed local audit is retained in
-`temp/audit-reports/dice-preferences-requirements-2026-09-21.md`. It distinguishes
+`temp/audit-reports/completed/dice-preferences-requirements-2026-09-21.md`. It distinguishes
 timing, appearance, surface audio, rendering quality, profiles, filters and
 interactive-tabletop features. The selected slice uses supported capabilities
 of the existing renderer; this is not full Dice So Nice compatibility.

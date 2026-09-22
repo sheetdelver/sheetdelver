@@ -14,7 +14,7 @@ functions. Neither gap requires another transport or module animation API.
 
 The user approved an audit-first follow-up, separately from notification SDK
 lifecycle work. The audit is retained locally under
-`temp/audit-reports/dice-presentation-followups-audit-2026-09-19.md`; this ADR
+`temp/audit-reports/completed/dice-presentation-followups-audit-2026-09-19.md`; this ADR
 records the durable decision and acceptance status.
 
 ## Decision
