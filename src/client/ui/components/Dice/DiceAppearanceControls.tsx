@@ -1,7 +1,7 @@
 'use client';
 
 import { Check, Palette } from 'lucide-react';
-import { diceStyles, presetColors, diceColorContrast, type DiceAppearance } from './appearance';
+import { diceStyles, dicePalettes, diceTextures, diceMaterials, presetColors, diceColorContrast, type DiceAppearance } from './appearance';
 
 export function DiceAppearanceControls({ value, onChange, disabled = false }: {
     value: DiceAppearance;
@@ -32,6 +32,21 @@ export function DiceAppearanceControls({ value, onChange, disabled = false }: {
                 </button>
             </div>
         </fieldset>
+        <fieldset disabled={disabled} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
+            <legend className="mb-2">Multicolor palettes</legend>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                {dicePalettes.map(palette => <button key={palette.id} type="button"
+                    title={palette.label} aria-label={`${palette.label} dice`} aria-pressed={value.style === palette.id}
+                    onClick={() => onChange({ ...value, style: palette.id })}
+                    style={{ position: 'relative', width: 40, height: 40, padding: 0, overflow: 'hidden',
+                        display: 'grid', gridTemplateColumns: '1fr 1fr', borderRadius: 6,
+                        border: `2px solid ${value.style === palette.id ? '#ffffff' : '#62696f'}`,
+                        opacity: disabled ? 0.4 : 1, cursor: disabled ? 'default' : 'pointer' }}>
+                    {palette.bodies.map(color => <span key={color} style={{ background: color, height: '100%' }} />)}
+                    {value.style === palette.id && <Check size={20} aria-hidden="true" style={{ position: 'absolute', left: 8, top: 8, color: palette.labelColor }} />}
+                </button>)}
+            </div>
+        </fieldset>
         {value.style === 'custom' && <fieldset disabled={disabled} style={{ border: 0, padding: '8px 0', margin: 0, minWidth: 0 }}>
             <legend>Custom colors</legend>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 12 }}>
@@ -48,6 +63,22 @@ export function DiceAppearanceControls({ value, onChange, disabled = false }: {
             </label>
             {diceColorContrast(colors) < 3 && <p role="status" style={{ color: '#f3ca74', margin: '8px 0 0' }}>Low label contrast</p>}
         </fieldset>}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 12, margin: '8px 0' }}>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>Texture
+                <select aria-label="Dice texture" disabled={disabled} value={value.texture ?? 'auto'}
+                    style={{ background: '#303438', color: '#f2f4f5', borderRadius: 4, padding: 8, minWidth: 0, width: '100%' }}
+                    onChange={event => onChange({ ...value, texture: event.target.value as DiceAppearance['texture'] })}>
+                    {diceTextures.map(texture => <option key={texture} value={texture}>{texture === 'auto' ? 'Style default' : texture[0].toUpperCase() + texture.slice(1)}</option>)}
+                </select>
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>Material
+                <select aria-label="Dice material" disabled={disabled} value={value.material ?? 'plastic'}
+                    style={{ background: '#303438', color: '#f2f4f5', borderRadius: 4, padding: 8, minWidth: 0, width: '100%' }}
+                    onChange={event => onChange({ ...value, material: event.target.value as DiceAppearance['material'] })}>
+                    {diceMaterials.map(material => <option key={material} value={material}>{material[0].toUpperCase() + material.slice(1)}</option>)}
+                </select>
+            </label>
+        </div>
         <label className="flex items-center gap-2" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             Dice size
             <input type="range" aria-label="Dice size" min={75} max={150} step={5}

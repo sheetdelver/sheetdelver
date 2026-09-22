@@ -73,14 +73,19 @@ structure. Nothing is evaluated or re-rolled in the presentation UI.
 - Up to three throws can be queued. Session/world changes, disconnects, message
   changes/deletions, disabling the preference, and hidden tabs clear applicable
   work. A viewport resize ends the current throw.
-- Five dice styles plus custom colors, adjustable size, and optional local collision sounds. Foundry's
+- Eleven solid/textured styles, eight multicolor palettes, custom colors, curated textures/materials,
+  adjustable size and optional local collision sounds. Foundry's
   Dice So Nice themes and add-ons are not supported.
 
 ## Appearance
 
-In Chat & Rolls, choose a **Dice style** swatch: Teal, Crimson, White, Onyx, or Marble. Swatches
-have named tooltips and indicate the selected style. Marble uses a bundled
+In Chat & Rolls, choose a **Dice style** swatch: Teal, Crimson, White, Onyx,
+Marble, Cobalt, Emerald, Plum, Rose, Amber or Ice. Swatches have named tooltips
+and indicate the selected style. Marble uses a bundled
 texture from the renderer package; no third-party assets are requested.
+**Multicolor palettes** offers Festival, Citrus, Tidal, Twilight, Meadow,
+Glacier, Ember and Monochrome. Each chooses coordinated body/label/edge colors per die.
+Palette randomness changes appearance only, never a recorded result.
 
 **Dice size** ranges from 75% to 150%, with 100% as the default. Mobile screens
 retain a smaller base size. Style and size are saved in this browser separately
@@ -93,8 +98,37 @@ outline can be disabled. First use starts from the selected preset; switching
 presets preserves saved custom colors. Low-contrast label choices show a warning.
 Only six-digit hex colors are stored; no custom CSS, texture URLs or scripts.
 
-These are appearance presets and colors, not Dice So Nice skin-pack or material
-add-on support. Custom dice use plain plastic; surface sounds are independent.
+**Texture** selects Style default, None, Marble, Wood, Metal, Speckles or Stars.
+**Material** independently selects Plastic (default), Wood or Metal, including
+matching dice-collision sounds. These are basic finishes, not advanced glass,
+reflective environment maps or Dice So Nice skin-pack/add-on support. Only
+allowlisted assets bundled with SheetDelver can load; no texture URLs or scripts.
+
+Alternate shapes, refractive/iridescent finishes and advanced animated effects remain
+deferred. Dice So Nice model, shader and effects extensions are not compatible
+with this renderer's settings. The investigation and prerequisites are recorded
+in [ADR-0047](adr/0047-dice-appearance-and-rolling-regions.md#extension-feasibility).
+
+## Rendering and Regions
+
+**Shadows** offers None, Low (512px maps) or Standard (1024px, default).
+Existing low-effects preferences migrate to None. **Engraved labels** controls
+label/texture bump mapping and defaults on. **High resolution** defaults off;
+when enabled, rendering uses up to 2x device resolution within a four-million-
+pixel canvas budget. Very large viewports are capped even at standard resolution.
+This does not change hardware antialiasing or enable extra lighting effects.
+
+**Throwing force** offers Soft, Normal (default) and Strong. It affects the launch,
+not playback speed, physics rules or recorded faces. **Rolling region** selects
+Full viewport (default), Center, Upper, Lower, Upper left, Upper right, Lower left
+or Lower right. Regions use relative dimensions
+of the visible viewport, including mobile keyboard and zoom offsets. Dice size
+also adjusts for a narrow or short region and dense throws above eight physical dice;
+all regions remain above widgets and do not
+intercept clicks. A change to physics bounds ends the current animation safely.
+
+Appearance, force, region, settlement effect and rendering settings apply to the next throw. Changing
+them does not restart an active throw, reconnect sockets or replay prior results.
 
 ## Sound
 
@@ -104,8 +138,8 @@ saved in this browser separately from the animation toggle. Muting or setting
 volume to zero immediately pauses active clips without restarting the dice.
 
 Choose **Surface**: Felt (default), Wood table, Wood tray, or Metal. Only the
-selected surface and bundled plastic-dice clips load for a throw, from this
-application's own `/dice/sounds/` assets. Surface changes apply on the next throw.
+selected surface and chosen material's bundled dice clips load for a throw, from this
+application's own `/dice/sounds/` assets. Surface/material changes apply on the next throw.
 There are no third-party audio requests.
 The clips and upstream license are in `public/dice/`. Collision strength and
 user volume both affect loudness. Hidden tabs, stopped animations and logout
@@ -131,9 +165,15 @@ renderer's preliminary physics simulation.
   loading or rolling that fails to complete.
 - **Hide effect** selects None (default) or a short fade after display duration.
   It changes disappearance only, not physics, result values or reveal timing.
-- **Low effects (no shadows)** disables renderer shadows and is off by default.
-  Quality and duration changes apply to the next throw without restarting an
-  active one.
+- **Settlement effect** selects None (default), Highlight (one 400ms pulse),
+  Breathing (smooth repeated pulses across display duration), or Crescendo
+  (gradual brightening across display duration, holding the peak through fade-out).
+  Breathing fits whole cycles near 1.6 seconds each; short durations get one full
+  pulse. Use a longer display duration to see repetition. All patterns brighten
+  only the dice canvas after settlement, never hold chat, extend display duration
+  or add sound, and do not identify critical successes/failures. Reduced motion
+  and hidden tabs suppress them; cancellation removes them. Unavailable browser
+  animation support is skipped.
 - **Mute private-roll sounds** is on by default. Authorized whispered and GM-only
   rolls, including authorized blind results, may animate silently; disabling this
   setting allows their collision audio. Hidden results never animate or play
@@ -144,8 +184,15 @@ renderer's preliminary physics simulation.
   invokes no roll API, and does not enable live dice. Stop test, closing settings,
   session changes or a live throw cancel it. Reduced motion still suppresses it.
 
-Behavior preferences are also browser-local, not synchronized between accounts
-or devices. The dialog closes on session/world changes. Changing visibility
+Dice preferences are saved automatically in localStorage for the browser profile
+and site origin (scheme, hostname and port). Accounts using that browser/site
+share the preferences; they are not account-scoped or synchronized to Foundry,
+the SheetDelver server or other devices. Preview, development and production
+origins have separate settings. Clearing site data resets them; private browsing
+storage is temporary. Unified application preferences and account synchronization
+are deferred, not requirements of this dice implementation.
+
+The dialog closes on session/world changes. Changing visibility
 filters removes excluded active/queued rolls without replaying them later.
 
 ## Chat Notifications
@@ -265,3 +312,7 @@ reconstructs die faces from totals.
 
 [ADR-0045](adr/0045-dice-preferences-and-result-timing.md) adds local result timing,
 custom colors, fade, surface sounds and test throws without changing the SDK.
+
+[ADR-0047](adr/0047-dice-appearance-and-rolling-regions.md) adds curated textures,
+materials, palettes, force, bounded quality and viewport-relative regions.
+Profiles/import/export, new visibility filters, speed and effects remain deferred.

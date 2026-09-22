@@ -3,6 +3,7 @@ import { LiveChatInbox } from '../../context/liveChatInbox';
 export interface DicePresentation {
     id: string;
     notation: string;
+    physicalDiceCount?: number;
     authorId?: string;
     privateRoll?: boolean;
 }
@@ -102,7 +103,8 @@ export function toDicePresentation(value: unknown): DicePresentation | null {
     });
     const groups = [...grouped];
     return dice.length ? {
-        id, notation: `${groups.flatMap(([die, faces]) => faces.map(() => die)).join('+')}@${groups.flatMap(([, faces]) => faces).join(',')}`,
+        id, physicalDiceCount: results.length,
+        notation: `${groups.flatMap(([die, faces]) => faces.map(() => die)).join('+')}@${groups.flatMap(([, faces]) => faces).join(',')}`,
         ...(typeof message.author === 'string' ? { authorId: message.author } : {}),
         ...(message.blind || (Array.isArray(message.whisper) && message.whisper.length) ? { privateRoll: true } : {}),
     } : null;
