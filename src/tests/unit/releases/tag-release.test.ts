@@ -38,11 +38,39 @@ export async function run() {
         assert.ok(messages.join('\n').includes('0.10.2 -> 0.11.0'));
         assert.ok(messages.join('\n').includes('- Added player settings panel'));
 
+        const block = '\n- Added shared 3D dice\r\n\r\n* Added player settings panel\n';
+        const multiline = parseReleaseOptions(['0.11.0', '--notes', block, '--dry-run']);
+        assert.deepEqual(multiline.notes, options.notes);
+        assert.deepEqual(planLocalRelease(root, multiline).after, planLocalRelease(root, options).after);
+        assert.deepEqual(parseReleaseOptions(['0.11.0', '--note', 'First', '--notes', 'Second\n+ Third']).notes, ['First', 'Second', 'Third']);
+        const notesFile = path.join('.git', 'release notes.txt');
+        fs.writeFileSync(path.join(root, notesFile), block);
+        const fromFile = parseReleaseOptions(['0.11.0', '--notes-file', notesFile, '--dry-run']);
+        assert.deepEqual(planLocalRelease(root, fromFile).after, planLocalRelease(root, options).after);
+        await runReleaseCommand(root, fromFile, forbiddenIO, () => {});
+        assert.equal(git('rev-parse', 'HEAD'), initial);
+        assert.equal(git('tag'), ''); assert.equal(git('status', '--porcelain'), '');
+        assert.deepEqual(['package.json', 'package-lock.json', 'CHANGELOG.md'].map(read), original);
+        assert.equal(fs.readFileSync(path.join(root, notesFile), 'utf8'), block, 'notes source stays untouched');
+        assert.throws(() => planLocalRelease(root, { ...fromFile, notesFile: 'missing-notes.txt' }), /ENOENT/);
+        fs.writeFileSync(path.join(root, notesFile), '## 0.11.0\n- Invalid heading');
+        assert.throws(() => planLocalRelease(root, fromFile), /omit headings/);
+        fs.writeFileSync(path.join(root, notesFile), ' \n');
+        assert.throws(() => planLocalRelease(root, fromFile), /one entry per line/);
+        fs.writeFileSync(path.join(root, notesFile), block);
+
         for (const args of [[], ['nope'], ['0.11.0', '--note'], ['0.11.0', '--note', 'bad\nentry'], ['0.11.0', '--push']]) {
             assert.throws(() => parseReleaseOptions(args));
         }
         assert.equal(parseReleaseOptions(['0.11.0']).tag, 'v0.11.0');
         assert.equal(parseReleaseOptions(['0.11.0', '--no-push']).noPush, true);
+        for (const flags of [
+            ['--notes'], ['--notes', ' \n'], ['--notes', '-'], ['--notes', '- '],
+            ['--notes', '## 0.11.0\n- Entry'], ['--notes', '--dry-run'],
+            ['--notes-file'], ['--notes-file', '--dry-run'], ['--notes-file', ' '],
+            ['--notes-file', 'a', '--notes-file', 'b'],
+            ['--notes-file', 'a', '--notes', 'Entry'], ['--note', 'Entry', '--notes-file', 'a'],
+        ]) assert.throws(() => parseReleaseOptions(['0.11.0', ...flags]));
         assert.throws(() => planLocalRelease(root, { ...options, tag: 'v0.10.2' }), /must be newer/);
         assert.throws(() => planLocalRelease(root, { ...options, tag: 'v0.9.9' }), /must be newer/);
         assert.throws(() => planLocalRelease(root, { ...options, notes: [] }), /missing the exact heading/);
@@ -67,6 +95,7 @@ export async function run() {
         const manual = { ...options, notes: [] };
         assert.deepEqual(planLocalRelease(root, manual).blockers, []);
         assert.throws(() => planLocalRelease(root, options), /omit --note/);
+        assert.throws(() => planLocalRelease(root, fromFile), /omit --note/);
         await runReleaseCommand(root, { ...manual, noPush: true }, forbiddenIO, line => messages.push(line));
         assert.equal(git('branch', '--show-current'), 'main');
         assert.equal(git('branch', '--format=%(refname:short)'), 'main');
@@ -82,12 +111,13 @@ export async function run() {
         const cliOutput = execFileSync(process.execPath, [
             path.resolve('node_modules/tsx/dist/cli.mjs'),
             path.resolve('src/scripts/tools/releases/tag-release.ts'),
-            '0.11.1', '--note', 'Fixed fixture',
+            '0.11.1', '--notes-file', notesFile,
         ], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 30_000 });
         assert.ok(cliOutput.includes('git push --no-follow-tags origin main'));
         assert.ok(cliOutput.includes('git push --no-follow-tags origin v0.11.1'));
         assert.ok(!cliOutput.includes('[y/N]'), 'noninteractive CLI stays offline without prompting');
         assert.equal(git('cat-file', '-t', 'v0.11.1'), 'tag');
+        assert.ok(read('CHANGELOG.md').includes('## 0.11.1\n- Added shared 3D dice\n- Added player settings panel'));
 
         fs.writeFileSync(path.join(root, '.git', 'hooks', 'pre-commit'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
         const head = git('rev-parse', 'HEAD');

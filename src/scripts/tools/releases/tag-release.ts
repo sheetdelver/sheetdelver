@@ -6,9 +6,18 @@ import { pathToFileURL } from 'node:url';
 import { prepareRelease, versionFromReleaseTag } from './prepare-release';
 
 const releaseFiles = ['package.json', 'package-lock.json', 'CHANGELOG.md'] as const;
-const usage = 'npm run release:tag -- <VERSION|vVERSION> [--note "Short changelog entry"]... [--dry-run] [--no-push]';
+const usage = 'npm run release:tag -- <VERSION|vVERSION> [--note "Entry"]... [--notes "Multiline entries" | --notes-file PATH] [--dry-run] [--no-push]';
 
-export interface ReleaseOptions { tag: string; notes: string[]; dryRun: boolean; noPush: boolean }
+export interface ReleaseOptions { tag: string; notes: string[]; notesFile?: string; dryRun: boolean; noPush: boolean }
+
+function parseMultilineNotes(text: string): string[] {
+    const lines = text.split(/\r\n?|\n/).map(line => line.trim()).filter(Boolean);
+    const notes = lines.map(line => line.replace(/^[-*+]\s+/, '').trim());
+    if (!notes.length || notes.some(note => !note || /^[-*+#]/.test(note))) {
+        throw new Error('Release notes require one entry per line, optionally prefixed with - , * or +; omit headings and empty bullets.');
+    }
+    return notes;
+}
 
 export function parseReleaseOptions(args: string[]): ReleaseOptions {
     const [version, ...flags] = args;
@@ -25,8 +34,18 @@ export function parseReleaseOptions(args: string[]): ReleaseOptions {
                 throw new Error('--note requires one non-empty, single-line entry (without a bullet prefix).');
             }
             options.notes.push(note);
+        } else if (flags[i] === '--notes') {
+            const text = flags[++i];
+            if (!text) throw new Error('--notes requires a non-empty multiline block.');
+            options.notes.push(...parseMultilineNotes(text));
+        } else if (flags[i] === '--notes-file') {
+            const file = flags[++i];
+            if (!file?.trim() || file.startsWith('-')) throw new Error('--notes-file requires a file path.');
+            if (options.notesFile) throw new Error('Use only one --notes-file.');
+            options.notesFile = file;
         } else throw new Error(`Unknown option: ${flags[i]}. Usage: ${usage}`);
     }
+    if (options.notesFile && options.notes.length) throw new Error('Use --notes-file without --note or --notes.');
     return options;
 }
 
@@ -71,14 +90,16 @@ export function planLocalRelease(root: string, options: ReleaseOptions) {
 
     const eol = before['CHANGELOG.md'].includes('\r\n') ? '\r\n' : '\n';
     let changelog = before['CHANGELOG.md'];
-    if (options.notes.length) {
+    const entries = options.notesFile
+        ? parseMultilineNotes(fs.readFileSync(path.resolve(root, options.notesFile), 'utf8')) : options.notes;
+    if (entries.length) {
         if (changelog.split(/\r?\n/).some(line => line.trim() === `## ${version}`)) {
-            throw new Error(`CHANGELOG.md already contains ${version}; omit --note to use that section.`);
+            throw new Error(`CHANGELOG.md already contains ${version}; omit --note, --notes and --notes-file to use that section.`);
         }
         const heading = changelog.match(/^# .*(?:\r?\n|$)/);
         if (!heading) throw new Error('CHANGELOG.md must begin with its release title.');
         changelog = heading[0].trimEnd() + eol + `## ${version}` + eol
-            + options.notes.map(note => `- ${note}`).join(eol) + eol + eol
+            + entries.map(note => `- ${note}`).join(eol) + eol + eol
             + changelog.slice(heading[0].length);
     }
     const { notes } = prepareRelease(options.tag, version, changelog);

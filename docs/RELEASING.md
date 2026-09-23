@@ -22,9 +22,35 @@ bullets (the version below is illustrative):
 npm run release:tag -- 0.11.1 --note "Fixed example issue" --dry-run
 ```
 
-Repeat without `--dry-run` to prepare it. Add multiple `--note` arguments for
-multiple terse bullets. Alternatively, manually write the exact
-`## 0.11.1` changelog section and omit `--note`.
+Repeat without `--dry-run` to prepare it. For several entries, pass a single
+multiline block (works in Bash and Fish):
+
+```sh
+npm run release:tag -- 0.14.0 --dry-run --notes "Synchronized dice result timing
+Expanded dice appearance options
+Added rolling region presets
+Added dice settlement effects
+Expanded rendering and sound controls
+Unified admin notification lifecycle"
+```
+
+Or use a text file for a short, single-line command:
+
+```sh
+npm run release:tag -- 0.14.0 --notes-file /tmp/release-notes.txt --dry-run
+```
+
+Each nonblank line becomes one changelog bullet. Plain lines and Markdown
+`-`, `*` or `+` bullet prefixes are accepted; omit the version heading. Paths
+are relative to the working directory unless absolute. Use an ignored file or
+one outside the repository so unrelated-work validation still passes. The input
+file is read only and is never committed by the helper. Do not combine
+`--notes-file` with inline note flags. Repeated `--note` remains supported, and
+`--note`/`--notes` entries are appended in argument order.
+
+Alternatively, write the exact `## 0.14.0` section directly in `CHANGELOG.md`
+and run `npm run release:tag -- 0.14.0 --dry-run` with no note flags. An existing
+section and note flags are rejected together to prevent accidental replacement.
 
 The command:
 
