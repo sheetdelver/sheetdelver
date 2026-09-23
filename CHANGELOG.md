@@ -1,4 +1,12 @@
 # Releases
+## 0.14.0
+- Synchronized dice result timing
+- Expanded dice appearance options
+- Added rolling region presets
+- Added dice settlement effects
+- Expanded rendering and sound controls
+- Unified admin notification lifecycle
+
 ## 0.13.0
 - Align client module themes
 - Fixed mobile dice presentation
