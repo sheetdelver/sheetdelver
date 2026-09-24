@@ -95,7 +95,7 @@ primaryDocumentCacheCoordinator.register({
     type: 'Actor',
     async seed(client) {
         await actorStore.seed(async () => {
-            const response: any = await client.dispatchDocumentSocket('Actor', 'get', { broadcast: false });
+            const response: any = await client.dispatchDocumentSocket('Actor', 'get', { query: {}, broadcast: false });
             return response?.result || [];
         });
         logger.info(`PrimaryDocumentCacheCoordinator | Seeded ${actorStore.list().length} actors.`);
@@ -112,7 +112,7 @@ primaryDocumentCacheCoordinator.register({
     type: 'ChatMessage',
     async seed(client) {
         await chatMessageStore.seed(async () => {
-            const response: any = await client.dispatchDocumentSocket('ChatMessage', 'get', { broadcast: false });
+            const response: any = await client.dispatchDocumentSocket('ChatMessage', 'get', { query: {}, broadcast: false });
             return response?.result || [];
         });
         logger.info(`PrimaryDocumentCacheCoordinator | Seeded ${chatMessageStore.list().length} chat messages.`);
@@ -129,7 +129,7 @@ primaryDocumentCacheCoordinator.register({
     type: 'Folder',
     async seed(client) {
         await folderStore.seed(async () => {
-            const response: any = await client.dispatchDocumentSocket('Folder', 'get', { broadcast: false });
+            const response: any = await client.dispatchDocumentSocket('Folder', 'get', { query: {}, broadcast: false });
             return response?.result || [];
         });
         logger.info(`PrimaryDocumentCacheCoordinator | Seeded ${folderStore.list().length} folders.`);
@@ -157,7 +157,7 @@ primaryDocumentCacheCoordinator.register({
             // Foundry's `User.get` returns the full roster. Per ADR-0013 user docs
             // carry no per-user ownership map; presence (`active`) is delivered
             // separately by `userConnected` / `userDisconnected` socket events.
-            const response: any = await client.dispatchDocumentSocket('User', 'get', { broadcast: false });
+            const response: any = await client.dispatchDocumentSocket('User', 'get', { query: {}, broadcast: false });
             return response?.result || [];
         });
         logger.info(`PrimaryDocumentCacheCoordinator | Seeded ${userStore.list().length} users.`);
@@ -177,7 +177,7 @@ primaryDocumentCacheCoordinator.register({
     type: 'JournalEntry',
     async seed(client) {
         await journalStore.seed(async () => {
-            const response: any = await client.dispatchDocumentSocket('JournalEntry', 'get', { broadcast: false });
+            const response: any = await client.dispatchDocumentSocket('JournalEntry', 'get', { query: {}, broadcast: false });
             return response?.result || [];
         });
         logger.info(`PrimaryDocumentCacheCoordinator | Seeded ${journalStore.list().length} journals.`);
@@ -198,7 +198,7 @@ primaryDocumentCacheCoordinator.register({
     type: 'Item',
     async seed(client) {
         await itemStore.seed(async () => {
-            const response: any = await client.dispatchDocumentSocket('Item', 'get', { broadcast: false });
+            const response: any = await client.dispatchDocumentSocket('Item', 'get', { query: {}, broadcast: false });
             return response?.result || [];
         });
         logger.info(`PrimaryDocumentCacheCoordinator | Seeded ${itemStore.list().length} world items.`);
@@ -219,7 +219,7 @@ primaryDocumentCacheCoordinator.register({
     type: 'Combat',
     async seed(client) {
         await combatStore.seed(async () => {
-            const response: any = await client.dispatchDocumentSocket('Combat', 'get', { broadcast: false });
+            const response: any = await client.dispatchDocumentSocket('Combat', 'get', { query: {}, broadcast: false });
             return response?.result || [];
         });
         // Prepared encounter state is derived from the raw store; bulk-build
@@ -243,7 +243,7 @@ primaryDocumentCacheCoordinator.register({
     type: 'RollTable',
     async seed(client) {
         await rollTableStore.seed(async () => {
-            const response: any = await client.dispatchDocumentSocket('RollTable', 'get', { broadcast: false });
+            const response: any = await client.dispatchDocumentSocket('RollTable', 'get', { query: {}, broadcast: false });
             return response?.result || [];
         });
         logger.info(`PrimaryDocumentCacheCoordinator | Seeded ${rollTableStore.list().length} roll tables.`);
@@ -262,7 +262,7 @@ primaryDocumentCacheCoordinator.register({
     type: 'Macro',
     async seed(client) {
         await macroStore.seed(async () => {
-            const response: any = await client.dispatchDocumentSocket('Macro', 'get', { broadcast: false });
+            const response: any = await client.dispatchDocumentSocket('Macro', 'get', { query: {}, broadcast: false });
             return response?.result || [];
         });
         logger.info(`PrimaryDocumentCacheCoordinator | Seeded ${macroStore.list().length} macros.`);
@@ -281,7 +281,7 @@ primaryDocumentCacheCoordinator.register({
     type: 'Playlist',
     async seed(client) {
         await playlistStore.seed(async () => {
-            const response: any = await client.dispatchDocumentSocket('Playlist', 'get', { broadcast: false });
+            const response: any = await client.dispatchDocumentSocket('Playlist', 'get', { query: {}, broadcast: false });
             return response?.result || [];
         });
         logger.info(`PrimaryDocumentCacheCoordinator | Seeded ${playlistStore.list().length} playlists.`);
@@ -301,7 +301,7 @@ primaryDocumentCacheCoordinator.register({
     type: 'Cards',
     async seed(client) {
         await cardsStore.seed(async () => {
-            const response: any = await client.dispatchDocumentSocket('Cards', 'get', { broadcast: false });
+            const response: any = await client.dispatchDocumentSocket('Cards', 'get', { query: {}, broadcast: false });
             return response?.result || [];
         });
         logger.info(`PrimaryDocumentCacheCoordinator | Seeded ${cardsStore.list().length} cards docs.`);
@@ -321,7 +321,7 @@ primaryDocumentCacheCoordinator.register({
     type: 'Scene',
     async seed(client) {
         await sceneStore.seed(async () => {
-            const response: any = await client.dispatchDocumentSocket('Scene', 'get', { broadcast: false });
+            const response: any = await client.dispatchDocumentSocket('Scene', 'get', { query: {}, broadcast: false });
             return response?.result || [];
         });
         logger.info(`PrimaryDocumentCacheCoordinator | Seeded ${sceneStore.list().length} scenes.`);
@@ -341,7 +341,7 @@ primaryDocumentCacheCoordinator.register({
     type: 'Setting',
     async seed(client) {
         await settingStore.seed(async () => {
-            const response: any = await client.dispatchDocumentSocket('Setting', 'get', { broadcast: false });
+            const response: any = await client.dispatchDocumentSocket('Setting', 'get', { query: {}, broadcast: false });
             return response?.result || [];
         });
         logger.info(`PrimaryDocumentCacheCoordinator | Seeded ${settingStore.list().length} settings.`);

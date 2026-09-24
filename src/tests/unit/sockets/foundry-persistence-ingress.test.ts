@@ -137,7 +137,7 @@ async function runAutosaveRootRefresh() {
         first.resolve({
             type: 'Actor',
             action: 'get',
-            operation: { ids: ['actor-1'], broadcast: false },
+            operation: { query: { _id: 'actor-1' }, broadcast: false },
             result: [{ _id: 'actor-1', name: 'First authoritative value' }],
         });
         await waitFor(() => harness.transport.calls.length === 2);
@@ -145,7 +145,7 @@ async function runAutosaveRootRefresh() {
         second.resolve({
             type: 'Actor',
             action: 'get',
-            operation: { ids: ['actor-1'], broadcast: false },
+            operation: { query: { _id: 'actor-1' }, broadcast: false },
             result: [{ _id: 'actor-1', name: 'Trailing authoritative value' }],
         });
         await waitFor(() => harness.routed.length === 2);
@@ -178,10 +178,10 @@ async function runAutosaveScopeAndUuidRouting() {
         await waitFor(() => harness.routed.length === 1);
         const request = harness.transport.calls[0].payloads[0] as {
             type: string;
-            operation: { ids: string[] };
+            operation: { query: { _id: string } };
         };
         assert.equal(request.type, 'JournalEntry');
-        assert.deepEqual(request.operation.ids, ['journal-1']);
+        assert.deepEqual(request.operation.query, { _id: 'journal-1' });
 
         harness.transport.emit('foundry:pmAutosave', autosaveFixtures.compendium);
         await waitFor(() => harness.invalidated.length === 1);
@@ -311,11 +311,11 @@ async function runStoreMissRepair() {
 
         const repairRequests = transport.calls.map(call => call.payloads[0] as {
             type: string;
-            operation: { ids: string[]; broadcast: boolean };
+            operation: { query: { _id: string }; broadcast: boolean };
         });
         assert.deepEqual(repairRequests, [
-            { type: 'Actor', action: 'get', operation: { ids: ['actor-missing'], broadcast: false } },
-            { type: 'Actor', action: 'get', operation: { ids: ['actor-missing'], broadcast: false } },
+            { type: 'Actor', action: 'get', operation: { query: { _id: 'actor-missing' }, broadcast: false } },
+            { type: 'Actor', action: 'get', operation: { query: { _id: 'actor-missing' }, broadcast: false } },
         ]);
         assert.deepEqual(
             routed.filter(entry => entry.action === 'create').map(entry => entry.result),

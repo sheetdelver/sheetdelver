@@ -156,8 +156,8 @@ async function runFieldAwareVariantFetchesOnlyWhenPackRowsRefresh() {
     store.setPackIndex('synthetic.items', packMetadata('synthetic.items'), rows);
 
     transport.handler = (event, payloads) => {
-        const op = (payloads[0] as { operation?: { fields?: readonly string[]; pack?: string } } | undefined)?.operation;
-        if (event === 'modifyDocument' && op?.pack === 'synthetic.items' && Array.isArray(op.fields) && op.fields.length > 0) {
+        const op = (payloads[0] as { operation?: { indexFields?: readonly string[]; pack?: string } } | undefined)?.operation;
+        if (event === 'modifyDocument' && op?.pack === 'synthetic.items' && Array.isArray(op.indexFields) && op.indexFields.length > 0) {
             return { result: fieldRows };
         }
         return { result: [] };
@@ -168,8 +168,8 @@ async function runFieldAwareVariantFetchesOnlyWhenPackRowsRefresh() {
 
     // Field-aware fetch happened once.
     const fieldFetches = transport.calls.filter(call => {
-        const op = (call.payloads[0] as { operation?: { fields?: readonly string[] } } | undefined)?.operation;
-        return Array.isArray(op?.fields) && op!.fields!.length > 0;
+        const op = (call.payloads[0] as { operation?: { indexFields?: readonly string[] } } | undefined)?.operation;
+        return Array.isArray(op?.indexFields) && op!.indexFields!.length > 0;
     });
     assert.equal(fieldFetches.length, 1);
 
@@ -207,9 +207,12 @@ async function runHydrateFullDocumentsWhenStaleOrMissing() {
 
     transport.handler = (event, payloads) => {
         if (event === 'modifyDocument') {
-            const op = (payloads[0] as { operation?: { pack?: string; index?: boolean; ids?: string[] } } | undefined)?.operation;
+            const op = (payloads[0] as { operation?: { pack?: string; index?: boolean; query?: unknown } } | undefined)?.operation;
             if (op?.pack === 'synthetic.items') {
-                if (op.index === false && Array.isArray(op.ids)) return { result: [fullDoc] };
+                if (op.index === false) {
+                    assert.deepEqual(op.query, {});
+                    return { result: [fullDoc] };
+                }
                 return { result: index };
             }
         }
@@ -228,6 +231,8 @@ async function runHydrateFullDocumentsWhenStaleOrMissing() {
     assert.equal(result.hydrated, 1);
     assert.equal(result.missing, 0);
     assert.equal(result.skipped, 0);
+    assert.equal(transport.calls.filter(call => call.event === 'modifyDocument').length, 2,
+        'one freshness index read and one full-pack read');
 
     const manifest = await store.getManifest('synthetic-system');
     assert.equal(manifest?.packs['synthetic.items'].hydrate, true);
