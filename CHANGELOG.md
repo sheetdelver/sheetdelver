@@ -1,4 +1,9 @@
 # Releases
+## 0.14.1
+- Corrected targeted Foundry reads
+- Fixed compendium index projections
+- Eliminated redundant pack fetches
+
 ## 0.14.0
 - Synchronized dice result timing
 - Expanded dice appearance options
