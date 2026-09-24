@@ -49,6 +49,7 @@ export interface HydratePacksResult {
 const CORE_PACK_DOCUMENT_TYPES = ['Item', 'Actor', 'JournalEntry', 'RollTable', 'Scene', 'Macro', 'Playlist', 'Cards', 'Adventure'] as const;
 const DEFAULT_PACK_DOCUMENT_TYPES = ['Item', 'Actor', 'JournalEntry', 'RollTable'] as const;
 const DEFAULT_INDEX_FIELDS = ['name', 'img', 'type'] as const;
+const INDEX_IDENTITY_FIELDS = ['_id', ...DEFAULT_INDEX_FIELDS] as const;
 
 function responseArray<T = unknown>(response: unknown): T[] | null {
     if (Array.isArray(response)) return response as T[];
@@ -90,8 +91,8 @@ function documentMatchesId(document: unknown, documentId: string): document is R
 
 /**
  * Collapse pack documents to one per `_id` (falling back to `id`). A compendium pack is
- * primary-keyed by `_id`; redundant fetches (e.g. a chunked `get` that returns the whole
- * pack each time) must not multiply rows. Documents without an id are preserved as-is.
+ * primary-keyed by `_id`; duplicate transport rows must not multiply shard rows.
+ * Documents without an id are preserved as-is.
  */
 function dedupeById<T extends Record<string, unknown>>(documents: T[]): T[] {
     const byId = new Map<string, T>();
@@ -114,6 +115,10 @@ function findDocumentInResponse(response: unknown, documentId: string): Record<s
 function normalizeFields(fields?: readonly string[] | null): string[] {
     if (!fields?.length) return [];
     return Array.from(new Set(fields.map(field => String(field).trim()).filter(Boolean))).sort();
+}
+
+function requestedIndexFields(fields?: readonly string[] | null): string[] | undefined {
+    return fields?.length ? normalizeFields([...INDEX_IDENTITY_FIELDS, ...fields]) : undefined;
 }
 
 function getPathValue(document: Record<string, unknown>, path: string): unknown {
@@ -144,6 +149,10 @@ function hasFreshnessInputs(index: unknown[]): boolean {
         const row = entry as { _id?: unknown; id?: unknown; name?: unknown };
         return typeof (row._id || row.id) === 'string' && row.name !== undefined;
     });
+}
+
+function indexMatchesRequest(index: unknown[], fields?: readonly string[] | null): boolean {
+    return hasFreshnessInputs(index) && indexCoversFields(index, fields || []);
 }
 
 /**
@@ -300,40 +309,18 @@ export class CompendiumService {
         let documents: Record<string, unknown>[] = [];
 
         if (declaration.hydrate) {
-            const ids = entries
-                .map((entry: unknown) => {
-                    if (!entry || typeof entry !== 'object') return null;
-                    const id = (entry as { _id?: unknown; id?: unknown })._id || (entry as { id?: unknown }).id;
-                    return typeof id === 'string' ? id : null;
-                })
-                .filter((id): id is string => Boolean(id));
-
-            const CHUNK_SIZE = 50;
-            for (let i = 0; i < ids.length; i += CHUNK_SIZE) {
-                const chunk = ids.slice(i, i + CHUNK_SIZE);
-                const response = await this.transport.emitSocketEvent<{ result?: Record<string, unknown>[] }>('modifyDocument', {
-                    type: declaration.type,
-                    action: 'get',
-                    operation: {
-                        pack: packId,
-                        index: false,
-                        ids: chunk,
-                    },
-                }, 5000);
-
-                if (response?.result && Array.isArray(response.result)) {
-                    documents = documents.concat(response.result);
-                }
-            }
+            const response = await this.transport.emitSocketEvent<{ result?: Record<string, unknown>[] }>('modifyDocument', {
+                type: declaration.type,
+                action: 'get',
+                operation: { pack: packId, index: false, query: {} },
+            }, 5000);
+            if (response?.result && Array.isArray(response.result)) documents = response.result;
         } else {
             documents = await this.getIndexedPackRows(declaration, entries, packFields);
         }
 
-        // A compendium pack is primary-keyed by `_id` — exactly one document per id. The
-        // chunked `get` above can return the WHOLE pack regardless of the requested `ids`
-        // (Foundry ignores the id filter for some pack/transport shapes), so concatenating
-        // the chunks duplicates every row (chunks×). Collapse by `_id` (last write wins) to
-        // enforce the invariant at the persistence boundary, independent of transport quirks.
+        // A compendium pack is primary-keyed by `_id`: retain one row per id
+        // even if a transport response contains duplicate documents.
         documents = dedupeById(documents);
 
         await this.store.setPackRows(systemId, packId, documents);
@@ -359,6 +346,7 @@ export class CompendiumService {
 
     private async fetchPackEntries(packId: string, options: GetPackEntriesOptions): Promise<CompendiumIndexEntry[]> {
         logger.debug(`CompendiumService | Fetching entries for pack ${packId} (options: ${JSON.stringify(options)})...`);
+        const indexFields = requestedIndexFields(options.fields);
 
         try {
             try {
@@ -369,11 +357,12 @@ export class CompendiumService {
                     operation: {
                         pack: packId,
                         index: true,
-                        fields: options.fields || [],
+                        query: {},
+                        ...(indexFields ? { indexFields } : {}),
                     },
                 }, 5000);
                 const rows = responseArray<CompendiumIndexEntry>(response);
-                if (rows) {
+                if (rows && indexMatchesRequest(rows, options.fields)) {
                     this.writeIndex(packId, rows, { fields: options.fields });
                     return rows;
                 }
@@ -389,12 +378,13 @@ export class CompendiumService {
                     {
                         index: true,
                         pack: packId,
-                        fields: options.fields || [],
+                        query: {},
+                        ...(indexFields ? { indexFields } : {}),
                     },
                     5000,
                 );
                 const rows = responseArray<CompendiumIndexEntry>(response);
-                if (rows) {
+                if (rows && indexMatchesRequest(rows, options.fields)) {
                     this.writeIndex(packId, rows, { fields: options.fields });
                     return rows;
                 }
@@ -406,7 +396,7 @@ export class CompendiumService {
                 logger.debug(`[CompendiumService] [TRACE] getPackEntries Strategy 3 (getCompendiumIndex): ${packId}`);
                 const response = await this.transport.emitSocketEvent<unknown>('getCompendiumIndex', packId, 5000);
                 const rows = responseArray<CompendiumIndexEntry>(response);
-                if (rows) {
+                if (rows && indexMatchesRequest(rows, options.fields)) {
                     this.writeIndex(packId, rows, { fields: options.fields });
                     return rows;
                 }
@@ -429,11 +419,12 @@ export class CompendiumService {
     ): Promise<CompendiumIndexEntry[]> {
         try {
             logger.debug(`CompendiumService | Fetching index for pack ${packId} (type: ${type})...`);
+            const indexFields = requestedIndexFields(options.fields);
 
             try {
                 const response = await this.transport.emitSocketEvent<unknown>('getCompendiumIndex', packId, 3000);
                 const rows = responseArray<CompendiumIndexEntry>(response);
-                if (rows) {
+                if (rows && indexMatchesRequest(rows, options.fields)) {
                     this.writeIndex(packId, rows, options);
                     return rows;
                 }
@@ -448,11 +439,12 @@ export class CompendiumService {
                         operation: {
                             pack: packId,
                             index: true,
-                            ...(options.fields ? { fields: options.fields } : {}),
+                            query: {},
+                            ...(indexFields ? { indexFields } : {}),
                         },
                     }, 2000);
                     const rows = responseArray<CompendiumIndexEntry>(response);
-                    if (rows) {
+                    if (rows && indexMatchesRequest(rows, options.fields)) {
                         this.writeIndex(packId, rows, options);
                         return rows;
                     }
@@ -465,11 +457,12 @@ export class CompendiumService {
                 const response = await this.transport.dispatchDocumentSocket(type, 'get', {
                     pack: packId,
                     index: true,
+                    query: {},
                     broadcast: false,
-                    ...(options.fields ? { fields: options.fields } : {}),
+                    ...(indexFields ? { indexFields } : {}),
                 }, undefined, false);
                 const rows = responseArray<CompendiumIndexEntry>(response) || [];
-                if (rows.length > 0) {
+                if (rows.length > 0 && indexMatchesRequest(rows, options.fields)) {
                     this.writeIndex(packId, rows, options);
                     return rows;
                 }
@@ -492,7 +485,7 @@ export class CompendiumService {
                 try {
                     const response = await this.transport.emitSocketEvent<unknown>('getDocuments', {
                         type: t,
-                        operation: { pack: packId },
+                        operation: { pack: packId, query: {} },
                     }, 5000);
                     const rows = responseArray(response);
                     if (rows) return rows;
@@ -504,6 +497,7 @@ export class CompendiumService {
             try {
                 const response = await this.transport.dispatchDocumentSocket(type, 'get', {
                     pack: packId,
+                    query: {},
                     broadcast: false,
                 }, undefined, false);
                 const rows = responseArray(response) || [];
@@ -535,7 +529,7 @@ export class CompendiumService {
                 const response = await this.transport.emitSocketEvent<unknown>('modifyDocument', {
                     type: t,
                     action: 'get',
-                    operation: { pack: packId, ids: [documentId] },
+                    operation: { pack: packId, query: { _id: documentId } },
                 }, trialTimeout);
                 const found = findDocumentInResponse(response, documentId);
                 if (found) return found;
@@ -547,7 +541,7 @@ export class CompendiumService {
                 logger.debug(`[CompendiumService] [TRACE] getPackDocument Strategy 2 (getDocuments): ${packId} ${t} ${documentId}`);
                 const response = await this.transport.emitSocketEvent<unknown>('getDocuments', {
                     type: t,
-                    operation: { pack: packId, ids: [documentId] },
+                    operation: { pack: packId, query: { _id: documentId } },
                 }, trialTimeout);
                 const found = findDocumentInResponse(response, documentId);
                 if (found) return found;

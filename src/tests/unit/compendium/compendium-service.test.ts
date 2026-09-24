@@ -55,10 +55,12 @@ class FakeCompendiumTransport implements CompendiumTransport {
 export async function run() {
     await runPackEntriesFallbackAndHeartbeat();
     await runPackIndexDispatchFallback();
+    await runPackIndexProjectedDispatchFallback();
     await runPackDocumentsTypeFallback();
     await runPackDocumentModifyDocumentFallback();
     await runPackDocumentGetDocumentsFallback();
     await runPackDocumentDisconnected();
+    await runIndexProjectionRejectsUnprojectedFallback();
     console.log('  - CompendiumService: all checks passed');
 }
 
@@ -92,6 +94,9 @@ async function runPackEntriesFallbackAndHeartbeat() {
     assert.equal(rows.length, 1);
     assert.equal(transport.heartbeatPauseCount, 1);
     assert.deepEqual(transport.calls.map(call => call.event).filter(Boolean), ['modifyDocument', 'getDocuments']);
+    const fallback = transport.calls[1].payloads?.[1] as { query?: unknown; indexFields?: string[] };
+    assert.deepEqual(fallback.query, {});
+    assert.deepEqual(fallback.indexFields, ['_id', 'img', 'name', 'system.tier', 'type']);
     assert.equal(store.getPackIndex('synthetic.items', { fields: ['system.tier'] })?.[0]?.name, 'synthetic.items Row');
 }
 
@@ -113,6 +118,26 @@ async function runPackIndexDispatchFallback() {
     assert.equal(rows.length, 1);
     assert.equal(transport.calls.at(-1)?.kind, 'dispatch');
     assert.equal(store.getPackIndex('synthetic.tables')?.[0]?.name, 'synthetic.tables Row');
+}
+
+async function runPackIndexProjectedDispatchFallback() {
+    const store = new CompendiumStore();
+    const transport = new FakeCompendiumTransport();
+    const service = new CompendiumService({ transport, store });
+    transport.emitHandler = (event) => {
+        if (event === 'getCompendiumIndex') return { result: createIndex('synthetic.tables') };
+        throw new Error('synthetic legacy event miss');
+    };
+    transport.dispatchHandler = (_type, _action, operation) => {
+        assert.deepEqual(operation, {
+            pack: 'synthetic.tables', index: true, query: {}, broadcast: false,
+            indexFields: ['_id', 'img', 'name', 'system.tier', 'type'],
+        });
+        return { result: createIndex('synthetic.tables', { 'system.tier': 3 }) };
+    };
+    const rows = await service.getPackIndex('synthetic.tables', 'RollTable', { fields: ['system.tier'] });
+    assert.equal(rows[0]?.['system.tier'], 3);
+    assert.equal(store.getPackIndex('synthetic.tables', { fields: ['system.tier'] })?.[0]?.['system.tier'], 3);
 }
 
 async function runPackDocumentsTypeFallback() {
@@ -143,10 +168,10 @@ async function runPackDocumentModifyDocumentFallback() {
 
     transport.emitHandler = (event, payloads) => {
         assert.equal(event, 'modifyDocument');
-        const payload = payloads[0] as { type?: string; operation?: { pack?: string; ids?: string[] } };
+        const payload = payloads[0] as { type?: string; operation?: { pack?: string; query?: { _id?: string } } };
         assert.equal(payload.type, 'Item');
         assert.equal(payload.operation?.pack, 'synthetic.items');
-        assert.deepEqual(payload.operation?.ids, ['torch']);
+        assert.deepEqual(payload.operation?.query, { _id: 'torch' });
         return { result: [{ _id: 'torch', uuid: 'Compendium.synthetic.items.Item.torch', name: 'Torch' }] };
     };
 
@@ -160,9 +185,12 @@ async function runPackDocumentGetDocumentsFallback() {
     const transport = new FakeCompendiumTransport();
     const service = new CompendiumService({ transport, store: new CompendiumStore() });
 
-    transport.emitHandler = (event) => {
+    transport.emitHandler = (event, payloads) => {
         if (event === 'modifyDocument') throw new Error('synthetic modify miss');
         if (event === 'getDocuments') {
+            assert.deepEqual((payloads[0] as { operation?: unknown }).operation, {
+                pack: 'synthetic.items', query: { _id: 'torch' },
+            });
             return { result: [{ _id: 'torch', uuid: 'Compendium.synthetic.items.Item.torch', name: 'Torch' }] };
         }
         throw new Error(`unexpected event ${event}`);
@@ -172,6 +200,38 @@ async function runPackDocumentGetDocumentsFallback() {
 
     assert.equal(doc?.name, 'Torch');
     assert.deepEqual(transport.calls.map(call => call.event), ['modifyDocument', 'getDocuments']);
+}
+
+async function runIndexProjectionRejectsUnprojectedFallback() {
+    const store = new CompendiumStore();
+    const transport = new FakeCompendiumTransport();
+    const service = new CompendiumService({ transport, store });
+    transport.emitHandler = (event, payloads) => {
+        if (event === 'modifyDocument') {
+            const operation = (payloads[0] as { operation: Record<string, unknown> }).operation;
+            assert.deepEqual(operation.query, {});
+            assert.deepEqual(operation.indexFields, ['_id', 'img', 'name', 'system.tier', 'type']);
+            return { result: createIndex('synthetic.items', { 'system.tier': 2 }) };
+        }
+        throw new Error(`unexpected fallback ${event}`);
+    };
+    const rows = await service.getPackEntries('synthetic.items', { fields: ['system.tier'] });
+    assert.equal(rows.length, 1);
+    assert.equal(store.getPackIndex('synthetic.items', { fields: ['system.tier'] })?.[0]?.['system.tier'], 2);
+
+    const missingFieldTransport = new FakeCompendiumTransport();
+    const missingFieldStore = new CompendiumStore();
+    const missingFieldService = new CompendiumService({ transport: missingFieldTransport, store: missingFieldStore });
+    missingFieldTransport.emitHandler = () => ({ result: createIndex('synthetic.items') });
+    assert.deepEqual(await missingFieldService.getPackEntries('synthetic.items', { fields: ['system.tier'] }), []);
+    assert.equal(missingFieldStore.getPackIndex('synthetic.items', { fields: ['system.tier'] }), null);
+
+    const noIdentityTransport = new FakeCompendiumTransport();
+    const noIdentityStore = new CompendiumStore();
+    const noIdentityService = new CompendiumService({ transport: noIdentityTransport, store: noIdentityStore });
+    noIdentityTransport.emitHandler = () => ({ result: [{ name: 'Nameless ID', 'system.tier': 1 }] });
+    assert.deepEqual(await noIdentityService.getPackEntries('synthetic.items', { fields: ['system.tier'] }), []);
+    assert.equal(noIdentityStore.getPackIndex('synthetic.items', { fields: ['system.tier'] }), null);
 }
 
 async function runPackDocumentDisconnected() {

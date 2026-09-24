@@ -470,7 +470,7 @@ export class FoundryEventIngress {
         epoch: number,
         applyAction: ModifyDocumentAction,
     ): Promise<boolean> {
-        const operation = { ids: [root.id], broadcast: false };
+        const operation = { query: { _id: root.id }, broadcast: false };
         const response = await source.emitSocketEvent!<unknown>('modifyDocument', {
             type: root.type,
             action: 'get',
