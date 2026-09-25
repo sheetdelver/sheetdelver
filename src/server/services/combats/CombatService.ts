@@ -4,6 +4,7 @@ import type { ActorDocument } from '@server/shared/types/actors';
 import type { CombatClientLike } from '@server/shared/types/documents';
 import {
     DOCUMENT_VISIBILITY,
+    isGM,
     isAssistantGM,
     type DocumentAccessSubject,
 } from '@server/core/documents/primary/base/ownership';
@@ -21,6 +22,7 @@ import {
 } from '@server/core/documents/prepared/actors/PreparedActorStore';
 import type { PreparedActorData } from '@shared/sdk';
 import { buildCombatTrackerDto } from './CombatTrackerProjection';
+import { readCombatManagerFlag } from './combatManagerFlag';
 import type {
     CombatTrackerDto,
     CombatTrackerActorDto,
@@ -149,7 +151,17 @@ export function createCombatService(deps: CombatServiceDeps) {
             const prepared = combatEncounterReadModel.getOrRebuild(combatId);
             if (!prepared) return null;
             const dto = buildCombatTrackerDto(prepared, subject, projectionDeps);
-            return enrichTrackerDto(dto, client);
+            const managerFlag = readCombatManagerFlag(combat);
+            const permitted = isGM(subject) && managerFlag?.status === 'active';
+            const projected = managerFlag ? {
+                ...dto,
+                // Managed encounters use the separate GM-only manager routes.
+                // The legacy HUD is view-only for these encounters.
+                canAdvanceTurn: false,
+                canRewindTurn: false,
+                combatants: dto.combatants.map(row => ({ ...row, canRollInitiative: permitted })),
+            } : dto;
+            return enrichTrackerDto(projected, client);
         }));
 
         return { success: true, combats: combats.filter((c): c is CombatTrackerDto => c !== null) };
@@ -199,7 +211,8 @@ export function createCombatService(deps: CombatServiceDeps) {
 
     const advanceTurn = async (
         client: CombatClientLike,
-        combatId: string
+        combatId: string,
+        managerCommand = false,
     ): Promise<CombatTurnSuccessPayload | CombatErrorPayload> => {
         ensureReady();
         const prepared = getPreparedEncounter(combatId);
@@ -208,6 +221,10 @@ export function createCombatService(deps: CombatServiceDeps) {
         }
 
         const subject = resolveSubject(client.userId);
+        const managed = readCombatManagerFlag(combatStore.get(combatId));
+        if (managed && (!subject || !isGM(subject))) return { error: 'Gamemaster access required', status: 403 };
+        if (managed && managed.status !== 'active') return { error: 'Encounter is not active', status: 409 };
+        if (managed && !managerCommand) return { error: 'Use the GM Combat Manager to advance this encounter', status: 403 };
         if (!subject || !isAuthorizedForCombatTurn(prepared, subject)) {
             return { error: 'Unauthorized: You do not own the current combatant and are not a GM', status: 403 };
         }
@@ -236,7 +253,10 @@ export function createCombatService(deps: CombatServiceDeps) {
             }
         }
 
-        await createCombatRepository(client).update(combatId, { round, turn });
+        await createCombatRepository(client).update(combatId, {
+            round, turn,
+            ...(managed && managerCommand && prepared.round === 0 ? { active: true } : {}),
+        });
 
         return { success: true, round, turn };
     };
@@ -245,7 +265,8 @@ export function createCombatService(deps: CombatServiceDeps) {
     // encounter to its unstarted round-zero state.
     const previousTurn = async (
         client: CombatClientLike,
-        combatId: string
+        combatId: string,
+        managerCommand = false,
     ): Promise<CombatTurnSuccessPayload | CombatErrorPayload> => {
         ensureReady();
         const prepared = getPreparedEncounter(combatId);
@@ -254,6 +275,10 @@ export function createCombatService(deps: CombatServiceDeps) {
         }
 
         const subject = resolveSubject(client.userId);
+        const managed = readCombatManagerFlag(combatStore.get(combatId));
+        if (managed && (!subject || !isGM(subject))) return { error: 'Gamemaster access required', status: 403 };
+        if (managed && managed.status !== 'active') return { error: 'Encounter is not active', status: 409 };
+        if (managed && !managerCommand) return { error: 'Use the GM Combat Manager to rewind this encounter', status: 403 };
         if (!subject || !isAssistantGM(subject)) {
             return { error: 'Unauthorized: Only GMs can move to previous turns', status: 403 };
         }
@@ -297,7 +322,10 @@ export function createCombatService(deps: CombatServiceDeps) {
             }
         }
 
-        await createCombatRepository(client).update(combatId, { round, turn });
+        await createCombatRepository(client).update(combatId, {
+            round, turn,
+            ...(managed && managerCommand && round === 0 ? { active: false } : {}),
+        });
 
         return { success: true, round, turn };
     };
@@ -311,7 +339,8 @@ export function createCombatService(deps: CombatServiceDeps) {
         client: CombatClientLike,
         combatId: string,
         combatantId: string,
-        body: CombatInitiativeRequestBody
+        body: CombatInitiativeRequestBody,
+        managerCommand = false,
     ): Promise<CombatInitiativeSuccessPayload | CombatErrorPayload> => {
         ensureReady();
         const { formula, advantageMode } = body;
@@ -320,6 +349,10 @@ export function createCombatService(deps: CombatServiceDeps) {
         if (!combat) return { error: 'Combat not found', status: 404 };
 
         const subject = resolveSubject(client.userId);
+        const managed = readCombatManagerFlag(combat);
+        if (managed && (!subject || !isGM(subject))) return { error: 'Gamemaster access required', status: 403 };
+        if (managed && managed.status !== 'active') return { error: 'Encounter is not active', status: 409 };
+        if (managed && !managerCommand) return { error: 'Use the GM Combat Manager to roll initiative', status: 403 };
         if (!subject) return { error: 'Unauthorized', status: 403 };
         const gm = isAssistantGM(subject);
 
@@ -369,7 +402,12 @@ export function createCombatService(deps: CombatServiceDeps) {
             alias: actor.name
         };
 
-        const chatMessage = await client.roll(finalFormula, 'Initiative', { speaker });
+        // Foundry's rollInitiative whispers hidden Combatant rolls to GMs.
+        // A public Core chat message would reveal that hidden participant.
+        const chatMessage = await client.roll(finalFormula, 'Initiative', {
+            speaker,
+            ...(combatant.hidden ? { rollMode: 'gmroll' as const } : {}),
+        });
         const total = parseInt(String(chatMessage.content));
 
         if (isNaN(total)) {

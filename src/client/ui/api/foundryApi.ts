@@ -9,6 +9,8 @@ import type {
 } from '@shared/contracts/combats';
 import type { ChatLogPayload } from '@shared/contracts/chat';
 import type { RealtimeSharedContentPayload } from '@shared/contracts/realtime';
+import type { CombatManagerActorChoiceDto, CombatManagerEncounterDto, CombatManagerInitiativeBatchDto,
+    CombatManagerInitiativeScope, CombatManagerPackDto } from '@shared/contracts/combatManager';
 
 interface LoginPayload {
     success: boolean;
@@ -114,4 +116,61 @@ export function postCombatRollInitiative(
         `/api/combats/${combatId}/combatants/${combatantId}/roll-initiative`,
         { method: 'POST', token, body },
     );
+}
+
+export function fetchManagedCombats(): Promise<{ encounters: CombatManagerEncounterDto[] }> {
+    return requestJson('/api/combat-manager', { cache: 'no-store' });
+}
+
+export function createManagedCombat(label: string, keepHistory: boolean): Promise<{ encounter: CombatManagerEncounterDto }> {
+    return requestJson('/api/combat-manager', { method: 'POST', body: { label, keepHistory } });
+}
+
+export function searchManagedWorldActors(query: string): Promise<{ actors: CombatManagerActorChoiceDto[] }> {
+    return requestJson(`/api/combat-manager/world-actors?q=${encodeURIComponent(query)}`, { cache: 'no-store' });
+}
+
+export function fetchManagedActorPacks(): Promise<{ packs: CombatManagerPackDto[] }> {
+    return requestJson('/api/combat-manager/packs', { cache: 'no-store' });
+}
+
+export function searchManagedPackActors(packId: string, query: string): Promise<{ actors: CombatManagerActorChoiceDto[] }> {
+    return requestJson(`/api/combat-manager/packs/${encodeURIComponent(packId)}/actors?q=${encodeURIComponent(query)}`, { cache: 'no-store' });
+}
+
+export function addManagedWorldActor(combatId: string, actorId: string): Promise<{ encounter: CombatManagerEncounterDto }> {
+    return requestJson(`/api/combat-manager/${combatId}/world-actors`, { method: 'POST', body: { actorId } });
+}
+
+export function addManagedPackActor(combatId: string, packId: string, actorId: string): Promise<{ encounter: CombatManagerEncounterDto }> {
+    return requestJson(`/api/combat-manager/${combatId}/pack-actors`, { method: 'POST', body: { packId, actorId } });
+}
+
+export function updateManagedCombatant(combatId: string, combatantId: string,
+    body: { initiative?: number | null; hidden?: boolean; defeated?: boolean }): Promise<{ encounter: CombatManagerEncounterDto }> {
+    return requestJson(`/api/combat-manager/${combatId}/combatants/${combatantId}`, { method: 'PATCH', body });
+}
+
+export function updateManagedResource(combatId: string, combatantId: string, value: number): Promise<{ encounter: CombatManagerEncounterDto }> {
+    return requestJson(`/api/combat-manager/${combatId}/combatants/${combatantId}/resource`, { method: 'PATCH', body: { value } });
+}
+
+export function removeManagedCombatant(combatId: string, combatantId: string): Promise<{ encounter: CombatManagerEncounterDto }> {
+    return requestJson(`/api/combat-manager/${combatId}/combatants/${combatantId}`, { method: 'DELETE' });
+}
+
+export function completeManagedCombat(combatId: string): Promise<{ completed: true; retained: boolean }> {
+    return requestJson(`/api/combat-manager/${combatId}/complete`, { method: 'POST' });
+}
+
+export function postManagedNextTurn(combatId: string): Promise<CombatTurnSuccessPayload> {
+    return requestJson(`/api/combat-manager/${combatId}/next-turn`, { method: 'POST' });
+}
+
+export function postManagedPreviousTurn(combatId: string): Promise<CombatTurnSuccessPayload> {
+    return requestJson(`/api/combat-manager/${combatId}/previous-turn`, { method: 'POST' });
+}
+
+export function postManagedInitiativeBatch(combatId: string, scope: CombatManagerInitiativeScope): Promise<CombatManagerInitiativeBatchDto> {
+    return requestJson(`/api/combat-manager/${combatId}/roll-initiative`, { method: 'POST', body: { scope } });
 }

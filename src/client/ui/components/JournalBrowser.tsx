@@ -6,6 +6,7 @@ import { useUI } from '@client/ui/context/UIContext';
 import { useSession } from '@client/ui/context/SessionContext';
 import { Folder as FolderIcon, FileText, ChevronRight, ChevronDown, Plus, Search, Trash2, Book, X } from 'lucide-react';
 import { sortDirectorySiblings } from './journalOrdering';
+import { ConfirmationModal } from './ConfirmationModal';
 
 export default function JournalBrowser() {
     const {
@@ -16,6 +17,11 @@ export default function JournalBrowser() {
     const { currentUser } = useSession();
     const [search, setSearch] = useState('');
     const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({});
+    const [pendingDelete, setPendingDelete] = useState<{ id: string; name: string } | null>(null);
+
+    React.useEffect(() => {
+        if (!isJournalOpen) setPendingDelete(null);
+    }, [isJournalOpen]);
 
     const userId = currentUser?._id || currentUser?.id;
     const isGM = currentUser?.isGM || (currentUser?.role && currentUser.role >= 3);
@@ -44,8 +50,9 @@ export default function JournalBrowser() {
             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                 {(isGM || (userId && item.ownership?.[userId] === 3)) && (
                     <button
-                        onClick={(e) => { e.stopPropagation(); if (confirm('Delete this journal?')) deleteJournal(item._id); }}
+                        onClick={(e) => { e.stopPropagation(); setPendingDelete({ id: item._id, name: item.name }); }}
                         className="p-1 text-neutral-500 hover:text-red-400"
+                        aria-label={`Delete ${item.name}`}
                     >
                         <Trash2 className="w-3 h-3" />
                     </button>
@@ -200,6 +207,19 @@ export default function JournalBrowser() {
                     background: rgba(255, 255, 255, 0.2);
                 }
             `}</style>
+            <ConfirmationModal
+                isOpen={pendingDelete !== null}
+                title="Delete journal"
+                message={`Delete ${pendingDelete?.name || 'this journal'}? This action cannot be undone.`}
+                confirmLabel="Delete"
+                isDanger
+                onConfirm={() => {
+                    const target = pendingDelete;
+                    setPendingDelete(null);
+                    if (target) void deleteJournal(target.id);
+                }}
+                onCancel={() => setPendingDelete(null)}
+            />
         </>
     );
 }

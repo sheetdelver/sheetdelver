@@ -137,6 +137,47 @@ the module runtime, not from a broad module-facing client.
 
 ---
 
+## GM Combat Manager
+
+All `/api/combat-manager` routes require an authenticated Foundry role-4
+Gamemaster; Assistants and players receive `403`. The manager lists only
+SheetDelver-marked, scene-null Combats. Responses are bounded projections, not
+raw Combat, Actor, Folder or compendium documents. Foundry remains the final
+write-permission authority. Creation leaves Foundry's global `active` bit off;
+Begin sets it, warning only if another Combat is currently active (Foundry
+deactivates that Combat). The manager's lifecycle status is stored separately in
+its Combat flag. Participant projections include a Foundry-style `isNpc` flag:
+no non-GM user owns that world Actor, independent of system Actor type.
+See [ADR-0049](adr/0049-core-gm-combat-manager.md).
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/api/combat-manager` | List marked encounters, including retained completed history. |
+| `POST` | `/api/combat-manager` | Create with `{ "label": "Ambush", "keepHistory": false }`; returns the encounter. |
+| `GET` | `/api/combat-manager/:id` | Read one marked tokenless encounter. |
+| `GET` | `/api/combat-manager/world-actors?q=...` | Search world Actors (PCs and NPCs); selections link canonical IDs. |
+| `GET` | `/api/combat-manager/packs` | List available Actor compendiums. |
+| `GET` | `/api/combat-manager/packs/:packId/actors?q=...` | Search a pack's bounded Actor index. |
+| `POST` | `/api/combat-manager/:id/world-actors` | Add `{ "actorId": "..." }` as a world link. |
+| `POST` | `/api/combat-manager/:id/pack-actors` | Add `{ "packId": "...", "actorId": "..." }` as a new encounter-owned world Actor copy. |
+| `POST` | `/api/combat-manager/:id/next-turn` and `/previous-turn` | Run SheetDelver-managed turn progression under the GM-only encounter guard. |
+| `POST` | `/api/combat-manager/:id/roll-initiative` | Roll unrolled combatants with `{ "scope": "all" }` or `{ "scope": "npc" }`; NPC means no non-GM owner. Returns `rolled` and the refreshed encounter. Partial failures report the count already rolled. |
+| `PATCH` | `/api/combat-manager/:id/combatants/:combatantId` | Change `initiative`, `hidden` or `defeated`. |
+| `PATCH` | `/api/combat-manager/:id/combatants/:combatantId/resource` | Write `{ "value": 5 }` only for a source-backed configured resource. |
+| `DELETE` | `/api/combat-manager/:id/combatants/:combatantId` | Remove a participant; never delete its linked world Actor. |
+| `POST` | `/api/combat-manager/:id/complete` | Explicitly complete; retain as read-only history or guard-clean verified copies and Folder. |
+
+The older `/api/combats/:id/next-turn` and `previous-turn` endpoints reject
+manager-marked encounters; those turns go through the GM-only manager routes.
+Initiative rolls on marked encounters require role-4 GM and active status. The
+batch route reuses Core's user-bound, adapter-formula roll path, whispers hidden
+combatant rolls to GMs, and preserves current Combatant identity after sorting.
+Progression does not claim native Foundry client-hook, system-override,
+world-time or effect parity. Unmarked Combat routes retain their existing
+audience policy.
+
+---
+
 ## Actors
 
 Actor reads have three stages (ADR-0038):

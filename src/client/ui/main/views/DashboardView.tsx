@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import Link from 'next/link';
+import { Swords } from 'lucide-react';
 import { SharedContentModal } from '@client/ui/components/SharedContentModal';
 import { ConfirmationModal } from '@client/ui/components/ConfirmationModal';
 import SystemTools from '@client/ui/components/SystemTools';
@@ -127,6 +129,25 @@ export const DashboardView = ({
 
 
                 {/* System Specific Tools (Modularized) */}
+                {(user?.role ?? 0) >= 4 && (
+                    <section aria-label="GM Tools">
+                        <div className="flex items-center gap-3 mb-4">
+                            <h3 className={`text-xl font-bold uppercase tracking-widest opacity-80 ${theme.accent}`}>GM Tools</h3>
+                            <div className="h-px flex-1 bg-white/10" />
+                        </div>
+                        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+                            <Link href="/tools/combat" className={`${theme.panelBg}/40 group flex items-center gap-4 rounded-xl border border-white/5 p-4 shadow-lg backdrop-blur-md transition-all duration-300 hover:-translate-y-1 hover:border-amber-500/50 hover:shadow-2xl focus-visible:outline-2 focus-visible:outline-amber-400`}>
+                                <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-black/40 text-amber-500 transition-colors group-hover:border-amber-500/30">
+                                    <Swords aria-hidden="true" className="h-8 w-8" />
+                                </span>
+                                <span className="min-w-0">
+                                    <span className={`block truncate text-lg font-bold ${theme.accent}`}>Combat Manager</span>
+                                    <span className="mt-1 block text-sm opacity-60">Build and run tokenless encounters</span>
+                                </span>
+                            </Link>
+                        </div>
+                    </section>
+                )}
                 {system?.id && (
                     <SystemTools
                         systemId={system.id}

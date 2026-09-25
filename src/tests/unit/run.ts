@@ -67,6 +67,7 @@ import { run as runActorNormalization } from './actors/actor-normalization.test'
 import { run as runCombatStore } from './combat/combat-store.test';
 import { run as runCombatEncounterReadModel } from './combat/combat-encounter-read-model.test';
 import { run as runCombatTrackerProjection } from './combat/combat-tracker-projection.test';
+import { run as runCombatManager } from './combat/combat-manager.test';
 
 // ── documents ─────────────────────────────────────────────────────────────────
 import { run as runPrimaryDocumentBase } from './documents/primary-document-base.test';
@@ -220,6 +221,7 @@ async function runAllUnitTests() {
     await runCombatStore();
     await runCombatEncounterReadModel();
     await runCombatTrackerProjection();
+    await runCombatManager();
     await runItemStore();
     await runOwnershipHelpers();
     await runRouteOwnershipThresholds();

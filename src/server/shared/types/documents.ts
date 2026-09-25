@@ -411,6 +411,6 @@ export interface CombatClientLike extends ActorServiceClientLike {
     roll(
         formula: string,
         label: string,
-        options?: { speaker?: { actor?: string; alias?: string } }
+        options?: { speaker?: { actor?: string; alias?: string }; rollMode?: RollMode }
     ): Promise<RollChatMessageLike>;
 }
