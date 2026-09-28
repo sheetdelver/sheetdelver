@@ -5,11 +5,12 @@ import { logger } from '@shared/utils/logger';
 import type { ChatMessageDto } from '@shared/contracts/chat';
 import { useSession } from './SessionContext';
 import { useUI } from './UIContext';
-import { defaultDiceBehavior, diceSoundForRoll, normalizeDiceBehavior, type DiceBehavior } from '../components/Dice/behavior';
+import { defaultDiceBehavior, normalizeDiceBehavior, type DiceBehavior } from '../components/Dice/behavior';
 import { defaultDiceAppearance, normalizeDiceAppearance, type DiceAppearance } from '../components/Dice/appearance';
 import { defaultDiceSound, normalizeDiceSound, type DiceSoundSettings } from '../components/Dice/collisionAudio';
 import { DiceAnimation } from '../components/Dice/DiceAnimation';
 import { DicePresentationQueue, type QueuedDice } from '../components/Dice/presentationQueue';
+import { SharedDiceAnimation } from '../components/Dice/SharedDiceAnimation';
 import type { DicePresentation } from '../components/Dice/presentation';
 
 const preferenceKey = 'sheetdelver_3d_dice';
@@ -120,32 +121,25 @@ export function DicePresentationProvider({ children }: { children: ReactNode }) 
     const canTest = available && !!token && step === 'dashboard' && isSettingsOpen && !queue.length && !testing;
     const testDice = useCallback(() => { if (canTest) { setFailed(false); setTesting(true); } }, [canTest]);
     const cancelTest = useCallback(() => setTesting(false), []);
-    const current = active ? queue[0] : undefined;
-    // Settlement changes queue metadata, not the renderer's immutable roll prop.
-    const id = current?.id, notation = current?.notation, authorId = current?.authorId, privateRoll = current?.privateRoll;
-    const physicalDiceCount = current?.physicalDiceCount;
-    const roll = useMemo(() => id && notation ? { id, notation, authorId, privateRoll, physicalDiceCount } : null,
-        [id, notation, authorId, privateRoll, physicalDiceCount]);
+    const liveRolls = active ? queue : [];
+    const onSettled = (sequence: number) => { coordinator.current.settled(sequence); publish(); };
+    const onDone = (sequence: number) => { coordinator.current.done(sequence); publish(); };
+    const onError = (error: unknown) => {
+        logger.warn('Dice presentation unavailable; chat remains authoritative.', error);
+        setFailed(true);
+        coordinator.current.configure(false, behavior, currentUserId);
+        publish();
+        setTesting(false);
+    };
 
     return <Context.Provider value={{ enabled, setEnabled, sound, setSound, appearance, setAppearance, behavior, setBehavior, resetSettings,
         heldMessageIds, recordCreated, prepareMessages, invalidateMessage, resetPresentation, testDice, cancelTest, canTest, testing }}>
         {children}
-        {(roll || (testing && available && isSettingsOpen && !queue.length)) && <DiceAnimation
-            key={current?.sequence ?? 'preview'} roll={roll ?? sample}
-            sound={roll ? diceSoundForRoll(sound, behavior, roll) : sound}
-            appearance={appearance} behavior={behavior}
-            onSettled={() => { if (current) { coordinator.current.settled(current.sequence); publish(); } }}
-            onDone={() => {
-                if (current) { coordinator.current.done(current.sequence); publish(); }
-                else setTesting(false);
-            }}
-            onError={error => {
-                logger.warn('Dice presentation unavailable; chat remains authoritative.', error);
-                setFailed(true);
-                coordinator.current.configure(false, behavior, currentUserId);
-                publish();
-                setTesting(false);
-            }} />}
+        {active && !testing && <SharedDiceAnimation rolls={liveRolls} sound={sound} appearance={appearance}
+            behavior={behavior} onSettled={onSettled} onDone={onDone} onError={onError} />}
+        {testing && available && isSettingsOpen && !queue.length && <DiceAnimation
+            roll={sample} sound={sound} appearance={appearance} behavior={behavior}
+            onDone={() => setTesting(false)} onError={onError} />}
     </Context.Provider>;
 }
 

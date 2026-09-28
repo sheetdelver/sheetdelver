@@ -23,10 +23,12 @@ export function run() {
     const die = (faces: number, result: number, count = 1) => ({
         _id: 'die', rolls: [{ evaluated: true, terms: [{ class: 'Die', faces, results: Array(count).fill({ result }) }] }],
     });
-    for (const faces of [4, 6, 8, 10, 12, 20]) {
+    for (const faces of [2, 4, 6, 8, 10, 12, 20]) {
         assert.equal(toDicePresentation(die(faces, faces))?.notation, `1d${faces}@${faces}`);
     }
-    for (const value of [die(100, 101), die(100, 0), die(100, 1, 13), die(6, 7), die(6, 0), die(6, 1.5), die(6, NaN), die(6, 1, 25)]) {
+    assert.equal(toDicePresentation(die(2, 1))?.notation, '1d2@1');
+    for (const value of [die(100, 101), die(100, 0), die(100, 1, 13), die(2, 3), die(2, 0),
+        die(6, 7), die(6, 0), die(6, 1.5), die(6, NaN), die(6, 1, 25)]) {
         assert.equal(toDicePresentation(value), null);
     }
     assert.equal(toDicePresentation({ _id: 'nested', rolls: [{ evaluated: true, terms: [{ class: 'PoolTerm', rolls: message.rolls }] }] }), null);

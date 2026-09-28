@@ -1,4 +1,11 @@
 # Releases
+## Unreleased
+- Enabled concurrent shared-scene dice
+- Matched predetermined landing faces
+- Expanded numeric roll rules
+- Added d2 dice visualization
+- Restored Foundry roll totals
+
 ## 0.14.1
 - Corrected targeted Foundry reads
 - Fixed compendium index projections
