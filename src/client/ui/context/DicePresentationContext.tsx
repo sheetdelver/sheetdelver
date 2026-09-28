@@ -34,6 +34,23 @@ const Context = createContext({
 });
 const sample: DicePresentation = { id: 'local-dice-preview', physicalDiceCount: 4, notation: '1d6+1d20+1d100+1d10@4,17,40,2' };
 
+function LiveDiceAnimation({ queued, sound, appearance, behavior, onSettled, onDone, onError }: {
+    queued: QueuedDice;
+    sound: DiceSoundSettings;
+    appearance: DiceAppearance;
+    behavior: DiceBehavior;
+    onSettled: (sequence: number) => void;
+    onDone: (sequence: number) => void;
+    onError: (error: unknown) => void;
+}) {
+    const { id, notation, authorId, privateRoll, physicalDiceCount, sequence } = queued;
+    // Queue settlement changes `held`; it must not restart an active renderer.
+    const roll = useMemo<DicePresentation>(() => ({ id, notation, authorId, privateRoll, physicalDiceCount }),
+        [id, notation, authorId, privateRoll, physicalDiceCount]);
+    return <DiceAnimation roll={roll} sound={diceSoundForRoll(sound, behavior, roll)} appearance={appearance}
+        behavior={behavior} onSettled={() => onSettled(sequence)} onDone={() => onDone(sequence)} onError={onError} />;
+}
+
 export function DicePresentationProvider({ children }: { children: ReactNode }) {
     const { token, step, currentUserId } = useSession();
     const { isSettingsOpen } = useUI();
@@ -120,32 +137,26 @@ export function DicePresentationProvider({ children }: { children: ReactNode }) 
     const canTest = available && !!token && step === 'dashboard' && isSettingsOpen && !queue.length && !testing;
     const testDice = useCallback(() => { if (canTest) { setFailed(false); setTesting(true); } }, [canTest]);
     const cancelTest = useCallback(() => setTesting(false), []);
-    const current = active ? queue[0] : undefined;
-    // Settlement changes queue metadata, not the renderer's immutable roll prop.
-    const id = current?.id, notation = current?.notation, authorId = current?.authorId, privateRoll = current?.privateRoll;
-    const physicalDiceCount = current?.physicalDiceCount;
-    const roll = useMemo(() => id && notation ? { id, notation, authorId, privateRoll, physicalDiceCount } : null,
-        [id, notation, authorId, privateRoll, physicalDiceCount]);
+    const liveRolls = active ? queue : [];
+    const onSettled = (sequence: number) => { coordinator.current.settled(sequence); publish(); };
+    const onDone = (sequence: number) => { coordinator.current.done(sequence); publish(); };
+    const onError = (error: unknown) => {
+        logger.warn('Dice presentation unavailable; chat remains authoritative.', error);
+        setFailed(true);
+        coordinator.current.configure(false, behavior, currentUserId);
+        publish();
+        setTesting(false);
+    };
 
     return <Context.Provider value={{ enabled, setEnabled, sound, setSound, appearance, setAppearance, behavior, setBehavior, resetSettings,
         heldMessageIds, recordCreated, prepareMessages, invalidateMessage, resetPresentation, testDice, cancelTest, canTest, testing }}>
         {children}
-        {(roll || (testing && available && isSettingsOpen && !queue.length)) && <DiceAnimation
-            key={current?.sequence ?? 'preview'} roll={roll ?? sample}
-            sound={roll ? diceSoundForRoll(sound, behavior, roll) : sound}
-            appearance={appearance} behavior={behavior}
-            onSettled={() => { if (current) { coordinator.current.settled(current.sequence); publish(); } }}
-            onDone={() => {
-                if (current) { coordinator.current.done(current.sequence); publish(); }
-                else setTesting(false);
-            }}
-            onError={error => {
-                logger.warn('Dice presentation unavailable; chat remains authoritative.', error);
-                setFailed(true);
-                coordinator.current.configure(false, behavior, currentUserId);
-                publish();
-                setTesting(false);
-            }} />}
+        {liveRolls.map(queued => <LiveDiceAnimation key={queued.sequence} queued={queued}
+            sound={sound} appearance={appearance} behavior={behavior}
+            onSettled={onSettled} onDone={onDone} onError={onError} />)}
+        {testing && available && isSettingsOpen && !queue.length && <DiceAnimation
+            roll={sample} sound={sound} appearance={appearance} behavior={behavior}
+            onDone={() => setTesting(false)} onError={onError} />}
     </Context.Provider>;
 }
 

@@ -25,17 +25,27 @@ shared by chat commands, actor routes and the request-bound roll SDK. It does
 not require a connected Foundry browser. Foundry-originated rolls already carry
 their evaluated results and are not evaluated again.
 
-Supported input includes standard numeric dice, `kh`/`kl` (default count one),
-numbers, `+ - * /`, parentheses, roll pools such as `{1d4,1d6}kh`, two-argument
-`min(a,b)`/`max(a,b)`, and single-argument `abs`, `floor`, and `ceil`.
+Supported input includes standard numeric dice with Foundry-style keep/drop,
+min/max, reroll, explode, success/failure count, even/odd, deduct/subtract and
+margin modifiers; numbers, `+ - * /`, parentheses, roll pools with keep/drop
+and success/failure counts such as `{1d4,1d6}kh` or `{1d4,1d6}cs>=4`,
+two-argument `min(a,b)`/`max(a,b)`, and single-argument `abs`,
+`floor`, and `ceil`.
 For example, `/r (1d6+2)*2`, `/r {1d4,1d6}kh`, and
 `/r max(1d8,1d10)` work in SheetDelver as well as arriving from Foundry.
-This is a supported subset, not a complete Foundry formula runtime: custom
-functions/dice, data references, rerolls, explosions, and other modifiers are
-not accepted.
+This is a supported subset, not a complete Foundry formula runtime: Coin/Fate,
+custom functions/dice, nested roll pools, data references, interactive dice and custom modifiers
+are not accepted. SheetDelver-originated `cs` and `cf` require an explicit
+threshold such as `cs>=5` or `cf<=2`; targetless forms return an error before
+rolling or posting chat. The tested native v14.367 runtime counted zero for
+those forms despite the guide's described defaults, so Core does not assume a
+portable default. Foundry-originated evaluated rolls remain unchanged. The
+bounded native comparison is recorded
+in [ADR-0051](adr/0051-bounded-foundry-numeric-roll-rules.md).
 
 Inputs are bounded to 256 characters, 16 nesting levels, 128 parsed nodes,
-100 dice per term, 1,000 dice overall, and 1,000,000 faces. Numeric literals
+100 initial dice per term, 1,000 rolled results overall including rerolls and
+explosions, and 1,000,000 faces. Numeric literals
 are bounded to one billion and final results to finite safe-number magnitude.
 The separate 24-physical-dice presentation limit still applies.
 Invalid/unsupported formulas return an error, never a successful zero or a
@@ -53,7 +63,9 @@ structure. Nothing is evaluated or re-rolled in the presentation UI.
 
 ## Supported Presentation
 
-- Standard d4, d6, d8, d10, d12, d20, and d100 terms from evaluated chat rolls.
+- Standard d2, d4, d6, d8, d10, d12, d20, and d100 terms from evaluated chat rolls.
+- Numeric d2 is shown using the renderer's two-sided disc (faces 1 and 2);
+  serialized Coin terms remain unsupported.
 - Each d100 result uses a percentile tens/ones pair: 42 shows `40 + 2`,
   10 shows `10 + 0`, and 100 shows `00 + 0`. No additional roll is evaluated.
 - Discarded dice are also displayed, including advantage/disadvantage. Chat
@@ -70,7 +82,10 @@ structure. Nothing is evaluated or re-rolled in the presentation UI.
   24 visible dice stay chat-only (each d100 result counts as two). Mixed unsupported rolls are skipped in
   full rather than animated partially.
 - Hidden tabs and reduced-motion preferences suppress animation.
-- Up to three throws can be queued. Session/world changes, disconnects, message
+- Up to three separate chat-message throws animate concurrently, with at most
+  24 physical dice across their visible canvases. Excess messages remain
+  immediately visible in chat rather than waiting for a previous animation.
+  Session/world changes, disconnects, message
   changes/deletions, disabling the preference, and hidden tabs clear applicable
   work. A viewport resize ends the current throw.
 - Eleven solid/textured styles, eight multicolor palettes, custom colors, curated textures/materials,
@@ -268,8 +283,11 @@ Static audio/texture assets remain in `public/dice/`, with client tests under
 
 `DicePresentationQueue` pairs forwarded create hints with the authorized chat
 projection using `LiveChatInbox`. One admission decision controls animation and
-visible-chat timing. At most three throws, including the active throw, are held.
-Overflow, disabled/filtered/unsupported rolls and unavailable animation display
+visible-chat timing. At most three throws run concurrently, with a combined
+24-physical-dice limit until their canvases finish lingering. Each admitted
+message owns its own renderer and releases its own chat card at settlement;
+another message's animation or linger cannot hold that card. Overflow,
+disabled/filtered/unsupported rolls and unavailable animation display
 immediately. A read shown before a late hint stays visible and skips animation;
 it is never hidden retroactively. History alone never animates.
 
@@ -316,3 +334,6 @@ custom colors, fade, surface sounds and test throws without changing the SDK.
 [ADR-0047](adr/0047-dice-appearance-and-rolling-regions.md) adds curated textures,
 materials, palettes, force, bounded quality and viewport-relative regions.
 Profiles/import/export, new visibility filters, speed and effects remain deferred.
+
+[ADR-0050](adr/0050-dice-presentation-parity.md) changes separate
+chat-message throws from sequential playback to bounded concurrent playback.

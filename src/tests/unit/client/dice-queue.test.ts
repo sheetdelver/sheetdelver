@@ -26,6 +26,15 @@ export function run() {
     for (const id of ['b', 'c', 'd', 'overflow']) queue.created(id, 7);
     queue.read(['b', 'c', 'd', 'overflow'].map(id => message(id)), 8);
     assert.deepEqual(queue.snapshot().map(roll => roll.id), ['b', 'c', 'd']);
+    const [b, c] = queue.snapshot();
+    queue.settled(c.sequence);
+    assert.equal(queue.snapshot().find(roll => roll.id === 'c')?.held, false,
+        'each concurrent throw releases its own card on settlement');
+    assert.equal(queue.snapshot().find(roll => roll.id === 'b')?.held, true,
+        'another unsettled throw stays held');
+    queue.done(c.sequence);
+    assert.deepEqual(queue.snapshot().map(roll => roll.id), ['b', 'd'],
+        'a finished throw does not block or remove its peers');
     queue.configure(true, { ...defaults, showResultsImmediately: true }, 'player');
     assert.ok(queue.snapshot().every(roll => !roll.held));
     queue.configure(true, defaults, 'player');
@@ -64,5 +73,18 @@ export function run() {
     queue.created('deleted', 10027); queue.read([message('deleted')], 10028);
     queue.read([], 10029);
     assert.equal(queue.snapshot().length, 0, 'absent current DTO releases resources');
-}
 
+    queue.reset();
+    const manyDice = (id: string, count: number) => message(id, { rolls: [{ evaluated: true, terms: [{
+        class: 'Die', faces: 6, results: Array.from({ length: count }, () => ({ result: 4 })),
+    }] }] });
+    for (const id of ['twenty', 'four', 'excess']) queue.created(id, 10100);
+    queue.read([manyDice('twenty', 20), manyDice('four', 4), message('excess')], 10101);
+    assert.deepEqual(queue.snapshot().map(roll => roll.id), ['twenty', 'four'],
+        'concurrent admission keeps the total visible mesh count at 24');
+    assert.equal(queue.snapshot().reduce((total, roll) => total + (roll.physicalDiceCount ?? 0), 0), 24);
+    queue.done(queue.snapshot()[0].sequence);
+    queue.read([manyDice('twenty', 20), manyDice('four', 4), message('excess')], 10102);
+    assert.deepEqual(queue.snapshot().map(roll => roll.id), ['four'],
+        'overflow is chat-only, never replayed after a slot opens');
+}

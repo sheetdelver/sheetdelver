@@ -79,7 +79,8 @@ export async function run() {
         const self = (await service.getChatLog(client as any, 100)).messages.at(-1)!;
         assert.equal(toDicePresentation(self), null, 'self-roll suppression applies to actor rolls too');
 
-        for (const formula of ['(1d6+2)*2', '{1d4,1d6}kh', 'max(1d8,1d10)']) {
+        for (const formula of ['(1d6+2)*2', '{1d4,1d6}kh', 'max(1d8,1d10)',
+            '4d6dl1', '1d6r1', '4d6cs>=5']) {
             await service.sendChatMessage(client as any, { message: '/r ' + formula });
             await client.roll(formula, 'Sheet nested roll', { rollMode: 'publicroll' });
             await rolls.roll(formula, 'SDK nested roll', { displayChat: true });
@@ -87,15 +88,28 @@ export async function run() {
             assert.equal(messages.length, 3);
             for (const message of messages) {
                 assert.ok(toDicePresentation(message), formula + ': every host entry point records animatable dice');
-                assert.ok((message.rolls as any[])[0].total > 0);
+                assert.ok(Number.isFinite((message.rolls as any[])[0].total),
+                    'success-counting rolls may legitimately total zero');
             }
         }
+        const mixedFormula = '1d2 + 1d4 + 1d6 + 1d8 + 1d10 + 1d12 + 1d20 + 1d100';
+        await service.sendChatMessage(client as any, { message: `/r ${mixedFormula}` });
+        const mixedMessage = (await service.getChatLog(client as any, 100)).messages.at(-1)!;
+        const mixedPresentation = toDicePresentation(mixedMessage);
+        assert.ok(mixedPresentation, 'a d2 no longer suppresses the whole mixed roll');
+        assert.equal(mixedPresentation.physicalDiceCount, 9,
+            'the d100 pair and d2 remain in one authorized mixed-roll presentation');
+        assert.equal(mixedPresentation.notation.split('@')[0],
+            '1d2+1d4+1d6+1d8+1d10+1d10+1d12+1d20+1d100');
         const beforeFailure = createdIds.length;
         for (const mode of ['publicroll', 'selfroll', 'gmroll', 'blindroll'] as const) {
             await assert.rejects(client.roll('1d6 + invalid', 'SECRET', { rollMode: mode }), /formula/i);
             await assert.rejects(rolls.roll('1 / 0', 'SECRET', { rollMode: mode, displayChat: true }), /result/i);
         }
         await assert.rejects(service.sendChatMessage(client as any, { message: '/sr 1d6 + invalid' }), /formula/i);
+        await assert.rejects(service.sendChatMessage(client as any, { message: '/r 4d6cs' }), /explicit target/i);
+        await assert.rejects(client.roll('4d6cf', 'Count failures'), /explicit target/i);
+        await assert.rejects(rolls.roll('{1d6,1d8}cs', 'Pool count', { displayChat: true }), /explicit target/i);
         assert.equal(createdIds.length, beforeFailure, 'failed rolls never create public fallback messages');
 
         await userStore.seed(async () => [
