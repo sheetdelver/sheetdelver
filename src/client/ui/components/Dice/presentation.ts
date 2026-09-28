@@ -8,7 +8,7 @@ export interface DicePresentation {
     privateRoll?: boolean;
 }
 
-const supportedFaces = new Set([4, 6, 8, 10, 12, 20, 100]);
+const supportedFaces = new Set([2, 4, 6, 8, 10, 12, 20, 100]);
 const maxTraversalNodes = 1000;
 const maxNestingDepth = 16;
 const record = (value: unknown): Record<string, unknown> | null =>

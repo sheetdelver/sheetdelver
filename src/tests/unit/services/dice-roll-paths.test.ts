@@ -14,6 +14,7 @@ export async function run() {
     await chatMessageStore.seed(async () => []);
     let sequence = 0;
     const createdIds: string[] = [];
+    const createdMessages: Record<string, any>[] = [];
     const client = createSessionRouteFoundryClient({
         userId: 'player',
         on() {}, off() {},
@@ -23,6 +24,7 @@ export async function run() {
             return { result: operation.data.map((data: any) => {
                 const _id = `roll-${++sequence}`;
                 createdIds.push(_id);
+                createdMessages.push(data);
                 return { ...data, _id, timestamp: sequence, type: 'base' };
             }) };
         },
@@ -32,10 +34,21 @@ export async function run() {
     const chat = createChatRuntime(client, async () => {});
     try {
         await service.sendChatMessage(client as any, { message: '/r 1d20 + 2' });
+        const trayRoll = JSON.parse(createdMessages[0].rolls[0]);
+        assert.equal(trayRoll.class, 'Roll');
+        assert.equal(trayRoll.evaluated, true);
+        assert.equal(typeof trayRoll.total, 'number');
+        assert.ok(createdMessages[0].content.includes(`<h4 class="dice-total">${trayRoll.total}</h4>`),
+            'Foundry chat content exposes the authoritative total without relying on a system Roll subclass');
+        assert.ok(createdMessages[0].content.includes('1d20 + 2'));
+        assert.ok(createdMessages[0].content.startsWith('<div class="dice-roll">'),
+            'HTML element content prevents Foundry from replacing it with its mismatched base Roll template');
         // This is the same request-bound client.roll called by ActorService.rollActor.
         await client.roll('1d20 + 2', 'Ability check', { rollMode: 'publicroll', speaker: { actor: 'hero', alias: 'Hero' } });
         await client.roll('2d20kh + 3', 'Weapon attack', { rollMode: 'publicroll', speaker: { actor: 'hero' } });
         await client.roll('1d8 + 1', 'Damage', { rollMode: 'publicroll' });
+        assert.ok(createdMessages.slice(0, 4).every(message => /<h4 class="dice-total">\d+<\/h4>/.test(message.content)),
+            'tray and actor roll paths share a visible Foundry result');
         const result = await rolls.roll('1d6 + 2');
         assert.equal(createdIds.length, 4, 'silent SDK evaluation does not invent a chat event');
         await chat.send({ content: 'SDK roll', rolls: result.rolls }, { rollMode: 'publicroll' });
@@ -79,23 +92,41 @@ export async function run() {
         const self = (await service.getChatLog(client as any, 100)).messages.at(-1)!;
         assert.equal(toDicePresentation(self), null, 'self-roll suppression applies to actor rolls too');
 
-        for (const formula of ['(1d6+2)*2', '{1d4,1d6}kh', 'max(1d8,1d10)']) {
+        for (const formula of ['(1d6+2)*2', '{1d4,1d6}kh', 'max(1d8,1d10)',
+            '4d6dl1', '1d6r1', '4d6cs>=5']) {
             await service.sendChatMessage(client as any, { message: '/r ' + formula });
+            if (formula.includes('>')) {
+                assert.ok(createdMessages.at(-1)?.content.includes('cs&gt;=5'),
+                    'formula comparison operators are escaped in Foundry chat HTML');
+            }
             await client.roll(formula, 'Sheet nested roll', { rollMode: 'publicroll' });
             await rolls.roll(formula, 'SDK nested roll', { displayChat: true });
             const messages = (await service.getChatLog(client as any, 100)).messages.slice(-3);
             assert.equal(messages.length, 3);
             for (const message of messages) {
                 assert.ok(toDicePresentation(message), formula + ': every host entry point records animatable dice');
-                assert.ok((message.rolls as any[])[0].total > 0);
+                assert.ok(Number.isFinite((message.rolls as any[])[0].total),
+                    'success-counting rolls may legitimately total zero');
             }
         }
+        const mixedFormula = '1d2 + 1d4 + 1d6 + 1d8 + 1d10 + 1d12 + 1d20 + 1d100';
+        await service.sendChatMessage(client as any, { message: `/r ${mixedFormula}` });
+        const mixedMessage = (await service.getChatLog(client as any, 100)).messages.at(-1)!;
+        const mixedPresentation = toDicePresentation(mixedMessage);
+        assert.ok(mixedPresentation, 'a d2 no longer suppresses the whole mixed roll');
+        assert.equal(mixedPresentation.physicalDiceCount, 9,
+            'the d100 pair and d2 remain in one authorized mixed-roll presentation');
+        assert.equal(mixedPresentation.notation.split('@')[0],
+            '1d2+1d4+1d6+1d8+1d10+1d10+1d12+1d20+1d100');
         const beforeFailure = createdIds.length;
         for (const mode of ['publicroll', 'selfroll', 'gmroll', 'blindroll'] as const) {
             await assert.rejects(client.roll('1d6 + invalid', 'SECRET', { rollMode: mode }), /formula/i);
             await assert.rejects(rolls.roll('1 / 0', 'SECRET', { rollMode: mode, displayChat: true }), /result/i);
         }
         await assert.rejects(service.sendChatMessage(client as any, { message: '/sr 1d6 + invalid' }), /formula/i);
+        await assert.rejects(service.sendChatMessage(client as any, { message: '/r 4d6cs' }), /explicit target/i);
+        await assert.rejects(client.roll('4d6cf', 'Count failures'), /explicit target/i);
+        await assert.rejects(rolls.roll('{1d6,1d8}cs', 'Pool count', { displayChat: true }), /explicit target/i);
         assert.equal(createdIds.length, beforeFailure, 'failed rolls never create public fallback messages');
 
         await userStore.seed(async () => [

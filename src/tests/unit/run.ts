@@ -22,6 +22,7 @@ import { run as runSocketConnectionPolicy } from './security/socket-connection-p
 import { run as runCiWorkflowSecurity } from './security/ci-workflow-security.test';
 import { run as runCiDataFixture } from './security/ci-data-fixture.test';
 import { run as runRollFormulaSecurity } from './security/roll-formula-security.test';
+import { run as runFoundryDieRules } from './security/foundry-die-rules.test';
 
 // ── releases ──────────────────────────────────────────────────────────────────
 import { run as runReleaseMetadata } from './releases/release-metadata.test';
@@ -183,6 +184,7 @@ async function runAllUnitTests() {
     runCiWorkflowSecurity();
     runCiDataFixture();
     await runRollFormulaSecurity();
+    await runFoundryDieRules();
     runReleaseMetadata();
     await runLocalReleaseTag();
     await runReleasePublish();
