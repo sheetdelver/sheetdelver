@@ -61,6 +61,16 @@ results into Foundry Roll JSON. Arithmetic/function intermediates retain their
 dice in serialized `Roll.dice`; ordinary dice and pools retain their term
 structure. Nothing is evaluated or re-rolled in the presentation UI.
 
+SheetDelver-authored rolls also include a small, escaped formula-and-total card
+in Foundry chat content. Foundry normally renders roll content using the
+serialized Roll class; a system can replace its default Roll class and style its
+own template, leaving the base-class total obscured. Explicit content keeps the
+authoritative result visible without guessing a system class. The evaluated
+Roll JSON remains attached for Foundry integrations and SheetDelver's chat and
+dice presentation. This generic card does not reproduce system-specific roll
+tooltips or action controls; Foundry-originated cards remain unchanged. See
+[ADR-0052](adr/0052-system-neutral-foundry-roll-cards.md).
+
 ## Supported Presentation
 
 - Standard d2, d4, d6, d8, d10, d12, d20, and d100 terms from evaluated chat rolls.
@@ -82,8 +92,9 @@ structure. Nothing is evaluated or re-rolled in the presentation UI.
   24 visible dice stay chat-only (each d100 result counts as two). Mixed unsupported rolls are skipped in
   full rather than animated partially.
 - Hidden tabs and reduced-motion preferences suppress animation.
-- Up to three separate chat-message throws animate concurrently, with at most
-  24 physical dice across their visible canvases. Excess messages remain
+- Separate chat-message throws animate in one shared 3D scene, including rolls
+  arriving while other dice are moving. Up to 96 physical dice may be visible
+  across their groups. Excess messages remain
   immediately visible in chat rather than waiting for a previous animation.
   Session/world changes, disconnects, message
   changes/deletions, disabling the preference, and hidden tabs clear applicable
@@ -162,8 +173,8 @@ release active audio along with the scene.
 
 Audio never delays a throw: unavailable or unready clips are skipped. Browser
 playback restrictions are handled silently; interact with the page before
-expecting sound from remotely triggered rolls. No audio is played during the
-renderer's preliminary physics simulation.
+expecting sound from remotely triggered rolls. Live dice use one visible physics
+scene rather than a separate preliminary simulation.
 
 ## Behavior
 
@@ -283,10 +294,11 @@ Static audio/texture assets remain in `public/dice/`, with client tests under
 
 `DicePresentationQueue` pairs forwarded create hints with the authorized chat
 projection using `LiveChatInbox`. One admission decision controls animation and
-visible-chat timing. At most three throws run concurrently, with a combined
-24-physical-dice limit until their canvases finish lingering. Each admitted
-message owns its own renderer and releases its own chat card at settlement;
-another message's animation or linger cannot hold that card. Overflow,
+visible-chat timing. One lazily initialized renderer is reused for all live
+messages, with a combined 96-physical-dice limit until their groups finish
+lingering. Each admitted message owns a dice group and releases its own chat
+card at settlement; another message's animation or linger cannot hold that
+card. Overflow,
 disabled/filtered/unsupported rolls and unavailable animation display
 immediately. A read shown before a late hint stays visible and skips animation;
 it is never hidden retroactively. History alone never animates.
@@ -308,12 +320,21 @@ visited Roll/term/result records across the message. Cycles or any invalid child
 reject the entire presentation. The 24 physical-dice limit spans all children.
 Fate, Coin and custom die classes remain unsupported; no partial animation occurs.
 
-`DiceAnimation` lazy-loads the MIT-licensed `@3d-dice/dice-box-threejs` renderer,
-pinned to `0.0.12`. That library uses Three.js and Cannon physics. Its resize
-registration is disabled and its scene resources are explicitly disposed because
-it has no destroy API. A small compatibility correction clears its cached
-simulated d4 result after forcing the recorded face. Recheck forced face values,
-resize/unmount cleanup, and desktop/mobile rendering before changing this pin.
+`SharedDiceAnimation` lazy-loads one MIT-licensed `@3d-dice/dice-box-threejs`
+renderer for live messages; `DiceAnimation` remains the single-roll settings
+preview. The library is pinned to `0.0.12` and uses Three.js and Cannon physics.
+The live adapter pre-simulates each message's dice, assigns recorded face labels,
+resets them, and appends them into its scene before their first visible frame;
+upstream `add()` clears a throw already in progress. Separate message groups
+do not collide with each other, so an in-flight group cannot change another
+group's predicted landing; dice within a message still collide normally.
+Its resize registration is disabled and scene resources are explicitly disposed
+because it has no destroy API. The compatibility correction clears cached d4
+faces after assigning the recorded face and retains the collision shape on a
+swapped geometry clone. At settlement, a divergent replay is removed and its
+chat card released; a landed die is never relabeled. Recheck append, predicted
+faces, group collision isolation, cancellation,
+resize/unmount cleanup and desktop/mobile rendering before changing this pin.
 
 This does not add a general plugin loader. Existing modules that produce
 supported chat rolls use the same presentation path.
@@ -336,4 +357,4 @@ materials, palettes, force, bounded quality and viewport-relative regions.
 Profiles/import/export, new visibility filters, speed and effects remain deferred.
 
 [ADR-0050](adr/0050-dice-presentation-parity.md) changes separate
-chat-message throws from sequential playback to bounded concurrent playback.
+chat-message throws from sequential playback to bounded shared-scene playback.

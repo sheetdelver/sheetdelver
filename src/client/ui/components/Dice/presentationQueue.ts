@@ -6,8 +6,7 @@ export interface QueuedDice extends DicePresentation { sequence: number; held: b
 
 /** One admission decision controls both animation and visible chat. No message bodies are retained. */
 export class DicePresentationQueue {
-    private static readonly maxConcurrentThrows = 3;
-    private static readonly maxVisibleDice = 24;
+    private static readonly maxVisibleDice = 96;
     private inbox = new LiveDiceInbox();
     private observed = new Set<string>();
     private sequence = 0;
@@ -43,8 +42,7 @@ export class DicePresentationQueue {
             const count = roll.physicalDiceCount;
             // A skipped/overflow roll remains visible in chat immediately. In
             // particular, never hold a result behind another throw's linger.
-            if (!this.active || this.queue.length >= DicePresentationQueue.maxConcurrentThrows
-                || !Number.isInteger(count) || !count || count > DicePresentationQueue.maxVisibleDice
+            if (!this.active || !Number.isInteger(count) || !count
                 || visibleDice + count > DicePresentationQueue.maxVisibleDice
                 || !allowsDicePresentation(roll, this.behavior, this.userId)) continue;
             this.queue = [...this.queue, { ...roll, sequence: ++this.sequence, held: !this.behavior.showResultsImmediately }];

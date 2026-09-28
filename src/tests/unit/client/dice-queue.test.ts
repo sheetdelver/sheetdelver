@@ -23,9 +23,10 @@ export function run() {
     assert.equal(queue.snapshot().length, 1);
     queue.done(a.sequence);
     assert.equal(queue.snapshot().length, 0);
-    for (const id of ['b', 'c', 'd', 'overflow']) queue.created(id, 7);
-    queue.read(['b', 'c', 'd', 'overflow'].map(id => message(id)), 8);
-    assert.deepEqual(queue.snapshot().map(roll => roll.id), ['b', 'c', 'd']);
+    for (const id of ['b', 'c', 'd', 'fourth']) queue.created(id, 7);
+    queue.read(['b', 'c', 'd', 'fourth'].map(id => message(id)), 8);
+    assert.deepEqual(queue.snapshot().map(roll => roll.id), ['b', 'c', 'd', 'fourth'],
+        'message count alone cannot suppress a shared-scene throw');
     const [b, c] = queue.snapshot();
     queue.settled(c.sequence);
     assert.equal(queue.snapshot().find(roll => roll.id === 'c')?.held, false,
@@ -33,7 +34,7 @@ export function run() {
     assert.equal(queue.snapshot().find(roll => roll.id === 'b')?.held, true,
         'another unsettled throw stays held');
     queue.done(c.sequence);
-    assert.deepEqual(queue.snapshot().map(roll => roll.id), ['b', 'd'],
+    assert.deepEqual(queue.snapshot().map(roll => roll.id), ['b', 'd', 'fourth'],
         'a finished throw does not block or remove its peers');
     queue.configure(true, { ...defaults, showResultsImmediately: true }, 'player');
     assert.ok(queue.snapshot().every(roll => !roll.held));
@@ -78,13 +79,15 @@ export function run() {
     const manyDice = (id: string, count: number) => message(id, { rolls: [{ evaluated: true, terms: [{
         class: 'Die', faces: 6, results: Array.from({ length: count }, () => ({ result: 4 })),
     }] }] });
-    for (const id of ['twenty', 'four', 'excess']) queue.created(id, 10100);
-    queue.read([manyDice('twenty', 20), manyDice('four', 4), message('excess')], 10101);
-    assert.deepEqual(queue.snapshot().map(roll => roll.id), ['twenty', 'four'],
-        'concurrent admission keeps the total visible mesh count at 24');
-    assert.equal(queue.snapshot().reduce((total, roll) => total + (roll.physicalDiceCount ?? 0), 0), 24);
+    for (const id of ['first24', 'second24', 'third24', 'fourth24', 'excess']) queue.created(id, 10100);
+    queue.read(['first24', 'second24', 'third24', 'fourth24', 'excess']
+        .map(id => id === 'excess' ? message(id) : manyDice(id, 24)), 10101);
+    assert.deepEqual(queue.snapshot().map(roll => roll.id), ['first24', 'second24', 'third24', 'fourth24'],
+        'shared-scene admission keeps the total visible mesh count at 96');
+    assert.equal(queue.snapshot().reduce((total, roll) => total + (roll.physicalDiceCount ?? 0), 0), 96);
     queue.done(queue.snapshot()[0].sequence);
-    queue.read([manyDice('twenty', 20), manyDice('four', 4), message('excess')], 10102);
-    assert.deepEqual(queue.snapshot().map(roll => roll.id), ['four'],
+    queue.read(['first24', 'second24', 'third24', 'fourth24', 'excess']
+        .map(id => id === 'excess' ? message(id) : manyDice(id, 24)), 10102);
+    assert.deepEqual(queue.snapshot().map(roll => roll.id), ['second24', 'third24', 'fourth24'],
         'overflow is chat-only, never replayed after a slot opens');
 }

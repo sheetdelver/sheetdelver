@@ -5,11 +5,12 @@ import { logger } from '@shared/utils/logger';
 import type { ChatMessageDto } from '@shared/contracts/chat';
 import { useSession } from './SessionContext';
 import { useUI } from './UIContext';
-import { defaultDiceBehavior, diceSoundForRoll, normalizeDiceBehavior, type DiceBehavior } from '../components/Dice/behavior';
+import { defaultDiceBehavior, normalizeDiceBehavior, type DiceBehavior } from '../components/Dice/behavior';
 import { defaultDiceAppearance, normalizeDiceAppearance, type DiceAppearance } from '../components/Dice/appearance';
 import { defaultDiceSound, normalizeDiceSound, type DiceSoundSettings } from '../components/Dice/collisionAudio';
 import { DiceAnimation } from '../components/Dice/DiceAnimation';
 import { DicePresentationQueue, type QueuedDice } from '../components/Dice/presentationQueue';
+import { SharedDiceAnimation } from '../components/Dice/SharedDiceAnimation';
 import type { DicePresentation } from '../components/Dice/presentation';
 
 const preferenceKey = 'sheetdelver_3d_dice';
@@ -33,23 +34,6 @@ const Context = createContext({
     canTest: false, testing: false,
 });
 const sample: DicePresentation = { id: 'local-dice-preview', physicalDiceCount: 4, notation: '1d6+1d20+1d100+1d10@4,17,40,2' };
-
-function LiveDiceAnimation({ queued, sound, appearance, behavior, onSettled, onDone, onError }: {
-    queued: QueuedDice;
-    sound: DiceSoundSettings;
-    appearance: DiceAppearance;
-    behavior: DiceBehavior;
-    onSettled: (sequence: number) => void;
-    onDone: (sequence: number) => void;
-    onError: (error: unknown) => void;
-}) {
-    const { id, notation, authorId, privateRoll, physicalDiceCount, sequence } = queued;
-    // Queue settlement changes `held`; it must not restart an active renderer.
-    const roll = useMemo<DicePresentation>(() => ({ id, notation, authorId, privateRoll, physicalDiceCount }),
-        [id, notation, authorId, privateRoll, physicalDiceCount]);
-    return <DiceAnimation roll={roll} sound={diceSoundForRoll(sound, behavior, roll)} appearance={appearance}
-        behavior={behavior} onSettled={() => onSettled(sequence)} onDone={() => onDone(sequence)} onError={onError} />;
-}
 
 export function DicePresentationProvider({ children }: { children: ReactNode }) {
     const { token, step, currentUserId } = useSession();
@@ -151,9 +135,8 @@ export function DicePresentationProvider({ children }: { children: ReactNode }) 
     return <Context.Provider value={{ enabled, setEnabled, sound, setSound, appearance, setAppearance, behavior, setBehavior, resetSettings,
         heldMessageIds, recordCreated, prepareMessages, invalidateMessage, resetPresentation, testDice, cancelTest, canTest, testing }}>
         {children}
-        {liveRolls.map(queued => <LiveDiceAnimation key={queued.sequence} queued={queued}
-            sound={sound} appearance={appearance} behavior={behavior}
-            onSettled={onSettled} onDone={onDone} onError={onError} />)}
+        {active && !testing && <SharedDiceAnimation rolls={liveRolls} sound={sound} appearance={appearance}
+            behavior={behavior} onSettled={onSettled} onDone={onDone} onError={onError} />}
         {testing && available && isSettingsOpen && !queue.length && <DiceAnimation
             roll={sample} sound={sound} appearance={appearance} behavior={behavior}
             onDone={() => setTesting(false)} onError={onError} />}

@@ -86,6 +86,12 @@ function ensureActorStoreReady(): void {
     if (!actorStore.isReady()) throw new PrimaryDocumentCacheNotReadyError('Actor');
 }
 
+function escapeChatHtml(value: string): string {
+    return value.replace(/[&<>"']/g, char => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    })[char]!);
+}
+
 function filterActorUpdatePayload(
     actorId: string,
     payload: Record<string, unknown>,
@@ -195,9 +201,17 @@ function createBaseRouteFoundryClient(
             await evaluatedRoll.evaluate();
 
             const author = client.userId;
+            const total = evaluatedRoll.total;
+            const rollContent = `<div class="dice-roll"><div class="dice-formula">${escapeChatHtml(evaluatedRoll.formula)}</div><h4 class="dice-total">${total}</h4></div>`;
             const chatData: Record<string, unknown> = {
                 author,
-                content: String(evaluatedRoll.total),
+                // Foundry's base Roll class is not necessarily the world's
+                // configured Roll subclass. Its auto-rendered template can
+                // clash with system CSS and hide the result. Element content
+                // renders the result with Foundry's generic dice classes but
+                // no system-specific roll template. The evaluated roll data
+                // remains attached for integrations and SheetDelver dice.
+                content: rollContent,
                 flavor,
                 // Foundry v13+ identifies roll messages by their `rolls` data;
                 // numeric ChatMessage `type` was only a deprecated legacy shim.
