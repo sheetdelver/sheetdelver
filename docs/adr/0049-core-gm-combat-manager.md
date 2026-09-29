@@ -170,10 +170,10 @@ checkpoint is not final acceptance of this follow-up.
   DTOs remain separate. No direct Foundry socket in client components. Native
   browser alert/confirm/prompt dialogs are not used; Core's shared modal handles
   destructive and conditional confirmations. The tool card uses its dashboard
-  context, while the dedicated manager page and modal use stable Core styling
-  rather than module theme overrides. The page retains only the active world
-  background, falling back to the standard dark-blue background when absent;
-  a system module's fallback artwork is not used.
+  context, while the dedicated manager page and modal use the Player Core
+  dark/light palette rather than module theme overrides. The page retains
+  only the active world background with the palette scrim, falling back to
+  Core's canvas when absent; a system module's fallback artwork is not used.
 - Tests cover GM/assistant/player access, marked versus unmarked/scene-linked
   Combats, world NPC links versus independent pack copies, identity/provenance,
   completed-history write rejection, safe cleanup and partial-failure retry,
@@ -215,3 +215,7 @@ that catalog only when the GM opens configuration. The full unit suite,
 TypeScript, lint and Next production build
 pass. Multi-GM browser refresh, world unload/restart persistence, and final
 visual acceptance remain for GM testing; no hosted Foundry was touched.
+
+After ADR-0053 landed, the manager page adopted Player Core palette surfaces,
+controls, status accents and world-artwork scrim. TypeScript, lint and client
+tests pass for this integration. Rendered light/dark GM review remains pending.

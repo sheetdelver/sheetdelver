@@ -5,6 +5,7 @@
 - Added batch initiative rolls
 - Added read-only combat stats
 - Added shared GM stat preferences
+- Aligned combat manager appearance
 - Unified player Core theming
 - Added player light/dark toggle
 - Preserved module style overrides

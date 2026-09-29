@@ -240,7 +240,7 @@ select.sd-ui-control,
 .sd-ui-button-primary { background: var(--sd-ui-accent); color: var(--sd-ui-accent-contrast); border-color: transparent; }
 .sd-ui-button-primary:not(:disabled):hover { background: var(--sd-ui-accent-strong); }
 .sd-ui-button-danger { background: var(--sd-ui-danger); color: var(--sd-ui-accent-contrast); border-color: transparent; }
-.sd-ui-button-danger:not(:disabled):hover { filter: brightness(1.1); }
+.sd-ui-button-danger:not(:disabled):hover { background: var(--sd-ui-danger); filter: brightness(1.1); }
 .sd-ui-spinner { border-color: var(--sd-ui-accent); border-top-color: transparent; }
 .sd-ui-player-focus:focus-visible,
 .sd-player-root :is(button, a, input, select, textarea):focus-visible,
