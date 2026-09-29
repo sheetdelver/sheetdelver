@@ -4,7 +4,6 @@ import { ConfirmationModal } from '@client/ui/components/ConfirmationModal';
 import SystemTools from '@client/ui/components/SystemTools';
 import { useNotifications } from '@client/ui/components/NotificationSystem';
 import * as foundryApi from '@client/ui/api/foundryApi';
-import { Theme } from '../hooks/useTheme';
 import { ActorCard } from '../components/ActorCard';
 import type { ActorDto, ActorListPayload } from '@shared/contracts/actors';
 import type { AppSystemInfo, User } from '@shared/interfaces';
@@ -14,7 +13,6 @@ interface DashboardViewProps {
     user: User | null;
     ownedActors: ActorDto[];
     token: string | null;
-    moduleTheme: Theme;
     configUrl: string;
     appVersion: string;
     fetchActors: () => Promise<ActorListPayload | void>;
@@ -27,7 +25,6 @@ export const DashboardView = ({
     user,
     ownedActors,
     token,
-    moduleTheme,
     configUrl,
     appVersion,
     fetchActors,
@@ -129,11 +126,8 @@ export const DashboardView = ({
                 {/* System Specific Tools (Modularized) */}
                 {system?.id && (
                     <SystemTools
+                        key={system.id}
                         systemId={system.id}
-                        setLoading={setLoading}
-                        setLoginMessage={setLoginMessage}
-                        theme={moduleTheme}
-                        token={token}
                     />
                 )}
 

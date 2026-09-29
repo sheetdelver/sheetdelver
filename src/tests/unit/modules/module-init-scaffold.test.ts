@@ -91,6 +91,7 @@ export async function run() {
     assert.match(adapterSource, /systemId = 'sdk-check-test'/);
     assert.match(adapterSource, /prepareActorData/);
     assert.equal(info.compatibility.apiContracts['module-api'], '>=1.1.0 <2.0.0');
+    assert.equal(info.compatibility.apiContracts['ui-extension-api'], '>=2.0.0 <3.0.0');
     assert.doesNotMatch(adapterSource, /return \{\};/);
     assert.match(uiEntrySource, /import type \{ ModuleInfo, UIModuleManifest \} from '@sheet-delver\/sdk'/);
     assert.doesNotMatch(uiEntrySource, /^\s*actorPage:/m);

@@ -111,9 +111,8 @@ Permanent means until dismissal/cleanup, not persisted storage. Complete progres
 with `progress: 1` and, if previously set, `permanent: false` to resume expiry.
 User dismissal remains available even for permanent/progress notices.
 
-Modules adopting these additions declare
-`"ui-extension-api": ">=1.2.0 <2.0.0"`. Existing add-only calls still work and do
-not require a manifest change. The host retains replacement keys, queue clearing,
+These additions originated in UI contract 1.2.0. Modules targeting the current
+host declare `"ui-extension-api": ">=2.0.0 <3.0.0"`. The host retains replacement keys, queue clearing,
 pause controls, placement and session ownership; these are not public SDK APIs.
 The named server/roll contracts are unchanged. See
 [ADR-0043](adr/0043-sdk-notification-lifecycle.md).
