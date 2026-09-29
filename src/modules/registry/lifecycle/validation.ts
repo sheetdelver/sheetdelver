@@ -6,6 +6,7 @@ import {
     type ModuleCoreConstraintDiagnostic,
 } from './compatibilityResolver';
 import { isSafeModuleRelativePath, parseModuleId } from '@shared/security/moduleId';
+import { parseCombatStatAttributes } from '@shared/contracts/combatStatAttributes';
 
 export interface ModuleValidationResult {
     valid: boolean;
@@ -86,6 +87,14 @@ export function validateModuleInfoShape(info: unknown): ModuleValidationResult {
 
     if (candidate.experimental !== undefined && typeof candidate.experimental !== 'boolean') {
         errors.push('Manifest field "experimental" must be a boolean when provided');
+    }
+
+    if (candidate.combatTracking !== undefined) {
+        const tracking = candidate.combatTracking;
+        if (!tracking || typeof tracking !== 'object' || Array.isArray(tracking)
+            || parseCombatStatAttributes(tracking.attributes, 16) === null) {
+            errors.push('Manifest field "combatTracking.attributes" must be a bounded list of safe combat-stat descriptors');
+        }
     }
 
     if (candidate.trust !== undefined) {

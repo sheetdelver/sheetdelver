@@ -228,6 +228,15 @@ refreshes do not depend on stale list data. Explicit name/image presentation
 overrides remain supported. Build full image URLs with
 `resolveImage(img, runtime.foundryUrl)` when a module owns image projection.
 
+For the Core GM Combat Manager, declare optional `combatTracking.attributes`
+in `info.json` when the module has useful combat-stat defaults. Descriptors
+name bounded, read-only `system.*` or `derived.*` prepared Actor paths; the GM
+may override their selection for the current world. They are independent of
+dashboard card blocks and of Foundry's one configured tracker resource. Use
+optional `showInRoster: true` only for concise defaults worth showing beside
+every combatant name; the GM can change that placement. See
+[Module Manifest](MODULE_MANIFEST.md#infojson-schema) and ADR-0049.
+
 Use `fetchByUuid` or compendium lookups only for exceptional linked references that are not already embedded in the actor. Compendium UUID reads are cache-required by default: add the pack to `info.json` under `compendiumPacks.packs` with `hydrate: true` when module code needs full documents. Missing or non-hydrated pack rows return `null` and log a warning. The `foundry.allow-live-compendium-uuid-fallback` / `APP_ALLOW_LIVE_COMPENDIUM_UUID_FALLBACK` setting is a diagnostic operator escape hatch, not a module contract.
 
 ## UI

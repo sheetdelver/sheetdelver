@@ -4,6 +4,7 @@
 - Added tokenless encounter controls
 - Added batch initiative rolls
 - Added read-only combat stats
+- Added shared GM stat preferences
 - Enabled concurrent shared-scene dice
 - Matched predetermined landing faces
 - Expanded numeric roll rules

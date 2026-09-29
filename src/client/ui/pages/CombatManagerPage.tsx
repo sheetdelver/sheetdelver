@@ -4,17 +4,36 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useFoundry } from '@client/ui/context/FoundryContext';
 import { ConfirmationModal } from '@client/ui/components/ConfirmationModal';
-import { useTheme } from '@client/ui/main/hooks/useTheme';
 import * as api from '@client/ui/api/foundryApi';
 import type {
     CombatManagerActorChoiceDto,
     CombatManagerEncounterDto,
     CombatManagerPackDto,
+    CombatManagerStatDto,
+    CombatManagerStatPreferencesDto,
 } from '@shared/contracts/combatManager';
+import type { ModuleCombatStatAttribute } from '@shared/sdk';
 
 function errorMessage(error: unknown): string {
     return error instanceof Error ? error.message : 'The request failed';
 }
+
+function statChoiceContext(choice: ModuleCombatStatAttribute & { observedActorTypes?: string[] }): string {
+    if (choice.actorTypes?.length) return choice.actorTypes.join(', ');
+    if (choice.observedActorTypes?.length) return `seen on ${choice.observedActorTypes.join(', ')}`;
+    return 'all Actor types';
+}
+
+function compactStatValue(stat: CombatManagerStatDto): string {
+    return `${stat.value}${stat.subValue === undefined ? '' : String(stat.subValue).replace(/^\/\s*/, '/')}`;
+}
+
+const CORE_THEME = {
+    accent: 'text-sky-300',
+    button: 'bg-sky-600 hover:bg-sky-500',
+    headerFont: 'font-sans font-bold',
+} as const;
+const optionClass = 'bg-slate-900 text-slate-100';
 
 type PendingConfirmation =
     | { kind: 'begin'; combatId: string; activeOtherCount: number }
@@ -23,7 +42,14 @@ type PendingConfirmation =
 
 export default function CombatManagerPage() {
     const { currentUser, step, appSocket, worldId, token, system } = useFoundry();
-    const { theme, bgStyle } = useTheme();
+    const theme = CORE_THEME;
+    // This Core tool retains world artwork, but not the system module's fallback theme or background.
+    const bgStyle = system?.worldBackground ? {
+        backgroundImage: `url(${system.worldBackground})`,
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        backgroundRepeat: 'no-repeat',
+    } : {};
     const allowed = step === 'dashboard' && (currentUser?.role ?? 0) >= 4;
     const [encounters, setEncounters] = useState<CombatManagerEncounterDto[]>([]);
     const [selectedId, setSelectedId] = useState('');
@@ -37,6 +63,15 @@ export default function CombatManagerPage() {
     const [choices, setChoices] = useState<CombatManagerActorChoiceDto[]>([]);
     const [initiative, setInitiative] = useState('');
     const [resourceValue, setResourceValue] = useState('');
+    const [statPreferences, setStatPreferences] = useState<CombatManagerStatPreferencesDto | null>(null);
+    const [editingStats, setEditingStats] = useState(false);
+    const [statDraft, setStatDraft] = useState<ModuleCombatStatAttribute[]>([]);
+    const [statChoice, setStatChoice] = useState('');
+    const [statSearch, setStatSearch] = useState('');
+    const [loadingStatCatalog, setLoadingStatCatalog] = useState(false);
+    const [customPath, setCustomPath] = useState('');
+    const [customLabel, setCustomLabel] = useState('');
+    const [customKind, setCustomKind] = useState<ModuleCombatStatAttribute['kind']>('number');
     const [busy, setBusy] = useState(false);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
@@ -58,6 +93,11 @@ export default function CombatManagerPage() {
         setKeepHistory(false);
         setError('');
         setPendingConfirmation(null);
+        setStatPreferences(null);
+        setEditingStats(false);
+        setStatDraft([]);
+        setStatSearch('');
+        setLoadingStatCatalog(false);
         setLoading(true);
     }, [allowed, worldId]);
 
@@ -118,6 +158,11 @@ export default function CombatManagerPage() {
     const encounter = useMemo(() => encounters.find(row => row.id === selectedId) || null, [encounters, selectedId]);
     const selected = encounter?.participants.find(row => row.id === selectedCombatantId)
         || encounter?.participants[0] || null;
+    const statChoices = [...(statPreferences?.suggestions || []), ...(statPreferences?.available || [])]
+        .filter((choice, index, all) => all.findIndex(row => row.path === choice.path && row.kind === choice.kind) === index);
+    const filteredStatChoices = statChoices.map((choice, index) => ({ choice, index }))
+        .filter(({ choice }) => `${choice.label} ${choice.path} ${choice.actorTypes?.join(' ') || ''}`
+            .toLocaleLowerCase().includes(statSearch.trim().toLocaleLowerCase()));
     const unrolledCount = encounter?.participants.filter(row => row.initiative == null && row.actorId).length ?? 0;
     const unrolledNpcCount = encounter?.participants.filter(row => row.initiative == null && row.actorId && row.isNpc).length ?? 0;
 
@@ -125,6 +170,38 @@ export default function CombatManagerPage() {
         setInitiative(selected?.initiative === null || selected?.initiative === undefined ? '' : String(selected.initiative));
         setResourceValue(selected?.resource ? String(selected.resource.value) : '');
     }, [selected]);
+
+    useEffect(() => {
+        if (!allowed) return;
+        let active = true;
+        let lastSelection = '';
+        const load = async () => {
+            const { preferences } = await api.fetchManagedStatPreferences();
+            if (!active) return;
+            const selection = JSON.stringify({ source: preferences.source, attributes: preferences.attributes });
+            if (lastSelection && lastSelection !== selection) void refresh().catch(cause => setError(errorMessage(cause)));
+            lastSelection = selection;
+            setStatPreferences(previous => ({ ...preferences, available: previous?.available || [] }));
+        };
+        void load().catch(cause => { if (active) setError(errorMessage(cause)); });
+        const timer = window.setInterval(() => {
+            void load().catch(cause => { if (active) setError(errorMessage(cause)); });
+        }, 15000);
+        window.addEventListener('focus', load);
+        return () => { active = false; window.clearInterval(timer); window.removeEventListener('focus', load); };
+    }, [allowed, worldId, refresh]);
+
+    useEffect(() => {
+        if (!allowed || !editingStats) return;
+        let active = true;
+        setLoadingStatCatalog(true);
+        void api.fetchManagedStatPreferences(selected?.actorId, true).then(({ preferences }) => {
+            if (active) setStatPreferences(preferences);
+        }).catch(cause => {
+            if (active) setError(errorMessage(cause));
+        }).finally(() => { if (active) setLoadingStatCatalog(false); });
+        return () => { active = false; };
+    }, [allowed, editingStats, selected?.actorId, worldId]);
 
     const mutate = async (action: () => Promise<unknown>) => {
         setBusy(true);
@@ -137,6 +214,16 @@ export default function CombatManagerPage() {
             try { await refresh(); } catch { /* Preserve the original error. */ }
         }
         finally { setBusy(false); }
+    };
+
+    const addStat = (choice: ModuleCombatStatAttribute) => {
+        if (statDraft.length >= 8) return;
+        let key = choice.key;
+        let suffix = 2;
+        while (statDraft.some(row => row.key === key)) key = `${choice.key.slice(0, 28)}_${suffix++}`;
+        setStatDraft(current => [...current, { key, label: choice.label, path: choice.path,
+            kind: choice.kind, ...(choice.actorTypes ? { actorTypes: choice.actorTypes } : {}),
+            ...(choice.showInRoster === true ? { showInRoster: true } : {}) }]);
     };
 
     const confirmPending = () => {
@@ -165,11 +252,11 @@ export default function CombatManagerPage() {
                 ? `Remove ${pendingConfirmation.actorName} from this encounter? Its world Actor will not be deleted.`
                 : '';
 
-    const pageClass = `min-h-screen ${theme.bg} ${theme.text} p-4 pb-24 font-sans transition-colors duration-500 md:p-8`;
-    const panelClass = `${theme.panelBg}/40 rounded-xl border border-white/5 p-4 shadow-lg backdrop-blur-md`;
-    const inputClass = `rounded border p-2 text-sm outline-none ${theme.input}`;
-    const primaryButtonClass = `${theme.button} rounded-lg px-4 py-2 font-bold text-black transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-40`;
-    const secondaryButtonClass = 'rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm font-semibold transition-colors hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40';
+    const pageClass = 'min-h-screen bg-slate-950 p-4 pb-24 font-sans text-slate-100 [color-scheme:dark] md:p-8';
+    const panelClass = 'rounded-xl border border-slate-700/60 bg-slate-900/85 p-4 shadow-lg backdrop-blur-md';
+    const inputClass = 'rounded border border-slate-600 bg-slate-950/90 p-2 text-sm text-slate-100 placeholder:text-slate-400 outline-none focus:border-sky-400';
+    const primaryButtonClass = `${theme.button} rounded-lg px-4 py-2 font-bold text-white transition-colors disabled:cursor-not-allowed disabled:opacity-40`;
+    const secondaryButtonClass = 'rounded-lg border border-slate-600 bg-slate-800/90 px-3 py-2 text-sm font-semibold text-slate-100 transition-colors hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-40';
 
     if (step !== 'dashboard') return <main className={pageClass} style={bgStyle}>Connecting to the world…</main>;
     if (!allowed) return (
@@ -184,8 +271,8 @@ export default function CombatManagerPage() {
 
     return (
         <main className={pageClass} style={bgStyle}>
-          <div className="mx-auto max-w-7xl space-y-8 rounded-xl border border-white/10 bg-black/60 p-4 shadow-2xl backdrop-blur-md md:p-6">
-            <header className="flex flex-wrap items-center justify-between gap-4 rounded-lg border border-white/5 bg-black/40 p-4">
+          <div className="mx-auto max-w-7xl space-y-8 rounded-xl border border-slate-700/60 bg-slate-950/80 p-4 shadow-2xl backdrop-blur-md md:p-6">
+            <header className="flex flex-wrap items-center justify-between gap-4 rounded-lg border border-slate-700/50 bg-slate-900/80 p-4">
                 <div>
                     <Link href="/" className={`text-sm hover:underline ${theme.accent}`}>← Back to Dashboard</Link>
                     <h1 className={`mt-2 text-3xl ${theme.headerFont} ${theme.accent}`}>Combat Manager</h1>
@@ -195,8 +282,8 @@ export default function CombatManagerPage() {
                     Encounter
                     <select aria-label="Encounter" value={selectedId} onChange={event => { setSelectedId(event.target.value); setSelectedCombatantId(''); }}
                         className={`min-w-48 ${inputClass}`}>
-                        {encounters.length === 0 && <option value="">No encounters</option>}
-                        {encounters.map(row => <option key={row.id} value={row.id}>{row.label}{row.status === 'completed' ? ' (completed)' : ''}</option>)}
+                        {encounters.length === 0 && <option className={optionClass} value="">No encounters</option>}
+                        {encounters.map(row => <option className={optionClass} key={row.id} value={row.id}>{row.label}{row.status === 'completed' ? ' (completed)' : ''}</option>)}
                     </select>
                 </label>
             </header>
@@ -218,6 +305,72 @@ export default function CombatManagerPage() {
                         setSelectedId(created.encounter.id); setLabel(''); setKeepHistory(false);
                     })} className={primaryButtonClass}>Create</button>
                 </div>
+            </section>
+
+            <section className={panelClass}>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                        <h2 className={`text-lg font-bold uppercase tracking-widest ${theme.accent}`}>Combat stat display</h2>
+                        <p className="mt-1 text-xs opacity-60">Shared by GMs in this world · {statPreferences?.source === 'saved' ? 'customized' : statPreferences?.source === 'module' ? 'module suggestions' : 'no defaults'}</p>
+                    </div>
+                    <button disabled={!statPreferences || busy} onClick={() => { setStatDraft(statPreferences?.attributes || []); setEditingStats(value => !value); }}
+                        className={secondaryButtonClass}>{editingStats ? 'Close configuration' : 'Configure stats'}</button>
+                </div>
+                {editingStats && <div className="mt-4 space-y-3 border-t border-white/10 pt-4">
+                    <p className="text-xs opacity-60">Choose fields found on Actors in this world or suggested by the system module. Missing values are hidden; tracked-resource editing is separate.</p>
+                    {statDraft.map((field, index) => <div key={`${field.key}:${index}`} className="flex flex-wrap items-center gap-2 rounded-lg border border-white/10 bg-black/20 p-2">
+                        <input aria-label={`Stat ${index + 1} label`} value={field.label} maxLength={32} onChange={event => setStatDraft(current => current.map((row, at) => at === index ? { ...row, label: event.target.value } : row))}
+                            className={`w-32 ${inputClass}`} />
+                        <span className="min-w-0 flex-1 truncate text-xs opacity-60" title={field.path}>{field.actorTypes?.join(', ') || 'All Actor types'} · {field.kind}</span>
+                        <label className="flex items-center gap-1.5 text-xs text-slate-300">
+                            <input type="checkbox" aria-label={`Show ${field.label} beside names`} checked={field.showInRoster === true}
+                                onChange={event => setStatDraft(current => current.map((row, at) => at === index ? { ...row, showInRoster: event.target.checked } : row))}
+                                className="accent-sky-500" /> Beside names
+                        </label>
+                        <button disabled={index === 0} onClick={() => setStatDraft(current => { const next = [...current]; [next[index - 1], next[index]] = [next[index], next[index - 1]]; return next; })} className={secondaryButtonClass} aria-label={`Move ${field.label} up`}>↑</button>
+                        <button disabled={index === statDraft.length - 1} onClick={() => setStatDraft(current => { const next = [...current]; [next[index + 1], next[index]] = [next[index], next[index + 1]]; return next; })} className={secondaryButtonClass} aria-label={`Move ${field.label} down`}>↓</button>
+                        <button onClick={() => setStatDraft(current => current.filter((_, at) => at !== index))} className={secondaryButtonClass} aria-label={`Remove ${field.label}`}>Remove</button>
+                    </div>)}
+                    <div className="flex flex-wrap items-center gap-2">
+                        <input aria-label="Find an Actor field" placeholder="Search Actor fields" value={statSearch}
+                            onChange={event => { setStatSearch(event.target.value); setStatChoice(''); }} className={`min-w-48 ${inputClass}`} />
+                        <select aria-label="Suggested or available stat" value={statChoice} onChange={event => setStatChoice(event.target.value)} className={`min-w-56 ${inputClass}`}>
+                            <option className={optionClass} value="">Choose a field</option>
+                            {filteredStatChoices.map(({ choice, index }) => <option className={optionClass} key={`${choice.path}:${choice.kind}`} value={index}>
+                                {choice.label} ({statChoiceContext(choice)})
+                            </option>)}
+                        </select>
+                        <button disabled={statDraft.length >= 8 || statChoice === ''} onClick={() => { addStat(statChoices[Number(statChoice)]); setStatChoice(''); }} className={secondaryButtonClass}>Add field</button>
+                    </div>
+                    {loadingStatCatalog && <p className="text-xs opacity-60">Finding Actor fields…</p>}
+                    {!loadingStatCatalog && statChoices.length === 0 && <p className="text-xs opacity-60">No Actor fields are available yet. Add a world or compendium Actor, then reopen this configuration.</p>}
+                    <details className="rounded-lg border border-white/10 p-3 text-xs opacity-80">
+                        <summary className="cursor-pointer">Advanced: enter an attribute path manually</summary>
+                        <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <input aria-label="Custom stat label" placeholder="Label" value={customLabel} maxLength={32} onChange={event => setCustomLabel(event.target.value)} className={`w-32 ${inputClass}`} />
+                        <input aria-label="Custom Actor path" placeholder="system.attributes.example" value={customPath} maxLength={128} onChange={event => setCustomPath(event.target.value)} className={`min-w-64 flex-1 font-mono ${inputClass}`} />
+                        <select aria-label="Custom stat kind" value={customKind} onChange={event => setCustomKind(event.target.value as ModuleCombatStatAttribute['kind'])} className={inputClass}>
+                            <option className={optionClass} value="number">Number</option><option className={optionClass} value="resource">Value / max</option><option className={optionClass} value="text">Text</option>
+                        </select>
+                        <button disabled={statDraft.length >= 8 || !customLabel.trim() || !customPath.trim()} onClick={() => {
+                            addStat({ key: 'custom', label: customLabel.trim(), path: customPath.trim(), kind: customKind });
+                            setCustomLabel(''); setCustomPath('');
+                        }} className={secondaryButtonClass}>Add custom</button>
+                        </div>
+                    </details>
+                    <div className="flex flex-wrap gap-2">
+                        <button disabled={busy} onClick={() => void mutate(async () => {
+                            const { preferences } = await api.saveManagedStatPreferences(statDraft);
+                            setStatPreferences(preferences); setEditingStats(false);
+                            await refresh();
+                        })} className={primaryButtonClass}>Save</button>
+                        <button disabled={busy || statPreferences?.source !== 'saved'} onClick={() => void mutate(async () => {
+                            const { preferences } = await api.resetManagedStatPreferences();
+                            setStatPreferences(preferences); setStatDraft(preferences.attributes); setEditingStats(false);
+                            await refresh();
+                        })} className={secondaryButtonClass}>Reset to module suggestions</button>
+                    </div>
+                </div>}
             </section>
 
             {encounter && <>
@@ -262,13 +415,13 @@ export default function CombatManagerPage() {
                             <div className="h-px flex-1 bg-white/10" />
                         </div>
                         <div className="mb-3 flex gap-2">
-                            <button aria-pressed={picker === 'world'} onClick={() => { setPicker('world'); setQuery(''); }} className={`rounded-lg px-3 py-2 text-sm font-semibold ${picker === 'world' ? `${theme.button} text-black` : 'border border-white/10 bg-black/30 hover:bg-white/10'}`}>World Actors (link)</button>
-                            <button aria-pressed={picker === 'compendium'} onClick={() => { setPicker('compendium'); setQuery(''); }} className={`rounded-lg px-3 py-2 text-sm font-semibold ${picker === 'compendium' ? `${theme.button} text-black` : 'border border-white/10 bg-black/30 hover:bg-white/10'}`}>Compendium (copy)</button>
+                            <button aria-pressed={picker === 'world'} onClick={() => { setPicker('world'); setQuery(''); }} className={`rounded-lg px-3 py-2 text-sm font-semibold ${picker === 'world' ? `${theme.button} text-white` : secondaryButtonClass}`}>World Actors (link)</button>
+                            <button aria-pressed={picker === 'compendium'} onClick={() => { setPicker('compendium'); setQuery(''); }} className={`rounded-lg px-3 py-2 text-sm font-semibold ${picker === 'compendium' ? `${theme.button} text-white` : secondaryButtonClass}`}>Compendium (copy)</button>
                         </div>
                         {picker === 'compendium' && <select aria-label="Actor compendium" value={packId} onChange={event => setPackId(event.target.value)}
                             className={`mb-3 w-full ${inputClass}`}>
-                            <option value="">Choose Actor pack</option>
-                            {packs.map(pack => <option key={pack.id} value={pack.id}>{pack.label}</option>)}
+                            <option className={optionClass} value="">Choose Actor pack</option>
+                            {packs.map(pack => <option className={optionClass} key={pack.id} value={pack.id}>{pack.label}</option>)}
                         </select>}
                         <input aria-label="Search participants" value={query} onChange={event => setQuery(event.target.value)} placeholder="Search Actors"
                             className={`mb-3 w-full ${inputClass}`} />
@@ -298,13 +451,23 @@ export default function CombatManagerPage() {
                         </div>}
                         <div className="space-y-2">
                             {encounter.participants.map(row => <button key={row.id} onClick={() => setSelectedCombatantId(row.id)}
-                                className={`flex w-full items-center gap-3 rounded-lg border p-3 text-left transition-colors ${selected?.id === row.id ? 'border-amber-500/50 bg-amber-500/10' : 'border-white/5 bg-black/40 hover:border-amber-500/30'} ${row.isCurrent ? 'ring-2 ring-amber-400/60' : ''}`}>
+                                className={`flex w-full items-center gap-3 rounded-lg border p-3 text-left transition-colors ${selected?.id === row.id ? 'border-sky-400/60 bg-sky-400/10' : 'border-slate-700/50 bg-slate-950/60 hover:border-sky-400/40'} ${row.isCurrent ? 'ring-2 ring-sky-400/60' : ''}`}>
                                 <span className="w-10 text-center font-mono text-lg">{row.initiative ?? '—'}</span>
-                                <span className="min-w-0 flex-1 truncate">{row.name}<span className="ml-2 text-xs opacity-50">{row.source === 'world' ? 'world link' : 'pack copy'}</span></span>
+                                <span className="min-w-0 flex-1">
+                                    <span className="flex flex-wrap items-center gap-1.5">
+                                        <span className="truncate font-semibold">{row.name}</span>
+                                        {row.stats.filter(stat => stat.showInRoster).map((stat, index) => <span
+                                            key={`${stat.title}:${index}`} title={`${stat.title}: ${compactStatValue(stat)}`}
+                                            className="max-w-40 truncate rounded-full border border-sky-400/35 bg-sky-400/10 px-2 py-0.5 text-[11px] font-medium text-sky-100">
+                                            {stat.title}: {compactStatValue(stat)}
+                                        </span>)}
+                                    </span>
+                                    <span className="mt-0.5 block text-xs text-slate-400">{row.source === 'world' ? 'world link' : 'pack copy'}</span>
+                                </span>
                                 {row.resource && <span className="text-sm">{row.resource.value}{row.resource.max !== null ? `/${row.resource.max}` : ''}</span>}
                                 {row.hidden && <span className="text-xs text-violet-300">hidden</span>}
                                 {row.defeated && <span className="text-xs text-red-300">defeated</span>}
-                                {row.isCurrent && <span className="shrink-0 rounded-full border border-amber-500/50 bg-amber-500/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-300">Current</span>}
+                                {row.isCurrent && <span className="shrink-0 rounded-full border border-sky-400/50 bg-sky-400/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-sky-200">Current</span>}
                             </button>)}
                             {encounter.participants.length === 0 && <p className="text-sm opacity-50">Add a world Actor or a compendium copy to begin.</p>}
                         </div>
@@ -360,7 +523,6 @@ export default function CombatManagerPage() {
                 isDanger={pendingConfirmation?.kind !== 'begin'}
                 onConfirm={confirmPending}
                 onCancel={() => setPendingConfirmation(null)}
-                theme={system?.componentStyles?.modal}
             />
           </div>
         </main>

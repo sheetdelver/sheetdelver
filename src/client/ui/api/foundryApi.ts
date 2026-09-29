@@ -9,7 +9,9 @@ import type {
 } from '@shared/contracts/combats';
 import type { ChatLogPayload } from '@shared/contracts/chat';
 import type { RealtimeSharedContentPayload } from '@shared/contracts/realtime';
+import type { ModuleCombatStatAttribute } from '@shared/sdk';
 import type { CombatManagerActorChoiceDto, CombatManagerEncounterDto, CombatManagerInitiativeBatchDto,
+    CombatManagerStatPreferencesDto,
     CombatManagerInitiativeScope, CombatManagerPackDto } from '@shared/contracts/combatManager';
 
 interface LoginPayload {
@@ -120,6 +122,22 @@ export function postCombatRollInitiative(
 
 export function fetchManagedCombats(): Promise<{ encounters: CombatManagerEncounterDto[] }> {
     return requestJson('/api/combat-manager', { cache: 'no-store' });
+}
+
+export function fetchManagedStatPreferences(actorId?: string, includeCatalog = false): Promise<{ preferences: CombatManagerStatPreferencesDto }> {
+    const params = new URLSearchParams();
+    if (actorId) params.set('actorId', actorId);
+    if (includeCatalog) params.set('catalog', '1');
+    const query = params.size ? `?${params}` : '';
+    return requestJson(`/api/combat-manager/stat-preferences${query}`, { cache: 'no-store' });
+}
+
+export function saveManagedStatPreferences(attributes: ModuleCombatStatAttribute[]): Promise<{ preferences: CombatManagerStatPreferencesDto }> {
+    return requestJson('/api/combat-manager/stat-preferences', { method: 'PUT', body: { attributes } });
+}
+
+export function resetManagedStatPreferences(): Promise<{ preferences: CombatManagerStatPreferencesDto }> {
+    return requestJson('/api/combat-manager/stat-preferences', { method: 'DELETE' });
 }
 
 export function createManagedCombat(label: string, keepHistory: boolean): Promise<{ encounter: CombatManagerEncounterDto }> {

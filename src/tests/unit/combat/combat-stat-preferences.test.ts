@@ -1,0 +1,80 @@
+import { strict as assert } from 'node:assert';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { parseCombatStatAttributes } from '@shared/contracts/combatStatAttributes';
+import { validateModuleInfoShape } from '@modules/registry/lifecycle/validation';
+import { CombatStatPreferenceStore } from '@server/services/combats/CombatStatPreferenceStore';
+import { discoverCombatStatFields, resolveCombatStatSelection } from '@server/services/combats/CombatStatDisplayService';
+
+export function run(): void {
+    const hp = { key: 'hp', label: 'HP', path: 'system.attributes.hp', kind: 'resource' as const };
+    const ac = { key: 'ac', label: 'AC', path: 'derived.ac', kind: 'number' as const };
+    assert.deepEqual(parseCombatStatAttributes([hp, ac]), [hp, ac]);
+    assert.deepEqual(parseCombatStatAttributes([{ ...hp, showInRoster: true }]), [{ ...hp, showInRoster: true }]);
+    assert.equal(parseCombatStatAttributes([{ ...hp, showInRoster: 'yes' }]), null);
+    assert.equal(parseCombatStatAttributes([{ ...hp, path: 'system.__proto__.value' }]), null);
+    assert.equal(parseCombatStatAttributes([hp, { ...hp, label: 'Duplicate' }]), null);
+    assert.equal(parseCombatStatAttributes(Array.from({ length: 9 }, (_, index) => ({
+        key: `stat${index}`, label: `Stat ${index}`, path: 'system.hp', kind: 'number',
+    }))), null);
+
+    const manifest = { id: 'test-system', title: 'Test', manifest: { ui: 'module/ui', logic: 'module/logic' } };
+    assert.equal(validateModuleInfoShape({ ...manifest, combatTracking: { attributes: [hp, ac] } }).valid, true);
+    assert.equal(validateModuleInfoShape({ ...manifest, combatTracking: { attributes: [{ ...ac, path: 'derived.constructor' }] } }).valid, false);
+    assert.deepEqual(resolveCombatStatSelection(null, [hp]), { source: 'module', attributes: [hp] });
+    assert.deepEqual(resolveCombatStatSelection([], [hp]), { source: 'saved', attributes: [] });
+    assert.deepEqual(resolveCombatStatSelection(null, []), { source: 'none', attributes: [] });
+
+    const discovered = discoverCombatStatFields([
+        { type: 'npc', system: { attributes: { hp: { value: 12, max: 20 }, armorClass: 15,
+            stamina: { value: 4 } }, ...Object.fromEntries([['__proto__', { unsafe: 1 }]]) },
+        derived: { threatLevel: 3 } },
+        { type: 'character', system: { attributes: { hp: { value: 8, max: 12 }, armorClass: 13 } }, derived: {} },
+    ] as any);
+    assert.deepEqual(discovered.find(field => field.path === 'system.attributes.hp'), {
+        key: 'field0', label: 'HP', path: 'system.attributes.hp', kind: 'resource',
+        observedActorTypes: ['npc', 'character'],
+    });
+    assert.equal(discovered.find(field => field.path === 'system.attributes.armorClass')?.label, 'Attributes · Armor Class');
+    assert.equal(discovered.find(field => field.path === 'derived.threatLevel')?.kind, 'number');
+    assert.equal(discovered.find(field => field.path === 'system.attributes.stamina')?.kind, 'resource');
+    assert.equal(discovered.some(field => field.path.includes('__proto__')), false);
+    const context = discoverCombatStatFields([{ type: 'npc', system: {
+        armor: { mod: 2 }, attack: { mod: 4 }, defense: { base: 10 },
+    }, derived: {} }] as any);
+    assert.deepEqual(context.map(field => field.label), ['Armor · Mod', 'Attack · Mod', 'Defense · Base']);
+    const collisions = discoverCombatStatFields([{ type: 'npc', system: {
+        abilities: { str: { mod: 2 } }, saves: { str: { mod: 4 } },
+    }, derived: {} }] as any);
+    assert.deepEqual(collisions.map(field => field.label), ['Abilities · Str · Mod', 'Saves · Str · Mod']);
+
+    const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sd-combat-stat-pref-'));
+    const filePath = path.join(testDir, 'gm-combat-stats.json');
+    try {
+        const first = new CombatStatPreferenceStore(filePath);
+        assert.equal(first.get('world-one', 'test-system'), null);
+        first.set('world-one', 'test-system', [{ ...hp, showInRoster: true }]);
+        first.set('world-two', 'test-system', [ac]);
+        first.set('world-one', 'other-system', []);
+        const reopened = new CombatStatPreferenceStore(filePath);
+        assert.deepEqual(reopened.get('world-one', 'test-system'), [{ ...hp, showInRoster: true }],
+            'selection and roster placement survive a new store instance');
+        assert.deepEqual(reopened.get('world-one', 'other-system'), [], 'explicit empty differs from missing');
+        assert.deepEqual(reopened.get('world-two', 'test-system'), [ac], 'world scope is isolated');
+        reopened.reset('world-one', 'test-system');
+        assert.equal(first.get('world-one', 'test-system'), null);
+        assert.deepEqual(first.get('world-two', 'test-system'), [ac]);
+        assert.throws(() => first.set('world-one', 'test-system', [{ ...hp, path: 'derived.__proto__' }]));
+        assert.equal(fs.statSync(filePath).mode & 0o777, 0o600);
+        fs.writeFileSync(filePath, '{malformed');
+        assert.throws(() => first.get('world-two', 'test-system'), /not valid JSON/);
+        assert.throws(() => first.set('world-two', 'test-system', [hp]), /not valid JSON/,
+            'corrupt persisted state is not silently overwritten');
+    } finally {
+        fs.rmSync(testDir, { recursive: true, force: true });
+    }
+    console.log('  - GM combat stat preferences: validation and durable scope checks passed');
+}
+
+if (import.meta.url === `file://${process.argv[1]}`) run();

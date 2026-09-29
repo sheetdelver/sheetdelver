@@ -1,5 +1,9 @@
 import { strict as assert } from 'node:assert';
-import { combatManagerService, CombatManagerError, projectCombatManagerStats } from '@server/services/combats/CombatManagerService';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { combatManagerService, CombatManagerError } from '@server/services/combats/CombatManagerService';
+import { projectCombatStatFields } from '@server/services/combats/CombatStatDisplayService';
 import { readCombatManagerFlag } from '@server/services/combats/combatManagerFlag';
 import { createCombatService } from '@server/services/combats/CombatService';
 import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
@@ -9,6 +13,10 @@ import { settingStore } from '@server/core/documents/primary/settings/SettingSto
 import { sceneStore } from '@server/core/documents/primary/scenes/SceneStore';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
 import { compendiumStore } from '@server/core/compendium/CompendiumStore';
+import { preparedActorStore } from '@server/core/documents/prepared/actors/PreparedActorStore';
+import { worldStateStore } from '@server/core/world/WorldStateStore';
+import { __resetDataDirForTests, getDataDir } from '@server/core/paths';
+import { BaseSystemAdapter } from '@shared/sdk';
 import type { CombatClientLike } from '@server/shared/types/documents';
 import type { ActorDocument } from '@server/shared/types/actors';
 
@@ -71,18 +79,15 @@ async function seed(): Promise<void> {
 }
 
 export async function run(): Promise<void> {
-    assert.deepEqual(projectCombatManagerStats({ blocks: [
-        { title: ' HP ', value: 0, subValue: '/ 20', valueClass: 'untrusted-class' },
-        { title: 'AC', value: 15 },
-        { title: '', value: 2 },
-        { title: 'Invalid', value: { nested: 'source' } },
-        ...Array.from({ length: 10 }, (_, index) => ({ title: `Stat ${index}`, value: index })),
-    ] }), [
-        { title: 'HP', value: 0, subValue: '/ 20' },
-        { title: 'AC', value: 15 },
-        ...Array.from({ length: 4 }, (_, index) => ({ title: `Stat ${index}`, value: index })),
-    ], 'summary is bounded and strips module CSS and unsupported values');
-    assert.deepEqual(projectCombatManagerStats({ subtext: 'Only descriptive data' }), []);
+    assert.deepEqual(projectCombatStatFields({ type: 'npc', system: { attributes: { hp: { value: 0, max: 20 } } },
+        derived: { ac: 15 } } as any, [
+        { key: 'hp', label: 'HP', path: 'system.attributes.hp', kind: 'resource', showInRoster: true },
+        { key: 'ac', label: 'AC', path: 'derived.ac', kind: 'number' },
+    ]), [{ title: 'HP', value: 0, subValue: '/ 20', showInRoster: true }, { title: 'AC', value: 15 }]);
+    assert.deepEqual(projectCombatStatFields({ type: 'npc', system: { hp: 9 }, derived: { ac: 14 } } as any, [
+        { key: 'ac', label: 'AC', path: 'derived.ac', kind: 'number', showInRoster: true },
+        { key: 'hp', label: 'HP', path: 'system.hp', kind: 'number', showInRoster: true },
+    ]).map(stat => stat.title), ['AC', 'HP'], 'roster pill projection follows configured stat order');
     await seed();
     const calls: Call[] = [];
     const gm = mockClient('gm', calls);
@@ -91,6 +96,9 @@ export async function run(): Promise<void> {
 
     for (const restricted of [assistant, player]) {
         await assert.rejects(() => combatManagerService.list(restricted), (error: unknown) => error instanceof CombatManagerError && error.status === 403);
+        await assert.rejects(() => combatManagerService.statPreferences(restricted), (error: unknown) => error instanceof CombatManagerError && error.status === 403);
+        await assert.rejects(() => combatManagerService.saveStatPreferences(restricted, []), (error: unknown) => error instanceof CombatManagerError && error.status === 403);
+        await assert.rejects(() => combatManagerService.resetStatPreferences(restricted), (error: unknown) => error instanceof CombatManagerError && error.status === 403);
         assert.throws(() => combatManagerService.worldActors(restricted, ''), (error: unknown) => error instanceof CombatManagerError && error.status === 403);
         await assert.rejects(() => combatManagerService.create(restricted, 'Forbidden', false), (error: unknown) => error instanceof CombatManagerError && error.status === 403);
     }
@@ -253,6 +261,37 @@ export async function run(): Promise<void> {
     assert.deepEqual(await combatManagerService.complete(gm, 'INTERRUPTED'), { completed: true, retained: false });
     assert.equal(folderStore.get('RECOVERED'), null);
     assert.equal(combatStore.get('INTERRUPTED'), null);
+
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sd-manager-stat-integration-'));
+    const previousWorld = worldStateStore.getGameDataSnapshot();
+    let previousDataDir: string | null = null;
+    try { previousDataDir = getDataDir(); } catch { /* Standalone focused run has no data directory. */ }
+    try {
+        __resetDataDirForTests(dataDir);
+        worldStateStore.seed({ world: { id: 'stat-world' }, system: { id: 'test' } } as any);
+        preparedActorStore.bind(actorStore);
+        preparedActorStore.configure(new BaseSystemAdapter(), { worldEpoch: 1, systemId: 'test' });
+        preparedActorStore.rebuildAll();
+        const hp = { key: 'hp', label: 'HP', path: 'system.attributes.hp', kind: 'resource' as const, showInRoster: true };
+        assert.equal((await combatManagerService.saveStatPreferences(gm, [hp])).source, 'saved');
+        assert.deepEqual((await combatManagerService.detail(gm, retained.id)).participants[0].stats,
+            [{ title: 'HP', value: 31, subValue: '/ 31', showInRoster: true }]);
+        actorStore.applyModifyDocument('Actor', 'update', [{ _id: 'WORLDNPC', 'system.attributes.hp.value': 24 }]);
+        assert.equal((await combatManagerService.detail(gm, retained.id)).participants[0].stats[0]?.value, 24,
+            'linked Actor changes refresh the configured stat');
+        const preferences = await combatManagerService.statPreferences(gm, undefined, true);
+        assert.equal(preferences.source, 'saved');
+        assert.ok(preferences.available.some(field => field.path === 'system.attributes.hp'),
+            'GM can choose Actor fields without first selecting a combatant');
+        assert.equal((await combatManagerService.resetStatPreferences(gm)).source, 'none');
+        assert.deepEqual((await combatManagerService.detail(gm, retained.id)).participants[0].stats, []);
+    } finally {
+        preparedActorStore.clear();
+        worldStateStore.clear();
+        if (previousWorld) worldStateStore.seed(previousWorld);
+        __resetDataDirForTests(previousDataDir);
+        fs.rmSync(dataDir, { recursive: true, force: true });
+    }
     console.log('  - CombatManager: role, identity, resource, retention and cleanup checks passed');
 }
 

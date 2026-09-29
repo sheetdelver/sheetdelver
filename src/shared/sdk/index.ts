@@ -39,6 +39,7 @@ export type {
     UIModuleManifest,
     ModuleInfo,
     ModuleSettingDeclaration,
+    ModuleCombatStatAttribute,
     ModuleManifestPaths,
     ModulePackageDeclaration,
     ModulePermissionDeclaration,

@@ -245,7 +245,7 @@ is compiled by `module:package` into the reserved artifact
   "compatibility": {
     "coreVersion": ">=1.0.0",
     "apiContracts": {
-      "module-api": ">=1.1.0 <2.0.0",
+      "module-api": ">=1.3.0 <2.0.0",
       "ui-extension-api": ">=1.0.0 <2.0.0",
       "roll-engine-api": ">=1.0.0 <2.0.0"
     }
@@ -268,6 +268,12 @@ is compiled by `module:package` into the reserved artifact
       ]
     }
   ],
+  "combatTracking": {
+    "attributes": [
+      { "key": "hp", "label": "HP", "path": "system.attributes.hp", "kind": "resource", "showInRoster": true },
+      { "key": "ac", "label": "AC", "path": "derived.ac", "kind": "number" }
+    ]
+  },
   "trust": { "tier": "unverified" },
   "permissions": {
     "network": { "outbound": false },
@@ -311,6 +317,7 @@ for posting recorded rolls without changing the display-summary contract.
 | `compatibility.apiContracts` | No | SemVer ranges for named SDK contract versions. |
 | `compendiumPacks.packs` | No | Compendium packs the host should index, optionally hydrate, and expose through `runtime.compendium`. |
 | `settings` | No | Client setting declarations consumed by `useModuleSettings()`. |
+| `combatTracking.attributes` | No | Suggested read-only GM Combat Manager stats from prepared Actor paths. GM world/module selection overrides these defaults. |
 | `trust.tier` | No | `first-party`, `verified-third-party`, or `unverified`. |
 | `permissions` | No | Operator-facing declarations for requested capabilities. These do not grant privileges. |
 | `aliases` | No | Alternate module/system ids used for lookup compatibility. |
@@ -318,6 +325,17 @@ for posting recorded rolls without changing the display-summary contract.
 | `conflicts` | No | Module ids this module cannot run alongside. |
 | `package.include` | No | Extra files or directories to include in packaged artifacts. |
 | `compiledStyles` | No | Reserved packager output. Authors must not set this in source manifests. |
+
+Combat-stat descriptors have a unique key, label (up to 32 characters), path
+under `system.*` or `derived.*`, kind `number`, `text`, or `resource` (a numeric
+`value` with optional numeric `max`), and optional `actorTypes`. Up to 16
+suggestions may be declared; the manager displays at most eight selected
+stats. These are read-only presentation hints, not writable Foundry resource
+paths or dashboard Actor-card blocks. Optional `showInRoster: true` suggests a
+compact pill beside each combatant name; absent/false keeps the stat in detail
+only. A module adopting this new manifest
+field requires `"module-api": ">=1.3.0 <2.0.0"` (SDK 1.6.0). Older modules
+without the field require no version change.
 
 `permissions` is a declaration, not an authorization bypass. Foundry ownership and
 the Sheet Delver request runtime still gate document reads and writes. Module

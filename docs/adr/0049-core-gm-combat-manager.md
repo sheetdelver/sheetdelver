@@ -1,6 +1,6 @@
 # ADR-0049: Core GM Combat Manager
 
-**Status:** Accepted — implemented; GM UI accepted
+**Status:** Accepted — manager and stat preferences implemented; GM acceptance pending
 **Date:** September 24, 2026
 **Related:** ADR-0011, ADR-0012, ADR-0013, ADR-0028, ADR-0038, ADR-0048
 
@@ -68,9 +68,10 @@ bounded first-version command contract, not native-method parity.
    defeated and a validated configured resource when available. Browser code
    calls authenticated Core APIs; only server services access Stores and
    dispatch Foundry writes. Ordinary Actor editing remains on the Actor sheet.
-   A compact read-only stat strip may use bounded blocks from the active
-   system adapter's prepared Actor-card summary; missing blocks simply omit
-   the strip. Module CSS and arbitrary card fields do not cross this DTO.
+   A bounded, read-only Actor-card block strip was added as an interim
+   follow-up. The shared GM stat-display preference below replaces card
+   blocks as the manager's eventual stat-selection authority; module CSS and
+   arbitrary card fields do not cross the manager DTO.
    A resource quick edit is permitted only when the configured path resolves to
    a persisted, writable Actor source field; prepared-only or ambiguous values
    are read-only or omitted. No Shadowdark, D&D or other system-name branch is
@@ -108,6 +109,53 @@ bounded first-version command contract, not native-method parity.
    are deferred. If later added, tracker-only historical data belongs on the
    same Combat flag, not a parallel database.
 
+### Follow-up decision: shared GM stat display
+
+The Combat Manager's basic stats are a presentation preference for the
+current Foundry world and active system module, shared by all authorized
+Gamemasters. They are not per-encounter tracker state, a historical Actor
+snapshot, or a reason to write arbitrary Actor fields from the manager.
+
+- A system module may provide optional combat-stat suggestions in its
+  `info.json`: stable key, short label, safe prepared-Actor attribute path,
+  bounded display kind, and optional Actor types. Core validates and bounds
+  this metadata. Existing modules without suggestions remain compatible; no
+  system-specific paths are hardcoded in Core.
+- The manager offers GM configuration to add, remove, reorder and relabel
+  suggested or custom safe attributes. Its ordinary picker discovers bounded
+  numeric, text and resource fields from available prepared Actor shapes in
+  the current world, across Actor types, so GMs need not know JSON paths.
+  Module suggestions supplement that list; manual paths are advanced-only.
+  Discovered scalar labels include parent context (for example, `Armor · Mod`)
+  and colliding labels use more of the path; no system-specific stat names are
+  hardcoded. Each selected stat has an optional roster-placement checkbox.
+  Checked stats render compact read-only pills beside combatant names in the
+  configured order; unchecked stats appear only in the detail panel.
+  This is observed Actor data, not a promise that Foundry's generic document
+  schema describes every system-specific field or future Actor type. Values
+  are projected on the server
+  from authorized prepared Actors, are read-only, and are omitted for Actors
+  where unavailable. The existing configured Foundry tracker-resource quick
+  edit remains separately source-backed and unchanged.
+- Core persists the shared selection in a versioned, atomically written file
+  under the configured data directory's durable `config/` area, keyed by
+  world ID and module ID. It is not stored in browser localStorage, the
+  cache-backed module DataStore, or an encounter's Combat flag. It survives
+  world unload, process restart, and cache rebuild. GM-only APIs enforce the
+  same role-4 boundary as the manager.
+- An existing saved selection takes precedence, including an intentionally
+  empty selection. If no saved selection exists, module suggestions apply;
+  without either, no extra stats appear until a GM configures them. Reset
+  removes the saved selection and restores module suggestions. Other GM
+  views refresh after changes. Retained encounters continue to show live
+  linked-Actor values under the current preference, not historical snapshots.
+
+Verification for this follow-up must cover manifest/path validation, GM-only
+access, fallback and intentional empty selection, world/module isolation,
+restart and cache-deletion persistence in a disposable data directory,
+missing/derived Actor values, and multi-GM refresh. The interim card-block
+checkpoint is not final acceptance of this follow-up.
+
 ## Implementation and verification requirements
 
 - All manager reads and writes recheck GM role and marked tokenless status on
@@ -121,9 +169,11 @@ bounded first-version command contract, not native-method parity.
   refetches projections. Source stores, prepared Actor models and authorized
   DTOs remain separate. No direct Foundry socket in client components. Native
   browser alert/confirm/prompt dialogs are not used; Core's shared modal handles
-  destructive and conditional confirmations. The tool card and page use Core's
-  active theme and world background, falling back to the standard dark-blue
-  background when no world image is configured.
+  destructive and conditional confirmations. The tool card uses its dashboard
+  context, while the dedicated manager page and modal use stable Core styling
+  rather than module theme overrides. The page retains only the active world
+  background, falling back to the standard dark-blue background when absent;
+  a system module's fallback artwork is not used.
 - Tests cover GM/assistant/player access, marked versus unmarked/scene-linked
   Combats, world NPC links versus independent pack copies, identity/provenance,
   completed-history write rejection, safe cleanup and partial-failure retry,
@@ -155,3 +205,13 @@ restored after testing. Unit tests, TypeScript, lint and production build pass.
 The GM reports that the manager UI and flow work well in manual testing. A v13
 service-level run remains unverified; neither that report nor the isolated v14
 service test represents native Foundry command-hook parity.
+
+The September 28 stat-display follow-up has synthetic coverage for manifest
+and path validation, saved-empty versus module-default selection, durable
+world/module-scoped persistence, GM-only service access, and live linked-Actor
+projection. The field-first follow-up discovers bounded choices across
+prepared Actor types without requiring a selected combatant, while loading
+that catalog only when the GM opens configuration. The full unit suite,
+TypeScript, lint and Next production build
+pass. Multi-GM browser refresh, world unload/restart persistence, and final
+visual acceptance remain for GM testing; no hosted Foundry was touched.

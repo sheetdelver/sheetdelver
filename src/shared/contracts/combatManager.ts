@@ -1,4 +1,17 @@
 /** GM-only, whitelisted Combat Manager API. Foundry source documents never cross this boundary. */
+import type { ModuleCombatStatAttribute } from '@shared/sdk';
+
+export interface CombatManagerAvailableStatDto extends ModuleCombatStatAttribute {
+    /** Actor types where the field was observed; not a saved display restriction. */
+    observedActorTypes: string[];
+}
+
+export interface CombatManagerStatPreferencesDto {
+    source: 'saved' | 'module' | 'none';
+    attributes: ModuleCombatStatAttribute[];
+    suggestions: ModuleCombatStatAttribute[];
+    available: CombatManagerAvailableStatDto[];
+}
 export interface CombatManagerResourceDto {
     path: string;
     value: number;
@@ -11,6 +24,7 @@ export interface CombatManagerStatDto {
     title: string;
     value: string | number;
     subValue?: string | number;
+    showInRoster?: true;
 }
 
 export interface CombatManagerParticipantDto {

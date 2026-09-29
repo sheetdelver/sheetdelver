@@ -148,12 +148,21 @@ Begin sets it, warning only if another Combat is currently active (Foundry
 deactivates that Combat). The manager's lifecycle status is stored separately in
 its Combat flag. Participant projections include a Foundry-style `isNpc` flag:
 no non-GM user owns that world Actor, independent of system Actor type.
-See [ADR-0049](adr/0049-core-gm-combat-manager.md).
+Read-only combat stats use the shared GM display selection for the active
+world/system module, stored durably under the Core data directory's `config/`.
+A saved empty selection suppresses module defaults. Stat values may be derived
+from prepared Actors; only the separately configured tracker resource can be
+quick-edited when source-backed. A selected descriptor's optional
+`showInRoster` produces a read-only participant pill, in descriptor order;
+other stats remain in the detail panel. See [ADR-0049](adr/0049-core-gm-combat-manager.md).
 
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `GET` | `/api/combat-manager` | List marked encounters, including retained completed history. |
 | `POST` | `/api/combat-manager` | Create with `{ "label": "Ambush", "keepHistory": false }`; returns the encounter. |
+| `GET` | `/api/combat-manager/stat-preferences?catalog=1&actorId=...` | Read shared GM selection and module suggestions. `catalog=1` additionally discovers bounded fields from prepared world Actors; optional authorized Actor ID prioritizes its fields. Catalog `observedActorTypes` is a picker hint, not a saved type restriction. |
+| `PUT` | `/api/combat-manager/stat-preferences` | Save `{ "attributes": [...] }` for this world/system module, including an intentional empty list. |
+| `DELETE` | `/api/combat-manager/stat-preferences` | Remove saved selection and return to module suggestions. |
 | `GET` | `/api/combat-manager/:id` | Read one marked tokenless encounter. |
 | `GET` | `/api/combat-manager/world-actors?q=...` | Search world Actors (PCs and NPCs); selections link canonical IDs. |
 | `GET` | `/api/combat-manager/packs` | List available Actor compendiums. |

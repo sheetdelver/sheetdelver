@@ -260,6 +260,11 @@ dependencies.
   initiative uses the existing adapter formula/user-bound roll path and a
   Foundry-style non-GM ownership test for NPC selection; the universal CombatHUD
   is hidden on the manager page to avoid duplicate controls.
+  Optional combat-stat suggestions come from the active module manifest, while
+  Core persists the role-4 GMs' shared world/module display selection under
+  the configured data directory's durable `config/`. Server projection reads
+  only bounded prepared Actor values; no arbitrary stat writes, client-side
+  filesystem access, or Combat-flag preference state are introduced.
 - **Per-User Sockets**: Every user has their own dedicated socket. Foundry's native permission model is enforced at the transport layer.
 - **Local Admin Surface**: `/admin` is a provider-isolated route group in the application shell. The shell exposes it and `/api/admin` only on the configured local hostname; other hostnames return `404`. Browser sessions use a path-scoped opaque HttpOnly cookie plus CSRF protection. Core independently enforces the configured browser origin and client CIDR allowlist.
 - **Foundry Session Persistence**: Reusable Foundry cookies are stored only in an authenticated-encryption envelope. An explicit external 32-byte key takes priority; otherwise Core creates and reuses an owner-only installation key under the host configuration directory, outside `<DATA_DIR>`. Missing or mismatched key material fails restoration rather than reverting to plaintext.

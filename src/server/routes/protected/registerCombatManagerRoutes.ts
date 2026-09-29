@@ -15,6 +15,18 @@ export function registerCombatManagerRoutes(router: express.Router, deps: {
         try { res.json({ encounters: await combatManagerService.list(req.foundryClient) }); }
         catch (error) { handleError(error, res); }
     });
+    router.get('/combat-manager/stat-preferences', async (req, res) => {
+        try { res.json({ preferences: await combatManagerService.statPreferences(req.foundryClient, req.query.actorId, req.query.catalog === '1') }); }
+        catch (error) { handleError(error, res); }
+    });
+    router.put('/combat-manager/stat-preferences', async (req, res) => {
+        try { res.json({ preferences: await combatManagerService.saveStatPreferences(req.foundryClient, req.body?.attributes) }); }
+        catch (error) { handleError(error, res); }
+    });
+    router.delete('/combat-manager/stat-preferences', async (req, res) => {
+        try { res.json({ preferences: await combatManagerService.resetStatPreferences(req.foundryClient) }); }
+        catch (error) { handleError(error, res); }
+    });
     router.get('/combat-manager/world-actors', (req, res) => {
         try { res.json({ actors: combatManagerService.worldActors(req.foundryClient, String(req.query.q || '')) }); }
         catch (error) { handleError(error, res); }
