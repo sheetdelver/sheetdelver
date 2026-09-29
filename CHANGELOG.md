@@ -1,5 +1,7 @@
 # Releases
 ## Unreleased
+- Standardized module dashboard actions
+- Advanced UI extension contract
 - Unified player Core theming
 - Added player light/dark toggle
 - Preserved module style overrides

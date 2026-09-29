@@ -146,6 +146,13 @@ For actors, the platform performs one system-client fetch during bootstrap, seed
   injected-component themes take precedence. Module sheets/tools and the
   module-facing `--background`/`--foreground` CSS tokens are unchanged. See
   [ADR-0053](adr/0053-player-core-appearance.md).
+- **Dashboard module actions**: The UI manifest supplies typed tool-route and
+  dialog declarations; Core renders their cards under its Player Core palette.
+  Module tool pages, dialogs, and sheets retain module presentation. The old
+  arbitrary `dashboardTools` component and its Core-provided theme/loading
+  props are removed under the UI contract major bump. Dialogs alone mount
+  inside `SurfaceHost` for SDK context and module CSS scope. See
+  [ADR-0054](adr/0054-core-rendered-module-dashboard-actions.md).
 - **DicePresentationProvider**: Owns browser-local dice preferences and the bounded
   animation queue. It mounts above ChatProvider, receiving authorized reads and
   hints from ChatContext's existing listeners. It exposes held IDs, not another

@@ -5,7 +5,7 @@ import { useFoundry } from '@client/ui/context/FoundryContext';
 import { useActorCombat } from '@client/ui/context/ActorCombatContext';
 import { useSession } from '@client/ui/context/SessionContext';
 import { useConfig } from '@client/ui/context/ConfigContext';
-import { useTheme } from './hooks/useTheme';
+import { useWorldBackground } from './hooks/useWorldBackground';
 import { LoginView } from './views/LoginView';
 import { SetupView } from './views/SetupView';
 import { DashboardView } from './views/DashboardView';
@@ -31,7 +31,7 @@ export default function MainPage({ initialUrl }: MainPageProps) {
     const { token } = useSession();
 
     const { foundryUrl: configUrl } = useConfig();
-    const { theme: moduleTheme, bgStyle } = useTheme();
+    const bgStyle = useWorldBackground();
 
     const [loading, setLoading] = useState(false);
     const [loginMessage, setLoginMessage] = useState('');
@@ -79,7 +79,6 @@ export default function MainPage({ initialUrl }: MainPageProps) {
                     user={users.find(u => (u._id || u.id) === (currentUser?._id || currentUser?.id)) || null}
                     ownedActors={ownedActors}
                     token={token}
-                    moduleTheme={moduleTheme}
                     configUrl={configUrl || ''}
                     appVersion={appVersion || ''}
                     fetchActors={fetchActors}
