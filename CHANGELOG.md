@@ -1,5 +1,5 @@
 # Releases
-## Unreleased
+## 0.14.2
 - Standardized module dashboard actions
 - Advanced UI extension contract
 - Unified player Core theming
