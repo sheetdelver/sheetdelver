@@ -33,24 +33,24 @@ interface RollDialogProps {
 }
 
 const defaultTheme = {
-    overlay: "absolute inset-0 bg-black/40 backdrop-blur-sm transition-opacity",
-    container: "w-full max-w-md relative z-10 bg-white/80 backdrop-blur-xl border border-white/20 shadow-2xl rounded-2xl p-6 animate-in zoom-in-95 duration-200",
-    header: "mb-6 border-b border-black/5 pb-3",
-    title: "font-sans text-2xl font-bold tracking-tight text-center text-neutral-900",
+    overlay: "sd-ui-overlay absolute inset-0 backdrop-blur-sm transition-opacity",
+    container: "sd-ui-panel-raised w-full max-w-md relative z-10 backdrop-blur-xl shadow-2xl rounded-2xl p-6 animate-in zoom-in-95 duration-200",
+    header: "mb-6 border-b sd-ui-divider pb-3",
+    title: "font-sans text-2xl font-bold tracking-tight text-center",
     body: "space-y-4 mb-8",
     inputGroup: "grid grid-cols-3 items-center gap-4",
-    label: "col-span-1 font-bold text-xs uppercase tracking-widest text-neutral-400",
-    input: "col-span-2 p-2 bg-white/50 border border-neutral-200 rounded-xl font-sans text-lg outline-none focus:border-neutral-900 transition-all text-neutral-900",
+    label: "sd-ui-muted col-span-1 font-bold text-xs uppercase tracking-widest",
+    input: "sd-ui-control col-span-2 p-2 rounded-xl font-sans text-lg transition-all",
     footer: "flex flex-col gap-3",
     rollBtn: (mode: 'normal' | 'adv' | 'dis') => {
-        const base = "flex-1 py-3 px-4 font-bold text-sm rounded-xl transition-all active:scale-95 shadow-sm ";
-        if (mode === 'normal') return base + "bg-neutral-900 text-white hover:bg-black";
-        if (mode === 'adv') return base + "bg-green-500/10 text-green-700 hover:bg-green-500/20";
-        return base + "bg-red-500/10 text-red-700 hover:bg-red-500/20";
+        const base = "sd-ui-button flex-1 py-3 px-4 font-bold text-sm rounded-xl transition-all active:scale-95 shadow-sm ";
+        if (mode === 'normal') return base + "sd-ui-button-primary";
+        if (mode === 'adv') return base + "sd-ui-success";
+        return base + "sd-ui-danger";
     },
-    closeBtn: "text-neutral-500 hover:text-white transition-colors",
-    select: "w-full p-2 bg-white/50 border border-neutral-200 rounded-xl font-sans text-lg outline-none appearance-none cursor-pointer hover:border-neutral-400 transition-all text-neutral-900",
-    selectArrow: "absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-neutral-400"
+    closeBtn: "sd-ui-muted hover:opacity-80 transition-opacity",
+    select: "sd-ui-control w-full p-2 rounded-xl font-sans text-lg appearance-none cursor-pointer transition-all",
+    selectArrow: "sd-ui-muted absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none"
 };
 
 export default function RollDialog({ isOpen, title, type, actor, defaults, onConfirm, onClose, theme }: RollDialogProps) {
@@ -196,7 +196,7 @@ export default function RollDialog({ isOpen, title, type, actor, defaults, onCon
                         </div>
                     )}
 
-                    <div className={`${t.inputGroup} pt-4 border-t border-black/5`}>
+                    <div className={`${t.inputGroup} pt-4 border-t sd-ui-divider`}>
                         <label className={t.label}>Mode</label>
                         <div className="col-span-2 relative">
                             <select
@@ -220,13 +220,10 @@ export default function RollDialog({ isOpen, title, type, actor, defaults, onCon
 
                 {/* Footer Buttons */}
                 <div className={t.footer}>
-                    <div className="flex flex-col gap-3 pt-4 border-t border-black/5">
+                    <div className="flex flex-col gap-3 pt-4 border-t sd-ui-divider">
                         <button
                             onClick={() => setIsManual(!isManual)}
-                            className={`w-full py-2 px-4 font-bold text-xs uppercase tracking-widest rounded-none transition-all ${isManual
-                                ? 'bg-black text-white hover:bg-neutral-800'
-                                : 'bg-neutral-200 text-neutral-600 hover:bg-neutral-300'
-                                }`}
+                            className={`sd-ui-button w-full py-2 px-4 font-bold text-xs uppercase tracking-widest transition-all ${isManual ? 'sd-ui-button-primary' : ''}`}
                         >
                             {isManual ? 'Revert to Roll' : 'Manual Input'}
                         </button>

@@ -105,6 +105,10 @@ For actors, the platform performs one system-client fetch during bootstrap, seed
 - **FoundryProvider**: The heart of the application. Manages the connection step (`init` -> `login` -> `dashboard`), authenticates users, and polls for real-time state updates (actors, users, system info).
 - **JournalProvider**: Manages journal entry loading, folder hierarchies, and pagination logic.
 - **UIProvider**: Manages the state of global overlays like the sidebars, floating HUD, and shared content modals.
+- **PlayerToolsBoundary**: Shows persistent world tools only when the session
+  marker is present and the connection step is `dashboard`. Unavailable worlds
+  close open tool panels without unmounting session/realtime providers or
+  issuing logout. Restoration remains governed by the server session policy.
 - **ChatProvider**: Owns authorized chat DTOs, live-message indication and
   browser-local preview preferences. Create hints are paired with authorized
   API reads; history alone never creates a preview. ChatMessageCard renders the
@@ -131,7 +135,17 @@ For actors, the platform performs one system-client fetch during bootstrap, seed
   not an SDK change ([ADR-0046](adr/0046-admin-notification-alignment.md)).
 - **PlayerSettingsDialog**: Lives in `components/Settings/`, with open state owned
   by UIProvider. Chat & Rolls composes chat controls and the dice panel; General
-  and Themes are reserved tabs. It mounts only in the player provider tree.
+  and Themes are separate tabs (General remains reserved). It mounts only in
+  the player provider tree.
+- **PlayerAppearanceProvider**: Owns Core player's browser-local dark/light
+  preference (dark by default), independent of Admin and module presentation.
+  Its `data-sd-appearance` and `--sd-ui-*` palette cover player routes,
+  persistent siblings and body-mounted Core dialogs. Core-owned chrome and
+  fallback SDK component styles use these tokens; manifest `theme` remains the
+  prop for module dashboard tools, and explicit module `componentStyles` or
+  injected-component themes take precedence. Module sheets/tools and the
+  module-facing `--background`/`--foreground` CSS tokens are unchanged. See
+  [ADR-0053](adr/0053-player-core-appearance.md).
 - **DicePresentationProvider**: Owns browser-local dice preferences and the bounded
   animation queue. It mounts above ChatProvider, receiving authorized reads and
   hints from ChatContext's existing listeners. It exposes held IDs, not another

@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { connection } from "next/server";
+import { headers } from "next/headers";
+import Script from "next/script";
 import { Geist, Geist_Mono, Cinzel, Inter, IM_Fell_Double_Pica, Crimson_Pro } from "next/font/google";
 import "./globals.css";
 
@@ -65,6 +67,7 @@ export default async function RootLayout({
   // A request-bound render lets Proxy supply the fresh CSP nonce that Next
   // attaches to framework scripts; static HTML cannot carry a per-request nonce.
   await connection();
+  const nonce = (await headers()).get('x-nonce') ?? undefined;
 
   return (
     <html lang="en" suppressHydrationWarning>
@@ -72,6 +75,9 @@ export default async function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} ${cinzel.variable} ${inter.variable} ${imFell.variable} ${crimson.variable} font-sans antialiased`}
         suppressHydrationWarning
       >
+        <Script id="sd-player-appearance-bootstrap" strategy="beforeInteractive" nonce={nonce}>
+          {`try{var p=location.pathname;if(p!=='/admin'&&!p.startsWith('/admin/')&&localStorage.getItem('sheetdelver-player-appearance')==='light'){document.documentElement.dataset.sdAppearance='light'}}catch{}`}
+        </Script>
         {children}
       </body>
     </html>

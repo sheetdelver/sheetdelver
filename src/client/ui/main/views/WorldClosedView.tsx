@@ -1,11 +1,9 @@
 import React from 'react';
 import type { AppSystemInfo } from '@shared/interfaces';
-import { Theme } from '../hooks/useTheme';
 
 interface WorldClosedViewProps {
     system: AppSystemInfo | null;
     appVersion: string;
-    theme: Theme;
 }
 
 /**
@@ -13,16 +11,16 @@ interface WorldClosedViewProps {
  * Shows world info (title, description) identical to the LoginView info card,
  * but without the login form. Lets the user know the service is retrying.
  */
-export const WorldClosedView = ({ system, appVersion, theme }: WorldClosedViewProps) => {
+export const WorldClosedView = ({ system, appVersion }: WorldClosedViewProps) => {
     return (
-        <div className="flex flex-col items-center justify-center min-h-[80vh] text-center p-8 space-y-6 animate-in fade-in duration-700">
-            <h1 className={`text-6xl font-black tracking-tighter text-white mb-2 underline decoration-amber-500 underline-offset-8 decoration-4`} style={{ fontFamily: 'var(--font-cinzel), serif' }}>
+        <div className="flex flex-col items-center justify-center min-h-[80vh] text-center p-4 sm:p-8 space-y-6 animate-in fade-in duration-700">
+            <h1 className="text-4xl sm:text-6xl font-black tracking-tighter mb-2 underline underline-offset-8 decoration-4 sd-ui-accent" style={{ fontFamily: 'var(--font-cinzel), serif' }}>
                 SheetDelver
             </h1>
             <p className="text-xs font-mono opacity-40 mb-8">v{appVersion || '...'}</p>
 
-            <div className="bg-black/50 p-8 rounded-xl border border-white/10 backdrop-blur-md max-w-lg shadow-2xl w-full">
-                <h2 className="text-2xl font-bold text-amber-500 mb-4">No World Available</h2>
+            <div className="sd-ui-panel p-5 sm:p-8 rounded-xl backdrop-blur-md max-w-lg shadow-2xl w-full">
+                <h2 className="text-2xl font-bold sd-ui-accent mb-4">No World Available</h2>
                 <p className="text-lg opacity-80 mb-6 leading-relaxed">
                     No world is available to login, please check back later.
                 </p>

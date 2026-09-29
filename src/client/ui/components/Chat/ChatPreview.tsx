@@ -35,13 +35,13 @@ export function ChatPreviewCard({ message, duration, dismiss, openChat, foundryU
         return () => { clearTimeout(timer); remaining.current = Math.max(0, remaining.current - (Date.now() - start)); };
     }, [duration, hovered, focused, hidden, dismiss]);
     return <section aria-label="New chat message" role="status" aria-atomic="true"
-        className={`${moduleId ? `sdk-module--${moduleId}` : ''} hud-panel pointer-events-auto shrink-0 rounded-md border border-neutral-600 bg-neutral-900 text-white shadow-lg max-h-[45dvh] overflow-auto`}
+        className={`${moduleId ? `sdk-module--${moduleId}` : ''} sd-ui-panel-raised hud-panel pointer-events-auto shrink-0 rounded-md shadow-lg max-h-[45dvh] overflow-auto`}
         onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
         onFocusCapture={() => setFocused(true)}
         onBlurCapture={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocused(false); }}>
         <ChatMessageCard message={message} foundryUrl={foundryUrl} styles={styles} actions={actions} controls={<>
-            <button type="button" title="Open chat" aria-label="Open chat" onClick={openChat} className="p-2 rounded hover:bg-white/10"><MessageSquare size={16} /></button>
-            <button type="button" title="Dismiss chat preview" aria-label="Dismiss chat preview" onClick={dismiss} className="p-2 rounded hover:bg-white/10"><X size={16} /></button>
+            <button type="button" title="Open chat" aria-label="Open chat" onClick={openChat} className="sd-ui-button p-2 rounded"><MessageSquare size={16} /></button>
+            <button type="button" title="Dismiss chat preview" aria-label="Dismiss chat preview" onClick={dismiss} className="sd-ui-button p-2 rounded"><X size={16} /></button>
         </>} />
     </section>;
 }

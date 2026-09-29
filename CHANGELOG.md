@@ -5,6 +5,10 @@
 - Added batch initiative rolls
 - Added read-only combat stats
 - Added shared GM stat preferences
+- Unified player Core theming
+- Added player light/dark toggle
+- Preserved module style overrides
+- Refined world-close presentation
 - Enabled concurrent shared-scene dice
 - Matched predetermined landing faces
 - Expanded numeric roll rules

@@ -49,12 +49,12 @@ class SurfaceErrorBoundary extends React.Component<SurfaceErrorBoundaryProps, Su
 
 function DefaultSurfaceError({ surface, message }: { surface?: string; message?: string }) {
     return (
-        <div className="min-h-[200px] flex items-center justify-center p-8 text-center text-white">
-            <div className="bg-black/40 rounded border border-red-900/40 p-6 max-w-md">
-                <h2 className="text-lg font-bold text-red-400 mb-2">
+        <div className="min-h-[200px] flex items-center justify-center p-8 text-center">
+            <div className="sd-ui-panel-raised rounded p-6 max-w-md">
+                <h2 className="sd-ui-danger text-lg font-bold mb-2">
                     {surface ? `This ${surface} could not be displayed.` : 'This module surface could not be displayed.'}
                 </h2>
-                {message && <p className="text-sm text-neutral-400 font-mono break-words">{message}</p>}
+                {message && <p className="sd-ui-muted text-sm font-mono break-words">{message}</p>}
             </div>
         </div>
     );

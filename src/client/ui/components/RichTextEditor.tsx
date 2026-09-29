@@ -23,17 +23,17 @@ export interface RichTextTheme {
 }
 
 export const DASHBOARD_THEME: RichTextTheme = {
-    container: 'relative group h-full flex flex-col bg-neutral-950/50 border border-neutral-800 rounded-lg overflow-hidden',
+    container: 'sd-ui-panel relative group h-full flex flex-col rounded-lg overflow-hidden',
     toolbar: {
-        container: 'bg-neutral-900 border-b border-neutral-800 p-2 flex flex-wrap gap-1 items-center sticky top-0 z-10',
-        button: 'p-2 rounded-md hover:bg-neutral-800 transition-colors text-neutral-400 hover:text-white',
-        buttonActive: 'p-2 rounded-md bg-neutral-800 text-white',
-        separator: 'w-px h-6 bg-neutral-800 mx-1',
-        actionButton: 'px-3 py-1 text-xs font-medium text-neutral-400 hover:text-white hover:bg-neutral-800 rounded-md mr-2',
-        saveButton: 'px-3 py-1 text-xs font-medium bg-emerald-600 text-white hover:bg-emerald-500 rounded-md flex items-center gap-1 shadow-sm'
+        container: 'sd-ui-inset border-b sd-ui-divider p-2 flex flex-wrap gap-1 items-center sticky top-0 z-10',
+        button: 'sd-ui-button p-2 rounded-md transition-colors',
+        buttonActive: 'sd-ui-button sd-ui-button-primary p-2 rounded-md',
+        separator: 'h-6 border-l sd-ui-divider mx-1',
+        actionButton: 'sd-ui-button px-3 py-1 text-xs font-medium rounded-md mr-2',
+        saveButton: 'sd-ui-button sd-ui-button-primary px-3 py-1 text-xs font-medium rounded-md flex items-center gap-1 shadow-sm'
     },
     editor: 'max-w-none focus:outline-none min-h-[300px] p-4 font-sans',
-    editButton: 'bg-neutral-800 text-neutral-200 px-4 py-2 text-sm font-medium rounded-md hover:bg-neutral-700 hover:text-white transition-colors flex items-center gap-2 shadow-sm border border-neutral-700/50 backdrop-blur-sm'
+    editButton: 'sd-ui-button px-4 py-2 text-sm font-medium rounded-md transition-colors flex items-center gap-2 shadow-sm backdrop-blur-sm'
 };
 
 interface RichTextEditorProps {
