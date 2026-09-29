@@ -24,6 +24,7 @@ import { run as runJournalOrdering } from './journal-ordering.test';
 import { run as runGenericSheetFieldState } from './generic-sheet-field-state.test';
 import { run as runGenericSheet } from './generic-sheet.test';
 import { run as runCatalogReleaseState } from './catalog-release-state.test';
+import { run as runPlayerAppearance } from './player-appearance.test';
 
 import { run as runNotifications } from './notification-store.test';
 import { run as runChatPresentation } from './chat-presentation.test';
@@ -51,6 +52,7 @@ export async function run() {
     runGenericSheetFieldState();
     runGenericSheet();
     runCatalogReleaseState();
+    runPlayerAppearance();
     runDicePresentation();
     runDiceFollowups();
     runDiceTrayLifecycle();

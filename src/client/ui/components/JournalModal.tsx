@@ -131,24 +131,24 @@ export default function JournalModal() {
     if (!activeJournalId) return null;
 
     return (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 sm:p-8 bg-black/70 backdrop-blur-md animate-in fade-in duration-300">
+        <div className="sd-ui-overlay fixed inset-0 z-[200] flex items-center justify-center p-4 sm:p-8 backdrop-blur-md animate-in fade-in duration-300">
             {/* Backdrop click to close */}
             <div className="absolute inset-0" onClick={close} />
 
-            <div className="bg-zinc-900 w-full max-w-5xl h-full sm:h-[85vh] rounded-2xl shadow-2xl border border-white/10 flex flex-col overflow-hidden relative hud-panel" onClick={e => e.stopPropagation()}>
+            <div className="sd-ui-panel-raised w-full max-w-5xl h-full sm:h-[85vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden relative hud-panel" onClick={e => e.stopPropagation()}>
 
                 {/* Header */}
-                <div className="p-4 sm:p-5 border-b border-white/5 flex items-center justify-between bg-black/40">
+                <div className="sd-ui-inset p-4 sm:p-5 border-b sd-ui-divider flex items-center justify-between">
                     <div className="flex items-center gap-3 min-w-0">
-                        <div className="bg-blue-500/10 p-2 rounded-lg shrink-0">
-                            <Book className="w-5 h-5 text-blue-500" />
+                        <div className="sd-ui-panel p-2 rounded-lg shrink-0">
+                            <Book className="w-5 h-5 sd-ui-accent" />
                         </div>
                         <div className="min-w-0">
-                            <h2 className="font-bold text-lg text-white leading-tight truncate">
+                            <h2 className="font-bold text-lg leading-tight truncate">
                                 {journal?.name || 'Loading Journal...'}
                             </h2>
                             {orderedPages.length > 0 && (
-                                <p className="text-[10px] text-zinc-500 uppercase font-bold tracking-widest mt-0.5">
+                                <p className="sd-ui-muted text-[10px] uppercase font-bold tracking-widest mt-0.5">
                                     Page {activePageIndex + 1} of {orderedPages.length} {currentPage?.name ? `• ${currentPage.name}` : ''}
                                 </p>
                             )}
@@ -157,7 +157,7 @@ export default function JournalModal() {
                     <div className="flex items-center gap-1 sm:gap-2">
                         {canShare && (
                             <button
-                                className="p-2 text-zinc-400 hover:text-white hover:bg-white/5 rounded-full transition-all"
+                                className="sd-ui-button p-2 rounded-full transition-all"
                                 title="Share with players"
                             >
                                 <Share2 className="w-5 h-5  sm:w-5 sm:h-5 " />
@@ -165,7 +165,7 @@ export default function JournalModal() {
                         )}
                         <button
                             onClick={close}
-                            className="p-2 hover:bg-white/10 rounded-full text-zinc-400 hover:text-white transition-all ml-1"
+                            className="sd-ui-button p-2 rounded-full transition-all ml-1"
                         >
                             <X className="w-6 h-6" />
                         </button>
@@ -173,11 +173,11 @@ export default function JournalModal() {
                 </div>
 
                 {/* Content Area */}
-                <div className="flex-1 overflow-hidden relative flex flex-col bg-zinc-900/50">
+                <div className="flex-1 overflow-hidden relative flex flex-col">
                     {loading ? (
                         <div className="flex-1 flex flex-col items-center justify-center space-y-4">
-                            <Loader2 className="w-10 h-10 text-amber-500 animate-spin" />
-                            <span className="text-xs uppercase font-black tracking-widest text-amber-500/50">Unrolling Parchment...</span>
+                            <Loader2 className="sd-ui-accent w-10 h-10 animate-spin" />
+                            <span className="sd-ui-muted text-xs uppercase font-black tracking-widest">Unrolling Parchment...</span>
                         </div>
                     ) : (
                         <>
@@ -213,7 +213,7 @@ export default function JournalModal() {
                             {canEdit && !isEditing && !loading && (
                                 <button
                                     onClick={() => setIsEditing(true)}
-                                    className="absolute bottom-8 right-8 bg-amber-600 hover:bg-amber-500 text-black px-6 py-3 rounded-full font-black shadow-xl shadow-amber-900/20 hover:scale-105 active:scale-95 transition-all flex items-center gap-2 z-10"
+                                    className="sd-ui-button sd-ui-button-primary absolute bottom-8 right-8 px-6 py-3 rounded-full font-black shadow-xl hover:scale-105 active:scale-95 transition-all flex items-center gap-2 z-10"
                                 >
                                     <Edit className="w-4 h-4" />
                                     EDIT PAGE
@@ -225,11 +225,11 @@ export default function JournalModal() {
 
                 {/* Footer / Pagination */}
                 {orderedPages.length > 1 && !isEditing && (
-                    <div className="p-4 bg-black/40 border-t border-white/5 flex items-center justify-between">
+                    <div className="sd-ui-inset p-4 border-t sd-ui-divider flex items-center justify-between">
                         <button
                             disabled={activePageIndex === 0}
                             onClick={() => selectPageAtIndex(activePageIndex - 1)}
-                            className="flex items-center gap-2 text-xs font-black text-zinc-500 hover:text-white disabled:opacity-10 transition-colors uppercase tracking-widest"
+                            className="sd-ui-muted flex items-center gap-2 text-xs font-black hover:opacity-80 disabled:opacity-10 transition-opacity uppercase tracking-widest"
                         >
                             <ChevronLeft className="w-5 h-5 font-bold" />
                             Previous
@@ -240,20 +240,20 @@ export default function JournalModal() {
                                 <button
                                     key={getJournalPageId(page) ?? i}
                                     onClick={() => selectPageAtIndex(i)}
-                                    className={`w-2 h-2 rounded-full transition-all hover:scale-125 ${i === activePageIndex ? 'bg-amber-500 w-6' : 'bg-white/10 hover:bg-white/30'}`}
+                                    className={`w-2 h-2 rounded-full transition-all hover:scale-125 ${i === activePageIndex ? 'sd-ui-button-primary w-6' : 'sd-ui-button'}`}
                                     title={`Go to page ${i + 1}`}
                                 />
                             ))}
                         </div>
 
-                        <div className="sm:hidden text-[10px] font-black text-zinc-600">
+                        <div className="sd-ui-muted sm:hidden text-[10px] font-black">
                             {activePageIndex + 1} / {orderedPages.length}
                         </div>
 
                         <button
                             disabled={activePageIndex === orderedPages.length - 1}
                             onClick={() => selectPageAtIndex(activePageIndex + 1)}
-                            className="flex items-center gap-2 text-xs font-black text-zinc-500 hover:text-white disabled:opacity-10 transition-colors uppercase tracking-widest"
+                            className="sd-ui-muted flex items-center gap-2 text-xs font-black hover:opacity-80 disabled:opacity-10 transition-opacity uppercase tracking-widest"
                         >
                             Next
                             <ChevronRight className="w-5 h-5 font-bold" />

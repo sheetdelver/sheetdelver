@@ -6,6 +6,7 @@ import CombatHUD from "@client/ui/components/Combat/CombatHUD";
 import JournalBrowser from "@client/ui/components/JournalBrowser";
 import JournalModal from "@client/ui/components/JournalModal";
 import VideoPlaysinlineFix from "@client/ui/components/VideoPlaysinlineFix";
+import { PlayerToolsBoundary } from "@client/ui/components/PlayerToolsBoundary";
 import PlayerProviders from "./PlayerProviders";
 
 export default function PlayerLayout({
@@ -19,12 +20,14 @@ export default function PlayerLayout({
       <div className="relative min-h-screen">
         <ShutdownWatcher />
         {children}
-        <GlobalChat />
-        <PlayerList />
-        <FloatingHUD />
-        <CombatHUD />
-        <JournalBrowser />
-        <JournalModal />
+        <PlayerToolsBoundary>
+          <GlobalChat />
+          <PlayerList />
+          <FloatingHUD />
+          <CombatHUD />
+          <JournalBrowser />
+          <JournalModal />
+        </PlayerToolsBoundary>
       </div>
     </PlayerProviders>
   );

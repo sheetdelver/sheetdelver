@@ -94,7 +94,7 @@ export default function FloatingHUD() {
     }, [anyToolOpen, isMinimized]);
 
     // Hide HUD if not fully connected/authenticated
-    if (['init', 'setup', 'authenticating', 'login', 'logging-out', 'startup', 'initializing'].includes(step)) return null;
+    if (step !== 'dashboard') return null;
 
     return (
         <div
@@ -105,10 +105,10 @@ export default function FloatingHUD() {
                     : 'left-1/2 -translate-x-1/2 sm:left-auto sm:right-6 sm:translate-x-0'
                 }`}
         >
-            <div className={`flex items-center gap-0 sm:gap-2 p-2 rounded-2xl shadow-2xl backdrop-blur-2xl border transition-all duration-500
+            <div className={`sd-ui-panel-raised flex items-center gap-0 sm:gap-2 p-2 rounded-2xl shadow-2xl backdrop-blur-2xl transition-all duration-500
                 ${isMinimized
-                    ? 'bg-black/80 border-white/10 rounded-full'
-                    : 'bg-black/90 border-white/20 sm:flex-row-reverse'
+                    ? 'rounded-full'
+                    : 'sm:flex-row-reverse'
                 }`}
             >
                 {/* Trigger / Collapse Button */}
@@ -122,7 +122,7 @@ export default function FloatingHUD() {
                         }
                     }}
                     className={`h-10 w-10 shrink-0 sm:h-12 sm:w-12 p-2 sm:p-3 rounded-full transition-all duration-500 flex items-center justify-center
-                        ${isMinimized ? 'text-amber-500 hover:scale-110' : 'text-white/40 hover:text-white rotate-[360deg]'}
+                        ${isMinimized ? 'sd-ui-accent hover:scale-110' : 'sd-ui-muted hover:opacity-80 rotate-[360deg]'}
                     `}
                 >
                     {isMinimized ? (
@@ -144,7 +144,7 @@ export default function FloatingHUD() {
                         {(isJournalOpen || !anyToolOpen) && (
                             <button
                                 onClick={() => toggleTool('journal')}
-                                className={`h-10 w-10 shrink-0 sm:h-12 sm:w-12 p-2 sm:p-3 rounded-xl transition-all relative ${isJournalOpen ? 'bg-blue-600 text-white' : 'text-white/60 hover:bg-white/5 hover:text-white'}`}
+                                className={`h-10 w-10 shrink-0 sm:h-12 sm:w-12 p-2 sm:p-3 rounded-xl transition-all relative ${isJournalOpen ? 'sd-ui-button-primary' : 'sd-ui-muted hover:opacity-80'}`}
                                 title="Journals"
                             >
                                 <Book className="w-6 h-6" />
@@ -154,7 +154,7 @@ export default function FloatingHUD() {
                         {(isChatOpen || !anyToolOpen) && (
                             <button
                                 onClick={() => toggleTool('chat')}
-                                className={`h-10 w-10 shrink-0 sm:h-12 sm:w-12 p-2 sm:p-3 rounded-xl transition-all relative ${isChatOpen ? 'bg-amber-500 text-black' : 'text-white/60 hover:bg-white/5 hover:text-white'}`}
+                                className={`h-10 w-10 shrink-0 sm:h-12 sm:w-12 p-2 sm:p-3 rounded-xl transition-all relative ${isChatOpen ? 'sd-ui-button-primary' : 'sd-ui-muted hover:opacity-80'}`}
                                 title={hasUnread ? "Game Chat: new messages" : "Game Chat"}
                                 aria-label={hasUnread ? "Game Chat: new messages" : "Game Chat"}
                             >
@@ -168,13 +168,13 @@ export default function FloatingHUD() {
                         {(isDiceTrayOpen || !anyToolOpen) && (
                             <button
                                 onClick={() => toggleTool('dice')}
-                                className={`h-10 w-10 shrink-0 sm:h-12 sm:w-12 p-2 sm:p-3 rounded-xl transition-all flex items-center justify-center ${isDiceTrayOpen ? 'bg-rose-600 text-white' : 'text-white/60 hover:bg-white/5 hover:text-white'}`}
+                                className={`h-10 w-10 shrink-0 sm:h-12 sm:w-12 p-2 sm:p-3 rounded-xl transition-all flex items-center justify-center ${isDiceTrayOpen ? 'sd-ui-button-primary' : 'sd-ui-muted hover:opacity-80'}`}
                                 title="Dice Tray"
                             >
                                 <img
                                     src="/icons/dice-d20.svg"
                                     alt="Dice"
-                                    className={`w-6 h-6 ${isDiceTrayOpen ? 'brightness-0 invert' : 'brightness-0 invert opacity-60'}`}
+                                    className="w-6 h-6 opacity-80"
                                 />
                             </button>
                         )}
@@ -182,7 +182,7 @@ export default function FloatingHUD() {
                         {(isPlayerListOpen || !anyToolOpen) && (
                             <button
                                 onClick={() => toggleTool('players')}
-                                className={`h-10 w-10 shrink-0 sm:h-12 sm:w-12 p-2 sm:p-3 rounded-xl transition-all relative ${isPlayerListOpen ? 'bg-emerald-600 text-white' : 'text-white/60 hover:bg-white/5 hover:text-white'}`}
+                                className={`h-10 w-10 shrink-0 sm:h-12 sm:w-12 p-2 sm:p-3 rounded-xl transition-all relative ${isPlayerListOpen ? 'sd-ui-button-primary' : 'sd-ui-muted hover:opacity-80'}`}
                                 title="Player List"
                             >
                                 <Users className="w-6 h-6" />
@@ -196,11 +196,11 @@ export default function FloatingHUD() {
 
                         {!anyToolOpen && (
                             <>
-                                <PlayerSettingsButton className="h-10 w-10 shrink-0 sm:h-12 sm:w-12 p-2 sm:p-3 rounded-xl transition-all text-white/60 hover:bg-white/5 hover:text-white" />
-                                <div className="w-px h-8 bg-white/10 mx-1 hidden sm:block" />
+                                <PlayerSettingsButton className="sd-ui-muted h-10 w-10 shrink-0 sm:h-12 sm:w-12 p-2 sm:p-3 rounded-xl transition-all hover:opacity-80" />
+                                <div className="h-8 border-l sd-ui-divider mx-1 hidden sm:block" />
                                 <button
                                     onClick={() => { router.push('/'); setIsMinimized(true); }}
-                                    className={`h-10 w-10 shrink-0 sm:h-12 sm:w-12 p-2 sm:p-3 rounded-xl transition-all ${pathname === '/' ? 'bg-amber-500 text-black' : 'text-white/60 hover:bg-white/5 hover:text-white'}`}
+                                    className={`h-10 w-10 shrink-0 sm:h-12 sm:w-12 p-2 sm:p-3 rounded-xl transition-all ${pathname === '/' ? 'sd-ui-button-primary' : 'sd-ui-muted hover:opacity-80'}`}
                                     title="Dashboard"
                                 >
                                     <Home className="w-6 h-6" />

@@ -129,13 +129,13 @@ export default function ActorPageRouter({ params }: { params: Promise<{ id: stri
 
     if (error) {
         return (
-            <div className="min-h-screen flex items-center justify-center bg-neutral-900 text-white">
-                <div className="text-center p-8 bg-black/40 rounded border border-white/10">
-                    <h1 className="text-xl font-bold text-red-500 mb-2">Error</h1>
-                    <p className="opacity-70 mb-4">{error}</p>
+            <div className="sd-ui-page flex items-center justify-center p-4">
+                <div className="sd-ui-panel-raised text-center p-8 rounded max-w-md">
+                    <h1 className="sd-ui-danger text-xl font-bold mb-2">Error</h1>
+                    <p className="sd-ui-muted mb-4">{error}</p>
                     <button
                         onClick={() => router.push('/')}
-                        className="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 rounded transition-colors"
+                        className="sd-ui-button px-4 py-2"
                     >
                         Back to Dashboard
                     </button>

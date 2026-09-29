@@ -30,18 +30,19 @@ export default function DiceTrayDialog({ isOpen, onClose, onSend, speaker }: Dic
 
     if (!isOpen) return null;
 
-    const s = adapter?.componentStyles?.globalChat || {
-        window: "fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200",
-        header: "bg-black p-4 flex justify-between items-center",
-        title: "font-serif font-bold text-xl uppercase tracking-widest text-white mx-auto",
-        closeBtn: "text-white hover:text-amber-500 transition-colors"
+    const s = {
+        window: "sd-ui-panel-raised rounded-2xl shadow-2xl",
+        header: "sd-ui-inset p-4 flex justify-between items-center",
+        title: "font-serif font-bold text-xl uppercase tracking-widest mx-auto",
+        closeBtn: "sd-ui-muted hover:opacity-80 transition-opacity",
+        ...adapter?.componentStyles?.globalChat,
     };
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+        <div className="sd-ui-overlay fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm p-4 animate-in fade-in duration-200">
             <div
                 ref={diceFeedbackAnchor}
-                className={`w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200 ${adapter?.componentStyles?.globalChat?.window || 'bg-neutral-900 border border-white/10 rounded-2xl shadow-2xl'}`}
+                className={`w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200 ${s.window}`}
             >
                 <div className={s.header}>
                     <h3 className={s.title}>Dice Tray</h3>

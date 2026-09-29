@@ -31,7 +31,7 @@ export default function MainPage({ initialUrl }: MainPageProps) {
     const { token } = useSession();
 
     const { foundryUrl: configUrl } = useConfig();
-    const { theme, bgStyle } = useTheme();
+    const { theme: moduleTheme, bgStyle } = useTheme();
 
     const [loading, setLoading] = useState(false);
     const [loginMessage, setLoginMessage] = useState('');
@@ -51,18 +51,17 @@ export default function MainPage({ initialUrl }: MainPageProps) {
 
     return (
         <main
-            className={`min-h-screen ${theme.bg} ${theme.text} p-8 font-sans transition-colors duration-500 flex flex-col`}
+            className="sd-ui-page p-4 sm:p-8 font-sans transition-colors duration-500 flex flex-col"
             style={bgStyle}
             data-step={step}
             data-loading={loading}
         >
-            <LoadingScreen step={step} system={system} theme={theme} />
+            <LoadingScreen step={step} system={system} />
 
             {step === 'login' && (
                 <LoginView
                     users={users}
                     system={system}
-                    theme={theme}
                     onLogin={handleLogin}
                     loading={loading}
                 />
@@ -71,7 +70,7 @@ export default function MainPage({ initialUrl }: MainPageProps) {
             {step === 'setup' && <SetupView appVersion={appVersion || ''} />}
 
             {step === 'world-closed' && (
-                <WorldClosedView system={system} appVersion={appVersion || ''} theme={theme} />
+                <WorldClosedView system={system} appVersion={appVersion || ''} />
             )}
 
             {step === 'dashboard' && (
@@ -80,7 +79,7 @@ export default function MainPage({ initialUrl }: MainPageProps) {
                     user={users.find(u => (u._id || u.id) === (currentUser?._id || currentUser?.id)) || null}
                     ownedActors={ownedActors}
                     token={token}
-                    theme={theme}
+                    moduleTheme={moduleTheme}
                     configUrl={configUrl || ''}
                     appVersion={appVersion || ''}
                     fetchActors={fetchActors}

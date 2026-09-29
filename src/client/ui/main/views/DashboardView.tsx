@@ -14,7 +14,7 @@ interface DashboardViewProps {
     user: User | null;
     ownedActors: ActorDto[];
     token: string | null;
-    theme: Theme;
+    moduleTheme: Theme;
     configUrl: string;
     appVersion: string;
     fetchActors: () => Promise<ActorListPayload | void>;
@@ -27,7 +27,7 @@ export const DashboardView = ({
     user,
     ownedActors,
     token,
-    theme,
+    moduleTheme,
     configUrl,
     appVersion,
     fetchActors,
@@ -83,28 +83,28 @@ export const DashboardView = ({
         <div className="flex-1 w-full">
             {/* Reconnecting Overlay */}
             {system?.status !== 'active' && (
-                <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm transition-all duration-500">
-                    <div className={`${theme.panelBg} ${theme.text} border-2 border-amber-500/50 p-8 rounded-xl shadow-2xl max-w-sm w-full mx-4 text-center transform scale-100 animate-in fade-in zoom-in duration-300`}>
+                <div className="sd-ui-overlay fixed inset-0 z-[60] flex items-center justify-center backdrop-blur-sm transition-all duration-500">
+                    <div className="sd-ui-panel-raised p-8 rounded-xl shadow-2xl max-w-sm w-full mx-4 text-center transform scale-100 animate-in fade-in zoom-in duration-300">
                         <div className="mb-4 flex justify-center">
-                            <div className="w-12 h-12 border-4 border-amber-500 border-t-transparent rounded-full animate-spin"></div>
+                            <div className="w-12 h-12 border-4 border-t-transparent rounded-full animate-spin sd-ui-accent" style={{ borderColor: 'var(--sd-ui-accent)', borderTopColor: 'transparent' }}></div>
                         </div>
                         <h2 className="text-xl font-bold mb-2">Connection Lost</h2>
-                        <p className="text-slate-400 mb-6">Foundry is currently unreachable. Reconnecting...</p>
-                        <div className="text-xs font-mono py-1 px-3 bg-black/30 rounded inline-block text-slate-500 uppercase tracking-widest">
+                        <p className="sd-ui-muted mb-6">Foundry is currently unreachable. Reconnecting...</p>
+                        <div className="sd-ui-inset text-xs font-mono py-1 px-3 rounded inline-block sd-ui-muted uppercase tracking-widest">
                             CORE_STATUS: {system?.status || 'UNKNOWN'}
                         </div>
                     </div>
                 </div>
             )}
 
-            <div className="max-w-7xl mx-auto space-y-8 p-6 bg-black/60 rounded-xl backdrop-blur-sm border border-white/10">
+            <div className="max-w-7xl mx-auto space-y-8 p-4 sm:p-6 sd-ui-panel rounded-xl backdrop-blur-sm">
                 {/* Overlays */}
                 <SharedContentModal />
 
                 {/* Header / Status */}
-                <div className="flex justify-between items-center bg-black/40 p-4 rounded-lg border border-white/5">
+                <div className="flex justify-between items-center sd-ui-inset p-4 rounded-lg">
                     <div>
-                        <h2 className={`text-2xl ${theme.headerFont} ${theme.accent}`}>
+                        <h2 className="text-2xl font-bold sd-ui-accent">
                             {system?.worldTitle || 'Dashboard'}
                         </h2>
                         <div className="flex flex-col md:flex-row md:items-center md:gap-2 text-xs opacity-50">
@@ -115,7 +115,7 @@ export const DashboardView = ({
                             )}
                             <div className="flex items-center gap-2">
                                 <span className="h-2 w-2 rounded-full bg-green-500 animate-pulse"></span>
-                                <span className="font-bold text-white">
+                                <span className="font-bold">
                                     Connected as {user?.name || 'Connecting...'}
                                 </span>
                                 <span className="h-2 w-2 rounded-full bg-green-500 animate-pulse"></span>
@@ -132,7 +132,7 @@ export const DashboardView = ({
                         systemId={system.id}
                         setLoading={setLoading}
                         setLoginMessage={setLoginMessage}
-                        theme={theme}
+                        theme={moduleTheme}
                         token={token}
                     />
                 )}
@@ -140,8 +140,8 @@ export const DashboardView = ({
                 {/* Owned Actors */}
                 <div>
                     <div className="flex items-center gap-3 mb-4">
-                        <h3 className={`text-xl font-bold uppercase tracking-widest opacity-80 ${theme.accent}`}>Characters</h3>
-                        <div className="h-px flex-1 bg-white/10"></div>
+                        <h3 className="text-xl font-bold uppercase tracking-widest sd-ui-accent">Characters</h3>
+                        <div className="h-px flex-1 sd-ui-divider border-t"></div>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                         {ownedActors.length === 0 && <p className="opacity-50 italic text-sm py-4">You don&apos;t own any characters in this world.</p>}
@@ -150,7 +150,6 @@ export const DashboardView = ({
                                 key={actor.id}
                                 actor={actor}
                                 index={idx}
-                                theme={theme}
                                 canDelete={canDeleteActors}
                                 onDelete={confirmDeletion}
                             />
@@ -160,12 +159,12 @@ export const DashboardView = ({
             </div>
 
             {/* Footer Info Box */}
-            <div className="w-full max-w-7xl mx-auto mt-12 bg-black/80 backdrop-blur-md p-6 rounded-xl border border-white/10 text-center md:text-right shadow-2xl">
-                <div className="text-4xl font-black tracking-tighter text-white mb-2 underline decoration-amber-500 underline-offset-8 decoration-4" style={{ fontFamily: 'var(--font-cinzel), serif' }}>
+            <div className="w-full max-w-7xl mx-auto mt-12 sd-ui-panel backdrop-blur-md p-6 rounded-xl text-center md:text-right shadow-2xl">
+                <div className="text-4xl font-black tracking-tighter mb-2 underline underline-offset-8 decoration-4 sd-ui-accent" style={{ fontFamily: 'var(--font-cinzel), serif' }}>
                     SheetDelver
                 </div>
                 {system && (
-                    <div className={`text-sm font-bold tracking-widest opacity-80 mb-2 ${theme.accent}`}>
+                    <div className="text-sm font-bold tracking-widest sd-ui-accent mb-2">
                         {system.title?.toUpperCase()} ({system.version?.toString().toUpperCase()})
                     </div>
                 )}

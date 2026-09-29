@@ -51,13 +51,13 @@ export default function ShutdownWatcher() {
     if (!shutdownDetected) return null;
 
     return (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/90 backdrop-blur-sm animate-in fade-in duration-300">
-            <div className="text-center space-y-4 p-8 border border-white/10 rounded-xl bg-neutral-900/50 shadow-2xl max-w-md mx-auto">
-                <div className={`text-amber-500 text-6xl font-black font-mono animate-pulse`}>
+        <div className="sd-ui-overlay fixed inset-0 z-[200] flex items-center justify-center backdrop-blur-sm animate-in fade-in duration-300">
+            <div className="sd-ui-panel-raised text-center space-y-4 p-8 rounded-xl shadow-2xl max-w-md mx-auto">
+                <div className="sd-ui-accent text-6xl font-black font-mono animate-pulse">
                     {countDown}
                 </div>
-                <h2 className="text-2xl font-bold text-white tracking-tight">World Shutdown Detected</h2>
-                <p className="text-white/60">The Foundry world has been stopped. Returning to start screen...</p>
+                <h2 className="text-2xl font-bold tracking-tight">World Shutdown Detected</h2>
+                <p className="sd-ui-muted">The Foundry world has been stopped. Returning to start screen...</p>
             </div>
         </div>
     );

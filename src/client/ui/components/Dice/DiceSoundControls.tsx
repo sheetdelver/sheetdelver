@@ -8,7 +8,7 @@ export function DiceSoundControls({ value, onChange, disabled = false }: {
     onChange: (value: DiceSoundSettings) => void;
     disabled?: boolean;
 }) {
-    return <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-white/70">
+    return <div className="sd-ui-muted flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
         <label className="flex items-center gap-2">
             <input type="checkbox" checked={value.enabled} disabled={disabled}
                 onChange={event => onChange({ ...value, enabled: event.target.checked })} />
@@ -24,7 +24,7 @@ export function DiceSoundControls({ value, onChange, disabled = false }: {
         </label>
         <label className="flex items-center gap-2">Surface
             <select aria-label="Dice sound surface" value={value.surface ?? 'felt'} disabled={disabled}
-                style={{ background: '#303438', color: '#f2f4f5', padding: '6px 8px', borderRadius: 4, maxWidth: '100%' }}
+                className="sd-ui-control" style={{ padding: '6px 8px', maxWidth: '100%' }}
                 onChange={event => onChange({ ...value, surface: event.target.value as DiceSoundSettings['surface'] })}>
                 {Object.entries(diceSurfaces).map(([id, surface]) => <option key={id} value={id}>{surface.label}</option>)}
             </select>

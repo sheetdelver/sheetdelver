@@ -56,7 +56,7 @@ export default function SheetRouter(props: SheetRouterProps) {
 
     if (!SheetComponent) {
         return (
-            <div className="p-8 text-center text-white">
+            <div className="sd-ui-panel-raised p-8 text-center rounded-lg">
                 <h1 className="text-2xl font-bold mb-4">Unsupported System</h1>
                 <p>System &quot;{systemId}&quot; does not have a registered sheet.</p>
             </div>

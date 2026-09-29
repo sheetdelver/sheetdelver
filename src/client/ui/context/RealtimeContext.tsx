@@ -110,14 +110,14 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
             {children}
             {serverRestarting && (
                 <div
-                    className="fixed inset-0 z-[250] flex items-center justify-center bg-neutral-950/95 px-6 text-white"
+                    className="sd-ui-overlay fixed inset-0 z-[250] flex items-center justify-center px-6"
                     role="status"
                     aria-live="assertive"
                 >
                     <div className="flex max-w-md flex-col items-center gap-4 text-center">
-                        <Loader2 className="h-10 w-10 animate-spin text-amber-400" aria-hidden="true" />
+                        <Loader2 className="sd-ui-accent h-10 w-10 animate-spin" aria-hidden="true" />
                         <h2 className="text-2xl font-bold">Applying module changes</h2>
-                        <p className="text-sm text-neutral-300">
+                        <p className="sd-ui-muted text-sm">
                             Sheet Delver will resume when the world runtime is ready.
                         </p>
                     </div>

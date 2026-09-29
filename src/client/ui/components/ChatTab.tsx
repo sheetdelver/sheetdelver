@@ -77,14 +77,14 @@ export default function ChatTab({ messages, onSend, foundryUrl, onRoll, hideDice
                 <div className="space-y-3">
                     {ordered.map((message, index) => <ChatMessageCard key={messageId(message) || index} message={message}
                         foundryUrl={foundryUrl} styles={s} actions={{ onSend, onRoll, speaker }} />)}
-                    {!ordered.length && <p className="text-center text-neutral-400 text-sm p-4">No messages yet.</p>}
+                    {!ordered.length && <p className="sd-ui-muted text-center text-sm p-4">No messages yet.</p>}
                 </div>
             </div>
             <div className="flex items-center justify-between py-2">
                 <button type="button" title="Oldest message" aria-label="Oldest message" className={s.scrollButton + " p-2 rounded"}
                     onClick={() => { atBottom.current = false; scrollRef.current?.scrollTo({ top: 0 }); }}><ArrowUp size={18} /></button>
                 <button type="button" title="Latest message" aria-label="Latest message" className={s.scrollButton + " flex items-center gap-2 p-2 rounded"}
-                    onClick={scrollBottom}>{newMessages && <span className="text-xs text-amber-300">New messages</span>}<ArrowDown size={18} /></button>
+                    onClick={scrollBottom}>{newMessages && <span className="sd-ui-accent text-xs">New messages</span>}<ArrowDown size={18} /></button>
             </div>
             <form className="flex gap-2" onSubmit={event => { event.preventDefault(); void send(); }}>
                 <input aria-label="Chat message" value={chatInput} onChange={event => setChatInput(event.target.value)}

@@ -1,18 +1,18 @@
-import React, { useMemo, useState } from 'react';
+import React, { useId, useMemo, useState } from 'react';
 import type { AppSystemInfo, User } from '@shared/interfaces';
-import { Theme } from '../hooks/useTheme';
 import { sanitizeRichHtml } from '@shared/security/safeHtml';
 import { SafeHtmlContent } from '@client/ui/components/SafeHtmlContent';
+import { PlayerAppearanceToggle } from '@client/ui/components/Settings/PlayerAppearanceToggle';
 
 interface LoginViewProps {
     users: User[];
     system: AppSystemInfo | null;
-    theme: Theme;
     onLogin: (user: string, password: string) => Promise<void>;
     loading: boolean;
 }
 
-export const LoginView = ({ users, system, theme, onLogin, loading }: LoginViewProps) => {
+export const LoginView = ({ users, system, onLogin, loading }: LoginViewProps) => {
+    const formId = useId();
     const [selectedUser, setSelectedUser] = useState('');
     const [password, setPassword] = useState('');
     const worldDescription = useMemo(
@@ -27,21 +27,21 @@ export const LoginView = ({ users, system, theme, onLogin, loading }: LoginViewP
     return (
         <div className="flex flex-col-reverse md:flex-row gap-8 max-w-4xl mx-auto items-stretch md:items-start animate-in fade-in slide-in-from-bottom-4 duration-500 mt-10">
             {/* World Info Card */}
-            <div className={`flex-1 ${theme.panelBg} p-6 rounded-lg shadow-lg border border-white/5`}>
+            <div className="flex-1 sd-ui-panel p-6 rounded-lg shadow-lg">
                 {system?.worldTitle && (
-                    <h1 className={`text-4xl font-bold mb-4 ${theme.headerFont} text-amber-500 tracking-tight`}>
+                    <h1 className="text-4xl font-bold mb-4 sd-ui-accent tracking-tight">
                         {system.worldTitle}
                     </h1>
                 )}
 
                 {system?.worldDescription && (
                     <SafeHtmlContent
-                        className="prose prose-invert prose-sm max-w-none opacity-80 mb-6"
+                        className="rich-text-content text-sm max-w-none opacity-80 mb-6"
                         html={worldDescription}
                     />
                 )}
 
-                <div className="grid grid-cols-2 gap-4 mt-auto pt-4 border-t border-white/10">
+                <div className="grid grid-cols-2 gap-4 mt-auto pt-4 border-t sd-ui-divider">
                     <div>
                         <label className="text-xs uppercase tracking-widest opacity-50 block mb-1">Next Session</label>
                         <div className="font-mono text-lg">
@@ -51,7 +51,7 @@ export const LoginView = ({ users, system, theme, onLogin, loading }: LoginViewP
                     <div>
                         <label className="text-xs uppercase tracking-widest opacity-50 block mb-1">Current Players</label>
                         <div className="font-mono text-lg flex items-center gap-2">
-                            <span className="text-green-400">{system?.users?.active || 0}</span>
+                            <span className="sd-ui-success">{system?.users?.active || 0}</span>
                             <span className="opacity-40">/</span>
                             <span>{system?.users?.total || 0}</span>
                         </div>
@@ -60,16 +60,20 @@ export const LoginView = ({ users, system, theme, onLogin, loading }: LoginViewP
             </div>
 
             {/* Login Form */}
-            <div className={`w-full md:w-96 ${theme.panelBg} p-6 rounded-lg shadow-lg border border-white/5`}>
-                <h2 className={`text-xl mb-4 ${theme.headerFont}`}>Login</h2>
+            <div className="w-full md:w-96 sd-ui-panel p-6 rounded-lg shadow-lg">
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                    <h2 className="text-xl font-bold">Login</h2>
+                    <PlayerAppearanceToggle />
+                </div>
                 <div className="space-y-4">
                     {users.length > 0 && (
                         <div>
-                            <label className="block text-sm font-medium mb-1 opacity-70">Player</label>
+                            <label htmlFor={`${formId}-player`} className="block text-sm font-medium mb-1 sd-ui-muted">Player</label>
                             <select
+                                id={`${formId}-player`}
                                 value={selectedUser}
                                 onChange={(e) => setSelectedUser(e.target.value)}
-                                className={`w-full p-2 rounded border outline-none ${theme.input} appearance-none`}
+                                className="sd-ui-control w-full p-2"
                             >
                                 <option value="" disabled>-- Select Player --</option>
                                 {users.map((u: User, idx: number) => {
@@ -79,7 +83,6 @@ export const LoginView = ({ users, system, theme, onLogin, loading }: LoginViewP
                                             key={u.name || idx}
                                             value={u.name}
                                             disabled={isDisabled}
-                                            className={`bg-neutral-900 text-white ${isDisabled ? 'text-white/30 bg-neutral-800' : ''}`}
                                         >
                                             {u.name} {u.active ? ' (Logged In)' : (u.canLogin === false ? ' (Restricted)' : '')}
                                         </option>
@@ -92,13 +95,14 @@ export const LoginView = ({ users, system, theme, onLogin, loading }: LoginViewP
                     {users.length > 0 && (
                         <>
                             <div className="mb-6">
-                                <label className="block text-sm font-medium mb-1 opacity-70">Password</label>
+                                <label htmlFor={`${formId}-password`} className="block text-sm font-medium mb-1 sd-ui-muted">Password</label>
                                 <input
+                                    id={`${formId}-password`}
                                     type="password"
                                     value={password}
                                     onChange={(e) => setPassword(e.target.value)}
                                     onKeyDown={(e) => e.key === 'Enter' && handleLoginClick()}
-                                    className={`w-full p-2 rounded border outline-none ${theme.input}`}
+                                    className="sd-ui-control w-full p-2"
                                     placeholder="••••••••"
                                 />
                             </div>
@@ -106,12 +110,7 @@ export const LoginView = ({ users, system, theme, onLogin, loading }: LoginViewP
                             <button
                                 onClick={handleLoginClick}
                                 disabled={loading || !selectedUser}
-                                className={`
-                          w-full py-2 px-4 rounded font-bold transition-all duration-200
-                          ${loading || !selectedUser
-                                        ? 'bg-neutral-700 text-white/30 cursor-not-allowed'
-                                        : 'bg-green-700 hover:bg-green-600 text-white shadow-lg hover:shadow-green-900/20'}
-                        `}
+                                className="sd-ui-button sd-ui-button-primary w-full py-2 px-4 font-bold shadow-lg"
                             >
                                 {loading ? 'Authenticating...' : 'Login'}
                             </button>

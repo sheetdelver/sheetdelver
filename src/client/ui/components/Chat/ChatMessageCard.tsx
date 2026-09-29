@@ -38,7 +38,7 @@ export function ChatMessageCard({ message, foundryUrl, styles, actions, controls
     return <article data-chat-message-id={messageId(message)}
         className={s.msgContainer(!!message.isRoll) + ' min-w-0 !mx-0 !rounded-md [overflow-wrap:anywhere]'}
         style={{ letterSpacing: 0 }}>
-        <header className="flex items-center gap-2 border-b border-white/10 pb-1 mb-2">
+        <header className="flex items-center gap-2 border-b sd-ui-divider pb-1 mb-2">
             <span className={s.user + ' min-w-0 flex-1 !tracking-normal'}>{messageAuthor(message)}</span>
             {typeof message.timestamp === 'number' && Number.isFinite(message.timestamp) && <time className={s.time} dateTime={new Date(message.timestamp).toISOString()}>
                 {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -48,7 +48,7 @@ export function ChatMessageCard({ message, foundryUrl, styles, actions, controls
         {hidden ? <div className="text-center"><p className={s.flavor}>Privately rolled dice.</p><div className={s.rollTotal}>???</div></div> : <>
             {message.flavor && <SafeHtmlContent className={s.flavor} html={sanitizeRichHtml(message.flavor, { foundryBaseUrl: foundryUrl })} />}
             <SafeHtmlContent onClick={click}
-                className={s.content + ' !text-sm !font-normal [&_img]:max-w-full [&_img]:max-h-40 [&_img]:object-contain [&_button]:border [&_button]:rounded [&_button]:px-2 ' + (rolls.length ? '[&_.dice-roll]:hidden [&_.dice-tooltip]:hidden' : '')}
+                className={s.content + (s.content === defaultChatStyles.content ? ' sd-ui-chat-content' : '') + ' !text-sm !font-normal [&_img]:max-w-full [&_img]:max-h-40 [&_img]:object-contain [&_button]:border [&_button]:rounded [&_button]:px-2 ' + (rolls.length ? '[&_.dice-roll]:hidden [&_.dice-tooltip]:hidden' : '')}
                 html={formatChatContent(rolls.length === 1 && message.content?.trim() === String(rolls[0].total) ? '' : message.content || '', foundryUrl, { roll: !!actions?.onSend, check: !!actions?.onRoll })} />
             {rolls.map((roll, index) => <div key={index} className={s.rollResult}>
                 <div className={s.rollFormula + ' !tracking-normal'}>{roll.formula}</div>

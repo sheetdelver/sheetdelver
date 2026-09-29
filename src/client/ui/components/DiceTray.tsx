@@ -13,24 +13,24 @@ interface DiceTrayProps {
 }
 
 const defaultStyles = {
-    container: "text-white bg-black/60 backdrop-blur-md rounded-2xl border border-white/10 p-4 flex flex-col gap-4 h-full shadow-2xl",
-    header: "text-white/40 text-[10px] font-bold uppercase tracking-widest border-b border-white/10 pb-2",
-    textarea: "w-full h-24 bg-white/5 border border-white/10 rounded-xl p-3 font-sans text-lg text-white placeholder-white/20 focus:border-amber-500/50 outline-none resize-none transition-all",
-    clearBtn: "absolute top-2 right-2 text-[10px] text-white/20 hover:text-red-400/80 uppercase font-bold tracking-widest transition-colors",
-    diceRow: "flex flex-wrap justify-between gap-2 bg-white/5 p-2 rounded-xl border border-white/5",
-    diceBtn: "w-10 h-10 flex items-center justify-center bg-white/5 hover:bg-white/10 active:scale-95 rounded-lg border border-white/10 text-white/80 text-xs font-bold font-sans transition-all",
+    container: "sd-ui-panel backdrop-blur-md rounded-2xl p-4 flex flex-col gap-4 h-full shadow-2xl",
+    header: "sd-ui-muted text-[10px] font-bold uppercase tracking-widest border-b sd-ui-divider pb-2",
+    textarea: "sd-ui-control w-full h-24 rounded-xl p-3 font-sans text-lg resize-none transition-all",
+    clearBtn: "sd-ui-muted absolute top-2 right-2 text-[10px] hover:opacity-80 uppercase font-bold tracking-widest transition-opacity",
+    diceRow: "sd-ui-inset flex flex-wrap justify-between gap-2 p-2 rounded-xl",
+    diceBtn: "sd-ui-button w-10 h-10 flex items-center justify-center active:scale-95 rounded-lg text-xs font-bold font-sans transition-all",
     modGroup: "flex gap-1",
-    modBtn: "px-3 py-2 bg-white/5 rounded-lg hover:bg-white/10 active:scale-95 font-bold border border-white/10 text-white/80 transition-all",
-    advGroup: "flex bg-black/40 rounded-lg border border-white/10 p-1",
+    modBtn: "sd-ui-button px-3 py-2 rounded-lg active:scale-95 font-bold transition-all",
+    advGroup: "sd-ui-inset flex rounded-lg p-1",
     advBtn: (active: boolean, type: 'normal' | 'adv' | 'dis') => {
         const base = "px-2 py-1 text-[10px] font-bold rounded-md transition-all ";
-        if (!active) return base + "text-white/20 hover:text-white/40";
-        if (type === 'normal') return base + "bg-white/10 text-white";
-        if (type === 'adv') return base + "bg-green-500/20 text-green-400";
-        return base + "bg-red-500/20 text-red-400";
+        if (!active) return base + "sd-ui-muted hover:opacity-80";
+        if (type === 'normal') return base + "sd-ui-button-primary";
+        if (type === 'adv') return base + "sd-ui-success sd-ui-inset";
+        return base + "sd-ui-danger sd-ui-inset";
     },
-    sendBtn: "flex-1 bg-amber-500 hover:bg-amber-400 text-black font-bold uppercase tracking-widest py-3 rounded-xl shadow-lg shadow-amber-500/20 active:scale-95 transition-all text-xl",
-    helpText: "text-[10px] text-white/20 text-center mt-2 uppercase tracking-widest font-medium"
+    sendBtn: "sd-ui-button sd-ui-button-primary flex-1 font-bold uppercase tracking-widest py-3 rounded-xl shadow-lg active:scale-95 transition-all text-xl",
+    helpText: "sd-ui-muted text-[10px] text-center mt-2 uppercase tracking-widest font-medium"
 };
 
 import { useFoundry } from '@client/ui/context/FoundryContext';
@@ -175,7 +175,7 @@ export default function DiceTray({ onSend, hideHeader = false, speaker }: DiceTr
                     onClick={() => updateRollMode('publicroll')}
                     title="Public Roll"
                     /* @ts-ignore */
-                    className={themeStyles?.rollModeBtn ? themeStyles.rollModeBtn(rollMode === 'publicroll') : `flex-1 flex items-center justify-center p-2 rounded-lg border transition-all ${rollMode === 'publicroll' ? 'bg-amber-500 text-black border-amber-600 shadow-inner' : 'bg-white/5 text-white/40 border-white/10 hover:bg-white/10'}`}
+                    className={themeStyles?.rollModeBtn ? themeStyles.rollModeBtn(rollMode === 'publicroll') : `sd-ui-button flex-1 flex items-center justify-center p-2 rounded-lg transition-all ${rollMode === 'publicroll' ? 'sd-ui-button-primary shadow-inner' : ''}`}
                 >
                     <Globe size={18} />
                 </button>
@@ -183,7 +183,7 @@ export default function DiceTray({ onSend, hideHeader = false, speaker }: DiceTr
                     onClick={() => updateRollMode('gmroll')}
                     title="Private GM Roll"
                     /* @ts-ignore */
-                    className={themeStyles?.rollModeBtn ? themeStyles.rollModeBtn(rollMode === 'gmroll') : `flex-1 flex items-center justify-center p-2 rounded-lg border transition-all ${rollMode === 'gmroll' ? 'bg-amber-500 text-black border-amber-600 shadow-inner' : 'bg-white/5 text-white/40 border-white/10 hover:bg-white/10'}`}
+                    className={themeStyles?.rollModeBtn ? themeStyles.rollModeBtn(rollMode === 'gmroll') : `sd-ui-button flex-1 flex items-center justify-center p-2 rounded-lg transition-all ${rollMode === 'gmroll' ? 'sd-ui-button-primary shadow-inner' : ''}`}
                 >
                     <UserRoundSearch size={18} />
                 </button>
@@ -191,7 +191,7 @@ export default function DiceTray({ onSend, hideHeader = false, speaker }: DiceTr
                     onClick={() => updateRollMode('blindroll')}
                     title="Blind GM Roll"
                     /* @ts-ignore */
-                    className={themeStyles?.rollModeBtn ? themeStyles.rollModeBtn(rollMode === 'blindroll') : `flex-1 flex items-center justify-center p-2 rounded-lg border transition-all ${rollMode === 'blindroll' ? 'bg-amber-500 text-black border-amber-600 shadow-inner' : 'bg-white/5 text-white/40 border-white/10 hover:bg-white/10'}`}
+                    className={themeStyles?.rollModeBtn ? themeStyles.rollModeBtn(rollMode === 'blindroll') : `sd-ui-button flex-1 flex items-center justify-center p-2 rounded-lg transition-all ${rollMode === 'blindroll' ? 'sd-ui-button-primary shadow-inner' : ''}`}
                 >
                     <EyeOff size={18} />
                 </button>
@@ -199,7 +199,7 @@ export default function DiceTray({ onSend, hideHeader = false, speaker }: DiceTr
                     onClick={() => updateRollMode('selfroll')}
                     title="Self Roll"
                     /* @ts-ignore */
-                    className={themeStyles?.rollModeBtn ? themeStyles.rollModeBtn(rollMode === 'selfroll') : `flex-1 flex items-center justify-center p-2 rounded-lg border transition-all ${rollMode === 'selfroll' ? 'bg-amber-500 text-black border-amber-600 shadow-inner' : 'bg-white/5 text-white/40 border-white/10 hover:bg-white/10'}`}
+                    className={themeStyles?.rollModeBtn ? themeStyles.rollModeBtn(rollMode === 'selfroll') : `sd-ui-button flex-1 flex items-center justify-center p-2 rounded-lg transition-all ${rollMode === 'selfroll' ? 'sd-ui-button-primary shadow-inner' : ''}`}
                 >
                     <User size={18} />
                 </button>

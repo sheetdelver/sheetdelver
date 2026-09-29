@@ -139,11 +139,11 @@ export default function CombatHUD() {
 
                 {/* Multiple Combats Selector */}
                 {activeCombats.length > 1 && !isMinimized && (
-                    <div className="flex items-center gap-2 bg-black/80 backdrop-blur-md px-3 py-1 rounded-full border border-white/10 shadow-lg text-xs font-medium text-white/70">
+                    <div className="sd-ui-panel-raised flex items-center gap-2 backdrop-blur-md px-3 py-1 rounded-full shadow-lg text-xs font-medium">
                         <button
                             onClick={() => selectByOffset(-1)}
                             disabled={displayIndex === 0}
-                            className="p-1 hover:text-white disabled:opacity-30 disabled:hover:text-white/70 transition-colors"
+                            className="p-1 hover:opacity-80 disabled:opacity-30 transition-opacity"
                         >
                             <ChevronLeft className="w-4 h-4" />
                         </button>
@@ -151,7 +151,7 @@ export default function CombatHUD() {
                         <button
                             onClick={() => selectByOffset(1)}
                             disabled={displayIndex === activeCombats.length - 1}
-                            className="p-1 hover:text-white disabled:opacity-30 disabled:hover:text-white/70 transition-colors"
+                            className="p-1 hover:opacity-80 disabled:opacity-30 transition-opacity"
                         >
                             <ChevronRight className="w-4 h-4" />
                         </button>
@@ -162,7 +162,7 @@ export default function CombatHUD() {
                     The server projection already redacted the roster down to
                     this viewer's rollable rows (full roster for GMs). */}
                 {!activeCombat.started ? (
-                    <div className="flex flex-col items-center gap-3 bg-black/80 backdrop-blur-2xl px-5 py-3 rounded-3xl border border-white/20 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.8)]">
+                    <div className="sd-ui-panel-raised flex flex-col items-center gap-3 backdrop-blur-2xl px-5 py-3 rounded-3xl shadow-2xl">
                         <div className="text-xs font-semibold uppercase tracking-widest text-rose-400/90">
                             Encounter Forming
                         </div>
@@ -195,7 +195,7 @@ export default function CombatHUD() {
                                                 </div>
                                             )}
                                         </div>
-                                        <span className="text-[10px] font-medium text-white/70 truncate max-w-full">
+                                        <span className="sd-ui-muted text-[10px] font-medium truncate max-w-full">
                                             {combatant.hidden ? 'Hidden' : combatant.name?.split(' ')[0] || 'Unknown'}
                                         </span>
                                     </div>
@@ -212,7 +212,7 @@ export default function CombatHUD() {
                                 Begin Encounter
                             </button>
                         ) : (
-                            <div className="text-[10px] text-white/40">
+                            <div className="sd-ui-muted text-[10px]">
                                 Waiting for the encounter to begin…
                             </div>
                         )}
@@ -220,23 +220,23 @@ export default function CombatHUD() {
                 ) : isMinimized ? (
                     <button
                         onClick={() => setIsMinimized(false)}
-                        className="flex flex-col items-center gap-1 bg-black/90 backdrop-blur-2xl px-4 py-2 rounded-2xl border border-white/20 shadow-2xl hover:bg-neutral-900 transition-all duration-300 group"
+                        className="sd-ui-panel-raised flex flex-col items-center gap-1 backdrop-blur-2xl px-4 py-2 rounded-2xl shadow-2xl transition-all duration-300 group"
                     >
-                        <div className="text-xs font-medium text-white/80">
+                        <div className="text-xs font-medium">
                             <span className="text-maroon-400 font-bold">Round {activeCombat.round}</span> - {currentName}
                         </div>
-                        <ChevronDown className="w-6 h-6 text-white group-hover:text-white transition-transform" />
+                        <ChevronDown className="w-6 h-6 transition-transform" />
                     </button>
                 ) : (
                     /* Main Initiative Queue */
                     <div className="relative flex flex-col items-center group">
                         <button
                             onClick={() => setIsMinimized(true)}
-                            className="absolute top-1 left-1/2 -translate-x-1/2 z-10 w-10 h-5 flex items-center justify-center bg-black/90 rounded-full hover:bg-neutral-800 "
+                            className="sd-ui-button absolute top-1 left-1/2 -translate-x-1/2 z-10 w-10 h-5 flex items-center justify-center rounded-full"
                         >
-                            <ChevronUp className="w-15 h-15 text-white/60" />
+                            <ChevronUp className="sd-ui-muted w-15 h-15" />
                         </button>
-                        <div className="flex items-center gap-1 sm:gap-2 px-2 sm:px-4 pt-6 pb-4 rounded-3xl bg-black/25 backdrop-blur-2xl border border-white/20 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.8)] transition-all duration-500">
+                        <div className="sd-ui-panel-raised flex items-center gap-1 sm:gap-2 px-2 sm:px-4 pt-6 pb-4 rounded-3xl backdrop-blur-2xl shadow-2xl transition-all duration-500">
 
                             {/* Queue Container */}
                             <div className="flex items-center gap-x-2 overflow-x-auto scrollbar-hide max-w-[85vw] pt-3 px-1">
@@ -245,9 +245,9 @@ export default function CombatHUD() {
                                     if (isCarouselDivider(item)) {
                                         return (
                                             <div key={item.id} className="flex flex-col items-center justify-center mx-1 px-1 h-20 sm:h-24 relative">
-                                                <div className="w-[2px] h-full bg-white/20 rounded-full"></div>
-                                                <div className="absolute top-1/2 left-1 -translate-y-1/2 -translate-x-1/2 w-6 h-6 rounded-full bg-black/90 border border-white/20 flex items-center justify-center shadow-md">
-                                                    <span className="text-[10px] font-bold text-white/40">
+                                                <div className="w-[2px] h-full rounded-full" style={{ background: 'var(--sd-ui-border-strong)' }}></div>
+                                                <div className="sd-ui-panel-raised absolute top-1/2 left-1 -translate-y-1/2 -translate-x-1/2 w-6 h-6 rounded-full flex items-center justify-center shadow-md">
+                                                    <span className="sd-ui-muted text-[10px] font-bold">
                                                         {activeCombat.round + 1}
                                                     </span>
                                                 </div>
@@ -343,7 +343,7 @@ export default function CombatHUD() {
                                     <button
                                         onClick={handlePreviousTurn}
                                         disabled={pendingAction !== null}
-                                        className="bg-black/90 border border-white/20 rounded-full w-8 h-8 flex items-center justify-center text-white/40 hover:text-white hover:border-white/40 shadow-lg transition-all disabled:opacity-40"
+                                        className="sd-ui-button rounded-full w-8 h-8 flex items-center justify-center shadow-lg transition-all disabled:opacity-40"
                                         title="Previous Turn"
                                     >
                                         <SkipBack className="w-4 h-4" />
@@ -352,7 +352,7 @@ export default function CombatHUD() {
                             </div>
 
                             {/* Round Indicator */}
-                            <div className="bg-black/95 border border-white/20 rounded-full w-12 h-12 flex items-center justify-center shadow-2xl relative overflow-hidden group/round">
+                            <div className="sd-ui-panel-raised rounded-full w-12 h-12 flex items-center justify-center shadow-2xl relative overflow-hidden group/round">
                                 <div className="absolute inset-0 bg-gradient-to-b from-rose-900/20 to-transparent"></div>
                                 <span className="text-3xl font-serif text-rose-600 drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)] -translate-y-1 z-10">
                                     {activeCombat.round}

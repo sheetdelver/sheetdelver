@@ -149,31 +149,135 @@ body {
   color: var(--admin-text-primary);
 }
 
-/* Chat Overrides for Visibility */
-.messages-content .roll-card,
-.messages-content .dice-roll,
-.messages-content .dice-total,
-.messages-content .dice-formula,
-.messages-content .card-title,
-.messages-content .dr-modifier,
-.messages-content .roll-result {
-  color: white !important;
-  background-color: transparent !important;
-  border-color: #525252 !important;
-  /* Zinc-600 */
+/* Player Core only. Module sheets/tools keep their own CSS and SDK tokens. */
+.sd-player-root[data-sd-appearance='dark'],
+body[data-sd-appearance='dark'] {
+  --sd-ui-canvas: #102037;
+  --sd-ui-surface: rgba(20, 36, 56, 0.94);
+  --sd-ui-surface-raised: rgba(28, 48, 72, 0.97);
+  --sd-ui-surface-hover: rgba(40, 63, 88, 0.98);
+  --sd-ui-inset: rgba(8, 20, 35, 0.64);
+  --sd-ui-option-surface: #1c3048;
+  --sd-ui-text: #f1f5fb;
+  --sd-ui-muted: #afc0d4;
+  --sd-ui-border: rgba(143, 172, 206, 0.26);
+  --sd-ui-border-strong: rgba(165, 194, 225, 0.42);
+  --sd-ui-accent: #f4be6c;
+  --sd-ui-accent-strong: #ffd392;
+  --sd-ui-accent-contrast: #182235;
+  --sd-ui-focus: #f4be6c;
+  --sd-ui-success: #79d7ab;
+  --sd-ui-danger: #ff9c9c;
+  --sd-ui-backdrop: rgba(3, 12, 24, 0.72);
+  --sd-ui-image-scrim: rgba(8, 19, 34, 0.57);
+  color-scheme: dark;
 }
 
-.messages-content .roll-card .card-title {
-  border-bottom: 1px solid #525252;
+.sd-player-root[data-sd-appearance='light'],
+html[data-sd-appearance='light'] .sd-player-root,
+body[data-sd-appearance='light'] {
+  --sd-ui-canvas: #eaf1f8;
+  --sd-ui-surface: rgba(255, 255, 255, 0.94);
+  --sd-ui-surface-raised: rgba(250, 253, 255, 0.98);
+  --sd-ui-surface-hover: rgba(227, 237, 249, 0.98);
+  --sd-ui-inset: rgba(222, 233, 245, 0.82);
+  --sd-ui-option-surface: #fafdff;
+  --sd-ui-text: #17283c;
+  --sd-ui-muted: #4c6179;
+  --sd-ui-border: rgba(55, 82, 111, 0.25);
+  --sd-ui-border-strong: rgba(39, 72, 111, 0.45);
+  --sd-ui-accent: #825113;
+  --sd-ui-accent-strong: #613803;
+  --sd-ui-accent-contrast: #fffaf1;
+  --sd-ui-focus: #995d0e;
+  --sd-ui-success: #16704c;
+  --sd-ui-danger: #aa3030;
+  --sd-ui-backdrop: rgba(14, 29, 47, 0.55);
+  --sd-ui-image-scrim: rgba(235, 243, 251, 0.72);
+  color-scheme: light;
+}
+
+body[data-sd-appearance] { background: var(--sd-ui-canvas); color: var(--sd-ui-text); }
+html[data-sd-appearance='light'] body:not([data-sd-appearance]) { background: #eaf1f8; color: #17283c; }
+.sd-player-root { min-height: 100vh; background: var(--sd-ui-canvas); color: var(--sd-ui-text); }
+.sd-ui-page { min-height: 100vh; background-color: var(--sd-ui-canvas); color: var(--sd-ui-text); }
+.sd-ui-page[data-has-world-background='true'] { background-blend-mode: normal; }
+.sd-ui-world-scrim { background: var(--sd-ui-image-scrim); }
+.sd-ui-panel { background: var(--sd-ui-surface); border: 1px solid var(--sd-ui-border); color: var(--sd-ui-text); }
+.sd-ui-panel-raised { background: var(--sd-ui-surface-raised); border: 1px solid var(--sd-ui-border); color: var(--sd-ui-text); }
+.sd-ui-inset { background: var(--sd-ui-inset); border: 1px solid var(--sd-ui-border); }
+.sd-ui-muted { color: var(--sd-ui-muted); }
+.sd-ui-accent { color: var(--sd-ui-accent); }
+.sd-ui-success { color: var(--sd-ui-success); }
+.sd-ui-danger { color: var(--sd-ui-danger); }
+.sd-ui-divider { border-color: var(--sd-ui-border); }
+.sd-ui-overlay { background: var(--sd-ui-backdrop); }
+.sd-ui-control {
+  background: var(--sd-ui-inset);
+  border: 1px solid var(--sd-ui-border-strong);
+  color: var(--sd-ui-text);
+  border-radius: 0.5rem;
+}
+.sd-ui-control:disabled { opacity: 0.5; cursor: not-allowed; }
+/* Native menus need opaque colors; translucent field backgrounds can be
+ * composited against a browser-selected grey popup instead of the page. */
+select.sd-ui-control,
+.sd-ui-control option,
+.sd-ui-control optgroup {
+  background-color: var(--sd-ui-option-surface);
+  color: var(--sd-ui-text);
+}
+.sd-ui-control option:disabled { color: var(--sd-ui-muted); }
+.sd-ui-button {
+  background: var(--sd-ui-surface-raised);
+  border: 1px solid var(--sd-ui-border-strong);
+  color: var(--sd-ui-text);
+  border-radius: 0.5rem;
+  transition: background-color 150ms, border-color 150ms;
+}
+.sd-ui-button:not(:disabled):hover { background: var(--sd-ui-surface-hover); }
+.sd-ui-button:disabled { opacity: 0.5; cursor: not-allowed; }
+.sd-ui-button-primary { background: var(--sd-ui-accent); color: var(--sd-ui-accent-contrast); border-color: transparent; }
+.sd-ui-button-primary:not(:disabled):hover { background: var(--sd-ui-accent-strong); }
+.sd-ui-button-danger { background: var(--sd-ui-danger); color: var(--sd-ui-accent-contrast); border-color: transparent; }
+.sd-ui-button-danger:not(:disabled):hover { filter: brightness(1.1); }
+.sd-ui-spinner { border-color: var(--sd-ui-accent); border-top-color: transparent; }
+.sd-ui-player-focus:focus-visible,
+.sd-player-root :is(button, a, input, select, textarea):focus-visible,
+body[data-sd-appearance] .sd-ui-modal :is(button, a, input, select, textarea):focus-visible {
+  outline: 2px solid var(--sd-ui-focus);
+  outline-offset: 2px;
+}
+
+/* Roll HTML is Core chat content, not a license to recolor module markup. */
+.sd-ui-chat-content :is(.roll-card, .dice-roll, .dice-total, .dice-formula, .card-title, .dr-modifier, .roll-result) {
+  color: var(--sd-ui-text) !important;
+  border-color: var(--sd-ui-border-strong) !important;
+}
+
+.sd-ui-chat-content .dice-total {
+  background-color: var(--sd-ui-inset) !important;
+}
+.sd-ui-chat-content,
+.sd-ui-chat-content :is(.result-text, .item-name, .card-content, .content-link, .description) {
+  color: var(--sd-ui-text) !important;
+}
+.sd-ui-chat-content :is(.result-row, .chat-card, .table-results li, .card-header) {
+  background: var(--sd-ui-inset) !important;
+  border-color: var(--sd-ui-border) !important;
+}
+
+/* Chat Overrides for Visibility */
+.sd-ui-chat-content .roll-card .card-title {
+  border-bottom: 1px solid var(--sd-ui-border-strong);
   margin-bottom: 4px;
   font-weight: bold;
 }
 
-.messages-content .dice-total {
+.sd-ui-chat-content .dice-total {
   font-size: 1.25rem;
   font-weight: bold;
   text-align: center;
-  background-color: rgba(255, 255, 255, 0.1) !important;
   padding: 4px;
   border-radius: 4px;
 }
