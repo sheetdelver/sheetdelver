@@ -9,7 +9,7 @@ export function DiceAppearanceControls({ value, onChange, disabled = false }: {
     disabled?: boolean;
 }) {
     const colors = value.custom ?? presetColors(value.style);
-    return <div className="flex flex-col gap-2 text-sm text-white/70">
+    return <div className="sd-ui-muted flex flex-col gap-2 text-sm">
         <fieldset disabled={disabled} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
             <legend className="mb-2">Dice style</legend>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
@@ -61,19 +61,19 @@ export function DiceAppearanceControls({ value, onChange, disabled = false }: {
                 <input type="checkbox" checked={colors.outline !== null}
                     onChange={event => onChange({ ...value, custom: { ...colors, outline: event.target.checked ? '#000000' : null } })} />Label outline
             </label>
-            {diceColorContrast(colors) < 3 && <p role="status" style={{ color: '#f3ca74', margin: '8px 0 0' }}>Low label contrast</p>}
+            {diceColorContrast(colors) < 3 && <p role="status" className="sd-ui-accent" style={{ margin: '8px 0 0' }}>Low label contrast</p>}
         </fieldset>}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 12, margin: '8px 0' }}>
             <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>Texture
                 <select aria-label="Dice texture" disabled={disabled} value={value.texture ?? 'auto'}
-                    style={{ background: '#303438', color: '#f2f4f5', borderRadius: 4, padding: 8, minWidth: 0, width: '100%' }}
+                    className="sd-ui-control" style={{ padding: 8, minWidth: 0, width: '100%' }}
                     onChange={event => onChange({ ...value, texture: event.target.value as DiceAppearance['texture'] })}>
                     {diceTextures.map(texture => <option key={texture} value={texture}>{texture === 'auto' ? 'Style default' : texture[0].toUpperCase() + texture.slice(1)}</option>)}
                 </select>
             </label>
             <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>Material
                 <select aria-label="Dice material" disabled={disabled} value={value.material ?? 'plastic'}
-                    style={{ background: '#303438', color: '#f2f4f5', borderRadius: 4, padding: 8, minWidth: 0, width: '100%' }}
+                    className="sd-ui-control" style={{ padding: 8, minWidth: 0, width: '100%' }}
                     onChange={event => onChange({ ...value, material: event.target.value as DiceAppearance['material'] })}>
                     {diceMaterials.map(material => <option key={material} value={material}>{material[0].toUpperCase() + material.slice(1)}</option>)}
                 </select>

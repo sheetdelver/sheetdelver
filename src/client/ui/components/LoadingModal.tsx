@@ -14,11 +14,11 @@ interface LoadingModalProps {
 }
 
 const defaultTheme = {
-    overlay: "absolute inset-0 bg-black/60 backdrop-blur-md transition-opacity",
-    container: "relative z-10 p-8 rounded-2xl bg-neutral-900/95 backdrop-blur-xl border border-white/10 shadow-2xl text-center flex flex-col items-center space-y-4 max-w-sm w-full mx-4 animate-in zoom-in-95 duration-300",
-    spinner: "w-12 h-12 border-4 border-amber-500 border-t-transparent rounded-full animate-spin mx-auto",
-    text: "text-xl font-bold text-white font-sans",
-    subtext: "text-sm text-white/50 font-mono tracking-wide"
+    overlay: "sd-ui-overlay absolute inset-0 backdrop-blur-md transition-opacity",
+    container: "sd-ui-panel-raised relative z-10 p-8 rounded-2xl backdrop-blur-xl shadow-2xl text-center flex flex-col items-center space-y-4 max-w-sm w-full mx-4 animate-in zoom-in-95 duration-300",
+    spinner: "sd-ui-spinner w-12 h-12 border-4 border-t-transparent rounded-full animate-spin mx-auto",
+    text: "text-xl font-bold font-sans",
+    subtext: "sd-ui-muted text-sm font-mono tracking-wide"
 };
 
 export default function LoadingModal({ message, submessage, visible = true, theme }: LoadingModalProps) {

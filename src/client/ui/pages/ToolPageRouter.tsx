@@ -51,13 +51,13 @@ export default function ToolPageRouter({ params }: { params: Promise<{ systemId:
 
     if (error) {
         return (
-            <div className="min-h-screen flex items-center justify-center bg-neutral-900 text-white">
-                <div className="text-center p-8 bg-black/40 rounded border border-white/10">
-                    <h1 className="text-xl font-bold text-red-500 mb-2">Error Loading Tool</h1>
-                    <p className="opacity-70">{error}</p>
+            <div className="sd-ui-page flex items-center justify-center p-4">
+                <div className="sd-ui-panel-raised text-center p-8 rounded max-w-md">
+                    <h1 className="sd-ui-danger text-xl font-bold mb-2">Error Loading Tool</h1>
+                    <p className="sd-ui-muted">{error}</p>
                     <button
                         onClick={() => router.push('/')}
-                        className="mt-4 px-4 py-2 bg-neutral-800 hover:bg-neutral-700 rounded transition-colors pointer"
+                        className="sd-ui-button mt-4 px-4 py-2"
                     >
                         Back to Dashboard
                     </button>
@@ -66,17 +66,7 @@ export default function ToolPageRouter({ params }: { params: Promise<{ systemId:
         );
     }
 
-    const Loading = (
-        <LoadingModal
-            message="Loading Tool..."
-            theme={{
-                overlay: "absolute inset-0 bg-black/60 backdrop-blur-md transition-opacity",
-                container: "relative z-10 p-8 rounded-2xl bg-neutral-900/95 backdrop-blur-xl border border-white/10 shadow-2xl text-center space-y-4 max-w-sm w-full mx-4 animate-in zoom-in-95 duration-300",
-                spinner: "w-12 h-12 border-4 border-amber-500 border-t-transparent rounded-full animate-spin mx-auto",
-                text: "text-xl font-bold text-white font-sans"
-            }}
-        />
-    );
+    const Loading = <LoadingModal message="Loading Tool..." />;
 
     if (!ToolComponent) return Loading;
 

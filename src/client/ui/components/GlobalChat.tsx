@@ -33,20 +33,20 @@ export default function GlobalChat(props: GlobalChatProps) {
     const setIsChatOpen = (open: boolean) => setChatOpen(open);
 
     const s = {
-        window: "bg-neutral-900/95 backdrop-blur-xl border border-white/20 shadow-2xl rounded-xl",
-        header: "flex justify-between items-center bg-white/10 p-3 border-b border-white/10",
-        title: "text-[10px] font-bold uppercase text-white/60 pl-2 tracking-widest",
+        window: "sd-ui-panel-raised backdrop-blur-xl shadow-2xl rounded-xl",
+        header: "sd-ui-inset flex justify-between items-center p-3 border-b sd-ui-divider",
+        title: "sd-ui-muted text-[10px] font-bold uppercase pl-2 tracking-widest",
         diceWindow: "w-[400px]",
         chatWindow: "w-[400px] h-[80vh]",
         toggleBtn: (isOpen: boolean, isDice?: boolean) => `
             h-12 w-12 rounded-full shadow-lg flex items-center justify-center
-            transition-all duration-300 hover:scale-110 active:scale-95 border border-white/10
+            transition-all duration-300 hover:scale-110 active:scale-95
             ${isDice
-                ? (isOpen ? 'bg-white/10 text-white rotate-90' : 'bg-neutral-800 text-white hover:bg-neutral-700')
-                : (isOpen ? 'bg-white/10 text-white rotate-90' : 'bg-amber-500 text-black hover:bg-amber-400')
+                ? (isOpen ? 'sd-ui-button rotate-90' : 'sd-ui-button')
+                : (isOpen ? 'sd-ui-button rotate-90' : 'sd-ui-button sd-ui-button-primary')
             }
         `,
-        closeBtn: "text-white/40 hover:text-white transition-colors",
+        closeBtn: "sd-ui-muted hover:opacity-80 transition-opacity",
         ...system?.config?.componentStyles?.globalChat,
     };
 
@@ -109,8 +109,8 @@ export default function GlobalChat(props: GlobalChatProps) {
                     `}>
                         {isDiceOpen && (
                             <>
-                                <div className={s.header || "flex justify-between items-center bg-white/5 p-3 border-b border-white/5"}>
-                                    <span className={s.title || "text-[10px] font-bold uppercase text-white/40 pl-2 tracking-widest"}>Dice Tray</span>
+                                <div className={s.header || "sd-ui-inset flex justify-between items-center p-3 border-b sd-ui-divider"}>
+                                    <span className={s.title || "sd-ui-muted text-[10px] font-bold uppercase pl-2 tracking-widest"}>Dice Tray</span>
                                     <button onClick={toggleDice} aria-label="Close dice tray" title="Close dice tray" className={`${s.closeBtn} px-2`}><X size={18} /></button>
                                 </div>
                                 <div className="p-0">
@@ -135,8 +135,8 @@ export default function GlobalChat(props: GlobalChatProps) {
                         ? 'opacity-100 scale-100 pointer-events-auto'
                         : 'opacity-0 scale-95 pointer-events-none h-0'}
                 `}>
-                    <div className={`${s.header || "flex justify-between items-center bg-white/5 p-3 border-b border-white/5"} flex-none`}>
-                        <span className={s.title || "text-[10px] font-bold uppercase text-white/40 pl-2 tracking-widest"}>
+                    <div className={`${s.header || "sd-ui-inset flex justify-between items-center p-3 border-b sd-ui-divider"} flex-none`}>
+                        <span className={s.title || "sd-ui-muted text-[10px] font-bold uppercase pl-2 tracking-widest"}>
                             Game Chat {messages && messages.length > 0 && `(${messages.length})`}
                         </span>
                         <button onClick={() => setIsChatOpen(false)} className={`${s.closeBtn} px-2`}>✕</button>

@@ -229,16 +229,16 @@ export default function GenericActorPage({ actorId }: GenericActorPageProps) {
     if (!actor && !showDeleteModal) return null;
 
     return (
-        <main className="min-h-screen font-sans pb-20">
-            <nav className="fixed top-0 left-0 right-0 z-50 bg-neutral-900 border-b border-neutral-800 px-4 py-3 shadow-md flex items-center justify-between backdrop-blur-sm bg-opacity-95">
+        <main className="sd-ui-page font-sans pb-20">
+            <nav className="sd-ui-panel-raised fixed top-0 left-0 right-0 z-50 px-4 py-3 shadow-md flex items-center justify-between backdrop-blur-sm">
                 <button
                     onClick={() => router.push('/')}
-                    className="flex items-center gap-2 text-neutral-400 hover:text-white transition-colors font-semibold group text-sm uppercase tracking-wide cursor-pointer"
+                    className="sd-ui-muted flex items-center gap-2 hover:opacity-80 transition-opacity font-semibold group text-sm uppercase tracking-wide cursor-pointer"
                 >
                     <span className="group-hover:-translate-x-1 transition-transform">←</span>
                     Back to Dashboard
                 </button>
-                <div className="text-xs text-neutral-600 font-mono hidden md:block">
+                <div className="sd-ui-muted text-xs font-mono hidden md:block">
                     {actor?.name ?? 'Loading...'}
                 </div>
             </nav>
@@ -264,14 +264,14 @@ export default function GenericActorPage({ actorId }: GenericActorPageProps) {
             <SharedContentModal />
 
             {showDeleteModal && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-sm p-4 animate-in fade-in duration-300">
-                    <div className="bg-neutral-900 border border-red-900/40 p-8 rounded-xl max-w-md w-full text-center shadow-2xl">
+                <div className="sd-ui-overlay fixed inset-0 z-[100] flex items-center justify-center backdrop-blur-sm p-4 animate-in fade-in duration-300">
+                    <div className="sd-ui-panel-raised p-8 rounded-xl max-w-md w-full text-center shadow-2xl">
                         <div className="text-5xl mb-4">💀</div>
-                        <h2 className="text-2xl font-bold text-white mb-2">Character Deleted</h2>
-                        <p className="text-neutral-400 mb-8">This character has been deleted from the world.</p>
+                        <h2 className="text-2xl font-bold mb-2">Character Deleted</h2>
+                        <p className="sd-ui-muted mb-8">This character has been deleted from the world.</p>
                         <button
                             onClick={() => router.push('/')}
-                            className="bg-red-900 hover:bg-neutral-700 text-white font-bold py-3 px-8 rounded shadow-lg uppercase tracking-widest transition-all w-full"
+                            className="sd-ui-button sd-ui-button-primary font-bold py-3 px-8 rounded shadow-lg uppercase tracking-widest transition-all w-full"
                         >
                             Return to Dashboard
                         </button>

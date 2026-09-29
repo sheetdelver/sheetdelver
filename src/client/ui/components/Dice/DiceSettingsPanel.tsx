@@ -8,10 +8,10 @@ import { DiceSoundControls } from './DiceSoundControls';
 import { diceRegions, type DiceRegion } from './viewport';
 import type { DiceBehavior } from './behavior';
 
-const sectionStyle: CSSProperties = { border: 0, borderTop: '1px solid #46494d', padding: '16px 0 0', margin: '16px 0 0', minWidth: 0 };
+const sectionStyle: CSSProperties = { border: 0, borderTop: '1px solid var(--sd-ui-border)', padding: '16px 0 0', margin: '16px 0 0', minWidth: 0 };
 const rowStyle: CSSProperties = { display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, fontSize: 14 };
-const buttonStyle: CSSProperties = { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8, minHeight: 40, borderRadius: 6, padding: '8px 12px', background: '#303438', color: '#f2f4f5', border: '1px solid #666b70', cursor: 'pointer', font: 'inherit' };
-const selectStyle: CSSProperties = { background: '#303438', color: '#f2f4f5', padding: '6px 8px', borderRadius: 4, minWidth: 0, maxWidth: '100%' };
+const buttonStyle: CSSProperties = { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8, minHeight: 40, borderRadius: 6, padding: '8px 12px', background: 'var(--sd-ui-surface-raised)', color: 'var(--sd-ui-text)', border: '1px solid var(--sd-ui-border-strong)', cursor: 'pointer', font: 'inherit' };
+const selectStyle: CSSProperties = { background: 'var(--sd-ui-inset)', color: 'var(--sd-ui-text)', border: '1px solid var(--sd-ui-border-strong)', padding: '6px 8px', borderRadius: 4, minWidth: 0, maxWidth: '100%' };
 
 
 export function DiceSettingsPanel() {
@@ -76,7 +76,7 @@ export function DiceSettingsPanel() {
             </label>
             <label style={rowStyle}>Hide effect
                 <select aria-label="Dice hide effect" value={behavior.hideEffect}
-                    style={{ background: '#303438', color: '#f2f4f5', padding: '6px 8px', borderRadius: 4 }}
+                    style={selectStyle}
                     onChange={event => setBehavior({ ...behavior, hideEffect: event.target.value === 'fade' ? 'fade' : 'none' })}>
                     <option value="none">None</option><option value="fade">Fade</option>
                 </select>

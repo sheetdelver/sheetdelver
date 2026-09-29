@@ -27,17 +27,20 @@ export const useTheme = () => {
 
     const theme: Theme = system?.theme || defaultTheme;
 
-    // Resolve background image
-    const bgSrc = (step === 'startup' || step === 'setup') ? null : (system?.worldBackground || system?.background);
+    // World metadata may outlive the lifecycle transition while caches clear.
+    // Retire its artwork in the same render as the unavailable-world screen.
+    const showWorldBackground = system?.status === 'active' &&
+        (step === 'login' || step === 'dashboard' || step === 'authenticating' || step === 'logging-out');
+    const bgSrc = showWorldBackground ? (system?.worldBackground || system?.background) : null;
 
     const bgStyle = bgSrc
         ? {
-            backgroundImage: `url(${bgSrc})`,
+            backgroundImage: `linear-gradient(var(--sd-ui-image-scrim), var(--sd-ui-image-scrim)), url(${bgSrc})`,
             backgroundSize: 'cover',
             backgroundPosition: 'center',
             backgroundRepeat: 'no-repeat'
         }
-        : {};
+        : { backgroundImage: 'none' };
 
     return { theme, bgStyle };
 };

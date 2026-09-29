@@ -15,9 +15,11 @@ import { JournalProvider } from '@client/ui/context/JournalProvider';
 import { NotificationSessionBoundary } from '@client/ui/components/Notifications/NotificationSessionBoundary';
 import { ChatPreview } from '@client/ui/components/Chat/ChatPreview';
 import SDKGlobalProvider from '@client/ui/providers/SDKGlobalProvider';
+import { PlayerAppearanceProvider } from '@client/ui/context/PlayerAppearanceContext';
 
 export default function PlayerProviders({ children }: { children: ReactNode }) {
   return (
+    <PlayerAppearanceProvider>
     <SDKGlobalProvider>
       <ConfigProvider>
         <NotificationProvider>
@@ -43,5 +45,6 @@ export default function PlayerProviders({ children }: { children: ReactNode }) {
         </NotificationProvider>
       </ConfigProvider>
     </SDKGlobalProvider>
+    </PlayerAppearanceProvider>
   );
 }

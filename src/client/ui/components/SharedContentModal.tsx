@@ -57,20 +57,20 @@ export function SharedContentModal() {
     const imageUrl = content.type === 'image' ? resolveImageUrl(content.data?.url || '') : '';
 
     return (
-        <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200" onClick={close}>
+        <div className="sd-ui-overlay fixed inset-0 z-[150] flex items-center justify-center backdrop-blur-sm p-4 animate-in fade-in duration-200" onClick={close}>
             <div className="relative max-w-4xl max-h-[90vh] w-full flex flex-col items-center justify-center" onClick={(e) => e.stopPropagation()}>
 
                 <button
                     onClick={close}
-                    className="absolute -top-12 right-0 text-white hover:text-gray-300 transition-colors p-2"
+                    className="absolute -top-12 right-0 sd-ui-button p-2"
                 >
                     <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                 </button>
 
                 {content.type === 'image' && (
-                    <div className="bg-zinc-900 rounded-lg overflow-hidden shadow-2xl border border-zinc-700">
+                    <div className="sd-ui-panel-raised rounded-lg overflow-hidden shadow-2xl">
                         {content.data?.title && (
-                            <div className="px-4 py-2 bg-zinc-800 border-b border-zinc-700 text-center font-bold text-zinc-100 uppercase tracking-widest text-xs">
+                            <div className="sd-ui-inset px-4 py-2 border-b sd-ui-divider text-center font-bold uppercase tracking-widest text-xs">
                                 {content.data?.title}
                             </div>
                         )}

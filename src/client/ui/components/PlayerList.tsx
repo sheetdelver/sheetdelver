@@ -47,18 +47,18 @@ export default function PlayerList() {
         const shouldHighlight = isSelf;
 
         return (
-            <li key={u._id || u.id || u.name} className={`flex items-center gap-2 px-2 py-1.5 rounded transition-all ${u.active ? 'opacity-100' : 'opacity-40'} ${shouldHighlight ? 'ring-1 ring-white/20 bg-white/10' : ''}`}>
+            <li key={u._id || u.id || u.name} className={`flex items-center gap-2 px-2 py-1.5 rounded transition-all ${u.active ? 'opacity-100' : 'opacity-40'} ${shouldHighlight ? 'sd-ui-inset' : ''}`}>
                 <div
-                    className={`w-2.5 h-2.5 rounded-full ring-2 ring-black/50 ${shouldHighlight ? 'ring-white/30' : ''}`}
+                    className="w-2.5 h-2.5 rounded-full ring-2 ring-white/30"
                     style={{ backgroundColor: u.color || '#9ca3af', boxShadow: u.active && u.color ? `0 0 8px ${u.color}` : 'none' }}
                 />
                 <div className="flex flex-col leading-tight min-w-0">
-                    <span className={`text-sm font-bold flex items-center gap-1.5 truncate ${shouldHighlight ? 'text-white' : 'text-neutral-200'}`}>
+                    <span className="text-sm font-bold flex items-center gap-1.5 truncate">
                         {u.name}
-                        {u.isGM && <span className="text-[8px] bg-amber-600/90 text-black px-1 rounded-sm font-black tracking-tighter">GM</span>}
+                        {u.isGM && <span className="text-[8px] sd-ui-button-primary px-1 rounded-sm font-black tracking-tighter">GM</span>}
                     </span>
                     {u.characterName && (
-                        <span className="text-[10px] text-neutral-500 truncate">{u.characterName}</span>
+                        <span className="text-[10px] sd-ui-muted truncate">{u.characterName}</span>
                     )}
                 </div>
             </li>
@@ -70,16 +70,16 @@ export default function PlayerList() {
 
             {/* List Popup */}
             <div className={`
-                bg-black/80 backdrop-blur-md rounded-xl border border-white/10 shadow-2xl overflow-hidden
+                sd-ui-panel-raised backdrop-blur-md rounded-xl shadow-2xl overflow-hidden
                 transition-all duration-300 origin-bottom flex flex-col hud-panel
                 ${isOpen ? 'w-[240px] opacity-100 scale-100 mb-0 translate-y-0' : 'w-[0px] h-[0px] opacity-0 scale-90 -mb-10 translate-y-10'}
             `}>
                 {/* Header */}
-                <div className="bg-neutral-900/50 p-2 border-b border-white/5 flex justify-between items-center">
-                    <span className="text-[10px] uppercase font-bold tracking-widest text-neutral-400 pl-1">
+                <div className="sd-ui-inset p-2 border-b sd-ui-divider flex justify-between items-center">
+                    <span className="sd-ui-muted text-[10px] uppercase font-bold tracking-widest pl-1">
                         Participants ({activeCount}/{users.length})
                     </span>
-                    <button onClick={() => setIsOpen(false)} className="text-neutral-500 hover:text-white px-2">✕</button>
+                    <button onClick={() => setIsOpen(false)} className="sd-ui-muted hover:opacity-80 px-2">✕</button>
                 </div>
 
                 <div className="flex-1 overflow-y-auto max-h-[60vh] p-2 space-y-4">
@@ -87,7 +87,7 @@ export default function PlayerList() {
                     {/* Players Section */}
                     {players.length > 0 && (
                         <div>
-                            <div className="text-[10px] font-black text-neutral-500 mb-1 px-1 tracking-widest flex justify-between uppercase">
+                            <div className="sd-ui-muted text-[10px] font-black mb-1 px-1 tracking-widest flex justify-between uppercase">
                                 <span>Players</span>
                                 <span>{activePlayerCount}/{players.length}</span>
                             </div>
@@ -99,8 +99,8 @@ export default function PlayerList() {
 
                     {/* Gamemasters Section - Moved Below */}
                     {gamemasters.length > 0 && (
-                        <div className={players.length > 0 ? "pt-2 border-t border-white/5" : ""}>
-                            <div className="text-[10px] font-black text-amber-500/50 mb-1 px-1 tracking-widest flex justify-between uppercase mt-2">
+                        <div className={players.length > 0 ? "pt-2 border-t sd-ui-divider" : ""}>
+                            <div className="sd-ui-accent text-[10px] font-black mb-1 px-1 tracking-widest flex justify-between uppercase mt-2">
                                 <span>Gamemasters</span>
                                 <span>{activeGMCount}/{gamemasters.length}</span>
                             </div>
@@ -112,10 +112,10 @@ export default function PlayerList() {
 
                 </div>
 
-                <div className="p-2 border-t border-white/5 bg-black/20">
+                <div className="p-2 border-t sd-ui-divider">
                     <button
                         onClick={handleLogout}
-                        className="w-full text-xs bg-red-900/30 hover:bg-red-900/50 text-red-200 border border-red-900/50 rounded py-1.5 transition-colors font-bold uppercase tracking-wider"
+                        className="sd-ui-button sd-ui-danger w-full text-xs rounded py-1.5 transition-colors font-bold uppercase tracking-wider"
                     >
                         Logout
                     </button>

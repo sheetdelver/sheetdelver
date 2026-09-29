@@ -24,15 +24,15 @@ interface ConfirmationModalProps {
 }
 
 const defaultTheme = {
-    overlay: "absolute inset-0 bg-black/60 backdrop-blur-md transition-opacity",
-    container: "relative z-10 bg-neutral-900/95 backdrop-blur-xl border border-white/10 shadow-2xl rounded-2xl w-full max-w-md p-6 animate-in fade-in zoom-in-95 duration-200",
-    header: "flex justify-between items-center border-b border-white/5 pb-3 mb-4",
-    title: "font-sans font-bold text-xl text-white",
-    body: "text-neutral-400 font-sans mb-8 leading-relaxed",
+    overlay: "sd-ui-overlay absolute inset-0 backdrop-blur-md transition-opacity",
+    container: "sd-ui-modal sd-ui-panel-raised relative z-10 backdrop-blur-xl shadow-2xl rounded-2xl w-full max-w-md p-6 animate-in fade-in zoom-in-95 duration-200",
+    header: "flex justify-between items-center border-b sd-ui-divider pb-3 mb-4",
+    title: "font-sans font-bold text-xl",
+    body: "sd-ui-muted font-sans mb-8 leading-relaxed",
     footer: "flex justify-end gap-3",
-    confirmBtn: (isDanger?: boolean) => `px-6 py-2.5 font-bold font-sans rounded-xl transition-all active:scale-95 ${isDanger ? 'bg-red-500 hover:bg-red-600 text-white shadow-lg shadow-red-500/20' : 'bg-white hover:bg-neutral-200 text-neutral-900 shadow-lg shadow-white/5'}`,
-    cancelBtn: "px-5 py-2.5 font-bold font-sans rounded-xl border border-white/10 hover:bg-white/5 transition-all text-neutral-400 hover:text-white",
-    closeBtn: "text-neutral-500 hover:text-white transition-colors"
+    confirmBtn: (isDanger?: boolean) => `sd-ui-button ${isDanger ? 'sd-ui-button-danger' : 'sd-ui-button-primary'} px-6 py-2.5 font-bold font-sans rounded-xl transition-all active:scale-95`,
+    cancelBtn: "sd-ui-button px-5 py-2.5 font-bold font-sans rounded-xl transition-all",
+    closeBtn: "sd-ui-muted hover:opacity-80 transition-opacity"
 };
 
 export function ConfirmationModal({
@@ -82,7 +82,7 @@ export function ConfirmationModal({
                     </h3>
                     <button
                         onClick={onCancel}
-                        className={t.closeBtn || "text-neutral-400 hover:text-white transition-colors"}
+                        className={t.closeBtn}
                         aria-label="Close"
                     >
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">

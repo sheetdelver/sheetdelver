@@ -1,7 +1,6 @@
 import React from 'react';
 import { Trash2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { Theme } from '../hooks/useTheme';
 import { useActorCombat } from '@client/ui/context/ActorCombatContext';
 import { useConfig } from '@client/ui/context/ConfigContext';
 import { ActorCardBlock } from '@shared/sdk';
@@ -10,7 +9,6 @@ import type { ActorDto } from '@shared/contracts/actors';
 interface ActorCardProps {
     actor: ActorDto;
     index: number;
-    theme: Theme;
     clickable?: boolean;
     canDelete?: boolean;
     onDelete: (id: string, name: string) => void;
@@ -19,7 +17,6 @@ interface ActorCardProps {
 export const ActorCard = ({
     actor,
     index,
-    theme,
     clickable = true,
     canDelete = false,
     onDelete
@@ -49,8 +46,8 @@ export const ActorCard = ({
             key={actorId || `actor-${index}`}
             onClick={handleClick}
             className={`
-          ${theme.panelBg}/40 backdrop-blur-md p-4 rounded-xl shadow-lg border border-white/5 
-          ${clickable ? 'hover:border-amber-500/50 hover:-translate-y-1 hover:shadow-2xl cursor-pointer' : 'cursor-default opacity-80'} 
+          sd-ui-panel backdrop-blur-md p-4 rounded-xl shadow-lg
+          ${clickable ? 'hover:-translate-y-1 hover:shadow-2xl cursor-pointer' : 'cursor-default opacity-80'}
           transition-all duration-300 block group animate-in fade-in slide-in-from-bottom-4
         `}
             style={{ animationDelay: `${index * 50}ms`, animationFillMode: 'both' }}
@@ -60,11 +57,11 @@ export const ActorCard = ({
                     <img
                         src={displayImg}
                         alt={displayName}
-                        className="w-16 h-16 rounded-lg bg-black/40 object-cover border border-white/10 group-hover:border-amber-500/30 transition-colors"
+                        className="w-16 h-16 rounded-lg sd-ui-inset object-cover transition-colors"
 
                     />
                     {clickable && (
-                        <div className="absolute inset-0 bg-amber-500/0 group-hover:bg-amber-500/5 transition-colors rounded-lg"></div>
+                        <div className="absolute inset-0 transition-colors rounded-lg"></div>
                     )}
                 </div>
                 <div className="flex-1 min-w-0 relative">
@@ -76,9 +73,9 @@ export const ActorCard = ({
                         }}
                         disabled={!deleteEnabled}
                         aria-label="Delete Character"
-                        className={`absolute -top-1 -right-1 p-2 rounded-lg bg-black/20 backdrop-blur-md border border-white/5 transition-all duration-300 group/delete z-10 ${deleteEnabled
-                            ? 'hover:bg-red-500/20 text-white/20 hover:text-red-500 hover:border-red-500/50'
-                            : 'text-white/10 cursor-not-allowed opacity-50'
+                        className={`sd-ui-button absolute -top-1 -right-1 p-2 backdrop-blur-md transition-all duration-300 group/delete z-10 ${deleteEnabled
+                            ? 'hover:opacity-100'
+                            : 'cursor-not-allowed opacity-50'
                         }`}
                         title={deleteEnabled
                             ? 'Delete Character'
@@ -87,7 +84,7 @@ export const ActorCard = ({
                     >
                         <Trash2 className="w-4 h-4 transition-transform group-hover/delete:scale-110" />
                     </button>
-                    <h3 className={`font-bold text-lg truncate pr-8 ${theme.accent} ${clickable ? 'group-hover:brightness-125' : ''}`}>
+                    <h3 className={`font-bold text-lg truncate pr-8 sd-ui-accent ${clickable ? 'group-hover:brightness-125' : ''}`}>
                         {displayName}
                     </h3>
 
@@ -96,10 +93,10 @@ export const ActorCard = ({
                     <div className="grid grid-cols-2 gap-2 text-sm">
                         {customData.blocks ? (
                             customData.blocks.map((block: ActorCardBlock, idx: number) => (
-                                <div key={idx} className="bg-black/40 px-3 py-1.5 rounded-lg border border-white/5">
+                                <div key={idx} className="sd-ui-inset px-3 py-1.5 rounded-lg">
                                     <span className="opacity-50 text-[10px] uppercase tracking-tighter block">{block.title}</span>
                                     <div className="flex items-baseline gap-1">
-                                        <span className={`font-mono font-bold ${block.valueClass || 'text-white'}`}>
+                                        <span className={`font-mono font-bold ${block.valueClass || ''}`}>
                                             {block.value}
                                         </span>
                                         {block.subValue && (
@@ -112,10 +109,10 @@ export const ActorCard = ({
                             // Fallback rendering
                             <>
                                 {(actor.hp || actor.derived?.hp) && (
-                                    <div className="bg-black/40 px-3 py-1.5 rounded-lg border border-white/5">
+                                    <div className="sd-ui-inset px-3 py-1.5 rounded-lg">
                                         <span className="opacity-50 text-[10px] uppercase tracking-tighter block">HP</span>
                                         <div className="flex items-baseline gap-1">
-                                            <span className="font-mono font-bold text-green-400">
+                                            <span className="font-mono font-bold sd-ui-success">
                                                 {actorRecord.hp?.value ?? actorRecord.derived?.hp?.value ?? '?'}
                                             </span>
                                             <span className="opacity-30 text-xs">/ {actorRecord.hp?.max ?? actorRecord.derived?.hp?.max ?? '?'}</span>
@@ -123,9 +120,9 @@ export const ActorCard = ({
                                     </div>
                                 )}
                                 {(actor.ac !== undefined || actor.derived?.ac !== undefined) && (
-                                    <div className="bg-black/40 px-3 py-1.5 rounded-lg border border-white/5">
+                                    <div className="sd-ui-inset px-3 py-1.5 rounded-lg">
                                         <span className="opacity-50 text-[10px] uppercase tracking-tighter block">AC</span>
-                                        <span className="font-mono font-bold text-blue-400">
+                                        <span className="font-mono font-bold">
                                             {String(actorRecord.ac ?? actorRecord.derived?.ac ?? '?')}
                                         </span>
                                     </div>
@@ -134,7 +131,7 @@ export const ActorCard = ({
                         )}
                     </div>
                     {!!customData.footer && (
-                        <div className="mt-2 text-xs opacity-70 border-t border-white/10 pt-2">
+                        <div className="mt-2 text-xs opacity-70 border-t sd-ui-divider pt-2">
                             {String(customData.footer)}
                         </div>
                     )}
