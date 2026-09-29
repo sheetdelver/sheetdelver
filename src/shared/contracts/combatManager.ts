@@ -6,6 +6,13 @@ export interface CombatManagerResourceDto {
     editable: boolean;
 }
 
+/** Bounded, read-only system card summary. Never an editable Actor source path. */
+export interface CombatManagerStatDto {
+    title: string;
+    value: string | number;
+    subValue?: string | number;
+}
+
 export interface CombatManagerParticipantDto {
     id: string;
     actorId: string;
@@ -20,6 +27,7 @@ export interface CombatManagerParticipantDto {
     isCurrent: boolean;
     resource: CombatManagerResourceDto | null;
     effects: string[];
+    stats: CombatManagerStatDto[];
 }
 
 export interface CombatManagerEncounterDto {

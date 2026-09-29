@@ -68,6 +68,9 @@ bounded first-version command contract, not native-method parity.
    defeated and a validated configured resource when available. Browser code
    calls authenticated Core APIs; only server services access Stores and
    dispatch Foundry writes. Ordinary Actor editing remains on the Actor sheet.
+   A compact read-only stat strip may use bounded blocks from the active
+   system adapter's prepared Actor-card summary; missing blocks simply omit
+   the strip. Module CSS and arbitrary card fields do not cross this DTO.
    A resource quick edit is permitted only when the configured path resolves to
    a persisted, writable Actor source field; prepared-only or ambiguous values
    are read-only or omitted. No Shadowdark, D&D or other system-name branch is

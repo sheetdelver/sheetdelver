@@ -1,5 +1,9 @@
 # Releases
 ## Unreleased
+- Added GM combat manager
+- Added tokenless encounter controls
+- Added batch initiative rolls
+- Added read-only combat stats
 - Enabled concurrent shared-scene dice
 - Matched predetermined landing faces
 - Expanded numeric roll rules

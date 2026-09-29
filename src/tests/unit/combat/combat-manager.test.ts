@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert';
-import { combatManagerService, CombatManagerError } from '@server/services/combats/CombatManagerService';
+import { combatManagerService, CombatManagerError, projectCombatManagerStats } from '@server/services/combats/CombatManagerService';
 import { readCombatManagerFlag } from '@server/services/combats/combatManagerFlag';
 import { createCombatService } from '@server/services/combats/CombatService';
 import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
@@ -21,6 +21,7 @@ function mockClient(userId: string, calls: Call[]): CombatClientLike {
     let combatantNumber = 0;
     return {
         userId,
+        getSystem: async () => ({ id: 'test' }),
         resolveUrl: (url?: string) => url || '',
         dispatchDocument: async (type: string, action: string, rawOperation?: unknown, parent?: { type: string; id: string }) => {
             const operation = (rawOperation || {}) as Record<string, any>;
@@ -70,6 +71,18 @@ async function seed(): Promise<void> {
 }
 
 export async function run(): Promise<void> {
+    assert.deepEqual(projectCombatManagerStats({ blocks: [
+        { title: ' HP ', value: 0, subValue: '/ 20', valueClass: 'untrusted-class' },
+        { title: 'AC', value: 15 },
+        { title: '', value: 2 },
+        { title: 'Invalid', value: { nested: 'source' } },
+        ...Array.from({ length: 10 }, (_, index) => ({ title: `Stat ${index}`, value: index })),
+    ] }), [
+        { title: 'HP', value: 0, subValue: '/ 20' },
+        { title: 'AC', value: 15 },
+        ...Array.from({ length: 4 }, (_, index) => ({ title: `Stat ${index}`, value: index })),
+    ], 'summary is bounded and strips module CSS and unsupported values');
+    assert.deepEqual(projectCombatManagerStats({ subtext: 'Only descriptive data' }), []);
     await seed();
     const calls: Call[] = [];
     const gm = mockClient('gm', calls);
@@ -77,12 +90,12 @@ export async function run(): Promise<void> {
     const player = mockClient('player', calls);
 
     for (const restricted of [assistant, player]) {
-        assert.throws(() => combatManagerService.list(restricted), (error: unknown) => error instanceof CombatManagerError && error.status === 403);
+        await assert.rejects(() => combatManagerService.list(restricted), (error: unknown) => error instanceof CombatManagerError && error.status === 403);
         assert.throws(() => combatManagerService.worldActors(restricted, ''), (error: unknown) => error instanceof CombatManagerError && error.status === 403);
         await assert.rejects(() => combatManagerService.create(restricted, 'Forbidden', false), (error: unknown) => error instanceof CombatManagerError && error.status === 403);
     }
     assert.equal(calls.length, 0, 'role rejection occurs before Foundry writes');
-    assert.throws(() => combatManagerService.detail(gm, 'UNMARKED'), (error: unknown) => error instanceof CombatManagerError && error.status === 404);
+    await assert.rejects(() => combatManagerService.detail(gm, 'UNMARKED'), (error: unknown) => error instanceof CombatManagerError && error.status === 404);
     assert.equal(readCombatManagerFlag({ scene: 'SCENE1', flags: { world: { sheetDelverCombat: {
         schemaVersion: 1, mode: 'tokenless', label: 'Scene encounter', status: 'active',
         keepHistory: false, folderId: null, copyIds: [],
@@ -101,7 +114,7 @@ export async function run(): Promise<void> {
     await combatManagerService.addWorldActor(gm, combatId, 'WORLDNPC');
     const managedTurns = createCombatService({ normalizeActors: async actors => actors });
     assert.deepEqual(await managedTurns.rollInitiative(gm, combatId,
-        combatManagerService.detail(gm, combatId).participants[0].id, {}),
+        (await combatManagerService.detail(gm, combatId)).participants[0].id, {}),
     { error: 'Use the GM Combat Manager to roll initiative', status: 403 },
     'legacy single-roll route cannot bypass the manager batch guard');
     assert.deepEqual(await managedTurns.advanceTurn(gm, combatId),
@@ -116,8 +129,8 @@ export async function run(): Promise<void> {
     await assert.rejects(() => combatManagerService.turn(assistant, combatId,
         () => managedTurns.advanceTurn(assistant, combatId, true)),
     (error: unknown) => error instanceof CombatManagerError && error.status === 403);
-    assert.equal(combatManagerService.detail(gm, combatId).participants[0].source, 'world');
-    assert.equal(combatManagerService.detail(gm, combatId).participants[0].actorId, 'WORLDNPC');
+    assert.equal((await combatManagerService.detail(gm, combatId)).participants[0].source, 'world');
+    assert.equal((await combatManagerService.detail(gm, combatId)).participants[0].actorId, 'WORLDNPC');
     assert.equal(calls.filter(call => call.type === 'Actor' && call.action === 'create').length, 0,
         'world NPC is linked, never copied');
 
@@ -125,13 +138,13 @@ export async function run(): Promise<void> {
     assert.deepEqual(packChoices.map(choice => choice.id), ['PACK1']);
     await combatManagerService.addPackActor(gm, combatId, 'test.monsters', 'PACK1');
     await combatManagerService.addPackActor(gm, combatId, 'test.monsters', 'PACK1');
-    const roster = combatManagerService.detail(gm, combatId).participants;
+    const roster = (await combatManagerService.detail(gm, combatId)).participants;
     const copies = roster.filter(row => row.source === 'compendium-copy');
     assert.deepEqual(copies.map(row => row.actorId).sort(), ['COPY1', 'COPY2']);
-    assert.equal(combatManagerService.detail(gm, combatId).currentCombatantId, 'ROW1',
+    assert.equal((await combatManagerService.detail(gm, combatId)).currentCombatantId, 'ROW1',
         'adding rows mid-round preserves the current world NPC');
     await combatManagerService.updateParticipant(gm, combatId, copies[0].id, { initiative: 30 });
-    assert.equal(combatManagerService.detail(gm, combatId).currentCombatantId, 'ROW1',
+    assert.equal((await combatManagerService.detail(gm, combatId)).currentCombatantId, 'ROW1',
         'initiative reorder preserves the current Combatant identity');
     assert.equal(actorStore.get('COPY1')?.folder, flag.folderId);
     assert.equal((actorStore.get('COPY1') as any)?.flags?.world?.sheetDelverCombatCopy?.sourceUuid,
@@ -162,7 +175,7 @@ export async function run(): Promise<void> {
     const retained = await combatManagerService.create(gm, 'Historical encounter', true);
     await combatManagerService.addWorldActor(gm, retained.id, 'WORLDNPC');
     assert.deepEqual(await combatManagerService.complete(gm, retained.id), { completed: true, retained: true });
-    assert.equal(combatManagerService.detail(gm, retained.id).status, 'completed');
+    assert.equal((await combatManagerService.detail(gm, retained.id)).status, 'completed');
     await assert.rejects(() => combatManagerService.addWorldActor(gm, retained.id, 'WORLDNPC'),
         (error: unknown) => error instanceof CombatManagerError && error.status === 409);
     assert.deepEqual(await managedTurns.advanceTurn(gm, retained.id),
@@ -177,13 +190,13 @@ export async function run(): Promise<void> {
     await combatManagerService.addWorldActor(gm, batch.id, 'WORLDNPC');
     await combatManagerService.addWorldActor(gm, batch.id, 'PLAYERPC');
     await combatManagerService.addWorldActor(gm, batch.id, 'ASSISTANTNPC');
-    const batchRoster = combatManagerService.detail(gm, batch.id).participants;
+    const batchRoster = (await combatManagerService.detail(gm, batch.id)).participants;
     assert.equal(batchRoster.find(row => row.actorId === 'WORLDNPC')?.isNpc, true);
     assert.equal(batchRoster.find(row => row.actorId === 'PLAYERPC')?.isNpc, false);
     assert.equal(batchRoster.find(row => row.actorId === 'ASSISTANTNPC')?.isNpc, true,
         'assistant ownership does not make an Actor player-owned');
     await combatManagerService.turn(gm, batch.id, () => managedTurns.advanceTurn(gm, batch.id, true));
-    const currentBeforeBatch = combatManagerService.detail(gm, batch.id).currentCombatantId;
+    const currentBeforeBatch = (await combatManagerService.detail(gm, batch.id)).currentCombatantId;
     const rolledIds: string[] = [];
     const rollOne = async (rowId: string) => {
         rolledIds.push(rowId);
@@ -214,7 +227,7 @@ export async function run(): Promise<void> {
     await combatManagerService.addWorldActor(gm, partial.id, 'WORLDNPC');
     await combatManagerService.addWorldActor(gm, partial.id, 'ASSISTANTNPC');
     await combatManagerService.turn(gm, partial.id, () => managedTurns.advanceTurn(gm, partial.id, true));
-    const currentBeforePartial = combatManagerService.detail(gm, partial.id).currentCombatantId;
+    const currentBeforePartial = (await combatManagerService.detail(gm, partial.id)).currentCombatantId;
     let attempted = 0;
     await assert.rejects(() => combatManagerService.rollInitiativeBatch(gm, partial.id, 'npc', async rowId => {
         if (++attempted === 2) throw new Error('Synthetic roll failure');
@@ -223,8 +236,8 @@ export async function run(): Promise<void> {
         return { success: true as const, initiative: 25 };
     }), (error: unknown) => error instanceof CombatManagerError && error.status === 502
         && error.message.includes('Rolled 1 of 2'));
-    assert.equal(combatManagerService.detail(gm, partial.id).participants.filter(row => row.initiative !== null).length, 1);
-    assert.equal(combatManagerService.detail(gm, partial.id).currentCombatantId, currentBeforePartial);
+    assert.equal((await combatManagerService.detail(gm, partial.id)).participants.filter(row => row.initiative !== null).length, 1);
+    assert.equal((await combatManagerService.detail(gm, partial.id)).currentCombatantId, currentBeforePartial);
     assert.deepEqual(await combatManagerService.complete(gm, partial.id), { completed: true, retained: false });
 
     // An interrupted creation can leave a marked provisional Combat whose

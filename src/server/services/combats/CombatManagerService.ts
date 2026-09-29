@@ -14,12 +14,17 @@ import { DocumentOwnershipLevel, FoundryUserRole, getEffectiveOwnership, isGM,
     type DocumentOwnershipMap } from '@server/core/documents/primary/base/ownership';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
 import { compendiumStore } from '@server/core/compendium/CompendiumStore';
+import { preparedActorStore } from '@server/core/documents/prepared/actors/PreparedActorStore';
+import { getAdapter } from '@modules/registry/server';
+import { logger } from '@shared/utils/logger';
+import type { SystemAdapter } from '@shared/sdk';
 import type {
     CombatManagerActorChoiceDto,
     CombatManagerEncounterDto,
     CombatManagerPackDto,
     CombatManagerParticipantDto,
     CombatManagerResourceDto,
+    CombatManagerStatDto,
     CombatManagerInitiativeBatchDto,
     CombatManagerInitiativeScope,
 } from '@shared/contracts/combatManager';
@@ -34,6 +39,44 @@ const PACK_PATTERN = /^[A-Za-z0-9_.-]{1,160}$/;
 const PATH_PATTERN = /^[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*$/;
 const PAGE_LIMIT = 40;
 const MAX_BATCH_ROLL = 100;
+const MAX_STATS = 6;
+const MAX_STAT_BLOCKS_SCANNED = 24;
+
+function statText(value: unknown, maxLength: number): string | number | null {
+    if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+    if (typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    return trimmed ? trimmed.slice(0, maxLength) : null;
+}
+
+export function projectCombatManagerStats(card: unknown): CombatManagerStatDto[] {
+    if (!isRecord(card) || !Array.isArray(card.blocks)) return [];
+    const stats: CombatManagerStatDto[] = [];
+    for (const block of card.blocks.slice(0, MAX_STAT_BLOCKS_SCANNED)) {
+        if (stats.length >= MAX_STATS) break;
+        if (!isRecord(block)) continue;
+        const title = statText(block.title, 32);
+        const value = statText(block.value, 48);
+        if (typeof title !== 'string' || value === null) continue;
+        const subValue = statText(block.subValue, 48);
+        stats.push({ title, value, ...(subValue === null ? {} : { subValue }) });
+    }
+    return stats;
+}
+
+function actorStats(actorId: string | null, adapter: SystemAdapter | null): CombatManagerStatDto[] {
+    if (!actorId || !adapter?.getActorCardData) return [];
+    const prepared = preparedActorStore.get(actorId);
+    if (!prepared) return [];
+    try {
+        return projectCombatManagerStats(adapter.getActorCardData(prepared));
+    } catch (error) {
+        logger.warn('Combat Manager | Actor card summary unavailable', {
+            actorId, message: error instanceof Error ? error.message : 'Unknown card error',
+        });
+        return [];
+    }
+}
 
 function requiredId(value: unknown): string {
     if (typeof value !== 'string' || !ID_PATTERN.test(value)) throw new CombatManagerError('Invalid document ID', 400);
@@ -154,7 +197,7 @@ async function preserveCurrentTurn(client: CombatClientLike, combatId: string, c
     }
 }
 
-function projectEncounter(combat: CombatDocument, client: CombatClientLike): CombatManagerEncounterDto | null {
+function projectEncounter(combat: CombatDocument, client: CombatClientLike, adapter: SystemAdapter | null): CombatManagerEncounterDto | null {
     const flag = readCombatManagerFlag(combat);
     const id = getDocumentId(combat);
     if (!flag || !id) return null;
@@ -176,6 +219,7 @@ function projectEncounter(combat: CombatDocument, client: CombatClientLike): Com
             isCurrent: prepared?.currentCombatantId === row.id,
             resource: sourceResource(actor, resourcePath),
             effects: effectLabels(actor),
+            stats: actorStats(actor ? row.actorId : null, adapter),
         };
     });
     return {
@@ -190,15 +234,22 @@ function projectEncounter(combat: CombatDocument, client: CombatClientLike): Com
 }
 
 export const combatManagerService = {
-    list(client: CombatClientLike): CombatManagerEncounterDto[] {
+    async list(client: CombatClientLike): Promise<CombatManagerEncounterDto[]> {
         const subject = roleSubject(client);
-        return combatStore.list({ subject }).map(combat => projectEncounter(combat, client))
+        const combats = combatStore.list({ subject });
+        if (combats.length === 0) return [];
+        const adapter = preparedActorStore.isReady()
+            ? await getAdapter((await client.getSystem()).id.toLowerCase()) : null;
+        return combats.map(combat => projectEncounter(combat, client, adapter))
             .filter((row): row is CombatManagerEncounterDto => row !== null);
     },
 
-    detail(client: CombatClientLike, combatId: string): CombatManagerEncounterDto {
+    async detail(client: CombatClientLike, combatId: string): Promise<CombatManagerEncounterDto> {
         roleSubject(client);
-        const projected = projectEncounter(requiredEncounter(combatId).combat, client);
+        const combat = requiredEncounter(combatId).combat;
+        const adapter = preparedActorStore.isReady()
+            ? await getAdapter((await client.getSystem()).id.toLowerCase()) : null;
+        const projected = projectEncounter(combat, client, adapter);
         if (!projected) throw new CombatManagerError('Encounter unavailable', 404);
         return projected;
     },
@@ -375,7 +426,7 @@ export const combatManagerService = {
                 // Combatant, even if a later roll fails after earlier writes.
                 await preserveCurrentTurn(client, combatId, currentId);
             }
-            return { rolled, encounter: this.detail(client, combatId) };
+            return { rolled, encounter: await this.detail(client, combatId) };
         });
     },
 

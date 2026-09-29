@@ -11,8 +11,8 @@ export function registerCombatManagerRoutes(router: express.Router, deps: {
     normalizeActors: (actorList: any[], client: any) => Promise<any[]>;
 }): void {
     const combatService = createCombatService(deps);
-    router.get('/combat-manager', (req, res) => {
-        try { res.json({ encounters: combatManagerService.list(req.foundryClient) }); }
+    router.get('/combat-manager', async (req, res) => {
+        try { res.json({ encounters: await combatManagerService.list(req.foundryClient) }); }
         catch (error) { handleError(error, res); }
     });
     router.get('/combat-manager/world-actors', (req, res) => {
@@ -31,8 +31,8 @@ export function registerCombatManagerRoutes(router: express.Router, deps: {
         try { res.status(201).json({ encounter: await combatManagerService.create(req.foundryClient, req.body?.label, req.body?.keepHistory) }); }
         catch (error) { handleError(error, res); }
     });
-    router.get('/combat-manager/:id', (req, res) => {
-        try { res.json({ encounter: combatManagerService.detail(req.foundryClient, req.params.id) }); }
+    router.get('/combat-manager/:id', async (req, res) => {
+        try { res.json({ encounter: await combatManagerService.detail(req.foundryClient, req.params.id) }); }
         catch (error) { handleError(error, res); }
     });
     router.post('/combat-manager/:id/world-actors', async (req, res) => {

@@ -316,6 +316,13 @@ export default function CombatManagerPage() {
                                     className={`text-sm underline ${theme.accent}`}>Open Actor sheet ↗</Link>
                             </div>
                             <p className="text-xs opacity-60">{selected.source === 'world' ? 'Linked world Actor — edits affect ongoing world state.' : 'Encounter-owned copy from a compendium.'}</p>
+                            {selected.stats.length > 0 && <div aria-label="Basic stats" className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                                <span className="col-span-full text-xs font-semibold uppercase tracking-wider opacity-60">Basic stats · read-only</span>
+                                {selected.stats.map((stat, index) => <div key={`${stat.title}:${index}`} className="min-w-0 rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+                                    <span className="block truncate text-[10px] font-bold uppercase tracking-wider opacity-60" title={stat.title}>{stat.title}</span>
+                                    <span className="block truncate text-sm font-semibold" title={`${stat.value}${stat.subValue ?? ''}`}>{stat.value}{stat.subValue !== undefined && <span className="ml-1 font-normal opacity-60">{stat.subValue}</span>}</span>
+                                </div>)}
+                            </div>}
                             {selected.effects.length > 0 && <p className="text-sm opacity-80">Effects: {selected.effects.join(', ')}</p>}
                             <div className="flex flex-wrap items-end gap-3">
                                 <label className="text-sm">Initiative<input type="number" value={initiative} onChange={event => setInitiative(event.target.value)} disabled={busy || encounter.status !== 'active'}
