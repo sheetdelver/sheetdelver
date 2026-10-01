@@ -1,5 +1,5 @@
 # Releases
-## Unreleased
+## 0.15.0
 - Preserved sessions and world runtime
 - Reconciled missed Foundry documents
 - Hardened setup detection and retries
