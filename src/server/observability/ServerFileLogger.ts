@@ -1,13 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { formatWithOptions } from 'node:util';
-import { LOG_LEVEL, logger, normalizeFileLogLevel, type LogLevel } from '@shared/utils/logger';
+import { LOG_LEVEL, logger, normalizeFileLogLevel, type LogLevel } from '../../shared/utils/logger';
 import {
     ensureOwnerOnlyDirectorySync,
     ensureOwnerOnlyFileSync,
     getLogsDir,
     OWNER_ONLY_FILE_MODE,
-} from '@core/paths';
+} from '../core/paths';
 
 type Source = 'manager' | 'core';
 

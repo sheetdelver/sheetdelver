@@ -1,7 +1,8 @@
 # Releases
-## Unreleased
+## 0.14.3
 - Patched vulnerable npm dependencies
 - Added server file logging
+- Fixed clean CI bootstrap
 
 ## 0.14.2
 - Standardized module dashboard actions
