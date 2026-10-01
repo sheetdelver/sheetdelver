@@ -6,6 +6,22 @@
 - Added read-only combat stats
 - Added shared GM stat preferences
 - Aligned combat manager appearance
+
+## 0.15.0
+- Preserved sessions and world runtime
+- Reconciled missed Foundry documents
+- Hardened setup detection and retries
+- Added bounded socket diagnostics
+- Confirmed redirected world shutdowns
+
+## 0.14.3
+- Patched vulnerable npm dependencies
+- Added server file logging
+- Fixed clean CI bootstrap
+
+## 0.14.2
+- Standardized module dashboard actions
+- Advanced UI extension contract
 - Unified player Core theming
 - Added player light/dark toggle
 - Preserved module style overrides

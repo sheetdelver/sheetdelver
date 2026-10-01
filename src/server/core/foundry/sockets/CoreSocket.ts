@@ -4,6 +4,7 @@ import { SocketBase } from './SocketBase';
 import { logger } from '@shared/utils/logger';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
 import type { FoundryBootstrapSnapshot } from './FoundrySocketEvents';
+import { formatDisconnectDiagnostic } from './disconnectDiagnostics';
 
 export class CoreSocket extends SocketBase {
     // Service-account identity is still a transport concern: the socket needs
@@ -13,27 +14,45 @@ export class CoreSocket extends SocketBase {
     // Core Socket maintains the singular connection
     private consecutiveFailures = 0;
     private isConnecting = false;
+    private connectionGeneration = 0;
 
     constructor(config: any) {
         super(config);
+    }
+
+    protected createMainSocket(baseUrl: string, options: Parameters<typeof io>[1]): Socket {
+        return io(baseUrl, options);
     }
 
     public get isConnectionAttemptInFlight(): boolean {
         return this.isConnecting;
     }
 
+    public get connectionEpoch(): number {
+        return this.connectionGeneration;
+    }
+
     /**
      * Get the current World status upon initial connection.
      */
-    private async getWorldStatus(): Promise<boolean> {
-        if (!this.socket || !this.socket.connected) return false;
+    private async getWorldStatus(socket: Socket): Promise<boolean | null> {
+        if (!socket.connected) return null;
         return new Promise((resolve) => {
-            const t = setTimeout(() => resolve(false), 5000);
-            this.socket!.emit('getWorldStatus', (status: boolean) => {
+            const t = setTimeout(() => resolve(null), 5000);
+            socket.emit('getWorldStatus', (status: unknown) => {
                 clearTimeout(t);
-                resolve(status);
+                resolve(typeof status === 'boolean' ? status : null);
             });
         });
+    }
+
+    private retireSocket(): void {
+        const previous = this.socket;
+        this.socket = null;
+        this.isSocketConnected = false;
+        if (!previous) return;
+        previous.removeAllListeners();
+        previous.disconnect();
     }
 
     /**
@@ -99,18 +118,21 @@ export class CoreSocket extends SocketBase {
         if (this.isConnecting) return;
 
         this.isConnecting = true;
+        const generation = ++this.connectionGeneration;
+        // The controller owns retries. Never leave an older Socket.IO manager
+        // able to reconnect in parallel with this new connection flow.
+        this.retireSocket();
         const baseUrl = this.getBaseUrl();
         logger.info(`CoreSocket | Connecting to ${baseUrl}...`);
 
         try {
             // 1. Handshake & CSRF
             const { csrfToken, isSetupMatch, pageTitle } = await this.performHandshake(baseUrl);
+            if (generation !== this.connectionGeneration) return;
 
-            // Detection: True Setup OR Gray State (No CSRF AND Title indicates failure/generic)
-            // If the title is a specific world name, we should try to connect.
             const isGenericOrErrorTitle = !pageTitle || pageTitle === 'Foundry Virtual Tabletop' || pageTitle.includes('Critical Failure');
 
-            if (isSetupMatch || (!csrfToken && isGenericOrErrorTitle)) {
+            if (isSetupMatch) {
                 this.emit('foundry:setupDetected', { pageTitle });
                 return;
             }
@@ -123,6 +145,7 @@ export class CoreSocket extends SocketBase {
             // 2. Discovery (Guest Probe)
             logger.info('CoreSocket | Probing world state (Guest Socket)...');
             const joinData = await this.probeWorldState(baseUrl);
+            if (generation !== this.connectionGeneration) return;
 
             if (joinData && joinData.world) {
                 logger.info(`CoreSocket | Discovered world "${joinData.world.title}" via Probe.`);
@@ -162,6 +185,7 @@ export class CoreSocket extends SocketBase {
                 // Ensure we have the latest CSRF from cookie if scrape missed it
                 const finalCsrf = csrfToken || this.cookieMap.get('csrf-token') || this.cookieMap.get('xsrf-token') || null;
                 await this.performLogin(baseUrl, this.userId, finalCsrf);
+                if (generation !== this.connectionGeneration) return;
             } else {
                 logger.warn('CoreSocket | No User ID resolved, skipping explicit POST login step.');
             }
@@ -171,11 +195,11 @@ export class CoreSocket extends SocketBase {
             await new Promise<void>((resolve, reject) => {
                 const timeout = setTimeout(() => reject(new Error("Socket connection timeout")), 15000);
 
-                this.socket = io(baseUrl, {
+                const socket = this.createMainSocket(baseUrl, {
                     path: '/socket.io',
                     transports: ['websocket'],
                     upgrade: false,
-                    reconnection: true,
+                    reconnection: false,
                     query: sessionId ? { session: sessionId } : {},
                     auth: sessionId ? { session: sessionId } : {},
                     extraHeaders: {
@@ -191,20 +215,33 @@ export class CoreSocket extends SocketBase {
                         }
                     }
                 });
+                this.socket = socket;
+                let connectedAt: number | null = null;
+                let transportName: unknown = null;
 
-                this.socket.on('connect', async () => {
-                    logger.info(`CoreSocket | Main Socket Transport Connected. socket.id: ${this.socket?.id}`);
+                socket.on('connect', async () => {
+                    if (generation !== this.connectionGeneration || this.socket !== socket) return;
+                    logger.info(`CoreSocket | Main Socket Transport Connected (generation=${generation}).`);
+                    connectedAt = Date.now();
+                    transportName = socket.io.engine?.transport?.name;
                     this.isSocketConnected = true;
-                    this.setupSharedContentListeners(this.socket!);
+                    this.setupSharedContentListeners(socket);
 
                     // 5. Verify World Status
-                    const isActive = await this.getWorldStatus();
-                    if (!isActive) {
+                    const isActive = await this.getWorldStatus(socket);
+                    if (generation !== this.connectionGeneration || this.socket !== socket || !socket.connected) return;
+                    if (isActive === null) {
+                        logger.warn('CoreSocket | World status acknowledgement unavailable; retrying without setup classification.');
+                        this.retireSocket();
+                        clearTimeout(timeout);
+                        this.emit('foundry:connectionFailed', { message: 'world-status-indeterminate' });
+                        resolve();
+                        return;
+                    }
+                    if (isActive === false) {
                         logger.warn('CoreSocket | Socket connected but world is NOT active.');
                         this.emit('foundry:worldInactive');
                         clearTimeout(timeout);
-                        // Still emit connect for setup mode to release the bootstrap lock
-                        this.emit('connect');
                         resolve();
                         return;
                     }
@@ -217,53 +254,58 @@ export class CoreSocket extends SocketBase {
                     resolve();
                 });
 
-                this.socket.on('disconnect', (reason: string) => {
-                    logger.info(`CoreSocket | Socket Disconnected: ${reason}`);
+                socket.on('disconnect', (reason: string, details: unknown) => {
+                    if (generation !== this.connectionGeneration || this.socket !== socket) return;
+                    logger.info(formatDisconnectDiagnostic({
+                        role: 'core', generation, connectedAt, now: Date.now(),
+                        reason, transport: transportName, details,
+                    }));
                     this.isSocketConnected = false;
                     this.emit('foundry:transportDisconnected', { reason });
                     this.emit('disconnect', reason);
                 });
 
-                this.socket.on('shutdown', () => {
+                socket.on('shutdown', () => {
                     logger.warn('CoreSocket | Native Shutdown signal received from Foundry. World is closing.');
                     this.emit('foundry:shutdown');
                 });
 
-                this.socket.on('reload', () => {
+                socket.on('reload', () => {
                     logger.info('CoreSocket | Native Reload signal received from Foundry. State transition detected.');
                     this.emit('foundry:reload');
                 });
 
-                this.socket.on('progress', (data: any) => {
+                socket.on('progress', (data: any) => {
                     this.emit('foundry:progress', { data });
                 });
 
-                this.socket.on('connect_error', (err) => {
-                    logger.error(`CoreSocket | Socket connection error: ${err.message}. State: connected=${this.socket?.connected}, active=${(this.socket as Socket & { active?: boolean })?.active}`);
+                socket.on('connect_error', (err) => {
+                    if (generation !== this.connectionGeneration || this.socket !== socket) return;
+                    logger.error(`CoreSocket | Socket connection error: ${err.message}. State: connected=${socket.connected}, active=${(socket as Socket & { active?: boolean }).active}`);
                     clearTimeout(timeout);
                     reject(err);
                 });
 
-                this.socket.on('session', (data: any) => {
+                socket.on('session', (data: any) => {
                     if (data && data.userId && !this.userId) {
                         logger.info(`CoreSocket | Acquired User ID from session event: ${data.userId}`);
                         this.userId = data.userId;
                     }
                 });
 
-                this.socket.on('userConnected', (user: any) => {
+                socket.on('userConnected', (user: any) => {
                     this.emit('foundry:userConnected', { user });
                 });
 
-                this.socket.on('userDisconnected', (data: any) => {
+                socket.on('userDisconnected', (data: any) => {
                     this.emit('foundry:userDisconnected', { data });
                 });
 
-                this.socket.on('userActivity', (userId: string, data: any) => {
+                socket.on('userActivity', (userId: string, data: any) => {
                     this.emit('foundry:userActivity', { userId, data });
                 });
 
-                this.socket.on('modifyDocument', (data: any) => {
+                socket.on('modifyDocument', (data: any) => {
                     const resultEntries = Array.isArray(data?.result)
                         ? data.result
                         : data?.result && typeof data.result === 'object'
@@ -289,7 +331,7 @@ export class CoreSocket extends SocketBase {
                 // Foundry v14 adds ordered batches while v13 continues to use
                 // the single event above. Keep both listeners active so batch
                 // support is additive rather than a generation switch.
-                this.socket.on('modifyDocumentBatch', (data: any) => {
+                socket.on('modifyDocumentBatch', (data: any) => {
                     logger.debug('CoreSocket | Received Foundry modifyDocumentBatch response', {
                         resultCount: Array.isArray(data?.results) ? data.results.length : null,
                     });
@@ -298,29 +340,29 @@ export class CoreSocket extends SocketBase {
 
                 // ProseMirror autosave is the persistence signal in both v13
                 // and v14; pm.newSteps remains transient collaborative state.
-                this.socket.on('pm.autosave', (uuid: string, html: string) => {
+                socket.on('pm.autosave', (uuid: string, html: string) => {
                     this.emit('foundry:pmAutosave', { uuid, html });
                 });
 
-                this.socket.on('manageCompendium', (response: any) => {
+                socket.on('manageCompendium', (response: any) => {
                     this.emit('foundry:manageCompendium', { response });
                 });
 
-                this.socket.on('createUser', (user: any) => {
+                socket.on('createUser', (user: any) => {
                     this.emit('foundry:documentCompatibility', {
                         type: 'User',
                         action: 'create',
                         result: [user],
                     });
                 });
-                this.socket.on('updateUser', (user: any) => {
+                socket.on('updateUser', (user: any) => {
                     this.emit('foundry:documentCompatibility', {
                         type: 'User',
                         action: 'update',
                         result: [user],
                     });
                 });
-                this.socket.on('deleteUser', (id: string | any) => {
+                socket.on('deleteUser', (id: string | any) => {
                     const userId = typeof id === 'string' ? id : (id?._id || id?.id);
                     if (!userId) return;
                     logger.info(`CoreSocket | User deleted: ${userId}`);
@@ -334,10 +376,11 @@ export class CoreSocket extends SocketBase {
             });
 
         } catch (error: unknown) {
+            if (generation !== this.connectionGeneration) return;
             logger.error(`CoreSocket | Connection flow failed: ${getErrorMessage(error)}`);
             this.emit('foundry:connectionFailed', { message: getErrorMessage(error) });
         } finally {
-            this.isConnecting = false;
+            if (generation === this.connectionGeneration) this.isConnecting = false;
         }
     }
 
@@ -346,17 +389,15 @@ export class CoreSocket extends SocketBase {
     }
 
     public disconnect() {
+        ++this.connectionGeneration;
         this.isConnecting = false;
-        if (this.socket) {
-            this.socket.disconnect();
-            this.socket = null;
-            this.isSocketConnected = false;
-            logger.info('CoreSocket | Explicitly disconnected.');
-        }
+        this.retireSocket();
+        logger.info('CoreSocket | Explicitly disconnected.');
     }
 
     public async postSetupAction<T = unknown>(payload: Record<string, unknown>): Promise<T> {
-        const response = await fetch(`${this.getBaseUrl()}/setup`, {
+        const baseUrl = this.getBaseUrl();
+        const response = await fetch(`${baseUrl}/setup`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -378,6 +419,20 @@ export class CoreSocket extends SocketBase {
         }
 
         if (!response.ok) {
+            const location = response.headers.get('location');
+            const redirect = location ? new URL(location, baseUrl) : null;
+            if (payload.shutdown === true && response.status === 302 && redirect
+                && redirect.origin === new URL(baseUrl).origin && redirect.pathname === '/setup') {
+                // Foundry v14 redirects a successful shutdown to Setup. A
+                // redirect alone could also be an auth failure, so require
+                // affirmative setup status before reporting success.
+                for (let attempt = 0; attempt < 10; attempt++) {
+                    try {
+                        if ((await this.checkStatus()).isSetupMatch) return { shutdown: true } as T;
+                    } catch { /* World transition can briefly interrupt status. */ }
+                    await new Promise(resolve => setTimeout(resolve, 150));
+                }
+            }
             throw new Error(`Foundry setup request failed with status ${response.status}: ${text.slice(0, 200)}`);
         }
 

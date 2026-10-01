@@ -68,6 +68,7 @@ graph TD
 - **World Transport Controller (`src/server/services/world/WorldTransportController.ts`)**:
     - Owns service-account lifecycle policy: retry/backoff, heartbeat, browser engagement wakeups, world launch/shutdown, and lifecycle Store updates.
     - Commands `CoreSocket` as a transport; it does not live in `core/`.
+    - A socket interruption gates world APIs but retains the last ready runtime. Affirmative, corroborated setup or explicit shutdown retires it; the controller alone reconnects the service-account socket.
 - **Foundry Event Ingress (`src/server/services/world/FoundryEventIngress.ts`)**:
     - Subscribes to neutral Foundry socket events and applies application semantics such as document routing, user presence, shared-content updates, and runtime teardown.
 - **Foundry Sockets (`@core/foundry/sockets`)**:
@@ -79,6 +80,11 @@ graph TD
 ### 3.2 The Delivery Layers
 - **Server (`src/server`)**:
     - **Status Handler**: Aggregates data from both the System Client and the specific User Client to provide a complete view of the world state.
+    - **Server file logging**: The existing logger can append plain-text output
+      to separate, owner-only manager and Core files under `<DATA_DIR>/logs`.
+      `debug.file-level` controls file output independently of console
+      `debug.level`. The service manager or operating system owns rotation;
+      no browser or module receives direct file access.
     - **Smart Proxy Socket**: Multiplexes individual Foundry connections to the frontend via a unified Socket.io interface.
     - **Module Routing**:
         - **API**: RegEx-based routing allows system-specific packages to mount their own API logic dynamically.
@@ -96,6 +102,8 @@ graph TD
 Per ADR-0022 and ADR-0023, `SystemService` lives at `src/server/services/world/SystemService.ts` (relocated from `core/system/`) so the orchestration facade sits alongside `WorldBootstrapper`, `WorldTransportController`, `FoundryEventIngress`, and `EngagementService`. `core/` never imports `services/`.
 
 For actors, the platform performs one system-client fetch during bootstrap, seeds `ActorStore`, and then keeps that store in parity through Foundry event ingress (`modifyDocument` results and broadcasts). Actor API reads and dashboard card projections should read from this platform cache; they should not repeatedly ask Foundry to rehydrate the same actor list.
+
+On a same-world reconnect, `WorldBootstrapper.recover()` verifies world/system identity, refreshes the world snapshot and all active primary-document Stores, and rebuilds prepared actors without reinitializing the module adapter. Browser-visible changes are calculated from the snapshot captured at transport loss and published after readiness; Stores reject a seed that raced with a live mutation. A changed world/system still tears down and bootstraps anew. See ADR-0056.
 
 ---
 
@@ -146,6 +154,13 @@ For actors, the platform performs one system-client fetch during bootstrap, seed
   injected-component themes take precedence. Module sheets/tools and the
   module-facing `--background`/`--foreground` CSS tokens are unchanged. See
   [ADR-0053](adr/0053-player-core-appearance.md).
+- **Dashboard module actions**: The UI manifest supplies typed tool-route and
+  dialog declarations; Core renders their cards under its Player Core palette.
+  Module tool pages, dialogs, and sheets retain module presentation. The old
+  arbitrary `dashboardTools` component and its Core-provided theme/loading
+  props are removed under the UI contract major bump. Dialogs alone mount
+  inside `SurfaceHost` for SDK context and module CSS scope. See
+  [ADR-0054](adr/0054-core-rendered-module-dashboard-actions.md).
 - **DicePresentationProvider**: Owns browser-local dice preferences and the bounded
   animation queue. It mounts above ChatProvider, receiving authorized reads and
   hints from ChatContext's existing listeners. It exposes held IDs, not another

@@ -177,7 +177,7 @@ SheetDelver employs a centralized logging system to maintain clean output across
 Use the appropriate level for your messages:
 *   **ERROR** (1): Critical failures that require attention (e.g., connection loss, API errors).
 *   **WARN** (2): Non-critical issues or deprecated usage.
-*   **INFO** (3): Standard operational events (e.g., "Connected to World", "User Logged In"). **Default**.
+*   **INFO** (3): Standard operational events (e.g., "Connected to World", "User Logged In").
 *   **DEBUG** (4): Verbose dev info (e.g., socket payloads, state transitions).
 
 ### Configuration
@@ -186,8 +186,15 @@ The log level is set in `settings.yaml`:
 debug:
     enabled: true
     level: 3  # 0=None, 1=Error, 2=Warn, 3=Info, 4=Debug
+    file-level: 3  # Plain-text server file output; default 3
 ```
-Both the backend and frontend respect this setting. The frontend receives this config via the `/api/status` endpoint.
+The backend and frontend respect `debug.level`; the frontend receives that
+console threshold via `/api/status`.
+`debug.level` defaults to error-only for Core. `debug.file-level` is a separate
+server-only threshold for the same logger messages. Level 4 can include
+sensitive diagnostics; keep file access restricted. File lines have ISO UTC
+timestamps; external service logging owns rotation. See
+[Configuration](CONFIGURATION.md#debug-settings).
 
 ### Backend Usage
 Use the platform logger:

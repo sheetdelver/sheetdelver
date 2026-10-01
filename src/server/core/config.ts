@@ -4,7 +4,7 @@ const getPath = async () => (typeof window === 'undefined' ? await import('node:
 const getYaml = async () => (typeof window === 'undefined' ? await import('js-yaml') : null);
 
 import { AppConfig } from '@shared/interfaces';
-import { logger } from '@shared/utils/logger';
+import { logger, normalizeFileLogLevel } from '@shared/utils/logger';
 import { getConfigFilePath, getDataDir } from '@core/paths';
 import { resolveAdminOrigin } from '@shared/security/adminOrigin';
 import { resolveExternalSecret } from '@server/security/externalSecret';
@@ -267,7 +267,8 @@ export async function loadConfig(): Promise<AppConfig | null> {
                 },
                 debug: {
                     enabled: debug.enabled ?? false,
-                    level: debug.level ?? 1
+                    level: debug.level ?? 1,
+                    fileLevel: normalizeFileLogLevel(debug['file-level']),
                 },
                 security: {
                     rateLimit: {

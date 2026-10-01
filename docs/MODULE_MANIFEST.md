@@ -16,7 +16,8 @@ The UI manifest can export optional `theme` and `componentStyles` with SDK
 1.5.0 / `ui-extension-api` 1.3.0. These are client presentation objects, including
 style callbacks; they are not serialized manifest JSON or server configuration.
 Core scopes shared chat, previews and dice trays to the selected module. Declare
-`"ui-extension-api": ">=1.3.0 <2.0.0"` when adopting these fields. See
+an appropriate 2.x UI contract range for modules using SDK 2.0.0 dashboard
+actions; a 1.x-only range is incompatible with the current host. See
 [Shared UI Themes](MODULE_AUTHORING.md#shared-ui-themes) and
 [ADR-0044](adr/0044-client-owned-module-presentation.md).
 
@@ -246,7 +247,7 @@ is compiled by `module:package` into the reserved artifact
     "coreVersion": ">=1.0.0",
     "apiContracts": {
       "module-api": ">=1.3.0 <2.0.0",
-      "ui-extension-api": ">=1.0.0 <2.0.0",
+      "ui-extension-api": ">=2.0.0 <3.0.0",
       "roll-engine-api": ">=1.0.0 <2.0.0"
     }
   },
@@ -333,9 +334,9 @@ suggestions may be declared; the manager displays at most eight selected
 stats. These are read-only presentation hints, not writable Foundry resource
 paths or dashboard Actor-card blocks. Optional `showInRoster: true` suggests a
 compact pill beside each combatant name; absent/false keeps the stat in detail
-only. A module adopting this new manifest
-field requires `"module-api": ">=1.3.0 <2.0.0"` (SDK 1.6.0). Older modules
-without the field require no version change.
+only. A module adopting this new manifest field requires
+`"module-api": ">=1.3.0 <2.0.0"`; the merged host advertises SDK 2.1.0.
+Older modules without the field require no version change.
 
 `permissions` is a declaration, not an authorization bypass. Foundry ownership and
 the Sheet Delver request runtime still gate document reads and writes. Module
@@ -454,7 +455,12 @@ const manifest: UIModuleManifest = {
     tools: {
         generator: () => import('../src/ui/tools/Generator'),
     },
-    dashboardTools: () => import('../src/ui/MyDashboardTools'),
+    dashboardActions: [
+        { id: 'generator', label: 'Character Generator',
+          description: 'Create a new character', kind: 'tool', toolId: 'generator' },
+        { id: 'importer', label: 'Import Character', kind: 'dialog',
+          dialog: () => import('../src/ui/ImportDashboardDialog') },
+    ],
     stylesheet: 'assets/styles.css',
 };
 
@@ -465,6 +471,30 @@ Component entries are lazy `() => import(...)` thunks. Each imported module must
 default-export a React component. `stylesheet` is optional and must point at CSS
 under `assets/`. The packager-managed Tailwind artifact is loaded separately via
 `compiledStyles`; do not add it to source `info.json`.
+
+### Dashboard actions (SDK 2.0.0)
+
+`dashboardActions` is optional. When present, Core renders the dashboard's
+section, cards, typography, focus states, and dark/light colors. Modules supply
+only action content and destination. `kind: 'tool'` references a tool ID already
+registered in the same `tools` map; Core builds the internal tool URL. A
+`kind: 'dialog'` action supplies a lazy component with an `onClose(): void`
+prop. Core owns its launcher/open state and mounts the dialog under the SDK
+provider and module CSS scope only while open. The dialog can use `useSDK()`
+for navigation and authenticated operations. There are at most 12 actions;
+IDs are 1–64 lowercase letters, digits, underscores or hyphens beginning
+with a letter, tool IDs follow the same safe segment form, labels are at most
+80 characters, and descriptions at most 160. Invalid entries are ignored by
+the host. An absent or empty array produces no module dashboard cards.
+
+The former `dashboardTools`/`dashboardLoading` component contract and its
+Core-provided `theme`, `token`, and loading setter props are removed. Modules
+must not draw dashboard chrome or assume their page theme governs Core cards.
+Module sheets, full tool pages, and dialog content still own their presentation;
+explicit `componentStyles` and SDK component overrides remain available.
+Modules adopting this contract require `ui-extension-api >=2.0.0 <3.0.0` and
+the minimum SheetDelver release that first ships SDK 2.0.0. See
+[ADR-0054](adr/0054-core-rendered-module-dashboard-actions.md).
 
 Use client hooks from `@sheet-delver/sdk/react`:
 
@@ -511,10 +541,10 @@ export default function MySheet({ actorId }: { actorId: string }) {
 Notification feedback also flows through `useSDK()`: `addNotification` returns
 an ephemeral ID, `updateNotification(id, patch)` updates it, and
 `removeNotification(id)` dismisses it. Lifecycle methods, warning severity and
-title/duration/permanent/progress options require
-`compatibility.apiContracts["ui-extension-api"]` of `">=1.2.0 <2.0.0"`
-(SDK 1.4.0). Existing add-only consumers retain their current minimum. Server
-`module-api` and `roll-engine-api` requirements do not change for this UI feature.
+title/duration/permanent/progress options first appeared in UI contract 1.2.0
+(SDK 1.4.0). Modules targeting the current host declare
+`compatibility.apiContracts["ui-extension-api"]` of `">=2.0.0 <3.0.0"`.
+Server `module-api` and `roll-engine-api` requirements do not change for this UI feature.
 See [Notifications and Chat](NOTIFICATIONS.md) and the
 [module authoring example](MODULE_AUTHORING.md#notifications-and-chat-feedback).
 
@@ -824,5 +854,5 @@ works.
    `useSDK().resolveImageUrl(path)`.
 10. Run `npm run module:check <systemId>` before packaging.
 11. Use `useSDK().navigate()` / `replace()` for internal application routes;
-    modules using these UI-extension 1.1 methods must declare
-    `ui-extension-api: ">=1.1.0 <2.0.0"`.
+    these methods originated in UI contract 1.1.0; modules targeting the
+    current host declare `ui-extension-api: ">=2.0.0 <3.0.0"`.

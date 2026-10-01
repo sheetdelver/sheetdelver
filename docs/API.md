@@ -21,6 +21,9 @@ Shared UI themes are a client SDK surface, not a REST payload. SDK 1.5.0 /
 `ui-extension-api` 1.3.0 loads `theme` and `componentStyles` from the UI manifest
 so executable style callbacks never need serialization. See
 [Shared UI Themes](MODULE_AUTHORING.md#shared-ui-themes).
+SDK 2.0.0 / `ui-extension-api` 2.0.0 replaces module-rendered dashboard tools
+with Core-rendered `dashboardActions`; this is also a client manifest contract,
+not a REST response. Module-owned pages and dialogs retain their own styling.
 
 Browser login sets the `sheet-delver-session` HttpOnly, SameSite=Strict cookie;
 the reusable session credential is never returned to browser JavaScript.

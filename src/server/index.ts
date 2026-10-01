@@ -13,6 +13,7 @@ import { registerHttpErrorHandlers } from '@server/security/httpRequestSecurity'
 import { FoundryUserConnectionService } from '@server/services/foundry';
 import { worldLifecycleStore } from '@server/core/world/WorldLifecycleStore';
 import type { WorldLifecycleTransition } from '@server/core/world/WorldLifecycleStore';
+import { configureServerFileLogging } from '@server/observability/ServerFileLogger';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
 import {
     createFoundrySessionStoreFromEnvironment,
@@ -40,7 +41,8 @@ async function startServer() {
 
     // Initialize Universal Logger with configured level
     logger.setLevel(config.debug.level);
-    logger.info(`Core Service | Logger initialized at level: ${config.debug.level}`);
+    configureServerFileLogging('core', config.debug.fileLevel ?? 3);
+    logger.info(`Core Service | Started (pid=${process.pid}); console level=${config.debug.level}, file level=${config.debug.fileLevel ?? 3}.`);
 
     // Initialize Admin Credential Store with optional pepper
     initAdminCredentialStore(config.security.adminPepper);
@@ -101,6 +103,11 @@ async function startServer() {
                 logger.error('Core Service | Failed to refresh changed-user authorization:', error);
             });
         }
+    });
+
+    // Observe lifecycle before initialization, which can already detect setup.
+    worldLifecycleStore.on('transition', (transition: WorldLifecycleTransition) => {
+        logger.info(`World lifecycle | ${transition.from} -> ${transition.to} (${transition.reason}).`);
     });
 
     // Start System Provider

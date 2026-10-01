@@ -1,4 +1,5 @@
 import { ModuleRuntime } from './runtime';
+import type { ComponentType } from 'react';
 
 // ---------------------------------------------------------------------------
 // Foundry document primitives
@@ -411,6 +412,22 @@ export interface SystemAdapter {
 // UI module manifest
 // ---------------------------------------------------------------------------
 
+export interface ModuleDashboardDialogProps {
+    onClose: () => void;
+}
+
+interface ModuleDashboardActionBase {
+    /** Stable, module-local action identifier. */
+    id: string;
+    label: string;
+    description?: string;
+}
+
+export type ModuleDashboardAction = ModuleDashboardActionBase & (
+    | { kind: 'tool'; toolId: string }
+    | { kind: 'dialog'; dialog: () => Promise<{ default: ComponentType<ModuleDashboardDialogProps> }> }
+);
+
 export interface UIModuleManifest {
     info: ModuleInfo;
     /** Client-owned presentation; callbacks must not cross the JSON status boundary. */
@@ -420,8 +437,8 @@ export interface UIModuleManifest {
     rollModal?: () => Promise<{ default: unknown }>;
     actorPage?: () => Promise<{ default: unknown }>;
     tools?: Record<string, () => Promise<{ default: unknown }>>;
-    dashboardTools?: () => Promise<{ default: unknown }>;
-    dashboardLoading?: unknown;
+    /** Core-rendered dashboard cards; module pages and dialogs retain their own presentation. */
+    dashboardActions?: ModuleDashboardAction[];
     /**
      * Path(s) to CSS file(s) relative to the module root (e.g. "assets/styles.css"),
      * or an array of them. The platform injects each as a <link rel="stylesheet"> when the

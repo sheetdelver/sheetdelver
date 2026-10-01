@@ -373,11 +373,9 @@ export class FoundryUserConnectionService {
         }
     }
 
-    public async clearAllSessions(
-        reason: FoundrySessionInvalidationReason = 'revoked',
-    ): Promise<void> {
-        logger.info('FoundryUserConnectionService | Invalidating all Foundry user connections due to world disconnect/setup.');
+    public async clearAllSessions(reason: FoundrySessionInvalidationReason = 'revoked'): Promise<void> {
         const connections = Array.from(this.connections.values());
+        logger.warn(`FoundryUserConnectionService | Invalidating all sessions (reason=${reason}, live=${connections.length}).`);
         // Retire authority before waiting on remote logout. The epoch prevents
         // any in-flight login or restore from repopulating the cleared map.
         this.authorityEpoch += 1;
@@ -427,6 +425,7 @@ export class FoundryUserConnectionService {
             }
         }
 
+        logger.warn('FoundryUserConnectionService | Session restoration exhausted transport retries.');
         return undefined;
     }
 
@@ -463,6 +462,7 @@ export class FoundryUserConnectionService {
 
             if (!currentWorldId) {
                 logger.debug(`FoundryUserConnectionService | Deferring restoration for ${sessionId} - World ID still unknown. (State: ${lifecycleState})`);
+                logger.warn('FoundryUserConnectionService | Session restoration stopped: world unavailable.');
                 return { status: 'terminal' };
             }
 
@@ -614,6 +614,7 @@ export class FoundryUserConnectionService {
         sessionId: string,
         reason: FoundrySessionInvalidationReason,
     ): Promise<void> {
+        logger.warn(`FoundryUserConnectionService | Persisted session invalidated (reason=${reason}).`);
         this.retireSessionAuthority(sessionId, reason);
         await this.clearSession(sessionId);
     }

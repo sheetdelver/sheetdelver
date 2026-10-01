@@ -1,6 +1,6 @@
 # ADR-0013: Primary Document Ownership and Visibility Model
 
-**Status:** Accepted (May 17, 2026) — ADR-0011 Phases 1–7 plus ADR-0013 Phases 1 and 2 shipped. The ownership model is in force across every active Store and primary-document read path, with per-route threshold contracts documented in Phase 2. Actor detail/card threshold splitting and Sheet Delver-side write courtesy gates remain tracked follow-ups.
+**Status:** Completed — ADR-0013 Phases 1 and 2 shipped May 17, 2026, and the Actor detail/card threshold split closed September 2, 2026. The ownership model is in force across active Stores and primary-document read paths. Optional SheetDelver-side write courtesy gates remain deferred; Foundry authorizes writes.
 **Date:** May 15, 2026
 **Phase:** Primary Documents (Phase 1 onward)
 **Supersedes:** None. Codifies and extends the ad-hoc visibility checks that exist today across `ActorService`, `CombatService`, `JournalService`, and the per-type sockets.

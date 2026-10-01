@@ -10,17 +10,17 @@ export function run() {
         'roll-engine-api': '1.0.0',
     };
 
-    const lifecycleRequirement = { 'ui-extension-api': '>=1.2.0 <2.0.0' };
+    const lifecycleRequirement = { 'ui-extension-api': '>=2.0.0 <3.0.0' };
     const lifecycleCompatibility = (provided: Record<string, string>) => resolveModuleCompatibility({
         coreVersion: fixtureCoreVersion, providedApiContracts: provided,
         requiredApiContracts: lifecycleRequirement,
     });
-    assert.equal(lifecycleCompatibility({ ...API_CONTRACT_VERSIONS, 'ui-extension-api': '1.1.0' }).compatible, false);
+    assert.equal(lifecycleCompatibility({ ...API_CONTRACT_VERSIONS, 'ui-extension-api': '1.3.0' }).compatible, false);
     assert.equal(lifecycleCompatibility(API_CONTRACT_VERSIONS).compatible, true);
     assert.equal(resolveModuleCompatibility({
         coreVersion: fixtureCoreVersion, providedApiContracts: API_CONTRACT_VERSIONS,
         requiredApiContracts: { 'ui-extension-api': '>=1.0.0 <2.0.0' },
-    }).compatible, true, 'existing add-only modules remain compatible');
+    }).compatible, false, '1.x-only UI modules require migration to the new contract');
 
     const noRequirements = resolveModuleCompatibility({
         coreVersion: fixtureCoreVersion,

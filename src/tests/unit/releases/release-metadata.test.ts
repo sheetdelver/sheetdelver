@@ -15,6 +15,9 @@ export function run(): void {
     const changelog = [
         '# Releases',
         '',
+        '## Unreleased',
+        '- Not in this release',
+        '',
         '## 0.8.0',
         '',
         '- Added release automation',
@@ -30,6 +33,7 @@ export function run(): void {
         extractReleaseNotes(changelog, '0.8.0'),
         '- Added release automation\n- Added release checks',
     );
+    assert.doesNotMatch(extractReleaseNotes(changelog, '0.8.0'), /Not in this release/);
     assert.throws(() => extractReleaseNotes(changelog, '0.9.0'), /missing the exact heading/);
     assert.throws(
         () => extractReleaseNotes('## 0.8.0\n\n## 0.7.0\n- Older', '0.8.0'),

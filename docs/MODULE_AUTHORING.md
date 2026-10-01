@@ -117,7 +117,7 @@ Do not import from Sheet Delver internals such as `@shared/*`, `@client/*`, `@se
   "compatibility": {
     "apiContracts": {
       "module-api": ">=1.1.0 <2.0.0",
-      "ui-extension-api": ">=1.0.0 <2.0.0",
+      "ui-extension-api": ">=2.0.0 <3.0.0",
       "roll-engine-api": ">=1.0.0 <2.0.0"
     }
   },
@@ -160,9 +160,42 @@ const uiManifest: UIModuleManifest = {
 };
 ```
 
-Adopters require `"ui-extension-api": ">=1.3.0 <2.0.0"` and must pin their
-CI/release tooling to a released Core that supports it. Existing modules that
-do not use these fields retain their minimums. See [ADR-0044](adr/0044-client-owned-module-presentation.md).
+These fields originated in UI contract 1.3.0. Modules targeting the current
+SDK 2.x contract require `"ui-extension-api": ">=2.0.0 <3.0.0"` and must
+pin CI/release tooling to a released Core that supports it. See
+[ADR-0044](adr/0044-client-owned-module-presentation.md).
+
+## Core-rendered dashboard actions
+
+SDK 2.0.0 / `ui-extension-api` 2.0.0 gives the dashboard's presentation back
+to Core. In `module/ui.tsx`, declare `dashboardActions` with a stable ID,
+label, optional description, and either a `toolId` from the manifest's `tools`
+map or a lazy dialog component:
+
+```tsx
+const uiManifest: UIModuleManifest = {
+    info,
+    sheet: () => import('../src/ui/Sheet'),
+    tools: { generator: () => import('../src/ui/tools/Generator') },
+    dashboardActions: [
+        { id: 'generator', label: 'Character Generator',
+          kind: 'tool', toolId: 'generator' },
+        { id: 'importer', label: 'Import Character',
+          kind: 'dialog', dialog: () => import('../src/ui/ImportDashboardDialog') },
+    ],
+};
+```
+
+The dialog component accepts `{ onClose(): void }` and may use `useSDK()` to
+navigate after completion. Core renders the cards in its own light/dark theme;
+the module keeps control of the full tool page and dialog content. Do not use
+the removed `dashboardTools`/`dashboardLoading` entries or rely on the old
+dashboard `theme`, `token`, and loading setter props. Declare
+`"ui-extension-api": ">=2.0.0 <3.0.0"` and a `coreVersion` range beginning
+with the first SheetDelver release carrying SDK 2.0.0. See
+[Module Manifest Reference](MODULE_MANIFEST.md#dashboard-actions-sdk-200) for
+bounds and [ADR-0054](adr/0054-core-rendered-module-dashboard-actions.md)
+for the ownership decision.
 
 ## Adapter
 
@@ -307,8 +340,9 @@ replace('/');                            // redirect without a stale back entry
 Targets must be root-relative paths on the current Sheet Delver origin. Use a
 normal anchor for an external destination. Do not assign `window.location.href`
 or call `window.location.assign()` / `replace()` for internal routes;
-`module:check` rejects those hard-navigation forms. Modules using this surface
-must require `ui-extension-api: ">=1.1.0 <2.0.0"` in `info.json`.
+`module:check` rejects those hard-navigation forms. Navigation first appeared
+in UI contract 1.1.0; modules targeting the current host declare
+`ui-extension-api: ">=2.0.0 <3.0.0"` in `info.json`.
 
 ## Server Routes
 
@@ -484,8 +518,9 @@ async function exportCharacter() {
 }
 ```
 
-Declare `"ui-extension-api": ">=1.2.0 <2.0.0"` when using these additions.
-Existing add-only modules need no manifest change. Notification IDs are ephemeral;
+Notification lifecycle first appeared in UI contract 1.2.0. Modules targeting
+the current host declare `"ui-extension-api": ">=2.0.0 <3.0.0"`.
+Notification IDs are ephemeral;
 updates return false after expiry, dismissal or session cleanup. Do not recreate
 a notice after a late update fails. Incomplete progress pauses expiry; completion
 resumes it unless permanent is true. Only dismiss your own operation's notice.

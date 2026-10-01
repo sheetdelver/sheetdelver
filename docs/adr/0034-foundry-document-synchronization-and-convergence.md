@@ -1,6 +1,6 @@
 # ADR-0034: Foundry Document Synchronization and Convergence
 
-**Status:** Accepted - Phase 1 complete; Phase 2 pending.
+**Status:** Completed; verified — Phases 1–5 closed September 4, 2026 after generation 13/14 live acceptance and passing CI.
 **Status amendment (September 3, 2026):** Phase 2 is in progress. The Actor
 list bridge, Actor trailing refresh, and shared Store application of Foundry
 field operators are complete and live-validated; the remaining Phase 2 items

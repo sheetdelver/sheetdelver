@@ -1,5 +1,10 @@
 import { strict as assert } from 'node:assert';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { FoundryUserConnectionService } from '@server/services/foundry';
+import { ServerFileLogger } from '@server/observability/ServerFileLogger';
+import { logger } from '@shared/utils/logger';
 import { ClientSocket } from '@core/foundry/sockets/ClientSocket';
 import { worldStateStore } from '@server/core/world/WorldStateStore';
 import { worldLifecycleStore } from '@server/core/world/WorldLifecycleStore';
@@ -245,18 +250,31 @@ async function runSetupInvalidatesCachedSessions() {
     await resetState();
     await writeCachedSession();
 
-    const manager = createManager();
-    const invalidations: FoundrySessionInvalidationEvent[] = [];
-    manager.onSessionInvalidated(event => invalidations.push(event));
-    await manager.handleWorldEnteredSetup();
+    const testRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'sheetdelver-setup-log-'));
+    try {
+        const directory = path.join(testRoot, 'logs');
+        logger.setFileSink(new ServerFileLogger('core', 3, directory).write);
+        logger.info('World lifecycle | offline -> setup (confirmed-world-setup).');
+        const manager = createManager();
+        const invalidations: FoundrySessionInvalidationEvent[] = [];
+        manager.onSessionInvalidated(event => invalidations.push(event));
+        await manager.handleWorldEnteredSetup();
 
-    const cached = await sessionStore.load();
-    assert.equal(
-        cached?.[SESSION_TOKEN],
-        undefined,
-        'entering setup must invalidate the previous world session cache',
-    );
-    assert.deepEqual(invalidations, [{ scope: 'all', reason: 'world-entered-setup' }]);
+        const cached = await sessionStore.load();
+        assert.equal(
+            cached?.[SESSION_TOKEN],
+            undefined,
+            'entering setup must invalidate the previous world session cache',
+        );
+        assert.deepEqual(invalidations, [{ scope: 'all', reason: 'world-entered-setup' }]);
+        const lines = fs.readFileSync(path.join(directory, 'sheetdelver-core.log'), 'utf8');
+        assert.ok(lines.includes('[INFO] World lifecycle | offline -> setup (confirmed-world-setup).'));
+        assert.ok(lines.includes('[WARN] FoundryUserConnectionService | Invalidating all sessions (reason=world-entered-setup, live=0).'));
+        assert.equal(lines.includes(SESSION_TOKEN), false);
+    } finally {
+        logger.setFileSink(null);
+        fs.rmSync(testRoot, { recursive: true, force: true });
+    }
 
     await resetState();
 }

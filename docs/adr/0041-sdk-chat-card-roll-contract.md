@@ -1,6 +1,6 @@
 # ADR-0041: SDK Chat Card Roll Contract
 
-**Status:** Accepted - Implemented; live acceptance pending
+**Status:** Completed; verified (automated checks and user-reported production smoke acceptance)
 **Date:** September 18, 2026
 **Supersedes:** None
 **Related:** ADR-0027, ADR-0039, ADR-0040
@@ -62,6 +62,9 @@ changes. The scaffold does not use the new field and keeps its existing minimum.
 - [x] Summary display, native precedence and hidden-content checks.
 - [x] Full unit suite, TypeScript, lint, module checks and isolated build.
 - [x] Existing authoring/API/dice guide updates and manifest requirement guidance.
-- [ ] User live acceptance.
+- [x] User-reported production smoke acceptance on September 21, 2026.
 
-No hosted Foundry mutations or new dice features are part of this work.
+The user confirmed the production smoke result on September 21, closing this
+acceptance item. That report does not independently verify every synthetic card
+variant covered by the automated checks above. No agent-run hosted Foundry
+mutations or new dice features are part of this work.

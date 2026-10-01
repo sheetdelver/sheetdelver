@@ -178,7 +178,10 @@ export function createStatusService(deps: StatusServiceDeps) {
             system,
             url: deps.config.foundry.url,
             appVersion: deps.config.app.version,
-            debug: deps.config.debug
+            debug: {
+                enabled: deps.config.debug.enabled,
+                level: deps.config.debug.level,
+            }
         };
     };
 

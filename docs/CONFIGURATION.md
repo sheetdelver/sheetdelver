@@ -83,6 +83,27 @@ and diagnostics use them.
 | --- | --- | --- |
 | `debug.enabled` | Optional; default `false` | Enables debug-only HTTP routes and additional diagnostics. Disable outside active troubleshooting. |
 | `debug.level` | Optional; default `1` | Logging threshold: `0` none, `1` error, `2` warning, `3` information, `4` debug. Level 4 also installs fatal process error handlers. |
+| `debug.file-level` | Optional; default `3` | Server-only plain-text file threshold, using the same `0`–`4` levels. `0` disables file output. |
+
+The existing logger writes `[LEVEL] message` lines to the console according
+to `debug.level`. The manager and Core append the same messages, prefixed with
+an ISO UTC timestamp, to `<DATA_DIR>/logs/sheetdelver-manager.log` and
+`sheetdelver-core.log` according to `debug.file-level`. The files and directory
+are owner-only. The application does not date filenames, rotate, or delete
+these files. Set `debug.file-level: 0` to rely only on stdout/stderr capture
+from a service manager, which can supply its own timestamps and retention. An operator
+who uses the files should configure logrotate or equivalent. Each write
+reopens the fixed file, so rename-based rotation works.
+Level `4` can persist sensitive diagnostic arguments, just as the server
+console can display them; restrict access and retention accordingly. A file
+write failure is reported to stderr without stopping Core. For a default data
+directory, `rg 'World lifecycle|Invalidating all sessions|Full-stack restart'
+data/logs/sheetdelver-*.log` shows useful checkpoints. A setup log line alone
+does not prove Foundry shut down: ambiguous status responses and timeouts need
+separate investigation. Browser-only cookie expiry without a server request
+may leave no server log line.
+Routine Foundry `/api/status` handshake messages are DEBUG-level: they remain
+visible with console level `4` but stay out of a level-`3` file log.
 
 ## Security Settings
 

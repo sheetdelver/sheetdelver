@@ -321,7 +321,11 @@ async function runManifestTests() {
         tools: {
             'generator': () => Promise.resolve({ default: {} }),
         },
-        dashboardTools: () => Promise.resolve({ default: {} }),
+        dashboardActions: [
+            { id: 'generator', label: 'Generate Character', kind: 'tool', toolId: 'generator' },
+            { id: 'importer', label: 'Import Character', kind: 'dialog',
+                dialog: () => Promise.resolve({ default: () => null }) },
+        ],
     };
 
     assert.equal(manifest.info.id, 'mock');
@@ -405,15 +409,16 @@ function runClientSdkTests() {
 // ---------------------------------------------------------------------------
 
 function runVersionTests() {
-    assert.equal(SDK_VERSION, '1.6.0');
+    assert.equal(SDK_VERSION, '2.1.0');
     assert.equal(API_CONTRACT_VERSIONS['module-api'], '1.3.0');
-    assert.equal(API_CONTRACT_VERSIONS['ui-extension-api'], '1.3.0');
+    assert.equal(API_CONTRACT_VERSIONS['ui-extension-api'], '2.0.0');
     assert.equal(API_CONTRACT_VERSIONS['roll-engine-api'], '1.0.0');
 
     // Capability detection (decision 23)
     assert.equal(capabilities.supports('combat'), true);
     assert.equal(capabilities.supports('documents'), true);
     assert.equal(capabilities.supports('navigation'), true);
+    assert.equal(capabilities.supports('dashboard-actions'), true);
     assert.equal(capabilities.supports('events'), true);
     assert.equal(capabilities.supports('nonexistent-capability'), false);
     assert.ok(capabilities.list().includes('rolls'));

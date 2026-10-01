@@ -1,6 +1,6 @@
 import { logger } from '@shared/utils/logger';
 import type { CoreSocket } from '@core/foundry/sockets/CoreSocket';
-import type { PrimaryDocumentType } from './base/PrimaryDocumentStore';
+import type { PrimaryDocumentType, ReconciliationSnapshot } from './base/PrimaryDocumentStore';
 import { modifyDocumentRouter } from './base/modifyDocumentRouter';
 import { actorStore } from './actors/ActorStore';
 import { chatMessageStore } from './chat-messages/ChatMessageStore';
@@ -23,10 +23,12 @@ import { combatEncounterReadModel } from '../encounters/CombatEncounterReadModel
  */
 export interface PrimaryDocumentSeeder {
     type: PrimaryDocumentType;
-    seed(client: CoreSocket): Promise<void>;
+    seed(client: CoreSocket, options?: { force?: boolean }): Promise<void>;
     clear(reason?: string): void;
     isReady(): boolean;
 }
+
+export type PrimaryDocumentReconciliationBaseline = Map<PrimaryDocumentType, ReconciliationSnapshot>;
 
 /**
  * Coordinator for primary-document cache lifecycle. Per ADR-0011, individual
@@ -35,6 +37,22 @@ export interface PrimaryDocumentSeeder {
  */
 class PrimaryDocumentCacheCoordinator {
     private seeders: PrimaryDocumentSeeder[] = [];
+
+    private readonly reconciliationStores = {
+        Actor: actorStore,
+        ChatMessage: chatMessageStore,
+        Folder: folderStore,
+        User: userStore,
+        JournalEntry: journalStore,
+        Item: itemStore,
+        Combat: combatStore,
+        RollTable: rollTableStore,
+        Macro: macroStore,
+        Playlist: playlistStore,
+        Cards: cardsStore,
+        Scene: sceneStore,
+        Setting: settingStore,
+    } as const;
 
     register(seeder: PrimaryDocumentSeeder): void {
         this.seeders.push(seeder);
@@ -45,6 +63,37 @@ class PrimaryDocumentCacheCoordinator {
             logger.info(`PrimaryDocumentCacheCoordinator | Seeding ${seeder.type}...`);
             await seeder.seed(client);
         }
+    }
+
+    /** Capture the last browser-visible source state at transport loss. */
+    captureReconciliationBaseline(): PrimaryDocumentReconciliationBaseline {
+        const baseline: PrimaryDocumentReconciliationBaseline = new Map();
+        for (const seeder of this.seeders) {
+            const store = this.reconciliationStores[seeder.type as keyof typeof this.reconciliationStores];
+            if (!store) throw new Error(`No reconciliation Store registered for ${seeder.type}`);
+            baseline.set(seeder.type, store.captureReconciliation());
+        }
+        return baseline;
+    }
+
+    /** Refresh source Stores while the world remains unavailable to API callers. */
+    async reconcileAll(
+        client: CoreSocket,
+        baseline: PrimaryDocumentReconciliationBaseline = this.captureReconciliationBaseline(),
+    ): Promise<() => void> {
+        const publications: Array<() => void> = [];
+        for (const seeder of this.seeders) {
+            const store = this.reconciliationStores[seeder.type as keyof typeof this.reconciliationStores];
+            if (!store) throw new Error(`No reconciliation Store registered for ${seeder.type}`);
+            const before = baseline.get(seeder.type);
+            if (!before) throw new Error(`No reconciliation baseline for ${seeder.type}`);
+            logger.info(`PrimaryDocumentCacheCoordinator | Reconciling ${seeder.type}...`);
+            await seeder.seed(client, { force: true });
+            publications.push(() => store.publishReconciliation(before));
+        }
+        return () => {
+            for (const publish of publications) publish();
+        };
     }
 
     clearAll(reason?: string): void {
@@ -144,11 +193,11 @@ primaryDocumentCacheCoordinator.register({
 
 primaryDocumentCacheCoordinator.register({
     type: 'User',
-    async seed(client) {
+    async seed(client, options) {
         // WorldBootstrapper seeds UserStore from the accepted game.data
         // snapshot before the generic primary-document sweep. When that
         // snapshot was available, avoid an unnecessary second User.get.
-        if (userStore.isReady()) {
+        if (userStore.isReady() && !options?.force) {
             logger.info(`PrimaryDocumentCacheCoordinator | UserStore already seeded from bootstrap snapshot (${userStore.list().length} users).`);
             return;
         }

@@ -37,6 +37,8 @@ export type {
 
 export type {
     UIModuleManifest,
+    ModuleDashboardAction,
+    ModuleDashboardDialogProps,
     ModuleInfo,
     ModuleSettingDeclaration,
     ModuleCombatStatAttribute,

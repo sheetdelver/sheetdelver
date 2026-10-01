@@ -1,31 +1,7 @@
 import { useFoundry } from '@client/ui/context/FoundryContext';
 
-export interface Theme {
-    bg: string;
-    panelBg: string;
-    text: string;
-    accent: string;
-    button: string;
-    headerFont: string;
-    input: string;
-    success: string;
-}
-
-const defaultTheme: Theme = {
-    bg: 'bg-slate-900',
-    panelBg: 'bg-slate-800',
-    text: 'text-slate-100',
-    accent: 'text-amber-500',
-    button: 'bg-amber-600 hover:bg-amber-700',
-    headerFont: 'font-sans font-bold',
-    input: 'bg-slate-700 border-slate-600 focus:border-amber-500',
-    success: 'bg-green-600 hover:bg-green-700'
-};
-
-export const useTheme = () => {
+export const useWorldBackground = () => {
     const { system, step } = useFoundry();
-
-    const theme: Theme = system?.theme || defaultTheme;
 
     // World metadata may outlive the lifecycle transition while caches clear.
     // Retire its artwork in the same render as the unavailable-world screen.
@@ -42,5 +18,5 @@ export const useTheme = () => {
         }
         : { backgroundImage: 'none' };
 
-    return { theme, bgStyle };
+    return bgStyle;
 };

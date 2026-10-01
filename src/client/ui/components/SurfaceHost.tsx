@@ -7,7 +7,9 @@ import { logger } from '@shared/utils/logger';
 
 /**
  * SurfaceHost — the single host-owned boundary for every dynamically loaded module
- * surface (ADR-0027 decision 18): actor page, `tools`, `dashboardTools`, and `rollModal`.
+ * surface (ADR-0027 decision 18): actor page, module tool pages, dashboard
+ * dialogs, and roll modals. Core-rendered dashboard cards stay outside this
+ * module CSS scope (ADR-0054).
  *
  * It composes, in one place:
  *  - an error boundary (modules can't crash the platform shell),
@@ -63,7 +65,7 @@ function DefaultSurfaceError({ surface, message }: { surface?: string; message?:
 export interface SurfaceHostProps {
     /** Host-resolved module id for identity injection (decision 19). */
     moduleId?: string;
-    /** Diagnostic label for the surface (e.g. 'actorPage', 'tools', 'dashboardTools', 'rollModal'). */
+    /** Diagnostic label for the surface (e.g. 'actorPage', 'tools', 'dashboardDialog', 'rollModal'). */
     surface?: string;
     /** Custom loading fallback (defaults to the platform LoadingModal). */
     loading?: React.ReactNode;
