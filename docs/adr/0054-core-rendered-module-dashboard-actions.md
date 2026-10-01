@@ -1,7 +1,8 @@
 # ADR-0054: Core-Rendered Module Dashboard Actions
 
-**Status:** Accepted; implementation in progress
+**Status:** Closed; verified
 **Date:** September 29, 2026
+**Closed:** September 30, 2026
 **Related:** ADR-0027, ADR-0044, ADR-0053
 
 ## Context
@@ -69,11 +70,11 @@ changed merely to compile this feature branch. Remote publication remains a
 separate coordinated operation.
 
 After a host release exists, migrate each module in its own repository:
-Shadowdark declares a generator tool action and a dialog action whose small
-adapter owns `onImportSuccess` navigation; Mörk Borg declares a generator tool
-action. Remove their legacy dashboard components/loading wrappers only in
-those module changes. Their generator pages, importer implementation, sheets,
-and module theme objects are not recolored. Each migrated `info.json` raises
+Shadowdark declares generator and importer actions, while Mörk Borg declares a
+generator action. Remove their legacy dashboard components/loading wrappers
+only in those module changes. Their generator pages, importer implementation,
+sheets, and module theme objects are not recolored. Each migrated `info.json`
+raises
 `compatibility.apiContracts['ui-extension-api']` to `>=2.0.0 <3.0.0` and sets
 `compatibility.coreVersion` to the released host minimum. Run module checks,
 package checks, and local/managed UI acceptance before publishing the module
@@ -85,9 +86,8 @@ Because Core is released before module updates, old module releases declaring
 The operator must coordinate host and module publication/installation; this
 ADR does not disguise the gap with a legacy renderer.
 
-Finally, bring released Core into the Combat Manager branch and resume its GM
-acceptance. Its GM tool card is already Core-owned. The two branches must not
-be merged implicitly as part of this ADR.
+Combat Manager work and its GM acceptance remain separate from this ADR. Its
+GM tool card is Core-owned; this decision does not merge those branches.
 
 ## Verification requirements
 
@@ -106,20 +106,30 @@ be merged implicitly as part of this ADR.
   packaged-module behavior require explicit acceptance rather than being
   inferred from source types alone.
 
-## Implementation checkpoint
+## Verification and closure
 
-Core now provides the typed action contract, validates client manifest actions,
-renders host-owned cards, and mounts lazy module dialogs under `SurfaceHost`.
-The old dashboard component path and private Core props are removed. The module
-scaffold and compatibility fixtures target UI contract 2.0.0. Lint, client
-and full unit suites, isolated source type-checking, and an isolated production
-build passed on this branch. The production build required temporarily moving
-stale ignored `.next/dev/types` from the parked Combat Manager branch; those
-generated files and the normal local module registry were restored afterward.
+Core v0.14.2 released the typed action contract, host validation and rendering,
+dialog `SurfaceHost` boundary, and removal of the legacy dashboard component
+path. `src/shared/sdk/contractVersions.ts` remains the sole authority for SDK
+2.0.0 and `ui-extension-api` 2.0.0.
+The module scaffold, authoring docs, compatibility tests, and dashboard action
+tests cover the new shape, including malformed entries, absent actions, tool
+routes, and Core palette classes. Lint, unit suites, type-checking, and an
+isolated production build passed before the Core release.
 
-Live light/dark interaction, a packaged module dialog, module migrations, and
-host/module release coordination remain open. This ADR is not yet verified or
-closed.
+Shadowdark v0.9, Mörk Borg v0.8, and D&D 5e v0.4 adopted the new UI contract
+against Core v0.14.2 and passed their module CI and release packaging. The user
+accepted the rendered Shadowdark and Mörk Borg dashboard appearance, including
+Mörk Borg's corrected module-owned generator palette. D&D 5e declares no
+dashboard action. The user also verified Shadowdark's importer after it moved
+from a dashboard dialog to a module-owned tool page in v0.9.1. That follow-up
+avoided an unsupported `react-dom` portal assumption in the packaged module;
+the SDK dialog action remains available but is unused by these current modules.
+Shadowdark v0.9.1 passed PR, main, and release CI and published its module
+archive, checksum, and manifests. No Core compatibility shim was added.
+
+The verified release and user acceptance close this dashboard contract rollout.
+Further Combat Manager work is outside this ADR.
 
 ## Consequences
 
