@@ -69,7 +69,7 @@ export abstract class SocketBase extends EventEmitter {
     }
 
     protected async performHandshake(baseUrl: string): Promise<{ csrfToken: string | null, isSetupMatch: boolean, pageTitle: string }> {
-        logger.info(`[${this.constructor.name}] Performing Handshake (GET /api/status)...`);
+        logger.debug(`[${this.constructor.name}] Performing Handshake (GET /api/status)...`);
 
         // 1. Fetch JSON status instead of HTML /join
         // IMPORTANT: Must send existing cookies to maintain session continuity

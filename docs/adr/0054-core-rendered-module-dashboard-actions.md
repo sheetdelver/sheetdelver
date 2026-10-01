@@ -1,6 +1,6 @@
 # ADR-0054: Core-Rendered Module Dashboard Actions
 
-**Status:** Closed; verified
+**Status:** Completed; verified
 **Date:** September 29, 2026
 **Closed:** September 30, 2026
 **Related:** ADR-0027, ADR-0044, ADR-0053

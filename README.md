@@ -122,6 +122,7 @@ foundry:
 debug:
     enabled: true        # Enable debug logging
     level: 3             # Log level (0=None, 1=Error, 2=Warn, 3=Info, 4=Debug)
+    file-level: 3        # Plain-text server logs (same levels; default Info)
 
 security:
     admin:

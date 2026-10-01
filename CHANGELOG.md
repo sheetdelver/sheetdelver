@@ -1,4 +1,8 @@
 # Releases
+## Unreleased
+- Patched vulnerable npm dependencies
+- Added server file logging
+
 ## 0.14.2
 - Standardized module dashboard actions
 - Advanced UI extension contract

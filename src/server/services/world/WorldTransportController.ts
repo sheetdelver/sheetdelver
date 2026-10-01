@@ -123,6 +123,7 @@ export class WorldTransportController {
     }
 
     private handleSetupDetected(): void {
+        logger.debug('WorldTransportController | Socket classified Foundry as setup.');
         this.closedWorldStatusTitle = null;
         worldLifecycleStore.setState('setup', 'handshake-setup-or-gray');
         this.scheduleSetupRetry();
@@ -157,17 +158,20 @@ export class WorldTransportController {
     }
 
     private handleWorldInactive(): void {
+        logger.debug('WorldTransportController | Socket reported world inactive.');
         worldLifecycleStore.setState('setup', 'socket-connected-world-not-active');
         this.transport.emit('foundry:runtimeTeardown', { reason: 'world-setup' });
     }
 
     private handleWorldActive(): void {
+        logger.debug('WorldTransportController | Socket reported world active.');
         this.resetRetryBackoff();
         worldLifecycleStore.setState('startup', 'foundry-world-active');
         worldStateStore.clearProbeData();
     }
 
     private handleTransportDisconnected(event: FoundryTransportDisconnectedEvent): void {
+        logger.debug('WorldTransportController | Socket transport disconnected.');
         this.stopHeartbeat();
         this.resetRetryBackoff();
 
@@ -183,6 +187,7 @@ export class WorldTransportController {
     }
 
     private handleShutdown(): void {
+        logger.debug('WorldTransportController | Socket reported Foundry shutdown.');
         worldLifecycleStore.setState('setup', 'foundry-shutdown');
         this.transport.disconnect();
         this.startHeartbeat(true);
@@ -257,6 +262,7 @@ export class WorldTransportController {
 
             if (isSetupMatch || (!csrfToken && isGenericOrErrorTitle)) {
                 if (!worldLifecycleStore.isState('setup')) {
+                    logger.debug(`WorldTransportController | Heartbeat classified setup (${isSetupMatch ? 'setup-match' : 'generic-title-no-csrf'}).`);
                     logger.warn(`WorldTransportController | Heartbeat detected setup/gray state (Title="${pageTitle}"). Restarting connection flow.`);
                     worldLifecycleStore.setState('setup', 'heartbeat-setup-or-gray');
                     this.transport.disconnect();

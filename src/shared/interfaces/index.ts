@@ -129,6 +129,8 @@ export interface AppConfig {
     debug: {
         enabled: boolean;
         level: number;
+        /** Server-only file logging threshold; never send in status. */
+        fileLevel?: number;
     };
     security: {
         rateLimit: {
