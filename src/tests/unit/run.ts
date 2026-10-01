@@ -6,6 +6,7 @@ import { run as runFoundryUrl } from './utils/foundry-url.test';
 
 // ── runtime ──────────────────────────────────────────────────────────────────
 import { run as runFullStackRestart } from './runtime/full-stack-restart.test';
+import { run as runServerFileLogger } from './observability/server-file-logger.test';
 
 // ── documentation ─────────────────────────────────────────────────────────────
 import { run as runAdrMetadata } from './docs/adr-metadata.test';
@@ -171,6 +172,7 @@ async function runAllUnitTests() {
 
     runFoundryUrl();
     runFullStackRestart();
+    runServerFileLogger();
     runAdrMetadata();
     await runSensitiveFilePermissions();
     runSafeHtml();

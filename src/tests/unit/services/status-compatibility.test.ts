@@ -43,7 +43,7 @@ function createConfig() {
             protocol: 'http',
             url: 'http://foundry.test',
         },
-        debug: { enabled: false, level: 1 },
+        debug: { enabled: false, level: 1, fileLevel: 4 },
     };
 }
 
@@ -97,6 +97,7 @@ async function runStatusProjectionTests() {
         for (const entry of cases) {
             const payload = await projectCompatibility(entry);
             assert.deepEqual(payload.foundryCompatibility, entry);
+            assert.deepEqual(payload.debug, { enabled: false, level: 1 }, 'file journal level stays server-only');
         }
 
         const nullPayload = await projectCompatibility(null);

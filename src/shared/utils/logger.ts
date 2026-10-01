@@ -10,8 +10,16 @@ export const LOG_LEVEL = {
 
 export type LogLevel = typeof LOG_LEVEL[keyof typeof LOG_LEVEL];
 
+/** A missing or malformed file threshold defaults to INFO. */
+export function normalizeFileLogLevel(value: unknown): number {
+    return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 4
+        ? value
+        : LOG_LEVEL.INFO;
+}
+
 class UniversalLogger {
     private level: number = LOG_LEVEL.INFO; // Default to INFO
+    private fileSink: ((level: LogLevel, message: string, args: unknown[]) => void) | null = null;
 
     /**
      * Update the log level at runtime.
@@ -22,28 +30,30 @@ class UniversalLogger {
         this.level = level;
     }
 
+    /** Configured only by server entry points; browser logging remains console-only. */
+    setFileSink(sink: ((level: LogLevel, message: string, args: unknown[]) => void) | null) {
+        this.fileSink = sink;
+    }
+
+    private write(level: LogLevel, label: string, method: 'error' | 'warn' | 'info' | 'debug', message: string, args: unknown[]) {
+        if (this.level >= level) console[method](`[${label}]`, message, ...args);
+        this.fileSink?.(level, message, args);
+    }
+
     error(message: string, ...args: any[]) {
-        if (this.level >= LOG_LEVEL.ERROR) {
-            console.error('[ERROR]', message, ...args);
-        }
+        this.write(LOG_LEVEL.ERROR, 'ERROR', 'error', message, args);
     }
 
     warn(message: string, ...args: any[]) {
-        if (this.level >= LOG_LEVEL.WARN) {
-            console.warn('[WARN]', message, ...args);
-        }
+        this.write(LOG_LEVEL.WARN, 'WARN', 'warn', message, args);
     }
 
     info(message: string, ...args: any[]) {
-        if (this.level >= LOG_LEVEL.INFO) {
-            console.info('[INFO]', message, ...args);
-        }
+        this.write(LOG_LEVEL.INFO, 'INFO', 'info', message, args);
     }
 
     debug(message: string, ...args: any[]) {
-        if (this.level >= LOG_LEVEL.DEBUG) {
-            console.debug('[DEBUG]', message, ...args);
-        }
+        this.write(LOG_LEVEL.DEBUG, 'DEBUG', 'debug', message, args);
     }
 
     time(label: string) {

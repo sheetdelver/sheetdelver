@@ -1,10 +1,11 @@
-import { logger } from '../shared/utils/logger';
+import { logger, normalizeFileLogLevel } from '../shared/utils/logger';
 import fs from 'fs';
 import path from 'path';
 import yaml from 'js-yaml';
 import { config as loadDotEnv } from 'dotenv';
 import { spawn, ChildProcess } from 'child_process';
 import { resolveDataDir, initDataDir, getConfigFilePath, getCacheDir, getDataDir } from '../server/core/paths';
+import { configureServerFileLogging } from '../server/observability/ServerFileLogger';
 import { resolveAdminOrigin } from '../shared/security/adminOrigin';
 import {
     FULL_STACK_RESTART_EXIT_CODE,
@@ -28,6 +29,7 @@ let port = 3000;
 let apiPort = 3001;
 let appProtocol = 'http';
 let configuredAdminOrigin: unknown;
+let fileLogLevel = 3;
 
 // Read settings.yaml from the data directory
 try {
@@ -38,6 +40,8 @@ try {
         logger.info('[Manager] settings.yaml found.');
         const fileContents = fs.readFileSync(SETTINGS_PATH, 'utf8');
         const settings = yaml.load(fileContents) as any;
+
+        fileLogLevel = normalizeFileLogLevel(settings?.debug?.['file-level']);
 
         if (settings.app) {
             if (settings.app.host) host = settings.app.host;
@@ -69,6 +73,10 @@ logger.info(`[Manager] Loading configuration: App=${host}:${port}, API=${apiPort
 const args = process.argv.slice(2).filter(a => !a.startsWith('--data-dir'));
 const command = args[0] || 'dev'; // Default to dev
 const MANAGED_CONFIG_COMMAND = 'generate-managed';
+if (command !== 'build' && command !== MANAGED_CONFIG_COMMAND) {
+    configureServerFileLogging('manager', fileLogLevel);
+    logger.info(`[Manager] Started (${command}; pid=${process.pid}).`);
+}
 // Child processes must not infer their security mode from a possibly absent or
 // inherited NODE_ENV. The manager owns the npm command-to-environment mapping.
 const runtimeNodeEnv = command === 'dev' ? 'development' : 'production';
@@ -156,7 +164,7 @@ async function cycleServices(source: string): Promise<void> {
         await start();
     } catch (error) {
         logger.error('[Manager] Failed to restart services:', error);
-        cleanup();
+        cleanup('restart-failed');
         process.exit(1);
     } finally {
         restartInProgress = false;
@@ -167,8 +175,8 @@ process.on(FULL_STACK_RESTART_SIGNAL, () => {
     void cycleServices(`Core signal ${FULL_STACK_RESTART_SIGNAL}`);
 });
 
-function cleanup() {
-    logger.info('\n[Manager] Shutting down services...');
+function cleanup(reason: 'SIGINT' | 'SIGTERM' | 'child-exit' | 'restart-failed' | 'startup-failed') {
+    logger.info(`[Manager] Shutting down services (${reason})...`);
     if (coreProcess) {
         logger.info('[Manager] Stopping Core Service...');
         signalChild(coreProcess, 'SIGINT');
@@ -181,12 +189,12 @@ function cleanup() {
 
 // Handle termination signals
 process.on('SIGINT', () => {
-    cleanup();
+    cleanup('SIGINT');
     process.exit(0);
 });
 
 process.on('SIGTERM', () => {
-    cleanup();
+    cleanup('SIGTERM');
     process.exit(0);
 });
 
@@ -260,14 +268,17 @@ async function start() {
     });
 
     const coreChild = coreProcess;
+    logger.info(`[Manager] Core Service spawned (pid=${coreChild.pid ?? 'unknown'}).`);
     coreChild.on('error', (err) => {
         logger.error('[Manager] Core Service failed to start:', err);
-        cleanup();
+        cleanup('child-exit');
         process.exit(1);
     });
 
-    coreChild.on('close', (code) => {
-        if (expectedCoreStops.delete(coreChild)) return;
+    coreChild.on('close', (code, signal) => {
+        const expected = expectedCoreStops.delete(coreChild);
+        logger.info(`[Manager] Core Service exited (code=${code ?? 'none'}, signal=${signal ?? 'none'}, expected=${expected}).`);
+        if (expected) return;
         if (coreProcess === coreChild) coreProcess = null;
 
         if (code === FULL_STACK_RESTART_EXIT_CODE) {
@@ -280,7 +291,7 @@ async function start() {
         } else {
             logger.info('[Manager] Core Service exited.');
         }
-        cleanup();
+        cleanup('child-exit');
         process.exit(code || 0);
     });
 
@@ -314,17 +325,20 @@ async function start() {
         env
     });
 
+    logger.info(`[Manager] Application Shell spawned (pid=${shellProcess.pid ?? 'unknown'}).`);
     shellProcess.on('error', (err) => {
         logger.error('[Manager] Shell Service failed to start:', err);
-        cleanup();
+        cleanup('child-exit');
         process.exit(1);
     });
 
     const applicationChild = shellProcess;
-    shellProcess.on('close', (code) => {
-        if (expectedShellStops.delete(applicationChild)) return;
+    shellProcess.on('close', (code, signal) => {
+        const expected = expectedShellStops.delete(applicationChild);
+        logger.info(`[Manager] Application Shell exited (code=${code ?? 'none'}, signal=${signal ?? 'none'}, expected=${expected}).`);
+        if (expected) return;
         logger.info(`[Manager] Application Shell exited with code ${code}`);
-        cleanup();
+        cleanup('child-exit');
         process.exit(code || 0);
     });
 }
@@ -510,6 +524,6 @@ module.exports.postcss = true;`;
 
 start().catch(err => {
     logger.error('[Manager] Fatal error during startup:', err);
-    cleanup();
+    cleanup('startup-failed');
     process.exit(1);
 });

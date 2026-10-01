@@ -79,6 +79,11 @@ graph TD
 ### 3.2 The Delivery Layers
 - **Server (`src/server`)**:
     - **Status Handler**: Aggregates data from both the System Client and the specific User Client to provide a complete view of the world state.
+    - **Server file logging**: The existing logger can append plain-text output
+      to separate, owner-only manager and Core files under `<DATA_DIR>/logs`.
+      `debug.file-level` controls file output independently of console
+      `debug.level`. The service manager or operating system owns rotation;
+      no browser or module receives direct file access.
     - **Smart Proxy Socket**: Multiplexes individual Foundry connections to the frontend via a unified Socket.io interface.
     - **Module Routing**:
         - **API**: RegEx-based routing allows system-specific packages to mount their own API logic dynamically.
