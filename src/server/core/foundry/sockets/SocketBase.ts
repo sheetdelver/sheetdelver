@@ -103,8 +103,14 @@ export abstract class SocketBase extends EventEmitter {
             this.updateCookies(setCookie);
         }
 
+        // A missing/partial status is not evidence that the world entered
+        // Setup. Session invalidation must never follow an ambiguous response.
+        if (typeof status?.active !== 'boolean') {
+            throw new Error('Foundry status response did not contain an active boolean');
+        }
+
         // 2. Derive States from JSON
-        const isSetupMatch = !status.active;
+        const isSetupMatch = status.active === false;
         const pageTitle = status.world || (isSetupMatch ? 'Setup' : 'Foundry Virtual Tabletop');
         const csrfToken: string | null = null; // No longer needed or scraped in V13 programmatic flow
 

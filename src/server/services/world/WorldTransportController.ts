@@ -10,10 +10,12 @@ import { worldLifecycleStore } from '@server/core/world/WorldLifecycleStore';
 import { worldStateStore } from '@server/core/world/WorldStateStore';
 import { logger } from '@shared/utils/logger';
 import { engagementService, type EngagementService } from './EngagementService';
+import { worldBootstrapper } from './WorldBootstrapper';
 
 export interface WorldTransportControllerDeps {
     transport: CoreSocket;
     engagement?: EngagementService;
+    isRuntimeReady?: () => boolean;
 }
 
 export interface WorldControlResult {
@@ -24,15 +26,18 @@ export interface WorldControlResult {
 export class WorldTransportController {
     private readonly transport: CoreSocket;
     private readonly engagement: EngagementService;
+    private readonly isRuntimeReady: () => boolean;
     private retryCount = 0;
     private heartbeatTimer: ReturnType<typeof setTimeout> | null = null;
     private retryTimer: ReturnType<typeof setTimeout> | null = null;
     private closedWorldStatusTitle: string | null = null;
+    private setupEvidenceCount = 0;
     private detachCallbacks: Array<() => void> = [];
 
     public constructor(deps: WorldTransportControllerDeps) {
         this.transport = deps.transport;
         this.engagement = deps.engagement ?? engagementService;
+        this.isRuntimeReady = deps.isRuntimeReady ?? (() => worldBootstrapper.isReady());
         this.attach();
     }
 
@@ -86,7 +91,23 @@ export class WorldTransportController {
     }
 
     public async shutdownWorld(): Promise<WorldControlResult> {
-        const response = await this.transport.postSetupAction({ shutdown: true });
+        // Foundry v14 can emit the authoritative native shutdown signal and
+        // then redirect the POST to /setup. That redirect is not a failed
+        // shutdown when the signal already retired the world runtime.
+        let nativeShutdown = false;
+        const onNativeShutdown = () => { nativeShutdown = true; };
+        this.transport.on('foundry:shutdown', onNativeShutdown);
+        let response: unknown;
+        try {
+            response = await this.transport.postSetupAction({ shutdown: true });
+        } catch (error) {
+            if (!nativeShutdown) throw error;
+            logger.info('WorldTransportController | Shutdown confirmed by Foundry native signal after setup redirect.');
+            response = { nativeShutdown: true };
+        } finally {
+            this.transport.off('foundry:shutdown', onNativeShutdown);
+        }
+        if (nativeShutdown) return { accepted: true, response };
         worldLifecycleStore.setState('setup', 'admin-shutdown-accepted');
         this.transport.emit('foundry:runtimeTeardown', { reason: 'admin-shutdown' });
         this.transport.disconnect();
@@ -96,6 +117,12 @@ export class WorldTransportController {
 
     public resetRetryBackoff(): void {
         this.retryCount = 0;
+    }
+
+    public retryAfterRecoveryFailure(): void {
+        worldLifecycleStore.setState('offline', 'world-reconciliation-failed');
+        this.transport.disconnect();
+        this.scheduleReconnect(5000);
     }
 
     private attach(): void {
@@ -124,12 +151,32 @@ export class WorldTransportController {
 
     private handleSetupDetected(): void {
         logger.debug('WorldTransportController | Socket classified Foundry as setup.');
+        this.recordSetupEvidence('handshake-setup');
+    }
+
+    private recordSetupEvidence(reason: string): void {
+        const retainedWorld = worldStateStore.isReady();
+        this.setupEvidenceCount += 1;
+        if (retainedWorld && this.setupEvidenceCount < 2) {
+            // One contradictory status observation must not retire an active
+            // world's sessions. The next independent handshake corroborates it.
+            logger.warn(`WorldTransportController | Setup report (${reason}) awaiting confirmation.`);
+            worldLifecycleStore.setState('offline', 'setup-awaiting-confirmation');
+            this.scheduleReconnect(1000);
+            return;
+        }
+
+        this.setupEvidenceCount = 0;
         this.closedWorldStatusTitle = null;
-        worldLifecycleStore.setState('setup', 'handshake-setup-or-gray');
+        worldLifecycleStore.setState('setup', reason);
+        if (retainedWorld) {
+            this.transport.emit('foundry:runtimeTeardown', { reason: 'confirmed-world-setup' });
+        }
         this.scheduleSetupRetry();
     }
 
     private handleWorldTitleDetected(event: FoundryWorldTitleDetectedEvent): void {
+        this.setupEvidenceCount = 0;
         this.closedWorldStatusTitle = event.pageTitle;
         if (!worldLifecycleStore.isState('active')) {
             worldLifecycleStore.setState('startup', 'handshake-world-title-detected');
@@ -138,11 +185,13 @@ export class WorldTransportController {
     }
 
     private handleWorldDiscovered(event: FoundryWorldDiscoveredEvent): void {
+        this.setupEvidenceCount = 0;
         worldLifecycleStore.setState('startup', 'probe-world-discovered');
         worldStateStore.setProbeData(event.world, event.userCount);
     }
 
     private handleWorldMissing(): void {
+        this.setupEvidenceCount = 0;
         worldLifecycleStore.setState('offline', 'probe-world-missing');
         this.scheduleDiscoveryRetry();
     }
@@ -158,13 +207,15 @@ export class WorldTransportController {
     }
 
     private handleWorldInactive(): void {
-        logger.debug('WorldTransportController | Socket reported world inactive.');
-        worldLifecycleStore.setState('setup', 'socket-connected-world-not-active');
-        this.transport.emit('foundry:runtimeTeardown', { reason: 'world-setup' });
+        logger.warn('WorldTransportController | Socket reported inactive after an active HTTP handshake; retrying without setup classification.');
+        this.transport.disconnect();
+        worldLifecycleStore.setState('offline', 'conflicting-world-status');
+        this.scheduleReconnect(1000);
     }
 
     private handleWorldActive(): void {
         logger.debug('WorldTransportController | Socket reported world active.');
+        this.setupEvidenceCount = 0;
         this.resetRetryBackoff();
         worldLifecycleStore.setState('startup', 'foundry-world-active');
         worldStateStore.clearProbeData();
@@ -175,26 +226,40 @@ export class WorldTransportController {
         this.stopHeartbeat();
         this.resetRetryBackoff();
 
+        // Capture every Store before a replacement socket can deliver updates.
+        // The browser's last visible state is the reconciliation baseline.
+        if (this.isRuntimeReady()) worldBootstrapper.captureRecoveryBaseline();
+
+        // A partial initial bootstrap has no retained usable runtime; retire
+        // its epoch so late async seeds cannot mark a disconnected world ready.
+        if (!this.isRuntimeReady()) {
+            this.transport.emit('foundry:runtimeTeardown', { reason: 'partial-bootstrap-disconnect' });
+        }
+
         if (!worldLifecycleStore.isState('setup')) {
             worldLifecycleStore.setState('offline', 'socket-disconnect');
         }
 
-        this.transport.emit('foundry:runtimeTeardown', { reason: 'core-disconnect' });
-
         if (this.engagement.shouldReconnectAfterUnexpectedDisconnect(event.reason)) {
             void this.connect().catch(() => undefined);
+        } else {
+            this.startHeartbeat(true);
         }
     }
 
     private handleShutdown(): void {
         logger.debug('WorldTransportController | Socket reported Foundry shutdown.');
+        this.setupEvidenceCount = 0;
         worldLifecycleStore.setState('setup', 'foundry-shutdown');
+        this.transport.emit('foundry:runtimeTeardown', { reason: 'foundry-shutdown' });
         this.transport.disconnect();
         this.startHeartbeat(true);
     }
 
     private handleReload(): void {
         this.resetRetryBackoff();
+        worldBootstrapper.captureRecoveryBaseline();
+        worldLifecycleStore.setState('offline', 'foundry-reload');
         this.transport.disconnect();
         void this.connect().catch(() => undefined);
     }
@@ -244,7 +309,8 @@ export class WorldTransportController {
         }
 
         try {
-            const { isSetupMatch, csrfToken, pageTitle } = await this.transport.checkStatus();
+            const { isSetupMatch, pageTitle } = await this.transport.checkStatus();
+            if (!isSetupMatch) this.setupEvidenceCount = 0;
             const isGenericOrErrorTitle = !pageTitle || pageTitle === 'Foundry Virtual Tabletop' || pageTitle.includes('Critical Failure');
             const closedWorldChanged =
                 isClosed &&
@@ -260,16 +326,12 @@ export class WorldTransportController {
                 return;
             }
 
-            if (isSetupMatch || (!csrfToken && isGenericOrErrorTitle)) {
-                if (!worldLifecycleStore.isState('setup')) {
-                    logger.debug(`WorldTransportController | Heartbeat classified setup (${isSetupMatch ? 'setup-match' : 'generic-title-no-csrf'}).`);
-                    logger.warn(`WorldTransportController | Heartbeat detected setup/gray state (Title="${pageTitle}"). Restarting connection flow.`);
-                    worldLifecycleStore.setState('setup', 'heartbeat-setup-or-gray');
-                    this.transport.disconnect();
-                    this.heartbeatTimer = null;
-                    void this.connect().catch(() => undefined);
-                    return;
-                }
+            if (isSetupMatch) {
+                logger.debug('WorldTransportController | Heartbeat reported explicit setup.');
+                this.transport.disconnect();
+                this.heartbeatTimer = null;
+                this.recordSetupEvidence('heartbeat-setup');
+                return;
             }
         } catch {
             // Ignore transient network errors; the next heartbeat/retry owns recovery.

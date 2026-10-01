@@ -1,4 +1,11 @@
 # Releases
+## Unreleased
+- Preserved sessions and world runtime
+- Reconciled missed Foundry documents
+- Hardened setup detection and retries
+- Added bounded socket diagnostics
+- Confirmed redirected world shutdowns
+
 ## 0.14.3
 - Patched vulnerable npm dependencies
 - Added server file logging

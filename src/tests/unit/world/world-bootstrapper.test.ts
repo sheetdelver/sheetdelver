@@ -6,6 +6,8 @@ import {
 import type { SystemAdapter } from '@modules/registry/types';
 import type { ModuleRuntime } from '@shared/sdk/runtime';
 import { logger } from '@shared/utils/logger';
+import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
+import { userPresence } from '@server/core/documents/primary/users/UserPresence';
 
 function adapter(id: string): SystemAdapter {
     return {
@@ -635,6 +637,94 @@ async function runDisposeCalledOnClear() {
     assert.equal(disposedWith, runtime, 'dispose called with the initialize runtime on teardown');
 }
 
+async function runSameWorldRecoveryAndReplacement() {
+    const events: string[] = [];
+    let snapshot = createBootstrapSnapshot();
+    let currentWorldId: string | null = null;
+    let currentSystemId: string | null = null;
+    let adapterInitializations = 0;
+    let sawDisconnectBaseline = false;
+    const runtime = { moduleId: 'syntheticsystem' } as ModuleRuntime;
+    const activeAdapter: SystemAdapter = {
+        ...adapter('syntheticsystem'),
+        initialize: async () => { adapterInitializations += 1; },
+    };
+    const bootstrapper = new WorldBootstrapper({
+        getBootstrapSnapshot: async () => snapshot,
+        seedWorldSnapshot: (next) => {
+            currentWorldId = next.gameData.world?.id ?? null;
+            currentSystemId = next.gameData.system?.id ?? null;
+        },
+        getCurrentWorldId: () => currentWorldId,
+        getSystem: () => currentSystemId ? { id: currentSystemId } : null,
+        seedUserSnapshot: async () => undefined,
+        seedPackMetadata: () => undefined,
+        createCompendiumService: () => ({}) as any,
+        getRegisteredModules: () => [],
+        loadAdapter: async () => activeAdapter,
+        seedDocuments: async () => { events.push('initial-seed'); },
+        reconcileDocuments: async (_transport, baseline) => {
+            events.push('reconcile-read');
+            assert.equal(userPresence.isActive('user-1'), true,
+                'recovered presence is accepted before document reads');
+            userPresence.setActive('user-1', false);
+            if (baseline) {
+                assert.equal(baseline.get('Actor')?.get('actor-before')?.serialized,
+                    JSON.stringify({ _id: 'actor-before', name: 'Before' }));
+                assert.equal(baseline.get('Actor')?.has('actor-after'), false,
+                    'reconciliation begins from the browser-visible pre-disconnect state');
+                sawDisconnectBaseline = true;
+            }
+            return () => events.push('publish-after-ready');
+        },
+        prepareActors: () => ({ prepared: 1, failed: 0 }),
+        rebuildPreparedActors: () => {
+            events.push('reprepare');
+            return { prepared: 1, failed: 0 };
+        },
+        createModuleRuntime: async () => runtime,
+        markLifecycleActive: () => { events.push('active'); },
+        markLifecycleSetup: () => { events.push('setup-world-changed'); },
+        clearWorldRuntimeState: () => {
+            currentWorldId = null;
+            currentSystemId = null;
+            events.push('clear-runtime');
+        },
+    });
+    const transport = { isConnected: true } as any;
+    await bootstrapper.bootstrap(transport);
+    assert.equal(adapterInitializations, 1);
+    events.length = 0;
+
+    actorStore.clear('recovery-test');
+    actorStore.upsert({ _id: 'actor-before', name: 'Before' } as any);
+    bootstrapper.captureRecoveryBaseline();
+    actorStore.upsert({ _id: 'actor-after', name: 'After' } as any);
+    await bootstrapper.recover(transport, { onReady: () => { events.push('world-ready'); } });
+    actorStore.clear('recovery-test');
+    assert.equal(sawDisconnectBaseline, true);
+    assert.equal(userPresence.isActive('user-1'), false,
+        'live presence changes during reconciliation survive');
+    userPresence.clear();
+    assert.equal(bootstrapper.getActiveAdapter(), activeAdapter);
+    assert.equal(adapterInitializations, 1, 'same-world recovery does not reinitialize the adapter');
+    assert.deepEqual(events, ['reconcile-read', 'reprepare', 'active', 'world-ready', 'publish-after-ready']);
+
+    events.length = 0;
+    snapshot = createBootstrapSnapshot();
+    snapshot.gameData.world.id = 'world-2';
+    await bootstrapper.recover(transport);
+    assert.ok(events.indexOf('setup-world-changed') < events.indexOf('clear-runtime'),
+        'session-invalidating world departure precedes replacement bootstrap');
+    assert.equal(events.filter(event => event === 'clear-runtime').length, 1);
+    assert.equal(events.filter(event => event === 'initial-seed').length, 1);
+    assert.equal(adapterInitializations, 2, 'replacement world initializes a new adapter runtime');
+    const epoch = bootstrapper.getRuntimeEpoch();
+    bootstrapper.reset('first-departure');
+    bootstrapper.reset('duplicate-departure');
+    assert.equal(bootstrapper.getRuntimeEpoch(), epoch + 1, 'duplicate departure does not advance epoch twice');
+}
+
 export async function run() {
     await runActiveAdapterLoadAndReuse();
     await runActiveAdapterClearAndReload();
@@ -648,6 +738,7 @@ export async function run() {
     await runTeardownSerializesReplacementBootstrap();
     await runResetClearsReadinessAndAdapter();
     await runDisposeCalledOnClear();
+    await runSameWorldRecoveryAndReplacement();
     console.log('  - WorldBootstrapper: all checks passed');
 }
 

@@ -40,7 +40,6 @@ async function runInitializeWiringTest() {
     let controllerTransport: CoreSocket | null = null;
     let statusUpdate: (() => void) | null = null;
     let statusEvents = 0;
-    const teardownReasons: string[] = [];
 
     const service = SystemService.createForTests({
         createSystemClient: () => {
@@ -71,9 +70,6 @@ async function runInitializeWiringTest() {
                 },
             },
         }),
-        teardownWorldRuntime: (reason) => {
-            teardownReasons.push(reason);
-        },
     });
 
     service.on('system:status-update', () => {
@@ -111,8 +107,10 @@ async function runInitializeWiringTest() {
     emitStatusUpdate();
     assert.equal(statusEvents, 1);
 
+    worldStateStore.seed({ world: { id: 'retained-world' } } as any);
     fakeTransport.emit('disconnect');
-    assert.deepEqual(teardownReasons, ['world-disconnected']);
+    assert.equal(worldStateStore.getCurrentWorldId(), 'retained-world',
+        'a transport disconnect does not tear down the world runtime');
 
     // Every lifecycle transition must reach the status broadcaster, including
     // transitions observed while no authenticated Foundry user session exists.

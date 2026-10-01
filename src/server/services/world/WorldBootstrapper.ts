@@ -6,7 +6,10 @@ import {
     type SystemModuleInfo,
 } from '@modules/registry/types';
 import { compendiumStore } from '@server/core/compendium';
-import { primaryDocumentCacheCoordinator } from '@server/core/documents/primary/PrimaryDocumentCacheCoordinator';
+import {
+    primaryDocumentCacheCoordinator,
+    type PrimaryDocumentReconciliationBaseline,
+} from '@server/core/documents/primary/PrimaryDocumentCacheCoordinator';
 import {
     preparedActorStore,
     type PreparedActorRebuildResult,
@@ -43,6 +46,7 @@ export interface WorldBootstrapperDeps {
     createCompendiumService?: (transport: WorldBootstrapTransport) => CompendiumService;
     seedPackMetadata?: (gameData: GameData) => void;
     getSystem?: () => { id?: string | null; version?: string | null } | null;
+    getCurrentWorldId?: () => string | null;
     getRegisteredModules?: () => SystemModuleInfo[];
     hydrateCompendiumPacks?: (
         systemId: string,
@@ -50,12 +54,18 @@ export interface WorldBootstrapperDeps {
         compendiumService: CompendiumService,
     ) => Promise<void>;
     seedDocuments?: (transport: WorldBootstrapTransport) => Promise<void>;
+    reconcileDocuments?: (
+        transport: WorldBootstrapTransport,
+        baseline?: PrimaryDocumentReconciliationBaseline,
+    ) => Promise<() => void>;
+    rebuildPreparedActors?: () => PreparedActorRebuildResult;
     prepareActors?: (
         adapter: SystemAdapter | null,
         context: PreparedActorStoreContext,
     ) => PreparedActorRebuildResult;
     createModuleRuntime?: (systemId: string) => Promise<ModuleRuntime>;
     markLifecycleActive?: (systemId?: string) => void;
+    markLifecycleSetup?: (reason: string) => void;
     markLifecycleClosed?: (reason: string) => void;
     evaluateCompatibility?: typeof evaluateFoundryVersionCompatibility;
     clearWorldRuntimeState?: (reason: string) => void;
@@ -69,6 +79,7 @@ export interface WorldBootstrapSnapshot {
 
 export type WorldBootstrapTransport = CompendiumTransport & {
     getBootstrapSnapshot?(): Promise<WorldBootstrapSnapshot | null>;
+    connectionEpoch?: number;
 };
 
 export interface WorldBootstrapReadyEvent {
@@ -105,6 +116,7 @@ export class WorldBootstrapper {
     private readonly createCompendiumService: (transport: WorldBootstrapTransport) => CompendiumService;
     private readonly seedPackMetadata: (gameData: GameData) => void;
     private readonly getSystem: () => { id?: string | null; version?: string | null } | null;
+    private readonly getCurrentWorldId: () => string | null;
     private readonly getRegisteredModules: () => SystemModuleInfo[];
     private readonly hydrateCompendiumPacks: (
         systemId: string,
@@ -112,12 +124,18 @@ export class WorldBootstrapper {
         compendiumService: CompendiumService,
     ) => Promise<void>;
     private readonly seedDocuments: (transport: WorldBootstrapTransport) => Promise<void>;
+    private readonly reconcileDocuments: (
+        transport: WorldBootstrapTransport,
+        baseline?: PrimaryDocumentReconciliationBaseline,
+    ) => Promise<() => void>;
+    private readonly rebuildPreparedActors: () => PreparedActorRebuildResult;
     private readonly prepareActors: (
         adapter: SystemAdapter | null,
         context: PreparedActorStoreContext,
     ) => PreparedActorRebuildResult;
     private readonly createModuleRuntime: (systemId: string) => Promise<ModuleRuntime>;
     private readonly markLifecycleActive: (systemId?: string) => void;
+    private readonly markLifecycleSetup: (reason: string) => void;
     private readonly markLifecycleClosed: (reason: string) => void;
     private readonly evaluateCompatibility: typeof evaluateFoundryVersionCompatibility;
     private readonly clearWorldRuntimeState: (reason: string) => void;
@@ -130,8 +148,11 @@ export class WorldBootstrapper {
     private lastCompatibility: FoundryVersionCompatibilityDiagnostic | null = null;
     private ready = false;
     private bootstrapPromise: Promise<WorldBootstrapResult> | null = null;
+    private recoveryPromise: Promise<WorldBootstrapResult> | null = null;
     private bootstrapEpoch: number | null = null;
     private runtimeEpoch = 0;
+    private runtimeRetired = false;
+    private recoveryBaseline: PrimaryDocumentReconciliationBaseline | null = null;
 
     public constructor(deps: WorldBootstrapperDeps = {}) {
         this.loadAdapter = deps.loadAdapter ?? ((systemId) => getAdapter(systemId));
@@ -175,11 +196,16 @@ export class WorldBootstrapper {
             compendiumStore.seedPackMetadataFromGameData(gameData, 'world-bootstrap');
         });
         this.getSystem = deps.getSystem ?? (() => worldStateStore.getSystem());
+        this.getCurrentWorldId = deps.getCurrentWorldId ?? (() => worldStateStore.getCurrentWorldId());
         this.getRegisteredModules = deps.getRegisteredModules ?? (() => getRegisteredModules({ includeExperimental: true }));
         this.hydrateCompendiumPacks = deps.hydrateCompendiumPacks ?? (async (systemId, config, compendiumService) => {
             await compendiumService.hydratePacks(systemId, config);
         });
         this.seedDocuments = deps.seedDocuments ?? ((transport) => primaryDocumentCacheCoordinator.seedAll(transport as CoreSocket));
+        this.reconcileDocuments = deps.reconcileDocuments ?? ((transport, baseline) => primaryDocumentCacheCoordinator.reconcileAll(
+            transport as CoreSocket, baseline,
+        ));
+        this.rebuildPreparedActors = deps.rebuildPreparedActors ?? (() => preparedActorStore.rebuildAll());
         this.prepareActors = deps.prepareActors ?? ((adapter, context) => {
             preparedActorStore.configure(adapter, context);
             return preparedActorStore.rebuildAll();
@@ -190,6 +216,9 @@ export class WorldBootstrapper {
         });
         this.markLifecycleActive = deps.markLifecycleActive ?? ((systemId) => {
             worldLifecycleStore.setState('active', systemId ? `world-bootstrap-ready:${systemId}` : 'world-bootstrap-ready');
+        });
+        this.markLifecycleSetup = deps.markLifecycleSetup ?? ((reason) => {
+            worldLifecycleStore.setState('setup', reason);
         });
         this.markLifecycleClosed = deps.markLifecycleClosed ?? ((reason) => {
             worldLifecycleStore.setState('closed', reason);
@@ -247,11 +276,32 @@ export class WorldBootstrapper {
         return this.ready;
     }
 
+    public captureRecoveryBaseline(): void {
+        if (this.ready && !this.recoveryBaseline) {
+            this.recoveryBaseline = primaryDocumentCacheCoordinator.captureReconciliationBaseline();
+        }
+    }
+
+    /** Same-world recovery keeps the adapter while refreshing missed sources. */
+    public recover(transport: WorldBootstrapTransport, options: WorldBootstrapOptions = {}): Promise<WorldBootstrapResult> {
+        if (!this.ready) return this.bootstrap(transport, options);
+        if (this.recoveryPromise) return this.recoveryPromise;
+
+        const epoch = this.runtimeEpoch;
+        const run = this.runRecovery(transport, options, epoch);
+        const tracked = run.finally(() => {
+            if (this.recoveryPromise === tracked) this.recoveryPromise = null;
+        });
+        this.recoveryPromise = tracked;
+        return tracked;
+    }
+
     public getFoundryCompatibility(): FoundryVersionCompatibilityDiagnostic | null {
         return this.lastCompatibility ? { ...this.lastCompatibility } : null;
     }
 
     public reset(reason = 'world-bootstrap-reset'): void {
+        if (this.runtimeRetired) return;
         // Increment first so any in-flight bootstrap or repair response becomes
         // stale before active-world Stores are emptied.
         logger.debug('WorldBootstrapper | Tearing down active world runtime', {
@@ -260,9 +310,78 @@ export class WorldBootstrapper {
             nextEpoch: this.runtimeEpoch + 1,
         });
         this.runtimeEpoch += 1;
+        this.runtimeRetired = true;
         this.ready = false;
+        this.recoveryBaseline = null;
         this.clearActiveAdapter(reason);
         this.clearWorldRuntimeState(reason);
+    }
+
+    private async runRecovery(
+        transport: WorldBootstrapTransport,
+        options: WorldBootstrapOptions,
+        epoch: number,
+    ): Promise<WorldBootstrapResult> {
+        logger.info('WorldBootstrapper | Reconciling recovered world...');
+        const connectionEpoch = transport.connectionEpoch;
+        try {
+            const previousWorldId = this.getCurrentWorldId();
+            const previousSystemId = this.activeSystemId;
+            const previousSystemVersion = this.getSystem()?.version ?? null;
+            const snapshot = await this.getBootstrapSnapshot(transport);
+            this.assertCurrentConnection(transport, epoch, connectionEpoch);
+            const nextWorldId = snapshot?.gameData?.world?.id;
+            const nextSystemId = snapshot?.gameData?.system?.id?.toLowerCase();
+            const nextSystemVersion = snapshot?.gameData?.system?.version ?? null;
+            if (!previousWorldId || !nextWorldId || !previousSystemId || !nextSystemId) {
+                throw new Error('Stable world/system identity unavailable during recovery');
+            }
+            if (previousWorldId !== nextWorldId || previousSystemId !== nextSystemId
+                || previousSystemVersion !== nextSystemVersion) {
+                logger.warn('WorldBootstrapper | Reconnected to a different world or system; replacing runtime.');
+                this.markLifecycleSetup('world-identity-changed');
+                this.reset('world-identity-changed');
+                return this.bootstrap(transport, options);
+            }
+
+            this.handleCompatibilityResult(this.evaluateCompatibility(snapshot.gameData.release));
+            this.seedWorldSnapshot(snapshot);
+            // Accept presence with the recovered snapshot before any awaited
+            // document/pack reads, so later live socket events are not
+            // overwritten by an older activeUsers list at the end of repair.
+            userPresence.setActiveUsers(Array.isArray(snapshot.gameData.activeUsers)
+                ? snapshot.gameData.activeUsers : []);
+            this.seedPackMetadata(snapshot.gameData);
+            const registered = this.getRegisteredModules();
+            const moduleInfo = registered.find(module => module.id.toLowerCase() === nextSystemId);
+            let packConfig = moduleInfo?.compendiumPacks;
+            if (!packConfig && hasCompendiumPackConfig(this.activeAdapter)) {
+                packConfig = this.activeAdapter.getCompendiumPackConfig();
+            }
+            if (packConfig) {
+                await this.hydrateCompendiumPacks(nextSystemId, packConfig, this.createCompendiumService(transport));
+                this.assertCurrentConnection(transport, epoch, connectionEpoch);
+            }
+
+            const publishChanges = await this.reconcileDocuments(transport, this.recoveryBaseline ?? undefined);
+            this.assertCurrentConnection(transport, epoch, connectionEpoch);
+            this.rebuildPreparedActors();
+            this.assertCurrentConnection(transport, epoch, connectionEpoch);
+            this.markLifecycleActive(nextSystemId);
+            await options.onReady?.({ systemId: nextSystemId });
+            this.assertCurrentConnection(transport, epoch, connectionEpoch);
+            publishChanges();
+            this.recoveryBaseline = null;
+            logger.info('WorldBootstrapper | Same-world reconciliation complete.');
+            return { ready: true, systemId: nextSystemId };
+        } catch (error) {
+            if (error instanceof StaleWorldBootstrapError) {
+                logger.debug('WorldBootstrapper | Discarded stale recovery after runtime teardown.');
+            } else {
+                logger.error(`WorldBootstrapper | Recovery failed: ${getErrorMessage(error)}`);
+            }
+            throw error;
+        }
     }
 
     public getRuntimeEpoch(): number {
@@ -274,11 +393,14 @@ export class WorldBootstrapper {
         options: WorldBootstrapOptions,
         epoch: number,
     ): Promise<WorldBootstrapResult> {
+        this.runtimeRetired = false;
+        this.recoveryBaseline = null;
         logger.info('WorldBootstrapper | Beginning world bootstrap...');
+        const connectionEpoch = transport.connectionEpoch;
 
         try {
             const snapshot = await this.getBootstrapSnapshot(transport);
-            this.assertCurrentEpoch(epoch);
+            this.assertCurrentConnection(transport, epoch, connectionEpoch);
             if (snapshot) {
                 // Compatibility is evaluated while the snapshot is still raw.
                 // Older known-bad shapes must fail before Stores become current;
@@ -349,7 +471,7 @@ export class WorldBootstrapper {
                     + (preparedActors.failed > 0 ? ` (${preparedActors.failed} failed).` : '.'),
                 );
 
-                this.assertCurrentEpoch(epoch);
+                this.assertCurrentConnection(transport, epoch, connectionEpoch);
                 this.ready = true;
                 this.markLifecycleActive(sysInfo.id);
                 await options.onReady?.({ systemId: sysInfo.id });
@@ -358,7 +480,7 @@ export class WorldBootstrapper {
                 return { ready: true, systemId: sysInfo.id };
             }
 
-            this.assertCurrentEpoch(epoch);
+            this.assertCurrentConnection(transport, epoch, connectionEpoch);
             this.ready = true;
             this.markLifecycleActive();
             logger.info('WorldBootstrapper | World bootstrap complete.');
@@ -474,6 +596,17 @@ export class WorldBootstrapper {
 
     private assertCurrentEpoch(epoch: number): void {
         if (epoch !== this.runtimeEpoch) throw new StaleWorldBootstrapError();
+    }
+
+    private assertCurrentConnection(
+        transport: WorldBootstrapTransport,
+        runtimeEpoch: number,
+        connectionEpoch: number | undefined,
+    ): void {
+        this.assertCurrentEpoch(runtimeEpoch);
+        if (transport.isConnected === false || transport.connectionEpoch !== connectionEpoch) {
+            throw new StaleWorldBootstrapError();
+        }
     }
 }
 

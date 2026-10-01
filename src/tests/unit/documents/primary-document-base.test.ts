@@ -56,6 +56,8 @@ export async function run() {
     await runPatchDottedKeys();
     await runDeleteIdempotency();
     await runNoEmissionDuringSeeding();
+    await runReconciliationDiffAndAudience();
+    await runReconciliationRejectsConcurrentMutation();
     await runListInvalidationOnOwnershipCrossing();
     await runFoundryFieldOperatorUpdates();
     await runGenericPrimaryDocumentChangedEvent();
@@ -64,6 +66,62 @@ export async function run() {
     runGetDeletionIdsShapes();
     await runBroadcastShapedSelfDelete();
     console.log('  - PrimaryDocumentStore<T> base: all checks passed');
+}
+
+async function runReconciliationDiffAndAudience() {
+    const store = new MockStore();
+    let playerRole = FoundryUserRole.PLAYER;
+    store.bindAudienceSubjects(() => [
+        { userId: 'gm', role: FoundryUserRole.GAMEMASTER },
+        { userId: 'p1', role: playerRole },
+    ]);
+    await store.seed(async () => [
+        { _id: 'unchanged', name: 'Same', ownership: { default: DocumentOwnershipLevel.OBSERVER } },
+        { _id: 'removed', name: 'Gone', ownership: { default: DocumentOwnershipLevel.NONE, p1: DocumentOwnershipLevel.OWNER } },
+        { _id: 'changed', name: 'Old', ownership: { default: DocumentOwnershipLevel.OBSERVER } },
+    ]);
+    const before = store.captureReconciliation();
+    const changed: DocumentChangedEvent[] = [];
+    const lists: DocumentListInvalidatedEvent[] = [];
+    store.on('documentChanged', (event: DocumentChangedEvent) => changed.push(event));
+    store.on('documentListInvalidated', (event: DocumentListInvalidatedEvent) => lists.push(event));
+
+    await store.seed(async () => [
+        { _id: 'unchanged', name: 'Same', ownership: { default: DocumentOwnershipLevel.OBSERVER } },
+        { _id: 'changed', name: 'New', ownership: { default: DocumentOwnershipLevel.NONE } },
+        { _id: 'created', name: 'Added', ownership: { default: DocumentOwnershipLevel.NONE } },
+    ]);
+    assert.equal(changed.length, 0, 'reconciliation replacement is silent until world-ready');
+    store.publishReconciliation(before);
+    assert.deepEqual(changed.map(event => [event.id, event.action]).sort(), [
+        ['changed', 'update'], ['created', 'create'], ['removed', 'delete'],
+    ]);
+    assert.equal(lists.length, 3);
+    assert.equal(changed.find(event => event.id === 'removed')?.audience.kind, 'all',
+        'a formerly visible player receives the deletion');
+    assert.equal(changed.find(event => event.id === 'created')?.audience.kind, 'users',
+        'a new GM-only document is not broadcast to players');
+
+    const beforeRoleChange = store.captureReconciliation();
+    changed.length = 0;
+    lists.length = 0;
+    playerRole = FoundryUserRole.GAMEMASTER;
+    await store.seed(async () => store.list());
+    store.publishReconciliation(beforeRoleChange);
+    assert.ok(changed.some(event => event.id === 'created'),
+        'a role change invalidates a formerly hidden document even if source bytes are unchanged');
+}
+
+async function runReconciliationRejectsConcurrentMutation() {
+    const store = new MockStore();
+    await store.seed(async () => [{ _id: 'actor', name: 'Before' }]);
+    let finishLoad!: (docs: MockDoc[]) => void;
+    const loader = new Promise<MockDoc[]>(resolve => { finishLoad = resolve; });
+    const refresh = store.seed(() => loader);
+    store.patch('actor', { name: 'Live update' });
+    finishLoad([{ _id: 'actor', name: 'Stale fetch' }]);
+    await assert.rejects(refresh, /changed during authoritative reconciliation/);
+    assert.equal(store.get('actor')?.name, 'Live update');
 }
 
 // The explicit three-state contract prevents an empty recipient set from
