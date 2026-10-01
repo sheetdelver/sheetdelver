@@ -1,6 +1,6 @@
 # ADR-0033: Codebase Security Hardening and Dormant Distribution Boundaries
 
-**Status:** Accepted - Phases 0-4 implemented with CSP observation pending; Phase 5 proposed.
+**Status:** Completed; verified — Core security Phases 0–5 closed September 2, 2026. Module font CSP observation remains separate, report-only work.
 **Status amendment (September 2, 2026):** Phase 5 implementation and configured
 owner validation are substantially complete. Commit/push, CI on that commit,
 the final dependency/branch audit, and clean-worktree review remain before
