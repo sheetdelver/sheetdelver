@@ -53,7 +53,9 @@ import { run as runFoundryUserConnectionRestore } from './session/session-manage
 import { run as runRealtimeBroadcaster } from './sockets/realtime-broadcaster.test';
 import { run as runAppSocketGateway } from './sockets/app-socket-gateway.test';
 import { run as runClientSocketTransport } from './sockets/client-socket-transport.test';
+import { run as runDisconnectDiagnostics } from './sockets/disconnect-diagnostics.test';
 import { run as runCoreSocketPackScope } from './sockets/core-socket-pack-scope.test';
+import { run as runCoreSocketRecovery } from './sockets/core-socket-recovery.test';
 import { run as runFoundryDocumentResponseNormalizer } from './sockets/foundry-document-response-normalizer.test';
 import { run as runDocumentSynchronizationCharacterization } from './sockets/document-synchronization-characterization.test';
 import { run as runFoundryPersistenceIngress } from './sockets/foundry-persistence-ingress.test';
@@ -249,7 +251,9 @@ async function runAllUnitTests() {
     await runCompendiumHydrate();
     await runModuleContextCompendiumPacks();
     await runClientSocketTransport();
+    runDisconnectDiagnostics();
     await runCoreSocketPackScope();
+    await runCoreSocketRecovery();
     runFoundryDocumentResponseNormalizer();
     await runDocumentSynchronizationCharacterization();
     await runFoundryPersistenceIngress();

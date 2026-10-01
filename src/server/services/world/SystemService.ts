@@ -33,7 +33,6 @@ export interface SystemServiceDeps {
     ) => () => void;
     createWorldTransportController: (deps: { transport: CoreSocket }) => WorldTransportController;
     loadSetupCache: typeof SetupManager.loadCache;
-    teardownWorldRuntime: (reason: string) => void;
 }
 
 const defaultSystemServiceDeps: SystemServiceDeps = {
@@ -41,7 +40,6 @@ const defaultSystemServiceDeps: SystemServiceDeps = {
     attachFoundryEventIngress: (transport, options) => foundryEventIngress.attach(transport, options),
     createWorldTransportController: (deps) => new WorldTransportController(deps),
     loadSetupCache: () => SetupManager.loadCache(),
-    teardownWorldRuntime: (reason) => worldBootstrapper.reset(reason),
 };
 
 /**
@@ -341,18 +339,17 @@ export class SystemService extends EventEmitter {
         this.emit('world:connected', { state });
 
         if (state === 'startup' || (state === 'active' && !this.isReady())) {
-            this.bootstrap().catch(err => {
-                logger.error(`SystemService | Bootstrap failed: ${err.message}`);
+            this.recoverOrBootstrap().catch(err => {
+                logger.error(`SystemService | World readiness failed: ${err.message}`);
+                this.worldTransportController?.retryAfterRecoveryFailure();
             });
         }
     }
 
     private handleDisconnect() {
         logger.info('SystemService | System Client disconnected.');
+        worldBootstrapper.captureRecoveryBaseline();
         this.emit('world:disconnected');
-        // Runtime teardown is idempotent because both an explicit lifecycle
-        // event and the eventual transport disconnect can reach this boundary.
-        this.deps.teardownWorldRuntime('world-disconnected');
     }
 
     /**
@@ -362,6 +359,16 @@ export class SystemService extends EventEmitter {
     public async bootstrap(): Promise<void> {
         if (!this.systemClient) throw new Error("SystemService not initialized");
         await worldBootstrapper.bootstrap(this.systemClient, {
+            onReady: ({ systemId }) => {
+                this.worldTransportController?.startHeartbeat();
+                this.emit('world:ready', { systemId });
+            },
+        });
+    }
+
+    private async recoverOrBootstrap(): Promise<void> {
+        if (!this.systemClient) throw new Error('SystemService not initialized');
+        await worldBootstrapper.recover(this.systemClient, {
             onReady: ({ systemId }) => {
                 this.worldTransportController?.startHeartbeat();
                 this.emit('world:ready', { systemId });
@@ -392,7 +399,7 @@ export class SystemService extends EventEmitter {
     }
 
     public isReady(): boolean {
-        return worldBootstrapper.isReady();
+        return worldLifecycleStore.isState('active') && worldBootstrapper.isReady();
     }
 
     public getActiveAdapter(): SystemAdapter | null {

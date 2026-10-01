@@ -65,6 +65,11 @@ export interface DocumentListInvalidatedEvent {
     audience: DocumentAudience;
 }
 
+export type ReconciliationSnapshot = Map<string, {
+    serialized: string;
+    audience: DocumentAudience;
+}>;
+
 export interface DocumentRepairTarget {
     type: PrimaryDocumentType;
     id: string;
@@ -316,6 +321,7 @@ export abstract class PrimaryDocumentStore<TDocument extends DocumentLike> exten
     protected documents = new Map<string, TDocument>();
     protected ready = false;
     protected staleDocumentIds = new Set<string>();
+    private mutationRevision = 0;
     private audienceSubjectsProvider: () => DocumentAccessSubject[] = () => [];
 
     /**
@@ -379,7 +385,11 @@ export abstract class PrimaryDocumentStore<TDocument extends DocumentLike> exten
     public async seed(loader: () => Promise<TDocument[]>): Promise<void> {
         // Bootstrap replaces the entire world snapshot; runtime events patch it afterward.
         // No events fire during seed (this.ready stays false until after the load completes).
+        const mutationRevision = this.mutationRevision;
         const docs = await loader();
+        if (mutationRevision !== this.mutationRevision) {
+            throw new Error(`${this.documentType} changed during authoritative reconciliation`);
+        }
         this.documents.clear();
         for (const doc of docs) {
             const id = getDocumentId(doc);
@@ -387,9 +397,37 @@ export abstract class PrimaryDocumentStore<TDocument extends DocumentLike> exten
         }
         this.staleDocumentIds.clear();
         this.ready = true;
+        this.mutationRevision += 1;
+    }
+
+    /** Capture visibility before an authoritative same-world replacement. */
+    public captureReconciliation(): ReconciliationSnapshot {
+        return new Map(Array.from(this.documents, ([id, document]) => [id, {
+            serialized: stableJson(document),
+            audience: this.audienceForDocument(document),
+        }]));
+    }
+
+    /** Publish only changed IDs after the recovered world is ready again. */
+    public publishReconciliation(before: ReconciliationSnapshot): void {
+        for (const id of new Set([...before.keys(), ...this.documents.keys()])) {
+            const previous = before.get(id);
+            const current = this.documents.get(id);
+            const currentAudience = this.audienceForDocument(current);
+            if (previous?.serialized === (current ? stableJson(current) : undefined)
+                && stableJson(previous?.audience) === stableJson(currentAudience)) continue;
+            const action: ChangeAction = !previous ? 'create' : !current ? 'delete' : 'update';
+            const audience = unionDocumentAudiences(
+                previous?.audience ?? NO_DOCUMENT_AUDIENCE,
+                currentAudience,
+            );
+            this.emitChanged(id, action, audience);
+            this.emitListInvalidated('reconcile', { documentId: id, audience });
+        }
     }
 
     public clear(_reason?: string): void {
+        this.mutationRevision += 1;
         this.documents.clear();
         this.staleDocumentIds.clear();
         this.ready = false;
@@ -465,6 +503,7 @@ export abstract class PrimaryDocumentStore<TDocument extends DocumentLike> exten
     public upsert(document: TDocument): void {
         const id = getDocumentId(document);
         if (!id) return;
+        this.mutationRevision += 1;
         const existing = this.documents.get(id);
         const beforeJson = existing ? stableJson(existing) : null;
         const action: ChangeAction = existing ? 'update' : 'create';
@@ -485,6 +524,7 @@ export abstract class PrimaryDocumentStore<TDocument extends DocumentLike> exten
             this.markStale(documentId, 'patch-miss');
             return;
         }
+        this.mutationRevision += 1;
         const before = stableJson(existing);
         const beforeAudience = this.audienceForDocument(existing);
         const beforeOwnership = (existing as { ownership?: DocumentOwnershipMap }).ownership
@@ -508,6 +548,7 @@ export abstract class PrimaryDocumentStore<TDocument extends DocumentLike> exten
     }
 
     public delete(documentId: string): void {
+        this.mutationRevision += 1;
         const existing = this.documents.get(documentId);
         const audience = this.audienceForDocument(existing);
         const existed = this.documents.delete(documentId);
@@ -522,6 +563,7 @@ export abstract class PrimaryDocumentStore<TDocument extends DocumentLike> exten
     }
 
     public markStale(documentId?: string, _reason?: string): void {
+        this.mutationRevision += 1;
         if (documentId) this.staleDocumentIds.add(documentId);
         else this.ready = false;
     }
@@ -538,6 +580,7 @@ export abstract class PrimaryDocumentStore<TDocument extends DocumentLike> exten
         result: unknown,
         operation?: Record<string, unknown>,
     ): PrimaryDocumentApplyOutcome {
+        if (action !== 'get') this.mutationRevision += 1;
         const repairTargets: DocumentRepairTarget[] = [];
         if (type === this.documentType) {
             if (action === 'update') {

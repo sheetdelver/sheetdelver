@@ -4,11 +4,13 @@ import { logger } from '@shared/utils/logger';
 import { FoundryConfig } from '../types';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
 import type { RestoredFoundrySessionCredential } from '@server/shared/types/foundry';
+import { formatDisconnectDiagnostic } from './disconnectDiagnostics';
 
 export class ClientSocket extends SocketBase {
     public userId: string | null = null;
     public isExplicitSession: boolean = false;
     private hasRestoredCredential: boolean = false;
+    private connectionGeneration = 0;
 
     constructor(config: FoundryConfig) {
         super(config);
@@ -47,8 +49,11 @@ export class ClientSocket extends SocketBase {
 
             // 4. Connect Main Socket
             const sessionId = this.getSessionId();
+            const generation = ++this.connectionGeneration;
             await new Promise<void>((resolve, reject) => {
                 const timeout = setTimeout(() => reject(new Error("ClientSocket connection timeout")), 15000);
+                let connectedAt: number | null = null;
+                let transportName: unknown = null;
 
                 this.socket = io(baseUrl, {
                     path: '/socket.io',
@@ -84,11 +89,16 @@ export class ClientSocket extends SocketBase {
                 });
 
                 this.socket.on('connect', () => {
+                    connectedAt = Date.now();
+                    transportName = this.socket?.io.engine?.transport?.name;
                     logger.debug(`ClientSocket | Socket transport connected for ${this.userId}. Waiting for session event...`);
                 });
 
-                this.socket.on('disconnect', (reason: string) => {
-                    logger.info(`ClientSocket | Presence Socket Disconnected: ${reason}`);
+                this.socket.on('disconnect', (reason: string, details: unknown) => {
+                    logger.info(formatDisconnectDiagnostic({
+                        role: 'player', generation, connectedAt, now: Date.now(),
+                        reason, transport: transportName, details,
+                    }));
                     this.isSocketConnected = false;
                     this.emit('disconnect', reason);
                 });

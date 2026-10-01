@@ -68,6 +68,7 @@ graph TD
 - **World Transport Controller (`src/server/services/world/WorldTransportController.ts`)**:
     - Owns service-account lifecycle policy: retry/backoff, heartbeat, browser engagement wakeups, world launch/shutdown, and lifecycle Store updates.
     - Commands `CoreSocket` as a transport; it does not live in `core/`.
+    - A socket interruption gates world APIs but retains the last ready runtime. Affirmative, corroborated setup or explicit shutdown retires it; the controller alone reconnects the service-account socket.
 - **Foundry Event Ingress (`src/server/services/world/FoundryEventIngress.ts`)**:
     - Subscribes to neutral Foundry socket events and applies application semantics such as document routing, user presence, shared-content updates, and runtime teardown.
 - **Foundry Sockets (`@core/foundry/sockets`)**:
@@ -101,6 +102,8 @@ graph TD
 Per ADR-0022 and ADR-0023, `SystemService` lives at `src/server/services/world/SystemService.ts` (relocated from `core/system/`) so the orchestration facade sits alongside `WorldBootstrapper`, `WorldTransportController`, `FoundryEventIngress`, and `EngagementService`. `core/` never imports `services/`.
 
 For actors, the platform performs one system-client fetch during bootstrap, seeds `ActorStore`, and then keeps that store in parity through Foundry event ingress (`modifyDocument` results and broadcasts). Actor API reads and dashboard card projections should read from this platform cache; they should not repeatedly ask Foundry to rehydrate the same actor list.
+
+On a same-world reconnect, `WorldBootstrapper.recover()` verifies world/system identity, refreshes the world snapshot and all active primary-document Stores, and rebuilds prepared actors without reinitializing the module adapter. Browser-visible changes are calculated from the snapshot captured at transport loss and published after readiness; Stores reject a seed that raced with a live mutation. A changed world/system still tears down and bootstraps anew. See ADR-0056.
 
 ---
 
