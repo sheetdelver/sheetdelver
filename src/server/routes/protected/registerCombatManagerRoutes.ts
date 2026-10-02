@@ -2,6 +2,7 @@ import express from 'express';
 import { combatManagerService, CombatManagerError } from '@server/services/combats/CombatManagerService';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
 import { createCombatService } from '@server/services/combats/CombatService';
+import { logger } from '@shared/utils/logger';
 
 function handleError(error: unknown, res: express.Response): void {
     res.status(error instanceof CombatManagerError ? error.status : 500).json({ error: getErrorMessage(error) });
@@ -28,7 +29,7 @@ export function registerCombatManagerRoutes(router: express.Router, deps: {
         catch (error) { handleError(error, res); }
     });
     router.get('/combat-manager/world-actors', (req, res) => {
-        try { res.json({ actors: combatManagerService.worldActors(req.foundryClient, String(req.query.q || '')) }); }
+        try { res.json(combatManagerService.worldActors(req.foundryClient, String(req.query.q || ''), req.query.sort)); }
         catch (error) { handleError(error, res); }
     });
     router.get('/combat-manager/packs', (req, res) => {
@@ -36,7 +37,8 @@ export function registerCombatManagerRoutes(router: express.Router, deps: {
         catch (error) { handleError(error, res); }
     });
     router.get('/combat-manager/packs/:packId/actors', async (req, res) => {
-        try { res.json({ actors: await combatManagerService.packActors(req.foundryClient, req.params.packId, String(req.query.q || '')) }); }
+        try { res.json(await combatManagerService.packActors(req.foundryClient, req.params.packId,
+            String(req.query.q || ''), req.query.sort)); }
         catch (error) { handleError(error, res); }
     });
     router.post('/combat-manager', async (req, res) => {
@@ -52,7 +54,8 @@ export function registerCombatManagerRoutes(router: express.Router, deps: {
         catch (error) { handleError(error, res); }
     });
     router.post('/combat-manager/:id/pack-actors', async (req, res) => {
-        try { res.json({ encounter: await combatManagerService.addPackActor(req.foundryClient, req.params.id, req.body?.packId, req.body?.actorId) }); }
+        try { res.json({ encounter: await combatManagerService.addPackActor(req.foundryClient, req.params.id,
+            req.body?.packId, req.body?.actorId, req.body?.quantity) }); }
         catch (error) { handleError(error, res); }
     });
     router.post('/combat-manager/:id/next-turn', async (req, res) => {
@@ -84,7 +87,11 @@ export function registerCombatManagerRoutes(router: express.Router, deps: {
         catch (error) { handleError(error, res); }
     });
     router.patch('/combat-manager/:id/combatants/:combatantId/resource', async (req, res) => {
-        try { res.json({ encounter: await combatManagerService.updateResource(req.foundryClient, req.params.id, req.params.combatantId, req.body?.value) }); }
+        try { res.json({ encounter: await combatManagerService.updateResource(req.foundryClient, req.params.id, req.params.combatantId, req.body) }); }
+        catch (error) { handleError(error, res); }
+    });
+    router.patch('/combat-manager/:id/combatants/:combatantId/stats/:statKey', async (req, res) => {
+        try { res.json({ encounter: await combatManagerService.updateStat(req.foundryClient, req.params.id, req.params.combatantId, req.params.statKey, req.body) }); }
         catch (error) { handleError(error, res); }
     });
     router.delete('/combat-manager/:id/combatants/:combatantId', async (req, res) => {
@@ -92,7 +99,13 @@ export function registerCombatManagerRoutes(router: express.Router, deps: {
         catch (error) { handleError(error, res); }
     });
     router.post('/combat-manager/:id/complete', async (req, res) => {
-        try { res.json(await combatManagerService.complete(req.foundryClient, req.params.id)); }
+        try {
+            logger.info('CombatManager | Completion requested', {
+                combatId: req.params.id,
+                userId: req.foundryClient.userId,
+            });
+            res.json(await combatManagerService.complete(req.foundryClient, req.params.id));
+        }
         catch (error) { handleError(error, res); }
     });
 }

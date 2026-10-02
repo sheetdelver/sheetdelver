@@ -1,4 +1,5 @@
 import type { ModuleCombatStatAttribute } from '@shared/sdk/interfaces';
+import type { CombatManagerSelectedStatDto } from './combatManager';
 
 export const MAX_COMBAT_STATS = 8;
 const MAX_DECLARED_STATS = 16;
@@ -40,4 +41,23 @@ export function parseCombatStatAttributes(value: unknown, limit = MAX_COMBAT_STA
         });
     }
     return attributes;
+}
+
+/** Validate Core's persisted GM selection without broadening module metadata. */
+export function parseCombatStatSelection(value: unknown, limit = MAX_COMBAT_STATS): CombatManagerSelectedStatDto[] | null {
+    const attributes = parseCombatStatAttributes(value, limit);
+    if (!attributes) return null;
+    const selected: CombatManagerSelectedStatDto[] = [];
+    let healthCount = 0;
+    for (const [index, attribute] of attributes.entries()) {
+        const raw = (value as Record<string, unknown>[])[index];
+        if (raw.editable !== undefined && typeof raw.editable !== 'boolean') return null;
+        if (raw.health !== undefined && typeof raw.health !== 'boolean') return null;
+        if (raw.editable === true && (!attribute.path.startsWith('system.')
+            || !['number', 'resource'].includes(attribute.kind))) return null;
+        if (raw.health === true && (raw.editable !== true || ++healthCount > 1)) return null;
+        selected.push({ ...attribute, ...(raw.editable === true ? { editable: true } : {}),
+            ...(raw.health === true ? { health: true } : {}) });
+    }
+    return selected;
 }

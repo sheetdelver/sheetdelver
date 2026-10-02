@@ -1,6 +1,8 @@
 import { strict as assert } from 'node:assert';
 import { CoreSocket } from '@core/foundry/sockets/CoreSocket';
 import { FoundryEventIngress } from '@server/services/world/FoundryEventIngress';
+import { PrimaryDocumentRepository } from '@server/core/documents/primary/base/PrimaryDocumentRepository';
+import type { ModifyDocumentAction, PrimaryDocumentStore } from '@server/core/documents/primary/base/PrimaryDocumentStore';
 
 /**
  * Per ADR-0021/0023, CoreSocket.dispatchDocumentSocket emits confirmed
@@ -50,8 +52,37 @@ async function runPackScopedDispatchSkipsWorldRouter() {
     }
 }
 
+async function runRepositorySkipsPackMirror() {
+    const mirrored: Array<{ type: string; action: ModifyDocumentAction; result: unknown }> = [];
+    const store = { applyModifyDocument: (type: string, action: ModifyDocumentAction, result: unknown) => {
+        mirrored.push({ type, action, result });
+    } } as PrimaryDocumentStore<{ _id: string }>;
+    let response: any = { operation: { pack: null }, result: [{ _id: 'pack-actor' }] };
+    const transport = { dispatchDocument: async () => response };
+    class TestRepository extends PrimaryDocumentRepository<{ _id: string }> {
+        public dispatch(type: string, action: ModifyDocumentAction, operation: Record<string, unknown>) {
+            return this.dispatchDocument(type, action, operation);
+        }
+    }
+    const repository = new TestRepository(transport, store);
+
+    await repository.dispatch('Actor', 'get', { pack: 'synthetic.monsters', index: true });
+    assert.equal(mirrored.length, 0,
+        'route-scoped Repository must not mirror a pack read even when response pack is null');
+
+    response = { operation: { pack: 'synthetic.monsters' }, result: [{ _id: 'pack-actor' }] };
+    await repository.dispatch('Actor', 'create', { data: [{ name: 'Pack Actor' }] });
+    assert.equal(mirrored.length, 0, 'pack mutation acknowledgements also stay out of world Stores');
+
+    response = { result: [{ _id: 'world-actor' }] };
+    await repository.dispatch('Actor', 'get', { query: { _id: 'world-actor' } });
+    assert.equal(mirrored.length, 1, 'world document reads still mirror normally');
+    assert.equal((mirrored[0].result as Array<{ _id: string }>)[0]._id, 'world-actor');
+}
+
 export async function run() {
     await runPackScopedDispatchSkipsWorldRouter();
+    await runRepositorySkipsPackMirror();
     console.log('  - CoreSocket pack-scope guard: all checks passed');
 }
 

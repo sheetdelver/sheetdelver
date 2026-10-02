@@ -1,14 +1,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import type { ModuleCombatStatAttribute } from '@shared/sdk';
-import { parseCombatStatAttributes } from '@shared/contracts/combatStatAttributes';
+import type { CombatManagerSelectedStatDto } from '@shared/contracts/combatManager';
+import { parseCombatStatSelection } from '@shared/contracts/combatStatAttributes';
 import { getConfigDir, writeOwnerOnlyFileAtomicSync } from '@core/paths';
 import { parseModuleId } from '@shared/security/moduleId';
 
 interface PreferenceEntry {
     worldId: string;
     moduleId: string;
-    attributes: ModuleCombatStatAttribute[];
+    attributes: CombatManagerSelectedStatDto[];
 }
 
 interface PreferenceFile {
@@ -64,7 +64,7 @@ export class CombatStatPreferenceStore {
             const row = entry as Record<string, unknown>;
             if (typeof row.worldId !== 'string' || typeof row.moduleId !== 'string') throw new Error('Combat-stat preference scope is malformed');
             validateScope(row.worldId, row.moduleId);
-            const attributes = parseCombatStatAttributes(row.attributes);
+            const attributes = parseCombatStatSelection(row.attributes);
             const scope = `${row.worldId}\0${row.moduleId}`;
             if (!attributes || scopes.has(scope)) throw new Error('Combat-stat preference entry is malformed or duplicated');
             scopes.add(scope);
@@ -73,15 +73,15 @@ export class CombatStatPreferenceStore {
         return { schemaVersion: 1, entries };
     }
 
-    public get(worldId: string, moduleId: string): ModuleCombatStatAttribute[] | null {
+    public get(worldId: string, moduleId: string): CombatManagerSelectedStatDto[] | null {
         validateScope(worldId, moduleId);
         const entry = this.load().entries.find(row => row.worldId === worldId && row.moduleId === moduleId);
         return entry ? entry.attributes : null;
     }
 
-    public set(worldId: string, moduleId: string, attributes: ModuleCombatStatAttribute[]): void {
+    public set(worldId: string, moduleId: string, attributes: CombatManagerSelectedStatDto[]): void {
         validateScope(worldId, moduleId);
-        const parsed = parseCombatStatAttributes(attributes);
+        const parsed = parseCombatStatSelection(attributes);
         if (!parsed) throw new Error('Invalid combat-stat selection');
         const file = this.load();
         const entries = file.entries.filter(row => row.worldId !== worldId || row.moduleId !== moduleId);

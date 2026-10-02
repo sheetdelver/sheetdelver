@@ -103,7 +103,14 @@ function mergeOperations(fallback: unknown, response: unknown): UnknownRecord | 
 
     if (!fallbackOperation) return responseOperation;
     if (!responseOperation) return fallbackOperation;
-    return { ...fallbackOperation, ...responseOperation };
+    const merged = { ...fallbackOperation, ...responseOperation };
+    // The initiating request is authoritative for pack scope. Foundry may
+    // return a terse or null `operation.pack` in its acknowledgement; letting
+    // that erase the requested pack would feed a pack index into a world Store.
+    if (typeof fallbackOperation.pack === 'string' && fallbackOperation.pack) {
+        merged.pack = fallbackOperation.pack;
+    }
+    return merged;
 }
 
 function toRecord(value: unknown): UnknownRecord | undefined {

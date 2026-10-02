@@ -8,6 +8,8 @@ export interface CombatManagerFlag {
     keepHistory: boolean;
     folderId: string | null;
     copyIds: string[];
+    /** Last allocated Combatant label number per source pack UUID. */
+    copyNameCounters?: Record<string, number>;
     completedAt?: string;
 }
 
@@ -23,5 +25,8 @@ export function readCombatManagerFlag(combat: CombatDocument | null | undefined)
         || !['provisioning', 'active', 'cleaning', 'completed'].includes(String(flag.status))
         || !(flag.folderId === null || typeof flag.folderId === 'string')
         || !Array.isArray(flag.copyIds) || !flag.copyIds.every(id => typeof id === 'string')) return null;
+    if (flag.copyNameCounters !== undefined && (typeof flag.copyNameCounters !== 'object'
+        || flag.copyNameCounters === null || Array.isArray(flag.copyNameCounters)
+        || Object.values(flag.copyNameCounters).some(value => !Number.isSafeInteger(value) || (value as number) < 1))) return null;
     return flag as unknown as CombatManagerFlag;
 }

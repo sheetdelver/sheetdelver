@@ -81,11 +81,9 @@ function isNumericInitiative(value: unknown): value is number {
 const DEFEATED_STATUS_ID = 'dead';
 
 /**
- * Foundry `Combatant#isDefeated` parity for linked actors: defeated when the
- * combatant flag is set OR the actor carries the defeated status effect.
- * Status data lives on raw ActiveEffects (`effects[].statuses`), which the
- * ActorStore mirrors; unlinked token actors (ActorDelta) are outside the
- * stores until ADR-0028 Phase 7.
+ * Source-document fallback for the Core-default defeated status. This is not
+ * native `Combatant#isDefeated` parity: client-prepared statuses may include
+ * transferred effects and system-specific suppression/configuration rules.
  */
 function actorHasDefeatedStatus(actor: unknown): boolean {
     if (typeof actor !== 'object' || actor === null) return false;
@@ -93,6 +91,7 @@ function actorHasDefeatedStatus(actor: unknown): boolean {
     if (!Array.isArray(effects)) return false;
     return effects.some(effect => {
         if (typeof effect !== 'object' || effect === null) return false;
+        if ((effect as Record<string, unknown>).disabled === true) return false;
         const statuses = (effect as Record<string, unknown>).statuses;
         return Array.isArray(statuses) && statuses.includes(DEFEATED_STATUS_ID);
     });

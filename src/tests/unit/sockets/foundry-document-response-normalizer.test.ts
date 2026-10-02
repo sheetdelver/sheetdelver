@@ -67,6 +67,13 @@ function runPrimaryFallbackFixture() {
     assert.deepEqual(result.operation?.updates, [
         { _id: 'actor-1', name: 'Terse response' },
     ]);
+
+    const [packRead] = normalizeFoundryDocumentResponse({
+        type: 'Actor', action: 'get', operation: { pack: null }, result: [{ _id: 'pack-1' }],
+    }, { type: 'Actor', action: 'get', operation: { pack: 'synthetic.monsters', index: true } });
+    assert.equal(packRead.operation?.pack, 'synthetic.monsters');
+    assert.equal(isPackScopedDocumentResult(packRead), true,
+        'response pack:null cannot erase initiating request scope');
 }
 
 function runMalformedFixtures() {

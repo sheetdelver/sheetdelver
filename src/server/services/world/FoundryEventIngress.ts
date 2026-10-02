@@ -214,9 +214,28 @@ export class FoundryEventIngress {
         for (const entry of entries) {
             if (!this.isRoutableEntry(entry, origin)) continue;
 
+            // An external read is not a world-document change. The initiator's
+            // acknowledgement carries the authoritative request scope; a
+            // broadcast GET may omit `operation.pack`, so never mirror it.
+            if (origin.startsWith('broadcast-') && entry.action === 'get') continue;
+
             if (isPackScopedDocumentResult(entry)) {
                 this.invalidatePackEntry(entry, origin);
                 continue;
+            }
+
+            if (entry.type === 'Combat' && entry.action === 'delete') {
+                const envelope = this.toRecord(response);
+                const raw = entry.source === 'batch' && Array.isArray(envelope?.results)
+                    ? envelope.results[entry.index] : response;
+                const record = this.toRecord(raw);
+                const ids = Array.isArray(entry.operation?.ids) ? entry.operation.ids
+                    : Array.isArray(entry.result) ? entry.result : [];
+                logger.info('FoundryEventIngress | Combat delete observed', {
+                    origin,
+                    userId: typeof record?.userId === 'string' ? record.userId : null,
+                    ids: ids.filter((id): id is string => typeof id === 'string').slice(0, 10),
+                });
             }
 
             const routeOutcome = this.routeDocumentResult({

@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { combatManagerService, CombatManagerError } from '@server/services/combats/CombatManagerService';
+import { discoverActorSortFields, parseActorPickerSort, sortActorChoices } from '@server/services/combats/CombatActorPickerSort';
 import { projectCombatStatFields } from '@server/services/combats/CombatStatDisplayService';
 import { readCombatManagerFlag } from '@server/services/combats/combatManagerFlag';
 import { createCombatService } from '@server/services/combats/CombatService';
@@ -42,6 +43,13 @@ function mockClient(userId: string, calls: Call[]): CombatClientLike {
                 };
                 return { result: operation.index ? [template] : [template] };
             }
+            if (action === 'get' && type === 'Actor' && operation.pack === 'test.sort-pack') {
+                return { result: Array.from({ length: 1000 }, (_, index) => ({
+                    _id: `SORT${String(index + 1).padStart(4, '0')}`,
+                    name: `Actor ${String(index + 1).padStart(4, '0')}`,
+                    type: 'npc', system: { details: { level: 1000 - index } },
+                })) };
+            }
             if (action === 'create') {
                 const row = operation.data[0];
                 const id = type === 'Combat' ? `COMBAT${++combatNumber}`
@@ -76,6 +84,7 @@ async function seed(): Promise<void> {
     await settingStore.seed(async () => [{ _id: 'TRACKER', key: 'core.combatTrackerConfig', value: JSON.stringify({ resource: 'attributes.hp' }) }]);
     compendiumStore.clear();
     compendiumStore.setPackMetadata('test.monsters', { id: 'test.monsters', type: 'Actor', label: 'Monsters' });
+    compendiumStore.setPackMetadata('test.sort-pack', { id: 'test.sort-pack', type: 'Actor', label: 'Sort pack' });
 }
 
 export async function run(): Promise<void> {
@@ -88,6 +97,14 @@ export async function run(): Promise<void> {
         { key: 'ac', label: 'AC', path: 'derived.ac', kind: 'number', showInRoster: true },
         { key: 'hp', label: 'HP', path: 'system.hp', kind: 'number', showInRoster: true },
     ]).map(stat => stat.title), ['AC', 'HP'], 'roster pill projection follows configured stat order');
+    assert.equal(projectCombatStatFields({ type: 'npc', system: { hp: 12 }, derived: {} } as any,
+        [{ key: 'hp', label: 'HP', path: 'system.hp', kind: 'number', editable: true }],
+        { _id: 'SOURCE', type: 'npc', system: { hp: 9 } } as ActorDocument)[0]?.edit, undefined,
+    'a transformed prepared value cannot write the different source Actor number');
+    assert.equal(projectCombatStatFields({ type: 'npc', system: { hp: { value: 12 } }, derived: {} } as any,
+        [{ key: 'hp', label: 'HP', path: 'system.hp', kind: 'resource', editable: true }],
+        { _id: 'SOURCE', type: 'npc', system: { hp: 12 } } as ActorDocument)[0]?.edit, undefined,
+    'a resource descriptor cannot write a scalar source path');
     await seed();
     const calls: Call[] = [];
     const gm = mockClient('gm', calls);
@@ -100,6 +117,8 @@ export async function run(): Promise<void> {
         await assert.rejects(() => combatManagerService.saveStatPreferences(restricted, []), (error: unknown) => error instanceof CombatManagerError && error.status === 403);
         await assert.rejects(() => combatManagerService.resetStatPreferences(restricted), (error: unknown) => error instanceof CombatManagerError && error.status === 403);
         assert.throws(() => combatManagerService.worldActors(restricted, ''), (error: unknown) => error instanceof CombatManagerError && error.status === 403);
+        await assert.rejects(() => combatManagerService.packActors(restricted, 'test.monsters', ''),
+            (error: unknown) => error instanceof CombatManagerError && error.status === 403);
         await assert.rejects(() => combatManagerService.create(restricted, 'Forbidden', false), (error: unknown) => error instanceof CombatManagerError && error.status === 403);
     }
     assert.equal(calls.length, 0, 'role rejection occurs before Foundry writes');
@@ -120,6 +139,8 @@ export async function run(): Promise<void> {
     assert.equal(folderStore.get(flag.folderId)?.type, 'Actor');
 
     await combatManagerService.addWorldActor(gm, combatId, 'WORLDNPC');
+    await assert.rejects(() => combatManagerService.addWorldActor(gm, combatId, 'WORLDNPC'),
+        (error: unknown) => error instanceof CombatManagerError && error.status === 409);
     const managedTurns = createCombatService({ normalizeActors: async actors => actors });
     assert.deepEqual(await managedTurns.rollInitiative(gm, combatId,
         (await combatManagerService.detail(gm, combatId)).participants[0].id, {}),
@@ -142,13 +163,59 @@ export async function run(): Promise<void> {
     assert.equal(calls.filter(call => call.type === 'Actor' && call.action === 'create').length, 0,
         'world NPC is linked, never copied');
 
+    assert.equal(parseActorPickerSort('{'), null, 'malformed sort is rejected');
+    assert.equal(parseActorPickerSort(JSON.stringify({ nameDirection: 'asc', fields: Array.from({ length: 4 }, (_, index) => ({
+        path: `system.field${index}`, direction: 'asc',
+    })) })), null, 'the sort stack is limited to three Actor stats');
+    assert.equal(parseActorPickerSort(JSON.stringify({ nameDirection: 'asc', fields: [
+        { path: '__proto__.bad', direction: 'asc' },
+    ] })), null, 'unsafe sort path is rejected');
+    const sortable = [
+        { _id: 'A', name: 'Beta', system: { level: 2, challenge: 3 } },
+        { _id: 'B', name: 'Alpha', system: { level: 2, challenge: 4 } },
+        { _id: 'C', name: 'Gamma', system: { level: 1, challenge: 4 } },
+    ];
+    const catalog = discoverActorSortFields(sortable);
+    assert.deepEqual(sortActorChoices(sortable, { nameDirection: 'asc', fields: [
+        { path: 'system.level', direction: 'desc' }, { path: 'system.challenge', direction: 'desc' },
+    ] }, catalog, row => row._id)?.map(row => row._id), ['B', 'A', 'C'],
+    'stat sort priority and per-field direction precede the Name tie-breaker');
+    const byName = combatManagerService.worldActors(gm, '');
+    assert.deepEqual(byName.actors.map(choice => choice.id), ['ASSISTANTNPC', 'WORLDNPC', 'PLAYERPC'],
+        'world results are name-ordered before projection');
+    assert.ok(byName.sortFields.some(field => field.path === 'system.attributes.hp.value'));
+    const byHp = combatManagerService.worldActors(gm, '', JSON.stringify({ nameDirection: 'desc', fields: [
+        { path: 'system.attributes.hp.value', direction: 'desc' },
+    ] }));
+    assert.equal(byHp.actors[0].id, 'WORLDNPC');
+    assert.deepEqual(byHp.actors.slice(1).map(choice => choice.id), ['PLAYERPC', 'ASSISTANTNPC'],
+        'missing stat values stay last, with Name as the tie-breaker');
+    assert.throws(() => combatManagerService.worldActors(gm, '', JSON.stringify({ nameDirection: 'asc', fields: [
+        { path: 'system.notPresent', direction: 'asc' },
+    ] })), (error: unknown) => error instanceof CombatManagerError && error.status === 400);
     const packChoices = await combatManagerService.packActors(gm, 'test.monsters', 'ogre');
-    assert.deepEqual(packChoices.map(choice => choice.id), ['PACK1']);
-    await combatManagerService.addPackActor(gm, combatId, 'test.monsters', 'PACK1');
-    await combatManagerService.addPackActor(gm, combatId, 'test.monsters', 'PACK1');
+    assert.deepEqual(packChoices.actors.map(choice => choice.id), ['PACK1']);
+    assert.ok(packChoices.sortFields.some(field => field.path === 'system.attributes.hp.value'));
+    const sortedPack = await combatManagerService.packActors(gm, 'test.sort-pack', '', JSON.stringify({
+        nameDirection: 'asc', fields: [{ path: 'system.details.level', direction: 'asc' }],
+    }));
+    assert.equal(sortedPack.actors.length, 1000);
+    assert.deepEqual(sortedPack.actors.slice(0, 2).map(choice => choice.id), ['SORT1000', 'SORT0999'],
+        'server sorts the complete pack without dropping choices');
+    assert.equal(sortedPack.actors.at(-1)?.id, 'SORT0001', 'the last sorted pack Actor is still selectable');
+    assert.ok(calls.some(call => call.operation.pack === 'test.sort-pack' && call.operation.indexFields.includes('system')),
+        'the index requests source stats for catalog discovery');
+    const writesBeforeInvalidQuantity = calls.length;
+    for (const invalid of [0, 21, 1.5, '2']) {
+        await assert.rejects(() => combatManagerService.addPackActor(gm, combatId, 'test.monsters', 'PACK1', invalid),
+            (error: unknown) => error instanceof CombatManagerError && error.status === 400);
+    }
+    assert.equal(calls.length, writesBeforeInvalidQuantity, 'invalid quantities fail before any Foundry request');
+    await combatManagerService.addPackActor(gm, combatId, 'test.monsters', 'PACK1', 2);
     const roster = (await combatManagerService.detail(gm, combatId)).participants;
     const copies = roster.filter(row => row.source === 'compendium-copy');
     assert.deepEqual(copies.map(row => row.actorId).sort(), ['COPY1', 'COPY2']);
+    assert.deepEqual(copies.map(row => row.name).sort(), ['World-Sized Ogre #1', 'World-Sized Ogre #2']);
     assert.equal((await combatManagerService.detail(gm, combatId)).currentCombatantId, 'ROW1',
         'adding rows mid-round preserves the current world NPC');
     await combatManagerService.updateParticipant(gm, combatId, copies[0].id, { initiative: 30 });
@@ -158,10 +225,51 @@ export async function run(): Promise<void> {
     assert.equal((actorStore.get('COPY1') as any)?.flags?.world?.sheetDelverCombatCopy?.sourceUuid,
         'Compendium.test.monsters.Actor.PACK1');
     assert.equal(copies[0].resource?.value, 18);
-    await combatManagerService.updateResource(gm, combatId, copies[0].id, 7);
+    const observedCopy = { actorId: copies[0].actorId, path: copies[0].resource!.path, value: copies[0].resource!.value };
+    await assert.rejects(() => combatManagerService.updateResource(assistant, combatId, copies[0].id,
+        { value: 7, expected: observedCopy }), (error: unknown) => error instanceof CombatManagerError && error.status === 403);
+    await assert.rejects(() => combatManagerService.updateResource(gm, combatId, copies[0].id, { value: 7 }),
+        (error: unknown) => error instanceof CombatManagerError && error.status === 400);
+    await combatManagerService.updateResource(gm, combatId, copies[0].id, { value: 7, expected: observedCopy });
     assert.equal(((actorStore.get(copies[0].actorId)?.system as any).attributes.hp.value), 7);
     assert.equal(((actorStore.get(copies[1].actorId)?.system as any).attributes.hp.value), 18);
     assert.equal(((actorStore.get('WORLDNPC')?.system as any).attributes.hp.value), 31);
+    const actorWrites = () => calls.filter(call => call.type === 'Actor' && call.action === 'update').length;
+    const writeCount = actorWrites();
+    await assert.rejects(() => combatManagerService.updateResource(gm, combatId, copies[0].id,
+        { value: 6, expected: observedCopy }), (error: unknown) => error instanceof CombatManagerError && error.status === 409);
+    assert.equal(actorWrites(), writeCount, 'stale observed value must not dispatch a write');
+    await assert.rejects(() => combatManagerService.updateResource(gm, combatId, copies[0].id,
+        { value: 6, expected: { ...observedCopy, actorId: copies[1].actorId } }),
+    (error: unknown) => error instanceof CombatManagerError && error.status === 409);
+    assert.equal(actorWrites(), writeCount, 'mismatched Actor identity must not dispatch a write');
+    settingStore.applyModifyDocument('Setting', 'update', [{ _id: 'TRACKER', value: JSON.stringify({ resource: 'attributes.hp.max' }) }]);
+    await assert.rejects(() => combatManagerService.updateResource(gm, combatId, copies[0].id,
+        { value: 6, expected: { ...observedCopy, value: 7 } }),
+    (error: unknown) => error instanceof CombatManagerError && error.status === 409);
+    assert.equal(actorWrites(), writeCount, 'changed tracker path must not dispatch a write');
+    settingStore.applyModifyDocument('Setting', 'update', [{ _id: 'TRACKER', value: JSON.stringify({ resource: 'attributes.missing' }) }]);
+    await assert.rejects(() => combatManagerService.updateResource(gm, combatId, copies[0].id,
+        { value: 6, expected: { ...observedCopy, value: 7 } }),
+    (error: unknown) => error instanceof CombatManagerError && error.status === 409);
+    assert.equal(actorWrites(), writeCount, 'missing source-backed resource must not dispatch a write');
+    settingStore.applyModifyDocument('Setting', 'update', [{ _id: 'TRACKER', value: JSON.stringify({ resource: 'attributes.hp' }) }]);
+    combatStore.applyModifyDocument('Combatant', 'update', [{ _id: copies[0].id, actorId: copies[1].actorId }],
+        { parentUuid: `Combat.${combatId}` });
+    await assert.rejects(() => combatManagerService.updateResource(gm, combatId, copies[0].id,
+        { value: 6, expected: { ...observedCopy, value: 7 } }),
+    (error: unknown) => error instanceof CombatManagerError && error.status === 409);
+    assert.equal(actorWrites(), writeCount, 'rebound Combatant must not dispatch a write');
+    combatStore.applyModifyDocument('Combatant', 'update', [{ _id: copies[0].id, actorId: copies[0].actorId }],
+        { parentUuid: `Combat.${combatId}` });
+    actorStore.applyModifyDocument('Actor', 'update', [{ _id: copies[0].actorId, 'system.attributes.hp.value': 6 }]);
+    await assert.rejects(() => combatManagerService.updateResource(gm, combatId, copies[0].id,
+        { value: 5, expected: { ...observedCopy, value: 7 } }),
+    (error: unknown) => error instanceof CombatManagerError && error.status === 409);
+    assert.equal(actorWrites(), writeCount, 'external Actor update must reject stale resource edit');
+    await combatManagerService.updateResource(gm, combatId, copies[0].id,
+        { value: 5, expected: { ...observedCopy, value: 6 } });
+    assert.equal(((actorStore.get(copies[0].actorId)?.system as any).attributes.hp.value), 5);
 
     actorStore.applyModifyDocument('Actor', 'create', [{ _id: 'UNRELATED', name: 'Unrelated', folder: flag.folderId }]);
     await assert.rejects(() => combatManagerService.complete(gm, combatId), (error: unknown) =>
@@ -179,6 +287,34 @@ export async function run(): Promise<void> {
     assert.equal(actorStore.get('COPY1'), null);
     assert.equal(actorStore.get('COPY2'), null);
     assert.ok(actorStore.get('WORLDNPC'), 'linked world NPC survives encounter cleanup');
+
+    const quantityEncounter = await combatManagerService.create(gm, 'Pack quantity', false);
+    await combatManagerService.addPackActor(gm, quantityEncounter.id, 'test.monsters', 'PACK1', 3);
+    const quantityRows = (await combatManagerService.detail(gm, quantityEncounter.id)).participants;
+    assert.deepEqual(quantityRows.map(row => row.name).sort(), [
+        'World-Sized Ogre #1', 'World-Sized Ogre #2', 'World-Sized Ogre #3',
+    ]);
+    assert.equal(new Set(quantityRows.map(row => row.actorId)).size, 3, 'each requested copy has its own world Actor');
+    await combatManagerService.removeParticipant(gm, quantityEncounter.id, quantityRows.find(row => row.name.endsWith('#3'))!.id);
+    await combatManagerService.addPackActor(gm, quantityEncounter.id, 'test.monsters', 'PACK1', 1);
+    assert.ok((await combatManagerService.detail(gm, quantityEncounter.id)).participants.some(row => row.name === 'World-Sized Ogre #4'),
+        'removing a Combatant does not reuse its allocated display number');
+    assert.deepEqual(await combatManagerService.complete(gm, quantityEncounter.id), { completed: true, retained: false });
+
+    const partialQuantity = await combatManagerService.create(gm, 'Partial pack quantity', false);
+    let rowWrites = 0;
+    const failingClient = { ...gm, dispatchDocument: async (...args: Parameters<CombatClientLike['dispatchDocument']>) => {
+        if (args[0] === 'Combatant' && args[1] === 'create' && ++rowWrites === 2) throw new Error('synthetic row failure');
+        return gm.dispatchDocument(...args);
+    } } as CombatClientLike;
+    await assert.rejects(() => combatManagerService.addPackActor(failingClient, partialQuantity.id, 'test.monsters', 'PACK1', 3),
+        (error: unknown) => error instanceof CombatManagerError && error.status === 502
+            && error.message.includes('Added 1 of 3 copies'));
+    assert.equal((await combatManagerService.detail(gm, partialQuantity.id)).participants.length, 1,
+        'a partial add reports completed rows and never retries the batch');
+    assert.equal(readCombatManagerFlag(combatStore.get(partialQuantity.id))?.copyIds.length, 2,
+        'the copy without a Combatant remains marked for safe cleanup');
+    assert.deepEqual(await combatManagerService.complete(gm, partialQuantity.id), { completed: true, retained: false });
 
     const retained = await combatManagerService.create(gm, 'Historical encounter', true);
     await combatManagerService.addWorldActor(gm, retained.id, 'WORLDNPC');
@@ -283,6 +419,55 @@ export async function run(): Promise<void> {
         assert.equal(preferences.source, 'saved');
         assert.ok(preferences.available.some(field => field.path === 'system.attributes.hp'),
             'GM can choose Actor fields without first selecting a combatant');
+        const editableHp = { ...hp, editable: true as const, health: true as const };
+        await combatManagerService.saveStatPreferences(gm, [editableHp]);
+        const editableEncounter = await combatManagerService.create(gm, 'Editable stats', false);
+        await combatManagerService.addWorldActor(gm, editableEncounter.id, 'WORLDNPC');
+        await combatManagerService.addPackActor(gm, editableEncounter.id, 'test.monsters', 'PACK1');
+        const editRoster = (await combatManagerService.detail(gm, editableEncounter.id)).participants;
+        const linked = editRoster.find(row => row.source === 'world')!;
+        const copied = editRoster.find(row => row.source === 'compendium-copy')!;
+        assert.equal(linked.stats[0]?.health, true);
+        assert.deepEqual(linked.stats[0]?.edit, { key: 'hp', path: 'system.attributes.hp.value', value: 24, max: 31 });
+        assert.deepEqual(copied.stats[0]?.edit, { key: 'hp', path: 'system.attributes.hp.value', value: 18, max: 20 });
+        const expectedLinked = { actorId: linked.actorId, path: linked.stats[0].edit!.path,
+            value: linked.stats[0].edit!.value };
+        const statWrites = calls.filter(call => call.type === 'Actor' && call.action === 'update').length;
+        await assert.rejects(() => combatManagerService.updateStat(assistant, editableEncounter.id,
+            linked.id, 'hp', { value: 20, expected: expectedLinked }),
+        (error: unknown) => error instanceof CombatManagerError && error.status === 403);
+        await assert.rejects(() => combatManagerService.updateStat(gm, editableEncounter.id,
+            linked.id, 'hp', { value: 20, expected: { ...expectedLinked, path: 'system.attributes.hp.max' } }),
+        (error: unknown) => error instanceof CombatManagerError && error.status === 409);
+        await assert.rejects(() => combatManagerService.updateStat(gm, editableEncounter.id,
+            linked.id, 'hp', { value: 20, expected: { ...expectedLinked, actorId: copied.actorId } }),
+        (error: unknown) => error instanceof CombatManagerError && error.status === 409);
+        assert.equal(calls.filter(call => call.type === 'Actor' && call.action === 'update').length, statWrites);
+        await combatManagerService.updateStat(gm, editableEncounter.id, linked.id, 'hp',
+            { value: 20, expected: expectedLinked });
+        assert.equal(((actorStore.get('WORLDNPC')?.system as any).attributes.hp.value), 20);
+        assert.equal(((actorStore.get(copied.actorId)?.system as any).attributes.hp.value), 18,
+            'a linked world edit does not change a compendium copy');
+        await assert.rejects(() => combatManagerService.updateStat(gm, editableEncounter.id,
+            linked.id, 'hp', { value: 19, expected: expectedLinked }),
+        (error: unknown) => error instanceof CombatManagerError && error.status === 409);
+        await combatManagerService.saveStatPreferences(gm, [hp]);
+        await assert.rejects(() => combatManagerService.updateStat(gm, editableEncounter.id,
+            linked.id, 'hp', { value: 19, expected: { ...expectedLinked, value: 20 } }),
+        (error: unknown) => error instanceof CombatManagerError && error.status === 409);
+        await combatManagerService.saveStatPreferences(gm, [editableHp]);
+        const expectedCopy = { actorId: copied.actorId, path: copied.stats[0].edit!.path,
+            value: copied.stats[0].edit!.value };
+        await combatManagerService.updateStat(gm, editableEncounter.id, copied.id, 'hp',
+            { value: 12, expected: expectedCopy });
+        assert.equal(((actorStore.get(copied.actorId)?.system as any).attributes.hp.value), 12);
+        assert.equal(((actorStore.get('WORLDNPC')?.system as any).attributes.hp.value), 20);
+        await combatManagerService.complete(gm, editableEncounter.id);
+        const retainedCombatantId = (await combatManagerService.detail(gm, retained.id)).participants[0].id;
+        await assert.rejects(() => combatManagerService.updateStat(gm, retained.id,
+            retainedCombatantId, 'hp',
+            { value: 9, expected: { ...expectedLinked, value: 20 } }),
+        (error: unknown) => error instanceof CombatManagerError && error.status === 409);
         assert.equal((await combatManagerService.resetStatPreferences(gm)).source, 'none');
         assert.deepEqual((await combatManagerService.detail(gm, retained.id)).participants[0].stats, []);
     } finally {

@@ -3,9 +3,18 @@
 - Added GM combat manager
 - Added tokenless encounter controls
 - Added batch initiative rolls
-- Added read-only combat stats
+- Added configurable combat stats
+- Enabled selected stat editing
+- Added default-health actions
 - Added shared GM stat preferences
 - Aligned combat manager appearance
+- Guarded stale combat resource edits
+- Refined defeated-status projection
+- Added Actor picker sorting
+- Showed all matching Actors
+- Guarded compendium read ingress
+- Added bounded enemy quantities
+- Filtered participant names live
 
 ## 0.15.0
 - Preserved sessions and world runtime

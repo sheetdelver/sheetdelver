@@ -2,15 +2,21 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import { Swords } from 'lucide-react';
 import { useFoundry } from '@client/ui/context/FoundryContext';
 import { ConfirmationModal } from '@client/ui/components/ConfirmationModal';
+import { CombatHealthModal, type CombatHealthTarget } from './CombatHealthModal';
 import * as api from '@client/ui/api/foundryApi';
 import type {
     CombatManagerActorChoiceDto,
+    CombatManagerActorSortFieldDto,
+    CombatManagerActorSortRequest,
+    CombatManagerSortDirection,
     CombatManagerEncounterDto,
     CombatManagerPackDto,
     CombatManagerStatDto,
     CombatManagerStatPreferencesDto,
+    CombatManagerSelectedStatDto,
 } from '@shared/contracts/combatManager';
 import type { ModuleCombatStatAttribute } from '@shared/sdk';
 
@@ -33,6 +39,15 @@ type PendingConfirmation =
     | { kind: 'complete'; combatId: string; keepHistory: boolean; status: CombatManagerEncounterDto['status'] }
     | { kind: 'remove'; combatId: string; combatantId: string; actorName: string };
 
+type ResourceEdit = {
+    combatantId: string;
+    actorId: string;
+    path: string;
+    expectedValue: number;
+    value: string;
+};
+type StatEdit = ResourceEdit & { key: string };
+
 export default function CombatManagerPage() {
     const { currentUser, step, appSocket, worldId, token, system } = useFoundry();
     // This Core tool retains world artwork, but not the system module's fallback theme or background.
@@ -51,14 +66,21 @@ export default function CombatManagerPage() {
     const [keepHistory, setKeepHistory] = useState(false);
     const [picker, setPicker] = useState<'world' | 'compendium'>('world');
     const [query, setQuery] = useState('');
+    const [packQuantity, setPackQuantity] = useState('1');
     const [packId, setPackId] = useState('');
     const [packs, setPacks] = useState<CombatManagerPackDto[]>([]);
     const [choices, setChoices] = useState<CombatManagerActorChoiceDto[]>([]);
+    const [availableSortFields, setAvailableSortFields] = useState<CombatManagerActorSortFieldDto[]>([]);
+    const [nameDirection, setNameDirection] = useState<CombatManagerSortDirection>('asc');
+    const [actorSortFields, setActorSortFields] = useState<CombatManagerActorSortRequest['fields']>([]);
+    const [loadingChoices, setLoadingChoices] = useState(false);
     const [initiative, setInitiative] = useState('');
-    const [resourceValue, setResourceValue] = useState('');
+    const [resourceEdit, setResourceEdit] = useState<ResourceEdit | null>(null);
+    const [statEdit, setStatEdit] = useState<StatEdit | null>(null);
+    const [healthTarget, setHealthTarget] = useState<CombatHealthTarget | null>(null);
     const [statPreferences, setStatPreferences] = useState<CombatManagerStatPreferencesDto | null>(null);
     const [editingStats, setEditingStats] = useState(false);
-    const [statDraft, setStatDraft] = useState<ModuleCombatStatAttribute[]>([]);
+    const [statDraft, setStatDraft] = useState<CombatManagerSelectedStatDto[]>([]);
     const [statChoice, setStatChoice] = useState('');
     const [statSearch, setStatSearch] = useState('');
     const [loadingStatCatalog, setLoadingStatCatalog] = useState(false);
@@ -77,10 +99,18 @@ export default function CombatManagerPage() {
         setEncounters([]);
         setSelectedId('');
         setSelectedCombatantId('');
+        setResourceEdit(null);
+        setStatEdit(null);
+        setHealthTarget(null);
         setChoices([]);
+        setAvailableSortFields([]);
+        setActorSortFields([]);
+        setNameDirection('asc');
+        setLoadingChoices(false);
         setPacks([]);
         setPicker('world');
         setQuery('');
+        setPackQuantity('1');
         setPackId('');
         setLabel('');
         setKeepHistory(false);
@@ -136,17 +166,39 @@ export default function CombatManagerPage() {
 
     useEffect(() => {
         if (!allowed) return;
-        if (picker === 'compendium' && !packId) { setChoices([]); return; }
+        if (picker === 'compendium' && !packId) {
+            setChoices([]); setAvailableSortFields([]); setLoadingChoices(false);
+            return;
+        }
         let active = true;
+        setChoices([]);
+        setLoadingChoices(true);
         const timer = setTimeout(() => {
+            const sort: CombatManagerActorSortRequest = { nameDirection, fields: actorSortFields };
             const search = picker === 'world'
-                ? api.searchManagedWorldActors(query)
-                : api.searchManagedPackActors(packId, query);
-            void search.then(payload => { if (active) setChoices(payload.actors); })
-                .catch(cause => { if (active) setError(errorMessage(cause)); });
+                ? api.searchManagedWorldActors(query, sort)
+                : api.searchManagedPackActors(packId, query, sort);
+            void search.then(payload => {
+                if (active) { setChoices(payload.actors); setAvailableSortFields(payload.sortFields); }
+            }).catch(cause => { if (active) setError(errorMessage(cause)); })
+                .finally(() => { if (active) setLoadingChoices(false); });
         }, 180);
         return () => { active = false; clearTimeout(timer); };
-    }, [allowed, picker, packId, query]);
+    }, [allowed, picker, packId, query, nameDirection, actorSortFields]);
+
+    const resetActorSort = () => {
+        setQuery('');
+        setNameDirection('asc');
+        setActorSortFields([]);
+    };
+
+    const changeActorSource = (source: 'world' | 'compendium') => {
+        setPicker(source);
+        setPackQuantity('1');
+        resetActorSort();
+        setAvailableSortFields([]);
+        setChoices([]);
+    };
 
     const encounter = useMemo(() => encounters.find(row => row.id === selectedId) || null, [encounters, selectedId]);
     const selected = encounter?.participants.find(row => row.id === selectedCombatantId)
@@ -158,10 +210,22 @@ export default function CombatManagerPage() {
             .toLocaleLowerCase().includes(statSearch.trim().toLocaleLowerCase()));
     const unrolledCount = encounter?.participants.filter(row => row.initiative == null && row.actorId).length ?? 0;
     const unrolledNpcCount = encounter?.participants.filter(row => row.initiative == null && row.actorId && row.isNpc).length ?? 0;
+    const quantity = Number(packQuantity);
+    const validPackQuantity = Number.isInteger(quantity) && quantity >= 1 && quantity <= 20;
 
     useEffect(() => {
         setInitiative(selected?.initiative === null || selected?.initiative === undefined ? '' : String(selected.initiative));
-        setResourceValue(selected?.resource ? String(selected.resource.value) : '');
+        setResourceEdit(previous => {
+            if (!selected?.resource) return null;
+            if (previous?.combatantId === selected.id && previous.actorId === selected.actorId
+                && previous.path === selected.resource.path && previous.value !== String(previous.expectedValue)) {
+                // Keep the original observation while the GM has an unsaved draft.
+                return previous;
+            }
+            return { combatantId: selected.id, actorId: selected.actorId,
+                path: selected.resource.path, expectedValue: selected.resource.value,
+                value: String(selected.resource.value) };
+        });
     }, [selected]);
 
     useEffect(() => {
@@ -207,6 +271,26 @@ export default function CombatManagerPage() {
             try { await refresh(); } catch { /* Preserve the original error. */ }
         }
         finally { setBusy(false); }
+    };
+
+    const commitStatEdit = (edit: StatEdit, combatId: string) => {
+        setStatEdit(null);
+        if (!edit.value.trim() || !Number.isFinite(Number(edit.value))
+            || Number(edit.value) === edit.expectedValue) return;
+        void mutate(() => api.updateManagedStat(combatId, edit.combatantId, edit.key, {
+            value: Number(edit.value),
+            expected: { actorId: edit.actorId, path: edit.path, value: edit.expectedValue },
+        }));
+    };
+
+    const commitResourceEdit = (edit: ResourceEdit, combatId: string) => {
+        setResourceEdit(null);
+        if (!edit.value.trim() || !Number.isFinite(Number(edit.value))
+            || Number(edit.value) === edit.expectedValue) return;
+        void mutate(() => api.updateManagedResource(combatId, edit.combatantId, {
+            value: Number(edit.value),
+            expected: { actorId: edit.actorId, path: edit.path, value: edit.expectedValue },
+        }));
     };
 
     const addStat = (choice: ModuleCombatStatAttribute) => {
@@ -310,7 +394,7 @@ export default function CombatManagerPage() {
                         className={secondaryButtonClass}>{editingStats ? 'Close configuration' : 'Configure stats'}</button>
                 </div>
                 {editingStats && <div className="sd-ui-divider mt-4 space-y-3 border-t pt-4">
-                    <p className="sd-ui-muted text-xs">Choose fields found on Actors in this world or suggested by the system module. Missing values are hidden; tracked-resource editing is separate.</p>
+                    <p className="sd-ui-muted text-xs">Choose fields found on Actors in this world or suggested by the system module. Missing values are hidden. Only source-backed numeric and resource values can be made editable; derived and text fields stay read-only. Choose one editable field as default health for the roster action.</p>
                     {statDraft.map((field, index) => <div key={`${field.key}:${index}`} className="sd-ui-inset flex flex-wrap items-center gap-2 rounded-lg p-2">
                         <input aria-label={`Stat ${index + 1} label`} value={field.label} maxLength={32} onChange={event => setStatDraft(current => current.map((row, at) => at === index ? { ...row, label: event.target.value } : row))}
                             className={`w-32 ${inputClass}`} />
@@ -319,6 +403,23 @@ export default function CombatManagerPage() {
                             <input type="checkbox" aria-label={`Show ${field.label} beside names`} checked={field.showInRoster === true}
                                 onChange={event => setStatDraft(current => current.map((row, at) => at === index ? { ...row, showInRoster: event.target.checked } : row))}
                                 style={{ accentColor: 'var(--sd-ui-accent)' }} /> Beside names
+                        </label>
+                        <label className="flex items-center gap-1.5 text-xs">
+                            <input type="checkbox" aria-label={`Make ${field.label} editable`} checked={field.editable === true}
+                                disabled={!field.path.startsWith('system.') || !['number', 'resource'].includes(field.kind)}
+                                onChange={event => setStatDraft(current => current.map((row, at) => at === index
+                                    ? { ...row, editable: event.target.checked ? true : undefined,
+                                        health: event.target.checked ? row.health : undefined } : row))}
+                                style={{ accentColor: 'var(--sd-ui-accent)' }} /> Editable
+                        </label>
+                        <label className="flex items-center gap-1.5 text-xs">
+                            <input type="checkbox" aria-label={`Use ${field.label} as default health`} checked={field.health === true}
+                                disabled={!field.path.startsWith('system.') || !['number', 'resource'].includes(field.kind)}
+                                onChange={event => setStatDraft(current => current.map((row, at) => at === index
+                                    ? { ...row, editable: event.target.checked ? true : row.editable,
+                                        health: event.target.checked ? true : undefined }
+                                    : event.target.checked ? { ...row, health: undefined } : row))}
+                                style={{ accentColor: 'var(--sd-ui-accent)' }} /> Default health
                         </label>
                         <button disabled={index === 0} onClick={() => setStatDraft(current => { const next = [...current]; [next[index - 1], next[index]] = [next[index], next[index - 1]]; return next; })} className={secondaryButtonClass} aria-label={`Move ${field.label} up`}>↑</button>
                         <button disabled={index === statDraft.length - 1} onClick={() => setStatDraft(current => { const next = [...current]; [next[index + 1], next[index]] = [next[index], next[index + 1]]; return next; })} className={secondaryButtonClass} aria-label={`Move ${field.label} down`}>↓</button>
@@ -408,26 +509,80 @@ export default function CombatManagerPage() {
                             <div className="sd-ui-divider h-px flex-1 border-t" />
                         </div>
                         <div className="mb-3 flex gap-2">
-                            <button aria-pressed={picker === 'world'} onClick={() => { setPicker('world'); setQuery(''); }} className={picker === 'world' ? primaryButtonClass : secondaryButtonClass}>World Actors (link)</button>
-                            <button aria-pressed={picker === 'compendium'} onClick={() => { setPicker('compendium'); setQuery(''); }} className={picker === 'compendium' ? primaryButtonClass : secondaryButtonClass}>Compendium (copy)</button>
+                            <button aria-pressed={picker === 'world'} onClick={() => changeActorSource('world')} className={picker === 'world' ? primaryButtonClass : secondaryButtonClass}>World Actors (link)</button>
+                            <button aria-pressed={picker === 'compendium'} onClick={() => changeActorSource('compendium')} className={picker === 'compendium' ? primaryButtonClass : secondaryButtonClass}>Compendium (copy)</button>
                         </div>
-                        {picker === 'compendium' && <select aria-label="Actor compendium" value={packId} onChange={event => setPackId(event.target.value)}
+                        {picker === 'compendium' && <select aria-label="Actor compendium" value={packId} onChange={event => {
+                            setPackId(event.target.value); resetActorSort(); setAvailableSortFields([]); setChoices([]);
+                        }}
                             className={`mb-3 w-full ${inputClass}`}>
                             <option value="">Choose Actor pack</option>
                             {packs.map(pack => <option key={pack.id} value={pack.id}>{pack.label}</option>)}
                         </select>}
-                        <input aria-label="Search participants" value={query} onChange={event => setQuery(event.target.value)} placeholder="Search Actors"
-                            className={`mb-3 w-full ${inputClass}`} />
-                        <div className="max-h-80 space-y-2 overflow-y-auto">
-                            {choices.map(choice => <div key={`${choice.packId || 'world'}:${choice.id}`} className="sd-ui-inset flex items-center justify-between gap-2 rounded-lg p-2 text-sm">
-                                <span className="truncate">{choice.name}<span className="sd-ui-muted ml-2 text-xs">{choice.type}</span></span>
-                                <button disabled={busy} onClick={() => void mutate(() => choice.source === 'world'
-                                    ? api.addManagedWorldActor(encounter.id, choice.id)
-                                    : api.addManagedPackActor(encounter.id, choice.packId || '', choice.id))}
-                                    className={secondaryButtonClass}>Add</button>
+                        <div className="sd-ui-inset mb-3 space-y-2 rounded-lg p-3 text-sm">
+                            <div className="flex flex-wrap items-center gap-2">
+                                <label htmlFor="actor-name-direction" className="sd-ui-muted">{actorSortFields.length ? 'Name tie-breaker' : 'Name'}</label>
+                                <select id="actor-name-direction" aria-label="Name sort direction" value={nameDirection}
+                                    onChange={event => setNameDirection(event.target.value as CombatManagerSortDirection)} className={inputClass}>
+                                    <option value="asc">A–Z</option><option value="desc">Z–A</option>
+                                </select>
+                                <button onClick={resetActorSort} disabled={!query && nameDirection === 'asc' && actorSortFields.length === 0}
+                                    className={secondaryButtonClass}>Clear filters</button>
+                            </div>
+                            {actorSortFields.map((field, index) => <div key={field.path} className="flex flex-wrap items-center gap-2">
+                                <span className="min-w-0 flex-1 truncate" title={field.path}>
+                                    {index + 1}. {availableSortFields.find(choice => choice.path === field.path)?.label || field.path}
+                                </span>
+                                <select aria-label={`Sort direction for ${field.path}`} value={field.direction}
+                                    onChange={event => setActorSortFields(previous => previous.map((row, position) => position === index
+                                        ? { ...row, direction: event.target.value as CombatManagerSortDirection } : row))} className={inputClass}>
+                                    <option value="asc">Ascending</option><option value="desc">Descending</option>
+                                </select>
+                                <button aria-label={`Remove sort field ${field.path}`} onClick={() => setActorSortFields(previous => previous.filter((_, position) => position !== index))}
+                                    className={secondaryButtonClass}>Remove</button>
                             </div>)}
-                            {choices.length === 0 && <p className="sd-ui-muted text-sm">No matching Actors.</p>}
+                            {actorSortFields.length < 3 && <select aria-label="Add Actor stat sort" value=""
+                                onChange={event => {
+                                    const path = event.target.value;
+                                    if (path) setActorSortFields(previous => [...previous, { path, direction: 'asc' }]);
+                                }} disabled={availableSortFields.length === 0} className={`w-full ${inputClass}`}>
+                                <option value="">Add sort by Actor stat…</option>
+                                {availableSortFields.filter(field => !actorSortFields.some(selectedField => selectedField.path === field.path))
+                                    .map(field => <option key={field.path} value={field.path}>{field.label}</option>)}
+                            </select>}
+                            <p className="sd-ui-muted text-xs">{!loadingChoices && availableSortFields.length === 0
+                                ? 'No sortable Actor stats are available from this source. Name sorting still works.'
+                                : 'Up to 3 Actor stats. Chosen stats sort first, then Name; missing values sort last.'}</p>
                         </div>
+                        <label htmlFor="combat-actor-name-filter" className="sd-ui-muted mb-1 block text-sm">Filter Actors by name</label>
+                        <input id="combat-actor-name-filter" type="search" aria-label="Filter Actors by name" value={query}
+                            onChange={event => setQuery(event.target.value)} placeholder="Type a name to narrow the list"
+                            className={`mb-3 w-full ${inputClass}`} />
+                        {picker === 'compendium' && <div className="sd-ui-inset mb-3 rounded-lg p-3 text-sm">
+                            <label htmlFor="combat-pack-quantity" className="mb-1 block font-semibold">Copies per Add</label>
+                            <input id="combat-pack-quantity" type="number" min="1" max="20" step="1"
+                                aria-label="Copies per Add" value={packQuantity}
+                                onChange={event => setPackQuantity(event.target.value)} className={`w-24 ${inputClass}`} />
+                            <p className="sd-ui-muted mt-1 text-xs">1–20 independent copies per Add; each gets its own Actor and turn.</p>
+                        </div>}
+                        <div className="max-h-80 space-y-2 overflow-y-auto">
+                            {choices.map(choice => {
+                                const alreadyAdded = choice.source === 'world' && encounter.participants.some(row => row.actorId === choice.id);
+                                return <div key={`${choice.packId || 'world'}:${choice.id}`} className="sd-ui-inset flex items-center justify-between gap-2 rounded-lg p-2 text-sm">
+                                <span className="truncate">{choice.name}<span className="sd-ui-muted ml-2 text-xs">{choice.type}</span></span>
+                                <button disabled={busy || alreadyAdded || (choice.source === 'compendium' && !validPackQuantity)}
+                                    onClick={() => void mutate(() => choice.source === 'world'
+                                    ? api.addManagedWorldActor(encounter.id, choice.id)
+                                    : api.addManagedPackActor(encounter.id, choice.packId || '', choice.id, quantity))}
+                                    className={secondaryButtonClass}>{alreadyAdded ? 'Already added'
+                                        : choice.source === 'compendium' && validPackQuantity && quantity > 1 ? `Add ${quantity} copies` : 'Add'}</button>
+                            </div>;
+                            })}
+                            {choices.length === 0 && <p className="sd-ui-muted text-sm">{loadingChoices ? 'Loading Actors…' : 'No matching Actors.'}</p>}
+                        </div>
+                        {!loadingChoices && choices.length > 0 && <p className="sd-ui-muted mt-3 text-xs">
+                            {choices.length} matching Actors, all shown in the scrollable list.
+                        </p>}
                     </section>}
 
                     <section className={panelClass}>
@@ -443,8 +598,11 @@ export default function CombatManagerPage() {
                             <span className="sd-ui-muted text-xs">Only unrolled combatants; NPCs have no player owner.</span>
                         </div>}
                         <div className="space-y-2">
-                            {encounter.participants.map(row => <button key={row.id} onClick={() => setSelectedCombatantId(row.id)}
-                                className={`${selected?.id === row.id ? 'sd-ui-inset' : 'sd-ui-panel-raised'} flex w-full items-center gap-3 rounded-lg p-3 text-left transition-colors ${row.isCurrent ? 'ring-2 ring-[var(--sd-ui-accent)]' : ''}`}>
+                            {encounter.participants.map(row => {
+                                const health = row.stats.find(stat => stat.health && stat.edit);
+                                return <div key={row.id}
+                                className={`${selected?.id === row.id ? 'sd-ui-inset' : 'sd-ui-panel-raised'} flex w-full items-center gap-1 rounded-lg p-1 transition-colors ${row.isCurrent ? 'ring-2 ring-[var(--sd-ui-accent)]' : ''}`}>
+                                <button onClick={() => setSelectedCombatantId(row.id)} className="flex min-w-0 flex-1 items-center gap-3 rounded-lg p-2 text-left">
                                 <span className="w-10 text-center font-mono text-lg">{row.initiative ?? '—'}</span>
                                 <span className="min-w-0 flex-1">
                                     <span className="flex flex-wrap items-center gap-1.5">
@@ -461,7 +619,20 @@ export default function CombatManagerPage() {
                                 {row.hidden && <span className="sd-ui-muted text-xs">hidden</span>}
                                 {row.defeated && <span className="sd-ui-danger text-xs">defeated</span>}
                                 {row.isCurrent && <span className="sd-ui-inset sd-ui-accent shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider">Current</span>}
-                            </button>)}
+                                </button>
+                                {encounter.status === 'active' && statPreferences?.attributes.some(field => field.health) && <button disabled={busy || !health?.edit}
+                                        title={health?.edit ? `Adjust ${health.title} for ${row.name}` : 'No editable health source for this Actor'}
+                                        aria-label={`Damage or heal ${row.name}`}
+                                        onClick={() => {
+                                            if (!health?.edit) return;
+                                            setSelectedCombatantId(row.id);
+                                            setHealthTarget({ combatantId: row.id, actorId: row.actorId, name: row.name,
+                                                label: health.title, key: health.edit.key, path: health.edit.path,
+                                                current: health.edit.value, max: health.edit.max });
+                                        }} className="sd-ui-button flex shrink-0 items-center gap-1.5 px-2 py-2 text-xs font-semibold">
+                                        <Swords aria-hidden="true" className="h-4 w-4" /> Damage
+                                    </button>}
+                            </div>; })}
                             {encounter.participants.length === 0 && <p className="sd-ui-muted text-sm">Add a world Actor or a compendium copy to begin.</p>}
                         </div>
 
@@ -473,19 +644,44 @@ export default function CombatManagerPage() {
                             </div>
                             <p className="sd-ui-muted text-xs">{selected.source === 'world' ? 'Linked world Actor — edits affect ongoing world state.' : 'Encounter-owned copy from a compendium.'}</p>
                             {selected.stats.length > 0 && <div aria-label="Basic stats" className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                                <span className="sd-ui-muted col-span-full text-xs font-semibold uppercase tracking-wider">Basic stats · read-only</span>
+                                <span className="sd-ui-muted col-span-full text-xs font-semibold uppercase tracking-wider">Basic stats</span>
                                 {selected.stats.map((stat, index) => <div key={`${stat.title}:${index}`} className="sd-ui-inset min-w-0 rounded-lg px-3 py-2">
                                     <span className="sd-ui-muted block truncate text-[10px] font-bold uppercase tracking-wider" title={stat.title}>{stat.title}</span>
-                                    <span className="block truncate text-sm font-semibold" title={`${stat.value}${stat.subValue ?? ''}`}>{stat.value}{stat.subValue !== undefined && <span className="sd-ui-muted ml-1 font-normal">{stat.subValue}</span>}</span>
+                                    {stat.edit && encounter.status === 'active' ? <div className="mt-1 flex flex-wrap items-center gap-1">
+                                        <input type="number" aria-label={`Edit ${stat.title}`} className={`min-w-0 w-24 ${inputClass}`}
+                                            value={statEdit?.combatantId === selected.id && statEdit.key === stat.edit.key
+                                                && statEdit.actorId === selected.actorId && statEdit.path === stat.edit.path
+                                                ? statEdit.value : String(stat.edit.value)}
+                                            onChange={event => setStatEdit(previous => previous?.combatantId === selected.id
+                                                && previous.key === stat.edit?.key && previous.actorId === selected.actorId
+                                                && previous.path === stat.edit?.path
+                                                ? { ...previous, value: event.target.value }
+                                                : { combatantId: selected.id, actorId: selected.actorId, key: stat.edit!.key,
+                                                    path: stat.edit!.path, expectedValue: stat.edit!.value, value: event.target.value })}
+                                            onBlur={() => {
+                                                if (statEdit?.combatantId === selected.id && statEdit.key === stat.edit?.key
+                                                    && statEdit.actorId === selected.actorId && statEdit.path === stat.edit?.path) {
+                                                    commitStatEdit(statEdit, encounter.id);
+                                                }
+                                            }}
+                                            onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }}
+                                            disabled={busy} />
+                                        {stat.subValue !== undefined && <span className="sd-ui-muted text-xs">{stat.subValue}</span>}
+                                    </div> : <span className="block truncate text-sm font-semibold" title={`${stat.value}${stat.subValue ?? ''}`}>{stat.value}{stat.subValue !== undefined && <span className="sd-ui-muted ml-1 font-normal">{stat.subValue}</span>}</span>}
                                 </div>)}
                             </div>}
                             {selected.effects.length > 0 && <p className="text-sm opacity-80">Effects: {selected.effects.join(', ')}</p>}
                             <div className="flex flex-wrap items-end gap-3">
-                                <label className="text-sm">Initiative<input type="number" value={initiative} onChange={event => setInitiative(event.target.value)} disabled={busy || encounter.status !== 'active'}
+                                <label className="text-sm">Initiative<input type="number" value={initiative} onChange={event => setInitiative(event.target.value)}
+                                    onBlur={() => {
+                                        const next = initiative.trim() === '' ? null : Number(initiative);
+                                        if ((next === null || Number.isFinite(next)) && next !== selected.initiative) {
+                                            void mutate(() => api.updateManagedCombatant(encounter.id, selected.id, { initiative: next }));
+                                        }
+                                    }}
+                                    onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }}
+                                    disabled={busy || encounter.status !== 'active'}
                                     className={`mt-1 block w-24 ${inputClass}`} /></label>
-                                <button disabled={busy || encounter.status !== 'active'} onClick={() => void mutate(() => api.updateManagedCombatant(encounter.id, selected.id,
-                                    { initiative: initiative.trim() === '' ? null : Number(initiative) }))}
-                                    className={secondaryButtonClass}>Save initiative</button>
                                 <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={selected.hidden} disabled={busy || encounter.status !== 'active'} style={{ accentColor: 'var(--sd-ui-accent)' }}
                                     onChange={event => void mutate(() => api.updateManagedCombatant(encounter.id, selected.id, { hidden: event.target.checked }))} /> Hidden</label>
                                 <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={selected.defeated} disabled={busy || encounter.status !== 'active'} style={{ accentColor: 'var(--sd-ui-accent)' }}
@@ -493,11 +689,12 @@ export default function CombatManagerPage() {
                             </div>
                             {selected.resource && <div className="flex flex-wrap items-end gap-3">
                                 <label className="text-sm">Tracked resource <span className="sd-ui-muted">({selected.resource.path})</span>
-                                    <input type="number" value={resourceValue} onChange={event => setResourceValue(event.target.value)} disabled={busy || encounter.status !== 'active'}
+                                    <input type="number" value={resourceEdit?.combatantId === selected.id ? resourceEdit.value : ''}
+                                        onChange={event => setResourceEdit(previous => previous ? { ...previous, value: event.target.value } : previous)}
+                                        onBlur={() => { if (resourceEdit?.combatantId === selected.id) commitResourceEdit(resourceEdit, encounter.id); }}
+                                        onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }}
+                                        disabled={busy || encounter.status !== 'active'}
                                         className={`mt-1 block w-28 ${inputClass}`} /></label>
-                                <button disabled={busy || encounter.status !== 'active' || resourceValue.trim() === ''}
-                                    onClick={() => void mutate(() => api.updateManagedResource(encounter.id, selected.id, Number(resourceValue)))}
-                                    className={secondaryButtonClass}>Save resource</button>
                                 {selected.resource.max !== null && <span className="sd-ui-muted pb-2 text-sm">Max {selected.resource.max}</span>}
                             </div>}
                             {encounter.status === 'active' && <button disabled={busy} onClick={() => {
@@ -517,6 +714,17 @@ export default function CombatManagerPage() {
                 onConfirm={confirmPending}
                 onCancel={() => setPendingConfirmation(null)}
             />
+            <CombatHealthModal target={healthTarget} busy={busy} onClose={() => setHealthTarget(null)}
+                onApply={(target, value) => {
+                    if (!encounter || encounter.status !== 'active') return;
+                    void mutate(async () => {
+                        try {
+                            await api.updateManagedStat(encounter.id, target.combatantId, target.key, {
+                                value, expected: { actorId: target.actorId, path: target.path, value: target.current },
+                            });
+                        } finally { setHealthTarget(null); }
+                    });
+                }} />
           </div>
         </main>
     );

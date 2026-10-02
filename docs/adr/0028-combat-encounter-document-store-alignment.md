@@ -305,13 +305,15 @@ Foundry-side per the product workflow. Contract specifics:
   (`core.combatTrackerConfig.skipDefeated`, read from the wired SettingStore;
   default off, matching Foundry). When enabled, defeated rows are skipped in
   both directions and round boundaries land on the first/last non-defeated
-  row — identical to what Foundry's own tracker would do in that world.
+  row under Core's prepared defeated-state contract; system-native behavior
+  can differ when client-prepared statuses or command hooks apply.
 - A row is defeated when the combatant flag is set **or** its linked actor
-  carries the core-default defeated status (`dead` —
+  carries a direct, enabled core-default defeated status (`dead` —
   `CONFIG.specialStatusEffects.DEFEATED`). Unconscious/dying combatants are
   never defeated, preserving death-save turns. Systems that reconfigure the
   defeated status id need a system-adapter override (future module-work
-  scope); unlinked token actors join via Phase 7.
+  scope); unlinked token actors join via Phase 7. Suppressed/transferred
+  ActiveEffects are not fully resolved from this source-document fallback.
 - No tracker settings or system Combat-subclass overrides are consulted; a
   Foundry command bridge remains a possible future revision if that fidelity
   is ever required.
@@ -348,8 +350,9 @@ committed as required scope once Phases 1–6 are complete:
     token-actor mutations (ActorDelta merges, delta ActiveEffect/Item events)
     all arrive rooted at `Scene.<id>`. Row identity now follows Foundry's
     `Combatant#prepareDerivedData` order (combatant → token → actor); a row
-    is defeated per `Combatant#isDefeated` parity including a dead status on
-    the token's ActorDelta (unlinked NPCs). `CombatStore.bindSceneBridge`
+    is defeated under Core's source-document fallback, including an enabled
+    dead status on the token's ActorDelta (unlinked NPCs), not full native
+    `Combatant#isDefeated` parity. `CombatStore.bindSceneBridge`
     refreshes combats whose combatants sit on a changed scene. Scene
     documents have no route/SDK exposure — canvas/scene visibility semantics
     still need their own design pass before any external surface.

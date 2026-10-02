@@ -15,30 +15,33 @@ import { DocumentOwnershipLevel, FoundryUserRole, getEffectiveOwnership, isGM,
 import { userStore } from '@server/core/documents/primary/users/UserStore';
 import { compendiumStore } from '@server/core/compendium/CompendiumStore';
 import { preparedActorStore } from '@server/core/documents/prepared/actors/PreparedActorStore';
-import { parseCombatStatAttributes } from '@shared/contracts/combatStatAttributes';
+import { parseCombatStatSelection } from '@shared/contracts/combatStatAttributes';
 import { combatStatDisplayService, projectCombatStatFields } from './CombatStatDisplayService';
-import type { ModuleCombatStatAttribute } from '@shared/sdk';
 import type {
     CombatManagerActorChoiceDto,
+    CombatManagerActorSearchDto,
     CombatManagerEncounterDto,
     CombatManagerPackDto,
     CombatManagerParticipantDto,
     CombatManagerResourceDto,
     CombatManagerStatPreferencesDto,
+    CombatManagerSelectedStatDto,
     CombatManagerInitiativeBatchDto,
     CombatManagerInitiativeScope,
 } from '@shared/contracts/combatManager';
 import { readCombatManagerFlag, type CombatManagerFlag } from './combatManagerFlag';
+import { discoverActorSortFields, parseActorPickerSort, sortActorChoices } from './CombatActorPickerSort';
 
 export class CombatManagerError extends Error {
     constructor(message: string, public readonly status: number) { super(message); }
 }
 
 const ID_PATTERN = /^[A-Za-z0-9]{1,64}$/;
+const STAT_KEY_PATTERN = /^[A-Za-z][A-Za-z0-9_-]{0,31}$/;
 const PACK_PATTERN = /^[A-Za-z0-9_.-]{1,160}$/;
 const PATH_PATTERN = /^[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*$/;
-const PAGE_LIMIT = 40;
 const MAX_BATCH_ROLL = 100;
+const MAX_PACK_COPIES_PER_ADD = 20;
 
 function requiredId(value: unknown): string {
     if (typeof value !== 'string' || !ID_PATTERN.test(value)) throw new CombatManagerError('Invalid document ID', 400);
@@ -160,7 +163,7 @@ async function preserveCurrentTurn(client: CombatClientLike, combatId: string, c
 }
 
 function projectEncounter(combat: CombatDocument, client: CombatClientLike,
-    attributes: ModuleCombatStatAttribute[]): CombatManagerEncounterDto | null {
+    attributes: CombatManagerSelectedStatDto[]): CombatManagerEncounterDto | null {
     const flag = readCombatManagerFlag(combat);
     const id = getDocumentId(combat);
     if (!flag || !id) return null;
@@ -182,7 +185,7 @@ function projectEncounter(combat: CombatDocument, client: CombatClientLike,
             isCurrent: prepared?.currentCombatantId === row.id,
             resource: sourceResource(actor, resourcePath),
             effects: effectLabels(actor),
-            stats: projectCombatStatFields(actor && row.actorId ? preparedActorStore.get(row.actorId) : null, attributes),
+            stats: projectCombatStatFields(actor && row.actorId ? preparedActorStore.get(row.actorId) : null, attributes, actor),
         };
     });
     return {
@@ -226,7 +229,7 @@ export const combatManagerService = {
 
     async saveStatPreferences(client: CombatClientLike, attributesInput: unknown): Promise<CombatManagerStatPreferencesDto> {
         roleSubject(client);
-        const attributes = parseCombatStatAttributes(attributesInput);
+        const attributes = parseCombatStatSelection(attributesInput);
         if (!attributes) throw new CombatManagerError('Invalid combat-stat selection', 400);
         const preferences = await combatStatDisplayService.save(client, attributes);
         if (!preferences) throw new CombatManagerError('World is not ready', 503);
@@ -240,15 +243,22 @@ export const combatManagerService = {
         return preferences;
     },
 
-    worldActors(client: CombatClientLike, query: string): CombatManagerActorChoiceDto[] {
+    worldActors(client: CombatClientLike, query: string, sortInput?: unknown): CombatManagerActorSearchDto {
         const subject = roleSubject(client);
+        const sort = parseActorPickerSort(sortInput);
+        if (!sort) throw new CombatManagerError('Invalid Actor sort', 400);
         const term = query.trim().toLocaleLowerCase().slice(0, 80);
-        return actorStore.list({ subject }).filter(actor => !term || actor.name?.toLocaleLowerCase().includes(term))
-            .slice(0, PAGE_LIMIT).map(actor => ({
+        const source = actorStore.list({ subject });
+        const sortFields = discoverActorSortFields(source as Record<string, unknown>[]);
+        const matching = source.filter(actor => !term || actor.name?.toLocaleLowerCase().includes(term));
+        const ordered = sortActorChoices(matching, sort, sortFields, actor => getDocumentId(actor) || '');
+        if (!ordered) throw new CombatManagerError('Actor sort field is unavailable', 400);
+        const actors: CombatManagerActorChoiceDto[] = ordered.map(actor => ({
                 id: getDocumentId(actor) || '', name: actor.name || 'Unnamed Actor',
                 img: typeof actor.img === 'string' ? client.resolveUrl(actor.img) : null,
                 type: actor.type || null, source: 'world' as const,
             })).filter(actor => actor.id);
+        return { actors, sortFields };
     },
 
     packs(client: CombatClientLike): CombatManagerPackDto[] {
@@ -259,22 +269,29 @@ export const combatManagerService = {
             .filter(pack => PACK_PATTERN.test(pack.id)).slice(0, 200);
     },
 
-    async packActors(client: CombatClientLike, packId: string, query: string): Promise<CombatManagerActorChoiceDto[]> {
+    async packActors(client: CombatClientLike, packId: string, query: string, sortInput?: unknown): Promise<CombatManagerActorSearchDto> {
         roleSubject(client);
+        const sort = parseActorPickerSort(sortInput);
+        if (!sort) throw new CombatManagerError('Invalid Actor sort', 400);
         if (!PACK_PATTERN.test(packId) || !this.packs(client).some(pack => pack.id === packId)) {
             throw new CombatManagerError('Actor pack not found', 404);
         }
         const response = await client.dispatchDocument('Actor', 'get', {
-            pack: packId, index: true, query: {}, indexFields: ['_id', 'name', 'img', 'type'], broadcast: false,
+            pack: packId, index: true, query: {}, indexFields: ['_id', 'name', 'img', 'type', 'system'], broadcast: false,
         });
         const term = query.trim().toLocaleLowerCase().slice(0, 80);
-        return resultRows(response).filter(row => typeof row.name === 'string' && (!term || row.name.toLocaleLowerCase().includes(term)))
-            .slice(0, PAGE_LIMIT).map(row => ({
+        const source = resultRows(response);
+        const sortFields = discoverActorSortFields(source);
+        const matching = source.filter(row => typeof row.name === 'string' && (!term || row.name.toLocaleLowerCase().includes(term)));
+        const ordered = sortActorChoices(matching, sort, sortFields, row => typeof row._id === 'string' ? row._id : '');
+        if (!ordered) throw new CombatManagerError('Actor sort field is unavailable', 400);
+        const actors: CombatManagerActorChoiceDto[] = ordered.map(row => ({
                 id: typeof row._id === 'string' ? row._id : '', name: row.name as string,
                 img: typeof row.img === 'string' ? client.resolveUrl(row.img) : null,
                 type: typeof row.type === 'string' ? row.type : null,
                 source: 'compendium' as const, packId,
             })).filter(row => ID_PATTERN.test(row.id));
+        return { actors, sortFields };
     },
 
     async create(client: CombatClientLike, labelInput: unknown, keepHistoryInput: unknown): Promise<CombatManagerEncounterDto> {
@@ -307,8 +324,11 @@ export const combatManagerService = {
         const subject = roleSubject(client);
         const actorId = requiredId(actorIdInput);
         return withEncounterLock(combatId, async () => {
-            activeEncounter(combatId);
+            const { combat } = activeEncounter(combatId);
             if (!actorStore.get(actorId, { subject })) throw new CombatManagerError('World Actor not found', 404);
+            if (combat.combatants?.some(row => row.actorId === actorId)) {
+                throw new CombatManagerError('World Actor is already in this encounter', 409);
+            }
             const currentId = combatEncounterReadModel.getOrRebuild(combatId)?.currentCombatantId ?? null;
             await repositories(client).combats.createCombatant(combatId, { actorId, tokenId: null, sceneId: null });
             await preserveCurrentTurn(client, combatId, currentId);
@@ -316,9 +336,15 @@ export const combatManagerService = {
         });
     },
 
-    async addPackActor(client: CombatClientLike, combatId: string, packId: unknown, documentId: unknown): Promise<CombatManagerEncounterDto> {
+    async addPackActor(client: CombatClientLike, combatId: string, packId: unknown, documentId: unknown,
+        quantityInput: unknown = 1): Promise<CombatManagerEncounterDto> {
         roleSubject(client);
         const actorId = requiredId(documentId);
+        if (!Number.isInteger(quantityInput) || (quantityInput as number) < 1
+            || (quantityInput as number) > MAX_PACK_COPIES_PER_ADD) {
+            throw new CombatManagerError(`Choose 1–${MAX_PACK_COPIES_PER_ADD} copies per Add`, 400);
+        }
+        const quantity = quantityInput as number;
         if (typeof packId !== 'string' || !PACK_PATTERN.test(packId) || !this.packs(client).some(pack => pack.id === packId)) {
             throw new CombatManagerError('Actor pack not found', 404);
         }
@@ -335,26 +361,54 @@ export const combatManagerService = {
             void _id; void id; void folder; void ownership; void _stats;
             const sourceFlags = isRecord(flags) ? flags : {};
             const worldFlags = isRecord(sourceFlags.world) ? sourceFlags.world : {};
-            const created = await repositories(client).actors.createActor({ ...copy, folder: flag.folderId,
-                ownership: { default: 0 },
-                flags: { ...sourceFlags, world: { ...worldFlags, sheetDelverCombatCopy: {
-                    combatId, sourceUuid: `Compendium.${packId}.Actor.${actorId}`,
-                } } },
-            });
-            const copyId = isRecord(created) ? getDocumentId(created) : null;
-            if (!copyId) throw new CombatManagerError('Foundry did not return the copied Actor ID', 502);
+            const sourceUuid = `Compendium.${packId}.Actor.${actorId}`;
+            // Foundry treats dots in flag object keys as update paths. Encode
+            // the UUID so the counter remains a single safe property name.
+            const counterKey = Buffer.from(sourceUuid).toString('base64url');
+            const sourceName = typeof source.name === 'string' && source.name.trim() ? source.name.trim() : 'Actor';
+            // Existing single-copy encounters may predate numbered labels. Their
+            // marked copies still occupy numbers even after a Combatant removal.
+            const priorCount = flag.copyIds.filter(copyId => {
+                const actor = actorStore.get(copyId);
+                return actor && copyMarker(actor)?.sourceUuid === sourceUuid;
+            }).length;
+            let nextFlag = flag;
+            let added = 0;
             try {
-                await updateFlag(client, combatId, { ...flag, copyIds: [...flag.copyIds, copyId] });
+                for (let index = 0; index < quantity; index++) {
+                    const number = (nextFlag.copyNameCounters?.[counterKey] ?? priorCount) + 1;
+                    const created = await repositories(client).actors.createActor({ ...copy, folder: flag.folderId,
+                        ownership: { default: 0 },
+                        flags: { ...sourceFlags, world: { ...worldFlags, sheetDelverCombatCopy: {
+                            combatId, sourceUuid,
+                        } } },
+                    });
+                    const copyId = isRecord(created) ? getDocumentId(created) : null;
+                    if (!copyId) throw new CombatManagerError('Foundry did not return the copied Actor ID', 502);
+                    const updatedFlag: CombatManagerFlag = {
+                        ...nextFlag,
+                        copyIds: [...nextFlag.copyIds, copyId],
+                        copyNameCounters: { ...nextFlag.copyNameCounters, [counterKey]: number },
+                    };
+                    try { await updateFlag(client, combatId, updatedFlag); }
+                    catch (cause) {
+                        // A copy must never be left outside the Combat's cleanup list.
+                        try { await repositories(client).actors.deleteActor(copyId); }
+                        catch { throw new CombatManagerError(`Copied Actor ${copyId} could not be recorded or removed; inspect the encounter Folder`, 502); }
+                        throw cause;
+                    }
+                    nextFlag = updatedFlag;
+                    await repositories(client).combats.createCombatant(combatId, {
+                        actorId: copyId, tokenId: null, sceneId: null, name: `${sourceName} #${number}`,
+                    });
+                    added++;
+                    await preserveCurrentTurn(client, combatId, currentId);
+                }
             } catch (cause) {
-                // A copy must never be left outside the Combat's cleanup list.
-                // If compensating deletion fails, stop here with its ID so a GM
-                // can reconcile the marked Folder before retrying completion.
-                try { await repositories(client).actors.deleteActor(copyId); }
-                catch { throw new CombatManagerError(`Copied Actor ${copyId} could not be recorded or removed; inspect the encounter Folder`, 502); }
-                throw cause;
+                const message = cause instanceof Error ? cause.message : 'Copy failed';
+                const status = cause instanceof CombatManagerError ? cause.status : 502;
+                throw new CombatManagerError(`Added ${added} of ${quantity} copies: ${message}`, status);
             }
-            await repositories(client).combats.createCombatant(combatId, { actorId: copyId, tokenId: null, sceneId: null });
-            await preserveCurrentTurn(client, combatId, currentId);
             return this.detail(client, combatId);
         });
     },
@@ -417,11 +471,18 @@ export const combatManagerService = {
     },
 
     async updateResource(client: CombatClientLike, combatId: string, combatantIdInput: unknown,
-        value: unknown): Promise<CombatManagerEncounterDto> {
+        request: unknown): Promise<CombatManagerEncounterDto> {
         roleSubject(client);
+        const value = isRecord(request) ? request.value : undefined;
+        const expected = isRecord(request) && isRecord(request.expected) ? request.expected : null;
         if (typeof value !== 'number' || !Number.isFinite(value) || Math.abs(value) > 1_000_000_000) {
             throw new CombatManagerError('Resource value must be a finite number', 400);
         }
+        if (!expected || typeof expected.path !== 'string' || expected.path.length > 256
+            || typeof expected.value !== 'number' || !Number.isFinite(expected.value)) {
+            throw new CombatManagerError('Expected resource state is required', 400);
+        }
+        const expectedActorId = requiredId(expected.actorId);
         return withEncounterLock(combatId, async () => {
             const { combat } = activeEncounter(combatId);
             const combatant = combat.combatants?.find(row => getDocumentId(row) === requiredId(combatantIdInput));
@@ -429,7 +490,50 @@ export const combatManagerService = {
             const actor = actorStore.get(combatant.actorId);
             const resource = sourceResource(actor, trackedResourcePath());
             if (!resource?.editable) throw new CombatManagerError('Tracked resource is not source-backed and editable', 409);
+            if (combatant.actorId !== expectedActorId || resource.path !== expected.path || resource.value !== expected.value) {
+                throw new CombatManagerError('Tracked resource changed; review the current value and retry', 409);
+            }
+            // This checks the latest Core Store value; Foundry modifyDocument has
+            // no atomic compare-and-set precondition against external clients.
             await repositories(client).actors.updateActor(combatant.actorId, { [resource.path]: value });
+            return this.detail(client, combatId);
+        });
+    },
+
+    async updateStat(client: CombatClientLike, combatId: string, combatantIdInput: unknown,
+        statKeyInput: unknown, request: unknown): Promise<CombatManagerEncounterDto> {
+        roleSubject(client);
+        const combatantId = requiredId(combatantIdInput);
+        if (typeof statKeyInput !== 'string' || !STAT_KEY_PATTERN.test(statKeyInput)) {
+            throw new CombatManagerError('Invalid stat key', 400);
+        }
+        const value = isRecord(request) ? request.value : undefined;
+        const expected = isRecord(request) && isRecord(request.expected) ? request.expected : null;
+        if (typeof value !== 'number' || !Number.isFinite(value) || Math.abs(value) > 1_000_000_000) {
+            throw new CombatManagerError('Stat value must be a finite number', 400);
+        }
+        if (!expected || typeof expected.path !== 'string' || expected.path.length > 256
+            || typeof expected.value !== 'number' || !Number.isFinite(expected.value)) {
+            throw new CombatManagerError('Expected stat state is required', 400);
+        }
+        const expectedActorId = requiredId(expected.actorId);
+        return withEncounterLock(combatId, async () => {
+            const { combat } = activeEncounter(combatId);
+            const combatant = combat.combatants?.find(row => getDocumentId(row) === combatantId);
+            if (!combatant?.actorId) throw new CombatManagerError('Combatant Actor not found', 404);
+            const actor = actorStore.get(combatant.actorId);
+            const prepared = preparedActorStore.get(combatant.actorId);
+            const selection = await combatStatDisplayService.resolve(client);
+            const field = selection?.attributes.find(row => row.key === statKeyInput && row.editable === true);
+            if (!actor || !prepared || !field) throw new CombatManagerError('Stat is not configured for editing', 409);
+            const edit = projectCombatStatFields(prepared, [field], actor)[0]?.edit;
+            if (!edit) throw new CombatManagerError('Stat is not source-backed and editable', 409);
+            if (combatant.actorId !== expectedActorId || edit.path !== expected.path || edit.value !== expected.value) {
+                throw new CombatManagerError('Stat changed; review the current value and retry', 409);
+            }
+            // As with tracked resources, this is a Core Store freshness check;
+            // Foundry has no atomic compare-and-set precondition for this write.
+            await repositories(client).actors.updateActor(combatant.actorId, { [edit.path]: value });
             return this.detail(client, combatId);
         });
     },

@@ -1,13 +1,14 @@
 import type { PreparedActorData, ModuleCombatStatAttribute } from '@shared/sdk';
 import type { CombatClientLike } from '@server/shared/types/documents';
-import type { CombatManagerAvailableStatDto, CombatManagerStatDto, CombatManagerStatPreferencesDto } from '@shared/contracts/combatManager';
-import { isSafeCombatStatPath, parseCombatStatAttributes } from '@shared/contracts/combatStatAttributes';
+import type { CombatManagerAvailableStatDto, CombatManagerSelectedStatDto, CombatManagerStatDto, CombatManagerStatPreferencesDto } from '@shared/contracts/combatManager';
+import { isSafeCombatStatPath, parseCombatStatAttributes, parseCombatStatSelection } from '@shared/contracts/combatStatAttributes';
+import type { ActorDocument } from '@server/shared/types/actors';
 import { preparedActorStore } from '@server/core/documents/prepared/actors/PreparedActorStore';
 import { worldStateStore } from '@server/core/world/WorldStateStore';
 import { listModules } from '@modules/registry/server';
 import { combatStatPreferenceStore } from './CombatStatPreferenceStore';
 
-function readPath(actor: PreparedActorData, path: string): unknown {
+function readPath(actor: unknown, path: string): unknown {
     if (!isSafeCombatStatPath(path)) return null;
     let value: unknown = actor;
     for (const segment of path.split('.')) {
@@ -19,23 +20,25 @@ function readPath(actor: PreparedActorData, path: string): unknown {
 }
 
 export function projectCombatStatFields(actor: PreparedActorData | null,
-    attributes: ModuleCombatStatAttribute[]): CombatManagerStatDto[] {
+    attributes: CombatManagerSelectedStatDto[], sourceActor?: ActorDocument | null): CombatManagerStatDto[] {
     if (!actor) return [];
     const stats: CombatManagerStatDto[] = [];
     for (const attribute of attributes) {
         if (attribute.actorTypes?.length && !attribute.actorTypes.includes(actor.type)) continue;
         const raw = readPath(actor, attribute.path);
         const roster = attribute.showInRoster === true ? { showInRoster: true as const } : {};
+        const health = attribute.health === true ? { health: true as const } : {};
+        const edit = editableSourceStat(sourceActor ?? null, attribute, raw);
         if (attribute.kind === 'resource') {
             if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
             const value = (raw as Record<string, unknown>).value;
             const max = (raw as Record<string, unknown>).max;
             if (typeof value !== 'number' || !Number.isFinite(value)) continue;
-            stats.push({ title: attribute.label, value, ...roster,
+            stats.push({ title: attribute.label, value, ...roster, ...health, ...(edit ? { edit } : {}),
                 ...(typeof max === 'number' && Number.isFinite(max) ? { subValue: `/ ${max}` } : {}) });
         } else if (attribute.kind === 'number') {
             if (typeof raw !== 'number' || !Number.isFinite(raw)) continue;
-            stats.push({ title: attribute.label, value: raw, ...roster });
+            stats.push({ title: attribute.label, value: raw, ...roster, ...health, ...(edit ? { edit } : {}) });
         } else if (typeof raw === 'string' && raw.trim()) {
             stats.push({ title: attribute.label, value: raw.trim().slice(0, 48), ...roster });
         } else if (typeof raw === 'number' && Number.isFinite(raw)) {
@@ -43,6 +46,21 @@ export function projectCombatStatFields(actor: PreparedActorData | null,
         }
     }
     return stats;
+}
+
+function editableSourceStat(sourceActor: ActorDocument | null, attribute: CombatManagerSelectedStatDto,
+    preparedValue: unknown): CombatManagerStatDto['edit'] | null {
+    if (!sourceActor || attribute.editable !== true || !attribute.path.startsWith('system.')
+        || !['number', 'resource'].includes(attribute.kind)) return null;
+    const sourceValue = readPath(sourceActor, attribute.path);
+    if (attribute.kind === 'resource' && (!sourceValue || typeof sourceValue !== 'object' || Array.isArray(sourceValue)
+        || !preparedValue || typeof preparedValue !== 'object' || Array.isArray(preparedValue))) return null;
+    const value = attribute.kind === 'resource' ? (sourceValue as Record<string, unknown>).value : sourceValue;
+    const shown = attribute.kind === 'resource' ? (preparedValue as Record<string, unknown>).value : preparedValue;
+    if (typeof value !== 'number' || !Number.isFinite(value) || value !== shown) return null;
+    const sourceMax = attribute.kind === 'resource' ? (sourceValue as Record<string, unknown>).max : undefined;
+    return { key: attribute.key, path: `${attribute.path}${attribute.kind === 'resource' ? '.value' : ''}`, value,
+        ...(typeof sourceMax === 'number' && Number.isFinite(sourceMax) ? { max: sourceMax } : {}) };
 }
 
 function fieldLabel(name: string): string {
@@ -118,7 +136,7 @@ export function discoverCombatStatFields(actors: PreparedActorData[]): CombatMan
     return catalog;
 }
 
-export function resolveCombatStatSelection(saved: ModuleCombatStatAttribute[] | null,
+export function resolveCombatStatSelection(saved: CombatManagerSelectedStatDto[] | null,
     suggestions: ModuleCombatStatAttribute[]): Pick<CombatManagerStatPreferencesDto, 'source' | 'attributes'> {
     if (saved !== null) return { source: 'saved', attributes: saved };
     if (suggestions.length) return { source: 'module', attributes: suggestions.slice(0, 8) };
@@ -153,7 +171,7 @@ export const combatStatDisplayService = {
     async save(client: CombatClientLike, attributes: unknown): Promise<CombatManagerStatPreferencesDto | null> {
         const scope = await activeScope(client);
         if (!scope) return null;
-        const parsed = parseCombatStatAttributes(attributes);
+        const parsed = parseCombatStatSelection(attributes);
         if (!parsed) throw new Error('Invalid combat-stat selection');
         combatStatPreferenceStore.set(scope.worldId, scope.moduleId, parsed);
         return resolve(client);

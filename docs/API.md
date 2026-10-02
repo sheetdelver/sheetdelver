@@ -151,11 +151,20 @@ Begin sets it, warning only if another Combat is currently active (Foundry
 deactivates that Combat). The manager's lifecycle status is stored separately in
 its Combat flag. Participant projections include a Foundry-style `isNpc` flag:
 no non-GM user owns that world Actor, independent of system Actor type.
-Read-only combat stats use the shared GM display selection for the active
+Combat stats use the shared GM selection for the active
 world/system module, stored durably under the Core data directory's `config/`.
 A saved empty selection suppresses module defaults. Stat values may be derived
-from prepared Actors; only the separately configured tracker resource can be
-quick-edited when source-backed. A selected descriptor's optional
+from prepared Actors. A GM may opt a selected `system.*` numeric or resource
+field into editing, but the control appears only where its prepared value
+matches a source Actor number. Module suggestions and `derived.*` fields never
+grant edit access on their own. The separately configured tracker resource
+also remains editable when source-backed. Stat, tracked-resource and initiative
+number edits commit on blur or Enter without a per-field Save button. Exactly
+one editable selected field
+may be flagged as default health for the roster Damage action. Its modal
+shows current and source max when available, supports direct current editing,
+and applies Heal/Damage as plain arithmetic without system-specific rules or
+automatic clamping. A selected descriptor's optional
 `showInRoster` produces a read-only participant pill, in descriptor order;
 other stats remain in the detail panel. See [ADR-0049](adr/0049-core-gm-combat-manager.md).
 
@@ -164,20 +173,30 @@ other stats remain in the detail panel. See [ADR-0049](adr/0049-core-gm-combat-m
 | `GET` | `/api/combat-manager` | List marked encounters, including retained completed history. |
 | `POST` | `/api/combat-manager` | Create with `{ "label": "Ambush", "keepHistory": false }`; returns the encounter. |
 | `GET` | `/api/combat-manager/stat-preferences?catalog=1&actorId=...` | Read shared GM selection and module suggestions. `catalog=1` additionally discovers bounded fields from prepared world Actors; optional authorized Actor ID prioritizes its fields. Catalog `observedActorTypes` is a picker hint, not a saved type restriction. |
-| `PUT` | `/api/combat-manager/stat-preferences` | Save `{ "attributes": [...] }` for this world/system module, including an intentional empty list. |
+| `PUT` | `/api/combat-manager/stat-preferences` | Save `{ "attributes": [...] }` for this world/system module, including an intentional empty list. A selected numeric/resource `system.*` descriptor may have `"editable": true`; exactly one editable descriptor may also have `"health": true`. Module suggestions remain display-only until a GM saves those choices. |
 | `DELETE` | `/api/combat-manager/stat-preferences` | Remove saved selection and return to module suggestions. |
 | `GET` | `/api/combat-manager/:id` | Read one marked tokenless encounter. |
-| `GET` | `/api/combat-manager/world-actors?q=...` | Search world Actors (PCs and NPCs); selections link canonical IDs. |
+| `GET` | `/api/combat-manager/world-actors?q=...&sort=...` | Search world Actors (PCs and NPCs); selections link canonical IDs. Returns all matching Actors in order and a separate `sortFields` catalog discovered from readable Actor source stats. |
 | `GET` | `/api/combat-manager/packs` | List available Actor compendiums. |
-| `GET` | `/api/combat-manager/packs/:packId/actors?q=...` | Search a pack's bounded Actor index. |
+| `GET` | `/api/combat-manager/packs/:packId/actors?q=...&sort=...` | Search a GM-bound Actor pack index, projecting `system` server-side for a source-stat sort catalog. Returns all matching Actors in order; no Actor source documents cross to the browser. |
 | `POST` | `/api/combat-manager/:id/world-actors` | Add `{ "actorId": "..." }` as a world link. |
-| `POST` | `/api/combat-manager/:id/pack-actors` | Add `{ "packId": "...", "actorId": "..." }` as a new encounter-owned world Actor copy. |
+| `POST` | `/api/combat-manager/:id/pack-actors` | Add `{ "packId": "...", "actorId": "...", "quantity": 1 }` as 1–20 independent encounter-owned world Actor copies. Partial failures report how many completed; retry is manual. |
 | `POST` | `/api/combat-manager/:id/next-turn` and `/previous-turn` | Run SheetDelver-managed turn progression under the GM-only encounter guard. |
 | `POST` | `/api/combat-manager/:id/roll-initiative` | Roll unrolled combatants with `{ "scope": "all" }` or `{ "scope": "npc" }`; NPC means no non-GM owner. Returns `rolled` and the refreshed encounter. Partial failures report the count already rolled. |
 | `PATCH` | `/api/combat-manager/:id/combatants/:combatantId` | Change `initiative`, `hidden` or `defeated`. |
-| `PATCH` | `/api/combat-manager/:id/combatants/:combatantId/resource` | Write `{ "value": 5 }` only for a source-backed configured resource. |
+| `PATCH` | `/api/combat-manager/:id/combatants/:combatantId/resource` | Set a source-backed configured resource with `{ "value": 5, "expected": { "actorId": "...", "path": "system.attributes.hp.value", "value": 7 } }`. Returns 409 if the mirrored Actor, resource path or value changed since observation; refetch before retrying. This is a best-effort Store preflight, not an atomic Foundry compare-and-set. |
+| `PATCH` | `/api/combat-manager/:id/combatants/:combatantId/stats/:statKey` | Set a GM-selected editable numeric/resource stat with the same `{ "value", "expected": { "actorId", "path", "value" } }` shape. The server re-resolves the current selection and source Actor field, and rejects unselected, derived, missing, transformed or stale values. This is also a best-effort Store preflight. |
 | `DELETE` | `/api/combat-manager/:id/combatants/:combatantId` | Remove a participant; never delete its linked world Actor. |
 | `POST` | `/api/combat-manager/:id/complete` | Explicitly complete; retain as read-only history or guard-clean verified copies and Folder. |
+
+The optional `sort` query value is URL-encoded JSON, for example
+`{"nameDirection":"asc","fields":[{"path":"system.details.level","direction":"desc"}]}`.
+At most three distinct `system.*` fields may be selected in priority order;
+each must occur in this source's returned `sortFields` catalog (path, contextual
+label, number/text kind). Invalid or unavailable sort keys return 400. Missing
+values sort last in either direction, then Name and Actor ID break ties. The
+catalog is independent of the saved combat-stat display preference. Without
+`sort`, results default to Name ascending.
 
 The older `/api/combats/:id/next-turn` and `previous-turn` endpoints reject
 manager-marked encounters; those turns go through the GM-only manager routes.

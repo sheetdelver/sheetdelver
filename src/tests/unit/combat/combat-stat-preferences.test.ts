@@ -2,7 +2,7 @@ import { strict as assert } from 'node:assert';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { parseCombatStatAttributes } from '@shared/contracts/combatStatAttributes';
+import { parseCombatStatAttributes, parseCombatStatSelection } from '@shared/contracts/combatStatAttributes';
 import { validateModuleInfoShape } from '@modules/registry/lifecycle/validation';
 import { CombatStatPreferenceStore } from '@server/services/combats/CombatStatPreferenceStore';
 import { discoverCombatStatFields, resolveCombatStatSelection } from '@server/services/combats/CombatStatDisplayService';
@@ -13,6 +13,19 @@ export function run(): void {
     assert.deepEqual(parseCombatStatAttributes([hp, ac]), [hp, ac]);
     assert.deepEqual(parseCombatStatAttributes([{ ...hp, showInRoster: true }]), [{ ...hp, showInRoster: true }]);
     assert.equal(parseCombatStatAttributes([{ ...hp, showInRoster: 'yes' }]), null);
+    assert.deepEqual(parseCombatStatAttributes([{ ...hp, editable: true }]), [hp],
+        'module suggestions never grant edit permission');
+    assert.deepEqual(parseCombatStatSelection([{ ...hp, editable: true }]), [{ ...hp, editable: true }]);
+    assert.deepEqual(parseCombatStatSelection([{ ...hp, editable: true, health: true }]),
+        [{ ...hp, editable: true, health: true }]);
+    assert.equal(parseCombatStatSelection([{ ...hp, health: true }]), null,
+        'default health must also be editable');
+    assert.equal(parseCombatStatSelection([{ ...hp, editable: true, health: true },
+        { key: 'stamina', label: 'Stamina', path: 'system.stamina', kind: 'number', editable: true, health: true }]), null,
+    'only one stat may be default health');
+    assert.equal(parseCombatStatSelection([{ ...ac, editable: true }]), null);
+    assert.equal(parseCombatStatSelection([{ ...hp, kind: 'text', editable: true }]), null);
+    assert.equal(parseCombatStatSelection([{ ...hp, editable: 'yes' }]), null);
     assert.equal(parseCombatStatAttributes([{ ...hp, path: 'system.__proto__.value' }]), null);
     assert.equal(parseCombatStatAttributes([hp, { ...hp, label: 'Duplicate' }]), null);
     assert.equal(parseCombatStatAttributes(Array.from({ length: 9 }, (_, index) => ({
@@ -54,11 +67,11 @@ export function run(): void {
     try {
         const first = new CombatStatPreferenceStore(filePath);
         assert.equal(first.get('world-one', 'test-system'), null);
-        first.set('world-one', 'test-system', [{ ...hp, showInRoster: true }]);
+        first.set('world-one', 'test-system', [{ ...hp, showInRoster: true, editable: true, health: true }]);
         first.set('world-two', 'test-system', [ac]);
         first.set('world-one', 'other-system', []);
         const reopened = new CombatStatPreferenceStore(filePath);
-        assert.deepEqual(reopened.get('world-one', 'test-system'), [{ ...hp, showInRoster: true }],
+        assert.deepEqual(reopened.get('world-one', 'test-system'), [{ ...hp, showInRoster: true, editable: true, health: true }],
             'selection and roster placement survive a new store instance');
         assert.deepEqual(reopened.get('world-one', 'other-system'), [], 'explicit empty differs from missing');
         assert.deepEqual(reopened.get('world-two', 'test-system'), [ac], 'world scope is isolated');
