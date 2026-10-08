@@ -15,6 +15,8 @@
 - Guarded compendium read ingress
 - Added bounded enemy quantities
 - Filtered participant names live
+- Added individual initiative controls
+- Unified manager world presentation
 
 ## 0.15.1
 - Unified player world states

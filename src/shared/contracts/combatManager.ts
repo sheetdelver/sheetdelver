@@ -113,3 +113,8 @@ export interface CombatManagerInitiativeBatchDto {
     rolled: number;
     encounter: CombatManagerEncounterDto;
 }
+
+export interface CombatManagerInitiativeResetDto {
+    cleared: number;
+    encounter: CombatManagerEncounterDto;
+}

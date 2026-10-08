@@ -37,6 +37,7 @@ function compactStatValue(stat: CombatManagerStatDto): string {
 type PendingConfirmation =
     | { kind: 'begin'; combatId: string; activeOtherCount: number }
     | { kind: 'complete'; combatId: string; keepHistory: boolean; status: CombatManagerEncounterDto['status'] }
+    | { kind: 'reset'; combatId: string; scoredCount: number }
     | { kind: 'remove'; combatId: string; combatantId: string; actorName: string };
 
 type ResourceEdit = {
@@ -51,14 +52,15 @@ type StatEdit = ResourceEdit & { key: string };
 export default function CombatManagerPage() {
     const { currentUser, step, appSocket, worldId, token, system } = useFoundry();
     // This Core tool retains world artwork, but not the system module's fallback theme or background.
-    const worldBackground = step === 'dashboard' && system?.status === 'active' ? system.worldBackground : null;
+    const worldBackground = system?.worldBackground || null;
     const bgStyle = worldBackground ? {
         backgroundImage: `linear-gradient(var(--sd-ui-image-scrim), var(--sd-ui-image-scrim)), url(${worldBackground})`,
         backgroundSize: 'cover',
         backgroundPosition: 'center',
         backgroundRepeat: 'no-repeat',
     } : { backgroundImage: 'none' };
-    const allowed = step === 'dashboard' && (currentUser?.role ?? 0) >= 4;
+    const isGamemaster = (currentUser?.role ?? 0) >= 4;
+    const allowed = step === 'dashboard' && isGamemaster;
     const [encounters, setEncounters] = useState<CombatManagerEncounterDto[]>([]);
     const [selectedId, setSelectedId] = useState('');
     const [selectedCombatantId, setSelectedCombatantId] = useState('');
@@ -94,7 +96,8 @@ export default function CombatManagerPage() {
     const refreshVersion = useRef(0);
 
     useEffect(() => {
-        // No manager projection survives a logout or world change.
+        // The shared player boundary unmounts this page on logout or identity
+        // change. A transient same-world step must not clear its local state.
         refreshVersion.current += 1;
         setEncounters([]);
         setSelectedId('');
@@ -122,7 +125,7 @@ export default function CombatManagerPage() {
         setStatSearch('');
         setLoadingStatCatalog(false);
         setLoading(true);
-    }, [allowed, worldId]);
+    }, [worldId]);
 
     const refresh = useCallback(async () => {
         const version = ++refreshVersion.current;
@@ -210,6 +213,7 @@ export default function CombatManagerPage() {
             .toLocaleLowerCase().includes(statSearch.trim().toLocaleLowerCase()));
     const unrolledCount = encounter?.participants.filter(row => row.initiative == null && row.actorId).length ?? 0;
     const unrolledNpcCount = encounter?.participants.filter(row => row.initiative == null && row.actorId && row.isNpc).length ?? 0;
+    const scoredCount = encounter?.participants.filter(row => row.initiative != null).length ?? 0;
     const quantity = Number(packQuantity);
     const validPackQuantity = Number.isInteger(quantity) && quantity >= 1 && quantity <= 20;
 
@@ -311,6 +315,8 @@ export default function CombatManagerPage() {
             void mutate(() => api.postManagedNextTurn(pending.combatId));
         } else if (pending.kind === 'complete') {
             void mutate(() => api.completeManagedCombat(pending.combatId));
+        } else if (pending.kind === 'reset') {
+            void mutate(() => api.postManagedInitiativeReset(pending.combatId));
         } else {
             setSelectedCombatantId('');
             void mutate(() => api.removeManagedCombatant(pending.combatId, pending.combatantId));
@@ -318,13 +324,16 @@ export default function CombatManagerPage() {
     };
 
     const confirmationTitle = pendingConfirmation?.kind === 'begin' ? 'Begin encounter'
-        : pendingConfirmation?.kind === 'complete' ? 'Complete encounter' : 'Remove participant';
+        : pendingConfirmation?.kind === 'complete' ? 'Complete encounter'
+            : pendingConfirmation?.kind === 'reset' ? 'Reset initiative' : 'Remove participant';
     const confirmationMessage = pendingConfirmation?.kind === 'begin'
         ? `${pendingConfirmation.activeOtherCount} other ${pendingConfirmation.activeOtherCount === 1 ? 'Combat is' : 'Combats are'} currently active in Foundry. Beginning this encounter will deactivate ${pendingConfirmation.activeOtherCount === 1 ? 'it' : 'them'}, including any scene encounter. Continue?`
         : pendingConfirmation?.kind === 'complete'
             ? pendingConfirmation.keepHistory && pendingConfirmation.status === 'active'
                 ? 'Complete this encounter and retain its Combat, Folder and compendium copies as read-only history?'
                 : 'Complete and delete this Combat, its verified compendium copies and its Actor Folder? Linked world Actors will remain untouched.'
+            : pendingConfirmation?.kind === 'reset'
+                ? `Clear initiative for all ${pendingConfirmation.scoredCount} scored combatants? This will not change the current turn.`
             : pendingConfirmation?.kind === 'remove'
                 ? `Remove ${pendingConfirmation.actorName} from this encounter? Its world Actor will not be deleted.`
                 : '';
@@ -335,8 +344,7 @@ export default function CombatManagerPage() {
     const primaryButtonClass = 'sd-ui-button sd-ui-button-primary px-4 py-2 font-bold';
     const secondaryButtonClass = 'sd-ui-button px-3 py-2 text-sm font-semibold';
 
-    if (step !== 'dashboard') return <main className={pageClass} style={bgStyle}>Connecting to the world…</main>;
-    if (!allowed) return (
+    if (!isGamemaster) return (
         <main className={pageClass} style={bgStyle}>
             <div className="sd-ui-panel-raised mx-auto max-w-3xl rounded-xl p-6 backdrop-blur-md">
                 <h1 className="sd-ui-accent text-2xl font-bold">Combat Manager</h1>
@@ -595,6 +603,9 @@ export default function CombatManagerPage() {
                                 className={secondaryButtonClass}>Roll All ({unrolledCount})</button>
                             <button disabled={busy || unrolledNpcCount === 0} onClick={() => void mutate(() => api.postManagedInitiativeBatch(encounter.id, 'npc'))}
                                 className={secondaryButtonClass}>Roll NPCs ({unrolledNpcCount})</button>
+                            <button disabled={busy || scoredCount === 0} onClick={() => setPendingConfirmation({
+                                kind: 'reset', combatId: encounter.id, scoredCount,
+                            })} className={secondaryButtonClass}>Reset all ({scoredCount})</button>
                             <span className="sd-ui-muted text-xs">Only unrolled combatants; NPCs have no player owner.</span>
                         </div>}
                         <div className="space-y-2">
@@ -620,6 +631,15 @@ export default function CombatManagerPage() {
                                 {row.defeated && <span className="sd-ui-danger text-xs">defeated</span>}
                                 {row.isCurrent && <span className="sd-ui-inset sd-ui-accent shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider">Current</span>}
                                 </button>
+                                {encounter.status === 'active' && <div className="flex shrink-0 items-center gap-1">
+                                    <button disabled={busy || !row.actorId} onClick={() => void mutate(() => api.postManagedInitiativeOne(encounter.id, row.id))}
+                                        aria-label={`${row.initiative == null ? 'Roll' : 'Reroll'} initiative for ${row.name}`}
+                                        className="sd-ui-button px-2 py-2 text-xs font-semibold">{row.initiative == null ? 'Roll' : 'Reroll'}</button>
+                                    <button disabled={busy || row.initiative == null}
+                                        onClick={() => void mutate(() => api.updateManagedCombatant(encounter.id, row.id, { initiative: null }))}
+                                        aria-label={`Clear initiative for ${row.name}`}
+                                        className="sd-ui-button px-2 py-2 text-xs font-semibold">Clear</button>
+                                </div>}
                                 {encounter.status === 'active' && statPreferences?.attributes.some(field => field.health) && <button disabled={busy || !health?.edit}
                                         title={health?.edit ? `Adjust ${health.title} for ${row.name}` : 'No editable health source for this Actor'}
                                         aria-label={`Damage or heal ${row.name}`}
@@ -709,7 +729,8 @@ export default function CombatManagerPage() {
                 isOpen={pendingConfirmation !== null}
                 title={confirmationTitle}
                 message={confirmationMessage}
-                confirmLabel={pendingConfirmation?.kind === 'begin' ? 'Begin' : pendingConfirmation?.kind === 'remove' ? 'Remove' : 'Complete'}
+                confirmLabel={pendingConfirmation?.kind === 'begin' ? 'Begin' : pendingConfirmation?.kind === 'remove' ? 'Remove'
+                    : pendingConfirmation?.kind === 'reset' ? 'Reset all' : 'Complete'}
                 isDanger={pendingConfirmation?.kind !== 'begin'}
                 onConfirm={confirmPending}
                 onCancel={() => setPendingConfirmation(null)}

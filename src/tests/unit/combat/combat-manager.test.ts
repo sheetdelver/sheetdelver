@@ -328,6 +328,12 @@ export async function run(): Promise<void> {
     assert.deepEqual(await managedTurns.advanceTurn(assistant, retained.id),
         { error: 'Gamemaster access required', status: 403 },
         'assistant cannot bypass manager restriction through legacy turn endpoint');
+    await assert.rejects(() => combatManagerService.resetInitiative(gm, retained.id),
+        (error: unknown) => error instanceof CombatManagerError && error.status === 409);
+    const retainedRowId = (await combatManagerService.detail(gm, retained.id)).participants[0].id;
+    await assert.rejects(() => combatManagerService.rollInitiativeOne(gm, retained.id, retainedRowId,
+        async () => ({ success: true, initiative: 1 })),
+    (error: unknown) => error instanceof CombatManagerError && error.status === 409);
     assert.ok(actorStore.get('WORLDNPC'));
 
     const batch = await combatManagerService.create(gm, 'Initiative batch', false);
@@ -365,6 +371,35 @@ export async function run(): Promise<void> {
     assert.equal(rolledIds.at(-1), batchRoster.find(row => row.actorId === 'PLAYERPC')?.id);
     assert.equal((await combatManagerService.rollInitiativeBatch(gm, batch.id, 'all', rollOne)).rolled, 0,
         'Roll All also skips rows that already rolled');
+    const npcRowId = batchRoster.find(row => row.actorId === 'WORLDNPC')!.id;
+    const playerRowId = batchRoster.find(row => row.actorId === 'PLAYERPC')!.id;
+    const rollsBeforeSingle = rolledIds.length;
+    await assert.rejects(() => combatManagerService.rollInitiativeOne(assistant, batch.id, npcRowId, rollOne),
+        (error: unknown) => error instanceof CombatManagerError && error.status === 403);
+    await assert.rejects(() => combatManagerService.rollInitiativeOne(gm, 'UNMARKED', npcRowId, rollOne),
+        (error: unknown) => error instanceof CombatManagerError && error.status === 404);
+    await assert.rejects(() => combatManagerService.rollInitiativeOne(gm, batch.id, 'NOTAROW', rollOne),
+        (error: unknown) => error instanceof CombatManagerError && error.status === 404);
+    assert.equal(rolledIds.length, rollsBeforeSingle, 'rejected single rolls have no chat or document side effects');
+    const rerolled = await combatManagerService.rollInitiativeOne(gm, batch.id, npcRowId, rollOne);
+    assert.equal(rerolled.rolled, 1);
+    assert.equal(rolledIds.at(-1), npcRowId);
+    assert.equal(rerolled.encounter.currentCombatantId, currentBeforeBatch,
+        'single reroll preserves the active Combatant after sorting');
+    await combatManagerService.updateParticipant(gm, batch.id, playerRowId, { initiative: null });
+    assert.equal((await combatManagerService.detail(gm, batch.id)).participants.find(row => row.id === playerRowId)?.initiative, null,
+        'per-row Clear uses the guarded manager participant update');
+    await assert.rejects(() => combatManagerService.resetInitiative(assistant, batch.id),
+        (error: unknown) => error instanceof CombatManagerError && error.status === 403);
+    await assert.rejects(() => combatManagerService.resetInitiative(gm, 'UNMARKED'),
+        (error: unknown) => error instanceof CombatManagerError && error.status === 404);
+    const reset = await combatManagerService.resetInitiative(gm, batch.id);
+    assert.equal(reset.cleared, 2);
+    assert.ok(reset.encounter.participants.every(row => row.initiative === null));
+    assert.equal(reset.encounter.currentCombatantId, currentBeforeBatch,
+        'Reset all preserves the active Combatant');
+    assert.equal((await combatManagerService.resetInitiative(gm, batch.id)).cleared, 0,
+        'an already cleared encounter dispatches no further updates');
     assert.deepEqual(await combatManagerService.complete(gm, batch.id), { completed: true, retained: false });
 
     const partial = await combatManagerService.create(gm, 'Partial initiative batch', false);

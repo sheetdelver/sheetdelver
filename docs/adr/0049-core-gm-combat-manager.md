@@ -185,8 +185,8 @@ checkpoint is not final acceptance of this follow-up.
 
 ### Repeated enemies and proposed initiative controls
 
-**Status:** Bounded repeated enemies and Add participant sorting are implemented
-on the branch. Individual initiative controls remain proposed. This extends the existing GM-only,
+**Status:** Bounded repeated enemies, Add participant sorting and individual
+initiative controls are implemented on the branch. This extends the existing GM-only,
 tokenless manager without claiming system-specific combat mechanics. It is
 motivated by the quantity and distinct-instance controls in
 [Heart of Daggers](https://heartofdaggers.com/support-articles/getting-started-encounters/),
@@ -394,8 +394,8 @@ v14 run with two distinct GM accounts, one world link and one pack copy also
 survived the main GM's native login. The disposable Combats, copies and extra
 GM were cleaned up; the prior test Combat was unchanged. No hosted world
 mutation was attempted. Disposable v13 pack projection and rendered GM
-acceptance remain pending. Individual initiative controls in the proposed
-next slice are not yet built.
+acceptance remain pending. Individual initiative controls were subsequently
+added under the same manager guard; rendered GM acceptance remains pending.
 
 The quantity follow-up now bounds a compendium Add to 1–20 independent copies,
 persists each copied Actor ID and a monotonic display-name counter on the
@@ -411,3 +411,17 @@ successful cleanup. Disposable v13 and rendered GM checks remain pending.
 After ADR-0053 landed, the manager page adopted Player Core palette surfaces,
 controls, status accents and world-artwork scrim. TypeScript, lint and client
 tests pass for this integration. Rendered light/dark GM review remains pending.
+
+After ADR-0057 landed, the manager removed its competing world-connection
+fallback. The shared player boundary now retains the mounted page during a
+same-world interruption while manager fetches pause; the page no longer clears
+its local encounter selection and drafts merely because the connection step
+temporarily leaves `dashboard`.
+
+Individual Roll/Reroll uses the existing GM-bound initiative formula, chat
+audience and encounter lock. Clear uses the guarded participant update; Reset
+all clears scored Combatants in one embedded-document request after a GM
+confirmation. Both roll and reset preserve current-Combatant identity through
+reordering. Focused tests cover role, marker and completed-encounter guards,
+single reroll, clear, reset, and active-turn preservation. Live v13/v14 and
+rendered GM acceptance are still pending.

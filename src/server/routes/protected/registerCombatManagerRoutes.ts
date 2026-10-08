@@ -82,6 +82,17 @@ export function registerCombatManagerRoutes(router: express.Router, deps: {
             res.json(payload);
         } catch (error) { handleError(error, res); }
     });
+    router.post('/combat-manager/:id/combatants/:combatantId/roll-initiative', async (req, res) => {
+        try {
+            res.json(await combatManagerService.rollInitiativeOne(req.foundryClient, req.params.id,
+                req.params.combatantId, combatantId => combatService.rollInitiative(req.foundryClient,
+                    req.params.id, combatantId, {}, true)));
+        } catch (error) { handleError(error, res); }
+    });
+    router.post('/combat-manager/:id/reset-initiative', async (req, res) => {
+        try { res.json(await combatManagerService.resetInitiative(req.foundryClient, req.params.id)); }
+        catch (error) { handleError(error, res); }
+    });
     router.patch('/combat-manager/:id/combatants/:combatantId', async (req, res) => {
         try { res.json({ encounter: await combatManagerService.updateParticipant(req.foundryClient, req.params.id, req.params.combatantId, req.body || {}) }); }
         catch (error) { handleError(error, res); }

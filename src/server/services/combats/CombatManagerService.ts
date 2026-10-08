@@ -27,6 +27,7 @@ import type {
     CombatManagerStatPreferencesDto,
     CombatManagerSelectedStatDto,
     CombatManagerInitiativeBatchDto,
+    CombatManagerInitiativeResetDto,
     CombatManagerInitiativeScope,
 } from '@shared/contracts/combatManager';
 import { readCombatManagerFlag, type CombatManagerFlag } from './combatManagerFlag';
@@ -467,6 +468,54 @@ export const combatManagerService = {
                 await preserveCurrentTurn(client, combatId, currentId);
             }
             return { rolled, encounter: await this.detail(client, combatId) };
+        });
+    },
+
+    async rollInitiativeOne(client: CombatClientLike, combatId: string, combatantIdInput: unknown,
+        rollOne: (combatantId: string) => Promise<{ success: true; initiative: number } | { error: string; status: number }>,
+    ): Promise<CombatManagerInitiativeBatchDto> {
+        roleSubject(client);
+        const combatantId = requiredId(combatantIdInput);
+        return withEncounterLock(combatId, async () => {
+            const { combat } = activeEncounter(combatId);
+            const combatant = combat.combatants?.find(row => getDocumentId(row) === combatantId);
+            if (!combatant?.actorId || !actorStore.get(combatant.actorId)) {
+                throw new CombatManagerError('Combatant Actor not found', 404);
+            }
+            const currentId = combatEncounterReadModel.getOrRebuild(combatId)?.currentCombatantId ?? null;
+            try {
+                const result = await rollOne(combatantId);
+                if ('error' in result) throw new CombatManagerError(result.error, result.status);
+            } finally {
+                await preserveCurrentTurn(client, combatId, currentId);
+            }
+            return { rolled: 1, encounter: await this.detail(client, combatId) };
+        });
+    },
+
+    async resetInitiative(client: CombatClientLike, combatId: string): Promise<CombatManagerInitiativeResetDto> {
+        roleSubject(client);
+        return withEncounterLock(combatId, async () => {
+            const { combat } = activeEncounter(combatId);
+            const targets = (combat.combatants || []).filter(row => row.initiative !== null && row.initiative !== undefined);
+            const updates = targets.map(row => ({ _id: getDocumentId(row), initiative: null }));
+            if (updates.some(row => !row._id)) throw new CombatManagerError('Combatant ID missing', 409);
+            const currentId = combatEncounterReadModel.getOrRebuild(combatId)?.currentCombatantId ?? null;
+            if (updates.length) {
+                try {
+                    await repositories(client).combats.dispatchDocument('Combatant', 'update', { updates },
+                        { type: 'Combat', id: combatId });
+                } finally {
+                    await preserveCurrentTurn(client, combatId, currentId);
+                }
+            }
+            const encounter = await this.detail(client, combatId);
+            const cleared = targets.filter(row => encounter.participants.some(participant =>
+                participant.id === getDocumentId(row) && participant.initiative === null)).length;
+            if (cleared !== targets.length) {
+                throw new CombatManagerError(`Cleared ${cleared} of ${targets.length} initiative scores; refresh before retrying`, 502);
+            }
+            return { cleared, encounter };
         });
     },
 

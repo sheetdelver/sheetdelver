@@ -11,6 +11,7 @@ import type {
 import type { ChatLogPayload } from '@shared/contracts/chat';
 import type { RealtimeSharedContentPayload } from '@shared/contracts/realtime';
 import type { CombatManagerActorSearchDto, CombatManagerActorSortRequest, CombatManagerEncounterDto, CombatManagerInitiativeBatchDto,
+    CombatManagerInitiativeResetDto,
     CombatManagerResourceUpdateRequest, CombatManagerSelectedStatDto, CombatManagerStatPreferencesDto, CombatManagerStatUpdateRequest,
     CombatManagerInitiativeScope, CombatManagerPackDto } from '@shared/contracts/combatManager';
 
@@ -206,4 +207,12 @@ export function postManagedPreviousTurn(combatId: string): Promise<CombatTurnSuc
 
 export function postManagedInitiativeBatch(combatId: string, scope: CombatManagerInitiativeScope): Promise<CombatManagerInitiativeBatchDto> {
     return requestJson(`/api/combat-manager/${combatId}/roll-initiative`, { method: 'POST', body: { scope } });
+}
+
+export function postManagedInitiativeOne(combatId: string, combatantId: string): Promise<CombatManagerInitiativeBatchDto> {
+    return requestJson(`/api/combat-manager/${combatId}/combatants/${combatantId}/roll-initiative`, { method: 'POST' });
+}
+
+export function postManagedInitiativeReset(combatId: string): Promise<CombatManagerInitiativeResetDto> {
+    return requestJson(`/api/combat-manager/${combatId}/reset-initiative`, { method: 'POST' });
 }
