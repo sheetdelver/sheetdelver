@@ -1,6 +1,6 @@
 # ADR-0049: Core GM Combat Manager
 
-**Status:** Accepted — manager and stat preferences implemented; GM acceptance pending
+**Status:** Accepted — manager implemented; world-restart preference check pending
 **Date:** September 24, 2026
 **Related:** ADR-0011, ADR-0012, ADR-0013, ADR-0028, ADR-0038, ADR-0048
 
@@ -424,4 +424,15 @@ all clears scored Combatants in one embedded-document request after a GM
 confirmation. Both roll and reset preserve current-Combatant identity through
 reordering. Focused tests cover role, marker and completed-encounter guards,
 single reroll, clear, reset, and active-turn preservation. Live v13/v14 and
-rendered GM acceptance are still pending.
+rendered GM acceptance were initially pending. An isolated v14 service probe
+then verified reroll, clear, reset and current-turn preservation. In the
+rendered isolated GM page, the first individual Roll exposed an existing
+CombatService assumption that chat content was numeric; Core now reads the
+evaluated Foundry Roll attached to the chat document, with numeric-content
+fallback for older clients. The rerun persisted initiative and showed Reroll.
+A brief isolated transport interruption displayed Core's shared reconnect
+boundary and retained the selected encounter through recovery. The marked
+test encounter and Actor Folder were deleted on completion. The GM reports
+that the listed controls work in local testing and across two GM accounts.
+Preference survival through a Foundry world stop/start has not yet been
+operator-tested. Live v13 is optional rather than a first-release gate.

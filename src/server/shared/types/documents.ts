@@ -367,6 +367,7 @@ export interface ChatSendBody {
 
 export interface RollChatMessageLike {
     content?: string;
+    rolls?: Array<string | { total?: number }>;
     [key: string]: unknown;
 }
 

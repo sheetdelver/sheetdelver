@@ -1,7 +1,7 @@
 import { logger } from '@shared/utils/logger';
 import { getAdapter } from '@modules/registry/server';
 import type { ActorDocument } from '@server/shared/types/actors';
-import type { CombatClientLike } from '@server/shared/types/documents';
+import type { CombatClientLike, RollChatMessageLike } from '@server/shared/types/documents';
 import {
     DOCUMENT_VISIBILITY,
     isGM,
@@ -50,6 +50,27 @@ const projectionDeps = {
     canWriteActor: (actorId: string, subject: DocumentAccessSubject) =>
         actorStore.canReadActor(actorId, subject, DOCUMENT_VISIBILITY.WRITEABLE),
 };
+
+export function getCombatInitiativeRollTotal(message: RollChatMessageLike): number {
+    // Core chat content is presentation HTML. Read the evaluated Foundry Roll
+    // first, retaining numeric content only for older client implementations.
+    const serializedRoll = message.rolls?.[0];
+    let rollTotal: unknown;
+    try {
+        rollTotal = typeof serializedRoll === 'string'
+            ? (JSON.parse(serializedRoll) as { total?: unknown }).total
+            : serializedRoll?.total;
+    } catch {
+        // Fall back to legacy plain numeric content below.
+    }
+    const total = typeof rollTotal === 'number'
+        ? rollTotal
+        : typeof message.content === 'string' && message.content.trim() !== ''
+            ? Number(message.content)
+            : Number.NaN;
+    if (!Number.isFinite(total)) throw new Error('Failed to parse roll total from chat message');
+    return total;
+}
 
 export function createCombatService(deps: CombatServiceDeps) {
     const getPreparedActor = deps.getPreparedActor
@@ -408,11 +429,7 @@ export function createCombatService(deps: CombatServiceDeps) {
             speaker,
             ...(combatant.hidden ? { rollMode: 'gmroll' as const } : {}),
         });
-        const total = parseInt(String(chatMessage.content));
-
-        if (isNaN(total)) {
-            throw new Error('Failed to parse roll total from chat message');
-        }
+        const total = getCombatInitiativeRollTotal(chatMessage);
 
         await createCombatRepository(client).updateCombatant(combatId, combatantId, { initiative: total });
 

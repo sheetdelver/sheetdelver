@@ -16,6 +16,7 @@
 - Added bounded enemy quantities
 - Filtered participant names live
 - Added individual initiative controls
+- Read evaluated initiative totals
 - Unified manager world presentation
 
 ## 0.15.1
