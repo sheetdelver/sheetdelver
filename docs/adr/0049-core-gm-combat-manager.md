@@ -1,6 +1,6 @@
 # ADR-0049: Core GM Combat Manager
 
-**Status:** Accepted — manager implemented; world-restart preference check pending
+**Status:** Accepted — operator checks recorded; final review pending
 **Date:** September 24, 2026
 **Related:** ADR-0011, ADR-0012, ADR-0013, ADR-0028, ADR-0038, ADR-0048
 
@@ -344,23 +344,24 @@ projection. The field-first follow-up discovers bounded choices across
 prepared Actor types without requiring a selected combatant, while loading
 that catalog only when the GM opens configuration. The full unit suite,
 TypeScript, lint and Next production build
-pass. Multi-GM browser refresh, world unload/restart persistence, and final
-visual acceptance remain for GM testing; no hosted Foundry was touched.
+pass. At this stage, multi-GM browser refresh, world unload/restart persistence,
+and final visual acceptance had not been operator-tested; no hosted Foundry was
+touched. Later operator results are recorded below.
 
 The October 1 stat-management slice adds the GM-owned Editable selection flag
 for source-backed numeric/resource fields. Focused tests cover preference
 persistence, module-suggestion isolation, GM-only writes, linked world Actors
 versus encounter copies, stale identity/path/value rejection, configuration
 revocation and completed-encounter rejection. TypeScript and focused lint pass;
-multi-GM preference and world-restart acceptance remain pending. The user chose
-bounded headless tokenless management; native client hooks, scene-linked
-encounters and token positioning remain Foundry-side rather than this tool's
-release gate.
+multi-GM preference and world-restart acceptance were still pending at this
+stage. The user chose bounded headless tokenless management; native client
+hooks, scene-linked encounters and token positioning remain Foundry-side rather
+than this tool's release gate.
 The subsequent health-action follow-up adds the one-field preference invariant,
 resource-max projection and a Core modal for direct, heal and damage arithmetic.
 Focused preference/manager tests and TypeScript/lint pass; rendered GM
 acceptance was subsequently reported for this flow. Multi-GM preference and
-world-restart checks remain pending.
+world-restart checks were still pending at this stage.
 
 The Add participant sort follow-up adds source-stat field discovery, GM-bound
 pack index projection, priority/direction controls and a Name A–Z reset.
@@ -394,8 +395,9 @@ v14 run with two distinct GM accounts, one world link and one pack copy also
 survived the main GM's native login. The disposable Combats, copies and extra
 GM were cleaned up; the prior test Combat was unchanged. No hosted world
 mutation was attempted. Disposable v13 pack projection and rendered GM
-acceptance remain pending. Individual initiative controls were subsequently
-added under the same manager guard; rendered GM acceptance remains pending.
+acceptance were pending at this stage. Individual initiative controls were
+subsequently added under the same manager guard; their later operator result
+is recorded below.
 
 The quantity follow-up now bounds a compendium Add to 1–20 independent copies,
 persists each copied Actor ID and a monotonic display-name counter on the
@@ -406,7 +408,8 @@ guard. Partial failure reports the completed count and leaves every created
 copy marked for cleanup. Focused tests cover limits, uniqueness, numbering
 after removal, partial failure and cleanup. Disposable v14 confirmed three
 persisted names (`Aboleth #1` through `#3`), three distinct Actor copies and
-successful cleanup. Disposable v13 and rendered GM checks remain pending.
+successful cleanup. Disposable v13 remains optional; rendered GM checks were
+pending at this stage.
 
 After ADR-0053 landed, the manager page adopted Player Core palette surfaces,
 controls, status accents and world-artwork scrim. TypeScript, lint and client
@@ -433,6 +436,11 @@ fallback for older clients. The rerun persisted initiative and showed Reroll.
 A brief isolated transport interruption displayed Core's shared reconnect
 boundary and retained the selected encounter through recovery. The marked
 test encounter and Actor Folder were deleted on completion. The GM reports
-that the listed controls work in local testing and across two GM accounts.
-Preference survival through a Foundry world stop/start has not yet been
-operator-tested. Live v13 is optional rather than a first-release gate.
+that the listed controls work in local testing and across two GM accounts,
+including shared stat preferences. The GM then stopped and restarted the same
+Foundry world, logged in again, and confirmed that both the Combat and selected
+stats remained. This is operator-reported persistence evidence, not an
+isolated test of every restart path. Live v13 is optional rather than a
+first-release gate. The ADR stays Accepted while the GM reviews the
+documentation and other remaining aspects; do not mark it Completed without
+that go-ahead.
