@@ -16,20 +16,27 @@ interface RouteMap {
 type ResponseStub = {
     statusCode: number;
     payload: unknown;
+    headers: Record<string, string>;
     status: (code: number) => Response;
     json: (body: unknown) => Response;
+    setHeader: (name: string, value: string) => Response;
 };
 
 function createResponseStub(): ResponseStub {
     const state: ResponseStub = {
         statusCode: 200,
         payload: undefined,
+        headers: {},
         status(code: number) {
             state.statusCode = code;
             return state as unknown as Response;
         },
         json(body: unknown) {
             state.payload = body;
+            return state as unknown as Response;
+        },
+        setHeader(name: string, value: string) {
+            state.headers[name] = value;
             return state as unknown as Response;
         },
     };
@@ -119,6 +126,20 @@ async function runUtilityRouteSmokeTests() {
             (() => undefined) as any,
         );
         assert.equal(hiddenDocumentRes.statusCode, 404);
+
+        const usersRes = createResponseStub();
+        await routeMap.get.get('/session/users')![0](
+            {
+                foundryClient: createRouteClient(async () => null),
+                userSession: { userId: 'player-1' },
+                isSystem: false,
+            } as unknown as Request,
+            usersRes as unknown as Response,
+            (() => undefined) as any,
+        );
+        assert.equal(usersRes.headers['Cache-Control'], 'no-store');
+        assert.equal((usersRes.payload as { currentUserId?: string }).currentUserId, 'player-1');
+        assert.equal(JSON.stringify(usersRes.payload).includes('session-token'), false);
     } finally {
         actorStore.clear('debug-utility-routes-test');
         userStore.clear('debug-utility-routes-test');

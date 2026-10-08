@@ -1,4 +1,11 @@
 # Releases
+## 0.15.1
+- Unified player world states
+- Preserved pages through outages
+- Hardened session restoration
+- Corrected SDK world signals
+- Guarded module world-state access
+
 ## 0.15.0
 - Preserved sessions and world runtime
 - Reconciled missed Foundry documents

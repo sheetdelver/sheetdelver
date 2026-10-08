@@ -33,8 +33,8 @@ interface ChatContextType {
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
 
 export function ChatProvider({ children }: { children: React.ReactNode }) {
-    const { token, setToken, step, registerLogoutCleanup } = useSession();
-    const { appSocket } = useRealtime();
+    const { token, invalidateLocalSession, step, registerLogoutCleanup } = useSession();
+    const { appSocket, linkState } = useRealtime();
     const { addNotification } = useNotifications();
     const { isChatOpen } = useUI();
     const { heldMessageIds, recordCreated, prepareMessages, invalidateMessage, resetPresentation } = useDicePresentation();
@@ -100,7 +100,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     const fetcherRef = useRef<{ token: string; fetch: CoalescedFetch<void> } | null>(null);
 
     const fetchChat = useCallback(async () => {
-        if (step !== 'dashboard' || !token) return;
+        if (step !== 'dashboard' || !token || linkState !== 'ready') return;
         if (fetcherRef.current?.token !== token) {
             const owner: { token: string; fetch: CoalescedFetch<void> } = {
                 token,
@@ -118,7 +118,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
                     } catch (error) {
                         if (fetcherRef.current !== owner) return;
                         if (error instanceof UnauthorizedApiError) {
-                            setToken(null);
+                            invalidateLocalSession('chat-401');
                             return;
                         }
                         logger.error('ChatContext | Failed to fetch chat:', error);
@@ -128,7 +128,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             fetcherRef.current = owner;
         }
         return fetcherRef.current.fetch();
-    }, [step, token, setToken, prepareMessages]);
+    }, [step, token, linkState, invalidateLocalSession, prepareMessages]);
 
     const requestChatRefresh = useCallback(() => {
         if (refreshTimerRef.current) {
@@ -143,6 +143,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
     const handleChatSend = useCallback(async (message: string, options?: { rollMode?: string; speaker?: string; throwOnError?: boolean }) => {
         try {
+            if (linkState !== 'ready') throw new Error('World connection unavailable');
             const data = await foundryApi.sendChat(token, {
                 message,
                 rollMode: options?.rollMode,
@@ -158,7 +159,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             addNotification('Error: ' + messageText, 'error');
             if (options?.throwOnError) throw error;
         }
-    }, [addNotification, requestChatRefresh, token]);
+    }, [addNotification, requestChatRefresh, token, linkState]);
 
     const resetChatState = useCallback(() => {
         fetcherRef.current = null;
@@ -175,10 +176,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     }, [registerLogoutCleanup, resetChatState]);
 
     useEffect(() => {
-        if (step === 'dashboard' && token) {
+        if (step === 'dashboard' && token && linkState === 'ready') {
             fetchChat();
         }
-    }, [fetchChat, step, token]);
+    }, [fetchChat, step, token, linkState]);
 
     useEffect(() => () => {
         if (refreshTimerRef.current) {
@@ -189,7 +190,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
     useEffect(() => {
         resetLiveToasts();
-        if (!appSocket || !token || step !== 'dashboard') return;
+        if (!appSocket || !token || step !== 'dashboard' || linkState !== 'ready') return;
 
         const handleChatMessageChanged = (data: RealtimeChatMessageChangedPayload) => {
             if (data.action === 'create') {
@@ -221,7 +222,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             appSocket.off('chatMessageChanged', handleChatMessageChanged);
             appSocket.off('chatMessageListInvalidated', handleChatMessageListInvalidated);
         };
-    }, [appSocket, requestChatRefresh, token, step, notifyLatest, resetLiveToasts, clearChatToast, recordCreated, invalidateMessage]);
+    }, [appSocket, requestChatRefresh, token, step, linkState, notifyLatest, resetLiveToasts, clearChatToast, recordCreated, invalidateMessage]);
 
     useEffect(() => {
         latestMessages.current = messages;

@@ -472,6 +472,7 @@ async function runStartupReturnsUndefinedWithoutSpawningClient() {
 
         const result = await manager.getOrRestoreSession('unknown-token');
         assert.equal(result, undefined);
+        assert.deepEqual(await manager.resolveSession('unknown-token'), { status: 'temporarily-unavailable' });
         assert.equal(connectCalls, 0, 'startup defer must not spawn a ClientSocket');
         assert.equal(constructed, 0);
 
@@ -524,13 +525,39 @@ async function runFailedRestoreDisconnectsAndClearsInFlight() {
 
         const first = await manager.getOrRestoreSession(SESSION_TOKEN);
         assert.equal(first, undefined);
-        assert.equal(connectCalls, 3, 'active restore should use the configured retry count');
-        assert.equal(disconnectCalls, 3, 'failed partial clients should be disconnected');
+        assert.deepEqual(await manager.resolveSession(SESSION_TOKEN), { status: 'temporarily-unavailable' });
+        assert.equal(connectCalls, 6, 'each active restore should use the configured retry count');
+        assert.equal(disconnectCalls, 6, 'failed partial clients should be disconnected');
 
         const second = await manager.getOrRestoreSession(SESSION_TOKEN);
         assert.equal(second, undefined);
-        assert.equal(connectCalls, 6, 'failed restore should clear the in-flight guard for later retries');
-        assert.equal(disconnectCalls, 6);
+        assert.equal(connectCalls, 9, 'failed restore should clear the in-flight guard for later retries');
+        assert.equal(disconnectCalls, 9);
+    });
+
+    await resetState();
+}
+
+async function runRestoredCredentialCannotChangeFoundryIdentity() {
+    await resetState();
+    seedActiveWorld();
+    await writeCachedSession();
+
+    let disconnectCalls = 0;
+    await withPatchedClientSocket({
+        connectWithRestoredCredential: async function (this: ClientSocket) {
+            this.userId = 'different-user';
+        },
+        disconnect(this: ClientSocket) {
+            disconnectCalls += 1;
+            this.isSocketConnected = false;
+        },
+    }, async () => {
+        const manager = createManager();
+        assert.deepEqual(await manager.resolveSession(SESSION_TOKEN), { status: 'invalid' });
+        assert.equal(disconnectCalls, 1);
+        assert.equal((await sessionStore.load())[SESSION_TOKEN], undefined);
+        assert.equal(await manager.getOrRestoreSession(SESSION_TOKEN), undefined);
     });
 
     await resetState();
@@ -803,6 +830,7 @@ export async function run() {
     await runStartupRestoreDefersUntilWorldIdExists();
     await runStartupReturnsUndefinedWithoutSpawningClient();
     await runFailedRestoreDisconnectsAndClearsInFlight();
+    await runRestoredCredentialCannotChangeFoundryIdentity();
     await runRevocationWinsAgainstInFlightRestore();
     await runWorldInvalidationWinsAgainstInFlightRestore();
     await runRoleChangeRebindsLiveAuthorization();

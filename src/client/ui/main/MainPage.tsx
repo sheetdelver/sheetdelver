@@ -3,32 +3,21 @@
 import { useState } from 'react';
 import { useFoundry } from '@client/ui/context/FoundryContext';
 import { useActorCombat } from '@client/ui/context/ActorCombatContext';
-import { useSession } from '@client/ui/context/SessionContext';
 import { useConfig } from '@client/ui/context/ConfigContext';
 import { useWorldBackground } from './hooks/useWorldBackground';
-import { LoginView } from './views/LoginView';
-import { SetupView } from './views/SetupView';
 import { DashboardView } from './views/DashboardView';
-import { WorldClosedView } from './views/WorldClosedView';
-import { LoadingScreen } from './components/LoadingScreen';
 import LoadingModal from '@client/ui/components/LoadingModal';
 
-interface MainPageProps {
-    initialUrl: string;
-}
-
-export default function MainPage({ initialUrl }: MainPageProps) {
+export default function MainPage() {
     const {
-        step,
         users,
         system,
         currentUser,
-        handleLogin: globalLogin,
         appVersion
     } = useFoundry();
 
     const { fetchActors, ownedActors } = useActorCombat();
-    const { token } = useSession();
+    const { token } = useFoundry();
 
     const { foundryUrl: configUrl } = useConfig();
     const bgStyle = useWorldBackground();
@@ -36,45 +25,13 @@ export default function MainPage({ initialUrl }: MainPageProps) {
     const [loading, setLoading] = useState(false);
     const [loginMessage, setLoginMessage] = useState('');
 
-    const handleLogin = async (user: string, pass: string) => {
-        setLoading(true);
-        setLoginMessage('Logging in...');
-        try {
-            await globalLogin(user, pass);
-        } catch (e) {
-            // Password clear handled by view state reset if needed
-        } finally {
-            setLoading(false);
-            setLoginMessage('');
-        }
-    };
-
     return (
         <main
             className="sd-ui-page p-4 sm:p-8 font-sans transition-colors duration-500 flex flex-col"
             style={bgStyle}
-            data-step={step}
             data-loading={loading}
         >
-            <LoadingScreen step={step} system={system} />
-
-            {step === 'login' && (
-                <LoginView
-                    users={users}
-                    system={system}
-                    onLogin={handleLogin}
-                    loading={loading}
-                />
-            )}
-
-            {step === 'setup' && <SetupView appVersion={appVersion || ''} />}
-
-            {step === 'world-closed' && (
-                <WorldClosedView system={system} appVersion={appVersion || ''} />
-            )}
-
-            {step === 'dashboard' && (
-                <DashboardView
+            <DashboardView
                     system={system}
                     user={users.find(u => (u._id || u.id) === (currentUser?._id || currentUser?.id)) || null}
                     ownedActors={ownedActors}
@@ -84,8 +41,7 @@ export default function MainPage({ initialUrl }: MainPageProps) {
                     fetchActors={fetchActors}
                     setLoading={setLoading}
                     setLoginMessage={setLoginMessage}
-                />
-            )}
+            />
 
             <LoadingModal
                 message={loginMessage}

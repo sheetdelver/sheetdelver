@@ -85,6 +85,12 @@ export interface FoundryUserConnectionLike {
     client: FoundryDocumentClientLike;
 }
 
+/** Internal lookup result; never sent to the browser with session credentials. */
+export type FoundrySessionResolution =
+    | { status: 'valid'; session: FoundryUserConnectionLike }
+    | { status: 'temporarily-unavailable' }
+    | { status: 'invalid' };
+
 export type FoundrySessionInvalidationReason =
     | 'revoked'
     | 'replaced'
@@ -114,6 +120,7 @@ export interface FoundryUserConnectionServiceLike {
     isCacheReady(): boolean;
     createSession(username: string, password?: string): Promise<{ sessionId: string; userId: string }>;
     getOrRestoreSession(token: string): Promise<FoundryUserConnectionLike | undefined>;
+    resolveSession(token: string): Promise<FoundrySessionResolution>;
     destroySession(token: string): Promise<void>;
     isValidSession(token: string): boolean;
     onSessionInvalidated(listener: FoundrySessionInvalidationListener): () => void;

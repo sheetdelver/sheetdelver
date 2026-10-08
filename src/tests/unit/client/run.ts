@@ -26,6 +26,7 @@ import { run as runGenericSheet } from './generic-sheet.test';
 import { run as runCatalogReleaseState } from './catalog-release-state.test';
 import { run as runPlayerAppearance } from './player-appearance.test';
 import { run as runDashboardActions } from './dashboard-actions.test';
+import { run as runPlayerWorldBoundaryPolicy } from './player-world-boundary-policy.test';
 
 import { run as runNotifications } from './notification-store.test';
 import { run as runChatPresentation } from './chat-presentation.test';
@@ -55,6 +56,7 @@ export async function run() {
     runCatalogReleaseState();
     runPlayerAppearance();
     runDashboardActions();
+    runPlayerWorldBoundaryPolicy();
     runDicePresentation();
     runDiceFollowups();
     runDiceTrayLifecycle();

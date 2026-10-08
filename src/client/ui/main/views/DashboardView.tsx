@@ -78,22 +78,6 @@ export const DashboardView = ({
 
     return (
         <div className="flex-1 w-full">
-            {/* Reconnecting Overlay */}
-            {system?.status !== 'active' && (
-                <div className="sd-ui-overlay fixed inset-0 z-[60] flex items-center justify-center backdrop-blur-sm transition-all duration-500">
-                    <div className="sd-ui-panel-raised p-8 rounded-xl shadow-2xl max-w-sm w-full mx-4 text-center transform scale-100 animate-in fade-in zoom-in duration-300">
-                        <div className="mb-4 flex justify-center">
-                            <div className="w-12 h-12 border-4 border-t-transparent rounded-full animate-spin sd-ui-accent" style={{ borderColor: 'var(--sd-ui-accent)', borderTopColor: 'transparent' }}></div>
-                        </div>
-                        <h2 className="text-xl font-bold mb-2">Connection Lost</h2>
-                        <p className="sd-ui-muted mb-6">Foundry is currently unreachable. Reconnecting...</p>
-                        <div className="sd-ui-inset text-xs font-mono py-1 px-3 rounded inline-block sd-ui-muted uppercase tracking-widest">
-                            CORE_STATUS: {system?.status || 'UNKNOWN'}
-                        </div>
-                    </div>
-                </div>
-            )}
-
             <div className="max-w-7xl mx-auto space-y-8 p-4 sm:p-6 sd-ui-panel rounded-xl backdrop-blur-sm">
                 {/* Overlays */}
                 <SharedContentModal />

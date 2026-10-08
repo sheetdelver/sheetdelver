@@ -13,6 +13,8 @@ interface SessionContextType {
     setStep: (step: ConnectionStep, origin?: string, reason?: string) => void;
     token: string | null;
     setToken: (token: string | null) => void;
+    /** Client-only invalidation epoch; never used as a server credential. */
+    sessionEpoch: number;
     users: User[];
     setUsers: React.Dispatch<React.SetStateAction<User[]>>;
     currentUserId: string | null;
@@ -41,6 +43,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
     const [step, setStepState] = useState<ConnectionStep>('init');
     const [token, setTokenState] = useState<string | null>(null);
+    const [sessionEpoch, setSessionEpoch] = useState(0);
 
     const [users, setUsers] = useState<User[]>([]);
     const [currentUserId, setCurrentUserId] = useState<string | null>(null);
@@ -81,6 +84,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
             }
 
             // Login success means the server issued the HttpOnly session cookie.
+            setSessionEpoch(epoch => epoch + 1);
             setToken(COOKIE_SESSION_MARKER);
             setStep('authenticating', 'handleLogin', 'Login success');
         } catch (error: unknown) {
@@ -93,6 +97,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     const invalidateLocalSession = useCallback((reason: string) => {
         // Both explicit logout and server-side revocation must retire every
         // session-bound client cache, not only the non-secret token marker.
+        setSessionEpoch(epoch => epoch + 1);
         resetUI();
         setStep('login', 'session-invalidation', reason);
         logoutCleanupRef.current.forEach((cleanup) => cleanup());
@@ -107,6 +112,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     const handleLogout = useCallback(async () => {
         if (explicitLogoutPendingRef.current) return;
         explicitLogoutPendingRef.current = true;
+        setSessionEpoch(epoch => epoch + 1);
 
         // Preserve the public-reclassified socket until the server completes
         // Foundry logout. The dedicated step withholds both dashboard and login
@@ -137,6 +143,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         setStep,
         token,
         setToken,
+        sessionEpoch,
         users,
         setUsers,
         currentUserId,
@@ -156,6 +163,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         setStep,
         token,
         setToken,
+        sessionEpoch,
         users,
         currentUserId,
         currentUser,

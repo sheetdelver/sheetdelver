@@ -11,6 +11,7 @@ import type {
     FoundrySessionInvalidationEvent,
     FoundrySessionInvalidationListener,
     FoundrySessionInvalidationReason,
+    FoundrySessionResolution,
     RestoredFoundrySessionCredential,
 } from '@server/shared/types/foundry';
 import { foundryEventIngress } from '@server/services/world/FoundryEventIngress';
@@ -42,7 +43,7 @@ type RestoreAttemptResult =
 export class FoundryUserConnectionService {
     private readonly config: FoundryConfig;
     private readonly connections = new Map<string, FoundryUserConnection>();
-    private readonly restorePromises = new Map<string, Promise<FoundryUserConnection | undefined>>();
+    private readonly restorePromises = new Map<string, Promise<FoundrySessionResolution>>();
     private readonly authorizationRefreshPromises = new Map<string, Promise<void>>();
     private readonly SESSION_TIMEOUT_MS = 1000 * 60 * 60 * 24;
     private readonly RESTORE_RETRY_BASE_DELAY_MS = 300;
@@ -157,13 +158,18 @@ export class FoundryUserConnectionService {
     }
 
     public async getOrRestoreSession(sessionId: string): Promise<FoundryUserConnection | undefined> {
+        const resolution = await this.resolveSession(sessionId);
+        return resolution.status === 'valid' ? resolution.session as FoundryUserConnection : undefined;
+    }
+
+    public async resolveSession(sessionId: string): Promise<FoundrySessionResolution> {
         const connection = this.connections.get(sessionId);
         const lifecycleState = worldLifecycleStore.getState();
 
         // Setup/closed have no active world against which a world-bound session
         // can be validated. The setup transition owns cache invalidation.
         if (lifecycleState === 'setup' || lifecycleState === 'closed') {
-            return undefined;
+            return { status: 'invalid' };
         }
 
         // Offline/startup can be transient. Preserve live sessions, but do not
@@ -171,10 +177,10 @@ export class FoundryUserConnectionService {
         if (lifecycleState === 'offline' || lifecycleState === 'startup') {
             if (connection) {
                 connection.lastActive = Date.now();
-                return connection;
+                return { status: 'valid', session: connection };
             }
             logger.debug(`FoundryUserConnectionService | Deferring restore for ${sessionId} (lifecycle=${lifecycleState}); caller is status-only until ready.`);
-            return undefined;
+            return { status: 'temporarily-unavailable' };
         }
 
         if (connection) {
@@ -183,17 +189,17 @@ export class FoundryUserConnectionService {
             if (!currentWorldId || lifecycleState !== 'active') {
                 logger.debug(`FoundryUserConnectionService | World not fully active (${lifecycleState}). Deferring validation for session ${sessionId}.`);
                 connection.lastActive = Date.now();
-                return connection;
+                return { status: 'valid', session: connection };
             }
 
             if (connection.worldId && connection.worldId !== currentWorldId) {
                 logger.warn(`FoundryUserConnectionService | World mismatch for session ${sessionId}. Expected: ${connection.worldId}, Current: ${currentWorldId}. Destroying session.`);
                 await this.destroySession(sessionId, 'world-mismatch');
-                return undefined;
+                return { status: 'invalid' };
             }
 
             connection.lastActive = Date.now();
-            return connection;
+            return { status: 'valid', session: connection };
         }
 
         return this.restoreSessionFromCache(sessionId, 3);
@@ -398,7 +404,7 @@ export class FoundryUserConnectionService {
         return this.connections.has(sessionId);
     }
 
-    private restoreSessionFromCache(sessionId: string, maxAttempts: number): Promise<FoundryUserConnection | undefined> {
+    private restoreSessionFromCache(sessionId: string, maxAttempts: number): Promise<FoundrySessionResolution> {
         const existingRestore = this.restorePromises.get(sessionId);
         if (existingRestore) return existingRestore;
 
@@ -412,21 +418,22 @@ export class FoundryUserConnectionService {
         return restorePromise;
     }
 
-    private async restoreSessionFromCacheWithRetries(sessionId: string, maxAttempts: number): Promise<FoundryUserConnection | undefined> {
+    private async restoreSessionFromCacheWithRetries(sessionId: string, maxAttempts: number): Promise<FoundrySessionResolution> {
         for (let i = 0; i < maxAttempts; i++) {
             const restored = await this.tryRestoreSession(sessionId);
             if (restored.status === 'restored' && restored.connectionId === sessionId) {
-                return this.connections.get(sessionId);
+                const session = this.connections.get(sessionId);
+                return session ? { status: 'valid', session } : { status: 'invalid' };
             }
-            if (restored.status === 'terminal') return undefined;
+            if (restored.status === 'terminal') return { status: 'invalid' };
 
             if (i < maxAttempts - 1) {
                 await this.waitForRestoreBackoff(i);
             }
         }
 
-        logger.warn('FoundryUserConnectionService | Session restoration exhausted transport retries.');
-        return undefined;
+        logger.debug('FoundryUserConnectionService | Session restoration exhausted transport retries; authority remains pending.');
+        return { status: 'temporarily-unavailable' };
     }
 
     private async tryRestoreSession(sessionId: string): Promise<RestoreAttemptResult> {
@@ -462,8 +469,7 @@ export class FoundryUserConnectionService {
 
             if (!currentWorldId) {
                 logger.debug(`FoundryUserConnectionService | Deferring restoration for ${sessionId} - World ID still unknown. (State: ${lifecycleState})`);
-                logger.warn('FoundryUserConnectionService | Session restoration stopped: world unavailable.');
-                return { status: 'terminal' };
+                return { status: 'retryable' };
             }
 
             if (!sessionData.worldId) {
@@ -494,6 +500,13 @@ export class FoundryUserConnectionService {
             // restoration and therefore could not target this connection yet.
             const authorizationRole = userStore.getRole(credential.userId);
             await client.connectWithRestoredCredential(credential);
+            if (client.userId !== credential.userId) {
+                // The upstream session event is authoritative. Never bind a
+                // different Foundry user to the persisted user's app authority.
+                client.disconnect();
+                await this.invalidatePersistedSession(sessionId, 'invalid-record');
+                return { status: 'terminal' };
+            }
             if (
                 authorityEpoch !== this.authorityEpoch
                 || sessionAuthorityVersion !== this.getSessionAuthorityVersion(sessionId)
@@ -522,7 +535,10 @@ export class FoundryUserConnectionService {
 
             return { status: 'restored', client, userId: credential.userId, connectionId: sessionId };
         } catch (error: unknown) {
-            logger.error(`FoundryUserConnectionService | Error during session restoration: ${getErrorMessage(error)}`);
+            // A failed upstream handshake is expected while Foundry/Core is
+            // recovering. Keep the persisted authority for a later protected
+            // read; the storage and identity failures above remain explicit.
+            logger.debug(`FoundryUserConnectionService | Session restoration attempt unavailable: ${getErrorMessage(error)}`);
             client?.disconnect();
             return { status: 'retryable' };
         }

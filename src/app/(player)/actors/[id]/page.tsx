@@ -3,6 +3,8 @@
 import React, { use, useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useFoundry } from '@client/ui/context/FoundryContext';
+import { useSession } from '@client/ui/context/SessionContext';
+import { useRealtime } from '@client/ui/context/RealtimeContext';
 import { getUIModule, invalidateModuleSourceCache } from '@modules/registry/client';
 import LoadingModal from '@client/ui/components/LoadingModal';
 import GenericActorPage from '@client/ui/pages/GenericActorPage';
@@ -21,6 +23,8 @@ export default function ActorPageRouter({ params }: { params: Promise<{ id: stri
     const { id } = use(params);
     const router = useRouter();
     const { token, appSocket } = useFoundry();
+    const { linkState } = useRealtime();
+    const { invalidateLocalSession } = useSession();
     const [ActorPage, setActorPage] = useState<React.ComponentType<{ actorId: string; token?: string | null }> | null>(null);
     const [moduleId, setModuleId] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
@@ -34,6 +38,13 @@ export default function ActorPageRouter({ params }: { params: Promise<{ id: stri
     // to correctly re-resolve even when the module is currently disabled and showing generic.
     const resolvedSystemIdRef = useRef<string | null>(null);
     const foundrySystemIdRef  = useRef<string | null>(null);
+    const previousLinkStateRef = useRef(linkState);
+
+    useEffect(() => {
+        const recovered = previousLinkStateRef.current !== 'ready' && linkState === 'ready';
+        previousLinkStateRef.current = linkState;
+        if (recovered && error && !error.includes('404')) setResolveKey(key => key + 1);
+    }, [linkState, error]);
 
     // Re-resolve the module UI whenever the server signals any change affecting
     // this actor's system: source switch, enable/disable, install/upgrade/uninstall.
@@ -64,20 +75,25 @@ export default function ActorPageRouter({ params }: { params: Promise<{ id: stri
 
     useEffect(() => {
         if (!id) return;
+        let current = true;
 
         async function resolveActorPage() {
             try {
                 const res = await fetch(`/api/actors/${id}`, { credentials: 'same-origin' });
+                if (!current) return;
                 if (!res.ok) {
-                    if (res.status === 401 || res.status === 503) {
-                        router.push('/');
+                    if (res.status === 401) {
+                        invalidateLocalSession('actor-route-401');
                         return;
                     }
-                    setError(`Actor not found (${res.status})`);
+                    setError(res.status === 404
+                        ? 'Actor not found (404)'
+                        : `Actor temporarily unavailable (${res.status})`);
                     return;
                 }
 
                 const data = await res.json();
+                if (!current) return;
                 const systemId = data.systemId;
 
                 if (!systemId) {
@@ -91,6 +107,7 @@ export default function ActorPageRouter({ params }: { params: Promise<{ id: stri
                 // and systemId has fallen back to 'generic'.
                 if (data.foundrySystemId) foundrySystemIdRef.current = data.foundrySystemId;
                 const manifest = await getUIModule(systemId);
+                if (!current) return;
                 const actorPageEntry = manifest?.actorPage;
 
                 if (actorPageEntry) {
@@ -113,17 +130,18 @@ export default function ActorPageRouter({ params }: { params: Promise<{ id: stri
                     setActorPage(() => GenericActorPage as any);
                 }
             } catch (e: any) {
-                setError('Failed to load actor: ' + e.message);
+                if (current) setError('Failed to load actor: ' + e.message);
             } finally {
-                setLoading(false);
+                if (current) setLoading(false);
             }
         }
 
         setActorPage(null);
         setLoading(true);
         setError(null);
-        resolveActorPage();
-    }, [id, token, router, resolveKey]);
+        void resolveActorPage();
+        return () => { current = false; };
+    }, [id, resolveKey, invalidateLocalSession]);
 
     if (loading) return <LoadingModal message="Loading..." />;
 
@@ -133,6 +151,11 @@ export default function ActorPageRouter({ params }: { params: Promise<{ id: stri
                 <div className="sd-ui-panel-raised text-center p-8 rounded max-w-md">
                     <h1 className="sd-ui-danger text-xl font-bold mb-2">Error</h1>
                     <p className="sd-ui-muted mb-4">{error}</p>
+                    {!error.includes('404') && (
+                        <button onClick={() => setResolveKey(key => key + 1)} className="sd-ui-button sd-ui-button-primary mr-2 px-4 py-2">
+                            Retry
+                        </button>
+                    )}
                     <button
                         onClick={() => router.push('/')}
                         className="sd-ui-button px-4 py-2"

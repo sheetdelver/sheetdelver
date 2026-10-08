@@ -161,7 +161,7 @@ const uiManifest: UIModuleManifest = {
 ```
 
 These fields originated in UI contract 1.3.0. Modules targeting the current
-SDK 2.0.0 contract require `"ui-extension-api": ">=2.0.0 <3.0.0"` and must
+SDK 2.1.0 contract require `"ui-extension-api": ">=2.1.0 <3.0.0"` and must
 pin CI/release tooling to a released Core that supports it. See
 [ADR-0044](adr/0044-client-owned-module-presentation.md).
 
@@ -333,7 +333,25 @@ normal anchor for an external destination. Do not assign `window.location.href`
 or call `window.location.assign()` / `replace()` for internal routes;
 `module:check` rejects those hard-navigation forms. Navigation first appeared
 in UI contract 1.1.0; modules targeting the current host declare
-`ui-extension-api: ">=2.0.0 <3.0.0"` in `info.json`.
+`ui-extension-api: ">=2.1.0 <3.0.0"` in `info.json`.
+
+### Player-world lifecycle
+
+Core's player layout owns login, startup, world-close and transient-outage
+presentation for home, Actor and module-tool routes. A module page should not
+poll `/api/status` or `/api/session/connect`, redirect for world state, or
+present its own global “world starting” screen. It may use SDK `isConnected`
+to defer or repeat a module-specific resource read, but Core's overlay blocks
+interaction during a same-world interruption. Keep last-rendered sheet/tool
+content mounted where practical; treat HTTP 503 and network failures as
+temporary unavailability, never as proof that an Actor was deleted. Only a
+confirmed 404 should show the module's missing-Actor presentation.
+
+SDK `connection:changed` reports transport health. Since UI contract 2.1.0,
+`world:teardown` is reserved for confirmed setup/closure or authenticated
+world replacement, and `world:ready` announces an established world after
+startup or replacement. A same-world socket blip is not world teardown. See
+[ADR-0057](adr/0057-core-player-world-state-boundary.md).
 
 ## Server Routes
 

@@ -4,7 +4,7 @@ import { createSdkEventBus } from '@client/ui/sdk/createSdkEventBus';
 /**
  * Exercises the host realtime signal bus (ADR-0027 decision 20): socket events map to the
  * stable SDK signal set, combat rides document:changed, unsubscribe works, and
- * connection transitions surface world:ready / world:teardown.
+ * connection transitions stay separate from retained world lifetime.
  */
 
 class FakeSocket {
@@ -66,19 +66,27 @@ export function run() {
     socket.emit('sharedContentUpdate', { type: 'image', data: { url: '/x.png' } });
     assert.equal(shares[0].kind, 'image');
 
-    // connection transitions: connection:changed always; world:ready/teardown on flip
+    // Connection hints always flow, but a same-world transport interruption
+    // does not tear down the retained world or re-announce readiness.
     const conns: boolean[] = [];
     const lifecycle: string[] = [];
     bus.on('connection:changed', (p) => conns.push(p.connected));
-    bus.on('world:ready', () => lifecycle.push('ready'));
-    bus.on('world:teardown', () => lifecycle.push('teardown'));
+    bus.on('world:ready', (p) => lifecycle.push(`ready:${p.worldId}`));
+    bus.on('world:teardown', (p) => lifecycle.push(`teardown:${p.worldId}`));
 
-    socket.emit('systemStatus', { connected: true, worldId: 'w1' });   // first status: no flip event
-    socket.emit('systemStatus', { connected: false, worldId: 'w1' });  // true → false: teardown
-    socket.emit('systemStatus', { connected: true, worldId: 'w1' });   // false → true: ready
+    socket.emit('systemStatus', { connected: true, initialized: true, worldId: 'w1', system: { status: 'active' } });
+    socket.emit('systemStatus', { connected: false, initialized: false, worldId: 'w1', system: { status: 'offline' } });
+    socket.emit('systemStatus', { connected: true, initialized: true, system: { status: 'active' } }); // public room
+    socket.emit('systemStatus', { connected: true, initialized: true, worldId: 'w1', system: { status: 'active' } });
+    assert.deepEqual(lifecycle, [], 'same-world interruption and public-room admission retain world lifetime');
 
-    assert.deepEqual(conns, [true, false, true]);
-    assert.deepEqual(lifecycle, ['teardown', 'ready']);
+    socket.emit('systemStatus', { connected: true, initialized: true, worldId: 'w2', system: { status: 'active' } });
+    socket.emit('systemStatus', { connected: false, initialized: false, worldId: null, system: { status: 'setup' } });
+    socket.emit('systemStatus', { connected: true, initialized: false, worldId: 'w3', system: { status: 'startup' } });
+    socket.emit('systemStatus', { connected: true, initialized: true, worldId: 'w3', system: { status: 'active' } });
+
+    assert.deepEqual(conns, [true, false, true, true, true, false, true, true]);
+    assert.deepEqual(lifecycle, ['teardown:w1', 'ready:w2', 'teardown:w2', 'ready:w3']);
 
     // Regression (the real-world bug): a subscriber registered once must keep receiving
     // events after the socket is re-attached. Binding the socket used to happen at creation

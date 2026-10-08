@@ -5,5 +5,5 @@ import MainPage from '@client/ui/main/MainPage';
  * Decoupled from backend internals by using API-based configuration checks.
  */
 export default async function Page() {
-    return <MainPage initialUrl="" />;
+    return <MainPage />;
 }

@@ -188,14 +188,15 @@ async function runPublicRouteSmokeTests() {
 
 async function runProtectedRouteAuthAssertion() {
     const sessionManager = {
-        getOrRestoreSession: async (token: string) => {
-            if (token !== 'valid-token') return undefined;
-            return {
+        resolveSession: async (token: string) => {
+            if (token === 'pending-token') return { status: 'temporarily-unavailable' };
+            if (token !== 'valid-token') return { status: 'invalid' };
+            return { status: 'valid', session: {
                 id: 'session-1',
                 userId: 'user-1',
                 username: 'tester',
                 client: createMockRouteClient('user-1'),
-            };
+            } };
         },
     } as any;
 
@@ -245,6 +246,21 @@ async function runProtectedRouteAuthAssertion() {
     assert.ok(validReq.foundryClient);
     assert.equal(validReq.isSystem, false);
     assert.equal(validReq.userSession?.userId, 'user-1');
+
+    for (const [token, expectedStatus] of [
+        ['pending-token', 503],
+        ['invalid-token', 401],
+    ] as const) {
+        const req = {
+            url: '/actors',
+            headers: { cookie: `${PLAYER_SESSION_COOKIE_NAME}=${token}` },
+        } as unknown as Request;
+        const res = createResponseStub();
+        middleware(req, res as unknown as Response, (() => undefined) as NextFunction);
+        await new Promise<void>(resolve => setImmediate(resolve));
+        assert.equal(res.statusCode, expectedStatus);
+        assert.equal(req.foundryClient, undefined);
+    }
 }
 
 export async function run() {
