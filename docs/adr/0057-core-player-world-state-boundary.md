@@ -66,6 +66,19 @@ terminal transitions from
 `dashboard`, `login` or `startup`; a terminal state reached through
 `initializing` leaves a deep-linked page mounted without its overlay.
 
+A process-manager stop leaves no Core listener; the browser cannot connect
+until a new process listens. That does not imply world readiness at listen
+time. `SystemService.initialize()` awaits its initial Foundry transport
+attempt, but its connection handler starts world bootstrap asynchronously.
+`src/server/index.ts` then registers sockets, starts persisted-session store
+initialization in the background, and opens the HTTP/socket listener without
+awaiting world bootstrap. A browser can therefore reconnect while Core's
+world lifecycle is still `startup`. With no restored in-memory session,
+`AppSocketGateway` admits that socket to the public status room; it has no
+automatic promotion to the authenticated room later. The current `/api/status`
+also reports `isAuthenticated: false` when restoration is deferred, which is
+not by itself proof that the saved session was revoked.
+
 ADR-0056 preserves server runtime and session authority across a transient
 same-world transport loss. A transient gap should not unnecessarily navigate
 away from an open page. Foundry remains the source of truth; unsynced local
@@ -126,15 +139,22 @@ module component style overrides and module-authored sheets/tools.
    realtime socket: it never stops trying, backs off from a fast initial
    cadence to roughly one jittered attempt every 30 seconds, and makes one
    immediate attempt when the device comes back online or the tab becomes
-   visible. That reconnect is the background check, so no separate polling
-   timer is added. On connect it reads Core status once to decide the
-   outcome. It logs once when the outage begins and once on recovery; failed
-   attempts stay at debug level. The overlay switches to check-back-later
-   wording when the backoff reaches its slow phase (about a minute). This is
-   temporary unavailability
-   (HTTP 503 where an HTTP response is appropriate), not a missing route or
-   resource (404). Elapsed time alone does not prove the world closed and does
-   not retire the session.
+   visible. Socket reconnection tests only browser-to-Core reachability; it
+   does not by itself prove world readiness or session restoration. On connect,
+   verify Core status. If a socket is admitted as public while a saved session
+   is temporarily unverifiable, keep the page blocked. Use Core's existing
+   public `systemStatus` readiness broadcasts to trigger throttled session
+   rechecks, not a new fixed polling timer or a check on every 4-second
+   broadcast. Once the same-world session is confirmed, re-handshake the
+   socket once so it joins the authenticated room before unblocking the page.
+   Confirmed invalidation instead follows decision 5. Log once when an outage
+   begins and once on recovery. Expected failed connection attempts may remain
+   at the configured debug level; avoid repeated warning/error-level output
+   for the same outage without hiding unexpected errors. The overlay switches
+   to check-back-later wording when the backoff reaches its slow phase (about
+   a minute). This is temporary unavailability (HTTP 503 where an HTTP
+   response is appropriate), not a missing route or resource (404). Elapsed
+   time alone does not prove the world closed and does not retire the session.
    *Transient outage* covers both links, and the player does not need to know
    which failed: Core reporting a temporary loss to Foundry for the same world
    (ADR-0056), and the browser losing its realtime connection to SheetDelver
@@ -166,7 +186,10 @@ module component style overrides and module-authored sheets/tools.
    `sessionInvalidated` realtime event (which already calls
    `invalidateLocalSession`) is the authoritative terminal signal; a
    protected-read 401 must mean the same confirmed loss, so Core must not
-   answer 401 for a session it is still restoring (that is 503). Fold
+   answer 401 for a session it is still restoring (that is 503). Likewise,
+   `/api/status` must distinguish temporarily unverifiable restoration from
+   a conclusively invalid session; its current public `isAuthenticated: false`
+   result during startup must not retire the page. Fold
    `ShutdownWatcher`'s terminal transition and any necessary provider reset
    into the one Core presentation owner, recognizing terminal states
    regardless of the intermediate step that preceded them.
@@ -232,10 +255,14 @@ module component style overrides and module-authored sheets/tools.
    reconnection attempts, keep the 2 s initial delay, raise the maximum delay
    to about 30 s with the default jitter, and trigger one immediate attempt on
    the browser `online` event and on `visibilitychange` to visible. Log the
-   outage start and recovery once each. Do not add a separate polling timer
-   and do not touch Core's Foundry retry cadence. Re-read Core status once on
-   reconnect and validate session authority before resuming; an unavailable
-   or temporarily unverifiable response is not a logout decision. Keep the
+   outage start and recovery once each; keep expected per-attempt diagnostics
+   at the configured debug level without repeated warning/error messages.
+   Do not touch Core's Foundry retry cadence. On socket reconnect, check Core
+   status; if restoration is indeterminate, use existing public status
+   broadcasts for throttled follow-up checks, without a separate polling
+   timer. After confirmed restoration, re-handshake a socket admitted as
+   public before resuming world-backed events. An unavailable or temporarily
+   unverifiable response is not a logout decision. Keep the
    announced-restart reload, and back off its recovery poll (for example, to
    about 5 s after the first 30 s).
 3. Remove competing Core Actor redirects and terminal `ShutdownWatcher`
@@ -248,8 +275,9 @@ module component style overrides and module-authored sheets/tools.
    session-invalidation authority, and test that 503 cannot partially log out
    a user. Treat `sessionInvalidated` as the terminal signal, and verify on
    the server that protected routes return 503, not 401, while Core is still
-   restoring a persisted session; fix the server if they do not. Check the
-   SDK world/connection signals against ADR-0056 before changing their
+   restoring a persisted session; `/api/status` must also avoid a conclusive
+   unauthenticated result in that state. Fix those projections if needed.
+   Check the SDK world/connection signals against ADR-0056 before changing their
    published semantics. Set the Shadowdark release's minimum
    host version and update module-authoring documentation.
 4. Test direct navigation and refresh of home, Actor, Core tool, and module
@@ -268,8 +296,13 @@ module component style overrides and module-authored sheets/tools.
    the page; anything else follows decision 5. Verify that reconnects back
    off to the slow cadence, that coming back online or making the tab
    visible triggers an immediate attempt, and that a long outage produces no
-   repeated console warnings. Verify that an announced restart still shows
-   its overlay and reloads on readiness.
+   repeated console warnings while configured debug diagnostics remain
+   available. Test a process-manager-style stop/start: no connection while
+   Core is stopped; a socket admitted to the public room after listen but
+   before world/session readiness remains blocked, rechecks on later status
+   broadcasts, then re-handshakes into the authenticated room before resuming.
+   Verify that an announced restart still shows its overlay and reloads on
+   readiness.
    Assert that a hosted Sheet (`createActorPage`, e.g. D&D 5e) and a module
    `useActorSheet` page (e.g. Mörk Borg) do not present "deleted" for an
    unavailable Actor. Do not assert preservation of unsynced form changes.
