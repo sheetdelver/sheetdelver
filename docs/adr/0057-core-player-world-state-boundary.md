@@ -1,6 +1,6 @@
 # ADR-0057: Core Player World-State Page Boundary
 
-**Status:** Accepted — Core implementation in progress; runtime acceptance pending
+**Status:** Completed; verified for the shipped Core boundary (isolated v14 runtime and module CI)
 **Date:** October 2, 2026
 **Related:** ADR-0027, ADR-0033, ADR-0034, ADR-0038, ADR-0053, ADR-0056
 **Security review:** Completed October 8, 2026; protected identity verification and restored-user matching are required, with no remaining design blocker. See Security closeout below.
@@ -485,15 +485,15 @@ confirmed 404 remains its missing-Actor case. The full Core unit suite and
 Shadowdark offline presentation/contract checks passed before setting the
 module's minimum release range.
 
-The Shadowdark module branch declares Core `>=0.15.1` and UI contract
-`>=2.1.0 <3.0.0`; its CI and release workflow pins target `v0.15.1`.
-That tag does not exist yet, so module CI/package validation against the
-released host must wait for Core 0.15.1. The isolated test used the local
-unreleased Core implementation while the module still had its earlier
-compatibility range. Packaged-module acceptance and GM review remain open;
-neither this smoke nor the previous fixture's failed post-shutdown restart
-closes them. All test services stopped, and the temporary Foundry license
-copy and browser profile were removed; the disposable world/data remain.
+Shadowdark now declares Core `>=0.15.1` and UI contract
+`>=2.1.0 <3.0.0`; its CI and release workflows pin target `v0.15.1`.
+The isolated smoke originally used local, unreleased Core. Core `v0.15.1`
+was subsequently released; Shadowdark PR #9 was squash-merged and its
+released-host CI passed. The module's 0.9.2 tag/release and operator review
+remain separate from this Core boundary's closure. Neither the smoke nor the
+previous fixture's failed post-shutdown restart proves that restart path.
+All test services stopped, and the temporary Foundry license copy and
+browser profile were removed; the disposable world/data remain.
 
 The Core module checker now rejects UI-bundle calls to the global
 `/api/status` and `/api/session/connect` endpoints, with a scaffold regression
@@ -502,6 +502,26 @@ unit suite, TypeScript, lint and production build passed using the isolated
 data directory and in-repository module source paths. Turbopack could not
 resolve the copied module under `/tmp` during an initial build attempt because
 it lies outside the project root; the corrected in-repository-path build
-passed. All four Shadowdark offline tests pass. Its module checker passes
-every source, bundle and boundary check but correctly rejects Core 0.15.0
-against the declared `>=0.15.1` minimum until that release is prepared.
+passed. All four Shadowdark offline tests pass. Before the Core release, its
+module checker correctly rejected Core 0.15.0 against the declared
+`>=0.15.1` minimum; the later released-host check passed.
+
+## Closure — October 8, 2026
+
+The shipped Core v0.15.1 boundary and SDK world-signal contract are verified
+by unit/type/lint/build checks and the isolated v14 browser smoke above.
+Shadowdark's competing global lifecycle gate was removed in merged PR #9;
+its released-host CI and offline module checks passed. The page-boundary
+decision and first module migration are complete. No hosted Foundry world
+was used for these tests.
+
+This closure does not claim every environmental path was exercised. The
+disposable Foundry fixture failed upstream during the attempted definitive
+close/restart test, so successful restart restoration remains unverified.
+Packaged-module operator review, narrow/light/dark presentation and any new
+module page that reveals a competing lifecycle handler remain follow-up
+acceptance or regression work, not a reason to keep this implemented Core ADR
+open. The unmerged Combat Manager page has its own ADR-0049 acceptance; its
+plain-text world-state fallback is being removed on that branch. Any wider
+Shadowdark audit for legacy Core-owned lifecycle assumptions is a separate
+module-owned investigation, not an implied extension of this ADR.
