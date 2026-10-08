@@ -252,7 +252,9 @@ export function createActorPage<TActor = PreparedActorData>(
             return createElement(
                 'div',
                 { className: 'p-8 text-center text-white' },
-                'This character is no longer available.',
+                sheet.notFound
+                    ? 'This character is no longer available.'
+                    : 'This character is temporarily unavailable.',
             );
         }
         // The platform host owns shared-content presentation (GM image/journal shares),

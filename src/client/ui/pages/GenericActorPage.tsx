@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 
 import SheetRouter from '@client/ui/components/SheetRouter';
 import { useFoundry } from '@client/ui/context/FoundryContext';
+import { useSession } from '@client/ui/context/SessionContext';
+import { useRealtime } from '@client/ui/context/RealtimeContext';
 import { useUI } from '@client/ui/context/UIContext';
 import { useConfig } from '@client/ui/context/ConfigContext';
 import type { RealtimeActorChangedPayload } from '@shared/contracts/realtime';
@@ -22,9 +24,12 @@ export interface GenericActorPageProps {
 
 export default function GenericActorPage({ actorId }: GenericActorPageProps) {
     const router = useRouter();
+    const { invalidateLocalSession } = useSession();
+    const { linkState } = useRealtime();
     const {
         token,
-        appSocket
+        appSocket,
+        step,
     } = useFoundry();
     const { isDiceTrayOpen, toggleDiceTray } = useUI();
     const { addNotification: addToast } = useNotifications();
@@ -33,6 +38,7 @@ export default function GenericActorPage({ actorId }: GenericActorPageProps) {
     const [actor, setActor] = useState<any>(null);
     const [loading, setLoading] = useState(true);
     const [showDeleteModal, setShowDeleteModal] = useState(false);
+    const [loadError, setLoadError] = useState<string | null>(null);
 
     const fetchWithAuth = useCallback(async (input: string, init?: RequestInit) => {
         return fetch(input, { ...init, credentials: 'same-origin' });
@@ -56,8 +62,12 @@ export default function GenericActorPage({ actorId }: GenericActorPageProps) {
         if (!silent) setLoading(true);
         try {
             const res = await fetchWithAuth(`/api/actors/${id}`);
-            if (res.status === 503 || res.status === 401) {
-                router.push('/');
+            if (res.status === 401) {
+                invalidateLocalSession('generic-actor-401');
+                return;
+            }
+            if (res.status === 503) {
+                setLoadError('Actor temporarily unavailable.');
                 return;
             }
             if (res.status === 404) {
@@ -65,21 +75,25 @@ export default function GenericActorPage({ actorId }: GenericActorPageProps) {
                 return;
             }
 
+            if (!res.ok) {
+                setLoadError(`Actor request failed (${res.status}).`);
+                return;
+            }
+
             const data = await res.json();
             if (data && !data.error) {
                 setActor(data);
+                setLoadError(null);
                 if (data.foundryUrl) setFoundryUrl(data.foundryUrl);
-            } else if (res.status >= 500) {
-                addNotification('Server Error: ' + (data?.error || 'Unknown Error'), 'error');
             } else {
-                setShowDeleteModal(true);
+                setLoadError(data?.error || 'Actor response unavailable.');
             }
         } catch (e: any) {
-            addNotification('Connection Error: ' + e.message, 'error');
+            setLoadError('Connection Error: ' + e.message);
         } finally {
             if (!silent) setLoading(false);
         }
-    }, [router, fetchWithAuth, addNotification, setFoundryUrl]);
+    }, [fetchWithAuth, invalidateLocalSession, setFoundryUrl]);
 
     const fetchActor = useCallback(async (id: string, silent = false) => {
         if (actorFetcherRef.current?.actorId !== id) {
@@ -112,6 +126,12 @@ export default function GenericActorPage({ actorId }: GenericActorPageProps) {
             void fetchActor(id, true);
         }, 75);
     }, [fetchActor]);
+
+    useEffect(() => {
+        if (actorId && step === 'dashboard' && linkState === 'ready') {
+            void fetchActor(actorId, true);
+        }
+    }, [actorId, step, linkState, fetchActor]);
 
     const loadingRef = useRef(loading);
     useEffect(() => { loadingRef.current = loading; }, [loading]);
@@ -226,7 +246,16 @@ export default function GenericActorPage({ actorId }: GenericActorPageProps) {
     };
 
     if (loading) return <LoadingModal message="Loading..." />;
-    if (!actor && !showDeleteModal) return null;
+    if (!actor && !showDeleteModal) return (
+        <div className="sd-ui-page flex items-center justify-center p-4">
+            <div className="sd-ui-panel-raised max-w-md rounded-xl p-8 text-center">
+                <p className="sd-ui-muted mb-4">{loadError || 'Actor unavailable.'}</p>
+                <button className="sd-ui-button sd-ui-button-primary px-4 py-2" onClick={() => void fetchActor(actorId)}>
+                    Retry
+                </button>
+            </div>
+        </div>
+    );
 
     return (
         <main className="sd-ui-page font-sans pb-20">

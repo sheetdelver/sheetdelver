@@ -10,7 +10,7 @@ import {
 import { readBearerToken, readRequestSessionCredential } from '@server/security/playerSessionCookie';
 
 export function createAuthenticateSession(
-    foundryUserConnections: Pick<FoundryUserConnectionServiceLike, 'getOrRestoreSession'>,
+    foundryUserConnections: Pick<FoundryUserConnectionServiceLike, 'resolveSession'>,
     config: AppConfig,
 ): express.RequestHandler {
     return (req: express.Request, res: express.Response, next: express.NextFunction) => {
@@ -30,10 +30,15 @@ export function createAuthenticateSession(
         }
 
         // 2. Fallback to Standard User Session
-        foundryUserConnections.getOrRestoreSession(token).then((session) => {
-            if (!session || !session.client.userId) {
+        foundryUserConnections.resolveSession(token).then((result) => {
+            if (result.status === 'temporarily-unavailable') {
+                return res.status(503).json({ error: 'Session restoration temporarily unavailable' });
+            }
+            if (result.status !== 'valid' || !result.session.client.userId) {
                 return res.status(401).json({ error: 'Unauthorized: Invalid or Expired Session' });
             }
+
+            const session = result.session;
 
             req.foundryClient = createSessionRouteFoundryClient(session.client, session.username);
             req.userSession = session;

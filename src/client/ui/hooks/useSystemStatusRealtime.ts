@@ -18,6 +18,7 @@ interface UseSystemStatusRealtimeOptions {
     appSocket: Socket | null;
     step: ConnectionStep;
     token: string | null;
+    linkState: 'connecting' | 'checking' | 'ready' | 'guest' | 'disconnected' | 'unavailable';
     system: AppSystemInfo | null;
     users: User[];
     appVersion: string | null;
@@ -28,7 +29,7 @@ interface UseSystemStatusRealtimeOptions {
     setAppVersion: Dispatch<SetStateAction<string | null>>;
     setIsConfigured: Dispatch<SetStateAction<boolean>>;
     setStep: (step: ConnectionStep, origin?: string, reason?: string) => void;
-    setToken: (token: string | null) => void;
+    invalidateLocalSession: (reason: string) => void;
     setSharedContent: Dispatch<SetStateAction<RealtimeSharedContentPayload | null>>;
     setLastWorldId: Dispatch<SetStateAction<string | null>>;
     resetActorCombatState: () => void;
@@ -40,6 +41,7 @@ export function useSystemStatusRealtime({
     appSocket,
     step,
     token,
+    linkState,
     system,
     users,
     appVersion,
@@ -50,7 +52,7 @@ export function useSystemStatusRealtime({
     setAppVersion,
     setIsConfigured,
     setStep,
-    setToken,
+    invalidateLocalSession,
     setSharedContent,
     setLastWorldId,
     resetActorCombatState,
@@ -60,6 +62,7 @@ export function useSystemStatusRealtime({
     const latestRef = useRef({
         step,
         token,
+        linkState,
         system,
         users,
         appVersion,
@@ -72,6 +75,7 @@ export function useSystemStatusRealtime({
         latestRef.current = {
             step,
             token,
+            linkState,
             system,
             users,
             appVersion,
@@ -79,7 +83,7 @@ export function useSystemStatusRealtime({
             lastWorldId,
             fetchActors,
         };
-    }, [appVersion, fetchActors, isConfigured, lastWorldId, step, system, token, users]);
+    }, [appVersion, fetchActors, isConfigured, lastWorldId, linkState, step, system, token, users]);
 
     useEffect(() => {
         if (!appSocket) return;
@@ -105,7 +109,7 @@ export function useSystemStatusRealtime({
 
                 if (enteredSetup) {
                     logger.info('FoundryProvider | World entered setup. Purging world-bound client state.');
-                    if (latest.token) setToken(null);
+                    if (latest.token) invalidateLocalSession('world-entered-setup');
                     resetActorCombatState();
                     setUsers([]);
                     setSharedContent(null);
@@ -118,7 +122,7 @@ export function useSystemStatusRealtime({
                 ) {
                     logger.warn(`FoundryProvider | World changed from "${latest.lastWorldId}" to "${currentWorldId}". Purging state.`);
 
-                    if (latest.token) setToken(null);
+                    if (latest.token) invalidateLocalSession('world-changed');
                     resetActorCombatState();
                     setUsers([]);
                     setSharedContent(null);
@@ -129,19 +133,31 @@ export function useSystemStatusRealtime({
                 }
 
                 if (!areSystemInfoEqual(latest.system, data.system)) setSystem(data.system);
-                if (data.connected && !areUsersEqual(latest.users, data.users)) setUsers((data.users || []) as User[]);
+                // A recovering socket may be admitted to the public room
+                // before the saved cookie can be restored. Its public roster
+                // must not replace the retained authenticated user scope.
+                const authenticatedProjection = Object.prototype.hasOwnProperty.call(data, 'worldId');
+                if (data.connected && (authenticatedProjection || !latest.token) && !areUsersEqual(latest.users, data.users)) {
+                    setUsers((data.users || []) as User[]);
+                }
                 if (data.appVersion && latest.appVersion !== data.appVersion) setAppVersion(data.appVersion);
                 if (data.isConfigured !== undefined && latest.isConfigured !== data.isConfigured) setIsConfigured(data.isConfigured);
 
-                const targetStep = determineConnectionStep(data, latest.step, {
+                let targetStep = determineConnectionStep(data, latest.step, {
                     isConfigured: latest.isConfigured,
-                    isAuthenticated: !!latest.token,
+                    isAuthenticated: !!latest.token && latest.linkState === 'ready',
                     isExplicitLogoutPending: isExplicitLogoutPending(),
                 });
+                // A protected cookie is still being verified. Do not turn a
+                // retained page into login merely because a public socket
+                // status arrives before restored authority is checked.
+                if (latest.token && latest.linkState !== 'ready' && targetStep === 'login') {
+                    targetStep = latest.step === 'dashboard' ? 'dashboard' : 'authenticating';
+                }
 
                 if (latest.step !== targetStep) {
                     setStep(targetStep, 'socket', `Status change: ${targetStep}`);
-                    if (targetStep === 'dashboard' && data.connected) {
+                    if (targetStep === 'dashboard' && data.connected && latest.linkState === 'ready') {
                         void latest.fetchActors();
                     }
                 }
@@ -164,7 +180,7 @@ export function useSystemStatusRealtime({
         setSharedContent,
         setStep,
         setSystem,
-        setToken,
+        invalidateLocalSession,
         setUsers,
     ]);
 }

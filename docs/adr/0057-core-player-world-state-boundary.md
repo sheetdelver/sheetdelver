@@ -1,8 +1,9 @@
 # ADR-0057: Core Player World-State Page Boundary
 
-**Status:** Proposed — GM confirmed transient page retention; implementation pending
+**Status:** Accepted — Core implementation in progress; runtime acceptance pending
 **Date:** October 2, 2026
 **Related:** ADR-0027, ADR-0033, ADR-0034, ADR-0038, ADR-0053, ADR-0056
+**Security review:** Completed October 8, 2026; protected identity verification and restored-user matching are required, with no remaining design blocker. See Security closeout below.
 
 ## Context
 
@@ -158,16 +159,19 @@ module component style overrides and module-authored sheets/tools.
    by itself prove world readiness or session restoration. On connect, read
    Core status for world state only. Session authority is confirmed by a
    protected session read that reuses an existing protected route (for
-   example `GET /api/session/users`) rather than adding an endpoint or API
-   contract: success confirms authority under the current browser cookie,
+   example `GET /api/session/users`) rather than adding an endpoint. Its
+   response must include the authenticated user ID and be non-cacheable:
+   success confirms authority and identity under the current browser cookie,
    not continuity with the session that originally mounted the page; a
    confirmed 401 follows decision 5, and 503 means restoration is pending or
    temporarily unavailable. In either 503 case, keep the page blocked and
    repeat the protected read only
    when Core's existing `systemStatus` broadcasts report world readiness,
    throttled rather than on every 4-second broadcast and without a new
-   polling timer. Once the current cookie is validated, the world is unchanged
-   and no user change has been observed, the realtime provider deliberately
+   polling timer. If the authenticated user ID differs from the retained page's
+   user, retire that page before revealing any content. Once the current
+   cookie is validated for the retained user, the world is unchanged, and no
+   user change has been observed, the realtime provider deliberately
    re-handshakes the socket (the session marker does not change, so no token
    transition triggers it) so it joins the authenticated room before the page
    is unblocked. Allow at most one such deliberate re-handshake per recovery,
@@ -189,7 +193,7 @@ module component style overrides and module-authored sheets/tools.
    interaction behind the same overlay. When the link returns, Core's status
    decides the world outcome and the protected session read decides whether
    the current cookie is authorized. Within the browser's recovery budget,
-   the same world with no observed user change and a valid current cookie may
+   the same world with the retained user confirmed under a valid current cookie may
    resume the preserved page after host-backed data refreshes; a different world, a
    closed world or confirmed invalid authority follows decision 5.
    The boundary is read-only presentation of state that Core reports. It
@@ -209,8 +213,10 @@ module component style overrides and module-authored sheets/tools.
    login. Browser tabs share the same cookie: if another tab replaces a
    same-user session while this tab is offline, this tab may miss the
    invalidation, and its later protected read can validate the replacement
-   cookie. World/user identity and that read cannot distinguish the two
-   sessions. This exception does not guarantee retirement of the old page;
+   cookie. The user ID and that read cannot distinguish the two sessions.
+   A different-user replacement is detectable from the authenticated user ID
+   and must retire the retained page. The same-user exception does not
+   guarantee retirement of the old page;
    it must remain blocked until current authority is checked and host-backed
    data is refreshed, without replaying uncertain writes. No new session
    incarnation contract is introduced. A protected session read that cannot
@@ -298,8 +304,9 @@ module component style overrides and module-authored sheets/tools.
    each; keep expected per-attempt diagnostics at the configured debug level
    without repeated warning/error messages. Do not touch Core's Foundry retry
    cadence. On socket reconnect, read Core status for world state and confirm
-   the session with a protected session read (not `/api/status`
-   `isAuthenticated`). On 503, repeat that read only on throttled
+   the session and authenticated user ID with a non-cacheable protected read
+   (not `/api/status` `isAuthenticated`). A mismatched user ID retires the
+   retained page. On 503, repeat that read only on throttled
    world-ready status broadcasts, without a separate polling timer. After
    confirmation, explicitly force at most one re-handshake, subject to the
    existing rate limit and finite connection policy, so a socket admitted
@@ -317,9 +324,12 @@ module component style overrides and module-authored sheets/tools.
    bootstrap, status-hook world-change/setup purges) through the existing
    session-invalidation authority, and test that 503 cannot partially log out
    a user. Treat `sessionInvalidated` as the terminal signal. Change
-   the internal session-restore result so `authenticateSession` can distinguish
+   the existing protected `/api/session/users` response to include the
+   authenticated user ID without exposing a session ID or credential, and
+   mark it `no-store`. Change the internal session-restore result so
+   `authenticateSession` can distinguish
    pending or temporarily failed restoration (503) from a missing, revoked,
-   expired or conclusively rejected session (401); today the restore lookup
+   expired, wrong-world or proven wrong-user session (401); today the restore lookup
    returns the same empty result for both and authentication answers 401.
    This classification need not change a public API contract.
    (`ensureInitialized` already answers 503
@@ -343,7 +353,7 @@ module component style overrides and module-authored sheets/tools.
    Foundry loss, and the browser losing its SheetDelver connection
    (including an unannounced Core process crash). If the browser reconnects
    within its budget, the same world with no observed user change and a valid
-   current cookie may resume after the authenticated-room check and data
+   current cookie for the retained user may resume after the authenticated-room check and data
    refresh; terminal
    outcomes follow decision 5. Verify that an outage longer than the
    reconnect budget, and a rate-limited handshake, each end in the
@@ -362,8 +372,10 @@ module component style overrides and module-authored sheets/tools.
    `useActorSheet` page (e.g. Mörk Borg) do not present "deleted" for an
    unavailable Actor. Do not assert preservation of unsynced form changes.
    Assert that received session revocation/expiry invalidation, a confirmed
-   401, and locally observed different- or same-user logins each retire the old
-   session page. Test an offline cross-tab same-user cookie
+   401, locally observed different- or same-user logins, and a protected-read
+   user-ID mismatch each retire the old session page. Verify the identity
+   response is non-cacheable and does not expose session credentials. Test an
+   offline cross-tab same-user cookie
    replacement separately: current-cookie validation must not be mistaken
    for proof of original-session continuity, and host-backed data refreshes;
    retirement cannot be asserted without an observed terminal signal. Test
@@ -388,3 +400,108 @@ The audit that led to this proposal also found no player route outside `/`,
 `/actors/[id]`, and `/tools/[systemId]/[toolId]` on current `main`. The Combat
 Manager route exists on an unmerged feature branch. The Admin route group is
 separate and remains outside this player boundary.
+
+## Security closeout — October 8, 2026
+
+The player boundary is presentation, not authorization. During a transient
+outage it intentionally retains data already delivered to that browser; an
+overlay cannot make that DOM confidential or replace the server's per-request
+and per-socket authorization. On observed logout, invalidation, world change,
+or authenticated user change, retire the page and clear its world/user-scoped
+caches before showing another session. Do not replay uncertain mutations or
+accept a public-room socket as proof of restored authority.
+
+The review found one gap in the original recovery check: `/api/session/users`
+currently returns a roster, not the authenticated user ID. A valid shared
+cookie could belong to a different user after an offline cross-tab login,
+leaving the prior user's mounted page visible. Add only the authenticated user
+ID to that existing protected, `no-store` response and compare it before
+unblocking. Never expose the opaque session ID. A same-user cross-tab
+replacement remains indistinguishable without a new session-incarnation
+contract; that limitation is explicit above. HttpOnly, SameSite=Strict cookies,
+server-side protected-route checks, authenticated socket-room admission and
+the existing handshake rate limit remain in force. Reconnection must not
+bypass any of them. A restored Foundry socket must also prove the same user
+ID as its persisted credential before Core rebinds that authority; a mismatch
+retires the record. No other security blocker was found in this pass.
+
+## Implementation checkpoint — October 8, 2026
+
+Core now owns the shared player-route boundary and protected cookie check.
+Transient same-world interruption retains the page and persistent tools behind
+an inert overlay; definitive world/session transitions retire them. The
+protected identity read is `no-store`, returns only the authenticated user ID
+beside the existing roster, and distinguishes temporary restoration (503) from
+confirmed invalid authority (401). In-flight Actor, chat, journal, combat and
+SDK document reads are guarded against a retired local session; a same-user
+login observed in this tab also advances the page scope. Unit and source type
+checks pass. The initial checkpoint still required isolated browser/Foundry
+and module-surface evidence, recorded below.
+
+### Isolated v14 Core smoke — October 8, 2026
+
+The disposable `sd-combat-probe` world and isolated SheetDelver data verified
+login on home, an authenticated Actor deep link, protected identity response
+(`no-store`, user ID present, no session ID), explicit logout on that deep
+link, and cold re-login without redirecting to home. A local Foundry-proxy
+drop kept the exact Actor page DOM mounted and inert behind Core's overlay;
+same-world recovery removed the overlay without replacing that DOM node.
+During a prolonged Foundry-side outage the overlay changed to check-back-later
+wording. A separate browser-only network outage recovered the same page inside
+the Socket.IO budget. A longer outage reached the final reload-later overlay;
+restoring network access did not silently reconnect, and manual reload worked.
+Native shutdown of the disposable world removed both Actor content and the
+player toolbar from the deep link and showed the Core no-world view.
+
+The first live recovery run revealed a brief `authenticating` step after the
+socket became ready; the original boundary policy unmounted the page in that
+gap. The policy now treats every nonterminal, not-yet-ready step as transient,
+with a unit regression and a repeated DOM-identity pass. The attempted
+post-shutdown Foundry fixture restart emitted an upstream Foundry error and
+returned incomplete game data, so it is not evidence for a successful
+definitive-close/restart login flow. The isolated data had no local/managed
+module UI, so module-tool and module-sheet behavior still needs acceptance.
+All test services were stopped; the temporary license and browser profile
+were removed. No hosted Foundry world was contacted.
+
+The follow-up SDK check corrected `world:ready`/`world:teardown` so raw
+same-world connectivity changes remain `connection:changed`; confirmed
+setup/closure and authenticated world replacement govern lifecycle signals.
+The SDK and `ui-extension-api` authorities advanced to 2.1.0, with signal
+tests and module-authoring documentation updated.
+
+### Isolated v14 Shadowdark module smoke — October 8, 2026
+
+The local Shadowdark source was copied into the same disposable data directory
+to exercise its actual module UI without changing a hosted world. Its generator
+rendered with module-owned rules/theme but no independent session redirect or
+“World Starting” presenter. A local Foundry-proxy drop left the generator's
+exact name-input DOM node, unsaved test value and URL intact behind Core's
+inert overlay. Same-world recovery removed the overlay without remounting that
+node. A direct existing Shadowdark Actor sheet similarly stayed mounted,
+showed no false “Character Deleted” modal, and resumed after recovery. The
+module's Actor 401/503 handling now leaves world/session lifecycle to Core;
+confirmed 404 remains its missing-Actor case. The full Core unit suite and
+Shadowdark offline presentation/contract checks passed before setting the
+module's minimum release range.
+
+The Shadowdark module branch declares Core `>=0.15.1` and UI contract
+`>=2.1.0 <3.0.0`; its CI and release workflow pins target `v0.15.1`.
+That tag does not exist yet, so module CI/package validation against the
+released host must wait for Core 0.15.1. The isolated test used the local
+unreleased Core implementation while the module still had its earlier
+compatibility range. Packaged-module acceptance and GM review remain open;
+neither this smoke nor the previous fixture's failed post-shutdown restart
+closes them. All test services stopped, and the temporary Foundry license
+copy and browser profile were removed; the disposable world/data remain.
+
+The Core module checker now rejects UI-bundle calls to the global
+`/api/status` and `/api/session/connect` endpoints, with a scaffold regression
+test; module-specific SDK connectivity hints remain allowed. The final Core
+unit suite, TypeScript, lint and production build passed using the isolated
+data directory and in-repository module source paths. Turbopack could not
+resolve the copied module under `/tmp` during an initial build attempt because
+it lies outside the project root; the corrected in-repository-path build
+passed. All four Shadowdark offline tests pass. Its module checker passes
+every source, bundle and boundary check but correctly rejects Core 0.15.0
+against the declared `>=0.15.1` minimum until that release is prepared.
