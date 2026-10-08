@@ -71,6 +71,7 @@ function statusToError(status: number, message: string): ClientDocumentError {
 function createDocumentSource(getFetch: () => FetchWithAuth): {
     source: ClientDocumentSource;
     reset: (refreshObserved?: boolean) => void;
+    refreshObserved: () => void;
 } {
     const entries = new Map<string, Entry>();
     let epoch = 0;
@@ -249,7 +250,13 @@ function createDocumentSource(getFetch: () => FetchWithAuth): {
         }
     };
 
-    return { source, reset };
+    const refreshObserved = () => {
+        for (const entry of entries.values()) {
+            if (entry.listeners.size > 0) source.invalidate(entry.type, entry.id);
+        }
+    };
+
+    return { source, reset, refreshObserved };
 }
 
 /** Create an isolated document source (no shared singleton) — used by the app singleton and tests. */
@@ -266,6 +273,7 @@ let latestFetch: FetchWithAuth = async () => {
 let singleton: {
     source: ClientDocumentSource;
     reset: (refreshObserved?: boolean) => void;
+    refreshObserved: () => void;
 } | null = null;
 let singletonScope: string | null | undefined;
 
@@ -289,4 +297,9 @@ export function setClientDocumentSourceScope(scope: string | null): void {
 export function resetClientDocumentSource(): void {
     singletonScope = null;
     singleton?.reset(false);
+}
+
+/** Refresh mounted documents after authenticated same-world readiness returns. */
+export function refreshObservedClientDocuments(): void {
+    singleton?.refreshObserved();
 }

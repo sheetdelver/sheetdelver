@@ -23,6 +23,15 @@ Reusable host components remain host-owned. Module UI consumes them through
 `useSDKComponents()` from `@sheet-delver/sdk/react`; module code must not import
 host component files directly.
 
+The player layout also owns the world/session boundary for home, Actor, and
+module-tool routes. A module page mounts only after Core confirms readiness;
+an already mounted page is made inert during a temporary same-world outage and
+is retired on confirmed closure, world replacement, or session loss. Module
+pages should not poll global status, implement their own world-ready screen, or
+redirect on world lifecycle. They still own local resource loading, errors,
+and module-specific styling. A temporary Actor read failure is not proof that
+the Actor was deleted; only a confirmed 404 should show that state.
+
 ---
 
 ## State Model
@@ -119,6 +128,16 @@ Module UI receives the stable SDK signals instead:
 | `document:listInvalidated` | `{ type, reason }` |
 | `content:shared` | `{ kind, data }` |
 | `connection:changed` | `{ connected, worldId }` |
+| `world:ready` / `world:teardown` | `{ worldId }` |
+| `module:initialized` / `module:disposed` | `{ moduleId }` |
+
+Since SDK 2.1.0 / `ui-extension-api` 2.1.0, `connection:changed`
+reports each status snapshot, including a temporary link loss. `world:teardown`
+means a confirmed setup/close or replacement of the authenticated world, not
+a same-world transport blip; `world:ready` announces the next established
+world after startup or replacement. A public-room status cannot prove a world
+identity change. Modules should refresh on document signals and readiness,
+without disposing world state merely because `connected` briefly became false.
 
 ---
 
@@ -146,8 +165,6 @@ backend encounter read model — never raw Combat/Combatant/Actor documents.
   forming roster with a Begin Encounter action.
 - `combatChanged` / `combatListInvalidated` are skinny invalidations — the
   client refetches the projection; payloads never carry document data.
-| `world:ready` / `world:teardown` | `{ worldId }` |
-| `module:initialized` / `module:disposed` | `{ moduleId }` |
 
 Module components should treat realtime as invalidation. Refetch through SDK
 hooks or host APIs instead of applying socket payloads as authoritative document

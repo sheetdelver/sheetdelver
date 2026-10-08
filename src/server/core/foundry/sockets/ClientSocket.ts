@@ -104,14 +104,18 @@ export class ClientSocket extends SocketBase {
                 });
 
                 this.socket.on('connect_error', (err) => {
-                    logger.error(`ClientSocket | Socket connection error: ${err.message}`);
+                    const message = `ClientSocket | Socket connection error: ${err.message}`;
+                    if (this.hasRestoredCredential) logger.debug(message);
+                    else logger.error(message);
                     clearTimeout(timeout);
                     reject(err);
                 });
             });
 
         } catch (error: unknown) {
-            logger.error(`ClientSocket | Connection failed: ${getErrorMessage(error)}`);
+            const message = `ClientSocket | Connection failed: ${getErrorMessage(error)}`;
+            if (this.hasRestoredCredential) logger.debug(message);
+            else logger.error(message);
             throw error;
         }
     }

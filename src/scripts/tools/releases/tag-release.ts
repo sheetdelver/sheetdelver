@@ -6,9 +6,9 @@ import { pathToFileURL } from 'node:url';
 import { prepareRelease, versionFromReleaseTag } from './prepare-release';
 
 const releaseFiles = ['package.json', 'package-lock.json', 'CHANGELOG.md'] as const;
-const usage = 'npm run release:tag -- <VERSION|vVERSION> [--note "Entry"]... [--notes "Multiline entries" | --notes-file PATH] [--dry-run] [--no-push]';
+const usage = 'npm run release:tag -- <VERSION|vVERSION> [--note "Entry"]... [--notes "Multiline entries" | --notes-file PATH] [--dry-run] [--no-push] [--resume [--reuse-failed-tag]]';
 
-export interface ReleaseOptions { tag: string; notes: string[]; notesFile?: string; dryRun: boolean; noPush: boolean }
+export interface ReleaseOptions { tag: string; notes: string[]; notesFile?: string; dryRun: boolean; noPush: boolean; resume: boolean; reuseFailedTag: boolean }
 
 function parseMultilineNotes(text: string): string[] {
     const lines = text.split(/\r\n?|\n/).map(line => line.trim()).filter(Boolean);
@@ -24,10 +24,12 @@ export function parseReleaseOptions(args: string[]): ReleaseOptions {
     if (!version || version.startsWith('-')) throw new Error(`Usage: ${usage}`);
     const tag = version.startsWith('v') ? version : `v${version}`;
     versionFromReleaseTag(tag);
-    const options: ReleaseOptions = { tag, notes: [], dryRun: false, noPush: false };
+    const options: ReleaseOptions = { tag, notes: [], dryRun: false, noPush: false, resume: false, reuseFailedTag: false };
     for (let i = 0; i < flags.length; i++) {
         if (flags[i] === '--dry-run') options.dryRun = true;
         else if (flags[i] === '--no-push') options.noPush = true;
+        else if (flags[i] === '--resume') options.resume = true;
+        else if (flags[i] === '--reuse-failed-tag') options.reuseFailedTag = true;
         else if (flags[i] === '--note') {
             const note = flags[++i]?.trim();
             if (!note || note.startsWith('-') || /[\r\n]/.test(note)) {
@@ -46,6 +48,8 @@ export function parseReleaseOptions(args: string[]): ReleaseOptions {
         } else throw new Error(`Unknown option: ${flags[i]}. Usage: ${usage}`);
     }
     if (options.notesFile && options.notes.length) throw new Error('Use --notes-file without --note or --notes.');
+    if (options.resume && (options.notesFile || options.notes.length)) throw new Error('--resume uses the existing CHANGELOG.md section; omit note flags.');
+    if (options.reuseFailedTag && !options.resume) throw new Error('--reuse-failed-tag requires --resume.');
     return options;
 }
 
@@ -152,11 +156,142 @@ export function runLocalRelease(root: string, options: ReleaseOptions, output: (
 }
 
 export interface LocalRelease { tag: string; commit: string }
+
+/** Resume an already prepared version without creating another release commit. */
+export function planResumeRelease(root: string, options: ReleaseOptions): LocalRelease & { taggedCommit: string } {
+    const version = versionFromReleaseTag(options.tag);
+    const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+    const lock = JSON.parse(fs.readFileSync(path.join(root, 'package-lock.json'), 'utf8'));
+    if (pkg.version !== version || lock.version !== version || lock.packages?.['']?.version !== version) {
+        throw new Error(`Resume requires package.json and both root lockfile versions to equal ${version}.`);
+    }
+    prepareRelease(options.tag, version, fs.readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8'));
+    if (git(root, ['branch', '--show-current']) !== 'main') throw new Error('Resume requires main.');
+    if (git(root, ['status', '--porcelain=v1', '--untracked-files=all'])) throw new Error('Resume requires a clean worktree.');
+    for (const marker of ['MERGE_HEAD', 'CHERRY_PICK_HEAD', 'REVERT_HEAD', 'rebase-merge', 'rebase-apply']) {
+        const markerPath = git(root, ['rev-parse', '--git-path', marker]);
+        if (fs.existsSync(path.resolve(root, markerPath))) throw new Error(`Finish the in-progress Git operation (${marker}) first.`);
+    }
+    if (!git(root, ['tag', '--list', options.tag])) throw new Error(`Local tag ${options.tag} is missing; prepare the release first.`);
+    if (git(root, ['cat-file', '-t', `refs/tags/${options.tag}`]) !== 'tag') {
+        throw new Error(`Local tag ${options.tag} must be annotated.`);
+    }
+    const commit = git(root, ['rev-parse', 'HEAD']);
+    const taggedCommit = git(root, ['rev-parse', `refs/tags/${options.tag}^{commit}`]);
+    try { git(root, ['merge-base', '--is-ancestor', taggedCommit, commit]); }
+    catch { throw new Error(`Local tag ${options.tag} is not an ancestor of main; refusing to move it.`); }
+    return { tag: options.tag, commit, taggedCommit };
+}
+
 export interface ReleasePublishIO {
     confirm(question: string): Promise<boolean>;
     command(program: 'git' | 'gh', args: string[]): string;
     sleep(ms: number): Promise<void>;
     now(): number;
+}
+
+function remoteRef(io: ReleasePublishIO, pushUrl: string, kind: 'heads' | 'tags', name: string): string | undefined {
+    const ref = `refs/${kind}/${name}`;
+    const lines = io.command('git', ['ls-remote', `--${kind}`, pushUrl, ref]).trim().split(/\r?\n/).filter(Boolean);
+    if (!lines.length) return;
+    if (lines.length !== 1) throw new Error(`origin returned multiple matches for ${ref}.`);
+    const match = /^([0-9a-f]{40})\t(.+)$/.exec(lines[0]);
+    if (!match || match[2] !== ref) throw new Error(`origin returned an unexpected reference for ${ref}.`);
+    return match[1];
+}
+
+/** Re-read remote refs on every invocation, including after an uncertain push result. */
+export async function resumeLocalRelease(
+    release: LocalRelease & { taggedCommit: string }, io: ReleasePublishIO, allowPush: boolean,
+    output: (line: string) => void = console.log, reuseFailedTag = false,
+): Promise<void> {
+    const pushUrl = io.command('git', ['remote', 'get-url', '--push', '--all', 'origin']);
+    if (!pushUrl || pushUrl.split(/\r?\n/).length !== 1) throw new Error('origin must have exactly one push URL.');
+    const repo = releaseRepository(pushUrl);
+    io.command('gh', ['--version']);
+    let remoteMain = remoteRef(io, pushUrl, 'heads', 'main');
+    if (!remoteMain) throw new Error('origin/main is missing.');
+    let remoteTag = remoteRef(io, pushUrl, 'tags', release.tag);
+    let localTag = io.command('git', ['rev-parse', `refs/tags/${release.tag}`]);
+    if (remoteTag && remoteTag !== localTag) {
+        throw new Error(`${release.tag} already exists on origin at a different tag object; never replace a published tag. Prepare a new version.`);
+    }
+    if (!remoteTag && githubReleaseExists(io, repo, release.tag)) {
+        throw new Error(`GitHub Release ${release.tag} exists even though its remote tag is absent; refusing to reuse it.`);
+    }
+    const moveLocalTag = () => {
+        output(`Moving local ${release.tag} from ${release.taggedCommit} to ${release.commit}...`);
+        io.command('git', ['tag', '-f', '-a', release.tag, '-m', `SheetDelver ${release.tag}`, release.commit]);
+        localTag = io.command('git', ['rev-parse', `refs/tags/${release.tag}`]);
+    };
+    const verifyLocal = () => {
+        if (io.command('git', ['rev-parse', 'refs/heads/main']) !== release.commit
+            || io.command('git', ['rev-parse', `refs/tags/${release.tag}`]) !== localTag
+            || io.command('git', ['remote', 'get-url', '--push', '--all', 'origin']) !== pushUrl) {
+            throw new Error('Prepared refs or origin changed during resume. Inspect before continuing.');
+        }
+    };
+    verifyLocal();
+    const ensureMainReady = async (): Promise<boolean> => {
+        if (remoteMain !== release.commit) {
+            let ancestor = false;
+            try { io.command('git', ['merge-base', '--is-ancestor', remoteMain!, release.commit]); ancestor = true; }
+            catch { /* A non-fast-forward remote must never be pushed. */ }
+            if (!ancestor) throw new Error('origin/main is not an ancestor of local main. Synchronize and inspect before resuming.');
+            if (!allowPush || !await io.confirm('Push the current main commit to origin?')) {
+                output('Main is not pushed. Resume again after pushing main.');
+                return false;
+            }
+            verifyLocal();
+            output('Pushing main without tags...');
+            io.command('git', ['push', '--no-follow-tags', 'origin', 'refs/heads/main:refs/heads/main']);
+            remoteMain = release.commit;
+        } else output('Current main commit is already on origin.');
+        await waitOrOfferRerun(io, repo, 'ci.yml', 'main', release.commit, allowPush, output);
+        return true;
+    };
+    if (remoteTag && release.taggedCommit === release.commit) {
+        output(`${release.tag} is already on origin; checking its release workflow without pushing it again.`);
+        await waitOrOfferRerun(io, repo, 'release.yml', release.tag, release.commit, allowPush, output);
+        output(`Release workflow passed for ${release.tag}.`);
+        return;
+    }
+    if (remoteTag && release.taggedCommit !== release.commit) {
+        if (!reuseFailedTag) {
+            throw new Error(`${release.tag} is published at an older commit. Use --reuse-failed-tag only after fixing the source and reviewing the failed release run.`);
+        }
+        assertFailedTagCanBeReused(io, repo, release.tag, release.taggedCommit);
+        if (!await ensureMainReady()) return;
+        if (!allowPush) {
+            output('Remote tag recovery requires an interactive confirmation; no remote tag was deleted.');
+            return;
+        }
+        if (!await io.confirm(`Delete failed remote tag ${release.tag} and reuse this version? Existing tag consumers may be disrupted.`)) return;
+        verifyLocal();
+        if (remoteRef(io, pushUrl, 'tags', release.tag) !== remoteTag || remoteRef(io, pushUrl, 'heads', 'main') !== release.commit) {
+            throw new Error('Remote refs changed before tag recovery; inspect before continuing.');
+        }
+        assertFailedTagCanBeReused(io, repo, release.tag, release.taggedCommit);
+        output(`Deleting failed remote tag ${release.tag}...`);
+        io.command('git', ['push', '--no-follow-tags', 'origin', `:refs/tags/${release.tag}`]);
+        if (remoteRef(io, pushUrl, 'tags', release.tag)) throw new Error('Remote tag still exists after deletion attempt; inspect before continuing.');
+        remoteTag = undefined;
+        moveLocalTag();
+    } else {
+        if (release.taggedCommit !== release.commit) moveLocalTag();
+        if (!await ensureMainReady()) return;
+    }
+    if (!allowPush || !await io.confirm(`Main CI passed. Push tag ${release.tag} to origin and start the release?`)) {
+        output(`Tag remains local. Resume later with: npm run release:tag -- ${release.tag} --resume`);
+        return;
+    }
+    verifyLocal();
+    if (remoteRef(io, pushUrl, 'tags', release.tag)) throw new Error(`${release.tag} appeared on origin during resume; inspect it before pushing.`);
+    if (remoteRef(io, pushUrl, 'heads', 'main') !== release.commit) throw new Error('origin/main changed during resume; inspect it before pushing the tag.');
+    output(`Pushing only ${release.tag}...`);
+    io.command('git', ['push', '--no-follow-tags', 'origin', `refs/tags/${release.tag}:refs/tags/${release.tag}`]);
+    await waitOrOfferRerun(io, repo, 'release.yml', release.tag, release.commit, allowPush, output);
+    output(`Published ${release.tag}; main CI and release workflow both passed.`);
 }
 
 export function acceptsPush(answer: string): boolean {
@@ -201,25 +336,64 @@ export function releaseRepository(remote: string): string {
 
 interface WorkflowRun {
     databaseId: number; headSha: string; headBranch: string; event: string;
-    status: string; conclusion: string | null; url: string;
+    status: string; conclusion: string | null; url: string; attempt?: number;
+}
+
+function latestWorkflowRun(io: ReleasePublishIO, repo: string, workflow: string, branch: string, commit: string): WorkflowRun | undefined {
+    const result: unknown = JSON.parse(io.command('gh', [
+        'run', 'list', '--repo', repo, '--workflow', workflow,
+        '--branch', branch, '--event', 'push', '--commit', commit, '--limit', '20',
+        '--json', 'databaseId,headSha,headBranch,event,status,conclusion,url,attempt',
+    ]));
+    if (!Array.isArray(result)) throw new Error('GitHub returned an invalid workflow list.');
+    return (result as WorkflowRun[]).filter(run => run && run.headSha === commit
+        && run.headBranch === branch && run.event === 'push' && Number.isSafeInteger(run.databaseId))
+        .sort((a, b) => b.databaseId - a.databaseId)[0];
+}
+
+function githubReleaseExists(io: ReleasePublishIO, repo: string, tag: string): boolean {
+    try {
+        io.command('gh', ['release', 'view', tag, '--repo', repo, '--json', 'tagName']);
+        return true;
+    } catch (error) {
+        const details = error instanceof Error ? `${error.message} ${String((error as Error & { stderr?: unknown }).stderr ?? '')}` : String(error);
+        if (/release not found|HTTP 404/i.test(details)) return false;
+        throw new Error(`Could not verify whether a GitHub Release exists for ${tag}; refusing tag recovery.`, { cause: error });
+    }
+}
+
+function assertFailedTagCanBeReused(io: ReleasePublishIO, repo: string, tag: string, taggedCommit: string): void {
+    if (githubReleaseExists(io, repo, tag)) throw new Error(`GitHub Release ${tag} exists; its tag must not be reused.`);
+    const run = latestWorkflowRun(io, repo, 'release.yml', tag, taggedCommit);
+    if (!run || run.status !== 'completed' || !['failure', 'cancelled', 'timed_out'].includes(run.conclusion ?? '')) {
+        throw new Error(`No completed failed release workflow was found for ${tag} at ${taggedCommit}; refusing tag recovery.`);
+    }
+}
+
+async function waitOrOfferRerun(
+    io: ReleasePublishIO, repo: string, workflow: string, branch: string, commit: string,
+    allowWrite: boolean, output: (line: string) => void,
+): Promise<void> {
+    try { await waitForReleaseWorkflow(io, repo, workflow, branch, commit, output); }
+    catch (error) {
+        const run = latestWorkflowRun(io, repo, workflow, branch, commit);
+        if (!run || run.status !== 'completed' || !['failure', 'cancelled', 'timed_out'].includes(run.conclusion ?? '')) throw error;
+        if (workflow === 'release.yml' && githubReleaseExists(io, repo, branch)) throw error;
+        if (!allowWrite || !await io.confirm(`${workflow} failed at ${run.url}. Rerun the same workflow once?`)) throw error;
+        io.command('gh', ['run', 'rerun', String(run.databaseId), '--repo', repo]);
+        await waitForReleaseWorkflow(io, repo, workflow, branch, commit, output, 30 * 60_000, (run.attempt ?? 1) + 1);
+    }
 }
 
 export async function waitForReleaseWorkflow(
     io: ReleasePublishIO, repo: string, workflow: string, branch: string, commit: string,
-    output: (line: string) => void, timeoutMs = 30 * 60_000,
+    output: (line: string) => void, timeoutMs = 30 * 60_000, minimumAttempt = 0,
 ): Promise<void> {
     const deadline = io.now() + timeoutMs;
     output(`Waiting for ${workflow} on ${branch} at ${commit} (up to 30 minutes)...`);
     while (io.now() < deadline) {
-        const result: unknown = JSON.parse(io.command('gh', [
-            'run', 'list', '--repo', repo, '--workflow', workflow,
-            '--branch', branch, '--event', 'push', '--commit', commit, '--limit', '20',
-            '--json', 'databaseId,headSha,headBranch,event,status,conclusion,url',
-        ]));
-        if (!Array.isArray(result)) throw new Error('GitHub returned an invalid workflow list.');
-        const run = (result as WorkflowRun[]).filter(run => run && run.headSha === commit
-            && run.headBranch === branch && run.event === 'push' && Number.isSafeInteger(run.databaseId))
-            .sort((a, b) => b.databaseId - a.databaseId)[0];
+        const latest = latestWorkflowRun(io, repo, workflow, branch, commit);
+        const run = latest && (latest.attempt ?? 1) >= minimumAttempt ? latest : undefined;
         output(run ? `${workflow}: ${run.status} (${run.url})` : `${workflow}: waiting for GitHub to register the push...`);
         if (run?.status === 'completed') {
             if (run.conclusion !== 'success') throw new Error(`${workflow} ended with ${run.conclusion || 'no result'}: ${run.url}`);
@@ -234,12 +408,15 @@ export async function waitForReleaseWorkflow(
 function remainingSteps(release: LocalRelease, mainPushed: boolean, ciPassed: boolean, tagPushed: boolean, output: (line: string) => void) {
     output(`Prepared ${release.tag}: main ${mainPushed ? 'push confirmed' : 'push not confirmed'}; tag ${tagPushed ? 'push confirmed' : 'push not confirmed'}.`);
     if (tagPushed) {
-        output('The tag is published. Inspect the release workflow if it did not complete; do not move or replace the tag.');
+        output('The tag push was confirmed. Use --resume to inspect its release workflow before any recovery.');
         return;
     }
     output('Remaining manual steps:');
     if (!mainPushed) output('git push --no-follow-tags origin main');
-    if (!ciPassed) output(`Wait for successful main CI for commit ${release.commit} before pushing the tag.`);
+    if (!ciPassed) {
+        output(`Do not push the tag until main CI passes for commit ${release.commit}.`);
+        output(`After fixing a failure, resume with: npm run release:tag -- ${release.tag} --resume`);
+    }
     output(`git push --no-follow-tags origin ${release.tag}`);
 }
 
@@ -279,8 +456,33 @@ export async function publishLocalRelease(release: LocalRelease, io: ReleasePubl
 }
 
 export async function runReleaseCommand(root: string, options: ReleaseOptions, io: ReleasePublishIO | undefined, output: (line: string) => void = console.log) {
+    if (options.resume) {
+        const release = planResumeRelease(root, options);
+        output(`Resume plan: ${release.tag} on main at ${release.commit}.`);
+        if (release.taggedCommit !== release.commit) {
+            output(`The local tag at ${release.taggedCommit} can move to current main only if remote recovery checks permit it.`);
+        }
+        if (options.dryRun) {
+            output('Local validation passed. Remote refs and workflows were not checked; no files, refs, prompts, or remote operations changed.');
+            return;
+        }
+        if (!io) throw new Error('Resume requires Git and GitHub CLI access for read-only remote verification.');
+        try { await resumeLocalRelease(release, io, !options.noPush, output, options.reuseFailedTag); }
+        catch (error) {
+            output(`Resume stopped. Inspect the error and rerun with: npm run release:tag -- ${release.tag} --resume`);
+            output('A remote operation may have completed despite an error; rerun resume to inspect the actual refs before acting.');
+            throw error;
+        }
+        return;
+    }
     const release = runLocalRelease(root, options, output);
-    if (release) await publishLocalRelease(release, options.noPush ? undefined : io, output);
+    if (release) {
+        try { await publishLocalRelease(release, options.noPush ? undefined : io, output); }
+        catch (error) {
+            output(`Release publishing stopped. Resume with: npm run release:tag -- ${release.tag} --resume`);
+            throw error;
+        }
+    }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
@@ -288,8 +490,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
         if (process.argv.slice(2).includes('--help')) console.log(usage);
         else {
             const options = parseReleaseOptions(process.argv.slice(2));
-            const io = !options.dryRun && !options.noPush && process.stdin.isTTY && process.stdout.isTTY
+            const io = !options.dryRun && (options.resume || (!options.noPush && process.stdin.isTTY && process.stdout.isTTY))
                 ? consolePublishIO(process.cwd()) : undefined;
+            if (options.resume && (!process.stdin.isTTY || !process.stdout.isTTY)) options.noPush = true;
             await runReleaseCommand(process.cwd(), options, io);
         }
     } catch (error) {

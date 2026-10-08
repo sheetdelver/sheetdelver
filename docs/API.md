@@ -68,6 +68,9 @@ Authenticated callers receive connection, world, current-user, and readiness
 status. `initialized: true` means world bootstrap has completed, including
 module discovery, compendium indexing/hydration, and primary document cache
 seeding.
+During startup, `isAuthenticated: false` on this status response is not proof
+that a persisted player session was revoked. Player session authority is
+checked through the protected session read below.
 
 ```json
 {
@@ -94,6 +97,20 @@ seeding.
   "appVersion": "0.10.0"
 }
 ```
+
+### `GET /api/session/users`
+
+Auth: required player session (or trusted service bearer). The response is
+`Cache-Control: no-store` and contains the authorized user roster plus
+`currentUserId`, the authenticated Foundry user ID (`null` for a trusted
+service bearer). It never returns the opaque session credential. Player clients
+use this protected read to validate the current cookie and compare the user ID
+before resuming a retained page after a connection interruption.
+
+An absent, expired, revoked or conclusively invalid player session returns
+`401`. A pending or temporarily failed restoration returns `503`; the client
+must not treat that as logout. A successful read validates the current cookie,
+not continuity with a previous same-user cookie in another tab.
 
 ### `POST /api/login`
 

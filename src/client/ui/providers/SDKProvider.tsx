@@ -4,6 +4,7 @@ import React, { useMemo, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { SDKContext, SDKComponentsContext, type SDKContextValue } from '@shared/sdk/react';
 import { useFoundry } from '@client/ui/context/FoundryContext';
+import { useRealtime } from '@client/ui/context/RealtimeContext';
 import { useUI } from '@client/ui/context/UIContext';
 import { useConfig } from '@client/ui/context/ConfigContext';
 import { useNotifications } from '@client/ui/components/NotificationSystem';
@@ -14,6 +15,7 @@ import RichTextEditor from '@client/ui/components/RichTextEditor';
 import { SharedContentModal } from '@client/ui/components/SharedContentModal';
 import {
     getClientDocumentSource,
+    refreshObservedClientDocuments,
     setClientDocumentSourceScope,
 } from '@client/ui/sdk/createClientDocumentSource';
 import { createSdkEventBus } from '@client/ui/sdk/createSdkEventBus';
@@ -45,11 +47,12 @@ function resolveInternalNavigationTarget(target: string): string | null {
 export function SDKProvider({ children, moduleId }: { children: React.ReactNode; moduleId?: string }) {
     const router = useRouter();
     const { token, currentUser, system, worldId, step, appSocket } = useFoundry();
+    const { linkState } = useRealtime();
     const { isDiceTrayOpen, toggleDiceTray, isChatOpen, setChatOpen } = useUI();
     const { foundryUrl, resolveImageUrl } = useConfig();
     const { addNotification, updateNotification, removeNotification } = useNotifications();
 
-    const isConnected = step === 'dashboard';
+    const isConnected = step === 'dashboard' && linkState === 'ready';
 
     const fetchWithAuth = useCallback(async (
         input: string,
@@ -74,7 +77,7 @@ export function SDKProvider({ children, moduleId }: { children: React.ReactNode;
     // dashboard card and an open sheet share one fetch; the call keeps its transport current.
     const documents = getClientDocumentSource(fetchWithAuth);
 
-    const documentScope = isConnected && token && worldId && currentUser
+    const documentScope = token && worldId && currentUser
         ? JSON.stringify([worldId, currentUser.id ?? (currentUser as any)._id ?? ''])
         : null;
 
@@ -98,6 +101,10 @@ export function SDKProvider({ children, moduleId }: { children: React.ReactNode;
     useEffect(() => {
         setClientDocumentSourceScope(documentScope);
     }, [documentScope]);
+
+    useEffect(() => {
+        if (isConnected && documentScope) refreshObservedClientDocuments();
+    }, [isConnected, documentScope]);
 
     const resolvedModuleId = moduleId ?? system?.id ?? null;
     const assetUrl = useCallback(

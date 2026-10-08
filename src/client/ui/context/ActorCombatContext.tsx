@@ -3,6 +3,7 @@
 import React, { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
 import { logger } from '@shared/utils/logger';
 import { useSession } from '@client/ui/context/SessionContext';
+import { useRealtime } from '@client/ui/context/RealtimeContext';
 import { UnauthorizedApiError } from '@client/ui/api/http';
 import { createCoalescedFetch } from '@client/ui/context/coalescedFetch';
 import * as foundryApi from '@client/ui/api/foundryApi';
@@ -25,11 +26,13 @@ interface ActorCombatContextType {
 const ActorCombatContext = createContext<ActorCombatContextType | undefined>(undefined);
 
 export function ActorCombatProvider({ children }: { children: React.ReactNode }) {
-    const { token, setToken } = useSession();
+    const { token, invalidateLocalSession } = useSession();
+    const { linkState } = useRealtime();
     const [ownedActors, setOwnedActors] = useState<ActorDto[]>([]);
     const [readOnlyActors, setReadOnlyActors] = useState<ActorDto[]>([]);
     const [actorCards, setActorCards] = useState<Record<string, ActorCardData>>({});
     const [combats, setCombats] = useState<CombatTrackerDto[]>([]);
+    const requestEpochRef = useRef(0);
     const actorFetcherRef = useRef<{
         token: string;
         fetch: () => Promise<ActorListPayload | void>;
@@ -39,23 +42,27 @@ export function ActorCombatProvider({ children }: { children: React.ReactNode })
         fetch: () => Promise<CombatListPayload | void>;
     } | null>(null);
     const fetchActorCards = useCallback(async () => {
-        if (!token) return;
+        if (!token || linkState !== 'ready') return;
+        const requestEpoch = requestEpochRef.current;
         try {
             const data = await foundryApi.fetchActorCards(token);
+            if (requestEpoch !== requestEpochRef.current) return;
             setActorCards(data || {});
             return data;
         } catch (error) {
+            if (requestEpoch !== requestEpochRef.current) return;
             if (error instanceof UnauthorizedApiError) {
-                setToken(null);
+                invalidateLocalSession('actor-cards-401');
                 return;
             }
             logger.error('ActorCombatContext | Failed to fetch actor cards:', error);
         }
-    }, [token, setToken]);
+    }, [token, linkState, invalidateLocalSession]);
 
     const fetchActors = useCallback(async () => {
-        if (!token) return;
+        if (!token || linkState !== 'ready') return;
         if (actorFetcherRef.current?.token !== token) {
+            const requestEpoch = requestEpochRef.current;
             actorFetcherRef.current = {
                 token,
                 // An invalidation during an in-flight list request must queue a
@@ -64,6 +71,7 @@ export function ActorCombatProvider({ children }: { children: React.ReactNode })
                 fetch: createCoalescedFetch<ActorListPayload>(async () => {
                     try {
                         const data = await foundryApi.fetchActors(token);
+                        if (requestEpoch !== requestEpochRef.current) return;
                         if (data.ownedActors || data.actors) {
                             setOwnedActors(data.ownedActors || data.actors || []);
                             setReadOnlyActors(data.readOnlyActors || []);
@@ -78,8 +86,9 @@ export function ActorCombatProvider({ children }: { children: React.ReactNode })
                         }
                         return data;
                     } catch (error: any) {
+                        if (requestEpoch !== requestEpochRef.current) return;
                         if (error instanceof UnauthorizedApiError) {
-                            setToken(null);
+                            invalidateLocalSession('actors-401');
                             return;
                         }
                         logger.error('ActorCombatContext | Fetch actors failed:', error.message);
@@ -89,7 +98,7 @@ export function ActorCombatProvider({ children }: { children: React.ReactNode })
             };
         }
         return actorFetcherRef.current.fetch();
-    }, [fetchActorCards, token, setToken]);
+    }, [fetchActorCards, token, linkState, invalidateLocalSession]);
 
     // Coalesced with a trailing-refetch guarantee: an invalidation arriving
     // while a request is in flight always causes one more fetch after it
@@ -97,20 +106,23 @@ export function ActorCombatProvider({ children }: { children: React.ReactNode })
     // final combat state. The fetcher is rebuilt when the session token
     // changes, discarding any in-flight state from the previous session.
     const fetchCombats = useCallback(async () => {
-        if (!token) return;
+        if (!token || linkState !== 'ready') return;
         if (combatFetcherRef.current?.token !== token) {
+            const requestEpoch = requestEpochRef.current;
             combatFetcherRef.current = {
                 token,
                 fetch: createCoalescedFetch<CombatListPayload>(async () => {
                     try {
                         const data = await foundryApi.fetchCombats(token);
+                        if (requestEpoch !== requestEpochRef.current) return;
                         if (data.combats) {
                             setCombats(data.combats);
                         }
                         return data;
                     } catch (error: any) {
+                        if (requestEpoch !== requestEpochRef.current) return;
                         if (error instanceof UnauthorizedApiError) {
-                            setToken(null);
+                            invalidateLocalSession('combats-401');
                             return;
                         }
                         logger.error('ActorCombatContext | Fetch combat failed:', error.message);
@@ -120,13 +132,16 @@ export function ActorCombatProvider({ children }: { children: React.ReactNode })
             };
         }
         return combatFetcherRef.current.fetch();
-    }, [token, setToken]);
+    }, [token, linkState, invalidateLocalSession]);
 
     const patchActorCard = useCallback((actorId: string, card: ActorCardData) => {
         setActorCards(prev => ({ ...prev, [actorId]: card }));
     }, []);
 
     const resetActorCombatState = useCallback(() => {
+        requestEpochRef.current += 1;
+        actorFetcherRef.current = null;
+        combatFetcherRef.current = null;
         setOwnedActors([]);
         setReadOnlyActors([]);
         setActorCards({});

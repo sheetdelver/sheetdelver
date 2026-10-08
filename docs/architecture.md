@@ -115,13 +115,17 @@ On a same-world reconnect, `WorldBootstrapper.recover()` verifies world/system i
 ## 4. Frontend Architecture
 
 ### 4.1 React Contexts
-- **FoundryProvider**: The heart of the application. Manages the connection step (`init` -> `login` -> `dashboard`), authenticates users, and polls for real-time state updates (actors, users, system info).
+- **FoundryProvider**: Coordinates connection-step presentation and authorized world data from the shared realtime and session providers; it does not treat public status as authentication.
 - **JournalProvider**: Manages journal entry loading, folder hierarchies, and pagination logic.
 - **UIProvider**: Manages the state of global overlays like the sidebars, floating HUD, and shared content modals.
-- **PlayerToolsBoundary**: Shows persistent world tools only when the session
-  marker is present and the connection step is `dashboard`. Unavailable worlds
-  close open tool panels without unmounting session/realtime providers or
-  issuing logout. Restoration remains governed by the server session policy.
+- **PlayerWorldBoundary**: The player layout owns login/setup/closed/loading
+  presentation for home, Actor and module-tool routes. Cold routes do not mount
+  their page effects or persistent tools until authenticated readiness. A
+  prior-ready same-world page and its tools remain mounted but inert behind one overlay during a transient outage;
+  terminal world/session/user changes retire it. A protected, non-cacheable
+  session read confirms the current cookie and user ID before unblocking, and
+  Core remains the authority for every HTTP and socket action. See
+  [ADR-0057](adr/0057-core-player-world-state-boundary.md).
 - **ChatProvider**: Owns authorized chat DTOs, live-message indication and
   browser-local preview preferences. Create hints are paired with authorized
   API reads; history alone never creates a preview. ChatMessageCard renders the

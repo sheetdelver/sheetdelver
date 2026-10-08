@@ -28,9 +28,10 @@ export function registerUtilityRoutes(appRouter: express.Router, deps: UtilityRo
 
     appRouter.get('/session/users', async (req, res) => {
         try {
+            res.setHeader('Cache-Control', 'no-store');
             const client = req.foundryClient;
             const payload = await utilityService.getSessionUsers(client);
-            res.json(payload);
+            res.json({ ...payload, currentUserId: req.isSystem ? null : req.userSession?.userId || client.userId || null });
         } catch (error: unknown) {
             logger.error(`User Fetch Error: ${getErrorMessage(error)}`);
             res.status(500).json({ error: 'Failed to retrieve users' });

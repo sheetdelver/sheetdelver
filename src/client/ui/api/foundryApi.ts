@@ -1,5 +1,6 @@
 import { requestJson } from '@client/ui/api/http';
 import type { AuthenticatedStatusPayload } from '@shared/contracts/status';
+import type { User } from '@shared/interfaces';
 import type { ActorCardsPayload, ActorDetailPayload, ActorListPayload } from '@shared/contracts/actors';
 import type {
     CombatListPayload,
@@ -43,6 +44,11 @@ export function fetchStatus(token: string | null): Promise<Partial<Authenticated
         token,
         cache: 'no-store',
     });
+}
+
+/** Protected, non-cacheable authority and identity check for player recovery. */
+export function fetchSessionUsers(): Promise<{ users: User[]; currentUserId: string | null }> {
+    return requestJson('/api/session/users', { cache: 'no-store' });
 }
 
 export function fetchSharedContent(token: string): Promise<RealtimeSharedContentPayload> {

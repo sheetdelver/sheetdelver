@@ -143,6 +143,19 @@ export async function run() {
     assert.ok(navigationFailure, hardNavigationResult.failures.map((issue) => issue.message).join('\n'));
     fs.writeFileSync(sheetPath, sheetSource, 'utf8');
 
+    // Module pages must not recreate the global session/world gate that the
+    // Core player layout now owns (ADR-0057).
+    fs.writeFileSync(
+        sheetPath,
+        sheetSource.replace('return (', `fetch('/api/session/connect');\n    return (`),
+        'utf8',
+    );
+    const worldStateResult = await checkModule(moduleId, { dataDir: testDataDir, silent: true });
+    assert.ok(worldStateResult.failures.some((issue) =>
+        issue.kind === 'world-state' && issue.message.includes('queries Core world/session status')
+    ), worldStateResult.failures.map((issue) => issue.message).join('\n'));
+    fs.writeFileSync(sheetPath, sheetSource, 'utf8');
+
     // Managed UI artifacts execute as native browser ESM outside Next's build graph.
     // Importing host framework helpers can bundle CommonJS dynamic requires that fail
     // only after installation, so the checker must reject the coupling at source.

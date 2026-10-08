@@ -335,7 +335,7 @@ stats. These are read-only presentation hints, not writable Foundry resource
 paths or dashboard Actor-card blocks. Optional `showInRoster: true` suggests a
 compact pill beside each combatant name; absent/false keeps the stat in detail
 only. A module adopting this new manifest field requires
-`"module-api": ">=1.3.0 <2.0.0"`; the merged host advertises SDK 2.1.0.
+`"module-api": ">=1.3.0 <2.0.0"`; the merged host advertises SDK 2.2.0.
 Older modules without the field require no version change.
 
 `permissions` is a declaration, not an authorization bypass. Foundry ownership and
@@ -542,8 +542,9 @@ Notification feedback also flows through `useSDK()`: `addNotification` returns
 an ephemeral ID, `updateNotification(id, patch)` updates it, and
 `removeNotification(id)` dismisses it. Lifecycle methods, warning severity and
 title/duration/permanent/progress options first appeared in UI contract 1.2.0
-(SDK 1.4.0). Modules targeting the current host declare
-`compatibility.apiContracts["ui-extension-api"]` of `">=2.0.0 <3.0.0"`.
+(SDK 1.4.0). Modules using only notification lifecycle methods may declare
+`compatibility.apiContracts["ui-extension-api"]` of `">=2.0.0 <3.0.0"`;
+modules relying on the corrected world-lifecycle signals require `">=2.1.0 <3.0.0"`.
 Server `module-api` and `roll-engine-api` requirements do not change for this UI feature.
 See [Notifications and Chat](NOTIFICATIONS.md) and the
 [module authoring example](MODULE_AUTHORING.md#notifications-and-chat-feedback).
@@ -552,6 +553,12 @@ See [Notifications and Chat](NOTIFICATIONS.md) and the
 stable signals are `world:ready`, `world:teardown`, `connection:changed`,
 `module:initialized`, `module:disposed`, `document:changed`,
 `document:listInvalidated`, and `content:shared`.
+With SDK 2.1.0 / `ui-extension-api` 2.1.0, `connection:changed` is the
+transport-health/status signal. `world:teardown` is reserved for confirmed
+setup/closure or authenticated world replacement; a same-world disconnect
+does not emit it. `world:ready` announces an established world after startup
+or replacement, not every socket reconnect. Public-room status alone does
+not assert authenticated world identity.
 
 Use the host-owned document hooks instead of hand-rolled fetch/update loops when
 possible:

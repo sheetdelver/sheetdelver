@@ -84,6 +84,7 @@ export type ModuleCheckIssueKind =
     | 'import-boundary'
     | 'logging'
     | 'navigation'
+    | 'world-state'
     | 'typecheck'
     | 'bundle'
     | 'style-scope'
@@ -362,6 +363,33 @@ function checkNavigationDiscipline(ctx: CheckContext): void {
     }
 
     if (issueCount === 0) pass(ctx, `navigation boundary clean (${files.size} UI source files scanned)`);
+}
+
+// Core's player layout owns session/world transitions. Module UI may use SDK
+// connectivity hints for its own resource reads, but must not query the global
+// status/session endpoints to gate pages or redirect on lifecycle changes.
+const GLOBAL_WORLD_STATE_ENDPOINT = /['"`]\/api\/(?:status|session\/connect)(?:[?'"`])/;
+
+function checkWorldStateDiscipline(ctx: CheckContext): void {
+    const files = collectUiBundleFiles(ctx);
+    let issueCount = 0;
+
+    for (const filePath of files) {
+        if (isTestFile(filePath)) continue;
+        const source = stripComments(fs.readFileSync(filePath, 'utf8'));
+        source.split('\n').forEach((line, idx) => {
+            if (!GLOBAL_WORLD_STATE_ENDPOINT.test(line)) return;
+            fail(
+                ctx,
+                'world-state',
+                `${path.relative(ctx.modulePath, filePath)}:${idx + 1} queries Core world/session status from module UI`,
+                'Core owns player-world readiness. Use SDK isConnected only to defer or retry module-specific data reads.',
+            );
+            issueCount += 1;
+        });
+    }
+
+    if (issueCount === 0) pass(ctx, `world-state boundary clean (${files.size} UI source files scanned)`);
 }
 
 function walkCssFiles(root: string): string[] {
@@ -798,6 +826,7 @@ export async function checkModule(moduleId: string, options: ModuleCheckOptions 
     checkImportBoundaries(ctx);
     checkLoggingDiscipline(ctx);
     checkNavigationDiscipline(ctx);
+    checkWorldStateDiscipline(ctx);
     checkStyleScoping(ctx);
     checkStaticCssAssets(ctx);
     checkTypeScript(ctx);

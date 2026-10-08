@@ -81,9 +81,11 @@ export function createSdkEventBus(): SdkEventBus {
     // Socket → signal adapters for the currently attached socket.
     let socket: SocketLike | null = null;
     let socketHandlers: Array<[string, (...args: unknown[]) => void]> = [];
-    // Connection-transition tracking persists across re-attach so a reconnect with the same
-    // connected state doesn't re-fire world:ready / world:teardown.
-    let lastConnected: boolean | null = null;
+    // World identity survives transport re-attachment. Connectivity is not
+    // world lifetime: a brief same-world outage must not dispose module state.
+    let observedStatus = false;
+    let retainedWorldId: string | null = null;
+    let establishedWorld = false;
 
     const detach = () => {
         if (socket) {
@@ -122,16 +124,39 @@ export function createSdkEventBus(): SdkEventBus {
             data: payload.data as Record<string, unknown> | undefined,
         }));
 
-        // World/connection lifecycle from the status stream. Transitions of `connected`
-        // surface as world:ready / world:teardown; every status emits connection:changed.
+        // Every status reports link health. Only authenticated world identity
+        // and definitive terminal state drive world lifecycle signals.
         bind('systemStatus', (payload) => {
             const connected = Boolean(payload.connected);
-            const worldId = (payload.worldId as string | null) ?? null;
+            const worldId = typeof payload.worldId === 'string' && payload.worldId
+                ? payload.worldId : null;
+            const authenticatedProjection = Object.prototype.hasOwnProperty.call(payload, 'worldId');
+            const system = payload.system as { status?: string } | undefined;
+            const terminal = system?.status === 'setup' || system?.status === 'closed';
+            const ready = connected && payload.initialized !== false && system?.status === 'active';
             emit('connection:changed', { connected, worldId });
-            if (lastConnected !== null && connected !== lastConnected) {
-                emit(connected ? 'world:ready' : 'world:teardown', { worldId });
+
+            if (terminal) {
+                if (retainedWorldId && establishedWorld) {
+                    emit('world:teardown', { worldId: retainedWorldId });
+                }
+                retainedWorldId = null;
+                establishedWorld = false;
+            } else if (authenticatedProjection && worldId) {
+                if (retainedWorldId && retainedWorldId !== worldId && establishedWorld) {
+                    emit('world:teardown', { worldId: retainedWorldId });
+                }
+                if (retainedWorldId !== worldId) {
+                    const wasObserved = observedStatus;
+                    retainedWorldId = worldId;
+                    establishedWorld = ready;
+                    if (ready && wasObserved) emit('world:ready', { worldId });
+                } else if (ready && !establishedWorld) {
+                    establishedWorld = true;
+                    if (observedStatus) emit('world:ready', { worldId });
+                }
             }
-            lastConnected = connected;
+            observedStatus = true;
         });
     };
 

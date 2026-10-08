@@ -2,6 +2,7 @@ import { strict as assert } from 'node:assert';
 import {
     createClientDocumentSource,
     getClientDocumentSource,
+    refreshObservedClientDocuments,
     resetClientDocumentSource,
     setClientDocumentSourceScope,
 } from '@client/ui/sdk/createClientDocumentSource';
@@ -46,6 +47,7 @@ export async function run() {
     await runNotFound();
     await runResetDuringFlightRejectsStaleCompletion();
     await runScopeChangeRefreshesMountedSubscribers();
+    await runSameScopeRecoveryKeepsThenRefreshesSnapshot();
     console.log('  - Client document source (cache/dedup/invalidation): all checks passed');
 }
 
@@ -240,6 +242,28 @@ async function runScopeChangeRefreshesMountedSubscribers() {
         json: async () => ({ id: 'scope-race', name: 'World B Actor' }),
     } as Response);
     await waitFor(() => source.getSnapshot<{ name: string }>('Actor', 'scope-race').data?.name === 'World B Actor');
+    unsubscribe();
+    resetClientDocumentSource();
+}
+
+async function runSameScopeRecoveryKeepsThenRefreshesSnapshot() {
+    resetClientDocumentSource();
+    let version = 1;
+    const calls: FetchCall[] = [];
+    const source = getClientDocumentSource(makeFetch(calls, () => ({ id: 'same-world', name: `Actor v${version}` })));
+    setClientDocumentSourceScope('world-a:user-a');
+    const unsubscribe = source.subscribe('Actor', 'same-world', () => undefined);
+    await source.refresh('Actor', 'same-world');
+    assert.equal(source.getSnapshot<{ name: string }>('Actor', 'same-world').data?.name, 'Actor v1');
+
+    // Connectivity changing must not advance the world/user scope or blank
+    // an already authorized snapshot while the player page is blocked.
+    setClientDocumentSourceScope('world-a:user-a');
+    assert.equal(source.getSnapshot<{ name: string }>('Actor', 'same-world').data?.name, 'Actor v1');
+    version = 2;
+    refreshObservedClientDocuments();
+    await waitFor(() => source.getSnapshot<{ name: string }>('Actor', 'same-world').data?.name === 'Actor v2');
+    assert.equal(calls.length, 2);
     unsubscribe();
     resetClientDocumentSource();
 }

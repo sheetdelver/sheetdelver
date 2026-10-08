@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
-import { parseReleaseOptions, planLocalRelease, runLocalRelease, runReleaseCommand, type ReleasePublishIO } from '../../../scripts/tools/releases/tag-release';
+import { parseReleaseOptions, planLocalRelease, planResumeRelease, runLocalRelease, runReleaseCommand, type ReleasePublishIO } from '../../../scripts/tools/releases/tag-release';
 
 export async function run() {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sheet-delver-release-tag-'));
@@ -64,6 +64,9 @@ export async function run() {
         }
         assert.equal(parseReleaseOptions(['0.11.0']).tag, 'v0.11.0');
         assert.equal(parseReleaseOptions(['0.11.0', '--no-push']).noPush, true);
+        assert.equal(parseReleaseOptions(['0.11.0', '--resume']).resume, true);
+        assert.throws(() => parseReleaseOptions(['0.11.0', '--resume', '--note', 'Duplicate notes']), /existing CHANGELOG/);
+        assert.throws(() => parseReleaseOptions(['0.11.0', '--reuse-failed-tag']), /requires --resume/);
         for (const flags of [
             ['--notes'], ['--notes', ' \n'], ['--notes', '-'], ['--notes', '- '],
             ['--notes', '## 0.11.0\n- Entry'], ['--notes', '--dry-run'],
@@ -118,6 +121,19 @@ export async function run() {
         assert.ok(!cliOutput.includes('[y/N]'), 'noninteractive CLI stays offline without prompting');
         assert.equal(git('cat-file', '-t', 'v0.11.1'), 'tag');
         assert.ok(read('CHANGELOG.md').includes('## 0.11.1\n- Added shared 3D dice\n- Added player settings panel'));
+        const resumed = parseReleaseOptions(['0.11.1', '--resume', '--dry-run']);
+        await runReleaseCommand(root, resumed, forbiddenIO, line => messages.push(line));
+        assert.ok(messages.some(line => line.includes('Local validation passed')));
+        assert.equal(git('rev-parse', 'v0.11.1^{}'), git('rev-parse', 'HEAD'));
+        assert.equal(git('status', '--porcelain'), '');
+        fs.writeFileSync(path.join(root, 'ci-fix.txt'), 'fixed\n');
+        git('add', 'ci-fix.txt'); git('commit', '-m', 'fix ci');
+        const staleTag = planResumeRelease(root, resumed);
+        assert.equal(staleTag.commit, git('rev-parse', 'HEAD'));
+        assert.notEqual(staleTag.taggedCommit, staleTag.commit);
+        await runReleaseCommand(root, resumed, forbiddenIO, line => messages.push(line));
+        assert.ok(messages.some(line => line.includes('remote recovery checks')));
+        assert.equal(git('rev-parse', 'v0.11.1^{}'), staleTag.taggedCommit, 'resume dry-run never moves a tag');
 
         fs.writeFileSync(path.join(root, '.git', 'hooks', 'pre-commit'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
         const head = git('rev-parse', 'HEAD');

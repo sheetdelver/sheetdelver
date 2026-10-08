@@ -45,8 +45,8 @@ interface JournalContextType {
 const JournalContext = createContext<JournalContextType | undefined>(undefined);
 
 export function JournalProvider({ children }: { children: React.ReactNode }) {
-    const { token, step } = useSession();
-    const { appSocket } = useRealtime();
+    const { token, step, registerLogoutCleanup, invalidateLocalSession } = useSession();
+    const { appSocket, linkState } = useRealtime();
     const [journals, setJournals] = useState<JournalEntry[]>([]);
     const [folders, setFolders] = useState<Folder[]>([]);
     const [loading, setLoading] = useState(false);
@@ -56,10 +56,32 @@ export function JournalProvider({ children }: { children: React.ReactNode }) {
     const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const listFetcherRef = useRef<{ token: string; fetch: CoalescedFetch<void> } | null>(null);
     const detailFetchersRef = useRef(new Map<string, CoalescedFetch<JournalEntry | null>>());
+    const requestEpochRef = useRef(0);
+
+    const resetJournalState = useCallback(() => {
+        requestEpochRef.current += 1;
+        listFetcherRef.current = null;
+        detailFetchersRef.current.clear();
+        if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+        refreshTimerRef.current = null;
+        setJournals([]);
+        setFolders([]);
+        setJournalRevisions({});
+        setJournalGlobalRevision(0);
+        setLoading(false);
+        setError(null);
+    }, []);
+
+    useEffect(() => registerLogoutCleanup(resetJournalState), [registerLogoutCleanup, resetJournalState]);
+
+    useEffect(() => {
+        if (step === 'world-closed' || step === 'setup') resetJournalState();
+    }, [step, resetJournalState]);
 
     const fetchJournals = useCallback(async () => {
-        if (!token) return;
+        if (!token || linkState !== 'ready') return;
         if (listFetcherRef.current?.token !== token) {
+            const requestEpoch = requestEpochRef.current;
             listFetcherRef.current = {
                 token,
                 // Folder/Journal invalidations observed during this request
@@ -68,20 +90,25 @@ export function JournalProvider({ children }: { children: React.ReactNode }) {
                     setLoading(true);
                     try {
                         const data = await journalApi.fetchJournals(token);
+                        if (requestEpoch !== requestEpochRef.current) return;
                         setJournals(data.journals || []);
                         setFolders(data.folders || []);
                     } catch (err: any) {
-                        if (err instanceof UnauthorizedApiError) return;
+                        if (requestEpoch !== requestEpochRef.current) return;
+                        if (err instanceof UnauthorizedApiError) {
+                            invalidateLocalSession('journals-401');
+                            return;
+                        }
                         logger.error('JournalProvider | Fetch failed:', err);
                         setError(err.message);
                     } finally {
-                        setLoading(false);
+                        if (requestEpoch === requestEpochRef.current) setLoading(false);
                     }
                 }),
             };
         }
         return listFetcherRef.current.fetch();
-    }, [token]);
+    }, [token, linkState, invalidateLocalSession]);
 
     const requestJournalsRefresh = useCallback(() => {
         if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
@@ -94,10 +121,10 @@ export function JournalProvider({ children }: { children: React.ReactNode }) {
     useEffect(() => {
         // Only fetch journals when we're in the dashboard state
         // Prevents fetches during setup, login, startup, authenticating, etc.
-        if (token && step === 'dashboard') {
+        if (token && step === 'dashboard' && linkState === 'ready') {
             fetchJournals();
         }
-    }, [token, step, fetchJournals]);
+    }, [token, step, linkState, fetchJournals]);
 
     useEffect(() => () => {
         if (refreshTimerRef.current) {
@@ -145,14 +172,21 @@ export function JournalProvider({ children }: { children: React.ReactNode }) {
     }, [appSocket, requestJournalsRefresh]);
 
     const getJournal = useCallback(async (id: string) => {
-        if (!token) return null;
-        const key = `${token}:${id}`;
+        if (!token || linkState !== 'ready') return null;
+        const requestEpoch = requestEpochRef.current;
+        const key = `${requestEpoch}:${id}`;
         let fetcher = detailFetchersRef.current.get(key);
         if (!fetcher) {
             fetcher = createCoalescedFetch<JournalEntry | null>(async () => {
                 try {
-                    return await journalApi.fetchJournalById(token, id);
+                    const journal = await journalApi.fetchJournalById(token, id);
+                    return requestEpoch === requestEpochRef.current ? journal : null;
                 } catch (err) {
+                    if (requestEpoch !== requestEpochRef.current) return null;
+                    if (err instanceof UnauthorizedApiError) {
+                        invalidateLocalSession('journal-detail-401');
+                        return null;
+                    }
                     logger.error(`JournalProvider | Get detail failed for ${id}:`, err);
                     return null;
                 }
@@ -160,7 +194,7 @@ export function JournalProvider({ children }: { children: React.ReactNode }) {
             detailFetchersRef.current.set(key, fetcher);
         }
         return (await fetcher()) ?? null;
-    }, [token]);
+    }, [token, linkState, invalidateLocalSession]);
 
     const createJournal = async (name: string, folderId?: string) => {
         try {
