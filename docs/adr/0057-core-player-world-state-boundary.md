@@ -159,19 +159,24 @@ module component style overrides and module-authored sheets/tools.
    Core status for world state only. Session authority is confirmed by a
    protected session read that reuses an existing protected route (for
    example `GET /api/session/users`) rather than adding an endpoint or API
-   contract: success confirms the same session, a confirmed
-   401 follows decision 5, and 503 means restoration is still pending. While
-   it is pending, keep the page blocked and repeat the protected read only
+   contract: success confirms authority under the current browser cookie,
+   not continuity with the session that originally mounted the page; a
+   confirmed 401 follows decision 5, and 503 means restoration is pending or
+   temporarily unavailable. In either 503 case, keep the page blocked and
+   repeat the protected read only
    when Core's existing `systemStatus` broadcasts report world readiness,
    throttled rather than on every 4-second broadcast and without a new
-   polling timer. Once the same-world session is confirmed, the realtime
-   provider explicitly forces one socket re-handshake (the session marker
-   does not change, so no token transition triggers it) so the socket joins
-   the authenticated room before the page is unblocked. That re-handshake
-   counts toward the same reconnect budget. Log once when an outage begins
-   and once on recovery or final give-up. Expected failed connection
-   attempts may remain at the configured debug level; avoid repeated
-   warning/error-level output for the same outage without hiding unexpected
+   polling timer. Once the current cookie is validated, the world is unchanged
+   and no user change has been observed, the realtime provider deliberately
+   re-handshakes the socket (the session marker does not change, so no token
+   transition triggers it) so it joins the authenticated room before the page
+   is unblocked. Allow at most one such deliberate re-handshake per recovery,
+   subject to the existing server
+   rate limit and finite socket connection policy; do not assume Socket.IO
+   carries the earlier attempt count across a successful connection. Log once
+   when an outage begins and once on recovery or final give-up. Expected
+   failed connection attempts may remain at the configured debug level; avoid
+   repeated warning/error-level output for the same outage without hiding unexpected
    errors. This is temporary unavailability (HTTP 503 where an HTTP
    response is appropriate), not a missing route or resource (404). Elapsed
    time alone does not prove the world closed and does not retire the session.
@@ -182,10 +187,11 @@ module component style overrides and module-authored sheets/tools.
    crash). Core persists Foundry sessions on disk, so a session can survive
    an unannounced Core process loss and resume. Either one denies
    interaction behind the same overlay. When the link returns, Core's status
-   decides the world outcome and the protected session read decides the
-   session outcome: the same world with a still-valid session resumes the
-   preserved page; a different world, a closed world or a confirmed invalid
-   session follows decision 5.
+   decides the world outcome and the protected session read decides whether
+   the current cookie is authorized. Within the browser's recovery budget,
+   the same world with no observed user change and a valid current cookie may
+   resume the preserved page after host-backed data refreshes; a different world, a
+   closed world or confirmed invalid authority follows decision 5.
    The boundary is read-only presentation of state that Core reports. It
    never starts world, transport, restart or session actions; recovery
    belongs to Core. Reconnecting the browser's own realtime socket is
@@ -193,19 +199,24 @@ module component style overrides and module-authored sheets/tools.
    outage overlay offers no actions: it does not prompt the player to log
    out or to leave.
 5. Definitive world close/setup, confirmed world replacement, explicit
-   logout, and any same-world session loss are not transient: retire the old
-   page and its world/session-bound controls. Session loss includes server
-   revocation or expiry, a confirmed protected-read 401 (including on the
-   post-recovery session read), and a different user signing in. The
-   GM chose retirement here, including re-login by the same user: no
-   session-bound page state is promised across a new session. A world/user key
-   alone cannot detect that transition. Confirmed invalidation must explicitly
-   clear the retained page before a subsequent login; an implementation need
-   not add a session-generation contract if this reset is reliable. A
-   protected session read that cannot yet validate a persisted session
-   during startup or restore (503) is indeterminate, not proof of session
-   loss. Core's
-   `sessionInvalidated` realtime event (which already calls
+   logout, and observed same-world session loss are not transient: retire the
+   old page and its world/session-bound controls. Observable loss includes a
+   received server invalidation for revocation or expiry, a confirmed
+   protected-read 401 (including on the post-recovery read), and a locally
+   observed login, even by the same user. Such a login retires the prior page;
+   no unsynced page state is promised across it.
+   Confirmed invalidation must clear the retained page before a subsequent
+   login. Browser tabs share the same cookie: if another tab replaces a
+   same-user session while this tab is offline, this tab may miss the
+   invalidation, and its later protected read can validate the replacement
+   cookie. World/user identity and that read cannot distinguish the two
+   sessions. This exception does not guarantee retirement of the old page;
+   it must remain blocked until current authority is checked and host-backed
+   data is refreshed, without replaying uncertain writes. No new session
+   incarnation contract is introduced. A protected session read that cannot
+   yet validate a persisted session during startup or restore (503) is
+   indeterminate, not proof of session loss. Core's `sessionInvalidated`
+   realtime event (which already calls
    `invalidateLocalSession`) is the authoritative terminal signal; a
    protected-read 401 must mean the same confirmed loss, so Core must not
    answer 401 for a session it is still restoring (that is 503).
@@ -272,8 +283,10 @@ module component style overrides and module-authored sheets/tools.
    document-cache scope on world/user identity only, keep last snapshots
    during transient outages, and remove `token` (and any other readiness
    input) from the Core Actor route resolver's remount dependencies. Clear
-   the retained page on confirmed session invalidation or a world/user change;
-   do not rely on world plus user alone to detect same-user re-login. Drive
+   the retained page on observed session invalidation, a local login, or a
+   world/user change. Do not claim to detect an offline, cross-tab same-user
+   cookie replacement from world/user identity or a successful protected
+   read. Drive
    the same overlay from the browser's realtime-socket disconnect as well as
    Core-reported Foundry loss. In `RealtimeProvider`, keep a finite,
    configured Socket.IO reconnect budget and the v4 client contract: no
@@ -288,8 +301,9 @@ module component style overrides and module-authored sheets/tools.
    the session with a protected session read (not `/api/status`
    `isAuthenticated`). On 503, repeat that read only on throttled
    world-ready status broadcasts, without a separate polling timer. After
-   confirmation, explicitly force one re-handshake (counted in the budget)
-   so a socket admitted to the public room joins the authenticated room
+   confirmation, explicitly force at most one re-handshake, subject to the
+   existing rate limit and finite connection policy, so a socket admitted
+   to the public room joins the authenticated room
    before resuming world-backed events. An unavailable or temporarily
    unverifiable response is not a logout decision. Keep the
    announced-restart reload, and back off its recovery poll (for example, to
@@ -303,10 +317,12 @@ module component style overrides and module-authored sheets/tools.
    bootstrap, status-hook world-change/setup purges) through the existing
    session-invalidation authority, and test that 503 cannot partially log out
    a user. Treat `sessionInvalidated` as the terminal signal. Change
-   `authenticateSession` so a persisted session whose restore is pending or
-   failed for a temporary reason answers 503, reserving 401 for a missing,
-   revoked, expired or conclusively rejected session; today any empty
-   restore result returns 401. (`ensureInitialized` already answers 503
+   the internal session-restore result so `authenticateSession` can distinguish
+   pending or temporarily failed restoration (503) from a missing, revoked,
+   expired or conclusively rejected session (401); today the restore lookup
+   returns the same empty result for both and authentication answers 401.
+   This classification need not change a public API contract.
+   (`ensureInitialized` already answers 503
    before authentication while the world is not ready.) Leave the
    `/api/status` contract unchanged and stop using its `isAuthenticated`
    field for session decisions: move cold-load session discovery in
@@ -325,27 +341,34 @@ module component style overrides and module-authored sheets/tools.
    logout or leave prompt, without classifying time alone as world closure
    or retiring the session. Exercise both outage links: Core reporting
    Foundry loss, and the browser losing its SheetDelver connection
-   (including an unannounced Core process crash and an outage longer than
-   ten reconnect attempts). On return, same world plus valid session resumes
-   the page; anything else follows decision 5. Verify that an outage longer
-   than the reconnect budget, and a rate-limited handshake, each end in the
+   (including an unannounced Core process crash). If the browser reconnects
+   within its budget, the same world with no observed user change and a valid
+   current cookie may resume after the authenticated-room check and data
+   refresh; terminal
+   outcomes follow decision 5. Verify that an outage longer than the
+   reconnect budget, and a rate-limited handshake, each end in the
    final try-again-later overlay with no further reconnects, rechecks or
    actions, and no repeated console warnings while configured debug
-   diagnostics remain available. Test a process-manager-style stop/start
+   diagnostics remain available and a later server return does not resume
+   the page without a user reload. Test a process-manager-style stop/start
    within the budget: no connection while Core is stopped; a socket admitted
    to the public room after listen but before world/session readiness stays
    blocked while the protected session read returns 503, rechecks on later
-   world-ready broadcasts, then re-handshakes into the authenticated room
-   before resuming.
+   world-ready broadcasts, then makes at most one deliberate re-handshake
+   into the authenticated room before resuming.
    Verify that an announced restart still shows its overlay and reloads on
    readiness.
    Assert that a hosted Sheet (`createActorPage`, e.g. D&D 5e) and a module
    `useActorSheet` page (e.g. Mörk Borg) do not present "deleted" for an
    unavailable Actor. Do not assert preservation of unsynced form changes.
-   Assert that confirmed session revocation, expiry, a confirmed 401 and a
-   different-user login each retire the old session page, including re-login
-   as the same user. Test temporary inability to validate a persisted session
-   separately: it must not cause logout, a temporarily failed restore must
+   Assert that received session revocation/expiry invalidation, a confirmed
+   401, and locally observed different- or same-user logins each retire the old
+   session page. Test an offline cross-tab same-user cookie
+   replacement separately: current-cookie validation must not be mistaken
+   for proof of original-session continuity, and host-backed data refreshes;
+   retirement cannot be asserted without an observed terminal signal. Test
+   temporary inability to validate a persisted session separately: it must
+   not cause logout, a temporarily failed restore must
    answer 503 rather than 401 on protected routes, and a cold page load must
    discover the session through the protected read rather than
    `/api/status`. Test a prolonged Foundry-side outage with the socket
