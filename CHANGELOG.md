@@ -5,6 +5,7 @@
 - Hardened session restoration
 - Corrected SDK world signals
 - Guarded module world-state access
+- Resumable release publishing
 
 ## 0.15.0
 - Preserved sessions and world runtime

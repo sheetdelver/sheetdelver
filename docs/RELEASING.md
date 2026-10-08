@@ -74,6 +74,26 @@ Use `--no-push` to prepare locally and print manual commands without prompts.
 Noninteractive runs also stay local. Blockers produce a nonzero exit status.
 Run `npm run release:tag -- --help` for the argument summary.
 
+An already-prepared version uses a separate resume path rather than the
+new-version check:
+
+```sh
+npm run release:tag -- 0.15.1 --resume --dry-run
+npm run release:tag -- 0.15.1 --resume
+```
+
+The resume dry-run validates the local version, changelog, clean `main`, and
+annotated tag without contacting the remote or changing refs. Actual resume
+checks remote refs and GitHub workflows, then continues from the missing step.
+It recognizes pushes that landed despite a local command error. If main CI
+failed and a fix advanced `main`, it moves an **unpublished local** tag to the
+fixed commit only after verifying there is no remote tag or GitHub Release.
+For a completed failed CI or release run, an interactive resume can offer one
+explicit rerun of the same workflow and wait for the new attempt. An interactive
+run asks before each missing push. `--resume --no-push` may
+repair an unpublished local tag after read-only remote checks, but performs no
+remote writes; a noninteractive resume likewise performs no remote writes.
+
 Commit the helper itself and other implementation work before using it for a
 real release. The command does not run the entire test/build pipeline. Run the
 appropriate local gates before preparing, and wait for main CI before pushing
@@ -157,10 +177,23 @@ reported problem, verify the release metadata, then finish the commit/tag
 manually. Do not rerun with a different version just to bypass the failure.
 
 If local preparation succeeded but publishing stopped or was declined, do not
-rerun preparation for that version. Its commit and tag already exist. Follow
-the printed remaining commands after checking CI for the prepared commit.
-A failed push may have reached the remote, so inspect remote state before
-retrying. A published tag must never be moved or replaced.
+rerun preparation for that version. Its commit and tag already exist. Use
+`npm run release:tag -- <version> --resume` to inspect the actual remote refs
+and continue. A failed push may have reached the remote; resume checks before
+trying it again. Correct a failed main CI in a new commit on main, then resume.
+
+If the tag reached GitHub but its release workflow failed because source must
+change, fix and pass main CI first. Then use
+`npm run release:tag -- <version> --resume --reuse-failed-tag`. This opt-in path
+requires a failed completed release run, verifies that no GitHub Release
+exists, compares the exact remote tag object, and asks before deleting the
+remote tag. It rechecks those guards immediately before deletion, then moves
+the local tag to the fixed commit and asks before republishing it. A remote
+tag may already have been fetched; use this exception only for an unpublished
+failed release. It never rewrites main or silently deletes a remote tag. If a
+GitHub Release exists, publish a new patch version instead. For a transient
+workflow failure without a source change, accept the ordinary resume prompt
+to rerun that workflow; declining leaves it untouched.
 
 With GitHub CLI installed and authenticated:
 
@@ -170,9 +203,9 @@ gh run watch <run-id>
 gh release view v0.9.0
 ```
 
-Rerun a failed workflow only when the failure is transient. Correct source,
-version, changelog, or test failures in a new commit and use a new release
-version.
+Rerun a failed workflow only when the failure is transient. Correct a source,
+version, changelog, or test failure on main before using guarded tag recovery;
+if the release was published, use a new patch version.
 
 An unpushed local tag may be deleted and recreated at the intended commit:
 
@@ -181,8 +214,8 @@ git tag -d v0.9.0
 git tag -a v0.9.0 -m "SheetDelver v0.9.0"
 ```
 
-Never move or replace a tag that has already been pushed or published. Release
-tags are immutable records; publish a new patch version instead.
+Never move or replace a published GitHub Release tag. The guarded failed-tag
+recovery above is the only exception for a pushed tag with no Release.
 
 ## Module Releases
 
