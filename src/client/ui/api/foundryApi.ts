@@ -174,7 +174,7 @@ export function addManagedPackActor(combatId: string, packId: string, actorId: s
 }
 
 export function updateManagedCombatant(combatId: string, combatantId: string,
-    body: { initiative?: number | null; hidden?: boolean; defeated?: boolean }): Promise<{ encounter: CombatManagerEncounterDto }> {
+    body: { initiative?: number | null; expectedInitiative?: number | null; hidden?: boolean; defeated?: boolean }): Promise<{ encounter: CombatManagerEncounterDto }> {
     return requestJson(`/api/combat-manager/${combatId}/combatants/${combatantId}`, { method: 'PATCH', body });
 }
 
@@ -195,6 +195,10 @@ export function removeManagedCombatant(combatId: string, combatantId: string): P
 
 export function completeManagedCombat(combatId: string): Promise<{ completed: true; retained: boolean }> {
     return requestJson(`/api/combat-manager/${combatId}/complete`, { method: 'POST' });
+}
+
+export function deleteManagedCombat(combatId: string): Promise<{ deleted: true }> {
+    return requestJson(`/api/combat-manager/${combatId}`, { method: 'DELETE' });
 }
 
 export function postManagedNextTurn(combatId: string): Promise<CombatTurnSuccessPayload> {

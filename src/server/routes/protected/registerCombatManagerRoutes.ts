@@ -49,6 +49,10 @@ export function registerCombatManagerRoutes(router: express.Router, deps: {
         try { res.json({ encounter: await combatManagerService.detail(req.foundryClient, req.params.id) }); }
         catch (error) { handleError(error, res); }
     });
+    router.delete('/combat-manager/:id', async (req, res) => {
+        try { res.json(await combatManagerService.destroy(req.foundryClient, req.params.id)); }
+        catch (error) { handleError(error, res); }
+    });
     router.post('/combat-manager/:id/world-actors', async (req, res) => {
         try { res.json({ encounter: await combatManagerService.addWorldActor(req.foundryClient, req.params.id, req.body?.actorId) }); }
         catch (error) { handleError(error, res); }

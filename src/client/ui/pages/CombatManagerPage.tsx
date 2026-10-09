@@ -2,11 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { Swords } from 'lucide-react';
+import { Swords, UserRound } from 'lucide-react';
 import { useFoundry } from '@client/ui/context/FoundryContext';
 import { ConfirmationModal } from '@client/ui/components/ConfirmationModal';
+import { ApiError } from '@client/ui/api/http';
 import { CombatHealthModal, type CombatHealthTarget } from './CombatHealthModal';
 import * as api from '@client/ui/api/foundryApi';
+import { combatManagerNameKey } from '@shared/contracts/combatManager';
 import type {
     CombatManagerActorChoiceDto,
     CombatManagerActorSortFieldDto,
@@ -37,6 +39,7 @@ function compactStatValue(stat: CombatManagerStatDto): string {
 type PendingConfirmation =
     | { kind: 'begin'; combatId: string; activeOtherCount: number }
     | { kind: 'complete'; combatId: string; keepHistory: boolean; status: CombatManagerEncounterDto['status'] }
+    | { kind: 'delete'; combatId: string; label: string; status: CombatManagerEncounterDto['status'] }
     | { kind: 'reset'; combatId: string; scoredCount: number }
     | { kind: 'remove'; combatId: string; combatantId: string; actorName: string };
 
@@ -46,8 +49,10 @@ type ResourceEdit = {
     path: string;
     expectedValue: number;
     value: string;
+    conflict?: boolean;
 };
 type StatEdit = ResourceEdit & { key: string };
+type InitiativeEdit = { combatantId: string; expectedValue: number | null; value: string; conflict?: boolean };
 
 export default function CombatManagerPage() {
     const { currentUser, step, appSocket, worldId, token, system } = useFoundry();
@@ -76,10 +81,11 @@ export default function CombatManagerPage() {
     const [nameDirection, setNameDirection] = useState<CombatManagerSortDirection>('asc');
     const [actorSortFields, setActorSortFields] = useState<CombatManagerActorSortRequest['fields']>([]);
     const [loadingChoices, setLoadingChoices] = useState(false);
-    const [initiative, setInitiative] = useState('');
+    const [initiativeEdit, setInitiativeEdit] = useState<InitiativeEdit | null>(null);
     const [resourceEdit, setResourceEdit] = useState<ResourceEdit | null>(null);
     const [statEdit, setStatEdit] = useState<StatEdit | null>(null);
     const [healthTarget, setHealthTarget] = useState<CombatHealthTarget | null>(null);
+    const [healthConflict, setHealthConflict] = useState(false);
     const [statPreferences, setStatPreferences] = useState<CombatManagerStatPreferencesDto | null>(null);
     const [editingStats, setEditingStats] = useState(false);
     const [statDraft, setStatDraft] = useState<CombatManagerSelectedStatDto[]>([]);
@@ -94,6 +100,13 @@ export default function CombatManagerPage() {
     const [error, setError] = useState('');
     const [pendingConfirmation, setPendingConfirmation] = useState<PendingConfirmation | null>(null);
     const refreshVersion = useRef(0);
+    const discardBlurForSelection = useRef(false);
+    const beginSelection = () => {
+        // Pointer focus blurs the old field before onChange/onClick switches
+        // rows. That blur must not commit a draft the GM is discarding.
+        discardBlurForSelection.current = true;
+        window.setTimeout(() => { discardBlurForSelection.current = false; }, 0);
+    };
 
     useEffect(() => {
         // The shared player boundary unmounts this page on logout or identity
@@ -102,9 +115,11 @@ export default function CombatManagerPage() {
         setEncounters([]);
         setSelectedId('');
         setSelectedCombatantId('');
+        setInitiativeEdit(null);
         setResourceEdit(null);
         setStatEdit(null);
         setHealthTarget(null);
+        setHealthConflict(false);
         setChoices([]);
         setAvailableSortFields([]);
         setActorSortFields([]);
@@ -138,7 +153,7 @@ export default function CombatManagerPage() {
         if (version !== refreshVersion.current) return;
         setEncounters(payload.encounters);
         setSelectedId(previous => payload.encounters.some(row => row.id === previous)
-            ? previous : payload.encounters[0]?.id || '');
+            ? previous : (payload.encounters.find(row => row.status !== 'completed') || payload.encounters[0])?.id || '');
         setLoading(false);
     }, []);
 
@@ -206,6 +221,8 @@ export default function CombatManagerPage() {
     const encounter = useMemo(() => encounters.find(row => row.id === selectedId) || null, [encounters, selectedId]);
     const selected = encounter?.participants.find(row => row.id === selectedCombatantId)
         || encounter?.participants[0] || null;
+    const nameCollision = label.trim() !== '' && encounters.some(row =>
+        combatManagerNameKey(row.label) === combatManagerNameKey(label));
     const statChoices = [...(statPreferences?.suggestions || []), ...(statPreferences?.available || [])]
         .filter((choice, index, all) => all.findIndex(row => row.path === choice.path && row.kind === choice.kind) === index);
     const filteredStatChoices = statChoices.map((choice, index) => ({ choice, index }))
@@ -218,11 +235,26 @@ export default function CombatManagerPage() {
     const validPackQuantity = Number.isInteger(quantity) && quantity >= 1 && quantity <= 20;
 
     useEffect(() => {
-        setInitiative(selected?.initiative === null || selected?.initiative === undefined ? '' : String(selected.initiative));
+        setInitiativeEdit(null);
+        setResourceEdit(null);
+        setStatEdit(null);
+        setHealthTarget(previous => previous?.combatantId === selected?.id ? previous : null);
+        setHealthConflict(false);
+    }, [encounter?.id, selected?.id]);
+
+    useEffect(() => {
+        setInitiativeEdit(previous => {
+            if (!selected) return null;
+            if (previous?.combatantId === selected.id
+                && (previous.value !== (previous.expectedValue === null ? '' : String(previous.expectedValue)) || previous.conflict)) return previous;
+            return { combatantId: selected.id, expectedValue: selected.initiative,
+                value: selected.initiative === null ? '' : String(selected.initiative) };
+        });
         setResourceEdit(previous => {
             if (!selected?.resource) return null;
             if (previous?.combatantId === selected.id && previous.actorId === selected.actorId
-                && previous.path === selected.resource.path && previous.value !== String(previous.expectedValue)) {
+                && previous.path === selected.resource.path
+                && (previous.value !== String(previous.expectedValue) || previous.conflict)) {
                 // Keep the original observation while the GM has an unsaved draft.
                 return previous;
             }
@@ -264,37 +296,53 @@ export default function CombatManagerPage() {
         return () => { active = false; };
     }, [allowed, editingStats, selected?.actorId, worldId]);
 
-    const mutate = async (action: () => Promise<unknown>) => {
+    const mutate = async (action: () => Promise<unknown>): Promise<{ ok: true } | { ok: false; cause: unknown }> => {
         setBusy(true);
         setError('');
-        try { await action(); await refresh(); }
+        try { await action(); await refresh(); return { ok: true }; }
         catch (cause) {
             setError(errorMessage(cause));
             // A Foundry write may have partially succeeded before the error.
             // Refresh to expose provisioning/cleaning state and safe retry.
             try { await refresh(); } catch { /* Preserve the original error. */ }
+            return { ok: false, cause };
         }
         finally { setBusy(false); }
     };
 
-    const commitStatEdit = (edit: StatEdit, combatId: string) => {
-        setStatEdit(null);
-        if (!edit.value.trim() || !Number.isFinite(Number(edit.value))
-            || Number(edit.value) === edit.expectedValue) return;
-        void mutate(() => api.updateManagedStat(combatId, edit.combatantId, edit.key, {
+    const commitStatEdit = async (edit: StatEdit, combatId: string) => {
+        if (!edit.value.trim() || !Number.isFinite(Number(edit.value))) return;
+        if (Number(edit.value) === edit.expectedValue) { setStatEdit(null); return; }
+        const result = await mutate(() => api.updateManagedStat(combatId, edit.combatantId, edit.key, {
             value: Number(edit.value),
             expected: { actorId: edit.actorId, path: edit.path, value: edit.expectedValue },
         }));
+        setStatEdit(previous => previous?.combatantId === edit.combatantId && previous.key === edit.key
+            && previous.value === edit.value ? result.ok ? null
+                : { ...previous, conflict: result.cause instanceof ApiError && result.cause.status === 409 } : previous);
     };
 
-    const commitResourceEdit = (edit: ResourceEdit, combatId: string) => {
-        setResourceEdit(null);
+    const commitResourceEdit = async (edit: ResourceEdit, combatId: string) => {
         if (!edit.value.trim() || !Number.isFinite(Number(edit.value))
             || Number(edit.value) === edit.expectedValue) return;
-        void mutate(() => api.updateManagedResource(combatId, edit.combatantId, {
+        const result = await mutate(() => api.updateManagedResource(combatId, edit.combatantId, {
             value: Number(edit.value),
             expected: { actorId: edit.actorId, path: edit.path, value: edit.expectedValue },
         }));
+        setResourceEdit(previous => previous?.combatantId === edit.combatantId && previous.value === edit.value
+            ? result.ok ? null : { ...previous, conflict: result.cause instanceof ApiError && result.cause.status === 409 }
+            : previous);
+    };
+
+    const commitInitiativeEdit = async (edit: InitiativeEdit, combatId: string) => {
+        const next = edit.value.trim() === '' ? null : Number(edit.value);
+        if (next !== null && !Number.isFinite(next)) return;
+        if (next === edit.expectedValue) return;
+        const result = await mutate(() => api.updateManagedCombatant(combatId, edit.combatantId,
+            { initiative: next, expectedInitiative: edit.expectedValue }));
+        setInitiativeEdit(previous => previous?.combatantId === edit.combatantId && previous.value === edit.value
+            ? result.ok ? null : { ...previous, conflict: result.cause instanceof ApiError && result.cause.status === 409 }
+            : previous);
     };
 
     const addStat = (choice: ModuleCombatStatAttribute) => {
@@ -315,6 +363,8 @@ export default function CombatManagerPage() {
             void mutate(() => api.postManagedNextTurn(pending.combatId));
         } else if (pending.kind === 'complete') {
             void mutate(() => api.completeManagedCombat(pending.combatId));
+        } else if (pending.kind === 'delete') {
+            void mutate(() => api.deleteManagedCombat(pending.combatId));
         } else if (pending.kind === 'reset') {
             void mutate(() => api.postManagedInitiativeReset(pending.combatId));
         } else {
@@ -325,6 +375,7 @@ export default function CombatManagerPage() {
 
     const confirmationTitle = pendingConfirmation?.kind === 'begin' ? 'Begin encounter'
         : pendingConfirmation?.kind === 'complete' ? 'Complete encounter'
+            : pendingConfirmation?.kind === 'delete' ? 'Delete combat'
             : pendingConfirmation?.kind === 'reset' ? 'Reset initiative' : 'Remove participant';
     const confirmationMessage = pendingConfirmation?.kind === 'begin'
         ? `${pendingConfirmation.activeOtherCount} other ${pendingConfirmation.activeOtherCount === 1 ? 'Combat is' : 'Combats are'} currently active in Foundry. Beginning this encounter will deactivate ${pendingConfirmation.activeOtherCount === 1 ? 'it' : 'them'}, including any scene encounter. Continue?`
@@ -334,6 +385,8 @@ export default function CombatManagerPage() {
                 : 'Complete and delete this Combat, its verified compendium copies and its Actor Folder? Linked world Actors will remain untouched.'
             : pendingConfirmation?.kind === 'reset'
                 ? `Clear initiative for all ${pendingConfirmation.scoredCount} scored combatants? This will not change the current turn.`
+            : pendingConfirmation?.kind === 'delete'
+                ? `Permanently delete ${pendingConfirmation.label}${pendingConfirmation.status === 'completed' ? ' from retained history' : ' even though it has not been completed'}? Its verified encounter copies and child Folder will be removed. Linked world Actors and the SheetDelver parent Folder remain untouched.`
             : pendingConfirmation?.kind === 'remove'
                 ? `Remove ${pendingConfirmation.actorName} from this encounter? Its world Actor will not be deleted.`
                 : '';
@@ -365,7 +418,8 @@ export default function CombatManagerPage() {
                 </div>
                 <label className="flex items-center gap-2 text-sm">
                     Encounter
-                    <select aria-label="Encounter" value={selectedId} onChange={event => { setSelectedId(event.target.value); setSelectedCombatantId(''); }}
+                    <select aria-label="Encounter" value={selectedId} onPointerDownCapture={beginSelection}
+                        onChange={event => { setSelectedId(event.target.value); setSelectedCombatantId(''); }}
                         className={`min-w-48 ${inputClass}`}>
                         {encounters.length === 0 && <option value="">No encounters</option>}
                         {encounters.map(row => <option key={row.id} value={row.id}>{row.label}{row.status === 'completed' ? ' (completed)' : ''}</option>)}
@@ -385,10 +439,11 @@ export default function CombatManagerPage() {
                     <input aria-label="Encounter name" value={label} maxLength={100} onChange={event => setLabel(event.target.value)}
                         placeholder="Encounter name" className={`min-w-56 ${inputClass}`} />
                     <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={keepHistory} onChange={event => setKeepHistory(event.target.checked)} style={{ accentColor: 'var(--sd-ui-accent)' }} /> Keep for history</label>
-                    <button disabled={busy || !label.trim()} onClick={() => void mutate(async () => {
+                    <button disabled={busy || loading || !label.trim() || nameCollision} onClick={() => void mutate(async () => {
                         const created = await api.createManagedCombat(label, keepHistory);
                         setSelectedId(created.encounter.id); setLabel(''); setKeepHistory(false);
                     })} className={primaryButtonClass}>Create</button>
+                    {nameCollision && <span role="status" className="sd-ui-danger text-sm">A combat already exists with that name</span>}
                 </div>
             </section>
 
@@ -502,9 +557,14 @@ export default function CombatManagerPage() {
                             });
                         }}
                             className={primaryButtonClass}>{encounter.round === 0 ? 'Begin' : 'Next turn'}</button>
-                        {encounter.status !== 'completed' && <button disabled={busy} onClick={() => setPendingConfirmation({
+                        {encounter.status !== 'completed' && !encounter.deletionRequested && <button disabled={busy} onClick={() => setPendingConfirmation({
                             kind: 'complete', combatId: encounter.id, keepHistory: encounter.keepHistory, status: encounter.status,
                         })} className="sd-ui-button sd-ui-button-danger px-3 py-2 text-sm font-semibold">{encounter.status === 'cleaning' ? 'Retry cleanup' : 'Complete'}</button>}
+                        <button disabled={busy} onClick={() => setPendingConfirmation({
+                            kind: 'delete', combatId: encounter.id, label: encounter.label, status: encounter.status,
+                        })} className="sd-ui-button sd-ui-button-danger px-3 py-2 text-sm font-semibold">
+                            {encounter.deletionRequested ? 'Retry delete' : encounter.status === 'completed' ? 'Remove history' : 'Delete combat'}
+                        </button>
                     </div>
                 </section>
 
@@ -613,8 +673,14 @@ export default function CombatManagerPage() {
                                 const health = row.stats.find(stat => stat.health && stat.edit);
                                 return <div key={row.id}
                                 className={`${selected?.id === row.id ? 'sd-ui-inset' : 'sd-ui-panel-raised'} flex w-full items-center gap-1 rounded-lg p-1 transition-colors ${row.isCurrent ? 'ring-2 ring-[var(--sd-ui-accent)]' : ''}`}>
-                                <button onClick={() => setSelectedCombatantId(row.id)} className="flex min-w-0 flex-1 items-center gap-3 rounded-lg p-2 text-left">
+                                <button onPointerDownCapture={beginSelection} onClick={() => setSelectedCombatantId(row.id)}
+                                    className="flex min-w-0 flex-1 items-center gap-3 rounded-lg p-2 text-left">
                                 <span className="w-10 text-center font-mono text-lg">{row.initiative ?? '—'}</span>
+                                <span className="sd-ui-inset flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg"
+                                    aria-hidden="true">
+                                    {row.img ? <img src={row.img} alt="" className="h-full w-full object-cover" />
+                                        : <UserRound className="sd-ui-muted h-5 w-5" />}
+                                </span>
                                 <span className="min-w-0 flex-1">
                                     <span className="flex flex-wrap items-center gap-1.5">
                                         <span className="truncate font-semibold">{row.name}</span>
@@ -643,6 +709,7 @@ export default function CombatManagerPage() {
                                 {encounter.status === 'active' && statPreferences?.attributes.some(field => field.health) && <button disabled={busy || !health?.edit}
                                         title={health?.edit ? `Adjust ${health.title} for ${row.name}` : 'No editable health source for this Actor'}
                                         aria-label={`Damage or heal ${row.name}`}
+                                        onPointerDownCapture={beginSelection}
                                         onClick={() => {
                                             if (!health?.edit) return;
                                             setSelectedCombatantId(row.id);
@@ -671,37 +738,53 @@ export default function CombatManagerPage() {
                                         <input type="number" aria-label={`Edit ${stat.title}`} className={`min-w-0 w-24 ${inputClass}`}
                                             value={statEdit?.combatantId === selected.id && statEdit.key === stat.edit.key
                                                 && statEdit.actorId === selected.actorId && statEdit.path === stat.edit.path
+                                                && (statEdit.value !== String(statEdit.expectedValue) || statEdit.conflict)
                                                 ? statEdit.value : String(stat.edit.value)}
                                             onChange={event => setStatEdit(previous => previous?.combatantId === selected.id
                                                 && previous.key === stat.edit?.key && previous.actorId === selected.actorId
                                                 && previous.path === stat.edit?.path
+                                                && (previous.value !== String(previous.expectedValue) || previous.conflict)
                                                 ? { ...previous, value: event.target.value }
                                                 : { combatantId: selected.id, actorId: selected.actorId, key: stat.edit!.key,
                                                     path: stat.edit!.path, expectedValue: stat.edit!.value, value: event.target.value })}
                                             onBlur={() => {
                                                 if (statEdit?.combatantId === selected.id && statEdit.key === stat.edit?.key
                                                     && statEdit.actorId === selected.actorId && statEdit.path === stat.edit?.path) {
-                                                    commitStatEdit(statEdit, encounter.id);
+                                                    if (!statEdit.conflict && !discardBlurForSelection.current) void commitStatEdit(statEdit, encounter.id);
                                                 }
                                             }}
                                             onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }}
                                             disabled={busy} />
+                                        {statEdit?.combatantId === selected.id && statEdit.key === stat.edit.key
+                                            && statEdit.conflict && <span className="sd-ui-danger text-xs">Now {stat.edit.value}.
+                                                <button disabled={busy} className="ml-1 underline" onMouseDown={event => event.preventDefault()}
+                                                    onClick={() => void commitStatEdit({ ...statEdit, expectedValue: stat.edit!.value, conflict: false }, encounter.id)}>Retry</button>
+                                                <button className="ml-1 underline" onClick={() => setStatEdit(null)}>Cancel</button>
+                                            </span>}
                                         {stat.subValue !== undefined && <span className="sd-ui-muted text-xs">{stat.subValue}</span>}
                                     </div> : <span className="block truncate text-sm font-semibold" title={`${stat.value}${stat.subValue ?? ''}`}>{stat.value}{stat.subValue !== undefined && <span className="sd-ui-muted ml-1 font-normal">{stat.subValue}</span>}</span>}
                                 </div>)}
                             </div>}
                             {selected.effects.length > 0 && <p className="text-sm opacity-80">Effects: {selected.effects.join(', ')}</p>}
                             <div className="flex flex-wrap items-end gap-3">
-                                <label className="text-sm">Initiative<input type="number" value={initiative} onChange={event => setInitiative(event.target.value)}
+                                <label className="text-sm">Initiative<input type="number"
+                                    value={initiativeEdit?.combatantId === selected.id ? initiativeEdit.value : selected.initiative ?? ''}
+                                    onChange={event => setInitiativeEdit(previous => previous?.combatantId === selected.id
+                                        ? { ...previous, value: event.target.value }
+                                        : { combatantId: selected.id, expectedValue: selected.initiative, value: event.target.value })}
                                     onBlur={() => {
-                                        const next = initiative.trim() === '' ? null : Number(initiative);
-                                        if ((next === null || Number.isFinite(next)) && next !== selected.initiative) {
-                                            void mutate(() => api.updateManagedCombatant(encounter.id, selected.id, { initiative: next }));
-                                        }
+                                        if (initiativeEdit?.combatantId === selected.id && !initiativeEdit.conflict && !discardBlurForSelection.current)
+                                            void commitInitiativeEdit(initiativeEdit, encounter.id);
                                     }}
                                     onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }}
                                     disabled={busy || encounter.status !== 'active'}
                                     className={`mt-1 block w-24 ${inputClass}`} /></label>
+                                {initiativeEdit?.combatantId === selected.id && initiativeEdit.conflict && <span className="sd-ui-danger text-xs">
+                                    Now {selected.initiative ?? 'unrolled'}.
+                                    <button disabled={busy} className="ml-1 underline" onMouseDown={event => event.preventDefault()}
+                                        onClick={() => void commitInitiativeEdit({ ...initiativeEdit, expectedValue: selected.initiative, conflict: false }, encounter.id)}>Retry</button>
+                                    <button className="ml-1 underline" onClick={() => setInitiativeEdit(null)}>Cancel</button>
+                                </span>}
                                 <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={selected.hidden} disabled={busy || encounter.status !== 'active'} style={{ accentColor: 'var(--sd-ui-accent)' }}
                                     onChange={event => void mutate(() => api.updateManagedCombatant(encounter.id, selected.id, { hidden: event.target.checked }))} /> Hidden</label>
                                 <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={selected.defeated} disabled={busy || encounter.status !== 'active'} style={{ accentColor: 'var(--sd-ui-accent)' }}
@@ -709,13 +792,23 @@ export default function CombatManagerPage() {
                             </div>
                             {selected.resource && <div className="flex flex-wrap items-end gap-3">
                                 <label className="text-sm">Tracked resource <span className="sd-ui-muted">({selected.resource.path})</span>
-                                    <input type="number" value={resourceEdit?.combatantId === selected.id ? resourceEdit.value : ''}
-                                        onChange={event => setResourceEdit(previous => previous ? { ...previous, value: event.target.value } : previous)}
-                                        onBlur={() => { if (resourceEdit?.combatantId === selected.id) commitResourceEdit(resourceEdit, encounter.id); }}
+                                    <input type="number" value={resourceEdit?.combatantId === selected.id ? resourceEdit.value : selected.resource.value}
+                                        onChange={event => setResourceEdit(previous => previous?.combatantId === selected.id
+                                            ? { ...previous, value: event.target.value }
+                                            : { combatantId: selected.id, actorId: selected.actorId, path: selected.resource!.path,
+                                                expectedValue: selected.resource!.value, value: event.target.value })}
+                                        onBlur={() => { if (resourceEdit?.combatantId === selected.id && !resourceEdit.conflict
+                                            && !discardBlurForSelection.current) void commitResourceEdit(resourceEdit, encounter.id); }}
                                         onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }}
                                         disabled={busy || encounter.status !== 'active'}
                                         className={`mt-1 block w-28 ${inputClass}`} /></label>
                                 {selected.resource.max !== null && <span className="sd-ui-muted pb-2 text-sm">Max {selected.resource.max}</span>}
+                                {resourceEdit?.combatantId === selected.id && resourceEdit.conflict && <span className="sd-ui-danger text-xs">
+                                    Now {selected.resource.value}.
+                                    <button disabled={busy} className="ml-1 underline" onMouseDown={event => event.preventDefault()}
+                                        onClick={() => void commitResourceEdit({ ...resourceEdit, expectedValue: selected.resource!.value, conflict: false }, encounter.id)}>Retry</button>
+                                    <button className="ml-1 underline" onClick={() => setResourceEdit(null)}>Cancel</button>
+                                </span>}
                             </div>}
                             {encounter.status === 'active' && <button disabled={busy} onClick={() => {
                                 setPendingConfirmation({ kind: 'remove', combatId: encounter.id,
@@ -729,21 +822,27 @@ export default function CombatManagerPage() {
                 isOpen={pendingConfirmation !== null}
                 title={confirmationTitle}
                 message={confirmationMessage}
-                confirmLabel={pendingConfirmation?.kind === 'begin' ? 'Begin' : pendingConfirmation?.kind === 'remove' ? 'Remove'
+                confirmLabel={pendingConfirmation?.kind === 'begin' ? 'Begin' : pendingConfirmation?.kind === 'delete' ? 'Delete'
+                    : pendingConfirmation?.kind === 'remove' ? 'Remove'
                     : pendingConfirmation?.kind === 'reset' ? 'Reset all' : 'Complete'}
                 isDanger={pendingConfirmation?.kind !== 'begin'}
                 onConfirm={confirmPending}
                 onCancel={() => setPendingConfirmation(null)}
             />
-            <CombatHealthModal target={healthTarget} busy={busy} onClose={() => setHealthTarget(null)}
-                onApply={(target, value) => {
+            <CombatHealthModal target={healthTarget} busy={busy} conflict={healthConflict}
+                observedCurrent={encounter?.participants.find(row => row.id === healthTarget?.combatantId)
+                    ?.stats.find(stat => stat.edit?.key === healthTarget?.key)?.edit?.value}
+                onClose={() => { setHealthTarget(null); setHealthConflict(false); }}
+                onApply={(target, value, retry) => {
                     if (!encounter || encounter.status !== 'active') return;
-                    void mutate(async () => {
-                        try {
-                            await api.updateManagedStat(encounter.id, target.combatantId, target.key, {
-                                value, expected: { actorId: target.actorId, path: target.path, value: target.current },
-                            });
-                        } finally { setHealthTarget(null); }
+                    const observed = encounter.participants.find(row => row.id === target.combatantId)
+                        ?.stats.find(stat => stat.edit?.key === target.key)?.edit?.value;
+                    if (retry && observed === undefined) return;
+                    void mutate(() => api.updateManagedStat(encounter.id, target.combatantId, target.key, {
+                        value, expected: { actorId: target.actorId, path: target.path, value: retry ? observed! : target.current },
+                    })).then(result => {
+                        if (result.ok) { setHealthTarget(null); setHealthConflict(false); }
+                        else if (result.cause instanceof ApiError && result.cause.status === 409) setHealthConflict(true);
                     });
                 }} />
           </div>

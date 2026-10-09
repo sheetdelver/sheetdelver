@@ -69,7 +69,7 @@ async function seed(): Promise<void> {
         { _id: 'gm', role: 4 }, { _id: 'assistant', role: 3 }, { _id: 'player', role: 1 },
     ]);
     await actorStore.seed(async () => [{
-        _id: 'WORLDNPC', name: 'Ongoing NPC', type: 'npc',
+        _id: 'WORLDNPC', name: 'Ongoing NPC', type: 'npc', img: 'npc.webp',
         system: { attributes: { hp: { value: 31, max: 31 } } },
     }, {
         _id: 'PLAYERPC', name: 'Player-owned hero', type: 'character',
@@ -131,14 +131,39 @@ export async function run(): Promise<void> {
     const created = await combatManagerService.create(gm, 'Bridge ambush', false);
     assert.equal(created.status, 'active');
     assert.equal(created.keepHistory, false);
+    const createsBeforeDuplicate = calls.filter(call => call.type === 'Combat' && call.action === 'create').length;
+    const foldersBeforeDuplicate = calls.filter(call => call.type === 'Folder' && call.action === 'create').length;
+    await assert.rejects(() => combatManagerService.create(gm, '  bridge  AMBUSH ', true),
+        (error: unknown) => error instanceof CombatManagerError && error.status === 409
+            && error.message === 'A combat already exists with that name');
+    assert.equal(calls.filter(call => call.type === 'Combat' && call.action === 'create').length, createsBeforeDuplicate,
+        'duplicate name is rejected before any new Combat write');
+    assert.equal(calls.filter(call => call.type === 'Folder' && call.action === 'create').length, foldersBeforeDuplicate,
+        'duplicate name is rejected before any new Folder write');
+    const racing = await Promise.allSettled([
+        combatManagerService.create(gm, 'Racing encounter', false),
+        combatManagerService.create(gm, 'RACING ENCOUNTER', false),
+    ]);
+    assert.equal(racing.filter(result => result.status === 'fulfilled').length, 1,
+        'concurrent GMs cannot create two Combats with the same normalized name');
+    assert.equal(racing.filter(result => result.status === 'rejected'
+        && result.reason instanceof CombatManagerError && result.reason.status === 409).length, 1);
+    await combatManagerService.destroy(gm, (racing.find(result => result.status === 'fulfilled') as PromiseFulfilledResult<any>).value.id);
     const combatId = created.id;
     assert.equal(combatStore.get(combatId)?.active, false,
         'creating a manager encounter must not deactivate an existing Foundry Combat');
     const flag = readCombatManagerFlag(combatStore.get(combatId));
     assert.ok(flag?.folderId, 'dedicated Actor Folder recorded on the Combat');
     assert.equal(folderStore.get(flag.folderId)?.type, 'Actor');
+    const rootId = folderStore.get(flag.folderId)?.folder;
+    assert.ok(rootId, 'encounter Actor Folder is nested under a shared root');
+    assert.equal(folderStore.get(rootId)?.name, 'SheetDelver');
+    assert.equal(folderStore.get(rootId)?.type, 'Actor');
+    assert.deepEqual((folderStore.get(rootId)?.flags as any)?.world?.sheetDelverCombatRoot, { schemaVersion: 1 });
 
     await combatManagerService.addWorldActor(gm, combatId, 'WORLDNPC');
+    assert.equal((await combatManagerService.detail(gm, combatId)).participants[0].img, 'npc.webp',
+        'roster uses the linked Actor portrait');
     await assert.rejects(() => combatManagerService.addWorldActor(gm, combatId, 'WORLDNPC'),
         (error: unknown) => error instanceof CombatManagerError && error.status === 409);
     const managedTurns = createCombatService({ normalizeActors: async actors => actors });
@@ -216,9 +241,36 @@ export async function run(): Promise<void> {
     const copies = roster.filter(row => row.source === 'compendium-copy');
     assert.deepEqual(copies.map(row => row.actorId).sort(), ['COPY1', 'COPY2']);
     assert.deepEqual(copies.map(row => row.name).sort(), ['World-Sized Ogre #1', 'World-Sized Ogre #2']);
+    assert.deepEqual(copies.map(row => row.img), ['ogre.webp', 'ogre.webp'],
+        'roster uses each copied Actor portrait');
+    const otherEncounter = await combatManagerService.create(gm, 'Second encounter', false);
+    assert.equal(folderStore.get(readCombatManagerFlag(combatStore.get(otherEncounter.id))!.folderId!)?.folder, rootId,
+        'later encounters reuse the same parent Actor Folder');
+    assert.equal(folderStore.list().filter(folder => folder.name === 'SheetDelver').length, 1);
+    actorStore.applyModifyDocument('Actor', 'update', [{ _id: copies[0].actorId, folder: null }]);
+    assert.ok(!combatManagerService.worldActors(gm, '').actors.some(actor => copies.some(copy => copy.actorId === actor.id)),
+        'encounter-owned pack copies never appear as world-link choices, even if moved out of the Folder');
+    const combatantCreates = calls.filter(call => call.type === 'Combatant' && call.action === 'create').length;
+    await assert.rejects(() => combatManagerService.addWorldActor(gm, otherEncounter.id, copies[0].actorId),
+        (error: unknown) => error instanceof CombatManagerError && error.status === 404);
+    assert.equal(calls.filter(call => call.type === 'Combatant' && call.action === 'create').length, combatantCreates,
+        'direct API request cannot link an encounter-owned copy into another Combat');
+    actorStore.applyModifyDocument('Actor', 'update', [{ _id: copies[0].actorId, folder: flag.folderId }]);
+    await combatManagerService.complete(gm, otherEncounter.id);
     assert.equal((await combatManagerService.detail(gm, combatId)).currentCombatantId, 'ROW1',
         'adding rows mid-round preserves the current world NPC');
     await combatManagerService.updateParticipant(gm, combatId, copies[0].id, { initiative: 30 });
+    const initiativeWrites = calls.filter(call => call.type === 'Combatant' && call.action === 'update').length;
+    await assert.rejects(() => combatManagerService.updateParticipant(gm, combatId, copies[0].id,
+        { initiative: 29, expectedInitiative: null }),
+    (error: unknown) => error instanceof CombatManagerError && error.status === 409);
+    assert.equal(calls.filter(call => call.type === 'Combatant' && call.action === 'update').length, initiativeWrites,
+        'stale manual initiative does not dispatch a Foundry write');
+    await combatManagerService.updateParticipant(gm, combatId, copies[0].id,
+        { initiative: 29, expectedInitiative: 30 });
+    assert.equal('expectedInitiative' in calls.filter(call => call.type === 'Combatant' && call.action === 'update').at(-1)!.operation.updates[0], false,
+        'Store precondition is never forwarded to Foundry');
+    assert.equal((await combatManagerService.detail(gm, combatId)).participants.find(row => row.id === copies[0].id)?.initiative, 29);
     assert.equal((await combatManagerService.detail(gm, combatId)).currentCombatantId, 'ROW1',
         'initiative reorder preserves the current Combatant identity');
     assert.equal(actorStore.get('COPY1')?.folder, flag.folderId);
@@ -284,6 +336,7 @@ export async function run(): Promise<void> {
     assert.deepEqual(await combatManagerService.complete(gm, combatId), { completed: true, retained: false });
     assert.equal(combatStore.get(combatId), null);
     assert.equal(folderStore.get(flag.folderId), null);
+    assert.ok(folderStore.get(rootId), 'empty SheetDelver root is retained for future encounters');
     assert.equal(actorStore.get('COPY1'), null);
     assert.equal(actorStore.get('COPY2'), null);
     assert.ok(actorStore.get('WORLDNPC'), 'linked world NPC survives encounter cleanup');
@@ -320,6 +373,9 @@ export async function run(): Promise<void> {
     await combatManagerService.addWorldActor(gm, retained.id, 'WORLDNPC');
     assert.deepEqual(await combatManagerService.complete(gm, retained.id), { completed: true, retained: true });
     assert.equal((await combatManagerService.detail(gm, retained.id)).status, 'completed');
+    await assert.rejects(() => combatManagerService.create(gm, 'HISTORICAL ENCOUNTER', false),
+        (error: unknown) => error instanceof CombatManagerError && error.status === 409,
+        'retained history also reserves its encounter name');
     await assert.rejects(() => combatManagerService.addWorldActor(gm, retained.id, 'WORLDNPC'),
         (error: unknown) => error instanceof CombatManagerError && error.status === 409);
     assert.deepEqual(await managedTurns.advanceTurn(gm, retained.id),
@@ -512,6 +568,79 @@ export async function run(): Promise<void> {
         __resetDataDirForTests(previousDataDir);
         fs.rmSync(dataDir, { recursive: true, force: true });
     }
+    combatStore.applyModifyDocument('Combat', 'update', [{ _id: retained.id,
+        'flags.world.sheetDelverCombat.completedAt': '2020-01-01T00:00:00.000Z' }]);
+    const newerHistory = await combatManagerService.create(gm, 'Newer history', true);
+    assert.equal((await combatManagerService.list(gm))[0]?.id, newerHistory.id,
+        'unfinished encounter appears before completed history');
+    await combatManagerService.addPackActor(gm, newerHistory.id, 'test.monsters', 'PACK1');
+    const historyCopy = (await combatManagerService.detail(gm, newerHistory.id)).participants[0].actorId;
+    const historyFolder = readCombatManagerFlag(combatStore.get(newerHistory.id))!.folderId!;
+    await combatManagerService.complete(gm, newerHistory.id);
+    const historyIds = (await combatManagerService.list(gm)).filter(row => row.status === 'completed').map(row => row.id);
+    assert.deepEqual(historyIds.slice(0, 2), [newerHistory.id, retained.id], 'completed history is newest first');
+    await assert.rejects(() => combatManagerService.destroy(assistant, newerHistory.id),
+        (error: unknown) => error instanceof CombatManagerError && error.status === 403);
+    sceneStore.applyModifyDocument('Scene', 'create', [{ _id: 'HISTORYSCENE', tokens: [{ _id: 'HISTORYTOKEN', actorId: historyCopy }] }]);
+    await assert.rejects(() => combatManagerService.destroy(gm, newerHistory.id),
+        (error: unknown) => error instanceof CombatManagerError && error.status === 409);
+    assert.equal(readCombatManagerFlag(combatStore.get(newerHistory.id))?.deletionRequested, true);
+    assert.equal((await combatManagerService.detail(gm, newerHistory.id)).deletionRequested, true);
+    assert.ok(actorStore.get(historyCopy), 'unsafe history removal leaves the copy untouched');
+    sceneStore.applyModifyDocument('Scene', 'delete', ['HISTORYSCENE']);
+    assert.deepEqual(await combatManagerService.destroy(gm, newerHistory.id), { deleted: true });
+    assert.equal(combatStore.get(newerHistory.id), null);
+    assert.equal(folderStore.get(historyFolder), null);
+    assert.equal(actorStore.get(historyCopy), null);
+    assert.ok(actorStore.get('WORLDNPC'), 'removing history never deletes a linked world Actor');
+    assert.deepEqual(await combatManagerService.destroy(gm, retained.id), { deleted: true });
+    const abandoned = await combatManagerService.create(gm, 'Abandoned draft', true);
+    await combatManagerService.addWorldActor(gm, abandoned.id, 'WORLDNPC');
+    await combatManagerService.addPackActor(gm, abandoned.id, 'test.monsters', 'PACK1');
+    await combatManagerService.turn(gm, abandoned.id, () => managedTurns.advanceTurn(gm, abandoned.id, true));
+    assert.equal(combatStore.get(abandoned.id)?.active, true);
+    const abandonedCopy = (await combatManagerService.detail(gm, abandoned.id)).participants
+        .find(row => row.source === 'compendium-copy')!.actorId;
+    const abandonedFolder = readCombatManagerFlag(combatStore.get(abandoned.id))!.folderId!;
+    sceneStore.applyModifyDocument('Scene', 'create', [{ _id: 'ABANDONEDSCENE', tokens: [{ _id: 'ABANDONEDTOKEN', actorId: abandonedCopy }] }]);
+    await assert.rejects(() => combatManagerService.destroy(gm, abandoned.id),
+        (error: unknown) => error instanceof CombatManagerError && error.status === 409);
+    assert.equal(readCombatManagerFlag(combatStore.get(abandoned.id))?.deletionRequested, true);
+    assert.equal((await combatManagerService.detail(gm, abandoned.id)).status, 'cleaning');
+    assert.equal(combatStore.get(abandoned.id)?.active, false);
+    await assert.rejects(() => combatManagerService.complete(gm, abandoned.id),
+        (error: unknown) => error instanceof CombatManagerError && error.status === 409,
+        'a failed explicit deletion cannot fall back into the Keep for history completion path');
+    assert.ok(actorStore.get(abandonedCopy), 'failed deletion retains the guarded copy');
+    sceneStore.applyModifyDocument('Scene', 'delete', ['ABANDONEDSCENE']);
+    assert.deepEqual(await combatManagerService.destroy(gm, abandoned.id), { deleted: true });
+    assert.equal(combatStore.get(abandoned.id), null);
+    assert.equal(folderStore.get(abandonedFolder), null);
+    assert.equal(actorStore.get(abandonedCopy), null);
+    assert.ok(actorStore.get('WORLDNPC'), 'destroying a draft never deletes its linked world Actor');
+    const reusedName = await combatManagerService.create(gm, 'Abandoned draft', false);
+    await combatManagerService.destroy(gm, reusedName.id);
+    combatStore.applyModifyDocument('Combat', 'create', [{ _id: 'OLDREMOVAL', scene: null, active: false,
+        flags: { world: { sheetDelverCombat: { schemaVersion: 1, mode: 'tokenless',
+            label: 'Older removal', status: 'cleaning', keepHistory: true,
+            folderId: null, copyIds: [], historyRemovalRequested: true } } }, combatants: [],
+    }]);
+    assert.deepEqual(await combatManagerService.destroy(gm, 'OLDREMOVAL'), { deleted: true },
+        'an interrupted removal from the earlier history-only path remains retryable');
+    folderStore.applyModifyDocument('Folder', 'delete', [rootId]);
+    folderStore.applyModifyDocument('Folder', 'create', [{ _id: 'USERROOT', name: 'SheetDelver', type: 'Actor', folder: null }]);
+    const reusedRootEncounter = await combatManagerService.create(gm, 'Existing root', false);
+    assert.equal(folderStore.get(readCombatManagerFlag(combatStore.get(reusedRootEncounter.id))!.folderId!)?.folder,
+        'USERROOT', 'a unique existing top-level Actor Folder is reused without taking ownership');
+    await combatManagerService.complete(gm, reusedRootEncounter.id);
+    assert.ok(folderStore.get('USERROOT'), 'cleanup never deletes a reused parent Folder');
+    folderStore.applyModifyDocument('Folder', 'create', [{ _id: 'DUPROOT', name: 'SheetDelver', type: 'Actor', folder: null }]);
+    const createdCombats = calls.filter(call => call.type === 'Combat' && call.action === 'create').length;
+    await assert.rejects(() => combatManagerService.create(gm, 'Ambiguous root', false),
+        (error: unknown) => error instanceof CombatManagerError && error.status === 409);
+    assert.equal(calls.filter(call => call.type === 'Combat' && call.action === 'create').length, createdCombats,
+        'ambiguous parent folders fail before creating a provisional Combat');
+    folderStore.applyModifyDocument('Folder', 'delete', ['DUPROOT', 'USERROOT']);
     console.log('  - CombatManager: role, identity, resource, retention and cleanup checks passed');
 }
 

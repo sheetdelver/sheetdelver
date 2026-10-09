@@ -2,7 +2,7 @@ import { strict as assert } from 'node:assert';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const RECOGNIZED_STATUS = /^(Proposed|Accepted|Implemented|Completed|Superseded|Rejected|Deprecated)\b/;
+const RECOGNIZED_STATUS = /^(Proposed|Deferred|Accepted|Implemented|Completed|Superseded|Rejected|Deprecated)\b/;
 
 export function run() {
     const adrDir = path.join(process.cwd(), 'docs', 'adr');

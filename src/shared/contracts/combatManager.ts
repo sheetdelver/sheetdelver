@@ -1,6 +1,11 @@
 /** GM-only, whitelisted Combat Manager API. Foundry source documents never cross this boundary. */
 import type { ModuleCombatStatAttribute } from '@shared/sdk';
 
+/** Identity used only for detecting duplicate manager encounter labels. */
+export function combatManagerNameKey(label: string): string {
+    return label.trim().replace(/\s+/g, ' ').normalize('NFKC').toLocaleLowerCase();
+}
+
 /** Core-owned GM selection; module info.json suggestions remain read-only. */
 export interface CombatManagerSelectedStatDto extends ModuleCombatStatAttribute {
     editable?: true;
@@ -69,6 +74,7 @@ export interface CombatManagerEncounterDto {
     label: string;
     status: 'provisioning' | 'active' | 'cleaning' | 'completed';
     keepHistory: boolean;
+    deletionRequested: boolean;
     round: number;
     currentCombatantId: string | null;
     participants: CombatManagerParticipantDto[];

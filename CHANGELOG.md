@@ -18,6 +18,14 @@
 - Added individual initiative controls
 - Read evaluated initiative totals
 - Unified manager world presentation
+- Added retained-history removal
+- Preserved combat edit drafts
+- Guarded stale initiative edits
+- Showed combatant Actor portraits
+- Grouped encounter Actor folders
+- Excluded encounter copies from linking
+- Prevented duplicate combat names
+- Enabled unfinished combat deletion
 
 ## 0.15.1
 - Unified player world states

@@ -55,13 +55,16 @@ bounded first-version command contract, not native-method parity.
    (including a scene encounter); with none active, Begin proceeds directly.
    The manager's first round/turn update sets Foundry `active: true`.
    Rewinding to round zero clears it again.
-3. Creation makes a dedicated world Actor Folder for the encounter. A world
+3. Creation makes a dedicated world Actor Folder for the encounter (new
+   encounters are nested under a shared top-level `SheetDelver` Actor Folder;
+   see A10). A world
    Actor selected from the ActorStore is **linked by its canonical Actor ID**,
    whether PC, NPC or another system-specific type. Selecting directly from
    an Actor compendium makes a new world Actor copy in that Folder. Every copy
    has its own Actor ID; its original pack UUID is provenance, not the
    Combatant `actorId`. The source of a selection determines link versus copy;
-   there is no world-Actor Copy action or PC/NPC-type heuristic. Linked Actors
+   there is no world-Actor Copy action or PC/NPC-type heuristic. Encounter-owned
+   copies are not offered as world links in another encounter (A11). Linked Actors
    remain authoritative for ongoing story/game state.
 4. The manager projects only bounded, GM-authorized fields: encounter label,
    status, round/turn, ordered roster, participant source, initiative, hidden,
@@ -261,7 +264,7 @@ to Core.
 
 ### Addendum: retained history, roster ergonomics and initiative formula
 
-**Status:** Accepted for implementation (October 2026). A2–A4 and A6–A8 must
+**Status:** Accepted for implementation (October 2026). A2–A4 and A6–A13 must
 be implemented and verified before this ADR is marked Completed. A1 (player
 initiative rolling) and the Journal history ledger are deferred to a second
 pass after this ADR ships; see "Deferred to a second pass" below. A5 is an
@@ -308,6 +311,17 @@ typed. That is a race between local editing and realtime projection.
   keeps the GM's draft for an explicit retry. This is a Core Store freshness
   check, not an atomic Foundry compare-and-set.
 
+**October 9 implementation checkpoint:** A2 and A3 are implemented on the
+Combat Manager branch. A2 adds GM-confirmed retained-history removal through
+the existing verified copy/Folder cleanup, with a persisted retry marker and
+unfinished-first/newest-completed listing. A3 retains dirty numeric drafts
+across projection refreshes, shows newer values after 409, and requires an
+explicit retry; manual initiative now sends an observed-value precondition.
+Focused and full offline unit tests, TypeScript and changed-file lint passed.
+The GM subsequently verified retained-history removal and the two-GM stale
+edit path in live use. Health-modal conflict behavior remains unverified;
+this checkpoint does not close the ADR or advance deferred A1/ledger work.
+
 **A4. Damage or heal several participants at once.** For area effects, a GM
 can select multiple participants and apply one positive amount as Damage
 (`current − amount`) or Heal (`current + amount`) to each.
@@ -349,9 +363,12 @@ change once the encounter has begun or completed.
   Begin opens one Core modal that counts unrolled player characters and NPCs
   separately and offers "Roll NPCs and begin", "Roll all and begin", "Begin
   anyway" and Cancel (Cancel lets the GM enter table-rolled values first).
-  Roll choices skip rows whose roll is unavailable (an unresolved reference
-  in a GM-defined formula, A8); those stay unrolled, and the modal says how
-  many need manual entry. It
+  If a targeted row has no usable roll (for example, an unresolved reference
+  in a GM-defined formula, A8), the modal counts those rows separately and
+  says they will remain unrolled. The corresponding action is labelled "Roll
+  available NPCs and begin" or "Roll available and begin", never "Roll all"
+  when it cannot roll all. If no rows in a scope can roll, that roll choice is
+  disabled; the GM can enter values manually, begin anyway or cancel. It
   merges with the existing other-active-Combat warning so the GM sees one
   confirmation, not two.
 - **Hidden rows.** Foundry already supplies `Combatant.hidden`, which the
@@ -389,9 +406,12 @@ addition is a GM-defined fallback for a module that supplies none.
   optional `@` attribute references that pass the same safe-path validation
   as selected stats and resolve against the prepared Actor. A reference that
   does not resolve for an Actor makes that Actor's roll unavailable (manual
-  entry) rather than rolling with a missing term. The configuration states
-  whether the loaded module supplies a formula (so whether the GM formula is
-  in effect) and previews it against the selected participant.
+  entry) rather than rolling with a missing term. For the selected Actor, the
+  configuration identifies the effective source as module formula, saved GM
+  fallback or Core default. If it is Core default, show "Using Core default
+  1d20; this may not match your system" and offer the GM fallback control.
+  Preview the effective formula against that Actor; do not imply a saved GM
+  fallback overrides a module-supplied formula.
 - **Foundry system `initiative` field.** Core does not evaluate it directly.
   In captured world data, Shadowdark's value is
   `@initiativeFormula + @initiativeBonus`, whose terms are produced by the
@@ -408,6 +428,54 @@ addition is a GM-defined fallback for a module that supplies none.
 - **Projection.** Manager initiative rows state whether a roll is available
   and whether advantage applies, without sending formula internals beyond
   what the dialog displays.
+
+**A9. Actor thumbnails in the roster.** Show each participant's Actor portrait
+beside the name and initiative, using the linked or copied world Actor image
+when available. Fall back to the Combatant image, then a neutral icon. The
+portrait is decorative; the adjacent name remains the accessible label.
+
+**A10. SheetDelver Actor Folder root.** Newly created encounter Actor Folders
+are children of one top-level Actor Folder titled `SheetDelver`. Creation
+reuses a uniquely identified managed root, or a unique pre-existing top-level
+Actor Folder of that name without taking ownership of it; otherwise it
+creates a marked root. Only the child Folder is tied to a Combat and eligible
+for verified completion cleanup. The parent remains, even when empty, and
+is never automatically deleted. Existing top-level encounter Folders are not
+silently moved by a read or new encounter creation; a migration, if needed,
+requires a separate explicit decision.
+
+**A11. Encounter copies are not world-link choices.** A world Actor copied
+directly from a compendium is owned by its source encounter. Its existing
+`sheetDelverCombatCopy` marker, not its current Folder position or Actor type,
+excludes it from the World Actors (link) picker and the add-world-Actor API
+of every encounter. Ordinary world Actors remain linkable. This prevents
+cross-encounter references from blocking safe cleanup of the source copy.
+
+**A12. Unique encounter names at creation.** The New encounter form checks
+all marked encounters, including retained and cleaning ones, as the GM types.
+It disables Create and shows “A combat already exists with that name” beside
+the button for a duplicate. Name identity trims edges, collapses whitespace,
+normalizes Unicode and ignores case; the saved label keeps the GM's spelling.
+The GM-only create service enforces the same rule before any Folder or Combat
+write and reserves the normalized name while creation is pending, so a stale
+browser list or simultaneous GM request cannot create a second match. Once
+an encounter is deleted, its name is available again.
+
+**A13. Delete without completion.** A GM may explicitly delete an active,
+unstarted or provisioning encounter instead of completing it, regardless of
+its Keep for history selection. Retained history remains deletable. One Core
+confirmation modal clearly distinguishes permanent deletion from Complete.
+The DELETE route marks deletion intent and deactivates the Combat before the
+same verified copy/child-Folder cleanup; external references or mismatched
+markers stop deletion, and an interrupted attempt can be retried. Linked
+world Actors and the shared `SheetDelver` parent Folder are never deleted.
+The existing `complete` action retains its distinct retention behavior.
+
+**October 9 addendum checkpoint:** A9–A11 are implemented with focused
+projection, folder-reuse, cleanup and direct-API bypass tests. The GM has
+not yet verified their rendered/live behavior; ADR-0049 remains Accepted.
+A12–A13 are implemented with duplicate-name, concurrent-create, unfinished
+deletion and guarded-retry tests; rendered/live acceptance is pending.
 
 **Deferred to a second pass.** These are not completion gates. They are
 recorded so the second pass starts from the reviewed design; each needs its
@@ -448,9 +516,17 @@ with unrolled player characters, NPCs and rows whose roll is unavailable; the
 hidden row toggle and HUD redaction; the busy-lock notice; preference refresh
 across two GM accounts without polling; and formula resolution order (system
 module formula, GM fallback for a missing, inherited or empty one, then
-`1d20`), safe-path rejection, unresolved references falling back to manual
-entry, and advantage shown only for d20 formulas. Use isolated data and
-disposable Foundry worlds only.
+`1d20`), a visible Core-default warning, safe-path rejection, unresolved
+references falling back to manual entry, accurately labelled Begin choices
+when some rolls are unavailable, and advantage shown only for d20 formulas;
+Actor portraits and fallback; one retained SheetDelver root with correctly
+nested new encounter Folders; no automatic movement or parent deletion; and
+marked compendium copies absent from world-link choices and rejected by
+the direct add-world-Actor route; duplicate-name feedback and server rejection
+across status/case/whitespace and simultaneous GMs; and confirmed deletion
+of an unfinished retained-choice Combat with partial-failure retry and no
+linked Actor or parent-Folder deletion.
+Use isolated data and disposable Foundry worlds only.
 
 ## Implementation and verification requirements
 

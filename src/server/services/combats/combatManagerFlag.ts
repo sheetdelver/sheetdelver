@@ -11,6 +11,10 @@ export interface CombatManagerFlag {
     /** Last allocated Combatant label number per source pack UUID. */
     copyNameCounters?: Record<string, number>;
     completedAt?: string;
+    /** Set before explicit deletion, including an uncompleted encounter. */
+    deletionRequested?: true;
+    /** Older in-progress history cleanup marker, accepted for safe retry. */
+    historyRemovalRequested?: true;
 }
 
 export function readCombatManagerFlag(combat: CombatDocument | null | undefined): CombatManagerFlag | null {
@@ -28,5 +32,7 @@ export function readCombatManagerFlag(combat: CombatDocument | null | undefined)
     if (flag.copyNameCounters !== undefined && (typeof flag.copyNameCounters !== 'object'
         || flag.copyNameCounters === null || Array.isArray(flag.copyNameCounters)
         || Object.values(flag.copyNameCounters).some(value => !Number.isSafeInteger(value) || (value as number) < 1))) return null;
+    if (flag.historyRemovalRequested !== undefined && flag.historyRemovalRequested !== true) return null;
+    if (flag.deletionRequested !== undefined && flag.deletionRequested !== true) return null;
     return flag as unknown as CombatManagerFlag;
 }

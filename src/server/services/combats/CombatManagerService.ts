@@ -1,5 +1,5 @@
 import type { ActorDocument } from '@server/shared/types/actors';
-import type { CombatClientLike, CombatDocument, CombatantDocument } from '@server/shared/types/documents';
+import type { CombatClientLike, CombatDocument, CombatantDocument, FolderDocument } from '@server/shared/types/documents';
 import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
 import { combatStore } from '@server/core/documents/primary/combats/CombatStore';
 import { folderStore } from '@server/core/documents/primary/folders/FolderStore';
@@ -17,6 +17,7 @@ import { compendiumStore } from '@server/core/compendium/CompendiumStore';
 import { preparedActorStore } from '@server/core/documents/prepared/actors/PreparedActorStore';
 import { parseCombatStatSelection } from '@shared/contracts/combatStatAttributes';
 import { combatStatDisplayService, projectCombatStatFields } from './CombatStatDisplayService';
+import { combatManagerNameKey } from '@shared/contracts/combatManager';
 import type {
     CombatManagerActorChoiceDto,
     CombatManagerActorSearchDto,
@@ -43,6 +44,7 @@ const PACK_PATTERN = /^[A-Za-z0-9_.-]{1,160}$/;
 const PATH_PATTERN = /^[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*$/;
 const MAX_BATCH_ROLL = 100;
 const MAX_PACK_COPIES_PER_ADD = 20;
+const creatingNames = new Set<string>();
 
 function requiredId(value: unknown): string {
     if (typeof value !== 'string' || !ID_PATTERN.test(value)) throw new CombatManagerError('Invalid document ID', 400);
@@ -67,10 +69,57 @@ function copyMarker(actor: ActorDocument): Record<string, unknown> | null {
     return isRecord(value) ? value : null;
 }
 
+function isEncounterCopy(actor: ActorDocument): boolean {
+    const flags = (actor as Record<string, unknown>).flags;
+    return isRecord(flags) && isRecord(flags.world)
+        && Object.prototype.hasOwnProperty.call(flags.world, 'sheetDelverCombatCopy');
+}
+
 function folderMarker(folder: Record<string, unknown>): Record<string, unknown> | null {
     if (!isRecord(folder.flags) || !isRecord(folder.flags.world)) return null;
     const value = folder.flags.world.sheetDelverCombatFolder;
     return isRecord(value) ? value : null;
+}
+
+function rootFolderMarker(folder: FolderDocument): boolean {
+    return isRecord(folder.flags) && isRecord(folder.flags.world)
+        && isRecord(folder.flags.world.sheetDelverCombatRoot)
+        && folder.flags.world.sheetDelverCombatRoot.schemaVersion === 1;
+}
+
+let rootFolderCreation: Promise<string> | null = null;
+async function ensureSheetDelverActorRoot(client: CombatClientLike): Promise<string> {
+    if (rootFolderCreation) return rootFolderCreation;
+    rootFolderCreation = (async () => {
+        const folders = folderStore.list();
+        const marked = folders.filter(rootFolderMarker);
+        if (marked.length > 1) throw new CombatManagerError('Multiple SheetDelver Actor roots found; inspect the Folder directory', 409);
+        if (marked.length === 1) {
+            const root = marked[0];
+            if (root.type !== 'Actor' || root.name !== 'SheetDelver' || (root.folder ?? root.parent ?? null) !== null) {
+                throw new CombatManagerError('SheetDelver Actor root was changed; restore it before creating an encounter', 409);
+            }
+            const id = getDocumentId(root);
+            if (id) return id;
+        }
+        // Reuse an existing top-level Actor Folder by name without marking or
+        // ever deleting it. Encounter child markers remain our authority.
+        const named = folders.filter(folder => folder.type === 'Actor' && folder.name === 'SheetDelver'
+            && (folder.folder ?? folder.parent ?? null) === null);
+        if (named.length > 1) throw new CombatManagerError('Multiple SheetDelver Actor roots found; inspect the Folder directory', 409);
+        if (named.length === 1) {
+            const id = getDocumentId(named[0]);
+            if (id) return id;
+        }
+        const created = resultDocument(await repositories(client).folders.create({
+            name: 'SheetDelver', type: 'Actor', folder: null,
+            flags: { world: { sheetDelverCombatRoot: { schemaVersion: 1 } } },
+        }));
+        const id = created && getDocumentId(created);
+        if (!id) throw new CombatManagerError('SheetDelver Actor root was not created; retry after inspecting Folders', 502);
+        return id;
+    })();
+    try { return await rootFolderCreation; } finally { rootFolderCreation = null; }
 }
 
 function trackedResourcePath(): string | null {
@@ -179,7 +228,8 @@ function projectEncounter(combat: CombatDocument, client: CombatClientLike,
             source,
             isNpc: actor ? !hasPlayerOwner(actor) : false,
             name: row.name || actor?.name || 'Unknown actor',
-            img: typeof row.img === 'string' ? client.resolveUrl(row.img) : null,
+            img: typeof actor?.img === 'string' && actor.img ? client.resolveUrl(actor.img)
+                : typeof row.img === 'string' && row.img ? client.resolveUrl(row.img) : null,
             initiative: row.initiative,
             hidden: row.hidden,
             defeated: row.defeated,
@@ -194,6 +244,7 @@ function projectEncounter(combat: CombatDocument, client: CombatClientLike,
         label: flag.label,
         status: flag.status,
         keepHistory: flag.keepHistory,
+        deletionRequested: flag.deletionRequested === true || flag.historyRemovalRequested === true,
         round: prepared?.round ?? combat.round ?? 0,
         currentCombatantId: prepared?.currentCombatantId ?? null,
         participants,
@@ -206,8 +257,14 @@ export const combatManagerService = {
         const combats = combatStore.list({ subject });
         if (combats.length === 0) return [];
         const attributes = (await combatStatDisplayService.resolve(client))?.attributes ?? [];
-        return combats.map(combat => projectEncounter(combat, client, attributes))
-            .filter((row): row is CombatManagerEncounterDto => row !== null);
+        const rank = { active: 0, provisioning: 1, cleaning: 2, completed: 3 };
+        return combats.map(combat => ({ combat, row: projectEncounter(combat, client, attributes) }))
+            .filter((entry): entry is { combat: CombatDocument; row: CombatManagerEncounterDto } => entry.row !== null)
+            .sort((a, b) => rank[a.row.status] - rank[b.row.status]
+                || (a.row.status === 'completed'
+                    ? (readCombatManagerFlag(b.combat)?.completedAt || '').localeCompare(readCombatManagerFlag(a.combat)?.completedAt || '') : 0)
+                || a.row.label.localeCompare(b.row.label) || a.row.id.localeCompare(b.row.id))
+            .map(entry => entry.row);
     },
 
     async detail(client: CombatClientLike, combatId: string): Promise<CombatManagerEncounterDto> {
@@ -249,7 +306,7 @@ export const combatManagerService = {
         const sort = parseActorPickerSort(sortInput);
         if (!sort) throw new CombatManagerError('Invalid Actor sort', 400);
         const term = query.trim().toLocaleLowerCase().slice(0, 80);
-        const source = actorStore.list({ subject });
+        const source = actorStore.list({ subject }).filter(actor => !isEncounterCopy(actor));
         const sortFields = discoverActorSortFields(source as Record<string, unknown>[]);
         const matching = source.filter(actor => !term || actor.name?.toLocaleLowerCase().includes(term));
         const ordered = sortActorChoices(matching, sort, sortFields, actor => getDocumentId(actor) || '');
@@ -301,24 +358,33 @@ export const combatManagerService = {
         if (!label || label.length > 100 || typeof keepHistoryInput !== 'boolean') {
             throw new CombatManagerError('A label and Keep for history choice are required', 400);
         }
-        const repo = repositories(client);
-        const flag: CombatManagerFlag = {
-            schemaVersion: 1, mode: 'tokenless', label, status: 'provisioning',
-            keepHistory: keepHistoryInput, folderId: null, copyIds: [],
-        };
-        // Foundry deactivates every other active Combat when a new active
-        // Combat is created, including scene encounters. The manager's own
-        // lifecycle flag is independent of Foundry's global `active` bit.
-        const created = resultDocument(await repo.combats.create({ scene: null, active: false, round: 0, turn: null,
-            flags: { world: { sheetDelverCombat: flag } } }));
-        const combatId = created && getDocumentId(created);
-        if (!combatId) throw new CombatManagerError('Foundry did not return the new Combat ID', 502);
-        const folder = resultDocument(await repo.folders.create({ name: `Combat: ${label}`, type: 'Actor',
-            flags: { world: { sheetDelverCombatFolder: { combatId } } } }));
-        const folderId = folder && getDocumentId(folder);
-        if (!folderId) throw new CombatManagerError(`Combat ${combatId} was created but its Actor Folder was not; completion can retry cleanup`, 502);
-        await updateFlag(client, combatId, { ...flag, folderId, status: 'active' });
-        return this.detail(client, combatId);
+        const nameKey = combatManagerNameKey(label);
+        if (creatingNames.has(nameKey) || combatStore.list().some(combat => {
+            const existing = readCombatManagerFlag(combat);
+            return existing && combatManagerNameKey(existing.label) === nameKey;
+        })) throw new CombatManagerError('A combat already exists with that name', 409);
+        creatingNames.add(nameKey);
+        try {
+            const repo = repositories(client);
+            const flag: CombatManagerFlag = {
+                schemaVersion: 1, mode: 'tokenless', label, status: 'provisioning',
+                keepHistory: keepHistoryInput, folderId: null, copyIds: [],
+            };
+            const rootFolderId = await ensureSheetDelverActorRoot(client);
+            // Foundry deactivates every other active Combat when a new active
+            // Combat is created, including scene encounters. The manager's own
+            // lifecycle flag is independent of Foundry's global `active` bit.
+            const created = resultDocument(await repo.combats.create({ scene: null, active: false, round: 0, turn: null,
+                flags: { world: { sheetDelverCombat: flag } } }));
+            const combatId = created && getDocumentId(created);
+            if (!combatId) throw new CombatManagerError('Foundry did not return the new Combat ID', 502);
+            const folder = resultDocument(await repo.folders.create({ name: `Combat: ${label}`, type: 'Actor', folder: rootFolderId,
+                flags: { world: { sheetDelverCombatFolder: { combatId } } } }));
+            const folderId = folder && getDocumentId(folder);
+            if (!folderId) throw new CombatManagerError(`Combat ${combatId} was created but its Actor Folder was not; completion can retry cleanup`, 502);
+            await updateFlag(client, combatId, { ...flag, folderId, status: 'active' });
+            return this.detail(client, combatId);
+        } finally { creatingNames.delete(nameKey); }
     },
 
     async addWorldActor(client: CombatClientLike, combatId: string, actorIdInput: unknown): Promise<CombatManagerEncounterDto> {
@@ -326,7 +392,8 @@ export const combatManagerService = {
         const actorId = requiredId(actorIdInput);
         return withEncounterLock(combatId, async () => {
             const { combat } = activeEncounter(combatId);
-            if (!actorStore.get(actorId, { subject })) throw new CombatManagerError('World Actor not found', 404);
+            const actor = actorStore.get(actorId, { subject });
+            if (!actor || isEncounterCopy(actor)) throw new CombatManagerError('World Actor not available for linking', 404);
             if (combat.combatants?.some(row => row.actorId === actorId)) {
                 throw new CombatManagerError('World Actor is already in this encounter', 409);
             }
@@ -420,16 +487,27 @@ export const combatManagerService = {
         const combatantId = requiredId(combatantIdInput);
         return withEncounterLock(combatId, async () => {
             const { combat } = activeEncounter(combatId);
-            if (!combat.combatants?.some(row => getDocumentId(row) === combatantId)) throw new CombatManagerError('Combatant not found', 404);
+            const combatant = combat.combatants?.find(row => getDocumentId(row) === combatantId);
+            if (!combatant) throw new CombatManagerError('Combatant not found', 404);
             const currentId = combatEncounterReadModel.getOrRebuild(combatId)?.currentCombatantId ?? null;
-            const allowed = ['initiative', 'hidden', 'defeated'];
+            const allowed = ['initiative', 'expectedInitiative', 'hidden', 'defeated'];
             if (!Object.keys(body).length || Object.keys(body).some(key => !allowed.includes(key))) throw new CombatManagerError('Unsupported participant update', 400);
             if ('initiative' in body && !(body.initiative === null || (typeof body.initiative === 'number' && Number.isFinite(body.initiative)))) {
                 throw new CombatManagerError('Initiative must be a number or null', 400);
             }
+            if ('expectedInitiative' in body && !('initiative' in body)) throw new CombatManagerError('Expected initiative requires an initiative change', 400);
+            if ('expectedInitiative' in body) {
+                if (!(body.expectedInitiative === null || (typeof body.expectedInitiative === 'number' && Number.isFinite(body.expectedInitiative)))) {
+                    throw new CombatManagerError('Expected initiative must be a number or null', 400);
+                }
+                if ((combatant.initiative ?? null) !== body.expectedInitiative) {
+                    throw new CombatManagerError('Initiative changed; review the new value before retrying', 409);
+                }
+            }
             if ('hidden' in body && typeof body.hidden !== 'boolean') throw new CombatManagerError('Hidden must be a boolean', 400);
             if ('defeated' in body && typeof body.defeated !== 'boolean') throw new CombatManagerError('Defeated must be a boolean', 400);
-            await repositories(client).combats.updateCombatant(combatId, combatantId, body);
+            const { expectedInitiative: _expectedInitiative, ...updates } = body;
+            await repositories(client).combats.updateCombatant(combatId, combatantId, updates);
             if ('initiative' in body) await preserveCurrentTurn(client, combatId, currentId);
             return this.detail(client, combatId);
         });
@@ -617,10 +695,28 @@ export const combatManagerService = {
         });
     },
 
-    async complete(client: CombatClientLike, combatId: string): Promise<{ completed: true; retained: boolean }> {
+    async destroy(client: CombatClientLike, combatId: string): Promise<{ deleted: true }> {
+        await this.complete(client, combatId, true);
+        return { deleted: true };
+    },
+
+    async complete(client: CombatClientLike, combatId: string, forceDelete = false): Promise<{ completed: true; retained: boolean }> {
         roleSubject(client);
         return withEncounterLock(combatId, async () => {
-            const { flag } = requiredEncounter(combatId);
+            let { flag } = requiredEncounter(combatId);
+            if (forceDelete) {
+                if (!flag.deletionRequested && !flag.historyRemovalRequested) {
+                    // Persist explicit deletion intent before cleanup, including
+                    // unstarted or retained encounters. Interrupted attempts
+                    // cannot later fall through the normal retention path.
+                    flag = { ...flag, status: 'cleaning', deletionRequested: true };
+                    await repositories(client).combats.update(combatId, {
+                        active: false, 'flags.world.sheetDelverCombat': flag,
+                    });
+                }
+            } else if (flag.deletionRequested || flag.historyRemovalRequested) {
+                throw new CombatManagerError('Use Delete to retry this cleanup', 409);
+            }
             if (flag.status === 'completed') throw new CombatManagerError('Encounter already completed', 409);
             if (flag.status !== 'active' && flag.status !== 'cleaning' && flag.status !== 'provisioning') {
                 throw new CombatManagerError('Encounter cannot be completed', 409);
