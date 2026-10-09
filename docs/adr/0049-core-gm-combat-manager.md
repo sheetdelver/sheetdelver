@@ -259,107 +259,38 @@ authority and system rules. Daggerheart spotlight/Fear mechanics are likewise
 outside this initiative-oriented follow-up; no system-name branch is added
 to Core.
 
-### Addendum: player initiative, history removal and roster ergonomics
+### Addendum: retained history, roster ergonomics and initiative formula
 
-**Status:** Accepted for implementation (October 2026). A1–A4 and A6–A8 must
-be implemented and verified before this ADR is marked Completed. A5 is an
-open design item and is not a completion gate. This addendum revises the
-slice above only where stated: A1 adds one player-facing control; every
-other player control remains out of scope.
+**Status:** Accepted for implementation (October 2026). A2–A4 and A6–A8 must
+be implemented and verified before this ADR is marked Completed. A1 (player
+initiative rolling) and the Journal history ledger are deferred to a second
+pass after this ADR ships; see "Deferred to a second pass" below. A5 is an
+open design item. None of these is a completion gate. This addendum adds no
+player-facing control.
 
-**A1. Players roll their own visible characters' initiative.** The first release
-made the CombatHUD view-only for managed encounters: its initiative route
-refuses every caller without the manager command flag, and the HUD projects
+**A1. Player initiative rolling (deferred).** The first release made the
+CombatHUD view-only for managed encounters: its initiative route refuses
+every caller without the manager command flag, and the HUD projects
 `canRollInitiative` only for a GM. That differs from Foundry's own tracker
 and common online trackers, where a player rolls for their own character.
+For this release the GM enters or rolls initiative for every row, including
+values players rolled at the table. Player rolling, the player prompt,
+GM-selected custom formulas and the SheetDelver-owned request queue they
+need are one second-pass design recorded in ADR-0058.
 
-- **Universal prompt.** When individual initiative is requested and a player
-  owns one or more visible, unrolled Combatants in a managed encounter, Core
-  shows one prompt listing only those characters on any player page. Each
-  character may use the resolved module/GM formula or enter a final total.
-  A custom formula selected for particular actors by the GM uses the reusable
-  Core directed-roll flow in ADR-0058; the current module `rollModal` and
-  Core `RollDialog` cannot be assumed to honor an external formula unchanged.
-  The modal can be dismissed ("Later") and reopened from a player-visible
-  pending control. It closes when no eligible unrolled row remains or the
-  encounter leaves `active`.
-- **When it appears.** A managed encounter keeps Foundry's `active` bit false
-  until Begin, so the existing pre-combat banner (`active && !started`) never
-  shows it to players. The prompt is therefore driven by a narrow
-  player-scoped projection of managed encounters in `active` status
-  (including before Begin) that contains only the encounter label and the
-  caller's own **non-hidden** unrolled rows, so players can pre-roll without
-  the manager activating the Foundry Combat. Showing the full roster to
-  players before Begin is not part of this change. Multiple encounters keep
-  their rows and dismiss/reopen state distinct by Combat and Combatant ID.
-- **Authorization.** A non-GM user may set initiative for a Combatant only
-  when the encounter is `active`, the Combatant is non-hidden and unrolled,
-  and the user has OWNER permission on its world Actor. Ownership and hidden
-  state are rechecked on the server; client flags are presentation only.
-  Compendium copies are created with `default: 0` ownership, so they are
-  never player-rollable unless a GM grants ownership.
-- **Input bounds.** For player requests the server accepts only the formula
-  resolved by A8 or supplied in a valid GM-directed request, or a bounded
-  numeric final total. Arbitrary dice expressions and extra modifiers from
-  players are rejected. A manual entry is trust-based, as at a physical
-  table, and its private chat card is marked as manually entered.
-- **Execution.** Both paths run under the encounter lock through the same
-  user-bound roll path and server-selected chat audience, preserving current-
-  Combatant identity after reordering. Hidden Combatants stay GM-controlled;
-  their GM rolls remain whispered rather than leaking through a player prompt.
-- **GM visibility control.** Foundry already supplies `Combatant.hidden`,
-  which the manager can edit and the player projection redacts. Add a
-  discoverable per-row toggle in the manager, not another flag; verify an
-  immediate player prompt/HUD refresh when it changes.
-- **Still GM-only.** Reroll, Clear, Reset all, batch rolls, turn controls and
-  every other mutation. A player cannot roll for a Combatant they do not own
-  or replace an existing score; those requests return 403 or 409. Turn
-  advancement by players ("End turn") is not included and needs its own
-  decision.
-- **Interplay with A7.** The Begin confirmation distinguishes player-owned
-  unrolled characters from NPCs, so the GM can wait for players, roll NPCs
-  and begin, roll all and begin, or begin anyway.
+**A2. Retained-history removal and listing.** `complete` rejects an
+already-completed encounter and no route removes one, so retained history
+accumulates indefinitely and the unsorted list can open the page on an old
+completed encounter. Decisions 6–7 otherwise stand for this release.
 
-**A2. Round ledger and Journal history.** This supersedes first-release
-decisions 6–7 for newly completed encounters. The GM revised the retained-
-Combat design: a kept encounter should leave a readable, round-by-round
-Journal record, not indefinitely retain its Combat, copied enemies and Actor
-Folder. The encounter recipe should permit a new encounter to be built from
-current sources; it is not a promise to restore old live Actor documents.
-
-- During play, keep an ordered, bounded ledger associated with the marked
-  Combat. Record round/turn transitions, initiative formula and total (or a
-  manual-total marker), and changes to the GM-selected displayed fields with
-  participant name, field label, previous value and new value. Unchanged
-  fields do not generate entries. Rewinding appends a transition rather than
-  rewriting earlier history. Each event has stable order and enough identity
-  to distinguish repeated actors. Manager writes have explicit command
-  context; Actor changes received from Foundry may be marked as observed
-  changes, not attributed to a manager command. A connection gap cannot
-  reconstruct every intermediate outside edit: compare with the last stored
-  observation on recovery and label any difference as a gap, not a precise
-  action sequence. Avoid bootstrap emissions and event feedback loops.
-- When Keep for history is checked, completion first writes a GM-only
-  Journal with readable round/turn pages and a versioned, server-validated
-  recipe (world Actor IDs and pack source UUIDs, not temporary copy IDs),
-  plus a bounded final snapshot of selected display fields. The request-
-  scoped Journal repository and Store are the only document path. Once the
-  archive is verified, reuse the existing ownership and external-reference
-  cleanup checks to remove owned pack copies, Folder and Combat. Failure to
-  archive leaves the live documents intact; interrupted cleanup retries
-  against the same marked Journal, never creating a second archive. Linked
-  world Actors are never deleted.
-- Manager history lists marked Journals separately from active Combats. Open
-  History opens the Journal; Create from history previews each recipe source
-  and warns if a world Actor or compendium entry is missing or changed before
-  creating a new encounter. It does not silently omit an unavailable source.
-  Existing retained completed Combats need an explicit GM-triggered archive
-  migration, not a silent background deletion. Deleting a Journal follows
-  normal GM Journal permissions and removes that historical record.
-- The active encounter list puts active/provisioning/cleaning Combats first,
-  and never auto-selects history while an unfinished Combat exists. An
-  unchecked Keep for history choice retains the existing verified cleanup
-  behavior and creates no Journal.
+- A GM can permanently remove a completed, retained encounter after a Core
+  confirmation modal. Removal reuses the verified cleanup path (copy and
+  Folder ownership checks, external-reference checks, Combat deleted last,
+  recoverable partial failure and guarded retry) and never deletes a linked
+  world Actor.
+- The encounter list shows active, provisioning and cleaning encounters
+  first, then completed history newest first. The page never auto-selects a
+  completed encounter while an unfinished one exists.
 
 **A3. Edit drafts survive realtime refresh.** The manual initiative input is
 reset whenever the selected participant's projection refreshes, so any
@@ -417,11 +348,16 @@ change once the encounter has begun or completed.
 - **Begin with unrolled participants.** If any participant has no initiative,
   Begin opens one Core modal that counts unrolled player characters and NPCs
   separately and offers "Roll NPCs and begin", "Roll all and begin", "Begin
-  anyway" and Cancel (Cancel is how the GM waits for players to roll through
-  A1). Roll-and-begin choices apply only when every targeted Actor has a
-  resolved formula; otherwise the GM can request a custom roll, enter values
-  manually or begin anyway. It merges with the existing other-active-Combat
-  warning so the GM sees one confirmation, not two.
+  anyway" and Cancel (Cancel lets the GM enter table-rolled values first).
+  Roll choices skip rows whose roll is unavailable (an unresolved reference
+  in a GM-defined formula, A8); those stay unrolled, and the modal says how
+  many need manual entry. It
+  merges with the existing other-active-Combat warning so the GM sees one
+  confirmation, not two.
+- **Hidden rows.** Foundry already supplies `Combatant.hidden`, which the
+  CombatHUD redacts for players. Add a discoverable per-row toggle in the
+  manager rather than another flag, and verify an immediate HUD refresh when
+  it changes. Hidden rows' GM initiative rolls stay whispered.
 - **Concurrent GM changes.** The encounter lock still fails fast, but a busy
   rejection carries a stable error code (not a message match). The page shows
   it as a brief notice and refreshes instead of a red error.
@@ -431,70 +367,90 @@ change once the encounter has begun or completed.
   through the GM-only route, and also refetches on window focus and socket
   reconnect.
 
-**A8. Initiative formula source without hardcoding systems.** Systems do not
-share one initiative die (Mörk Borg's module uses `1d6` plus Agility,
-Shadowdark and D&D 5e have their own formulas), and Core must not name
-systems. Core already asks the module: the SDK adapter's
-`getInitiativeFormula(actor)` hook feeds every initiative roll, manager rolls
-included, and all three local modules implement it. The gap is the fallback:
-the SDK base adapter silently returns `1d20` when a module does not override
-it, which is wrong for non-d20 systems.
+**A8. Initiative formula: supplied by the loaded system, GM fallback.**
+Systems do not share one initiative die (Mörk Borg's module uses `1d6` plus
+Agility; Shadowdark and D&D 5e have their own formulas), and Core must not
+name systems. The loaded world already supplies the formula: its system
+module's SDK adapter `getInitiativeFormula(actor)` feeds every initiative
+roll, manager rolls included, and all three local modules implement it. The
+addition is a GM-defined fallback for a module that supplies none.
 
-- **Resolution order.** (1) The module adapter's individual-initiative
-  formula, which stays the authority whenever a module provides one
-  (ADR-0038: modules own system rules). (2) Otherwise, a GM-configured
-  initiative formula stored in the same shared world/module preference as
-  the combat-stat selection, with the same GM-only access, durability and
-  refresh rules. (3) Otherwise, no automatic formula or automatic player
-  roll prompt: the GM may enter initiative directly or select one or more
-  eligible Combatants, choose a bounded custom formula and send a private
-  directed roll request through ADR-0058. The silent `1d20` default is
-  removed. A module formula need not imply that its system always uses
-  individual initiative; the GM can choose whether this encounter requests
-  individual player rolls. Side/group initiative remains A5.
-- **GM-configured formula.** Limited to dice terms, numbers and `+`/`−`, with
+- **Resolution order.** (1) The loaded system module's formula, which stays
+  the authority whenever the module supplies one (ADR-0038: modules own
+  system rules). (2) Otherwise, a GM-defined initiative formula saved in the
+  same shared world/module preference as the combat-stat selection, with the
+  same GM-only access, durability and event refresh. (3) Otherwise, Core's
+  existing `1d20` behavior, unchanged. "Not supplied" means the adapter has
+  no hook, inherits the SDK base implementation unchanged (Core compares it
+  with the base method; no module change is needed), or returns an empty
+  formula for that Actor. The GM formula never replaces a module-supplied
+  one. Side/group initiative remains A5.
+- **GM-defined formula.** Limited to dice terms, numbers and `+`/`−`, with
   optional `@` attribute references that pass the same safe-path validation
   as selected stats and resolve against the prepared Actor. A reference that
-  does not resolve for an Actor makes that Actor's formula unavailable
-  (manual entry) rather than rolling with a missing term. The configuration
-  shows a preview against the selected participant.
-- **Foundry system `initiative` field.** Not used as an authority. In
-  captured world data, Shadowdark's value is
+  does not resolve for an Actor makes that Actor's roll unavailable (manual
+  entry) rather than rolling with a missing term. The configuration states
+  whether the loaded module supplies a formula (so whether the GM formula is
+  in effect) and previews it against the selected participant.
+- **Foundry system `initiative` field.** Core does not evaluate it directly.
+  In captured world data, Shadowdark's value is
   `@initiativeFormula + @initiativeBonus`, whose terms are produced by the
   system's browser code (`getRollData()`), which Core does not run; D&D 5e
-  does not set the field and defines its formula in code. It may at most be
-  offered as a suggestion for the GM field when every reference resolves
-  against prepared Actor data.
+  does not set the field and defines its formula in code. The module adapter
+  is how SheetDelver obtains the system's formula.
+- **SDK contract unchanged.** The SDK base adapter keeps returning `1d20`;
+  Core treats that inherited default as "not supplied" only for choosing the
+  GM fallback. Removing the default is a separate SDK contract change, not
+  part of this release.
 - **Advantage modes.** Core's advantage/disadvantage rewrite applies only to
-  a leading `1d20` (or its existing keep-high/low form). Offer those choices
-  only when the resolved formula and system rule permit them; a GM-selected
-  custom request does not gain d20 advantage merely from its die shape.
-- **Projection.** Initiative DTOs (manager rows and the A1 player
-  projection) state whether a native formula is available and whether
-  advantage applies, without sending formula internals beyond what the
-  dialog displays.
-- **Contract impact.** Making the SDK base adapter return "no formula"
-  instead of `1d20` changes a published SDK default. Review it through
-  `src/shared/sdk/contractVersions.ts`, update module-authoring and SDK
-  documentation, and keep existing module overrides working unchanged.
+  a leading `1d20` (or its existing keep-high/low form), so those choices are
+  offered only when the effective formula has that shape.
+- **Projection.** Manager initiative rows state whether a roll is available
+  and whether advantage applies, without sending formula internals beyond
+  what the dialog displays.
 
-**Verification for this addendum:** the universal player prompt with one and
-several owned visible characters, native and final-total manual entry,
-no-formula GM-directed requests through ADR-0058, dismiss/reopen, and
-pre-Begin visibility limited to the player's own non-hidden rows; owner-only,
-unrolled-only player rolls, rejected arbitrary formulas, and their 403/409
-refusals; hidden-roll audience and per-row GM toggle; round/turn ledger,
-observed-field diffs, GM-only Journal archive, retry-safe cleanup, legacy
-retained-Combat migration, recipe preview and listing order; draft retention
-through refresh and the initiative 409 path; multi-target damage/heal with
-partial failure and
-stale targets; rename gating at round 0 and Folder marker checks; Begin with
-unrolled participants; busy-lock notice; and preference refresh across two GM
-accounts without polling; formula resolution order (module formula,
-GM-configured fallback, none), safe-path rejection, unresolved references
-falling back to manual entry, advantage shown only for d20 formulas, and
-existing module overrides unchanged after the SDK default changes. Use isolated
-data and disposable Foundry worlds only.
+**Deferred to a second pass.** These are not completion gates. They are
+recorded so the second pass starts from the reviewed design; each needs its
+own decision (or ADR) when chosen.
+
+- **Player initiative rolling and roll requests:** ADR-0058, which carries
+  the A1 authorization and prompt notes.
+- **Journal history ledger.** Instead of indefinitely retaining a kept
+  Combat, its copies and Folder, completion would write a GM-only Journal
+  with readable round/turn pages, a bounded final snapshot of selected
+  fields and a versioned recipe (world Actor IDs and the copies'
+  `sheetDelverCombatCopy.sourceUuid` markers, not temporary copy IDs), then
+  run the verified cleanup. A failed archive leaves live documents intact;
+  an interrupted cleanup retries against the same marked Journal. Review
+  notes for that pass:
+  - Record field changes at GM-triggered turn transitions (diff against the
+    previous snapshot, labelled "changed during round R, turn T") and log
+    manager commands explicitly, all under the existing encounter lock and
+    request. That avoids a background Foundry-event recorder, a server-owned
+    writer, the fail-fast lock rejecting background work, and event feedback
+    loops. Gaps between transitions are then part of the design.
+  - Keep the ledger under its own flag key: manager updates rewrite the
+    whole `sheetDelverCombat` object. Define behavior at the size bound
+    (truncate oldest with a marker, or stop recording).
+  - Escape Actor names and labels in Journal page HTML.
+  - Migrating existing retained Combats is an explicit GM action and yields
+    a final snapshot without a ledger. "Create encounter from history" (a
+    recipe preview that warns about missing or changed sources) can follow
+    the archive.
+  - Once chosen, it supersedes decisions 6–7 for newly archived encounters.
+
+**Verification for this addendum:** retained-history removal through the
+guarded cleanup path, including partial failure and retry, and the listing
+order with no auto-selected history; draft retention through refresh and the
+initiative 409 path; multi-target damage/heal with partial failure and stale
+targets; rename gating at round 0 and Folder marker checks; the Begin modal
+with unrolled player characters, NPCs and rows whose roll is unavailable; the
+hidden row toggle and HUD redaction; the busy-lock notice; preference refresh
+across two GM accounts without polling; and formula resolution order (system
+module formula, GM fallback for a missing, inherited or empty one, then
+`1d20`), safe-path rejection, unresolved references falling back to manual
+entry, and advantage shown only for d20 formulas. Use isolated data and
+disposable Foundry worlds only.
 
 ## Implementation and verification requirements
 
@@ -525,18 +481,18 @@ data and disposable Foundry worlds only.
 
 The first version is a usable, system-neutral encounter manager backed by real
 Foundry documents, with a clear limitation around native browser combat
-semantics. Its retained-Combat history shows current linked-Actor values; A2
-replaces that first-release limitation with a bounded Journal ledger and final
-selected-field snapshot for newly archived encounters. The
-versioned Combat flag and copy markers make retention and cleanup auditable
-without conflating SheetDelver encounters with all scene-null Foundry combats.
-The prepared defeated flag combines the Combatant flag with direct, enabled
-raw `dead` ActiveEffects on the linked Actor or token ActorDelta. This narrow
-source-document fallback ignores disabled effects, but does not promise native
-`actor.statuses` parity for suppressed/transferred effects or systems that
-reconfigure `CONFIG.specialStatusEffects.DEFEATED`. The Actor sheet remains the
-route for broader Actor-state changes; a native-client bridge is separate
-future investigation.
+semantics. Linked world Actors can change after completion; that is an
+intentional history limitation, not an accidental snapshot promise (the
+deferred Journal ledger would address it). The versioned Combat flag and copy
+markers make retention and cleanup auditable without conflating SheetDelver
+encounters with all scene-null Foundry combats. The prepared defeated flag
+combines the Combatant flag with direct, enabled raw `dead` ActiveEffects on
+the linked Actor or token ActorDelta. This narrow source-document fallback
+ignores disabled effects, but does not promise native `actor.statuses` parity
+for suppressed/transferred effects or systems that reconfigure
+`CONFIG.specialStatusEffects.DEFEATED`. The Actor sheet remains the route for
+broader Actor-state changes; a native-client bridge is separate future
+investigation.
 
 ## Verification
 
@@ -590,5 +546,6 @@ addendum):
   Core Store freshness checks only.
 - Assistant-GM access, scene/token-linked encounters, and every deferred item
   listed in decision 7 and the repeated-enemies section.
-- The October 2026 addendum (A1–A8), which has its own verification list and
-  gates completion of this ADR (except A5).
+- The October 2026 addendum, which has its own verification list; A2–A4 and
+  A6–A8 gate completion of this ADR. A1, A5 and the Journal history ledger
+  are deferred or open and do not.
