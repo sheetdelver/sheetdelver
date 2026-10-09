@@ -478,7 +478,7 @@ The existing `complete` action retains its distinct retention behavior.
 projection, folder-reuse, cleanup, direct-API bypass, duplicate-name,
 concurrent-create, unfinished-deletion and guarded-retry tests. The GM
 verified their live behavior; local checkpoint commit `211a1ed` records them.
-A4 and A6–A8 are implemented in a subsequent uncommitted pass: guarded
+A4 and A6–A8 are implemented in checkpoint commit `029218b`: guarded
 multi-target health writes, pre-start rename, combined Begin choices,
 per-row Hidden control, busy-code notice, event/focus/reconnect preference
 refresh, and module-first initiative with a durable GM fallback. Focused and
