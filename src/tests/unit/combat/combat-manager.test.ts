@@ -106,6 +106,9 @@ export async function run(): Promise<void> {
         { _id: 'SOURCE', type: 'npc', system: { hp: 12 } } as ActorDocument)[0]?.edit, undefined,
     'a resource descriptor cannot write a scalar source path');
     await seed();
+    preparedActorStore.bind(actorStore);
+    preparedActorStore.configure(new BaseSystemAdapter(), { worldEpoch: 1, systemId: 'test' });
+    preparedActorStore.rebuildAll();
     const calls: Call[] = [];
     const gm = mockClient('gm', calls);
     const assistant = mockClient('assistant', calls);
@@ -161,6 +164,24 @@ export async function run(): Promise<void> {
     assert.equal(folderStore.get(rootId)?.type, 'Actor');
     assert.deepEqual((folderStore.get(rootId)?.flags as any)?.world?.sheetDelverCombatRoot, { schemaVersion: 1 });
 
+    await assert.rejects(() => combatManagerService.rename(assistant, combatId, 'Unauthorized'),
+        (error: unknown) => error instanceof CombatManagerError && error.status === 403);
+    const renameCollision = await combatManagerService.create(gm, 'Reserved label', false);
+    await assert.rejects(() => combatManagerService.rename(gm, combatId, 'Reserved label'),
+        (error: unknown) => error instanceof CombatManagerError && error.status === 409);
+    await combatManagerService.destroy(gm, renameCollision.id);
+    const renamed = await combatManagerService.rename(gm, combatId, 'Bridge at dusk');
+    assert.equal(renamed.label, 'Bridge at dusk');
+    assert.equal(folderStore.get(flag.folderId)?.name, 'Combat: Bridge at dusk');
+    folderStore.applyModifyDocument('Folder', 'update', [{ _id: flag.folderId,
+        'flags.world.sheetDelverCombatFolder.combatId': 'OTHER' }]);
+    await assert.rejects(() => combatManagerService.rename(gm, combatId, 'Unsafe rename'),
+        (error: unknown) => error instanceof CombatManagerError && error.status === 409);
+    folderStore.applyModifyDocument('Folder', 'update', [{ _id: flag.folderId,
+        'flags.world.sheetDelverCombatFolder.combatId': combatId }]);
+    await assert.rejects(() => combatManagerService.create(gm, 'BRIDGE AT DUSK', false),
+        (error: unknown) => error instanceof CombatManagerError && error.status === 409);
+
     await combatManagerService.addWorldActor(gm, combatId, 'WORLDNPC');
     assert.equal((await combatManagerService.detail(gm, combatId)).participants[0].img, 'npc.webp',
         'roster uses the linked Actor portrait');
@@ -176,6 +197,8 @@ export async function run(): Promise<void> {
     assert.deepEqual(await combatManagerService.turn(gm, combatId,
         () => managedTurns.advanceTurn(gm, combatId, true)), { success: true, round: 1, turn: 0 });
     assert.equal(combatStore.get(combatId)?.active, true, 'Begin activates the Foundry Combat');
+    await assert.rejects(() => combatManagerService.rename(gm, combatId, 'Too late'),
+        (error: unknown) => error instanceof CombatManagerError && error.status === 409);
     assert.deepEqual(await combatManagerService.turn(gm, combatId,
         () => managedTurns.previousTurn(gm, combatId, true)), { success: true, round: 0, turn: 0 });
     assert.equal(combatStore.get(combatId)?.active, false, 'rewinding to unstarted deactivates the Combat');
@@ -553,8 +576,37 @@ export async function run(): Promise<void> {
             { value: 12, expected: expectedCopy });
         assert.equal(((actorStore.get(copied.actorId)?.system as any).attributes.hp.value), 12);
         assert.equal(((actorStore.get('WORLDNPC')?.system as any).attributes.hp.value), 20);
+        const healthTargets = [
+            { combatantId: linked.id, statKey: 'hp', expected: { ...expectedLinked, value: 20 } },
+            { combatantId: copied.id, statKey: 'hp', expected: { ...expectedCopy, value: 12 } },
+        ];
+        await assert.rejects(() => combatManagerService.applyHealthBatch(assistant, editableEncounter.id,
+            { operation: 'damage', amount: 3, targets: healthTargets }),
+        (error: unknown) => error instanceof CombatManagerError && error.status === 403);
+        await assert.rejects(() => combatManagerService.applyHealthBatch(gm, editableEncounter.id,
+            { operation: 'damage', amount: 3, targets: [healthTargets[0], healthTargets[0]] }),
+        (error: unknown) => error instanceof CombatManagerError && error.status === 400);
+        await assert.rejects(() => combatManagerService.applyHealthBatch(gm, editableEncounter.id,
+            { operation: 'damage', amount: 3, targets: [healthTargets[0],
+                { ...healthTargets[1], expected: { ...healthTargets[1].expected, value: 18 } }] }),
+        (error: unknown) => error instanceof CombatManagerError && error.status === 409
+            && error.message.startsWith('Applied 1 of 2:'),
+        'the batch stops at the stale second Actor and reports partial application');
+        assert.equal(((actorStore.get('WORLDNPC')?.system as any).attributes.hp.value), 17);
+        assert.equal(((actorStore.get(copied.actorId)?.system as any).attributes.hp.value), 12);
+        const healed = await combatManagerService.applyHealthBatch(gm, editableEncounter.id,
+            { operation: 'heal', amount: 2, targets: [
+                { ...healthTargets[0], expected: { ...healthTargets[0].expected, value: 17 } }, healthTargets[1],
+            ] });
+        assert.equal(healed.applied, 2);
+        assert.equal(((actorStore.get('WORLDNPC')?.system as any).attributes.hp.value), 19);
+        assert.equal(((actorStore.get(copied.actorId)?.system as any).attributes.hp.value), 14);
         await combatManagerService.complete(gm, editableEncounter.id);
         const retainedCombatantId = (await combatManagerService.detail(gm, retained.id)).participants[0].id;
+        await assert.rejects(() => combatManagerService.applyHealthBatch(gm, retained.id,
+            { operation: 'damage', amount: 1, targets: [{ ...healthTargets[0], combatantId: retainedCombatantId }] }),
+        (error: unknown) => error instanceof CombatManagerError && error.status === 409,
+        'retained completed encounters reject area damage');
         await assert.rejects(() => combatManagerService.updateStat(gm, retained.id,
             retainedCombatantId, 'hp',
             { value: 9, expected: { ...expectedLinked, value: 20 } }),

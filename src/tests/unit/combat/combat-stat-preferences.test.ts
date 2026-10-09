@@ -6,6 +6,8 @@ import { parseCombatStatAttributes, parseCombatStatSelection } from '@shared/con
 import { validateModuleInfoShape } from '@modules/registry/lifecycle/validation';
 import { CombatStatPreferenceStore } from '@server/services/combats/CombatStatPreferenceStore';
 import { discoverCombatStatFields, resolveCombatStatSelection } from '@server/services/combats/CombatStatDisplayService';
+import { effectiveInitiativeFormula, validInitiativeFallback } from '@server/services/combats/CombatInitiativeFormula';
+import { BaseSystemAdapter } from '@shared/sdk';
 
 export function run(): void {
     const hp = { key: 'hp', label: 'HP', path: 'system.attributes.hp', kind: 'resource' as const };
@@ -38,6 +40,23 @@ export function run(): void {
     assert.deepEqual(resolveCombatStatSelection(null, [hp]), { source: 'module', attributes: [hp] });
     assert.deepEqual(resolveCombatStatSelection([], [hp]), { source: 'saved', attributes: [] });
     assert.deepEqual(resolveCombatStatSelection(null, []), { source: 'none', attributes: [] });
+    const prepared = { type: 'npc', system: { attributes: { init: { value: -2 } } }, derived: {} } as any;
+    assert.equal(validInitiativeFallback('1d20 + @system.attributes.init.value'), true);
+    assert.equal(validInitiativeFallback('1d20 + @system.__proto__.value'), false);
+    assert.equal(validInitiativeFallback('1d20 * 2'), false);
+    assert.equal(validInitiativeFallback('1000d6'), false);
+    assert.equal(validInitiativeFallback('100d6+1d6'), false);
+    assert.deepEqual(effectiveInitiativeFormula(new BaseSystemAdapter(), prepared,
+        '1d20+@system.attributes.init.value'), {
+        source: 'gm', formula: '1d20-2', rollAvailable: true, advantageAvailable: true,
+    });
+    assert.equal(effectiveInitiativeFormula(new BaseSystemAdapter(), prepared,
+        '1d20+@system.missing').rollAvailable, false);
+    assert.equal(effectiveInitiativeFormula(new BaseSystemAdapter(), prepared, null).source, 'core');
+    assert.equal(effectiveInitiativeFormula({ getInitiativeFormula: () => '1d6+2' } as any, prepared,
+        '1d20').source, 'module', 'module-supplied initiative always wins');
+    assert.equal(effectiveInitiativeFormula({ getInitiativeFormula: () => '' } as any, prepared,
+        '1d20').source, 'gm', 'an empty module formula permits the saved fallback');
 
     const discovered = discoverCombatStatFields([
         { type: 'npc', system: { attributes: { hp: { value: 12, max: 20 }, armorClass: 15,
@@ -70,13 +89,19 @@ export function run(): void {
         first.set('world-one', 'test-system', [{ ...hp, showInRoster: true, editable: true, health: true }]);
         first.set('world-two', 'test-system', [ac]);
         first.set('world-one', 'other-system', []);
+        first.setInitiativeFormula('world-one', 'test-system', '1d20+@system.attributes.init.value');
         const reopened = new CombatStatPreferenceStore(filePath);
+        assert.equal(reopened.getInitiativeFormula('world-one', 'test-system'), '1d20+@system.attributes.init.value');
         assert.deepEqual(reopened.get('world-one', 'test-system'), [{ ...hp, showInRoster: true, editable: true, health: true }],
             'selection and roster placement survive a new store instance');
         assert.deepEqual(reopened.get('world-one', 'other-system'), [], 'explicit empty differs from missing');
         assert.deepEqual(reopened.get('world-two', 'test-system'), [ac], 'world scope is isolated');
         reopened.reset('world-one', 'test-system');
         assert.equal(first.get('world-one', 'test-system'), null);
+        assert.equal(first.getInitiativeFormula('world-one', 'test-system'), '1d20+@system.attributes.init.value',
+            'resetting display stats preserves the separate initiative fallback');
+        reopened.setInitiativeFormula('world-one', 'test-system', null);
+        assert.equal(first.getInitiativeFormula('world-one', 'test-system'), null);
         assert.deepEqual(first.get('world-two', 'test-system'), [ac]);
         assert.throws(() => first.set('world-one', 'test-system', [{ ...hp, path: 'derived.__proto__' }]));
         assert.equal(fs.statSync(filePath).mode & 0o777, 0o600);

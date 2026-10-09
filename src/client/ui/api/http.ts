@@ -1,10 +1,12 @@
 export class ApiError extends Error {
     status: number;
+    code?: string;
 
-    constructor(message: string, status: number) {
+    constructor(message: string, status: number, code?: string) {
         super(message);
         this.name = 'ApiError';
         this.status = status;
+        this.code = code;
     }
 }
 
@@ -48,7 +50,8 @@ export async function requestJson<T>(path: string, options: RequestJsonOptions =
         const message =
             (payload as { error?: string } | undefined)?.error ||
             `${res.status} ${res.statusText}`;
-        throw new ApiError(message, res.status);
+        const code = (payload as { code?: unknown } | undefined)?.code;
+        throw new ApiError(message, res.status, typeof code === 'string' ? code : undefined);
     }
 
     return payload;

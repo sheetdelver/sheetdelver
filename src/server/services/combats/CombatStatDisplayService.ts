@@ -7,6 +7,7 @@ import { preparedActorStore } from '@server/core/documents/prepared/actors/Prepa
 import { worldStateStore } from '@server/core/world/WorldStateStore';
 import { listModules } from '@modules/registry/server';
 import { combatStatPreferenceStore } from './CombatStatPreferenceStore';
+import { combatManagerPreferenceEvents } from './CombatManagerPreferenceEvents';
 
 function readPath(actor: unknown, path: string): unknown {
     if (!isSafeCombatStatPath(path)) return null;
@@ -155,7 +156,8 @@ async function resolve(client: CombatClientLike): Promise<CombatManagerStatPrefe
     const info = listModules({ includeExperimental: true }).find(row => row.info.id === scope.moduleId)?.info;
     const suggestions = parseCombatStatAttributes(info?.combatTracking?.attributes, 16) ?? [];
     const saved = combatStatPreferenceStore.get(scope.worldId, scope.moduleId);
-    return { ...resolveCombatStatSelection(saved, suggestions), suggestions, available: [] };
+    return { ...resolveCombatStatSelection(saved, suggestions), suggestions, available: [],
+        initiativeFormula: combatStatPreferenceStore.getInitiativeFormula(scope.worldId, scope.moduleId) };
 }
 
 export const combatStatDisplayService = {
@@ -174,12 +176,21 @@ export const combatStatDisplayService = {
         const parsed = parseCombatStatSelection(attributes);
         if (!parsed) throw new Error('Invalid combat-stat selection');
         combatStatPreferenceStore.set(scope.worldId, scope.moduleId, parsed);
+        combatManagerPreferenceEvents.changed();
         return resolve(client);
     },
     async reset(client: CombatClientLike): Promise<CombatManagerStatPreferencesDto | null> {
         const scope = await activeScope(client);
         if (!scope) return null;
         combatStatPreferenceStore.reset(scope.worldId, scope.moduleId);
+        combatManagerPreferenceEvents.changed();
+        return resolve(client);
+    },
+    async saveInitiativeFormula(client: CombatClientLike, formula: string | null): Promise<CombatManagerStatPreferencesDto | null> {
+        const scope = await activeScope(client);
+        if (!scope) return null;
+        combatStatPreferenceStore.setInitiativeFormula(scope.worldId, scope.moduleId, formula);
+        combatManagerPreferenceEvents.changed();
         return resolve(client);
     },
 };

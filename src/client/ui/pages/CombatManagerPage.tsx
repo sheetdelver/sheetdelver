@@ -7,6 +7,8 @@ import { useFoundry } from '@client/ui/context/FoundryContext';
 import { ConfirmationModal } from '@client/ui/components/ConfirmationModal';
 import { ApiError } from '@client/ui/api/http';
 import { CombatHealthModal, type CombatHealthTarget } from './CombatHealthModal';
+import { CombatBatchHealthModal } from './CombatBatchHealthModal';
+import { CombatBeginModal, type CombatBeginChoice } from './CombatBeginModal';
 import * as api from '@client/ui/api/foundryApi';
 import { combatManagerNameKey } from '@shared/contracts/combatManager';
 import type {
@@ -19,6 +21,7 @@ import type {
     CombatManagerStatDto,
     CombatManagerStatPreferencesDto,
     CombatManagerSelectedStatDto,
+    CombatManagerHealthBatchRequest,
 } from '@shared/contracts/combatManager';
 import type { ModuleCombatStatAttribute } from '@shared/sdk';
 
@@ -37,7 +40,6 @@ function compactStatValue(stat: CombatManagerStatDto): string {
 }
 
 type PendingConfirmation =
-    | { kind: 'begin'; combatId: string; activeOtherCount: number }
     | { kind: 'complete'; combatId: string; keepHistory: boolean; status: CombatManagerEncounterDto['status'] }
     | { kind: 'delete'; combatId: string; label: string; status: CombatManagerEncounterDto['status'] }
     | { kind: 'reset'; combatId: string; scoredCount: number }
@@ -70,6 +72,7 @@ export default function CombatManagerPage() {
     const [selectedId, setSelectedId] = useState('');
     const [selectedCombatantId, setSelectedCombatantId] = useState('');
     const [label, setLabel] = useState('');
+    const [renameDraft, setRenameDraft] = useState<{ combatId: string; label: string } | null>(null);
     const [keepHistory, setKeepHistory] = useState(false);
     const [picker, setPicker] = useState<'world' | 'compendium'>('world');
     const [query, setQuery] = useState('');
@@ -86,7 +89,10 @@ export default function CombatManagerPage() {
     const [statEdit, setStatEdit] = useState<StatEdit | null>(null);
     const [healthTarget, setHealthTarget] = useState<CombatHealthTarget | null>(null);
     const [healthConflict, setHealthConflict] = useState(false);
+    const [batchSelection, setBatchSelection] = useState<string[]>([]);
+    const [batchModal, setBatchModal] = useState<{ targets: CombatManagerHealthBatchRequest['targets']; names: string[] } | null>(null);
     const [statPreferences, setStatPreferences] = useState<CombatManagerStatPreferencesDto | null>(null);
+    const [initiativeFallbackDraft, setInitiativeFallbackDraft] = useState('');
     const [editingStats, setEditingStats] = useState(false);
     const [statDraft, setStatDraft] = useState<CombatManagerSelectedStatDto[]>([]);
     const [statChoice, setStatChoice] = useState('');
@@ -98,8 +104,12 @@ export default function CombatManagerPage() {
     const [busy, setBusy] = useState(false);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
+    const [notice, setNotice] = useState('');
     const [pendingConfirmation, setPendingConfirmation] = useState<PendingConfirmation | null>(null);
+    const [beginPrompt, setBeginPrompt] = useState<CombatBeginChoice | null>(null);
     const refreshVersion = useRef(0);
+    const lastPreferenceSelection = useRef('');
+    const initiativeDraftDirty = useRef(false);
     const discardBlurForSelection = useRef(false);
     const beginSelection = () => {
         // Pointer focus blurs the old field before onChange/onClick switches
@@ -120,6 +130,8 @@ export default function CombatManagerPage() {
         setStatEdit(null);
         setHealthTarget(null);
         setHealthConflict(false);
+        setBatchSelection([]);
+        setBatchModal(null);
         setChoices([]);
         setAvailableSortFields([]);
         setActorSortFields([]);
@@ -131,10 +143,16 @@ export default function CombatManagerPage() {
         setPackQuantity('1');
         setPackId('');
         setLabel('');
+        setRenameDraft(null);
         setKeepHistory(false);
         setError('');
+        setNotice('');
         setPendingConfirmation(null);
+        setBeginPrompt(null);
         setStatPreferences(null);
+        setInitiativeFallbackDraft('');
+        initiativeDraftDirty.current = false;
+        lastPreferenceSelection.current = '';
         setEditingStats(false);
         setStatDraft([]);
         setStatSearch('');
@@ -223,6 +241,8 @@ export default function CombatManagerPage() {
         || encounter?.participants[0] || null;
     const nameCollision = label.trim() !== '' && encounters.some(row =>
         combatManagerNameKey(row.label) === combatManagerNameKey(label));
+    const renameCollision = renameDraft !== null && encounters.some(row => row.id !== renameDraft.combatId
+        && combatManagerNameKey(row.label) === combatManagerNameKey(renameDraft.label));
     const statChoices = [...(statPreferences?.suggestions || []), ...(statPreferences?.available || [])]
         .filter((choice, index, all) => all.findIndex(row => row.path === choice.path && row.kind === choice.kind) === index);
     const filteredStatChoices = statChoices.map((choice, index) => ({ choice, index }))
@@ -230,9 +250,23 @@ export default function CombatManagerPage() {
             .toLocaleLowerCase().includes(statSearch.trim().toLocaleLowerCase()));
     const unrolledCount = encounter?.participants.filter(row => row.initiative == null && row.actorId).length ?? 0;
     const unrolledNpcCount = encounter?.participants.filter(row => row.initiative == null && row.actorId && row.isNpc).length ?? 0;
+    const rollableCount = encounter?.participants.filter(row => row.initiative == null && row.initiativeRoll.rollAvailable).length ?? 0;
+    const rollableNpcCount = encounter?.participants.filter(row => row.initiative == null && row.isNpc
+        && row.initiativeRoll.rollAvailable).length ?? 0;
     const scoredCount = encounter?.participants.filter(row => row.initiative != null).length ?? 0;
     const quantity = Number(packQuantity);
     const validPackQuantity = Number.isInteger(quantity) && quantity >= 1 && quantity <= 20;
+    const eligibleHealthRows = encounter?.participants.filter(row => row.stats.some(stat => stat.health && stat.edit)) || [];
+    const selectedHealthRows = eligibleHealthRows.filter(row => batchSelection.includes(row.id));
+    const bulkSelectableRows = eligibleHealthRows.slice(0, 100);
+    const allBulkRowsSelected = bulkSelectableRows.length > 0
+        && bulkSelectableRows.every(row => batchSelection.includes(row.id));
+
+    useEffect(() => {
+        if (!notice) return;
+        const timer = window.setTimeout(() => setNotice(''), 4000);
+        return () => window.clearTimeout(timer);
+    }, [notice]);
 
     useEffect(() => {
         setInitiativeEdit(null);
@@ -241,6 +275,11 @@ export default function CombatManagerPage() {
         setHealthTarget(previous => previous?.combatantId === selected?.id ? previous : null);
         setHealthConflict(false);
     }, [encounter?.id, selected?.id]);
+
+    useEffect(() => {
+        setBatchSelection([]);
+        setBatchModal(null);
+    }, [encounter?.id]);
 
     useEffect(() => {
         setInitiativeEdit(previous => {
@@ -267,22 +306,30 @@ export default function CombatManagerPage() {
     useEffect(() => {
         if (!allowed) return;
         let active = true;
-        let lastSelection = '';
         const load = async () => {
-            const { preferences } = await api.fetchManagedStatPreferences();
+            const { preferences } = await api.fetchManagedStatPreferences(selected?.actorId);
             if (!active) return;
-            const selection = JSON.stringify({ source: preferences.source, attributes: preferences.attributes });
-            if (lastSelection && lastSelection !== selection) void refresh().catch(cause => setError(errorMessage(cause)));
-            lastSelection = selection;
+            const selection = JSON.stringify({ source: preferences.source, attributes: preferences.attributes,
+                initiativeFormula: preferences.initiativeFormula });
+            if (lastPreferenceSelection.current && lastPreferenceSelection.current !== selection) {
+                void refresh().catch(cause => setError(errorMessage(cause)));
+            }
+            lastPreferenceSelection.current = selection;
             setStatPreferences(previous => ({ ...preferences, available: previous?.available || [] }));
+            if (!initiativeDraftDirty.current) setInitiativeFallbackDraft(preferences.initiativeFormula || '');
         };
-        void load().catch(cause => { if (active) setError(errorMessage(cause)); });
-        const timer = window.setInterval(() => {
-            void load().catch(cause => { if (active) setError(errorMessage(cause)); });
-        }, 15000);
-        window.addEventListener('focus', load);
-        return () => { active = false; window.clearInterval(timer); window.removeEventListener('focus', load); };
-    }, [allowed, worldId, refresh]);
+        const reload = () => { void load().catch(cause => { if (active) setError(errorMessage(cause)); }); };
+        reload();
+        window.addEventListener('focus', reload);
+        appSocket?.on('connect', reload);
+        appSocket?.on('combatManagerPreferencesChanged', reload);
+        return () => {
+            active = false;
+            window.removeEventListener('focus', reload);
+            appSocket?.off('connect', reload);
+            appSocket?.off('combatManagerPreferencesChanged', reload);
+        };
+    }, [allowed, worldId, selected?.actorId, appSocket, refresh]);
 
     useEffect(() => {
         if (!allowed || !editingStats) return;
@@ -299,9 +346,11 @@ export default function CombatManagerPage() {
     const mutate = async (action: () => Promise<unknown>): Promise<{ ok: true } | { ok: false; cause: unknown }> => {
         setBusy(true);
         setError('');
+        setNotice('');
         try { await action(); await refresh(); return { ok: true }; }
         catch (cause) {
-            setError(errorMessage(cause));
+            if (cause instanceof ApiError && cause.code === 'ENCOUNTER_BUSY') setNotice('Encounter is changing; refreshed the current state.');
+            else setError(errorMessage(cause));
             // A Foundry write may have partially succeeded before the error.
             // Refresh to expose provisioning/cleaning state and safe retry.
             try { await refresh(); } catch { /* Preserve the original error. */ }
@@ -359,9 +408,7 @@ export default function CombatManagerPage() {
         const pending = pendingConfirmation;
         setPendingConfirmation(null);
         if (!pending || busy) return;
-        if (pending.kind === 'begin') {
-            void mutate(() => api.postManagedNextTurn(pending.combatId));
-        } else if (pending.kind === 'complete') {
+        if (pending.kind === 'complete') {
             void mutate(() => api.completeManagedCombat(pending.combatId));
         } else if (pending.kind === 'delete') {
             void mutate(() => api.deleteManagedCombat(pending.combatId));
@@ -373,13 +420,10 @@ export default function CombatManagerPage() {
         }
     };
 
-    const confirmationTitle = pendingConfirmation?.kind === 'begin' ? 'Begin encounter'
-        : pendingConfirmation?.kind === 'complete' ? 'Complete encounter'
+    const confirmationTitle = pendingConfirmation?.kind === 'complete' ? 'Complete encounter'
             : pendingConfirmation?.kind === 'delete' ? 'Delete combat'
             : pendingConfirmation?.kind === 'reset' ? 'Reset initiative' : 'Remove participant';
-    const confirmationMessage = pendingConfirmation?.kind === 'begin'
-        ? `${pendingConfirmation.activeOtherCount} other ${pendingConfirmation.activeOtherCount === 1 ? 'Combat is' : 'Combats are'} currently active in Foundry. Beginning this encounter will deactivate ${pendingConfirmation.activeOtherCount === 1 ? 'it' : 'them'}, including any scene encounter. Continue?`
-        : pendingConfirmation?.kind === 'complete'
+    const confirmationMessage = pendingConfirmation?.kind === 'complete'
             ? pendingConfirmation.keepHistory && pendingConfirmation.status === 'active'
                 ? 'Complete this encounter and retain its Combat, Folder and compendium copies as read-only history?'
                 : 'Complete and delete this Combat, its verified compendium copies and its Actor Folder? Linked world Actors will remain untouched.'
@@ -428,6 +472,7 @@ export default function CombatManagerPage() {
             </header>
 
             {error && <div role="alert" className="sd-ui-panel-raised sd-ui-danger rounded p-3 text-sm">{error}</div>}
+            {notice && <div role="status" className="sd-ui-inset rounded p-3 text-sm">{notice}</div>}
             {loading && <p>Loading encounters…</p>}
 
             <section className={panelClass}>
@@ -528,6 +573,32 @@ export default function CombatManagerPage() {
                         })} className={secondaryButtonClass}>Reset to module suggestions</button>
                     </div>
                 </div>}
+                <div className="sd-ui-divider mt-4 border-t pt-4">
+                    <h3 className="sd-ui-accent text-sm font-bold">Initiative formula fallback</h3>
+                    <p className="sd-ui-muted mt-1 text-xs">Used only when the loaded system module supplies no formula for an Actor. Dice, numbers, +/− and safe @system or @derived numeric paths are supported.</p>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <input aria-label="GM initiative fallback formula" value={initiativeFallbackDraft}
+                            onChange={event => { initiativeDraftDirty.current = true; setInitiativeFallbackDraft(event.target.value); }}
+                            placeholder="1d20+@system.attributes.init.value" maxLength={160}
+                            className={`min-w-64 flex-1 font-mono ${inputClass}`} />
+                        <button disabled={busy || !statPreferences || initiativeFallbackDraft === (statPreferences.initiativeFormula || '')}
+                            onClick={() => void mutate(async () => {
+                                const { preferences } = await api.saveManagedInitiativeFallback(initiativeFallbackDraft.trim() || null);
+                                initiativeDraftDirty.current = false;
+                                setInitiativeFallbackDraft(preferences.initiativeFormula || '');
+                                setStatPreferences(previous => ({ ...preferences, available: previous?.available || [] }));
+                            })} className={secondaryButtonClass}>Save fallback</button>
+                    </div>
+                    {statPreferences?.initiativePreview && <p className="sd-ui-muted mt-2 text-xs">
+                        Selected Actor: {statPreferences.initiativePreview.source === 'module' ? 'system module'
+                            : statPreferences.initiativePreview.source === 'gm' ? 'GM fallback' : 'Core default'}
+                        {' · '}{statPreferences.initiativePreview.rollAvailable
+                            ? statPreferences.initiativePreview.formula : 'unresolved reference; manual initiative required'}
+                        {statPreferences.initiativePreview.source === 'core' && ' · Using Core default 1d20; this may not match your system.'}
+                        {statPreferences.initiativePreview.source === 'module' && statPreferences.initiativeFormula
+                            && ' · The saved GM fallback does not override this formula.'}
+                    </p>}
+                </div>
             </section>
 
             {encounter && <>
@@ -535,6 +606,20 @@ export default function CombatManagerPage() {
                     <div>
                         <h2 className="sd-ui-accent text-xl font-bold">{encounter.label}</h2>
                         <p className="sd-ui-muted text-sm">{encounter.status} · round {encounter.round} · {encounter.participants.length} participants · {encounter.keepHistory ? 'retain on completion' : 'delete on completion'}</p>
+                        {encounter.status === 'active' && encounter.round === 0 && (renameDraft?.combatId === encounter.id
+                            ? <div className="mt-2 flex flex-wrap items-center gap-2">
+                                <input aria-label="Rename encounter" value={renameDraft.label} maxLength={100}
+                                    onChange={event => setRenameDraft({ combatId: encounter.id, label: event.target.value })}
+                                    className={inputClass} />
+                                <button disabled={busy || !renameDraft.label.trim() || renameCollision}
+                                    onClick={() => void mutate(() => api.renameManagedCombat(encounter.id, renameDraft.label)).then(result => {
+                                        if (result.ok) setRenameDraft(null);
+                                    })} className={primaryButtonClass}>Save name</button>
+                                <button disabled={busy} onClick={() => setRenameDraft(null)} className={secondaryButtonClass}>Cancel</button>
+                                {renameCollision && <span role="status" className="sd-ui-danger text-sm">A combat already exists with that name</span>}
+                            </div>
+                            : <button disabled={busy} onClick={() => setRenameDraft({ combatId: encounter.id, label: encounter.label })}
+                                className="sd-ui-accent mt-2 text-xs underline">Rename encounter</button>)}
                     </div>
                     <div className="flex flex-wrap gap-2">
                         <button disabled={busy || encounter.status !== 'active' || encounter.round === 0 || encounter.participants.length === 0} onClick={() => void mutate(() => api.postManagedPreviousTurn(encounter.id))}
@@ -549,8 +634,13 @@ export default function CombatManagerPage() {
                                 // manager list excludes ordinary and scene encounters.
                                 const { combats } = await api.fetchCombats(token || '');
                                 const activeOtherCount = combats.filter(combat => combat.active && combat.id !== encounter.id).length;
-                                if (activeOtherCount > 0) {
-                                    setPendingConfirmation({ kind: 'begin', combatId: encounter.id, activeOtherCount });
+                                if (activeOtherCount > 0 || unrolledCount > 0) {
+                                    const unrolled = encounter.participants.filter(row => row.initiative == null && row.actorId);
+                                    setBeginPrompt({ combatId: encounter.id, activeOtherCount,
+                                        unrolledPlayers: unrolled.filter(row => !row.isNpc).length,
+                                        unrolledNpcs: unrolled.filter(row => row.isNpc).length,
+                                        unavailablePlayers: unrolled.filter(row => !row.isNpc && !row.initiativeRoll.rollAvailable).length,
+                                        unavailableNpcs: unrolled.filter(row => row.isNpc && !row.initiativeRoll.rollAvailable).length });
                                     return;
                                 }
                                 await api.postManagedNextTurn(encounter.id);
@@ -659,20 +749,55 @@ export default function CombatManagerPage() {
                             <div className="sd-ui-divider h-px flex-1 border-t" />
                         </div>
                         {encounter.status === 'active' && <div className="mb-4 flex flex-wrap items-center gap-2">
-                            <button disabled={busy || unrolledCount === 0} onClick={() => void mutate(() => api.postManagedInitiativeBatch(encounter.id, 'all'))}
-                                className={secondaryButtonClass}>Roll All ({unrolledCount})</button>
-                            <button disabled={busy || unrolledNpcCount === 0} onClick={() => void mutate(() => api.postManagedInitiativeBatch(encounter.id, 'npc'))}
-                                className={secondaryButtonClass}>Roll NPCs ({unrolledNpcCount})</button>
+                            <button disabled={busy || rollableCount === 0} onClick={() => void mutate(() => api.postManagedInitiativeBatch(encounter.id, 'all'))}
+                                className={secondaryButtonClass}>Roll {rollableCount === unrolledCount ? 'All' : 'Available'} ({rollableCount})</button>
+                            <button disabled={busy || rollableNpcCount === 0} onClick={() => void mutate(() => api.postManagedInitiativeBatch(encounter.id, 'npc'))}
+                                className={secondaryButtonClass}>Roll {rollableNpcCount === unrolledNpcCount ? 'NPCs' : 'Available NPCs'} ({rollableNpcCount})</button>
                             <button disabled={busy || scoredCount === 0} onClick={() => setPendingConfirmation({
                                 kind: 'reset', combatId: encounter.id, scoredCount,
                             })} className={secondaryButtonClass}>Reset all ({scoredCount})</button>
                             <span className="sd-ui-muted text-xs">Only unrolled combatants; NPCs have no player owner.</span>
+                        </div>}
+                        {encounter.status === 'active' && statPreferences?.attributes.some(field => field.health) && <div className="mb-4 flex flex-wrap items-center gap-2">
+                            <button disabled={busy || selectedHealthRows.length === 0} className={secondaryButtonClass}
+                                onClick={() => setBatchModal({
+                                    targets: selectedHealthRows.map(row => {
+                                        const edit = row.stats.find(stat => stat.health && stat.edit)!.edit!;
+                                        return { combatantId: row.id, statKey: edit.key,
+                                            expected: { actorId: row.actorId, path: edit.path, value: edit.value } };
+                                    }),
+                                    names: selectedHealthRows.map(row => row.name),
+                                })}>Damage / Heal selected ({selectedHealthRows.length})</button>
+                            <span className="sd-ui-muted text-xs">Select up to 100 participants with editable Default health.</span>
+                        </div>}
+                        {encounter.status === 'active' && statPreferences?.attributes.some(field => field.health) && <div className="mb-2 flex items-center gap-2 px-1">
+                            <button disabled={busy || bulkSelectableRows.length === 0 || allBulkRowsSelected}
+                                onClick={() => setBatchSelection(bulkSelectableRows.map(row => row.id))}
+                                className="sd-ui-button ml-2 px-2 py-1 text-xs font-semibold">
+                                {eligibleHealthRows.length > 100 ? 'Select first 100' : 'Select all'}
+                            </button>
+                            <button disabled={busy || selectedHealthRows.length === 0} onClick={() => setBatchSelection([])}
+                                className="sd-ui-button px-2 py-1 text-xs font-semibold">Deselect all</button>
                         </div>}
                         <div className="space-y-2">
                             {encounter.participants.map(row => {
                                 const health = row.stats.find(stat => stat.health && stat.edit);
                                 return <div key={row.id}
                                 className={`${selected?.id === row.id ? 'sd-ui-inset' : 'sd-ui-panel-raised'} flex w-full items-center gap-1 rounded-lg p-1 transition-colors ${row.isCurrent ? 'ring-2 ring-[var(--sd-ui-accent)]' : ''}`}>
+                                {encounter.status === 'active' && statPreferences?.attributes.some(field => field.health) && <input
+                                    type="checkbox" aria-label={`Select ${row.name} for batch health`}
+                                    title={health?.edit ? `Select ${row.name}` : 'No editable default health for this Actor'}
+                                    checked={!!health?.edit && batchSelection.includes(row.id)}
+                                    disabled={busy || !health?.edit || (!batchSelection.includes(row.id) && selectedHealthRows.length >= 100)}
+                                    onChange={event => {
+                                        const checked = event.target.checked;
+                                        setBatchSelection(current => {
+                                            const valid = current.filter(id => eligibleHealthRows.some(choice => choice.id === id));
+                                            return checked ? [...new Set([...valid, row.id])].slice(0, 100)
+                                                : valid.filter(id => id !== row.id);
+                                        });
+                                    }}
+                                    style={{ accentColor: 'var(--sd-ui-accent)' }} className="ml-2 shrink-0" />}
                                 <button onPointerDownCapture={beginSelection} onClick={() => setSelectedCombatantId(row.id)}
                                     className="flex min-w-0 flex-1 items-center gap-3 rounded-lg p-2 text-left">
                                 <span className="w-10 text-center font-mono text-lg">{row.initiative ?? '—'}</span>
@@ -698,7 +823,13 @@ export default function CombatManagerPage() {
                                 {row.isCurrent && <span className="sd-ui-inset sd-ui-accent shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider">Current</span>}
                                 </button>
                                 {encounter.status === 'active' && <div className="flex shrink-0 items-center gap-1">
-                                    <button disabled={busy || !row.actorId} onClick={() => void mutate(() => api.postManagedInitiativeOne(encounter.id, row.id))}
+                                    <button disabled={busy} aria-pressed={row.hidden}
+                                        aria-label={`${row.hidden ? 'Reveal' : 'Hide'} ${row.name} in player combat HUD`}
+                                        onClick={() => void mutate(() => api.updateManagedCombatant(encounter.id, row.id, { hidden: !row.hidden }))}
+                                        className="sd-ui-button px-2 py-2 text-xs font-semibold">{row.hidden ? 'Reveal' : 'Hide'}</button>
+                                    <button disabled={busy || !row.initiativeRoll.rollAvailable}
+                                        title={row.initiativeRoll.rollAvailable ? `Uses ${row.initiativeRoll.source} initiative formula` : 'Formula unavailable; enter initiative manually'}
+                                        onClick={() => void mutate(() => api.postManagedInitiativeOne(encounter.id, row.id))}
                                         aria-label={`${row.initiative == null ? 'Roll' : 'Reroll'} initiative for ${row.name}`}
                                         className="sd-ui-button px-2 py-2 text-xs font-semibold">{row.initiative == null ? 'Roll' : 'Reroll'}</button>
                                     <button disabled={busy || row.initiative == null}
@@ -789,6 +920,12 @@ export default function CombatManagerPage() {
                                     onChange={event => void mutate(() => api.updateManagedCombatant(encounter.id, selected.id, { hidden: event.target.checked }))} /> Hidden</label>
                                 <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={selected.defeated} disabled={busy || encounter.status !== 'active'} style={{ accentColor: 'var(--sd-ui-accent)' }}
                                     onChange={event => void mutate(() => api.updateManagedCombatant(encounter.id, selected.id, { defeated: event.target.checked }))} /> Defeated</label>
+                                {encounter.status === 'active' && selected.initiativeRoll.advantageAvailable && <span className="flex flex-wrap gap-1">
+                                    <button disabled={busy} className={secondaryButtonClass}
+                                        onClick={() => void mutate(() => api.postManagedInitiativeOne(encounter.id, selected.id, 'advantage'))}>Roll advantage</button>
+                                    <button disabled={busy} className={secondaryButtonClass}
+                                        onClick={() => void mutate(() => api.postManagedInitiativeOne(encounter.id, selected.id, 'disadvantage'))}>Roll disadvantage</button>
+                                </span>}
                             </div>
                             {selected.resource && <div className="flex flex-wrap items-end gap-3">
                                 <label className="text-sm">Tracked resource <span className="sd-ui-muted">({selected.resource.path})</span>
@@ -822,13 +959,23 @@ export default function CombatManagerPage() {
                 isOpen={pendingConfirmation !== null}
                 title={confirmationTitle}
                 message={confirmationMessage}
-                confirmLabel={pendingConfirmation?.kind === 'begin' ? 'Begin' : pendingConfirmation?.kind === 'delete' ? 'Delete'
+                confirmLabel={pendingConfirmation?.kind === 'delete' ? 'Delete'
                     : pendingConfirmation?.kind === 'remove' ? 'Remove'
                     : pendingConfirmation?.kind === 'reset' ? 'Reset all' : 'Complete'}
-                isDanger={pendingConfirmation?.kind !== 'begin'}
+                isDanger
                 onConfirm={confirmPending}
                 onCancel={() => setPendingConfirmation(null)}
             />
+            <CombatBeginModal prompt={beginPrompt} busy={busy} onCancel={() => setBeginPrompt(null)}
+                onChoose={choice => {
+                    if (!beginPrompt) return;
+                    const combatId = beginPrompt.combatId;
+                    setBeginPrompt(null);
+                    void mutate(async () => {
+                        if (choice !== 'anyway') await api.postManagedInitiativeBatch(combatId, choice);
+                        await api.postManagedNextTurn(combatId);
+                    });
+                }} />
             <CombatHealthModal target={healthTarget} busy={busy} conflict={healthConflict}
                 observedCurrent={encounter?.participants.find(row => row.id === healthTarget?.combatantId)
                     ?.stats.find(stat => stat.edit?.key === healthTarget?.key)?.edit?.value}
@@ -843,6 +990,17 @@ export default function CombatManagerPage() {
                     })).then(result => {
                         if (result.ok) { setHealthTarget(null); setHealthConflict(false); }
                         else if (result.cause instanceof ApiError && result.cause.status === 409) setHealthConflict(true);
+                    });
+                }} />
+            <CombatBatchHealthModal targets={batchModal?.targets || null} names={batchModal?.names || []}
+                busy={busy} onClose={() => setBatchModal(null)}
+                onApply={(operation, amount) => {
+                    if (!encounter || !batchModal) return;
+                    void mutate(() => api.applyManagedHealthBatch(encounter.id, {
+                        operation, amount, targets: batchModal.targets,
+                    })).then(result => {
+                        setBatchModal(null);
+                        if (result.ok) setBatchSelection([]);
                     });
                 }} />
           </div>

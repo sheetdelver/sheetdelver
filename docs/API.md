@@ -181,7 +181,13 @@ one editable selected field
 may be flagged as default health for the roster Damage action. Its modal
 shows current and source max when available, supports direct current editing,
 and applies Heal/Damage as plain arithmetic without system-specific rules or
-automatic clamping. A selected descriptor's optional
+automatic clamping. A GM may also select up to 100 eligible rows for one
+guarded Damage/Heal batch; it stops at the first stale or failed target and
+reports how many writes completed. An initiative fallback is stored in the
+same world/module preference only when the loaded module supplies no formula;
+module rules stay authoritative, followed by the GM fallback and Core `1d20`.
+Preference changes emit an empty GM-only socket invalidation, causing other GM
+pages to refetch. A selected descriptor's optional
 `showInRoster` produces a read-only participant pill, in descriptor order;
 other stats remain in the detail panel. See [ADR-0049](adr/0049-core-gm-combat-manager.md).
 
@@ -192,19 +198,22 @@ other stats remain in the detail panel. See [ADR-0049](adr/0049-core-gm-combat-m
 | `GET` | `/api/combat-manager/stat-preferences?catalog=1&actorId=...` | Read shared GM selection and module suggestions. `catalog=1` additionally discovers bounded fields from prepared world Actors; optional authorized Actor ID prioritizes its fields. Catalog `observedActorTypes` is a picker hint, not a saved type restriction. |
 | `PUT` | `/api/combat-manager/stat-preferences` | Save `{ "attributes": [...] }` for this world/system module, including an intentional empty list. A selected numeric/resource `system.*` descriptor may have `"editable": true`; exactly one editable descriptor may also have `"health": true`. Module suggestions remain display-only until a GM saves those choices. |
 | `DELETE` | `/api/combat-manager/stat-preferences` | Remove saved selection and return to module suggestions. |
+| `PUT` | `/api/combat-manager/initiative-fallback` | Save `{ "formula": "1d20+@system.attributes.init.value" }` or clear with `null`. Limited dice/arithmetic grammar and safe prepared-Actor paths; a module-supplied formula still wins. |
 | `GET` | `/api/combat-manager/:id` | Read one marked tokenless encounter. |
+| `PATCH` | `/api/combat-manager/:id` | Rename with `{ "label": "..." }` only while active at round zero. Reject duplicate normalized labels and verify the child Actor Folder marker before renaming it. |
 | `GET` | `/api/combat-manager/world-actors?q=...&sort=...` | Search linkable world Actors (PCs and NPCs), excluding marked encounter-owned compendium copies. Returns all matching Actors in order and a separate `sortFields` catalog discovered from readable Actor source stats. |
 | `GET` | `/api/combat-manager/packs` | List available Actor compendiums. |
 | `GET` | `/api/combat-manager/packs/:packId/actors?q=...&sort=...` | Search a GM-bound Actor pack index, projecting `system` server-side for a source-stat sort catalog. Returns all matching Actors in order; no Actor source documents cross to the browser. |
 | `POST` | `/api/combat-manager/:id/world-actors` | Add `{ "actorId": "..." }` as a world link. Marked encounter-owned copies are rejected even by direct API request. |
 | `POST` | `/api/combat-manager/:id/pack-actors` | Add `{ "packId": "...", "actorId": "...", "quantity": 1 }` as 1–20 independent encounter-owned world Actor copies. Partial failures report how many completed; retry is manual. |
 | `POST` | `/api/combat-manager/:id/next-turn` and `/previous-turn` | Run SheetDelver-managed turn progression under the GM-only encounter guard. |
-| `POST` | `/api/combat-manager/:id/roll-initiative` | Roll unrolled combatants with `{ "scope": "all" }` or `{ "scope": "npc" }`; NPC means no non-GM owner. Returns `rolled` and the refreshed encounter. Partial failures report the count already rolled. |
-| `POST` | `/api/combat-manager/:id/combatants/:combatantId/roll-initiative` | Roll or reroll one participant through the guarded, user-bound initiative path. Returns `rolled: 1` and the refreshed encounter. |
+| `POST` | `/api/combat-manager/:id/roll-initiative` | Roll available unrolled combatants with `{ "scope": "all" }` or `{ "scope": "npc" }`; NPC means no non-GM owner. Unresolved fallback references remain for manual entry. Returns `rolled` and the refreshed encounter. Partial failures report the count already rolled. |
+| `POST` | `/api/combat-manager/:id/combatants/:combatantId/roll-initiative` | Roll or reroll one participant through the guarded, user-bound initiative path. Optional `advantageMode` applies only to leading d20 formulas. Returns `rolled: 1` and the refreshed encounter. |
 | `POST` | `/api/combat-manager/:id/reset-initiative` | Clear all scored participants in one embedded-document update. Returns `cleared` and the refreshed encounter; current-turn identity is preserved. |
 | `PATCH` | `/api/combat-manager/:id/combatants/:combatantId` | Change `initiative`, `hidden` or `defeated`. Manual initiative edits may include `expectedInitiative` (number or `null`); a changed mirrored score returns 409. This is a Store preflight, not an atomic Foundry compare-and-set. |
 | `PATCH` | `/api/combat-manager/:id/combatants/:combatantId/resource` | Set a source-backed configured resource with `{ "value": 5, "expected": { "actorId": "...", "path": "system.attributes.hp.value", "value": 7 } }`. Returns 409 if the mirrored Actor, resource path or value changed since observation; refetch before retrying. This is a best-effort Store preflight, not an atomic Foundry compare-and-set. |
 | `PATCH` | `/api/combat-manager/:id/combatants/:combatantId/stats/:statKey` | Set a GM-selected editable numeric/resource stat with the same `{ "value", "expected": { "actorId", "path", "value" } }` shape. The server re-resolves the current selection and source Actor field, and rejects unselected, derived, missing, transformed or stale values. This is also a best-effort Store preflight. |
+| `POST` | `/api/combat-manager/:id/health-batch` | Apply `{ "operation": "damage" | "heal", "amount": 3, "targets": [{ "combatantId", "statKey", "expected": { "actorId", "path", "value" } }] }` to 1–100 editable Default-health targets in roster order. Stops at the first stale/failing write with `Applied N of M`; no automatic replay or clamping. |
 | `DELETE` | `/api/combat-manager/:id/combatants/:combatantId` | Remove a participant; never delete its linked world Actor. |
 | `POST` | `/api/combat-manager/:id/complete` | Explicitly complete; retain as read-only history or guard-clean verified copies and Folder. |
 | `DELETE` | `/api/combat-manager/:id` | Permanently delete a marked encounter before or after completion, after GM confirmation. Deletion bypasses Keep for history, deactivates the Combat, and verifies encounter copies and child Folder before deleting the Combat last. Interrupted cleanup can be retried; linked world Actors and the shared parent Folder remain. Returns `{ "deleted": true }`. |

@@ -327,8 +327,11 @@ can select multiple participants and apply one positive amount as Damage
 (`current − amount`) or Heal (`current + amount`) to each.
 
 - Only rows whose Default health stat is editable can be selected; others
-  show a disabled checkbox. The batch is relative only; direct value setting
-  stays per participant.
+  show a disabled checkbox. Separate Select all and Deselect all buttons sit
+  above the roster checkbox column; Deselect all works with any partial
+  selection. When more than 100 rows are eligible, Select all selects the
+  first 100 in roster order and says so. The batch is relative only;
+  direct value setting stays per participant.
 - One request carries each target's observed Actor ID, path and value. The
   server takes the encounter lock once and applies each write through the
   same guarded stat path in roster order, with each target's own stale check.
@@ -471,11 +474,18 @@ markers stop deletion, and an interrupted attempt can be retried. Linked
 world Actors and the shared `SheetDelver` parent Folder are never deleted.
 The existing `complete` action retains its distinct retention behavior.
 
-**October 9 addendum checkpoint:** A9–A11 are implemented with focused
-projection, folder-reuse, cleanup and direct-API bypass tests. The GM has
-not yet verified their rendered/live behavior; ADR-0049 remains Accepted.
-A12–A13 are implemented with duplicate-name, concurrent-create, unfinished
-deletion and guarded-retry tests; rendered/live acceptance is pending.
+**October 9 addendum checkpoint:** A9–A13 are implemented with focused
+projection, folder-reuse, cleanup, direct-API bypass, duplicate-name,
+concurrent-create, unfinished-deletion and guarded-retry tests. The GM
+verified their live behavior; local checkpoint commit `211a1ed` records them.
+A4 and A6–A8 are implemented in a subsequent uncommitted pass: guarded
+multi-target health writes, pre-start rename, combined Begin choices,
+per-row Hidden control, busy-code notice, event/focus/reconnect preference
+refresh, and module-first initiative with a durable GM fallback. Focused and
+full offline unit tests pass. The GM reports the live checks with two GMs and
+players passed; the new roster bulk-select control and a native no-hook GM
+fallback roll still need explicit acceptance. ADR-0049 stays Accepted pending
+that verification and final documentation review.
 
 **Deferred to a second pass.** These are not completion gates. They are
 recorded so the second pass starts from the reviewed design; each needs its

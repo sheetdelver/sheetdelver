@@ -30,12 +30,16 @@ import type {
     CombatManagerInitiativeBatchDto,
     CombatManagerInitiativeResetDto,
     CombatManagerInitiativeScope,
+    CombatManagerHealthBatchDto,
 } from '@shared/contracts/combatManager';
 import { readCombatManagerFlag, type CombatManagerFlag } from './combatManagerFlag';
 import { discoverActorSortFields, parseActorPickerSort, sortActorChoices } from './CombatActorPickerSort';
+import { systemService } from '@server/services/world';
+import type { SystemAdapter } from '@shared/sdk';
+import { effectiveInitiativeFormula, validInitiativeFallback } from './CombatInitiativeFormula';
 
 export class CombatManagerError extends Error {
-    constructor(message: string, public readonly status: number) { super(message); }
+    constructor(message: string, public readonly status: number, public readonly code?: string) { super(message); }
 }
 
 const ID_PATTERN = /^[A-Za-z0-9]{1,64}$/;
@@ -183,7 +187,7 @@ function activeEncounter(combatId: string): { combat: CombatDocument; flag: Comb
 
 const busy = new Set<string>();
 async function withEncounterLock<T>(combatId: string, operation: () => Promise<T>): Promise<T> {
-    if (busy.has(combatId)) throw new CombatManagerError('Encounter has another pending change', 409);
+    if (busy.has(combatId)) throw new CombatManagerError('Encounter has another pending change', 409, 'ENCOUNTER_BUSY');
     busy.add(combatId);
     try { return await operation(); } finally { busy.delete(combatId); }
 }
@@ -213,7 +217,8 @@ async function preserveCurrentTurn(client: CombatClientLike, combatId: string, c
 }
 
 function projectEncounter(combat: CombatDocument, client: CombatClientLike,
-    attributes: CombatManagerSelectedStatDto[]): CombatManagerEncounterDto | null {
+    attributes: CombatManagerSelectedStatDto[], adapter: SystemAdapter | null,
+    initiativeFallback: string | null): CombatManagerEncounterDto | null {
     const flag = readCombatManagerFlag(combat);
     const id = getDocumentId(combat);
     if (!flag || !id) return null;
@@ -221,6 +226,8 @@ function projectEncounter(combat: CombatDocument, client: CombatClientLike,
     const resourcePath = trackedResourcePath();
     const participants: CombatManagerParticipantDto[] = (prepared?.rows || []).map(row => {
         const actor = row.actorId ? actorStore.get(row.actorId) : null;
+        const preparedActor = row.actorId ? preparedActorStore.get(row.actorId) : null;
+        const initiative = preparedActor ? effectiveInitiativeFormula(adapter, preparedActor, initiativeFallback) : null;
         const source = row.actorId && flag.copyIds.includes(row.actorId) ? 'compendium-copy' : 'world';
         return {
             id: row.id,
@@ -237,6 +244,8 @@ function projectEncounter(combat: CombatDocument, client: CombatClientLike,
             resource: sourceResource(actor, resourcePath),
             effects: effectLabels(actor),
             stats: projectCombatStatFields(actor && row.actorId ? preparedActorStore.get(row.actorId) : null, attributes, actor),
+            initiativeRoll: { source: initiative?.source ?? 'core', rollAvailable: initiative?.rollAvailable ?? false,
+                advantageAvailable: initiative?.advantageAvailable ?? false },
         };
     });
     return {
@@ -256,9 +265,12 @@ export const combatManagerService = {
         const subject = roleSubject(client);
         const combats = combatStore.list({ subject });
         if (combats.length === 0) return [];
-        const attributes = (await combatStatDisplayService.resolve(client))?.attributes ?? [];
+        const preferences = await combatStatDisplayService.resolve(client);
+        const attributes = preferences?.attributes ?? [];
+        const adapter = systemService.getActiveAdapter();
         const rank = { active: 0, provisioning: 1, cleaning: 2, completed: 3 };
-        return combats.map(combat => ({ combat, row: projectEncounter(combat, client, attributes) }))
+        return combats.map(combat => ({ combat, row: projectEncounter(combat, client, attributes, adapter,
+            preferences?.initiativeFormula ?? null) }))
             .filter((entry): entry is { combat: CombatDocument; row: CombatManagerEncounterDto } => entry.row !== null)
             .sort((a, b) => rank[a.row.status] - rank[b.row.status]
                 || (a.row.status === 'completed'
@@ -270,8 +282,10 @@ export const combatManagerService = {
     async detail(client: CombatClientLike, combatId: string): Promise<CombatManagerEncounterDto> {
         roleSubject(client);
         const combat = requiredEncounter(combatId).combat;
-        const attributes = (await combatStatDisplayService.resolve(client))?.attributes ?? [];
-        const projected = projectEncounter(combat, client, attributes);
+        const preferences = await combatStatDisplayService.resolve(client);
+        const adapter = systemService.getActiveAdapter();
+        const projected = projectEncounter(combat, client, preferences?.attributes ?? [], adapter,
+            preferences?.initiativeFormula ?? null);
         if (!projected) throw new CombatManagerError('Encounter unavailable', 404);
         return projected;
     },
@@ -281,6 +295,22 @@ export const combatManagerService = {
         const actorId = actorIdInput === undefined ? undefined : requiredId(actorIdInput);
         if (actorId && !actorStore.get(actorId, { subject })) throw new CombatManagerError('Actor not found', 404);
         const preferences = await combatStatDisplayService.detail(client, actorId, includeCatalog);
+        if (!preferences) throw new CombatManagerError('World is not ready', 503);
+        if (actorId) {
+            const actor = preparedActorStore.get(actorId);
+            const adapter = systemService.getActiveAdapter();
+            if (actor) preferences.initiativePreview = effectiveInitiativeFormula(adapter, actor, preferences.initiativeFormula);
+        }
+        return preferences;
+    },
+
+    async saveInitiativeFormula(client: CombatClientLike, formulaInput: unknown): Promise<CombatManagerStatPreferencesDto> {
+        roleSubject(client);
+        const formula = formulaInput === null || formulaInput === '' ? null : formulaInput;
+        if (formula !== null && !validInitiativeFallback(formula)) {
+            throw new CombatManagerError('Use dice, numbers, +/− and safe @system or @derived paths', 400);
+        }
+        const preferences = await combatStatDisplayService.saveInitiativeFormula(client, formula);
         if (!preferences) throw new CombatManagerError('World is not ready', 503);
         return preferences;
     },
@@ -385,6 +415,35 @@ export const combatManagerService = {
             await updateFlag(client, combatId, { ...flag, folderId, status: 'active' });
             return this.detail(client, combatId);
         } finally { creatingNames.delete(nameKey); }
+    },
+
+    async rename(client: CombatClientLike, combatId: string, labelInput: unknown): Promise<CombatManagerEncounterDto> {
+        roleSubject(client);
+        const label = typeof labelInput === 'string' ? labelInput.trim() : '';
+        if (!label || label.length > 100) throw new CombatManagerError('Encounter name must be 1–100 characters', 400);
+        return withEncounterLock(combatId, async () => {
+            const { combat, flag } = activeEncounter(combatId);
+            if ((combat.round ?? 0) !== 0) throw new CombatManagerError('Only an unstarted encounter can be renamed', 409);
+            if (!flag.folderId) throw new CombatManagerError('Encounter Actor Folder is unavailable', 409);
+            const folder = folderStore.get(flag.folderId);
+            if (!folder || folder.type !== 'Actor' || folderMarker(folder)?.combatId !== combatId) {
+                throw new CombatManagerError('Encounter Folder ownership mismatch; rename stopped', 409);
+            }
+            const nameKey = combatManagerNameKey(label);
+            if (creatingNames.has(nameKey) || combatStore.list().some(other => {
+                if (getDocumentId(other) === combatId) return false;
+                const otherFlag = readCombatManagerFlag(other);
+                return otherFlag && combatManagerNameKey(otherFlag.label) === nameKey;
+            })) throw new CombatManagerError('A combat already exists with that name', 409);
+            creatingNames.add(nameKey);
+            try {
+                // A failed Combat update leaves the old visible label intact;
+                // repeating the rename can repair a changed Folder name.
+                await repositories(client).folders.update(flag.folderId, { name: `Combat: ${label}` });
+                await updateFlag(client, combatId, { ...flag, label });
+                return this.detail(client, combatId);
+            } finally { creatingNames.delete(nameKey); }
+        });
     },
 
     async addWorldActor(client: CombatClientLike, combatId: string, actorIdInput: unknown): Promise<CombatManagerEncounterDto> {
@@ -520,10 +579,13 @@ export const combatManagerService = {
         if (scope !== 'all' && scope !== 'npc') throw new CombatManagerError('Invalid initiative scope', 400);
         return withEncounterLock(combatId, async () => {
             const { combat } = activeEncounter(combatId);
+            const availability = new Map((await this.detail(client, combatId)).participants
+                .map(row => [row.id, row.initiativeRoll.rollAvailable]));
             const targets = (combat.combatants || []).filter(row => {
                 if (row.initiative !== null && row.initiative !== undefined) return false;
                 const actor = row.actorId ? actorStore.get(row.actorId) : null;
-                return actor && (scope === 'all' || !hasPlayerOwner(actor));
+                return actor && availability.get(getDocumentId(row) || '') === true
+                    && (scope === 'all' || !hasPlayerOwner(actor));
             });
             if (targets.length > MAX_BATCH_ROLL) throw new CombatManagerError('Too many combatants for one initiative batch', 413);
             const currentId = combatEncounterReadModel.getOrRebuild(combatId)?.currentCombatantId ?? null;
@@ -559,6 +621,10 @@ export const combatManagerService = {
             const combatant = combat.combatants?.find(row => getDocumentId(row) === combatantId);
             if (!combatant?.actorId || !actorStore.get(combatant.actorId)) {
                 throw new CombatManagerError('Combatant Actor not found', 404);
+            }
+            const projected = (await this.detail(client, combatId)).participants.find(row => row.id === combatantId);
+            if (!projected?.initiativeRoll.rollAvailable) {
+                throw new CombatManagerError('Initiative formula is unavailable; enter a value manually', 409);
             }
             const currentId = combatEncounterReadModel.getOrRebuild(combatId)?.currentCombatantId ?? null;
             try {
@@ -662,6 +728,68 @@ export const combatManagerService = {
             // Foundry has no atomic compare-and-set precondition for this write.
             await repositories(client).actors.updateActor(combatant.actorId, { [edit.path]: value });
             return this.detail(client, combatId);
+        });
+    },
+
+    async applyHealthBatch(client: CombatClientLike, combatId: string, request: unknown): Promise<CombatManagerHealthBatchDto> {
+        roleSubject(client);
+        if (!isRecord(request) || !['damage', 'heal'].includes(String(request.operation))
+            || typeof request.amount !== 'number' || !Number.isFinite(request.amount)
+            || request.amount <= 0 || request.amount > 1_000_000_000
+            || !Array.isArray(request.targets) || request.targets.length < 1 || request.targets.length > 100) {
+            throw new CombatManagerError('Choose 1–100 health targets and a positive amount', 400);
+        }
+        const amount = request.amount as number;
+        const targets = request.targets.map(row => {
+            if (!isRecord(row) || typeof row.statKey !== 'string' || !STAT_KEY_PATTERN.test(row.statKey)
+                || !isRecord(row.expected) || typeof row.expected.path !== 'string' || row.expected.path.length > 256
+                || typeof row.expected.value !== 'number' || !Number.isFinite(row.expected.value)) {
+                throw new CombatManagerError('Invalid health target', 400);
+            }
+            return { combatantId: requiredId(row.combatantId), statKey: row.statKey,
+                expected: { actorId: requiredId(row.expected.actorId), path: row.expected.path, value: row.expected.value } };
+        });
+        if (new Set(targets.map(row => row.combatantId)).size !== targets.length) {
+            throw new CombatManagerError('Duplicate health target', 400);
+        }
+        return withEncounterLock(combatId, async () => {
+            const { combat } = activeEncounter(combatId);
+            const roster = combat.combatants || [];
+            const byId = new Map(targets.map(row => [row.combatantId, row]));
+            if (targets.some(row => !roster.some(combatant => getDocumentId(combatant) === row.combatantId))) {
+                throw new CombatManagerError('Combatant not found', 404);
+            }
+            let applied = 0;
+            try {
+                for (const combatant of roster) {
+                    const target = byId.get(getDocumentId(combatant) || '');
+                    if (!target) continue;
+                    if (!combatant.actorId) throw new CombatManagerError('Combatant Actor not found', 404);
+                    const actor = actorStore.get(combatant.actorId);
+                    const prepared = preparedActorStore.get(combatant.actorId);
+                    const selection = await combatStatDisplayService.resolve(client);
+                    const healthField = selection?.attributes.find(row => row.key === target.statKey
+                        && row.editable === true && row.health === true);
+                    if (!actor || !prepared || !healthField) throw new CombatManagerError('Default health is not configured for editing', 409);
+                    const edit = projectCombatStatFields(prepared, [healthField], actor)[0]?.edit;
+                    if (!edit) throw new CombatManagerError('Health is not source-backed and editable', 409);
+                    if (combatant.actorId !== target.expected.actorId || edit.path !== target.expected.path
+                        || edit.value !== target.expected.value) {
+                        throw new CombatManagerError('Health changed; review the current value before retrying', 409);
+                    }
+                    const value = edit.value + (request.operation === 'heal' ? amount : -amount);
+                    if (!Number.isFinite(value) || Math.abs(value) > 1_000_000_000) {
+                        throw new CombatManagerError('Resulting health value is out of range', 400);
+                    }
+                    await repositories(client).actors.updateActor(combatant.actorId, { [edit.path]: value });
+                    applied++;
+                }
+            } catch (cause) {
+                const message = cause instanceof Error ? cause.message : 'Health update failed';
+                const status = cause instanceof CombatManagerError ? cause.status : 502;
+                throw new CombatManagerError(`Applied ${applied} of ${targets.length}: ${message}`, status);
+            }
+            return { applied, encounter: await this.detail(client, combatId) };
         });
     },
 

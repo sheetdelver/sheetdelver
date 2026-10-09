@@ -4,11 +4,13 @@ import type { CombatManagerSelectedStatDto } from '@shared/contracts/combatManag
 import { parseCombatStatSelection } from '@shared/contracts/combatStatAttributes';
 import { getConfigDir, writeOwnerOnlyFileAtomicSync } from '@core/paths';
 import { parseModuleId } from '@shared/security/moduleId';
+import { validInitiativeFallback } from './CombatInitiativeFormula';
 
 interface PreferenceEntry {
     worldId: string;
     moduleId: string;
-    attributes: CombatManagerSelectedStatDto[];
+    attributes?: CombatManagerSelectedStatDto[];
+    initiativeFormula?: string;
 }
 
 interface PreferenceFile {
@@ -64,11 +66,18 @@ export class CombatStatPreferenceStore {
             const row = entry as Record<string, unknown>;
             if (typeof row.worldId !== 'string' || typeof row.moduleId !== 'string') throw new Error('Combat-stat preference scope is malformed');
             validateScope(row.worldId, row.moduleId);
-            const attributes = parseCombatStatSelection(row.attributes);
+            const attributes = row.attributes === undefined ? undefined : parseCombatStatSelection(row.attributes);
+            const initiativeFormula = row.initiativeFormula;
             const scope = `${row.worldId}\0${row.moduleId}`;
-            if (!attributes || scopes.has(scope)) throw new Error('Combat-stat preference entry is malformed or duplicated');
+            if ((row.attributes !== undefined && !attributes)
+                || (initiativeFormula !== undefined && !validInitiativeFallback(initiativeFormula))
+                || (attributes === undefined && initiativeFormula === undefined) || scopes.has(scope)) {
+                throw new Error('Combat-stat preference entry is malformed or duplicated');
+            }
             scopes.add(scope);
-            entries.push({ worldId: row.worldId, moduleId: row.moduleId, attributes });
+            entries.push({ worldId: row.worldId, moduleId: row.moduleId,
+                ...(attributes ? { attributes } : {}),
+                ...(typeof initiativeFormula === 'string' ? { initiativeFormula } : {}) });
         }
         return { schemaVersion: 1, entries };
     }
@@ -76,7 +85,7 @@ export class CombatStatPreferenceStore {
     public get(worldId: string, moduleId: string): CombatManagerSelectedStatDto[] | null {
         validateScope(worldId, moduleId);
         const entry = this.load().entries.find(row => row.worldId === worldId && row.moduleId === moduleId);
-        return entry ? entry.attributes : null;
+        return entry?.attributes ?? null;
     }
 
     public set(worldId: string, moduleId: string, attributes: CombatManagerSelectedStatDto[]): void {
@@ -86,7 +95,9 @@ export class CombatStatPreferenceStore {
         const file = this.load();
         const entries = file.entries.filter(row => row.worldId !== worldId || row.moduleId !== moduleId);
         if (entries.length >= MAX_ENTRIES) throw new Error('Too many combat-stat preference scopes');
-        entries.push({ worldId, moduleId, attributes: parsed });
+        const previous = file.entries.find(row => row.worldId === worldId && row.moduleId === moduleId);
+        entries.push({ worldId, moduleId, attributes: parsed,
+            ...(previous?.initiativeFormula ? { initiativeFormula: previous.initiativeFormula } : {}) });
         writeOwnerOnlyFileAtomicSync(this.path(), JSON.stringify({ schemaVersion: 1, entries }));
     }
 
@@ -94,7 +105,26 @@ export class CombatStatPreferenceStore {
         validateScope(worldId, moduleId);
         const file = this.load();
         if (!file.entries.some(row => row.worldId === worldId && row.moduleId === moduleId)) return;
+        const entries = file.entries.flatMap(row => row.worldId !== worldId || row.moduleId !== moduleId
+            ? [row] : row.initiativeFormula ? [{ worldId, moduleId, initiativeFormula: row.initiativeFormula }] : []);
+        writeOwnerOnlyFileAtomicSync(this.path(), JSON.stringify({ schemaVersion: 1, entries }));
+    }
+
+    public getInitiativeFormula(worldId: string, moduleId: string): string | null {
+        validateScope(worldId, moduleId);
+        return this.load().entries.find(row => row.worldId === worldId && row.moduleId === moduleId)?.initiativeFormula ?? null;
+    }
+
+    public setInitiativeFormula(worldId: string, moduleId: string, formula: string | null): void {
+        validateScope(worldId, moduleId);
+        if (formula !== null && !validInitiativeFallback(formula)) throw new Error('Invalid initiative fallback formula');
+        const file = this.load();
+        const prior = file.entries.find(row => row.worldId === worldId && row.moduleId === moduleId);
         const entries = file.entries.filter(row => row.worldId !== worldId || row.moduleId !== moduleId);
+        if (entries.length >= MAX_ENTRIES) throw new Error('Too many combat-stat preference scopes');
+        if (prior?.attributes || formula !== null) entries.push({ worldId, moduleId,
+            ...(prior?.attributes ? { attributes: prior.attributes } : {}),
+            ...(formula !== null ? { initiativeFormula: formula.trim() } : {}) });
         writeOwnerOnlyFileAtomicSync(this.path(), JSON.stringify({ schemaVersion: 1, entries }));
     }
 }

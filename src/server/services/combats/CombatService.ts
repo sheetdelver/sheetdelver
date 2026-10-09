@@ -23,6 +23,8 @@ import {
 import type { PreparedActorData } from '@shared/sdk';
 import { buildCombatTrackerDto } from './CombatTrackerProjection';
 import { readCombatManagerFlag } from './combatManagerFlag';
+import { combatStatDisplayService } from './CombatStatDisplayService';
+import { effectiveInitiativeFormula } from './CombatInitiativeFormula';
 import type {
     CombatTrackerDto,
     CombatTrackerActorDto,
@@ -32,10 +34,6 @@ import type {
     CombatInitiativeRequestBody,
     CombatErrorPayload,
 } from '@shared/contracts/combats';
-
-interface AdapterWithInitiativeFormula {
-    getInitiativeFormula?: (actor: PreparedActorData) => string;
-}
 
 interface CombatServiceDeps {
     normalizeActors: (actorList: ActorDocument[], client: CombatClientLike) => Promise<ActorDocument[]>;
@@ -400,15 +398,13 @@ export function createCombatService(deps: CombatServiceDeps) {
 
         const actor = getPreparedActor(combatant.actorId);
 
-        let finalFormula = formula;
-        if (!finalFormula) {
-            const initiativeAdapter = adapter as AdapterWithInitiativeFormula;
-            if (typeof initiativeAdapter.getInitiativeFormula === 'function') {
-                finalFormula = initiativeAdapter.getInitiativeFormula(actor);
-            } else {
-                finalFormula = '1d20';
-            }
+        const preferences = await combatStatDisplayService.resolve(client);
+        const effective = effectiveInitiativeFormula(adapter, actor, preferences?.initiativeFormula ?? null);
+        if (!formula && !effective.rollAvailable) return { error: 'Initiative formula cannot resolve for this Actor; enter a value manually', status: 409 };
+        if (!formula && advantageMode && advantageMode !== 'normal' && !effective.advantageAvailable) {
+            return { error: 'Advantage is unavailable for this initiative formula', status: 400 };
         }
+        let finalFormula = formula || effective.formula;
 
         if (advantageMode === 'advantage') {
             finalFormula = finalFormula.replace(/^(?:1d20|2d20k[hl]1)/i, '2d20kh1');

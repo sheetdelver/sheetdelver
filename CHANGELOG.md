@@ -26,6 +26,12 @@
 - Excluded encounter copies from linking
 - Prevented duplicate combat names
 - Enabled unfinished combat deletion
+- Added batch health actions
+- Enabled encounter renaming
+- Refined encounter Begin choices
+- Added initiative formula fallback
+- Refreshed shared GM preferences
+- Added roster bulk selection
 
 ## 0.15.1
 - Unified player world states

@@ -23,6 +23,8 @@ export interface CombatManagerStatPreferencesDto {
     attributes: CombatManagerSelectedStatDto[];
     suggestions: ModuleCombatStatAttribute[];
     available: CombatManagerAvailableStatDto[];
+    initiativeFormula: string | null;
+    initiativePreview?: { source: 'module' | 'gm' | 'core'; formula: string; rollAvailable: boolean; advantageAvailable: boolean };
 }
 export interface CombatManagerResourceDto {
     path: string;
@@ -52,6 +54,21 @@ export interface CombatManagerStatUpdateRequest {
     expected: { actorId: string; path: string; value: number };
 }
 
+export interface CombatManagerHealthBatchRequest {
+    operation: 'damage' | 'heal';
+    amount: number;
+    targets: Array<{
+        combatantId: string;
+        statKey: string;
+        expected: { actorId: string; path: string; value: number };
+    }>;
+}
+
+export interface CombatManagerHealthBatchDto {
+    applied: number;
+    encounter: CombatManagerEncounterDto;
+}
+
 export interface CombatManagerParticipantDto {
     id: string;
     actorId: string;
@@ -67,6 +84,7 @@ export interface CombatManagerParticipantDto {
     resource: CombatManagerResourceDto | null;
     effects: string[];
     stats: CombatManagerStatDto[];
+    initiativeRoll: { source: 'module' | 'gm' | 'core'; rollAvailable: boolean; advantageAvailable: boolean };
 }
 
 export interface CombatManagerEncounterDto {

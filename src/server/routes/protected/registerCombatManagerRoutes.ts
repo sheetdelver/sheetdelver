@@ -5,7 +5,8 @@ import { createCombatService } from '@server/services/combats/CombatService';
 import { logger } from '@shared/utils/logger';
 
 function handleError(error: unknown, res: express.Response): void {
-    res.status(error instanceof CombatManagerError ? error.status : 500).json({ error: getErrorMessage(error) });
+    res.status(error instanceof CombatManagerError ? error.status : 500).json({ error: getErrorMessage(error),
+        ...(error instanceof CombatManagerError && error.code ? { code: error.code } : {}) });
 }
 
 export function registerCombatManagerRoutes(router: express.Router, deps: {
@@ -28,6 +29,10 @@ export function registerCombatManagerRoutes(router: express.Router, deps: {
         try { res.json({ preferences: await combatManagerService.resetStatPreferences(req.foundryClient) }); }
         catch (error) { handleError(error, res); }
     });
+    router.put('/combat-manager/initiative-fallback', async (req, res) => {
+        try { res.json({ preferences: await combatManagerService.saveInitiativeFormula(req.foundryClient, req.body?.formula) }); }
+        catch (error) { handleError(error, res); }
+    });
     router.get('/combat-manager/world-actors', (req, res) => {
         try { res.json(combatManagerService.worldActors(req.foundryClient, String(req.query.q || ''), req.query.sort)); }
         catch (error) { handleError(error, res); }
@@ -47,6 +52,10 @@ export function registerCombatManagerRoutes(router: express.Router, deps: {
     });
     router.get('/combat-manager/:id', async (req, res) => {
         try { res.json({ encounter: await combatManagerService.detail(req.foundryClient, req.params.id) }); }
+        catch (error) { handleError(error, res); }
+    });
+    router.patch('/combat-manager/:id', async (req, res) => {
+        try { res.json({ encounter: await combatManagerService.rename(req.foundryClient, req.params.id, req.body?.label) }); }
         catch (error) { handleError(error, res); }
     });
     router.delete('/combat-manager/:id', async (req, res) => {
@@ -88,9 +97,13 @@ export function registerCombatManagerRoutes(router: express.Router, deps: {
     });
     router.post('/combat-manager/:id/combatants/:combatantId/roll-initiative', async (req, res) => {
         try {
+            const mode = req.body?.advantageMode;
+            if (mode !== undefined && !['normal', 'advantage', 'disadvantage'].includes(mode)) {
+                return res.status(400).json({ error: 'Invalid initiative mode' });
+            }
             res.json(await combatManagerService.rollInitiativeOne(req.foundryClient, req.params.id,
                 req.params.combatantId, combatantId => combatService.rollInitiative(req.foundryClient,
-                    req.params.id, combatantId, {}, true)));
+                    req.params.id, combatantId, { advantageMode: mode }, true)));
         } catch (error) { handleError(error, res); }
     });
     router.post('/combat-manager/:id/reset-initiative', async (req, res) => {
@@ -107,6 +120,10 @@ export function registerCombatManagerRoutes(router: express.Router, deps: {
     });
     router.patch('/combat-manager/:id/combatants/:combatantId/stats/:statKey', async (req, res) => {
         try { res.json({ encounter: await combatManagerService.updateStat(req.foundryClient, req.params.id, req.params.combatantId, req.params.statKey, req.body) }); }
+        catch (error) { handleError(error, res); }
+    });
+    router.post('/combat-manager/:id/health-batch', async (req, res) => {
+        try { res.json(await combatManagerService.applyHealthBatch(req.foundryClient, req.params.id, req.body)); }
         catch (error) { handleError(error, res); }
     });
     router.delete('/combat-manager/:id/combatants/:combatantId', async (req, res) => {
