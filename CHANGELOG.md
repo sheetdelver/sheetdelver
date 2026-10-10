@@ -1,5 +1,5 @@
 # Releases
-## v0.16.0
+## 0.16.0
 - Added GM combat manager
 - Added tokenless encounter controls
 - Linked world Actors
