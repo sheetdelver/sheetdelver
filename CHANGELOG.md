@@ -2,6 +2,9 @@
 ## Unreleased
 - Added GM combat manager
 - Added tokenless encounter controls
+- Linked world Actors
+- Copied compendium participants
+- Added encounter history retention
 - Added batch initiative rolls
 - Added configurable combat stats
 - Enabled selected stat editing
@@ -29,6 +32,7 @@
 - Added batch health actions
 - Enabled encounter renaming
 - Refined encounter Begin choices
+- Added combatant visibility controls
 - Added initiative formula fallback
 - Refreshed shared GM preferences
 - Added roster bulk selection
