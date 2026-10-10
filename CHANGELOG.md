@@ -1,4 +1,42 @@
 # Releases
+## Unreleased
+- Added GM combat manager
+- Added tokenless encounter controls
+- Linked world Actors
+- Copied compendium participants
+- Added encounter history retention
+- Added batch initiative rolls
+- Added configurable combat stats
+- Enabled selected stat editing
+- Added default-health actions
+- Added shared GM stat preferences
+- Aligned combat manager appearance
+- Guarded stale combat resource edits
+- Refined defeated-status projection
+- Added Actor picker sorting
+- Showed all matching Actors
+- Guarded compendium read ingress
+- Added bounded enemy quantities
+- Filtered participant names live
+- Added individual initiative controls
+- Read evaluated initiative totals
+- Unified manager world presentation
+- Added retained-history removal
+- Preserved combat edit drafts
+- Guarded stale initiative edits
+- Showed combatant Actor portraits
+- Grouped encounter Actor folders
+- Excluded encounter copies from linking
+- Prevented duplicate combat names
+- Enabled unfinished combat deletion
+- Added preflighted batch health actions
+- Enabled encounter renaming
+- Refined encounter Begin choices
+- Added combatant visibility controls
+- Added module-preserving initiative fallback
+- Refreshed shared GM preferences
+- Added roster bulk selection
+
 ## 0.15.1
 - Unified player world states
 - Preserved pages through outages

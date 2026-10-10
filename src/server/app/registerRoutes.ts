@@ -13,6 +13,7 @@ import { registerActorRoutes } from '@server/routes/protected/registerActorRoute
 import { registerDebugRoutes } from '@server/routes/debug/registerDebugRoutes';
 import { registerChatRoutes } from '@server/routes/protected/registerChatRoutes';
 import { registerCombatRoutes } from '@server/routes/protected/registerCombatRoutes';
+import { registerCombatManagerRoutes } from '@server/routes/protected/registerCombatManagerRoutes';
 import { registerJournalRoutes } from '@server/routes/protected/registerJournalRoutes';
 import { registerUtilityRoutes } from '@server/routes/protected/registerUtilityRoutes';
 import { createModuleRouter } from '@server/routes/modules/createModuleRouter';
@@ -137,6 +138,7 @@ export function registerRoutes(deps: RegisterRoutesDeps): void {
 
     registerChatRoutes(appRouter, { config: deps.config });
     registerCombatRoutes(appRouter, { normalizeActors });
+    registerCombatManagerRoutes(appRouter, { normalizeActors });
     registerJournalRoutes(appRouter);
     registerUtilityRoutes(appRouter, {
         getFallbackSharedContentClient: () => createSystemRouteFoundryClient(systemService.getSystemClient())

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { usePathname } from 'next/navigation';
 import { useFoundry } from '@client/ui/context/FoundryContext';
 import { useActorCombat } from '@client/ui/context/ActorCombatContext';
 import { useSession } from '@client/ui/context/SessionContext';
@@ -38,6 +39,7 @@ interface RollCommand {
  * (selected encounter id, minimized state, dialog state, pending mutations).
  */
 export default function CombatHUD() {
+    const pathname = usePathname();
     const { step, system } = useFoundry();
     const { combats, fetchCombats } = useActorCombat();
     const { token } = useSession();
@@ -74,7 +76,7 @@ export default function CombatHUD() {
 
     // Render only during the dashboard step — reconnecting/world-closed and
     // every pre-game step must not show (possibly stale) combat state (ADR-0028).
-    if (step !== 'dashboard') return null;
+    if (step !== 'dashboard' || pathname === '/tools/combat') return null;
 
     const activeCombats = selectActiveCombats(combats);
     const selection = resolveSelectedCombat(activeCombats, selectedCombatId);

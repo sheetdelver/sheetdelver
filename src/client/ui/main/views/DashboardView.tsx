@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import Link from 'next/link';
+import { Swords } from 'lucide-react';
 import { SharedContentModal } from '@client/ui/components/SharedContentModal';
 import { ConfirmationModal } from '@client/ui/components/ConfirmationModal';
 import SystemTools from '@client/ui/components/SystemTools';
@@ -108,6 +110,25 @@ export const DashboardView = ({
 
 
                 {/* System Specific Tools (Modularized) */}
+                {(user?.role ?? 0) >= 4 && (
+                    <section aria-label="GM Tools">
+                        <div className="flex items-center gap-3 mb-4">
+                            <h3 className="text-xl font-bold uppercase tracking-widest sd-ui-accent">GM Tools</h3>
+                            <div className="h-px flex-1 sd-ui-divider border-t" />
+                        </div>
+                        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+                            <Link href="/tools/combat" className="sd-ui-panel-raised group flex items-center gap-4 rounded-xl p-4 shadow-lg backdrop-blur-md transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl">
+                                <span className="sd-ui-inset sd-ui-accent flex h-16 w-16 shrink-0 items-center justify-center rounded-lg">
+                                    <Swords aria-hidden="true" className="h-8 w-8" />
+                                </span>
+                                <span className="min-w-0">
+                                    <span className="sd-ui-accent block truncate text-lg font-bold">Combat Manager</span>
+                                    <span className="sd-ui-muted mt-1 block text-sm">Build and run tokenless encounters</span>
+                                </span>
+                            </Link>
+                        </div>
+                    </section>
+                )}
                 {system?.id && (
                     <SystemTools
                         key={system.id}

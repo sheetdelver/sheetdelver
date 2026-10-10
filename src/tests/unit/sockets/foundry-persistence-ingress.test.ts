@@ -118,6 +118,29 @@ async function runSingleAndBatchRouting() {
         });
         assert.equal(harness.invalidated.length, 1, 'pack reads do not invalidate hydrated content');
         assert.equal(harness.routed.length, 4, 'pack reads never enter world Stores');
+
+        harness.transport.emit('foundry:documentDispatchConfirmed', {
+            response: {
+                type: 'Actor', action: 'get', operation: { pack: null },
+                result: [{ _id: 'pack-actor-1', name: 'Pack Actor' }],
+            },
+            fallback: { type: 'Actor', action: 'get', operation: { pack: 'synthetic.actors', index: true } },
+        });
+        assert.equal(harness.routed.length, 4,
+            'a null pack in Foundry acknowledgement cannot turn a pack index into world Actors');
+
+        harness.transport.emit('foundry:modifyDocument', { response: {
+            type: 'Actor', action: 'get', operation: { pack: null },
+            result: [{ _id: 'pack-actor-2', name: 'External read with lost scope' }],
+        } });
+        assert.equal(harness.routed.length, 4,
+            'broadcast reads do not mutate world Stores even if pack scope is absent');
+
+        harness.transport.emit('foundry:documentDispatchConfirmed', {
+            response: { type: 'Actor', action: 'get', result: [{ _id: 'world-actor-1', name: 'World Actor' }] },
+            fallback: { type: 'Actor', action: 'get', operation: { query: { _id: 'world-actor-1' } } },
+        });
+        assert.equal(harness.routed.length, 5, 'confirmed world reads still seed the correct Store');
     } finally {
         harness.detach();
     }

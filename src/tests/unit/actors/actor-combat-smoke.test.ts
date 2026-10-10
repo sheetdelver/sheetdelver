@@ -3,7 +3,7 @@ import {
     buildActorCardProjection,
     createActorService,
 } from '@server/services/actors/ActorService';
-import { createCombatService } from '@server/services/combats/CombatService';
+import { createCombatService, getCombatInitiativeRollTotal } from '@server/services/combats/CombatService';
 import { combatStore } from '@server/core/documents/primary/combats/CombatStore';
 import { settingStore } from '@server/core/documents/primary/settings/SettingStore';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
@@ -178,6 +178,14 @@ async function runActorReadWriteSmoke() {
 }
 
 async function runCombatReadActionSmoke() {
+    assert.equal(getCombatInitiativeRollTotal({
+        content: '<div class="dice-roll"><h4 class="dice-total">4</h4></div>',
+        rolls: [JSON.stringify({ formula: '1d20', total: 4 })],
+    }), 4, 'initiative reads the evaluated roll instead of numeric chat markup');
+    assert.equal(getCombatInitiativeRollTotal({ content: '10' }), 10,
+        'older numeric-content clients remain supported');
+    assert.throws(() => getCombatInitiativeRollTotal({ content: '<div>unreadable</div>' }),
+        /Failed to parse roll total/);
     const normalizeCalls: Array<{ ids: string[] }> = [];
     const { actorStore } = await import('@server/core/documents/primary/actors/ActorStore');
     // Standalone execution does not import the document coordinator, so bind

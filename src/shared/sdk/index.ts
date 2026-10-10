@@ -41,6 +41,7 @@ export type {
     ModuleDashboardDialogProps,
     ModuleInfo,
     ModuleSettingDeclaration,
+    ModuleCombatStatAttribute,
     ModuleManifestPaths,
     ModulePackageDeclaration,
     ModulePermissionDeclaration,

@@ -102,6 +102,11 @@ graph TD
 Per ADR-0022 and ADR-0023, `SystemService` lives at `src/server/services/world/SystemService.ts` (relocated from `core/system/`) so the orchestration facade sits alongside `WorldBootstrapper`, `WorldTransportController`, `FoundryEventIngress`, and `EngagementService`. `core/` never imports `services/`.
 
 For actors, the platform performs one system-client fetch during bootstrap, seeds `ActorStore`, and then keeps that store in parity through Foundry event ingress (`modifyDocument` results and broadcasts). Actor API reads and dashboard card projections should read from this platform cache; they should not repeatedly ask Foundry to rehydrate the same actor list.
+Pack-scoped Actor reads remain outside `ActorStore`: the initiating pack scope
+survives terse/null acknowledgements, and neither socket ingress nor the
+requesting repository mirrors pack results into primary world Stores.
+Unsolicited read broadcasts also never mutate primary Stores. Only confirmed
+world reads and document changes may refresh the world cache.
 
 On a same-world reconnect, `WorldBootstrapper.recover()` verifies world/system identity, refreshes the world snapshot and all active primary-document Stores, and rebuilds prepared actors without reinitializing the module adapter. Browser-visible changes are calculated from the snapshot captured at transport loss and published after readiness; Stores reject a seed that raced with a live mutation. A changed world/system still tears down and bootstraps anew. See ADR-0056.
 
@@ -282,6 +287,24 @@ dependencies.
 ---
 
 ## 7. Security & Isolation
+- **Core GM Combat Manager (ADR-0049)**: `/tools/combat` is a dedicated
+  Gamemaster page, not a module tool or the player CombatHUD. Its authenticated
+  `/api/combat-manager` routes enforce strict role-4 access server-side and
+  project only marked, scene-null Combats. World Actor selections link their
+  existing IDs; direct compendium selections become marked world copies in an
+  encounter Actor Folder. Combat flags hold manager lifecycle/retention state,
+  while Actor HP/effects stay on source Actors. Server services authorize and
+  dispatch user-bound Foundry writes; the browser owns presentation only. Batch
+  initiative uses the existing adapter formula/user-bound roll path and a
+  Foundry-style non-GM ownership test for NPC selection; the universal CombatHUD
+  is hidden on the manager page to avoid duplicate controls.
+  Optional combat-stat suggestions come from the active module manifest, while
+  Core persists the role-4 GMs' shared world/module display selection under
+  the configured data directory's durable `config/`. Server projection reads
+  only bounded prepared Actor values. A GM-selected Editable flag permits
+  guarded writes to matching numeric source Actor fields, never derived or
+  arbitrary fields. Client-side filesystem access and Combat-flag preference
+  state are not introduced.
 - **Per-User Sockets**: Every user has their own dedicated socket. Foundry's native permission model is enforced at the transport layer.
 - **Local Admin Surface**: `/admin` is a provider-isolated route group in the application shell. The shell exposes it and `/api/admin` only on the configured local hostname; other hostnames return `404`. Browser sessions use a path-scoped opaque HttpOnly cookie plus CSRF protection. Core independently enforces the configured browser origin and client CIDR allowlist.
 - **Foundry Session Persistence**: Reusable Foundry cookies are stored only in an authenticated-encryption envelope. An explicit external 32-byte key takes priority; otherwise Core creates and reuses an owner-only installation key under the host configuration directory, outside `<DATA_DIR>`. Missing or mismatched key material fails restoration rather than reverting to plaintext.

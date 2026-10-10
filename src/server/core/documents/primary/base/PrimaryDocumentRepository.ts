@@ -46,10 +46,18 @@ export abstract class PrimaryDocumentRepository<TDocument extends { id?: string;
 
         const response = await this.transport.dispatchDocument(type, action, operation, parent);
 
+        // Repository mirrors are for world documents. A compendium read (or
+        // mutation) uses the same Foundry document type and may even return a
+        // null `operation.pack`; mirroring its rows would populate the world
+        // Store with pack entries. Pack invalidation is owned by ingress.
+        const responseOperation = response?.operation as Record<string, unknown> | undefined;
+        if ((typeof cacheOperation.pack === 'string' && cacheOperation.pack)
+            || (typeof responseOperation?.pack === 'string' && responseOperation.pack)) return response;
+
         // The initiator-side mirror. The broadcast that follows is idempotent
         // because the Store emits only on observable change.
-        const appliedOperation = response?.operation
-            ? { ...cacheOperation, ...response.operation }
+        const appliedOperation = responseOperation
+            ? { ...cacheOperation, ...responseOperation }
             : cacheOperation;
         this.store.applyModifyDocument(type, action, response?.result ?? response, appliedOperation);
         return response;

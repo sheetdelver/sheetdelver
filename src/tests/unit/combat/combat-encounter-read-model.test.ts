@@ -286,6 +286,7 @@ async function runDefeatedStatusDerivation() {
                     { _id: 'c-flagged', actorId: 'actor-npc', initiative: 15, defeated: true },
                     { _id: 'c-dying-pc', actorId: 'actor-dying', initiative: 10 },
                     { _id: 'c-dead-status', actorId: 'actor-dead', initiative: 5 },
+                    { _id: 'c-disabled-dead', actorId: 'actor-disabled-dead', initiative: 4 },
                 ],
             },
         ],
@@ -303,6 +304,11 @@ async function runDefeatedStatusDerivation() {
                 name: 'Slain Bandit',
                 effects: [{ _id: 'fx-dead', statuses: ['dead'] }],
             },
+            {
+                _id: 'actor-disabled-dead',
+                name: 'Recovered Bandit',
+                effects: [{ _id: 'fx-disabled-dead', statuses: ['dead'], disabled: true }],
+            },
         ] as ActorDocument[],
     );
 
@@ -311,6 +317,13 @@ async function runDefeatedStatusDerivation() {
     assert.equal(byId('c-flagged').defeated, true, 'combatant flag marks defeated');
     assert.equal(byId('c-dying-pc').defeated, false, 'unconscious (death saves) is not defeated');
     assert.equal(byId('c-dead-status').defeated, true, 'actor dead status derives defeated');
+    assert.equal(byId('c-disabled-dead').defeated, false, 'disabled dead effect does not mark defeated');
+
+    actorStore.applyModifyDocument('ActiveEffect', 'update', [
+        { _id: 'fx-disabled-dead', disabled: false },
+    ], { parentUuid: 'Actor.actor-disabled-dead' });
+    assert.equal(readModel.get('combat-death')!.rows.find((r) => r.id === 'c-disabled-dead')?.defeated,
+        true, 'enabling a dead effect rebuilds defeated state');
 
     // Live transition: the dying PC fails their saves — the dead status lands
     // as an embedded ActiveEffect on the actor, and the actor bridge rebuilds

@@ -67,7 +67,7 @@ export function ConfirmationModal({
     if (!mounted || !isOpen) return null;
 
     return createPortal(
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[130] flex items-center justify-center p-4">
             {/* Overlay background - absolute to parent fixed wrapper */}
             <div
                 className={t.overlay}

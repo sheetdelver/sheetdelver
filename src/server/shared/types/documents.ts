@@ -367,6 +367,7 @@ export interface ChatSendBody {
 
 export interface RollChatMessageLike {
     content?: string;
+    rolls?: Array<string | { total?: number }>;
     [key: string]: unknown;
 }
 
@@ -411,6 +412,6 @@ export interface CombatClientLike extends ActorServiceClientLike {
     roll(
         formula: string,
         label: string,
-        options?: { speaker?: { actor?: string; alias?: string } }
+        options?: { speaker?: { actor?: string; alias?: string }; rollMode?: RollMode }
     ): Promise<RollChatMessageLike>;
 }

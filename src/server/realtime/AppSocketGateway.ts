@@ -15,6 +15,9 @@ import {
 } from '@server/core/documents/primary/base/audience';
 import { sharedContentStore, type SharedContentChangedEvent } from '@server/core/world/SharedContentStore';
 import { readPlayerSessionCookie } from '@server/security/playerSessionCookie';
+import { combatManagerPreferenceEvents } from '@server/services/combats/CombatManagerPreferenceEvents';
+import { userStore } from '@server/core/documents/primary/users/UserStore';
+import { isGM } from '@server/core/documents/primary/base/ownership';
 import { STATUS_ROOMS } from './SystemStatusBroadcaster';
 
 type AppSocket = Socket & {
@@ -231,6 +234,10 @@ export function registerAppSocketGateway({
             const handleSharedUpdate = (event: SharedContentChangedEvent) => {
                 emitWorldBackedEvent('sharedContentUpdate', event.payload ?? { type: null });
             };
+            const handleCombatPreferencesChanged = () => {
+                const subject = userStore.createAccessSubject(getSessionUserId());
+                if (subject && isGM(subject)) emitWorldBackedEvent('combatManagerPreferencesChanged', null);
+            };
 
             // Store events are bridged through the system client, not per-user
             // sockets. Each Store emits from one canonical source; the gateway
@@ -263,6 +270,7 @@ export function registerAppSocketGateway({
             systemClient.on('settingChanged', handleSettingChanged);
             systemClient.on('settingListInvalidated', handleSettingListInvalidated);
             const unsubscribeSharedContent = sharedContentStore.onSharedContentChanged(handleSharedUpdate);
+            const unsubscribeCombatPreferences = combatManagerPreferenceEvents.onChanged(handleCombatPreferencesChanged);
 
             let detached = false;
             const detachListeners = () => {
@@ -295,6 +303,7 @@ export function registerAppSocketGateway({
                 systemClient.off('settingChanged', handleSettingChanged);
                 systemClient.off('settingListInvalidated', handleSettingListInvalidated);
                 unsubscribeSharedContent();
+                unsubscribeCombatPreferences();
             };
             detachWorldBackedListeners = detachListeners;
 

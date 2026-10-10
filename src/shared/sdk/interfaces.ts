@@ -187,6 +187,17 @@ export interface ModuleSettingDeclaration {
     options?: Array<{ value: string; label: string }>;
 }
 
+/** Optional, read-only combat display suggestion for Core's GM manager. */
+export interface ModuleCombatStatAttribute {
+    key: string;
+    label: string;
+    path: string;
+    kind: 'number' | 'text' | 'resource';
+    actorTypes?: string[];
+    /** Show this read-only stat as a compact pill in each combatant's roster row. */
+    showInRoster?: boolean;
+}
+
 export interface ModuleInfo {
     id: string;
     title: string;
@@ -203,6 +214,8 @@ export interface ModuleInfo {
     compendiumPacks?: CompendiumPackConfig;
     /** Declared client settings schema (decision 21). */
     settings?: ModuleSettingDeclaration[];
+    /** Suggested GM combat stats; GMs may override these for their world. */
+    combatTracking?: { attributes: ModuleCombatStatAttribute[] };
     package?: ModulePackageDeclaration;
     dependencies?: string[];
     conflicts?: string[];
