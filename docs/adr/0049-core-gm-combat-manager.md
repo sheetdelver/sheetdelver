@@ -1,6 +1,6 @@
 # ADR-0049: Core GM Combat Manager
 
-**Status:** Accepted — first release verified; October 2026 addendum pending
+**Status:** Completed — first release and October 2026 addendum verified
 **Date:** September 24, 2026
 **Related:** ADR-0011, ADR-0012, ADR-0013, ADR-0028, ADR-0038, ADR-0048, ADR-0058
 
@@ -264,12 +264,11 @@ to Core.
 
 ### Addendum: retained history, roster ergonomics and initiative formula
 
-**Status:** Accepted for implementation (October 2026). A2–A4 and A6–A13 must
-be implemented and verified before this ADR is marked Completed. A1 (player
-initiative rolling) and the Journal history ledger are deferred to a second
-pass after this ADR ships; see "Deferred to a second pass" below. A5 is an
-open design item. None of these is a completion gate. This addendum adds no
-player-facing control.
+**Status:** Completed for the bounded first release (October 10, 2026).
+A2–A4 and A6–A13 were implemented and verified. A1 (player initiative
+rolling) and the Journal history ledger are deferred to a second pass; see
+"Deferred to a second pass" below. A5 is an open design item. None of these
+is a completion gate. This addendum adds no player-facing control.
 
 **A1. Player initiative rolling (deferred).** The first release made the
 CombatHUD view-only for managed encounters: its initiative route refuses
@@ -319,8 +318,9 @@ across projection refreshes, shows newer values after 409, and requires an
 explicit retry; manual initiative now sends an observed-value precondition.
 Focused and full offline unit tests, TypeScript and changed-file lint passed.
 The GM subsequently verified retained-history removal and the two-GM stale
-edit path in live use. Health-modal conflict behavior remains unverified;
-this checkpoint does not close the ADR or advance deferred A1/ledger work.
+edit path in live use. Health-modal conflict behavior was not yet verified at
+this checkpoint; its later acceptance is recorded below. Deferred A1/ledger
+work did not advance.
 
 **A4. Damage or heal several participants at once.** For area effects, a GM
 can select multiple participants and apply one positive amount as Damage
@@ -483,9 +483,17 @@ multi-target health writes, pre-start rename, combined Begin choices,
 per-row Hidden control, busy-code notice, event/focus/reconnect preference
 refresh, and module-first initiative with a durable GM fallback. Focused and
 full offline unit tests pass. The GM reports the live checks with two GMs and
-players passed; the new roster bulk-select control and a native no-hook GM
-fallback roll still need explicit acceptance. ADR-0049 stays Accepted pending
-that verification and final documentation review.
+players passed, including the roster Select all/Deselect all controls. All
+three maintained system modules (D&D 5e, Shadowdark and Mörk Borg) supply an
+initiative hook, so none can exercise the no-hook fallback in live module use.
+The synthetic formula test covers the inherited SDK default, an empty module
+formula, a negative prepared reference and the Core `1d20` fallback; a live
+no-hook module roll is not a first-release acceptance gate. If a module without
+a hook is introduced, validate its actual roll path during that module's
+onboarding. The GM observed the health modal detect a stale value, display
+the new value and preserve Retry. On October 10 the GM confirmed Retry
+successfully applied against the new value and completed the final review.
+This closes the addendum and ADR-0049 without advancing deferred work.
 
 **Deferred to a second pass.** These are not completion gates. They are
 recorded so the second pass starts from the reviewed design; each needs its
@@ -582,8 +590,7 @@ investigation.
 
 ## Verification
 
-**Verified for the first release** (everything above the October 2026
-addendum):
+**Verified for the first release and bounded October 2026 addendum:**
 
 - **Synthetic Core tests** cover GM-only access and assistant/player 403s,
   marker scoping against unmarked and scene-linked Combats, world links
@@ -612,7 +619,11 @@ addendum):
 - **Operator reports:** the manager flow, stat display, health action and
   initiative controls work in manual use and across two GM accounts with
   shared stat preferences; after restarting the same Foundry world and
-  logging in again, the Combat and selected stats remained.
+  logging in again, the Combat and selected stats remained. The GM also
+  verified the addendum's roster selection, health actions, retained-history
+  removal, encounter controls and two-GM stale-edit behavior. A health-modal
+  conflict showed the newer value (12), preserved the draft and offered
+  Retry; the GM confirmed that Retry succeeded using the new value.
 - **Appearance:** the page uses the Player Core palette, controls and
   world-artwork scrim under ADR-0053's unified theming, so dark/light
   behavior follows Core's verified palette; no separate theme acceptance is
@@ -632,6 +643,7 @@ addendum):
   Core Store freshness checks only.
 - Assistant-GM access, scene/token-linked encounters, and every deferred item
   listed in decision 7 and the repeated-enemies section.
-- The October 2026 addendum, which has its own verification list; A2–A4 and
-  A6–A8 gate completion of this ADR. A1, A5 and the Journal history ledger
-  are deferred or open and do not.
+- A no-hook initiative roll has no current module to exercise it and is not
+  a first-release gate; synthetic formula-resolution checks cover the
+  fallback. A future no-hook module validates its actual roll path during
+  onboarding. A1, A5 and the Journal history ledger remain deferred or open.
