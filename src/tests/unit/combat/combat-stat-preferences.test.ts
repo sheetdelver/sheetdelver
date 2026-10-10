@@ -55,6 +55,10 @@ export function run(): void {
     assert.equal(effectiveInitiativeFormula(new BaseSystemAdapter(), prepared, null).source, 'core');
     assert.equal(effectiveInitiativeFormula({ getInitiativeFormula: () => '1d6+2' } as any, prepared,
         '1d20').source, 'module', 'module-supplied initiative always wins');
+    assert.deepEqual(effectiveInitiativeFormula({ getInitiativeFormula: () => '1d6+@system.attributes.init.value' } as any,
+        prepared, '1d20'), { source: 'module', formula: '1d6+@system.attributes.init.value',
+        rollAvailable: true, advantageAvailable: false },
+    'Core does not rewrite a module-supplied formula reference');
     assert.equal(effectiveInitiativeFormula({ getInitiativeFormula: () => '' } as any, prepared,
         '1d20').source, 'gm', 'an empty module formula permits the saved fallback');
 

@@ -573,13 +573,17 @@ export const combatManagerService = {
     },
 
     async rollInitiativeBatch(client: CombatClientLike, combatId: string, scope: unknown,
-        rollOne: (combatantId: string) => Promise<{ success: true; initiative: number } | { error: string; status: number }>,
+        rollOne: (combatantId: string, initiativeFallback: string | null) =>
+            Promise<{ success: true; initiative: number } | { error: string; status: number }>,
     ): Promise<CombatManagerInitiativeBatchDto> {
         roleSubject(client);
         if (scope !== 'all' && scope !== 'npc') throw new CombatManagerError('Invalid initiative scope', 400);
         return withEncounterLock(combatId, async () => {
             const { combat } = activeEncounter(combatId);
-            const availability = new Map((await this.detail(client, combatId)).participants
+            const preferences = await combatStatDisplayService.resolve(client);
+            const initiativeFallback = preferences?.initiativeFormula ?? null;
+            const availability = new Map((projectEncounter(combat, client, preferences?.attributes ?? [],
+                systemService.getActiveAdapter(), initiativeFallback)?.participants ?? [])
                 .map(row => [row.id, row.initiativeRoll.rollAvailable]));
             const targets = (combat.combatants || []).filter(row => {
                 if (row.initiative !== null && row.initiative !== undefined) return false;
@@ -594,7 +598,7 @@ export const combatManagerService = {
                 for (const row of targets) {
                     const rowId = getDocumentId(row);
                     if (!rowId) continue;
-                    const result = await rollOne(rowId);
+                    const result = await rollOne(rowId, initiativeFallback);
                     if ('error' in result) throw new CombatManagerError(result.error, result.status);
                     rolled++;
                 }
@@ -759,29 +763,43 @@ export const combatManagerService = {
             if (targets.some(row => !roster.some(combatant => getDocumentId(combatant) === row.combatantId))) {
                 throw new CombatManagerError('Combatant not found', 404);
             }
+            const selection = await combatStatDisplayService.resolve(client);
+            const updates: Array<{ actorId: string; path: string; value: number }> = [];
+            const seenSources = new Set<string>();
+            // Validate every target against one preference/source snapshot
+            // before any Foundry write; a preflight failure applies nothing.
+            for (const combatant of roster) {
+                const target = byId.get(getDocumentId(combatant) || '');
+                if (!target) continue;
+                if (!combatant.actorId) throw new CombatManagerError('Combatant Actor not found', 404);
+                const actor = actorStore.get(combatant.actorId);
+                const prepared = preparedActorStore.get(combatant.actorId);
+                const healthField = selection?.attributes.find(row => row.key === target.statKey
+                    && row.editable === true && row.health === true);
+                if (!actor || !prepared || !healthField) throw new CombatManagerError('Default health is not configured for editing', 409);
+                const edit = projectCombatStatFields(prepared, [healthField], actor)[0]?.edit;
+                if (!edit) throw new CombatManagerError('Health is not source-backed and editable', 409);
+                if (combatant.actorId !== target.expected.actorId || edit.path !== target.expected.path
+                    || edit.value !== target.expected.value) {
+                    throw new CombatManagerError('Health changed; review the current value before retrying', 409);
+                }
+                const value = edit.value + (request.operation === 'heal' ? amount : -amount);
+                if (!Number.isFinite(value) || Math.abs(value) > 1_000_000_000) {
+                    throw new CombatManagerError('Resulting health value is out of range', 400);
+                }
+                const sourceKey = `${combatant.actorId}:${edit.path}`;
+                if (seenSources.has(sourceKey)) {
+                    throw new CombatManagerError('The same Actor health field cannot be targeted twice', 409);
+                }
+                seenSources.add(sourceKey);
+                updates.push({ actorId: combatant.actorId, path: edit.path, value });
+            }
+            // Dispatch can still fail partway; report how many writes landed.
             let applied = 0;
             try {
-                for (const combatant of roster) {
-                    const target = byId.get(getDocumentId(combatant) || '');
-                    if (!target) continue;
-                    if (!combatant.actorId) throw new CombatManagerError('Combatant Actor not found', 404);
-                    const actor = actorStore.get(combatant.actorId);
-                    const prepared = preparedActorStore.get(combatant.actorId);
-                    const selection = await combatStatDisplayService.resolve(client);
-                    const healthField = selection?.attributes.find(row => row.key === target.statKey
-                        && row.editable === true && row.health === true);
-                    if (!actor || !prepared || !healthField) throw new CombatManagerError('Default health is not configured for editing', 409);
-                    const edit = projectCombatStatFields(prepared, [healthField], actor)[0]?.edit;
-                    if (!edit) throw new CombatManagerError('Health is not source-backed and editable', 409);
-                    if (combatant.actorId !== target.expected.actorId || edit.path !== target.expected.path
-                        || edit.value !== target.expected.value) {
-                        throw new CombatManagerError('Health changed; review the current value before retrying', 409);
-                    }
-                    const value = edit.value + (request.operation === 'heal' ? amount : -amount);
-                    if (!Number.isFinite(value) || Math.abs(value) > 1_000_000_000) {
-                        throw new CombatManagerError('Resulting health value is out of range', 400);
-                    }
-                    await repositories(client).actors.updateActor(combatant.actorId, { [edit.path]: value });
+                const actors = repositories(client).actors;
+                for (const update of updates) {
+                    await actors.updateActor(update.actorId, { [update.path]: update.value });
                     applied++;
                 }
             } catch (cause) {

@@ -360,6 +360,7 @@ export function createCombatService(deps: CombatServiceDeps) {
         combatantId: string,
         body: CombatInitiativeRequestBody,
         managerCommand = false,
+        managerInitiativeFallback?: string | null,
     ): Promise<CombatInitiativeSuccessPayload | CombatErrorPayload> => {
         ensureReady();
         const { formula, advantageMode } = body;
@@ -398,8 +399,11 @@ export function createCombatService(deps: CombatServiceDeps) {
 
         const actor = getPreparedActor(combatant.actorId);
 
-        const preferences = await combatStatDisplayService.resolve(client);
-        const effective = effectiveInitiativeFormula(adapter, actor, preferences?.initiativeFormula ?? null);
+        // A guarded manager batch supplies one preference snapshot for every roll.
+        const initiativeFallback = managerCommand && managerInitiativeFallback !== undefined
+            ? managerInitiativeFallback
+            : (await combatStatDisplayService.resolve(client))?.initiativeFormula ?? null;
+        const effective = effectiveInitiativeFormula(adapter, actor, initiativeFallback);
         if (!formula && !effective.rollAvailable) return { error: 'Initiative formula cannot resolve for this Actor; enter a value manually', status: 409 };
         if (!formula && advantageMode && advantageMode !== 'normal' && !effective.advantageAvailable) {
             return { error: 'Advantage is unavailable for this initiative formula', status: 400 };

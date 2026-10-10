@@ -60,7 +60,7 @@ export function effectiveInitiativeFormula(adapter: SystemAdapter | null, actor:
     }
     const source: InitiativeFormulaSource = moduleFormula ? 'module' : gmFallback ? 'gm' : 'core';
     const raw = moduleFormula || gmFallback || '1d20';
-    const formula = raw.includes('@') ? resolveReferences(raw, actor) : raw;
+    const formula = source === 'gm' && raw.includes('@') ? resolveReferences(raw, actor) : raw;
     return { source, formula: formula ?? raw, rollAvailable: formula !== null,
         advantageAvailable: formula !== null && /^(?:1d20|2d20k[hl]1)(?!\d)/i.test(formula.trim()) };
 }

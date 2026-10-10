@@ -90,8 +90,8 @@ export function registerCombatManagerRoutes(router: express.Router, deps: {
     router.post('/combat-manager/:id/roll-initiative', async (req, res) => {
         try {
             const payload = await combatManagerService.rollInitiativeBatch(req.foundryClient, req.params.id,
-                req.body?.scope, combatantId => combatService.rollInitiative(req.foundryClient,
-                    req.params.id, combatantId, {}, true));
+                req.body?.scope, (combatantId, initiativeFallback) => combatService.rollInitiative(req.foundryClient,
+                    req.params.id, combatantId, {}, true, initiativeFallback));
             res.json(payload);
         } catch (error) { handleError(error, res); }
     });

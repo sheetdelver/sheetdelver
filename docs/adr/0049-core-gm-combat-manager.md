@@ -327,19 +327,20 @@ can select multiple participants and apply one positive amount as Damage
 (`current − amount`) or Heal (`current + amount`) to each.
 
 - Only rows whose Default health stat is editable can be selected; others
-  show a disabled checkbox. Separate Select all and Deselect all buttons sit
-  above the roster checkbox column; Deselect all works with any partial
-  selection. When more than 100 rows are eligible, Select all selects the
-  first 100 in roster order and says so. The batch is relative only;
-  direct value setting stays per participant.
-- One request carries each target's observed Actor ID, path and value. The
-  server takes the encounter lock once and applies each write through the
-  same guarded stat path in roster order, with each target's own stale check.
-  A stale or failed target stops the batch and reports "Applied N of M",
-  then the roster refreshes; nothing is replayed automatically.
+  show a disabled checkbox. Select all and Deselect all sit above the
+  checkbox column. A batch holds at most 100 targets; when more rows are
+  eligible, Select all takes the first 100 in roster order and says so.
+  Batches are relative only; setting a value directly stays per participant.
+- One request carries each target's observed Actor ID, path and value. Under
+  the encounter lock, the server reads the stat preference once and checks
+  every target before writing. Any stale, invalid or duplicated target
+  rejects the batch with its own message and nothing is written. Writes then
+  run in roster order; a mid-batch write failure reports "Applied N of M" and
+  keeps earlier writes. A Foundry change made after the check is not
+  excluded (no atomic compare-and-set). The roster refreshes; nothing is
+  replayed automatically.
 - Arithmetic matches the single-target modal: no clamping, resistances or
-  other system rules. The batch size is bounded (for example, 100), and
-  completed encounters reject it.
+  other system rules. Completed encounters reject batches.
 
 **A5. Grouped repeated enemies (open design item).** Quantity currently
 creates independent copies with independent initiative; nothing groups them.
@@ -409,10 +410,12 @@ addition is a GM-defined fallback for a module that supplies none.
   optional `@` attribute references that pass the same safe-path validation
   as selected stats and resolve against the prepared Actor. A reference that
   does not resolve for an Actor makes that Actor's roll unavailable (manual
-  entry) rather than rolling with a missing term. For the selected Actor, the
-  configuration identifies the effective source as module formula, saved GM
-  fallback or Core default. If it is Core default, show "Using Core default
-  1d20; this may not match your system" and offer the GM fallback control.
+  entry) rather than rolling with a missing term. Core does not substitute
+  `@` references in module-supplied formulas; those remain module-owned. For
+  the selected Actor, the configuration identifies the effective source as
+  module formula, saved GM fallback or Core default. If it is Core default,
+  show "Using Core default 1d20; this may not match your system" and offer
+  the GM fallback control.
   Preview the effective formula against that Actor; do not imply a saved GM
   fallback overrides a module-supplied formula.
 - **Foundry system `initiative` field.** Core does not evaluate it directly.
@@ -477,8 +480,7 @@ The existing `complete` action retains its distinct retention behavior.
 **October 9 addendum checkpoint:** A9–A13 are implemented with focused
 projection, folder-reuse, cleanup, direct-API bypass, duplicate-name,
 concurrent-create, unfinished-deletion and guarded-retry tests. The GM
-verified their live behavior; local checkpoint commit `211a1ed` records them.
-A4 and A6–A8 are implemented in checkpoint commit `029218b`: guarded
+verified their live behavior. A4 and A6–A8 are also implemented: guarded
 multi-target health writes, pre-start rename, combined Begin choices,
 per-row Hidden control, busy-code notice, event/focus/reconnect preference
 refresh, and module-first initiative with a durable GM fallback. Focused and

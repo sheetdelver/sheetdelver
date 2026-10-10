@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { combatManagerService, CombatManagerError } from '@server/services/combats/CombatManagerService';
 import { discoverActorSortFields, parseActorPickerSort, sortActorChoices } from '@server/services/combats/CombatActorPickerSort';
-import { projectCombatStatFields } from '@server/services/combats/CombatStatDisplayService';
+import { combatStatDisplayService, projectCombatStatFields } from '@server/services/combats/CombatStatDisplayService';
 import { readCombatManagerFlag } from '@server/services/combats/combatManagerFlag';
 import { createCombatService } from '@server/services/combats/CombatService';
 import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
@@ -438,7 +438,26 @@ export async function run(): Promise<void> {
     await assert.rejects(() => combatManagerService.rollInitiativeBatch(gm, batch.id, 'invalid', rollOne),
         (error: unknown) => error instanceof CombatManagerError && error.status === 400);
     assert.equal(rolledIds.length, 0, 'role and scope preflights have no roll side effects');
-    const npcBatch = await combatManagerService.rollInitiativeBatch(gm, batch.id, 'npc', rollOne);
+    const originalBatchResolve = combatStatDisplayService.resolve;
+    let initiativePreferenceReads = 0;
+    const fallbackSnapshots: Array<string | null> = [];
+    combatStatDisplayService.resolve = async client => {
+        initiativePreferenceReads++;
+        return originalBatchResolve(client);
+    };
+    const npcBatch = await (async () => {
+        try {
+            return await combatManagerService.rollInitiativeBatch(gm, batch.id, 'npc', (rowId, fallback) => {
+                fallbackSnapshots.push(fallback);
+                return rollOne(rowId);
+            });
+        } finally {
+            combatStatDisplayService.resolve = originalBatchResolve;
+        }
+    })();
+    assert.equal(initiativePreferenceReads, 2,
+        'one preference read selects batch formulas; one projects the response');
+    assert.deepEqual(fallbackSnapshots, [null, null], 'every batch roll receives the same fallback snapshot');
     assert.equal(npcBatch.rolled, 2);
     assert.deepEqual(rolledIds.sort(), batchRoster.filter(row => row.isNpc).map(row => row.id).sort());
     assert.equal(npcBatch.encounter.currentCombatantId, currentBeforeBatch,
@@ -576,9 +595,14 @@ export async function run(): Promise<void> {
             { value: 12, expected: expectedCopy });
         assert.equal(((actorStore.get(copied.actorId)?.system as any).attributes.hp.value), 12);
         assert.equal(((actorStore.get('WORLDNPC')?.system as any).attributes.hp.value), 20);
+        await combatManagerService.addPackActor(gm, editableEncounter.id, 'test.monsters', 'PACK1');
+        const thirdCopy = (await combatManagerService.detail(gm, editableEncounter.id)).participants.find(row =>
+            row.source === 'compendium-copy' && row.actorId !== copied.actorId)!;
         const healthTargets = [
             { combatantId: linked.id, statKey: 'hp', expected: { ...expectedLinked, value: 20 } },
             { combatantId: copied.id, statKey: 'hp', expected: { ...expectedCopy, value: 12 } },
+            { combatantId: thirdCopy.id, statKey: 'hp', expected: { actorId: thirdCopy.actorId,
+                path: thirdCopy.stats[0].edit!.path, value: thirdCopy.stats[0].edit!.value } },
         ];
         await assert.rejects(() => combatManagerService.applyHealthBatch(assistant, editableEncounter.id,
             { operation: 'damage', amount: 3, targets: healthTargets }),
@@ -587,17 +611,47 @@ export async function run(): Promise<void> {
             { operation: 'damage', amount: 3, targets: [healthTargets[0], healthTargets[0]] }),
         (error: unknown) => error instanceof CombatManagerError && error.status === 400);
         await assert.rejects(() => combatManagerService.applyHealthBatch(gm, editableEncounter.id,
-            { operation: 'damage', amount: 3, targets: [healthTargets[0],
-                { ...healthTargets[1], expected: { ...healthTargets[1].expected, value: 18 } }] }),
+            { operation: 'damage', amount: 3, targets: [healthTargets[0], healthTargets[1],
+                { ...healthTargets[2], expected: { ...healthTargets[2].expected, value: 999 } }] }),
         (error: unknown) => error instanceof CombatManagerError && error.status === 409
+            && error.message === 'Health changed; review the current value before retrying',
+        'the batch rejects a stale third Actor before any write');
+        assert.equal(((actorStore.get('WORLDNPC')?.system as any).attributes.hp.value), 20);
+        assert.equal(((actorStore.get(copied.actorId)?.system as any).attributes.hp.value), 12);
+        assert.equal(((actorStore.get(thirdCopy.actorId)?.system as any).attributes.hp.value), 18);
+        let batchWrites = 0;
+        const failingWriteClient: CombatClientLike = { ...gm,
+            dispatchDocument: async (type, action, operation, parent) => {
+                if (type === 'Actor' && action === 'update' && ++batchWrites === 2) {
+                    throw new Error('Synthetic transport failure');
+                }
+                return gm.dispatchDocument(type, action, operation, parent);
+            },
+        };
+        await assert.rejects(() => combatManagerService.applyHealthBatch(failingWriteClient, editableEncounter.id,
+            { operation: 'damage', amount: 3, targets: healthTargets.slice(0, 2) }),
+        (error: unknown) => error instanceof CombatManagerError && error.status === 502
             && error.message.startsWith('Applied 1 of 2:'),
-        'the batch stops at the stale second Actor and reports partial application');
+        'a genuine write failure still reports partial application');
         assert.equal(((actorStore.get('WORLDNPC')?.system as any).attributes.hp.value), 17);
         assert.equal(((actorStore.get(copied.actorId)?.system as any).attributes.hp.value), 12);
-        const healed = await combatManagerService.applyHealthBatch(gm, editableEncounter.id,
-            { operation: 'heal', amount: 2, targets: [
-                { ...healthTargets[0], expected: { ...healthTargets[0].expected, value: 17 } }, healthTargets[1],
-            ] });
+        const originalResolve = combatStatDisplayService.resolve;
+        let preferenceReads = 0;
+        combatStatDisplayService.resolve = async client => {
+            preferenceReads++;
+            return originalResolve(client);
+        };
+        const healed = await (async () => {
+            try {
+                return await combatManagerService.applyHealthBatch(gm, editableEncounter.id,
+                { operation: 'heal', amount: 2, targets: [
+                    { ...healthTargets[0], expected: { ...healthTargets[0].expected, value: 17 } }, healthTargets[1],
+                ] });
+            } finally {
+                combatStatDisplayService.resolve = originalResolve;
+            }
+        })();
+        assert.equal(preferenceReads, 2, 'one preference read preflights the batch; one projects the response');
         assert.equal(healed.applied, 2);
         assert.equal(((actorStore.get('WORLDNPC')?.system as any).attributes.hp.value), 19);
         assert.equal(((actorStore.get(copied.actorId)?.system as any).attributes.hp.value), 14);

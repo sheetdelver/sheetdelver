@@ -13,7 +13,7 @@ export interface CombatManagerFlag {
     completedAt?: string;
     /** Set before explicit deletion, including an uncompleted encounter. */
     deletionRequested?: true;
-    /** Older in-progress history cleanup marker, accepted for safe retry. */
+    /** Legacy A2 history-cleanup marker; read only so older flags can retry safely. */
     historyRemovalRequested?: true;
 }
 

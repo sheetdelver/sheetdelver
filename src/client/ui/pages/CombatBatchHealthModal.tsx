@@ -50,7 +50,7 @@ export function CombatBatchHealthModal({ targets, names, busy, onClose, onApply 
                 <button disabled={busy || !valid} onClick={() => onApply('damage', Number(amount))}
                     className="sd-ui-button sd-ui-button-danger px-3 py-2 text-sm font-semibold">Damage all</button>
             </div>
-            <p className="sd-ui-muted mt-3 text-xs">Applied in roster order. A stale value stops the batch; earlier changes remain.
+            <p className="sd-ui-muted mt-3 text-xs">All values are checked before changes begin. A write failure may leave earlier changes in place.
                 No damage rules or maximum-health cap are applied.</p>
         </section>
     </div>, document.body);

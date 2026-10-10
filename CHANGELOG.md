@@ -29,11 +29,11 @@
 - Excluded encounter copies from linking
 - Prevented duplicate combat names
 - Enabled unfinished combat deletion
-- Added batch health actions
+- Added preflighted batch health actions
 - Enabled encounter renaming
 - Refined encounter Begin choices
 - Added combatant visibility controls
-- Added initiative formula fallback
+- Added module-preserving initiative fallback
 - Refreshed shared GM preferences
 - Added roster bulk selection
 
