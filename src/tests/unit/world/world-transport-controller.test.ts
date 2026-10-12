@@ -19,6 +19,7 @@ class FakeTransport extends EventEmitter {
         isSetupMatch: true,
         pageTitle: 'Setup',
     };
+    public delayedStatus: Promise<typeof this.statusResponse> | null = null;
 
     public async connect(): Promise<void> {
         this.connectCalls += 1;
@@ -30,7 +31,7 @@ class FakeTransport extends EventEmitter {
     }
 
     public async checkStatus() {
-        return this.statusResponse;
+        return this.delayedStatus ?? this.statusResponse;
     }
 
     public async postSetupAction(payload: Record<string, unknown>): Promise<unknown> {
@@ -190,6 +191,101 @@ async function runRecoveryFailureRetryTest() {
     }
 }
 
+async function runSetupFailureRecoveryTest() {
+    resetWorldState();
+    const { controller, transport } = createController();
+    try {
+        transport.emit('foundry:setupDetected', { pageTitle: 'Setup' });
+        assert.equal(worldLifecycleStore.getState(), 'setup');
+        transport.emit('foundry:connectionFailed');
+        assert.equal(worldLifecycleStore.getState(), 'setup', 'ambiguous HTTP failure does not replace confirmed Setup');
+        assert.ok((controller as any).retryTimer, 'Setup remains monitored after failure');
+
+        transport.emit('foundry:worldTitleDetected', { pageTitle: 'Recovered World' });
+        assert.equal(worldLifecycleStore.getState(), 'startup', 'a later launch leaves Setup');
+    } finally {
+        controller.dispose();
+        resetWorldState();
+    }
+}
+
+async function runSetupHeartbeatClassificationTest() {
+    resetWorldState();
+    const { controller, transport } = createController();
+    try {
+        transport.emit('foundry:setupDetected', { pageTitle: 'Setup' });
+        controller.stopHeartbeat();
+        await (controller as any).runHeartbeat();
+        assert.equal(transport.connectCalls, 0,
+            'an explicit Setup heartbeat is not a discovered world title');
+        assert.equal(worldLifecycleStore.getState(), 'setup');
+        assert.ok((controller as any).retryTimer, 'Setup continues on its scheduled retry');
+
+        await (controller as any).runHeartbeat();
+        assert.equal(transport.connectCalls, 0, 'repeated Setup evidence still does not start world discovery');
+
+        transport.statusResponse = {
+            csrfToken: null,
+            isSetupMatch: false,
+            pageTitle: 'Recovered World',
+        };
+        await (controller as any).runHeartbeat();
+        assert.equal(transport.connectCalls, 1,
+            'a later non-Setup world title starts discovery');
+    } finally {
+        controller.dispose();
+        resetWorldState();
+    }
+}
+
+async function runHeartbeatLifetimeTests() {
+    resetWorldState();
+    const { controller, transport } = createController();
+    try {
+        transport.isConnected = true;
+        worldLifecycleStore.setState('active', 'heartbeat-lifetime-fixture');
+        let releaseOuter!: () => void;
+        let releaseInner!: () => void;
+        const outer = controller.withHeartbeatPaused(() => new Promise<void>(resolve => { releaseOuter = resolve; }));
+        const inner = controller.withHeartbeatPaused(() => new Promise<void>(resolve => { releaseInner = resolve; }));
+        await (controller as any).runHeartbeat();
+        assert.equal((controller as any).heartbeatTimer, null);
+        releaseInner();
+        await inner;
+        assert.equal((controller as any).heartbeatTimer, null, 'nested pause still suspends monitoring');
+        releaseOuter();
+        await outer;
+        assert.ok((controller as any).heartbeatTimer, 'last pause resumes monitoring');
+
+        let answer!: (response: typeof transport.statusResponse) => void;
+        transport.delayedStatus = new Promise(resolve => { answer = resolve; });
+        const stale = (controller as any).runHeartbeat();
+        controller.startHeartbeat();
+        answer({ csrfToken: null, isSetupMatch: true, pageTitle: 'Setup' });
+        await stale;
+        assert.equal(worldLifecycleStore.getState(), 'active', 'stale Setup cannot replace a newer lifecycle');
+        assert.equal(transport.disconnectCalls, 0, 'stale probe cannot disconnect the active transport');
+        assert.ok((controller as any).heartbeatTimer, 'replacement monitor remains scheduled');
+
+        let rejectPause!: (error: Error) => void;
+        const failedPause = controller.withHeartbeatPaused(() => new Promise<void>((_resolve, reject) => {
+            rejectPause = reject;
+        }));
+        rejectPause(new Error('isolated operation failed'));
+        await assert.rejects(failedPause, /isolated operation failed/);
+        assert.ok((controller as any).heartbeatTimer, 'failed operation also resumes monitoring');
+
+        transport.emit('foundry:connectionFailed');
+        assert.ok((controller as any).retryTimer);
+        assert.equal((controller as any).heartbeatTimer, null, 'retry is the only scheduled recovery owner');
+        await controller.withHeartbeatPaused(async () => undefined);
+        assert.equal((controller as any).heartbeatTimer, null, 'pause completion cannot compete with a scheduled retry');
+    } finally {
+        controller.dispose();
+        resetWorldState();
+    }
+}
+
 async function runProgressReconnectTests() {
     resetWorldState();
     const { controller, transport } = createController();
@@ -277,6 +373,9 @@ export async function run() {
     await runTransportFactTests();
     await runActiveWorldRecoveryTests();
     await runRecoveryFailureRetryTest();
+    await runSetupFailureRecoveryTest();
+    await runSetupHeartbeatClassificationTest();
+    await runHeartbeatLifetimeTests();
     await runProgressReconnectTests();
     await runClosedWorldMonitoringTests();
 }

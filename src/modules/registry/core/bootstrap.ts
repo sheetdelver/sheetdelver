@@ -100,6 +100,10 @@ export function initializeRegistry() {
                 }
 
                 const modulePath = path.join(modulesDir, entry.name);
+                if (scanDir.source === ModuleSourceCategory.Local) {
+                    const existing = lifecycleStore.modules[directoryId];
+                    if (existing) existing.localDirectory = modulePath;
+                }
                 const infoPath = path.join(modulePath, 'info.json');
 
                 if (!fs.existsSync(infoPath)) {
@@ -110,10 +114,12 @@ export function initializeRegistry() {
                         title: entry.name,
                         directory: modulePath,
                     });
+                    if (scanDir.source === ModuleSourceCategory.Local) lifecycleStore.modules[moduleId].localDirectory = modulePath;
                     applyLifecycleClassification(lifecycleStore, moduleId, scanDir.source, {
                         status: ModuleLifecycleStatus.Errored,
                         enabled: false,
                         reason: 'Missing info.json manifest',
+                        preserveIntent: true,
                         manifestValid: false,
                         validationErrors: ['Missing info.json manifest'],
                         compatible: false,
@@ -128,14 +134,6 @@ export function initializeRegistry() {
 
                     const fallbackId = directoryId;
                     const fallbackTitle = entry.name;
-                    const inferredId = (
-                        typeof rawInfo === 'object'
-                        && rawInfo !== null
-                        && 'id' in rawInfo
-                        && typeof (rawInfo as { id?: unknown }).id === 'string'
-                    )
-                        ? String((rawInfo as { id: string }).id).toLowerCase()
-                        : fallbackId;
                     const inferredTitle = (
                         typeof rawInfo === 'object'
                         && rawInfo !== null
@@ -146,16 +144,18 @@ export function initializeRegistry() {
                         : fallbackTitle;
 
                     upsertDiscoveredModule(lifecycleStore, {
-                        moduleId: inferredId,
+                        moduleId: fallbackId,
                         title: inferredTitle,
                         directory: modulePath,
                     });
+                    if (scanDir.source === ModuleSourceCategory.Local) lifecycleStore.modules[fallbackId].localDirectory = modulePath;
 
                     if (!shapeValidation.valid) {
-                        applyLifecycleClassification(lifecycleStore, inferredId, scanDir.source, {
+                        applyLifecycleClassification(lifecycleStore, fallbackId, scanDir.source, {
                             status: ModuleLifecycleStatus.Errored,
                             enabled: false,
                             reason: shapeValidation.errors.join('; '),
+                            preserveIntent: true,
                             manifestValid: false,
                             validationErrors: shapeValidation.errors,
                             compatible: false,
@@ -172,6 +172,7 @@ export function initializeRegistry() {
                             status: ModuleLifecycleStatus.Errored,
                             enabled: false,
                             reason: `Manifest ID "${primaryId}" does not match directory "${directoryId}"`,
+                            preserveIntent: true,
                             manifestValid: false,
                             validationErrors: ['Manifest ID must match its module directory'],
                             compatible: false,
@@ -213,10 +214,11 @@ export function initializeRegistry() {
                     }
 
                     if (!compatibility.compatible) {
-                        applyLifecycleClassification(lifecycleStore, inferredId, scanDir.source, {
+                        applyLifecycleClassification(lifecycleStore, fallbackId, scanDir.source, {
                             status: ModuleLifecycleStatus.Incompatible,
                             enabled: false,
                             reason: compatibility.reason || 'Incompatible with current core version',
+                            preserveIntent: true,
                             manifestValid: true,
                             compatible: false,
                             coreVersion: compatibility.coreVersion,
@@ -248,17 +250,28 @@ export function initializeRegistry() {
                     if (!candidates.has(primaryId)) candidates.set(primaryId, new Map());
                     candidates.get(primaryId)!.set(scanDir.source, plugin);
 
-                    if (scanDir.source === ModuleSourceCategory.Local) {
-                        const rec = lifecycleStore.modules[primaryId];
-                        if (rec) rec.localDirectory = modulePath;
-                    }
-
                     logger.info(`Registry [PID:${process.pid}] | Discovered ${scanDir.source} module: ${info.title} (${primaryId})`);
                     if (info.experimental) {
                         logger.warn(`Registry [PID:${process.pid}] | Experimental module hidden from public registry: ${info.title} (${primaryId})`);
                     }
                 } catch (err) {
                     logger.error(`Registry | Failed to parse manifest for "${entry.name}" in ${scanDir.source}:`, err);
+                    upsertDiscoveredModule(lifecycleStore, {
+                        moduleId: directoryId,
+                        title: entry.name,
+                        directory: modulePath,
+                    });
+                    if (scanDir.source === ModuleSourceCategory.Local) lifecycleStore.modules[directoryId].localDirectory = modulePath;
+                    applyLifecycleClassification(lifecycleStore, directoryId, scanDir.source, {
+                        status: ModuleLifecycleStatus.Errored,
+                        enabled: false,
+                        reason: 'Cannot read or parse info.json manifest',
+                        preserveIntent: true,
+                        manifestValid: false,
+                        validationErrors: ['Cannot read or parse info.json manifest'],
+                        compatible: false,
+                        coreVersion,
+                    });
                 }
             }
         }
@@ -318,6 +331,7 @@ export function initializeRegistry() {
                         ? ModuleLifecycleStatus.Errored
                         : enabled ? ModuleLifecycleStatus.Validated : ModuleLifecycleStatus.Disabled,
                     enabled: blockingArtifactError ? false : enabled,
+                    preserveIntent: blockingArtifactError,
                     reason: blockingArtifactError
                         ? entryPathError || firstArtifactError || 'Packaged module artifact failed health checks'
                         : enabled ? undefined : 'Module disabled in persisted lifecycle state',

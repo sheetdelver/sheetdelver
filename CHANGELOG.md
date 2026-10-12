@@ -1,4 +1,11 @@
 # Releases
+## Unreleased
+- Hardened world recovery ownership
+- Preserved confirmed Setup presentation
+- Secured Foundry login diagnostics
+- Reconciled module inventory and sources
+- Enabled guarded module upgrades
+
 ## 0.16.0
 - Added GM combat manager
 - Added tokenless encounter controls

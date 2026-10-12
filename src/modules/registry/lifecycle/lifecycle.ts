@@ -180,6 +180,8 @@ export interface ModuleLifecycleClassificationInput {
     artifactDiagnostics?: ModuleArtifactHealthDiagnostic[];
     activeSource?: ModuleSourceCategory;
     clearHealth?: boolean;
+    /** Classification can block execution without changing operator preference. */
+    preserveIntent?: boolean;
 }
 
 export function loadLifecycleStore(stateFilePath = getDefaultLifecycleStateFilePath()): ModuleLifecycleStore {
@@ -310,10 +312,13 @@ export function applyLifecycleClassification(
     // Keep the compatibility flags synchronized with the source-specific state.
     // Bootstrap and the admin UI both consume these fields while old lifecycle
     // records are migrated in place.
-    if (source === ModuleSourceCategory.Local) next.localEnabled = classification.enabled;
-    else if (source === ModuleSourceCategory.Managed) next.managedEnabled = classification.enabled;
+    const preserveIntent = classification.preserveIntent ?? classification.status === ModuleLifecycleStatus.Incompatible;
+    if (source === ModuleSourceCategory.Local) next.localEnabled = preserveIntent
+        ? existing.localEnabled ?? existing.enabled : classification.enabled;
+    else if (source === ModuleSourceCategory.Managed) next.managedEnabled = preserveIntent
+        ? existing.managedEnabled ?? existing.enabled : classification.enabled;
 
-    const activeSource = classification.activeSource ?? existing.activeSource;
+    const activeSource = classification.activeSource ?? existing.activeSource ?? source;
     next.activeSource = activeSource;
 
     if (source === activeSource) {

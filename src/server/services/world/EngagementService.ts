@@ -103,6 +103,7 @@ export class EngagementService extends EventEmitter {
             return await operation();
         } finally {
             this.pauseDepth = Math.max(0, this.pauseDepth - 1);
+            if (this.pauseDepth === 0) this.emit('heartbeatResumed');
         }
     }
 

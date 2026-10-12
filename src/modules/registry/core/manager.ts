@@ -1,4 +1,7 @@
 import { logger } from '@shared/utils/logger';
+import fs from 'node:fs';
+import path from 'node:path';
+import { getModulesDataDir } from '@core/paths';
 import type { ModulePermissionDeclaration, ModuleTrustDeclaration } from './types';
 import {
     type ModuleLifecycleRecord,
@@ -426,6 +429,13 @@ export async function upgradeModule(
 
     const previousStatus = record.status;
     const priorArtifact = getArtifact(artifactStore, id);
+    if (record.status === 'incompatible') {
+        let installedDirectory = false;
+        try { installedDirectory = fs.lstatSync(path.join(getModulesDataDir(), id)).isDirectory(); } catch { /* absent */ }
+        if (!priorArtifact || !installedDirectory) {
+            return operationFailure(id, 'upgrade', 'Incompatible module needs an installed managed directory and artifact record', previousStatus, 'artifact-missing');
+        }
+    }
     const policyBlockReason = getUpdatePolicyBlockReason(priorArtifact, input.targetVersion);
     if (policyBlockReason) {
         return operationFailure(id, 'upgrade', policyBlockReason, previousStatus, 'update-policy-blocked');

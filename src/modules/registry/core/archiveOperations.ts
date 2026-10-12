@@ -115,13 +115,16 @@ async function prepareOperation(
     const artifactStore = loadArtifactStore(getArtifactStateFilePathOverride());
     const existingArtifact = getArtifact(artifactStore, archive.moduleId);
     const managedTarget = path.join(getModulesDataDir(), archive.moduleId);
-    const managedTargetExists = fs.existsSync(managedTarget);
+    let managedTargetExists = false;
+    try { managedTargetExists = fs.lstatSync(managedTarget).isDirectory(); } catch { /* absent */ }
     const blockers: string[] = [];
 
-    if (operation === 'install' && (managedTargetExists || existingArtifact)) {
+    if (managedTargetExists !== Boolean(existingArtifact)) {
+        const missing = managedTargetExists ? 'artifact record' : 'managed package directory';
+        blockers.push(`Managed module "${archive.moduleId}" has an incomplete installation: ${missing} missing; inspect the installation before retrying`);
+    } else if (operation === 'install' && managedTargetExists) {
         blockers.push(`Managed module "${archive.moduleId}" is already installed; use upgrade instead`);
-    }
-    if (operation === 'upgrade' && (!managedTargetExists || !existingArtifact)) {
+    } else if (operation === 'upgrade' && !managedTargetExists) {
         blockers.push(`Managed module "${archive.moduleId}" is not installed; use install instead`);
     }
 

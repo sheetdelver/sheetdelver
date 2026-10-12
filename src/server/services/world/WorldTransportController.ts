@@ -30,6 +30,9 @@ export class WorldTransportController {
     private retryCount = 0;
     private heartbeatTimer: ReturnType<typeof setTimeout> | null = null;
     private retryTimer: ReturnType<typeof setTimeout> | null = null;
+    private heartbeatEpoch = 0;
+    private heartbeatRequest: AbortController | null = null;
+    private disposed = false;
     private closedWorldStatusTitle: string | null = null;
     private setupEvidenceCount = 0;
     private detachCallbacks: Array<() => void> = [];
@@ -42,6 +45,7 @@ export class WorldTransportController {
     }
 
     public dispose(): void {
+        this.disposed = true;
         this.stopHeartbeat();
         this.clearRetryTimer();
         for (const detach of this.detachCallbacks.splice(0)) detach();
@@ -49,6 +53,7 @@ export class WorldTransportController {
 
     public connect(): Promise<void> {
         this.clearRetryTimer();
+        this.stopHeartbeat();
         return this.transport.connect();
     }
 
@@ -59,20 +64,25 @@ export class WorldTransportController {
     }
 
     public startHeartbeat(immediate = false): void {
+        if (this.disposed) return;
         this.stopHeartbeat();
+        const epoch = this.heartbeatEpoch;
         this.heartbeatTimer = setTimeout(
-            () => void this.runHeartbeat(),
+            () => void this.runHeartbeat(epoch),
             this.engagement.getInitialHeartbeatDelayMs(immediate),
         );
     }
 
     public stopHeartbeat(): void {
-        if (!this.heartbeatTimer) return;
-        clearTimeout(this.heartbeatTimer);
+        this.heartbeatEpoch += 1;
+        this.heartbeatRequest?.abort();
+        this.heartbeatRequest = null;
+        if (this.heartbeatTimer) clearTimeout(this.heartbeatTimer);
         this.heartbeatTimer = null;
     }
 
     public async withHeartbeatPaused<T>(operation: () => Promise<T>): Promise<T> {
+        this.stopHeartbeat();
         return this.engagement.withHeartbeatPaused(operation);
     }
 
@@ -142,6 +152,16 @@ export class WorldTransportController {
         const onReturnedToEngagement = () => this.handleReturnToEngagement();
         this.engagement.on('returnedToEngagement', onReturnedToEngagement);
         this.detachCallbacks.push(() => this.engagement.off('returnedToEngagement', onReturnedToEngagement));
+        const onHeartbeatResumed = () => {
+            if (!this.disposed && !this.heartbeatTimer && !this.retryTimer
+                && this.engagement.shouldRunHeartbeat({
+                    isConnected: this.transport.isConnected,
+                    isConnecting: this.transport.isConnectionAttemptInFlight,
+                    lifecycleState: worldLifecycleStore.getState(),
+                })) this.startHeartbeat();
+        };
+        this.engagement.on('heartbeatResumed', onHeartbeatResumed);
+        this.detachCallbacks.push(() => this.engagement.off('heartbeatResumed', onHeartbeatResumed));
     }
 
     private onTransport(event: string, handler: (...args: unknown[]) => void): void {
@@ -278,8 +298,15 @@ export class WorldTransportController {
     }
 
     private handleConnectionFailed(): void {
-        worldLifecycleStore.setState('offline', 'connection-flow-failed');
-        this.scheduleReconnect(5000);
+        // A failed status request is not evidence that Foundry left Setup.
+        // Keep the last confirmed state visible until a later probe identifies
+        // a launched world or a different authoritative lifecycle state.
+        if (!worldLifecycleStore.isState('setup')) {
+            worldLifecycleStore.setState('offline', 'connection-flow-failed');
+        }
+        const delayMs = Math.min(60_000, 5_000 * Math.pow(2, Math.min(this.retryCount, 4)));
+        this.retryCount += 1;
+        this.scheduleReconnect(delayMs);
     }
 
     private handleReturnToEngagement(): void {
@@ -294,7 +321,9 @@ export class WorldTransportController {
         }
     }
 
-    private async runHeartbeat(): Promise<void> {
+    private async runHeartbeat(epoch = this.heartbeatEpoch): Promise<void> {
+        if (this.disposed || epoch !== this.heartbeatEpoch) return;
+        this.heartbeatTimer = null;
         const lifecycleState = worldLifecycleStore.getState();
         const canDiscoverWorld = lifecycleState === 'setup' || lifecycleState === 'offline';
         const isClosed = lifecycleState === 'closed';
@@ -304,12 +333,17 @@ export class WorldTransportController {
             isConnecting: this.transport.isConnectionAttemptInFlight,
             lifecycleState,
         })) {
-            this.heartbeatTimer = null;
             return;
         }
 
+        const request = new AbortController();
+        this.heartbeatRequest = request;
         try {
-            const { isSetupMatch, pageTitle } = await this.transport.checkStatus();
+            const { isSetupMatch, pageTitle } = await this.transport.checkStatus({
+                signal: request.signal,
+                canCommit: () => !this.disposed && epoch === this.heartbeatEpoch,
+            });
+            if (this.disposed || epoch !== this.heartbeatEpoch) return;
             if (!isSetupMatch) this.setupEvidenceCount = 0;
             const isGenericOrErrorTitle = !pageTitle || pageTitle === 'Foundry Virtual Tabletop' || pageTitle.includes('Critical Failure');
             const closedWorldChanged =
@@ -318,10 +352,11 @@ export class WorldTransportController {
                 !!this.closedWorldStatusTitle &&
                 pageTitle !== this.closedWorldStatusTitle;
 
-            if ((canDiscoverWorld || closedWorldChanged) && pageTitle && !isGenericOrErrorTitle) {
+            // Foundry's Setup response also has a non-generic page title.
+            // Only an affirmative non-Setup status may start world discovery.
+            if (!isSetupMatch && (canDiscoverWorld || closedWorldChanged) && pageTitle && !isGenericOrErrorTitle) {
                 logger.info(`WorldTransportController | Heartbeat detected world lifecycle change (Title="${pageTitle}").`);
                 this.resetRetryBackoff();
-                this.heartbeatTimer = null;
                 void this.connect().catch(() => undefined);
                 return;
             }
@@ -329,17 +364,18 @@ export class WorldTransportController {
             if (isSetupMatch) {
                 logger.debug('WorldTransportController | Heartbeat reported explicit setup.');
                 this.transport.disconnect();
-                this.heartbeatTimer = null;
                 this.recordSetupEvidence('heartbeat-setup');
                 return;
             }
         } catch {
             // Ignore transient network errors; the next heartbeat/retry owns recovery.
+        } finally {
+            if (this.heartbeatRequest === request) this.heartbeatRequest = null;
         }
 
-        if (this.heartbeatTimer !== null) {
+        if (!this.disposed && epoch === this.heartbeatEpoch && !this.retryTimer) {
             this.heartbeatTimer = setTimeout(
-                () => void this.runHeartbeat(),
+                () => void this.runHeartbeat(epoch),
                 this.engagement.getNextHeartbeatDelayMs(),
             );
         }
@@ -353,7 +389,7 @@ export class WorldTransportController {
                 logger.info(`WorldTransportController | World in setup/gray state. Fast-retrying in 1s... (${this.retryCount + 1}/30)`);
             }
         } else {
-            logger.info(`WorldTransportController | World in setup/gray state. Backing off for ${backoffMs / 1000}s... (Retry: ${this.retryCount})`);
+            logger.info(`WorldTransportController | World in setup/gray state. Backing off for ${Math.min(60000, backoffMs) / 1000}s... (Retry: ${this.retryCount})`);
         }
 
         this.retryCount += 1;
@@ -374,6 +410,7 @@ export class WorldTransportController {
     }
 
     private scheduleReconnect(delayMs: number): void {
+        this.stopHeartbeat();
         this.clearRetryTimer();
         this.retryTimer = setTimeout(() => {
             this.retryTimer = null;

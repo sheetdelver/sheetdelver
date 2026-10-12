@@ -64,6 +64,7 @@ export interface ModuleLifecycleInfo {
     status: string;
     experimental: boolean;
     managed: boolean;
+    managedDirectoryPresent?: boolean;
     reason?: string;
     health?: {
         errorCount: number;

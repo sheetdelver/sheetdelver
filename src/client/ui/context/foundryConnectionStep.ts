@@ -16,12 +16,14 @@ export function determineConnectionStep(
 ): ConnectionStep {
     const status = data.system?.status || (data.connected ? 'active' : 'offline');
 
+    // Explicit Foundry Setup is a known no-world state, even if the Core
+    // configuration has not yet resolved in this browser session.
+    if (status === 'setup') return 'world-closed';
     if (!isConfigured) return 'setup';
 
     const worldTitle = data.system?.worldTitle;
 
     if (status === 'closed') return 'world-closed';
-    if (status === 'setup') return 'world-closed';
     if (status === 'offline') return worldTitle ? 'startup' : 'initializing';
     if (status === 'startup') return 'startup';
 

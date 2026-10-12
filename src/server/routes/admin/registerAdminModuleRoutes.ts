@@ -23,7 +23,7 @@ import { requireAdminCsrf } from '@server/middleware/requireAdminCsrf';
 import { ModuleSourceCategory, ModuleTrustTier, type ModuleTrustTier as ModuleTrustTierValue } from '@shared/types/modules';
 import { getDistArchivesDir, getModulesDataDir } from '@core/paths';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
-import type { RegisteredModuleRuntimeInfo } from '@modules/registry/server';
+import type { ModuleInventoryEntry } from '@modules/registry/server';
 import type { ModuleLifecycleValidation, ModuleSourceState } from '@modules/registry/lifecycle/lifecycle';
 import { parseModuleId } from '@shared/security/moduleId';
 import { DEFAULT_MODULE_ARCHIVE_LIMITS } from '@modules/registry/distribution/archiveTransaction';
@@ -119,7 +119,7 @@ export function registerAdminModuleRoutes(opts: RegisterAdminModuleRoutesOptions
      * "invalid/incompatible" message.
      */
     function getLifecycleFailureReason(
-        modules: RegisteredModuleRuntimeInfo[],
+        modules: ModuleInventoryEntry[],
         moduleId: string,
         source?: ModuleSourceCategory,
     ): string | undefined {
@@ -141,8 +141,8 @@ export function registerAdminModuleRoutes(opts: RegisterAdminModuleRoutesOptions
         requireAdminAuth,
         async (req, res) => {
             try {
-                const { listModules } = await import('@modules/registry/server');
-                const modules = listModules({ includeExperimental: true, includeDisabled: true });
+                const { listModuleInventory } = await import('@modules/registry/server');
+                const modules = listModuleInventory();
 
                 res.json({
                     success: true,
@@ -155,6 +155,7 @@ export function registerAdminModuleRoutes(opts: RegisterAdminModuleRoutesOptions
                             status: m.status,
                             experimental: m.info.experimental,
                             managed: m.managed,
+                            managedDirectoryPresent: m.managedDirectoryPresent,
                             reason: m.reason,
                             health: m.lifecycle.health,
                             validation: toValidationPayload(m.lifecycle.validation),
@@ -193,7 +194,7 @@ export function registerAdminModuleRoutes(opts: RegisterAdminModuleRoutesOptions
             try {
                 const moduleId = readRequestModuleId(req, res);
                 if (!moduleId) return;
-                const { enableModule, checkCanEnableModule, listModules } = await import('@modules/registry/server');
+                const { enableModule, checkCanEnableModule, listModuleInventory } = await import('@modules/registry/server');
 
                 // Check dependencies and conflicts
                 const depCheck = checkCanEnableModule(moduleId);
@@ -209,7 +210,7 @@ export function registerAdminModuleRoutes(opts: RegisterAdminModuleRoutesOptions
                 const source = req.body?.source as ModuleSourceCategory | undefined;
                 const success = enableModule(moduleId, source);
                 if (!success) {
-                    const modules = listModules({ includeExperimental: true, includeDisabled: true });
+                    const modules = listModuleInventory();
                     const reason = getLifecycleFailureReason(modules, moduleId, source);
                     return res.status(400).json({
                         success: false,

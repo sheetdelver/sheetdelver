@@ -103,6 +103,12 @@ async function runStatusProjectionTests() {
         const nullPayload = await projectCompatibility(null);
         assert.equal(nullPayload.foundryCompatibility, null);
 
+        worldLifecycleStore.setState('setup', 'test-setup');
+        const setupPayload = await projectCompatibility(null);
+        assert.equal(setupPayload.system.status, 'setup');
+        assert.equal(setupPayload.system.worldTitle, undefined, 'Setup cannot masquerade as a starting world');
+        worldLifecycleStore.reset('status-compatibility-test');
+
         const original = diagnostic('newer-untested', 15);
         const payload = await projectCompatibility(original);
         assert.ok(payload.foundryCompatibility);

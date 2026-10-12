@@ -145,6 +145,7 @@ import { run as runModuleCompatibilityMatrix } from './modules/module-compatibil
 import { run as runModuleCompatibilityLifecycleIntegration } from './modules/module-compatibility-lifecycle-integration.test';
 import { run as runModuleArchiveTransaction } from './modules/module-archive-transaction.test';
 import { run as runModuleArchiveOperations } from './modules/module-archive-operations.test';
+import { run as runIncompatibleManagedUpgrade } from './modules/incompatible-managed-upgrade.test';
 import { run as runPublicDistributionClient } from './modules/public-distribution-client.test';
 import { run as runPublicReleaseOperations } from './modules/public-release-operations.test';
 import { run as runPublicCatalogService } from './modules/public-catalog-service.test';
@@ -285,6 +286,7 @@ async function runAllUnitTests() {
     await runModuleCompatibilityLifecycleIntegration();
     await runModuleArchiveTransaction();
     await runModuleArchiveOperations();
+    await runIncompatibleManagedUpgrade();
     await runPublicDistributionClient();
     await runPublicReleaseOperations();
     await runPublicCatalogService();
