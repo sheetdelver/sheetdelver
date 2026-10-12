@@ -7,6 +7,7 @@ import type { FoundryBootstrapSnapshot } from './FoundrySocketEvents';
 import { formatDisconnectDiagnostic } from './disconnectDiagnostics';
 
 export class CoreSocket extends SocketBase {
+    private static readonly ANONYMOUS_STATUS_PROBE_COOLDOWN_MS = 60_000;
     // Service-account identity is still a transport concern: the socket needs
     // it for login/session restoration. World snapshots live in WorldStateStore.
     public userId: string | null = null;
@@ -15,6 +16,12 @@ export class CoreSocket extends SocketBase {
     private consecutiveFailures = 0;
     private isConnecting = false;
     private connectionGeneration = 0;
+    private lastAnonymousStatusProbeAt = 0;
+    private lastConnectionFailureLogAt = 0;
+    private lastConnectionAttemptLogAt = 0;
+    private lastConnectionFailureMessage: string | null = null;
+    private suppressedConnectionFailures = 0;
+    protected mainSocketTimeoutMs = 15_000;
 
     constructor(config: any) {
         super(config);
@@ -30,6 +37,52 @@ export class CoreSocket extends SocketBase {
 
     public get connectionEpoch(): number {
         return this.connectionGeneration;
+    }
+
+    private async performCoreHandshake(
+        baseUrl: string,
+        options: { signal?: AbortSignal; canCommit?: () => boolean } = {},
+    ) {
+        try {
+            return await this.performHandshake(baseUrl, options);
+        } catch (error) {
+            if (options.signal?.aborted || options.canCommit?.() === false) throw error;
+            const isStatusServerError = getErrorMessage(error) === 'Handshake failed with status 500';
+            const now = Date.now();
+            if (!isStatusServerError || !this.getSessionCookie()
+                || now - this.lastAnonymousStatusProbeAt < CoreSocket.ANONYMOUS_STATUS_PROBE_COOLDOWN_MS) {
+                throw error;
+            }
+
+            this.lastAnonymousStatusProbeAt = now;
+            try {
+                const status = await this.performHandshake(baseUrl, {
+                    ...options,
+                    omitCookie: true,
+                    replaceCookiesOnSuccess: true,
+                });
+                logger.warn('CoreSocket | Cookie-bearing status failed, but anonymous status succeeded; renewing service-account session.');
+                return status;
+            } catch {
+                // A second failure is not evidence that the world entered Setup.
+                // Keep the existing cookie and original error for bounded retry.
+                throw error;
+            }
+        }
+    }
+
+    private logConnectionFailure(message: string): void {
+        const now = Date.now();
+        if (message !== this.lastConnectionFailureMessage || now - this.lastConnectionFailureLogAt >= 60_000) {
+            const suppressed = this.suppressedConnectionFailures;
+            logger.error(`CoreSocket | Connection flow failed: ${message}${suppressed ? ` (${suppressed} repeated failures suppressed)` : ''}`);
+            this.lastConnectionFailureMessage = message;
+            this.lastConnectionFailureLogAt = now;
+            this.suppressedConnectionFailures = 0;
+        } else {
+            this.suppressedConnectionFailures += 1;
+            logger.debug(`CoreSocket | Repeated connection failure: ${message}`);
+        }
     }
 
     /**
@@ -123,11 +176,18 @@ export class CoreSocket extends SocketBase {
         // able to reconnect in parallel with this new connection flow.
         this.retireSocket();
         const baseUrl = this.getBaseUrl();
-        logger.info(`CoreSocket | Connecting to ${baseUrl}...`);
+        if (Date.now() - this.lastConnectionAttemptLogAt >= 60_000) {
+            logger.info(`CoreSocket | Connecting to ${baseUrl}...`);
+            this.lastConnectionAttemptLogAt = Date.now();
+        } else {
+            logger.debug(`CoreSocket | Retrying connection to ${baseUrl}...`);
+        }
 
         try {
             // 1. Handshake & CSRF
-            const { csrfToken, isSetupMatch, pageTitle } = await this.performHandshake(baseUrl);
+            const { csrfToken, isSetupMatch, pageTitle } = await this.performCoreHandshake(baseUrl, {
+                canCommit: () => generation === this.connectionGeneration,
+            });
             if (generation !== this.connectionGeneration) return;
 
             const isGenericOrErrorTitle = !pageTitle || pageTitle === 'Foundry Virtual Tabletop' || pageTitle.includes('Critical Failure');
@@ -147,9 +207,20 @@ export class CoreSocket extends SocketBase {
             const joinData = await this.probeWorldState(baseUrl);
             if (generation !== this.connectionGeneration) return;
 
+            const probeUsers: any[] | null = Array.isArray(joinData?.users)
+                && joinData.users.every((user: any) => user && typeof user.name === 'string'
+                    && (typeof user._id === 'string' || typeof user.id === 'string'))
+                ? joinData.users
+                : null;
+            if (joinData?.world && this.config.username && !probeUsers) {
+                logger.warn('CoreSocket | World probe did not include an authoritative user list; retrying discovery.');
+                this.emit('foundry:connectionFailed', { message: 'world-user-discovery-incomplete' });
+                return;
+            }
+
             if (joinData && joinData.world) {
                 logger.info(`CoreSocket | Discovered world "${joinData.world.title}" via Probe.`);
-                const probeUserCount = Array.isArray(joinData.users) ? joinData.users.length : 0;
+                const probeUserCount = probeUsers?.length ?? 0;
                 this.emit('foundry:worldDiscovered', {
                     world: joinData.world,
                     userCount: probeUserCount,
@@ -163,13 +234,12 @@ export class CoreSocket extends SocketBase {
             // seeded yet at this point (the coordinator runs after the main socket connects),
             // so look up the service account directly from the probe's joinData.users.
             if (this.config.username) {
-                const probeUsers: any[] = Array.isArray(joinData?.users) ? joinData.users : [];
-                const user = probeUsers.find((u: any) => u.name === this.config.username);
+                const user = probeUsers!.find((u: any) => u.name === this.config.username);
                 if (user) {
                     this.userId = user._id || user.id;
                     logger.info(`CoreSocket | Resolved Service Account ID: ${this.userId} (Username: ${this.config.username})`);
                 } else {
-                    const availableUsers = probeUsers.map((u: any) => `${u.name} (role: ${u.role})`);
+                    const availableUsers = probeUsers!.map((u: any) => `${u.name} (role: ${u.role})`);
                     logger.error(`CoreSocket | Service account "${this.config.username}" not found in world "${joinData.world?.title || 'unknown'}". Available users: [${availableUsers.join(', ') || 'none'}].`);
                     this.emit('foundry:serviceAccountMissing', {
                         username: this.config.username,
@@ -184,7 +254,8 @@ export class CoreSocket extends SocketBase {
             if (this.userId) {
                 // Ensure we have the latest CSRF from cookie if scrape missed it
                 const finalCsrf = csrfToken || this.cookieMap.get('csrf-token') || this.cookieMap.get('xsrf-token') || null;
-                await this.performLogin(baseUrl, this.userId, finalCsrf);
+                await this.performLogin(baseUrl, this.userId, finalCsrf,
+                    () => generation === this.connectionGeneration);
                 if (generation !== this.connectionGeneration) return;
             } else {
                 logger.warn('CoreSocket | No User ID resolved, skipping explicit POST login step.');
@@ -193,7 +264,7 @@ export class CoreSocket extends SocketBase {
             // 4. Connect Main Socket
             const sessionId = this.getSessionId();
             await new Promise<void>((resolve, reject) => {
-                const timeout = setTimeout(() => reject(new Error("Socket connection timeout")), 15000);
+                const timeout = setTimeout(() => reject(new Error("Socket connection timeout")), this.mainSocketTimeoutMs);
 
                 const socket = this.createMainSocket(baseUrl, {
                     path: '/socket.io',
@@ -377,15 +448,20 @@ export class CoreSocket extends SocketBase {
 
         } catch (error: unknown) {
             if (generation !== this.connectionGeneration) return;
-            logger.error(`CoreSocket | Connection flow failed: ${getErrorMessage(error)}`);
+            // A rejected attempt must not retain callbacks that can announce
+            // success before the controller starts its scheduled replacement.
+            this.retireSocket();
+            this.connectionGeneration += 1;
+            this.isConnecting = false;
+            this.logConnectionFailure(getErrorMessage(error));
             this.emit('foundry:connectionFailed', { message: getErrorMessage(error) });
         } finally {
             if (generation === this.connectionGeneration) this.isConnecting = false;
         }
     }
 
-    public async checkStatus() {
-        return this.performHandshake(this.getBaseUrl());
+    public async checkStatus(options: { signal?: AbortSignal; canCommit?: () => boolean } = {}) {
+        return this.performCoreHandshake(this.getBaseUrl(), options);
     }
 
     public disconnect() {
@@ -458,8 +534,7 @@ export class CoreSocket extends SocketBase {
             timeoutMs = payloads.pop();
         }
 
-        const sid = this.getSessionId()?.slice(0, 8) || 'none';
-        logger.debug(`[CoreSocket] [TRACE] emitSocketEvent: ${event} (SID: ${sid}...)`);
+        logger.debug(`[CoreSocket] [TRACE] emitSocketEvent: ${event}`);
 
         return new Promise((resolve, reject) => {
             this.socket!.emit(event, ...payloads, (response: any) => {
@@ -471,7 +546,7 @@ export class CoreSocket extends SocketBase {
             });
             setTimeout(() => {
                 const state = `connected=${this.socket?.connected}, active=${(this.socket as Socket & { active?: boolean })?.active}`;
-                reject(new Error(`Timeout waiting for event: ${event}. Socket Context: ${state}, SID: ${sid}`));
+                reject(new Error(`Timeout waiting for event: ${event}. Socket Context: ${state}`));
             }, timeoutMs);
         });
     }

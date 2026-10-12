@@ -627,7 +627,16 @@ Returns recent admin audit events.
 
 ### `GET /admin/lifecycle`
 
-Returns lifecycle state for discovered modules.
+Returns administrative inventory from local/managed directories, lifecycle
+records and managed artifact records. Incompatible packages remain visible
+without entering the executable registry. `status` and `reason` report
+effective loadability; `sourceStates` reports each present source's health;
+`localEnabled` and `managedEnabled` retain operator preferences where known.
+`managed` means there is managed installation evidence, while
+`managedDirectoryPresent` states whether its package directory currently
+exists. A missing directory or artifact record remains visible but blocks
+automatic Install and Upgrade with the same missing-component explanation.
+The administrator must inspect and repair that installation state separately.
 
 ```json
 {
@@ -640,6 +649,7 @@ Returns lifecycle state for discovered modules.
       "status": "validated",
       "experimental": false,
       "managed": true,
+      "managedDirectoryPresent": true,
       "activeSource": "managed",
       "localDirectory": "/path/to/<DATA_DIR>/local/modules/example-system",
       "localEnabled": false,
@@ -670,7 +680,9 @@ Returns lifecycle state for discovered modules.
 ```
 
 `localEnabled` and `managedEnabled` preserve independent enablement state when a
-module has both local dev source and a managed install.
+module has both local dev source and a managed install. `localDirectory` remains
+present even when that source's manifest is incompatible; the corresponding
+`sourceStates.local` explains why it cannot load.
 
 ### `POST /admin/lifecycle/:moduleId/enable`
 

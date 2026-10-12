@@ -9,6 +9,7 @@ import {
     getAdapter,
     getServerModule,
     initializeRegistry,
+    listModuleInventory,
     listModules,
     refreshRegistry,
     switchModuleSource,
@@ -75,6 +76,18 @@ export async function run() {
                 firstSeenAt: 1,
                 lastSeenAt: 1,
                 updatedAt: 1
+            },
+            oldcontract: {
+                moduleId: 'oldcontract',
+                title: 'Old Contract Test',
+                directory: 'oldcontract',
+                activeSource: 'managed',
+                status: 'validated',
+                enabled: true,
+                managedEnabled: true,
+                firstSeenAt: 1,
+                lastSeenAt: 1,
+                updatedAt: 1
             }
         }
     };
@@ -89,6 +102,8 @@ export async function run() {
     const brokenDir = path.join(testModulesDir, 'brokenmod');
     const badAdapterDir = path.join(testModulesDir, 'badadapter');
     const managedDualDir = path.join(testModulesDir, 'dualsource');
+    const oldContractDir = path.join(testModulesDir, 'oldcontract');
+    const malformedDir = path.join(testModulesDir, 'malformedtest');
     const localDualDir = path.join(getLocalModulesDataDir(), 'dualsource');
     if (!fs.existsSync(shadowdarkDir)) {
         fs.mkdirSync(shadowdarkDir, { recursive: true });
@@ -157,6 +172,19 @@ export async function run() {
     fs.writeFileSync(path.join(badAdapterDir, 'dist', 'ui.js'), 'export default function UI() {}', 'utf8');
     fs.writeFileSync(path.join(badAdapterDir, 'dist', 'logic.js'), 'export const notAnAdapter = true;', 'utf8');
 
+    fs.mkdirSync(path.join(oldContractDir, 'dist'), { recursive: true });
+    fs.writeFileSync(path.join(oldContractDir, 'info.json'), JSON.stringify({
+        id: 'oldcontract',
+        title: 'Old Contract Test',
+        version: '1.0.0',
+        manifest: { ui: 'dist/ui.js', logic: 'dist/logic.js' },
+        compatibility: { apiContracts: { 'ui-extension-api': '<2.0.0' } },
+    }), 'utf8');
+    fs.writeFileSync(path.join(oldContractDir, 'dist', 'ui.js'), 'export default function UI() {}', 'utf8');
+    fs.writeFileSync(path.join(oldContractDir, 'dist', 'logic.js'), 'export default class Adapter {}', 'utf8');
+    fs.mkdirSync(malformedDir, { recursive: true });
+    fs.writeFileSync(path.join(malformedDir, 'info.json'), '{invalid-json', 'utf8');
+
     // Reproduce the field contradiction observed after package/local source
     // operations: per-source intent says local on and managed off, while the
     // shared and sourceStates fields contain the opposite stale values.
@@ -187,6 +215,17 @@ export async function run() {
         initializeRegistry();
 
         const modules = listModules({ includeExperimental: true, includeDisabled: true });
+        assert.equal(modules.some((entry) => entry.info.id === 'oldcontract'), false,
+            'incompatible module remains outside the executable registry');
+        const installedOldContract = listModuleInventory().find((entry) => entry.info.id === 'oldcontract');
+        assert.ok(installedOldContract, 'installed incompatible package remains visible to administrators');
+        assert.equal(installedOldContract.status, 'incompatible');
+        assert.equal(installedOldContract.managed, true);
+        assert.equal(installedOldContract.enabled, false);
+        assert.equal(installedOldContract.lifecycle.managedEnabled, true,
+            'compatibility does not erase the operator\'s enabled preference');
+        assert.equal(listModuleInventory().find((entry) => entry.info.id === 'malformedtest')?.status, 'errored',
+            'a malformed physical package remains visible without importing it');
         const shadowdark = modules.find((entry) => entry.info.id === 'shadowdark');
         assert.ok(shadowdark);
         assert.equal(shadowdark?.enabled, false);

@@ -54,6 +54,7 @@ function runConnectionStepCases() {
     assert.equal(determine({}, { isConfigured: false }), 'setup');
     assert.equal(determine({ system: { id: 'dnd5e', status: 'closed' } }), 'world-closed');
     assert.equal(determine({ system: { id: 'dnd5e', status: 'setup' } }), 'world-closed');
+    assert.equal(determine({ system: { id: null, status: 'setup' } }, { isConfigured: false }), 'world-closed');
     assert.equal(determine({ system: { id: 'dnd5e', status: 'offline', worldTitle: 'Known World' } }), 'startup');
     assert.equal(determine({ system: { id: 'dnd5e', status: 'offline' } }), 'initializing');
     assert.equal(determine({ system: { id: 'dnd5e', status: 'startup' } }), 'startup');

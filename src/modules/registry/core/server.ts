@@ -26,7 +26,7 @@ import {
     getLifecycleRecord,
 } from './internals';
 import { initializeRegistry } from './bootstrap';
-import { getModulesDataDir } from '@core/paths';
+import { getLocalModulesDir, getModulesDataDir } from '@core/paths';
 export { initializeRegistry, refreshRegistry } from './bootstrap';
 export { FALLBACK_ADAPTER } from './fallbackAdapter';
 
@@ -39,6 +39,69 @@ export interface RegisteredModuleRuntimeInfo {
     reason?: string;
     managed: boolean;
     artifact?: ModuleArtifactMetadata;
+}
+
+/** Admin inventory includes physically present packages even when no code may load. */
+export interface ModuleInventoryEntry extends Omit<RegisteredModuleRuntimeInfo, 'info'> {
+    info: Pick<SystemModuleInfo, 'id' | 'title' | 'experimental'>;
+    managedDirectoryPresent: boolean;
+}
+
+export function listModuleInventory(): ModuleInventoryEntry[] {
+    if (!isInitialized()) initializeRegistry();
+    const runtime = listModules({ includeExperimental: true, includeDisabled: true });
+    const entries = new Map<string, ModuleInventoryEntry>(runtime.map((entry) => [entry.info.id, {
+        ...entry,
+        managed: entry.managed || Boolean(entry.artifact),
+        managedDirectoryPresent: entry.managed,
+    }]));
+    const artifacts = loadArtifactStore(getArtifactStateFilePathOverride());
+    const managedRoot = getModulesDataDir();
+    const localRoot = getLocalModulesDir();
+    const records = new Map(getLifecycleRecords(lifecycleStore).map((record) => [record.moduleId, record]));
+    for (const rawId of new Set([...records.keys(), ...Object.keys(artifacts.artifacts)])) {
+        const id = parseModuleId(rawId);
+        if (!id || id !== rawId || entries.has(id)) continue;
+        const artifact = getArtifact(artifacts, id);
+        const storedLifecycle = records.get(id);
+        const managedPath = path.join(managedRoot, id);
+        let managed = false;
+        let local = false;
+        try { managed = fs.lstatSync(managedPath).isDirectory(); } catch { /* absent */ }
+        if (localRoot) {
+            try { local = fs.lstatSync(path.join(localRoot, id)).isDirectory(); } catch { /* absent */ }
+        }
+        if (!managed && !local && !artifact && storedLifecycle?.status === ModuleLifecycleStatus.Removed) continue;
+        if (!managed && !local && !artifact && !storedLifecycle) continue;
+        const missingManagedDirectory = Boolean(artifact && !managed);
+        const lifecycle: ModuleLifecycleRecord = storedLifecycle || {
+            moduleId: id,
+            title: id,
+            directory: managedPath,
+            status: ModuleLifecycleStatus.Errored,
+            enabled: false,
+            firstSeenAt: 0,
+            lastSeenAt: 0,
+            updatedAt: 0,
+        };
+        const reason = missingManagedDirectory
+            ? 'Managed package directory missing; artifact record retained'
+            : lifecycle.reason;
+        // Lifecycle metadata is data only. Never import an incompatible module
+        // just to display it in the administrator's inventory.
+        entries.set(id, {
+            info: { id, title: lifecycle.title, experimental: false },
+            directory: managed || !local ? managedPath : path.join(localRoot!, id),
+            lifecycle,
+            enabled: false,
+            status: missingManagedDirectory ? ModuleLifecycleStatus.Errored : lifecycle.status,
+            reason,
+            managed: managed || Boolean(artifact),
+            managedDirectoryPresent: managed,
+            artifact,
+        });
+    }
+    return [...entries.values()];
 }
 
 export function getModuleLifecycleState() {

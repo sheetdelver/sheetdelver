@@ -9,6 +9,7 @@
  * imports registry scanning from `./bootstrap`.
  */
 import fs from 'node:fs';
+import path from 'node:path';
 import { logger } from '@shared/utils/logger';
 import {
     ModuleSourceCategory,
@@ -31,6 +32,7 @@ import {
     installModule,
     uninstallModule,
     upgradeModule,
+    checkOperationPrecondition,
     getUpdatePolicyBlockReason,
     operationFailure,
     operationSuccess,
@@ -612,6 +614,17 @@ export async function dryRunUpgradeManagedModule(input: UpgradeManagedModuleInpu
         && !input.approvePermissionEscalation;
 
     const blockingReasons: string[] = [];
+    const lifecycleRecord = getLifecycleRecord(id);
+    if (!lifecycleRecord) blockingReasons.push(`Module "${id}" is not installed`);
+    else {
+        const precondition = checkOperationPrecondition(id, lifecycleRecord, 'upgrade');
+        if (!precondition.allowed) blockingReasons.push(precondition.reason || 'Upgrade precondition failed');
+    }
+    if (lifecycleRecord?.status === ModuleLifecycleStatus.Incompatible) {
+        let installedDirectory = false;
+        try { installedDirectory = fs.lstatSync(path.join(getModulesDataDir(), id)).isDirectory(); } catch { /* absent */ }
+        if (!installedDirectory || !existingArtifact) blockingReasons.push(`Incompatible module "${id}" needs an installed managed directory and artifact record`);
+    }
     const targetVersion = input.targetVersion || resolvedSource.value.version;
     const updatePolicyBlock = getUpdatePolicyBlockReason(existingArtifact, targetVersion);
     if (updatePolicyBlock) blockingReasons.push(updatePolicyBlock);
@@ -984,6 +997,13 @@ export async function upgradeManagedModule(input: UpgradeManagedModuleInput): Pr
             undefined,
             gate.errorCode || 'validation-failed'
         );
+    }
+    if (getLifecycleRecord(id)?.status === ModuleLifecycleStatus.Incompatible) {
+        let installedDirectory = false;
+        try { installedDirectory = fs.lstatSync(path.join(getModulesDataDir(), id)).isDirectory(); } catch { /* absent */ }
+        if (!installedDirectory || !existingArtifact) {
+            return operationFailure(id, 'upgrade', `Incompatible module "${id}" needs an installed managed directory and artifact record`, undefined, 'artifact-missing');
+        }
     }
     if (gate.mode === 'fail-open' && gate.reason) {
         logger.warn(`[ModuleManager] Manifest gate fail-open for "${id}": ${gate.reason}`);

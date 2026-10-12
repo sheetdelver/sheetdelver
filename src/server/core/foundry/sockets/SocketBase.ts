@@ -9,6 +9,8 @@ type HeadersWithSetCookie = Headers & {
 };
 
 export const FOUNDRY_LOGOUT_TIMEOUT_MS = 5_000;
+export const FOUNDRY_STATUS_TIMEOUT_MS = 10_000;
+export const FOUNDRY_LOGIN_TIMEOUT_MS = 10_000;
 
 export abstract class SocketBase extends EventEmitter {
     protected socket: Socket | null = null;
@@ -17,6 +19,8 @@ export abstract class SocketBase extends EventEmitter {
     protected foundryVersion: string | null = null;
     public isSocketConnected: boolean = false;
     protected config: FoundryConfig;
+    protected statusTimeoutMs = FOUNDRY_STATUS_TIMEOUT_MS;
+    protected loginTimeoutMs = FOUNDRY_LOGIN_TIMEOUT_MS;
 
     constructor(config: FoundryConfig) {
         super();
@@ -68,7 +72,10 @@ export abstract class SocketBase extends EventEmitter {
         return headers.get('set-cookie');
     }
 
-    protected async performHandshake(baseUrl: string): Promise<{ csrfToken: string | null, isSetupMatch: boolean, pageTitle: string }> {
+    protected async performHandshake(
+        baseUrl: string,
+        options: { omitCookie?: boolean; replaceCookiesOnSuccess?: boolean; signal?: AbortSignal; canCommit?: () => boolean } = {},
+    ): Promise<{ csrfToken: string | null, isSetupMatch: boolean, pageTitle: string }> {
         logger.debug(`[${this.constructor.name}] Performing Handshake (GET /api/status)...`);
 
         // 1. Fetch JSON status instead of HTML /join
@@ -78,12 +85,15 @@ export abstract class SocketBase extends EventEmitter {
             'User-Agent': 'SheetDelver/1.0'
         };
 
-        if (this.sessionCookie) {
+        if (this.sessionCookie && !options.omitCookie) {
             headers['Cookie'] = this.sessionCookie;
         }
 
         const statusRes = await fetch(`${baseUrl}/api/status`, {
-            headers
+            headers,
+            signal: options.signal
+                ? AbortSignal.any([options.signal, AbortSignal.timeout(this.statusTimeoutMs)])
+                : AbortSignal.timeout(this.statusTimeoutMs),
         });
 
         if (!statusRes.ok) {
@@ -94,20 +104,25 @@ export abstract class SocketBase extends EventEmitter {
 
         // The world-login request changed in Foundry 14.366. Retain the version
         // discovered by this handshake so authentication can use its wire contract.
-        this.foundryVersion = typeof status.version === 'string' ? status.version : null;
-
-        // If the backend returned a set-cookie (less likely on /api/status, but just in case)
-        const setCookie = this.getSetCookieHeader(statusRes.headers);
-
-        if (setCookie) {
-            this.updateCookies(setCookie);
-        }
-
         // A missing/partial status is not evidence that the world entered
         // Setup. Session invalidation must never follow an ambiguous response.
         if (typeof status?.active !== 'boolean') {
             throw new Error('Foundry status response did not contain an active boolean');
         }
+        if (options.signal?.aborted || options.canCommit?.() === false) {
+            throw new Error('Foundry status probe was superseded');
+        }
+        this.foundryVersion = typeof status.version === 'string' ? status.version : null;
+
+        // A successful anonymous recovery replaces, rather than merges into,
+        // a potentially invalid service-account session. A failed or malformed
+        // diagnostic never changes the retained cookie.
+        if (options.replaceCookiesOnSuccess) {
+            this.cookieMap.clear();
+            this.sessionCookie = null;
+        }
+        const setCookie = this.getSetCookieHeader(statusRes.headers);
+        if (setCookie) this.updateCookies(setCookie);
 
         // 2. Derive States from JSON
         const isSetupMatch = status.active === false;
@@ -119,7 +134,7 @@ export abstract class SocketBase extends EventEmitter {
         return { csrfToken, isSetupMatch, pageTitle };
     }
 
-    protected async performLogin(baseUrl: string, userId: string, csrfToken: string | null): Promise<void> {
+    protected async performLogin(baseUrl: string, userId: string, csrfToken: string | null, canCommit?: () => boolean): Promise<void> {
         logger.info(`[${this.constructor.name}] Performing POST Login (User: ${userId})...`);
 
         const [foundryGeneration = 0, foundryBuild = 0] = (this.foundryVersion || '')
@@ -155,18 +170,16 @@ export abstract class SocketBase extends EventEmitter {
                 'User-Agent': 'SheetDelver/1.0'
             },
             body: JSON.stringify(payload),
-            redirect: 'manual'
+            redirect: 'manual',
+            signal: AbortSignal.timeout(this.loginTimeoutMs),
         });
 
         if (loginResponse.status !== 200 && loginResponse.status !== 302) {
-            const body = await loginResponse.text();
-            logger.error(`[${this.constructor.name}] Login failed (${loginResponse.status}): ${body.substring(0, 200)}`);
-            throw new Error(`Login failed with status ${loginResponse.status}: ${body.substring(0, 200)}`);
+            logger.error(`[${this.constructor.name}] Login failed (${loginResponse.status}).`);
+            throw new Error(`Login failed with status ${loginResponse.status}`);
         }
-
+        if (canCommit?.() === false) return;
         const setCookie = this.getSetCookieHeader(loginResponse.headers);
-
-        logger.debug(`[${this.constructor.name}] Set-Cookie from login: ${JSON.stringify(setCookie)}`);
         this.updateCookies(setCookie);
         logger.info(`[${this.constructor.name}] Login Outcome: ${loginResponse.status}. Cookie Map Size: ${this.cookieMap.size}`);
     }
@@ -204,18 +217,20 @@ export abstract class SocketBase extends EventEmitter {
         this.sessionCookie = Array.from(this.cookieMap.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
     }
 
+    protected createGuestProbeSocket(baseUrl: string, options: Parameters<typeof io>[1]): Socket {
+        return io(baseUrl, options);
+    }
+
     protected async probeWorldState(baseUrl: string): Promise<any> {
         logger.info(`[${this.constructor.name}] Probing world state (Socket + API)...`);
 
-        let discoveryResult: any = null;
-
         // 1. Socket Probe Logic
-        const probeSocket = async (): Promise<void> => {
+        const probeSocket = async (): Promise<any> => {
             const guestCookie = this.sessionCookie || '';
             const sessionId = this.getSessionId();
 
-            return new Promise<void>((resolve) => {
-                const guestSocket = io(baseUrl, {
+            return new Promise<any>((resolve) => {
+                const guestSocket = this.createGuestProbeSocket(baseUrl, {
                     path: '/socket.io',
                     transports: ['websocket'],
                     reconnection: false,
@@ -225,10 +240,16 @@ export abstract class SocketBase extends EventEmitter {
                     transportOptions: { websocket: { extraHeaders: { 'Cookie': guestCookie } } }
                 });
 
-                const t = setTimeout(() => {
+                let settled = false;
+                const finish = (result: any = null) => {
+                    if (settled) return;
+                    settled = true;
+                    clearTimeout(t);
+                    guestSocket.removeAllListeners();
                     guestSocket.disconnect();
-                    resolve();
-                }, 10000);
+                    resolve(result);
+                };
+                const t = setTimeout(() => finish(), 10000);
 
                 guestSocket.on('connect', () => {
                     logger.debug(`[${this.constructor.name}] Guest Socket Probe Connected.`);
@@ -236,26 +257,20 @@ export abstract class SocketBase extends EventEmitter {
                     // Try getJoinData first (Legacy/v12)
                     guestSocket.emit('getJoinData', (result: any) => {
                         if (result && result.world) {
-                            discoveryResult = result;
-                            clearTimeout(t);
-                            guestSocket.disconnect();
-                            resolve();
+                            finish(result);
                         } else {
                             // Try 'world' (v13)
                             guestSocket.emit('world', (worldResult: any) => {
-                                clearTimeout(t);
                                 if (worldResult && worldResult.world) {
-                                    discoveryResult = worldResult;
+                                    finish(worldResult);
                                 } else {
                                     // Try status fallback
                                     guestSocket.emit('getWorldStatus', (status: boolean) => {
-                                        if (status) {
-                                            discoveryResult = { world: { title: 'Authenticating...' }, status: 'active' };
-                                        }
+                                        finish(status === true
+                                            ? { world: { title: 'Authenticating...' }, status: 'active' }
+                                            : null);
                                     });
                                 }
-                                guestSocket.disconnect();
-                                resolve();
                             });
                         }
                     });
@@ -263,38 +278,37 @@ export abstract class SocketBase extends EventEmitter {
 
                 guestSocket.on('connect_error', (err) => {
                     logger.debug(`[${this.constructor.name}] Guest Socket Probe Error: ${err.message}`);
-                    clearTimeout(t);
-                    guestSocket.disconnect();
-                    resolve();
+                    finish();
                 });
             });
         };
 
         // 2. API Probe Logic (/api/status)
-        const probeApi = async (): Promise<void> => {
+        const probeApi = async (): Promise<any> => {
             try {
-                const statusRes = await fetch(`${baseUrl}/api/status`);
+                const statusRes = await fetch(`${baseUrl}/api/status`, {
+                    signal: AbortSignal.timeout(this.statusTimeoutMs),
+                });
                 if (statusRes.ok) {
                     const status = await statusRes.json();
-                    if (status.world) {
+                    if (status?.active === true && typeof status.world === 'string' && status.world) {
                         logger.info(`[${this.constructor.name}] API Probe Success: ${status.world}`);
-                        if (!discoveryResult) {
-                            discoveryResult = {
-                                world: { id: status.world, title: status.world },
-                                system: { id: status.system },
-                                version: status.version,
-                                status: status.active ? 'active' : 'offline'
-                            };
-                        }
+                        return {
+                            world: { id: status.world, title: status.world },
+                            system: { id: status.system },
+                            version: status.version,
+                            status: 'active'
+                        };
                     }
                 }
             } catch (e) {
                 logger.debug(`[${this.constructor.name}] API Probe Failed: ${e}`);
             }
+            return null;
         };
 
-        await Promise.all([probeSocket(), probeApi()]);
-        return discoveryResult;
+        const [socketResult, apiResult] = await Promise.all([probeSocket(), probeApi()]);
+        return socketResult?.world ? socketResult : apiResult;
     }
 
     public async logout(): Promise<void> {

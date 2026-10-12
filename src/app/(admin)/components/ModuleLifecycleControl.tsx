@@ -85,7 +85,10 @@ function buildCardEntries(modules: ModuleLifecycleInfo[]): CardEntry[] {
                 mod,
                 cardSource: ModuleSourceCategory.Local,
                 sourceEnabled: localEnabled,
-                otherSourceEnabled: managedEnabled,
+                otherSourceEnabled: managedEnabled
+                    && managedState?.status !== ModuleLifecycleStatus.Incompatible
+                    && managedState?.status !== ModuleLifecycleStatus.Errored
+                    && mod.managedDirectoryPresent !== false,
                 status: localState?.status || 'discovered',
                 reason: localState?.reason,
                 health: localState?.health,
@@ -96,9 +99,13 @@ function buildCardEntries(modules: ModuleLifecycleInfo[]): CardEntry[] {
                 mod,
                 cardSource: ModuleSourceCategory.Managed,
                 sourceEnabled: managedEnabled,
-                otherSourceEnabled: localEnabled,
-                status: managedState?.status || 'discovered',
-                reason: managedState?.reason,
+                otherSourceEnabled: localEnabled
+                    && localState?.status !== ModuleLifecycleStatus.Incompatible
+                    && localState?.status !== ModuleLifecycleStatus.Errored,
+                status: mod.managedDirectoryPresent === false ? 'errored' : managedState?.status || 'discovered',
+                reason: mod.managedDirectoryPresent === false
+                    ? 'Managed package directory missing; artifact record retained'
+                    : managedState?.reason,
                 health: managedState?.health,
                 validation: managedState?.validation as ModuleLifecycleInfo['validation'],
             });
@@ -286,12 +293,14 @@ function ModuleCard({
     const isLocal = cardSource === ModuleSourceCategory.Local;
     const isManaged = cardSource === ModuleSourceCategory.Managed;
     const blockedByOther = !sourceEnabled && otherSourceEnabled;
+    const isBlocked = status === ModuleLifecycleStatus.Errored || status === ModuleLifecycleStatus.Incompatible;
+    const isEffectivelyEnabled = sourceEnabled && !isBlocked;
 
     // This card is "Active" (operative) when its module matches the connected world's
     // system, this card's source is the active one, and it is enabled (ADR-0030 UX-6).
     const isActive = !!activeSystemId
         && mod.moduleId.toLowerCase() === activeSystemId.toLowerCase()
-        && sourceEnabled
+        && isEffectivelyEnabled
         && (cardSource === undefined || cardSource === mod.activeSource);
 
     // Fixed per-source location, independent of which source is currently active.
@@ -302,10 +311,10 @@ function ModuleCard({
             : (mod.activeSource === ModuleSourceCategory.Local ? mod.localDirectory : mod.managedDirectory) ?? mod.directory;
 
     // Card border/background reflects this source's enabled state.
-    const cardClass = sourceEnabled
-        ? 'border-[var(--admin-success-border)] bg-[var(--admin-success-bg)]'
-        : status === ModuleLifecycleStatus.Errored || status === ModuleLifecycleStatus.Incompatible
-            ? 'border-[var(--admin-danger-border)] bg-[var(--admin-danger-bg)]'
+    const cardClass = isBlocked
+        ? 'border-[var(--admin-danger-border)] bg-[var(--admin-danger-bg)]'
+        : sourceEnabled
+            ? 'border-[var(--admin-success-border)] bg-[var(--admin-success-bg)]'
             : isLocal
                 ? 'border-purple-500/20 bg-purple-500/5'
                 : 'border-[var(--admin-border)] bg-[var(--admin-surface)]';
@@ -353,9 +362,10 @@ function ModuleCard({
                     <div className="mt-1 flex items-center gap-3 text-sm text-[var(--admin-text-secondary)]">
                         <span className="font-mono text-xs">{mod.moduleId}</span>
                         <span className="flex items-center gap-1.5">
-                            <span className={`inline-block h-2 w-2 rounded-full ${getStatusColor(sourceEnabled ? 'enabled' : status)}`} />
-                            {sourceEnabled ? 'Enabled' : getStatusLabel(status)}
+                            <span className={`inline-block h-2 w-2 rounded-full ${getStatusColor(isEffectivelyEnabled ? 'enabled' : status)}`} />
+                            {isBlocked ? getStatusLabel(status) : sourceEnabled ? 'Enabled' : getStatusLabel(status)}
                         </span>
+                        {isBlocked && sourceEnabled && <span className="text-xs text-[var(--admin-text-muted)]">Enabled preference retained</span>}
                     </div>
 
                     {/* Fixed per-source location — distinguishes local dev from managed install (ADR-0030 UX-6). */}

@@ -60,6 +60,13 @@ function releaseKey(moduleId: string, sourceId: string): string {
     return `${sourceId}:${moduleId}`;
 }
 
+function managedStatus(installed?: ModuleLifecycleInfo): { status?: string; reason?: string } {
+    return installed?.sourceStates?.managed || {
+        status: installed?.status,
+        reason: installed?.reason,
+    };
+}
+
 export default function CatalogModulePanel({ mode }: { mode: CatalogMode }) {
     const { logout } = useAdminAuth();
     const [catalog, setCatalog] = useState<CatalogResponse | null>(null);
@@ -133,7 +140,7 @@ export default function CatalogModulePanel({ mode }: { mode: CatalogMode }) {
     const rows = useMemo<CatalogRow[]>(() => {
         if (!catalog) return [];
         const catalogRows = Object.values(catalog.modules).map((listing) => {
-            const installed = modules.find((item) => item.moduleId === listing.moduleId && item.managed && item.artifact);
+            const installed = modules.find((item) => item.moduleId === listing.moduleId && item.managed);
             const source = matchingCatalogSource(listing, installed, mode === 'available');
             return {
                 moduleId: listing.moduleId,
@@ -156,7 +163,7 @@ export default function CatalogModulePanel({ mode }: { mode: CatalogMode }) {
 
         const byId = new Map(catalogRows.map((row) => [row.moduleId, row]));
         return modules
-            .filter((item) => item.managed && item.artifact)
+            .filter((item) => item.managed)
             .map((installed): CatalogRow => byId.get(installed.moduleId) || {
                 moduleId: installed.moduleId,
                 title: installed.title,
@@ -164,7 +171,8 @@ export default function CatalogModulePanel({ mode }: { mode: CatalogMode }) {
             })
             .filter((row) => {
                 if (!row.listing || !row.source || row.releaseState?.loading || row.releaseState?.error) return true;
-                return !isInstalledReleaseCurrent(row.releaseState?.release, row.installed?.artifact);
+                return row.installed?.managedDirectoryPresent === false
+                    || !isInstalledReleaseCurrent(row.releaseState?.release, row.installed?.artifact);
             })
             .sort((left, right) => left.title.localeCompare(right.title));
     }, [catalog, mode, modules, releaseStates]);
@@ -258,6 +266,11 @@ function CatalogRowItem({ row, mode, onOpen }: { row: CatalogRow; mode: CatalogM
                                 Installed {currentVersion ? `v${currentVersion}` : ''}
                             </span>
                         )}
+                        {managedStatus(row.installed).status === 'incompatible' && (
+                            <span className="rounded border border-[var(--admin-warning-border)] bg-[var(--admin-warning-bg)] px-1.5 py-0.5 text-xs text-[var(--admin-warning-text)]">
+                                Incompatible
+                            </span>
+                        )}
                         {changed && (
                             <span className="rounded border border-[var(--admin-success-border)] bg-[var(--admin-success-bg)] px-1.5 py-0.5 text-xs text-[var(--admin-success)]">
                                 {direction} v{nextVersion}
@@ -276,9 +289,12 @@ function CatalogRowItem({ row, mode, onOpen }: { row: CatalogRow; mode: CatalogM
                         {row.releaseState?.error && <span className="text-[var(--admin-danger-text)]">{row.releaseState.error}</span>}
                         {mode === 'updates' && !row.listing && <span className="text-[var(--admin-warning-text)]">Not in enabled catalogs</span>}
                         {mode === 'updates' && row.listing && !row.source && <span className="text-[var(--admin-warning-text)]">Recorded source unavailable</span>}
+                        {row.installed && !row.installed.artifact && <span className="text-[var(--admin-warning-text)]">Managed artifact record missing; automatic upgrade unavailable</span>}
+                        {row.installed?.managedDirectoryPresent === false && <span className="text-[var(--admin-warning-text)]">Managed package directory missing; inspect installation</span>}
+                        {managedStatus(row.installed).status === 'incompatible' && managedStatus(row.installed).reason && <span className="text-[var(--admin-warning-text)]">{managedStatus(row.installed).reason}</span>}
                     </div>
                 </div>
-                <Button size="sm" onClick={onOpen} disabled={!row.listing || !row.source}>
+                <Button size="sm" onClick={onOpen} disabled={!row.listing || !row.source || Boolean(row.installed && !row.installed.artifact)}>
                     <Search className="mr-2 h-4 w-4" />
                     Review
                 </Button>

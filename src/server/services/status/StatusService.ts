@@ -92,7 +92,8 @@ export function createStatusService(deps: StatusServiceDeps) {
         let system: SystemStatusPayload['system'] = {
             id: null,
             status: lifecycleState === 'closed' ? 'closed' : lifecycleState,
-            worldTitle: 'Reconnecting...'
+            // No synthetic title: clients use its presence to distinguish a
+            // known world starting from Setup with no running world.
         };
         let users: UserWithPresence[] = [];
 

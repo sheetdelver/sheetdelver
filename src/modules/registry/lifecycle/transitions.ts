@@ -13,7 +13,7 @@ const ALLOWED_TRANSITIONS: Record<ModuleLifecycleStatus, ModuleLifecycleStatus[]
     enabled:      ['disabled', 'errored', 'upgrading', 'installed'],
     disabled:     ['enabled', 'validated', 'upgrading', 'uninstalling', 'errored', 'installed'],
     errored:      ['disabled', 'uninstalling', 'installed'],
-    incompatible: ['uninstalling', 'installed'],
+    incompatible: ['uninstalling', 'installed', 'upgrading'],
     upgrading:    ['validated', 'errored'],
     uninstalling: ['removed', 'errored'],
     removed:      ['installed'],
