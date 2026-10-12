@@ -1,7 +1,8 @@
 # ADR-0059: Setup Recovery and Managed-Module Inventory
 
-**Status:** Implemented; corrective verification and operator acceptance pending
+**Status:** Completed; verified (offline regressions and operator production soak)
 **Date:** October 11, 2026
+**Closed:** October 12, 2026
 **Related:** ADR-0023, ADR-0030, ADR-0056, ADR-0057
 
 ## Context
@@ -332,9 +333,20 @@ implementation and documentation follow-up. The normal
 integration runner would remove retained `temp/integration-test-data`, so it
 was not run in this pass. No hosted Foundry instance was contacted.
 
-The original production HTTP 500 remains unexplained. A disposable or
-operator-run Setup-to-world check after extended idle, plus an admin catalog
-check with an incompatible managed package, still gates ADR closeout. If the
+The original production HTTP 500 remained unexplained at implementation.
+An operator-run Setup-to-world check after extended idle, plus an admin catalog
+check with an incompatible managed package, was the closeout gate. If the
 operator sees a 500 or 503 during that check, capture the Foundry-side status
 and Core transition sequence; do not infer cookie failure from HTTP status
 alone.
+
+## Closeout — October 12, 2026
+
+The GM reports that the deployed fixes remained reliable after more than
+24 hours and caused no breakage. This is operator acceptance of the recovery
+and module-management changes after the offline regressions recorded above.
+No separate catalog action log was supplied with that acceptance. The report
+also does not identify the cause of the original production HTTP 500; that
+historical cause remains unknown. ADR-0059 is complete for its approved scope.
+Investigate any newly observed failure as a separate incident with fresh Core
+and Foundry evidence.
