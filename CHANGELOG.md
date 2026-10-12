@@ -1,5 +1,5 @@
 # Releases
-## Unreleased
+## 0.17.0
 - Hardened world recovery ownership
 - Preserved confirmed Setup presentation
 - Secured Foundry login diagnostics
