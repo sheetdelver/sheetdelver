@@ -278,6 +278,17 @@ Actor data has three explicit layers (ADR-0038):
 2.  **Prepared**: after adapter initialization, `PreparedActorStore` synchronously runs the active adapter's `prepareActorData(actor, context)` once per source revision. Entries retain epoch, revision, system/module provenance, and bounded failure diagnostics.
 3.  **Projection**: routes authorize against source data, then shape the matching prepared revision for lists, LIMITED cards, sheets, rolls, and combat tracker/initiative consumers.
 
+The Core Combat HUD consumes a subject-specific `CombatTrackerDto`: hidden
+Combatants are absent from player payloads, owned stats are bounded read-only
+fields, and queue previews use visible order. `CombatEncounterReadModel` keeps
+the full Foundry order; `CombatTrackerProjection` and `CombatService` apply
+redaction/capabilities before transport. The manager and ordinary HUD commands
+share a Core encounter guard; ordinary writes additionally check the client's
+observed state. Stat-preference changes invalidate player tracker projections
+without granting access to GM preference routes. The player shell owns HUD
+clearance and world-unavailable overlays; modules may present initiative via
+the SDK, but Core resolves formulas and executes rolls.
+
 Prepared data never writes back to Foundry automatically. Embedded Item and Active
 Effect changes update the source Actor first, then atomically replace its prepared
 revision before `actorChanged` reaches clients. `runtime.documents` remains a

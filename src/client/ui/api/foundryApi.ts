@@ -5,6 +5,7 @@ import type { ActorCardsPayload, ActorDetailPayload, ActorListPayload } from '@s
 import type {
     CombatListPayload,
     CombatTurnSuccessPayload,
+    CombatTurnObservation,
     CombatInitiativeSuccessPayload,
     CombatInitiativeRequestBody,
 } from '@shared/contracts/combats';
@@ -100,17 +101,21 @@ export function fetchCombats(token: string): Promise<CombatListPayload> {
 
 // Combat actions (ADR-0028): typed helpers via requestJson so non-2xx
 // responses throw ApiError instead of being silently treated as success.
-export function postCombatNextTurn(token: string | null, combatId: string): Promise<CombatTurnSuccessPayload> {
+export function postCombatNextTurn(token: string | null, combatId: string,
+    observed: CombatTurnObservation): Promise<CombatTurnSuccessPayload> {
     return requestJson<CombatTurnSuccessPayload>(`/api/combats/${combatId}/next-turn`, {
         method: 'POST',
         token,
+        body: { observed },
     });
 }
 
-export function postCombatPreviousTurn(token: string | null, combatId: string): Promise<CombatTurnSuccessPayload> {
+export function postCombatPreviousTurn(token: string | null, combatId: string,
+    observed: CombatTurnObservation): Promise<CombatTurnSuccessPayload> {
     return requestJson<CombatTurnSuccessPayload>(`/api/combats/${combatId}/previous-turn`, {
         method: 'POST',
         token,
+        body: { observed },
     });
 }
 

@@ -46,10 +46,12 @@ export function useCombatRealtime({
 
         appSocket.on('combatChanged', handleCombatChanged);
         appSocket.on('combatListInvalidated', handleCombatListInvalidated);
+        appSocket.on('combatTrackerPreferencesChanged', handleCombatChanged);
 
         return () => {
             appSocket.off('combatChanged', handleCombatChanged);
             appSocket.off('combatListInvalidated', handleCombatListInvalidated);
+            appSocket.off('combatTrackerPreferencesChanged', handleCombatChanged);
         };
     }, [appSocket, fetchCombats, requestCombatRefresh, step, token]);
 }

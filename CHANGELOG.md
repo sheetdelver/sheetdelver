@@ -1,4 +1,11 @@
 # Releases
+## Unreleased
+- Refined compact combat HUD
+- Concealed hidden player combatants
+- Added owned combat stats
+- Guarded stale combat commands
+- Versioned initiative dialog contract
+
 ## 0.17.0
 - Hardened world recovery ownership
 - Preserved confirmed Setup presentation

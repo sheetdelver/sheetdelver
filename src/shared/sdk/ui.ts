@@ -13,13 +13,52 @@ export interface LoadingModalProps {
     theme?: SystemComponentStyles['loadingModal'];
 }
 
-export interface RollDialogProps {
-    title?: string;
-    formula?: string;
-    onRoll: (formula: string, mode: 'normal' | 'adv' | 'dis') => void | Promise<void>;
+export interface SheetRollDialogProps {
+    isOpen: boolean;
+    title: string;
+    type: 'attack' | 'ability' | 'spell';
+    actor?: unknown;
+    defaults?: {
+        abilityBonus?: number;
+        itemBonus?: number;
+        talentBonus?: number;
+        showItemBonus?: boolean;
+        advantageMode?: 'normal' | 'advantage' | 'disadvantage';
+    };
+    onConfirm: (options: {
+        abilityBonus: number;
+        itemBonus: number;
+        talentBonus: number;
+        rollingMode: string;
+        advantageMode: 'normal' | 'advantage' | 'disadvantage';
+        manualValue?: number;
+    }) => void;
     onClose: () => void;
     theme?: SystemComponentStyles['rollDialog'];
 }
+
+export type InitiativeRollChoice =
+    | { kind: 'roll'; advantageMode: 'normal' | 'advantage' | 'disadvantage' }
+    | { kind: 'manual'; total: number };
+
+/** Core owns formula resolution and transport; module overrides present only. */
+export interface InitiativeRollModalProps {
+    isOpen: boolean;
+    type: 'initiative';
+    title: string;
+    combatantName: string;
+    formula: string;
+    source: 'module' | 'gm' | 'core';
+    rollAvailable: boolean;
+    advantageAvailable: boolean;
+    manualAvailable: boolean;
+    audience: 'public' | 'gm';
+    onConfirm: (choice: InitiativeRollChoice) => void;
+    onClose: () => void;
+    theme?: SystemComponentStyles['rollDialog'];
+}
+
+export type RollDialogProps = SheetRollDialogProps | InitiativeRollModalProps;
 
 export interface ConfirmationModalProps {
     title: string;

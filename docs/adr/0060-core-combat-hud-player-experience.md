@@ -1,6 +1,6 @@
 # ADR-0060: Core Combat HUD Player Experience
 
-**Status:** Proposed — audit/design only; implementation and SDK migration await approval
+**Status:** Accepted — implementation in progress; not yet operator-verified
 **Date:** October 12, 2026
 **Related:** ADR-0013, ADR-0027, ADR-0028, ADR-0038, ADR-0040, ADR-0049,
 ADR-0053, ADR-0057, ADR-0058, ADR-0059
@@ -270,9 +270,9 @@ dialog; changed values require refresh rather than applying an old draft.
 Strings render as text; image URLs use existing server resolution. A chip or
 sheet-link capability is never authority to write. All endpoints reauthorize.
 
-## Delivery checkpoints (second phase; none implemented here)
+## Delivery checkpoints
 
-- [ ] **C0 — scope and contracts approved.** Review role matrix, compact
+- [x] **C0 — scope and contracts approved.** Review role matrix, compact
   hierarchy, owned-only stats, unlinked-token fallback, initiative prop/result
   types, SDK versioning and module release sequence with the user. Obtain
   module branch/edit authorization separately. Preserve this audit checkpoint.
@@ -356,4 +356,70 @@ round-zero/turn-zero player fixture separately reproduced the unexpected
 `canAdvanceTurn: true`; no HTTP write or live reproduction was attempted.
 No application/test code, SDK version, module or running service changed
 during this design pass.
-No implementation checkpoint above is complete.
+C0 was approved by the user on October 12, 2026. Implementation evidence is
+recorded below; C1–C5 remain open until their full acceptance checks pass.
+
+## Implementation follow-up — October 12, 2026
+
+- Core tracker projection now omits hidden-current metadata and hidden-only
+  player encounters, computes visible-order `nextShownCombatantId`, and
+  prevents player Begin at round zero even when Foundry stores `turn: 0`.
+  Managed HUD mutation capabilities are disabled; role-4 GMs receive a
+  validated manager shortcut. Bounded owned stat chips and resolved initiative
+  metadata are projected from prepared Actors with source authorization; the
+  legacy full Actor payload is no longer sent on tracker rows. Unlinked scene
+  Token base-Actor stats are omitted.
+- The ordinary turn and initiative HTTP routes require an observed snapshot.
+  Core command writes share an encounter guard with the manager; stale turns
+  and initiative values/formulas fail before chat or document writes. The
+  ordinary initiative route rejects arbitrary formulas and accepts a finite
+  manual final total. This is still best-effort Core serialization, not an
+  atomic Foundry transaction.
+- The HUD now uses a compact strip and expandable authorized roster. Its
+  shared initiative dialog presents Core-provided formula/source and returns
+  only a roll mode or manual total; Shadowdark's override delegates to that
+  component without recalculating the formula. SDK/UI contract 3.0.0 and
+  local module branches target Core 0.18.0 for release. The Mörk Borg and D&D
+  modules use the Core fallback. Module releases must follow the Core 0.18.0
+  release.
+- Offline Core unit, TypeScript and lint checks pass. The local module Core
+  minimum was temporarily lowered to 0.17.0 for development against this
+  checkout; the required UI-extension API 3.0.0 remains the actual compatibility
+  discriminator. Before module publication, restore the Core minimum to
+  0.18.0 after that Core release exists. Additional smoke coverage asserts that
+  stale initiative produces no roll/write, and a fractional manual total uses
+  the labeled chat path with the Core formula fallback. This offline checkpoint
+  does not establish live-world or full operator acceptance.
+
+### Operator visual review — October 12, 2026
+
+The first live dashboard screenshot showed that the collapsed three-card HUD
+occupied about 230px of vertical space and replaced Foundry's default Actor
+portrait with a shield, unlike the dashboard Actor card. The client layout was
+tightened into one desktop row, with controls inline, and available portrait
+URLs (including the default Foundry image) are now rendered. TypeScript and
+lint pass. A follow-up screenshot exposed the remaining centered, rounded
+panel seam above the dashboard; the HUD surface now spans the viewport with
+only its contents width-constrained, and the expanded roster aligns to that
+full-width surface. The user visually accepted the revised desktop HUD on
+October 12; mobile, zoom, keyboard, focus and overlay review remain in C3. The same
+screenshot showed no turn action because this was a SheetDelver-managed
+encounter viewed as a player; that remains the intentional GM-command boundary
+for this pass. The user reconfirmed that managed player turn actions require a
+deliberate follow-up design rather than an ad-hoc permission change.
+
+The user approved a development-only Core minimum of `>=0.17.0` for the three
+local module manifests while this worktree still identifies itself as 0.17.0.
+The `ui-extension-api >=3.0.0 <4.0.0` gate remains strict, so those modules do
+not become compatible with the released Core 0.17.0, which exposes UI API 2.x.
+Before publishing the modules, release Core 0.18.0 and restore their Core
+minimum to `>=0.18.0`. CI/release workflow references continue to target the
+future Core tag; no release or production compatibility is implied by local
+development loading.
+All three `module:check` runs subsequently passed their compatibility,
+TypeScript, import-boundary, CSS, and dry-bundle checks with this development
+minimum. Live module loading and full operator acceptance remain unverified.
+
+After the full-width desktop refinement, `npm run test:unit`,
+`npm run test:client`, `npx tsc --noEmit` and `npm run lint` passed. Desktop
+visual acceptance is recorded above; broader C1–C5 acceptance remains open.

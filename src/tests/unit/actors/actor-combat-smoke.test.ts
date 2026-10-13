@@ -186,7 +186,6 @@ async function runCombatReadActionSmoke() {
         'older numeric-content clients remain supported');
     assert.throws(() => getCombatInitiativeRollTotal({ content: '<div>unreadable</div>' }),
         /Failed to parse roll total/);
-    const normalizeCalls: Array<{ ids: string[] }> = [];
     const { actorStore } = await import('@server/core/documents/primary/actors/ActorStore');
     // Standalone execution does not import the document coordinator, so bind
     // the same production visibility dependency explicitly for this fixture.
@@ -209,10 +208,6 @@ async function runCombatReadActionSmoke() {
         } as any;
     };
     const combatService = createCombatService({
-        normalizeActors: async (actorList) => {
-            normalizeCalls.push({ ids: actorList.map((actor) => String(actor._id || actor.id)) });
-            return actorList.map((actor) => getPreparedActor(String(actor._id || actor.id)));
-        },
         getPreparedActor,
     });
 
@@ -255,6 +250,7 @@ async function runCombatReadActionSmoke() {
         }) as ActorDocument));
         const client = {
             userId: params.userId,
+            getSystem: async () => ({ id: 'generic' }),
             getActor: async (id: string) => ({
                 _id: id,
                 id,
@@ -288,7 +284,7 @@ async function runCombatReadActionSmoke() {
     assert.equal(listPayload.success, true);
     assert.equal(listPayload.combats.length, 1);
     // Tracker DTO shape (ADR-0028 Phase 4): server-ordered rows, explicit
-    // started state, GM capabilities, roll-actor payload on rollable rows.
+    // started state, GM capabilities, bounded roll metadata on rollable rows.
     const listedCombat = listPayload.combats[0];
     assert.equal(listedCombat.id, 'combat-1');
     assert.equal(listedCombat.started, false, 'round 0 is explicit unstarted state');
@@ -296,8 +292,7 @@ async function runCombatReadActionSmoke() {
     assert.equal(listedCombat.canAdvanceTurn, true, 'GM can start the encounter');
     assert.deepEqual(listedCombat.combatants.map((c) => c.id), ['c1', 'c2'], 'server-ordered by initiative');
     assert.equal(listedCombat.combatants[0].name, 'Actor actor-a', 'display identity from actor fallback');
-    assert.equal(listedCombat.combatants[0].actor?.name, 'Actor actor-a', 'GM rows carry the roll-actor payload');
-    assert.equal(normalizeCalls.length, 2);
+    assert.equal('actor' in listedCombat.combatants[0], false, 'tracker rows never carry raw Actor payloads');
 
     const turnResult = await combatService.advanceTurn(initial.client, 'combat-1');
     if ('error' in turnResult) {
@@ -343,6 +338,7 @@ async function runCombatReadActionSmoke() {
         combat: {
             _id: 'combat-owner-advance',
             id: 'combat-owner-advance',
+            active: true,
             round: 1,
             turn: 0,
             combatants: [
@@ -351,6 +347,12 @@ async function runCombatReadActionSmoke() {
             ],
         },
     });
+
+    const staleTurn = await combatService.advanceTurn(ownerCase.client, 'combat-owner-advance', false, {
+        active: true, started: true, round: 2, currentCombatantId: 'c1',
+    });
+    assert.deepEqual(staleTurn, { error: 'Encounter changed; review the current turn before retrying', status: 409 });
+    assert.equal(ownerCase.dispatchCalls.length, 0, 'stale turn never writes');
 
     const ownerResult = await combatService.advanceTurn(ownerCase.client, 'combat-owner-advance');
     if ('error' in ownerResult) {
@@ -363,6 +365,15 @@ async function runCombatReadActionSmoke() {
     assert.deepEqual(ownerCase.dispatchCalls[0].operation, {
         updates: [{ _id: 'combat-owner-advance', round: 1, turn: 1 }],
     });
+
+    const roundZeroOwner = await buildCase({
+        userId: 'player-owner', ownershipByActorId: { 'actor-a': 3 },
+        combat: { _id: 'combat-round-zero-owner', active: true, round: 0, turn: 0,
+            combatants: [{ _id: 'c1', actorId: 'actor-a', initiative: 15 }] },
+    });
+    const roundZeroDenied = await combatService.advanceTurn(roundZeroOwner.client, 'combat-round-zero-owner');
+    assert.equal('error' in roundZeroDenied ? roundZeroDenied.status : null, 403);
+    assert.equal(roundZeroOwner.dispatchCalls.length, 0, 'a stored turn zero does not let a player Begin');
 
     // ---- ADR-0013 Phase 1: turn-auth routes through actorStore.canReadActor(WRITEABLE) ----
     // OBSERVER on the active combatant's actor is NOT enough to advance — the
@@ -646,6 +657,7 @@ async function runCombatReadActionSmoke() {
 
     const strippedCaseClient = {
         userId: 'player-strip',
+        getSystem: async () => ({ id: 'generic' }),
         // Player can read the PC; enemy actor returns null (ownership filter).
         getActor: async (id: string) => {
             if (id === 'pc-actor') {
@@ -722,8 +734,7 @@ async function runCombatReadActionSmoke() {
     const npcRow = strippedCombat!.combatants.find((c) => c.id === 'c-npc');
     assert.ok(pcRow, 'PC row present');
     assert.equal(pcRow!.canRollInitiative, true, 'player can roll for their own actor');
-    assert.ok(pcRow!.actor, 'rollable row carries the roll-actor payload');
-    assert.equal(pcRow!.actor!.name, 'Hero');
+    assert.equal('actor' in pcRow!, false, 'rollable row does not carry a raw Actor payload');
     assert.ok(npcRow, 'non-readable enemy row still renders (Foundry tracker parity)');
     assert.equal(npcRow!.name, 'Goblin Warlord', 'enemy display name comes from the projection');
     assert.equal(
@@ -732,7 +743,7 @@ async function runCombatReadActionSmoke() {
         'enemy img is resolved against the Foundry URL prefix so the browser can fetch it',
     );
     assert.equal(npcRow!.canRollInitiative, false);
-    assert.equal(npcRow!.actor, null, 'non-rollable rows carry no actor payload — nothing to leak');
+    assert.equal('actor' in npcRow!, false, 'non-rollable rows carry no raw Actor payload');
     assert.equal(pcRow!.isCurrent, true, 'turn 0 resolves to the PC row');
 
     // ---- initiative preflight: no side effects before authorization (CMB-04) ----
@@ -786,7 +797,40 @@ async function runCombatReadActionSmoke() {
     const hiddenInitiative = await combatService.rollInitiative(initiativeClient, 'combat-init-auth', 'c-hidden', {});
     if (!('error' in hiddenInitiative)) assert.fail('Expected hidden-combatant initiative to be rejected');
     assert.equal(hiddenInitiative.status, 404);
+    const missingInitiative = await combatService.rollInitiative(initiativeClient, 'combat-init-auth', 'c-missing', {});
+    assert.deepEqual(hiddenInitiative, missingInitiative,
+        'hidden and missing combatants produce indistinguishable errors');
     assert.deepEqual(sideEffects, [], 'hidden combatant preflight has no side effects either');
+
+    const rolls: Array<{ formula: string; label: string }> = [];
+    const initiativeWrites: Array<{ type: string; action: string }> = [];
+    const authorizedClient = {
+        ...initiativeClient,
+        getActor: async (id: string) => ({ _id: id, name: 'Mine' }),
+        roll: async (formula: string, label: string) => {
+            rolls.push({ formula, label });
+            return { rolls: [JSON.stringify({ total: Number(formula) || 14 })], content: 'rendered card' };
+        },
+        dispatchDocument: async (type: string, action: string, operation: unknown) => {
+            initiativeWrites.push({ type, action });
+            return { result: [], operation };
+        },
+    } as any;
+    const staleInitiative = await combatService.rollInitiative(authorizedClient, 'combat-init-auth', 'c-mine', {
+        observed: { initiative: 99, formula: '1d20' }, manualTotal: 7.5,
+    });
+    assert.deepEqual(staleInitiative, { error: 'Initiative changed; review the current value before retrying', status: 409 });
+    assert.deepEqual(rolls, [], 'stale initiative never rolls');
+    assert.deepEqual(initiativeWrites, [], 'stale initiative never writes');
+    const manualInitiative = await combatService.rollInitiative(authorizedClient, 'combat-init-auth', 'c-mine', {
+        observed: { initiative: null, formula: '1d20' }, manualTotal: 7.5,
+    });
+    assert.deepEqual(manualInitiative, { success: true, initiative: 7.5 },
+        'manual fractional total uses Core fallback without requiring a module adapter');
+    assert.deepEqual(rolls, [{ formula: '7.5', label: 'Manual Initiative' }],
+        'manual total creates a clearly labeled chat roll without altering its value');
+    assert.deepEqual(initiativeWrites, [{ type: 'Combatant', action: 'update' }],
+        'authorized manual initiative writes the Combatant');
 
     actorStore.clear('combat-stripped-test');
 }

@@ -170,8 +170,12 @@ export default function CombatManagerPage() {
         }
         if (version !== refreshVersion.current) return;
         setEncounters(payload.encounters);
-        setSelectedId(previous => payload.encounters.some(row => row.id === previous)
-            ? previous : (payload.encounters.find(row => row.status !== 'completed') || payload.encounters[0])?.id || '');
+        setSelectedId(previous => {
+            if (payload.encounters.some(row => row.id === previous)) return previous;
+            const requested = new URLSearchParams(window.location.search).get('combat');
+            if (requested && payload.encounters.some(row => row.id === requested)) return requested;
+            return (payload.encounters.find(row => row.status !== 'completed') || payload.encounters[0])?.id || '';
+        });
         setLoading(false);
     }, []);
 

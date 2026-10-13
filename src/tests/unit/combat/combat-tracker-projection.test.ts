@@ -55,6 +55,7 @@ export function run() {
     runHiddenCurrentCombatant();
     runVisibleCurrentCapabilities();
     runRoundZero();
+    runHiddenPrivacy();
     console.log('  - CombatTrackerProjection: all checks passed');
 }
 
@@ -64,12 +65,14 @@ function runGmProjection() {
     assert.equal(dto.combatants.length, 3, 'GM sees hidden rows');
     assert.equal(dto.combatants[1].hidden, true, 'hidden rows arrive flagged for GMs');
     assert.equal(dto.currentCombatantId, 'c-hidden', 'GM sees the hidden current identity');
-    assert.equal(dto.hasHiddenCurrentCombatant, false);
     assert.equal(dto.combatants[1].isCurrent, true);
     assert.equal(dto.canAdvanceTurn, true);
     assert.equal(dto.canRewindTurn, true);
     assert.ok(dto.combatants.every(row => row.canRollInitiative), 'GM can roll for every row');
     assert.equal(dto.combatants[2].defeated, true);
+    const skipDefeated = buildCombatTrackerDto(preparedFixture(), gm, { ...deps, skipDefeated: true });
+    assert.equal(skipDefeated.nextShownCombatantId, 'c-player',
+        'GM preview follows Foundry skip-defeated policy when enabled');
 }
 
 function runPlayerRedaction() {
@@ -78,7 +81,7 @@ function runPlayerRedaction() {
     assert.deepEqual(dto.combatants.map(r => r.id), ['c-player', 'c-npc'], 'hidden rows are pruned for players');
     assert.equal(dto.combatants[0].canRollInitiative, true, 'player can roll for their owned actor');
     assert.equal(dto.combatants[1].canRollInitiative, false, 'player cannot roll for the NPC');
-    assert.ok(dto.combatants.every(row => row.actor === null), 'projection itself attaches no actor payloads');
+    assert.ok(dto.combatants.every(row => !('actor' in row)), 'projection never exposes raw Actor payloads');
 }
 
 function runHiddenCurrentCombatant() {
@@ -87,7 +90,7 @@ function runHiddenCurrentCombatant() {
     // The current combatant is hidden from this viewer: identity must not
     // leak, and no visible row may claim the highlight (CMB-01).
     assert.equal(dto.currentCombatantId, null);
-    assert.equal(dto.hasHiddenCurrentCombatant, true);
+    assert.equal('hasHiddenCurrentCombatant' in dto, false);
     assert.ok(dto.combatants.every(row => !row.isCurrent), 'no visible row is marked current');
     assert.equal(dto.canAdvanceTurn, false, 'players cannot advance through a hidden current combatant');
 }
@@ -97,7 +100,6 @@ function runVisibleCurrentCapabilities() {
 
     const playerDto = buildCombatTrackerDto(prepared, player, deps);
     assert.equal(playerDto.currentCombatantId, 'c-player');
-    assert.equal(playerDto.hasHiddenCurrentCombatant, false);
     assert.equal(playerDto.combatants[0].isCurrent, true);
     assert.equal(playerDto.canAdvanceTurn, true, 'owner of the visible current combatant can advance');
     assert.equal(playerDto.canRewindTurn, false, 'rewind stays GM-only');
@@ -130,11 +132,49 @@ function runRoundZero() {
     assert.equal(playerDto.canAdvanceTurn, false, 'starting an encounter is a GM action');
     assert.ok(playerDto.combatants.every(row => !row.isCurrent));
 
+    const persistedTurnZero = buildCombatTrackerDto(preparedFixture({
+        started: false, round: 0, turn: 0, currentCombatantId: 'c-player',
+    }), player, deps);
+    assert.equal(persistedTurnZero.currentCombatantId, null);
+    assert.equal(persistedTurnZero.canAdvanceTurn, false);
+
     // A player with no combatant in the forming encounter receives no rows —
     // the encounter stays invisible to them until it starts.
     const bystander = { userId: 'p-2', role: FoundryUserRole.PLAYER };
     const bystanderDto = buildCombatTrackerDto(prepared, bystander, deps);
     assert.equal(bystanderDto.combatants.length, 0);
+
+    const ownedHidden = preparedFixture({ rows: [
+        { ...prepared.rows[0], hidden: true },
+    ], currentCombatantId: 'c-player' });
+    const hiddenDto = buildCombatTrackerDto(ownedHidden, player, deps);
+    assert.deepEqual(hiddenDto.combatants, []);
+    assert.equal(hiddenDto.currentCombatantId, null);
+    assert.equal('hasHiddenCurrentCombatant' in hiddenDto, false);
+}
+
+function runHiddenPrivacy() {
+    const base = preparedFixture({ currentCombatantId: 'c-player', turn: 0 });
+    const hidden = base.rows[1];
+    const visible = base.rows.filter(row => !row.hidden);
+    for (const rows of [
+        [hidden, ...visible], [visible[0], hidden, visible[1]], [...visible, hidden],
+        [visible[0], hidden, { ...hidden, id: 'c-hidden-2' }, visible[1]],
+    ]) {
+        const dto = buildCombatTrackerDto({ ...base, rows }, player, deps);
+        assert.deepEqual(dto.combatants.map(row => row.id), ['c-player', 'c-npc']);
+        assert.equal(dto.nextShownCombatantId, 'c-npc');
+        assert.equal(JSON.stringify(dto).includes('c-hidden'), false);
+    }
+    const hiddenOwned = buildCombatTrackerDto({ ...base, rows: [{ ...base.rows[0], hidden: true }],
+        currentCombatantId: 'c-player' }, player, deps);
+    assert.deepEqual(hiddenOwned.combatants, []);
+    assert.equal(hiddenOwned.currentCombatantId, null);
+    assert.equal(hiddenOwned.nextShownCombatantId, null);
+    assert.equal(JSON.stringify(hiddenOwned).includes('c-player'), false);
+    const gmDto = buildCombatTrackerDto(base, gm, deps);
+    assert.equal(gmDto.combatants[1].name, 'Lurker');
+    assert.equal(gmDto.combatants[1].hidden, true);
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

@@ -137,8 +137,8 @@ export function registerRoutes(deps: RegisterRoutesDeps): void {
     }
 
     registerChatRoutes(appRouter, { config: deps.config });
-    registerCombatRoutes(appRouter, { normalizeActors });
-    registerCombatManagerRoutes(appRouter, { normalizeActors });
+    registerCombatRoutes(appRouter);
+    registerCombatManagerRoutes(appRouter);
     registerJournalRoutes(appRouter);
     registerUtilityRoutes(appRouter, {
         getFallbackSharedContentClient: () => createSystemRouteFoundryClient(systemService.getSystemClient())

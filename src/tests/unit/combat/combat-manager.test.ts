@@ -187,7 +187,7 @@ export async function run(): Promise<void> {
         'roster uses the linked Actor portrait');
     await assert.rejects(() => combatManagerService.addWorldActor(gm, combatId, 'WORLDNPC'),
         (error: unknown) => error instanceof CombatManagerError && error.status === 409);
-    const managedTurns = createCombatService({ normalizeActors: async actors => actors });
+    const managedTurns = createCombatService({});
     assert.deepEqual(await managedTurns.rollInitiative(gm, combatId,
         (await combatManagerService.detail(gm, combatId)).participants[0].id, {}),
     { error: 'Use the GM Combat Manager to roll initiative', status: 403 },

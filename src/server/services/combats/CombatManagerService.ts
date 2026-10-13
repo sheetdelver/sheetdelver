@@ -37,6 +37,7 @@ import { discoverActorSortFields, parseActorPickerSort, sortActorChoices } from 
 import { systemService } from '@server/services/world';
 import type { SystemAdapter } from '@shared/sdk';
 import { effectiveInitiativeFormula, validInitiativeFallback } from './CombatInitiativeFormula';
+import { withEncounterLock } from './EncounterCommandGuard';
 
 export class CombatManagerError extends Error {
     constructor(message: string, public readonly status: number, public readonly code?: string) { super(message); }
@@ -183,13 +184,6 @@ function activeEncounter(combatId: string): { combat: CombatDocument; flag: Comb
     const found = requiredEncounter(combatId);
     if (found.flag.status !== 'active') throw new CombatManagerError('Encounter is not active', 409);
     return found;
-}
-
-const busy = new Set<string>();
-async function withEncounterLock<T>(combatId: string, operation: () => Promise<T>): Promise<T> {
-    if (busy.has(combatId)) throw new CombatManagerError('Encounter has another pending change', 409, 'ENCOUNTER_BUSY');
-    busy.add(combatId);
-    try { return await operation(); } finally { busy.delete(combatId); }
 }
 
 function repositories(client: CombatClientLike) {

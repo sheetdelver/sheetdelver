@@ -117,7 +117,7 @@ Do not import from Sheet Delver internals such as `@shared/*`, `@client/*`, `@se
   "compatibility": {
     "apiContracts": {
       "module-api": ">=1.1.0 <2.0.0",
-      "ui-extension-api": ">=2.0.0 <3.0.0",
+      "ui-extension-api": ">=3.0.0 <4.0.0",
       "roll-engine-api": ">=1.0.0 <2.0.0"
     }
   },
@@ -342,8 +342,21 @@ Targets must be root-relative paths on the current Sheet Delver origin. Use a
 normal anchor for an external destination. Do not assign `window.location.href`
 or call `window.location.assign()` / `replace()` for internal routes;
 `module:check` rejects those hard-navigation forms. Navigation first appeared
-in UI contract 1.1.0; modules targeting the current host declare
-`ui-extension-api: ">=2.1.0 <3.0.0"` in `info.json`.
+in UI contract 1.1.0; modules targeting the next host release declare
+`ui-extension-api: ">=3.0.0 <4.0.0"` in `info.json` for Core 0.18.0.
+
+### Combat-HUD initiative presentation (SDK 3.0.0)
+
+The optional UI-manifest `rollModal` is now a typed initiative presentation
+slot. Its `InitiativeRollModalProps` include Core's resolved formula/source,
+allowed roll and advantage modes, manual-final-total availability, effective
+audience, display name, open/close state and a bounded `onConfirm` choice.
+Modules must not recalculate or submit a formula, set recipients, or call a
+Foundry transport from this modal. Use the injected SDK `RollDialog` with
+`type="initiative"` to retain a module theme, or omit `rollModal` for Core's
+generic fallback. Sheet-oriented `RollDialog` modes remain available. Upgrade
+module compatibility to `coreVersion >=0.18.0` and
+`ui-extension-api >=3.0.0 <4.0.0`; publish Core before module releases.
 
 ### Player-world lifecycle
 
@@ -538,7 +551,7 @@ async function exportCharacter() {
 ```
 
 Notification lifecycle first appeared in UI contract 1.2.0. Modules targeting
-the current host declare `"ui-extension-api": ">=2.0.0 <3.0.0"`.
+the next host release declare `"ui-extension-api": ">=3.0.0 <4.0.0"`.
 Notification IDs are ephemeral;
 updates return false after expiry, dismissal or session cleanup. Do not recreate
 a notice after a late update fails. Incomplete progress pauses expiry; completion

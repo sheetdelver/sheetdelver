@@ -7,18 +7,6 @@
  * server-computed; the client renders them without reconstruction.
  */
 
-/**
- * Minimal actor payload for the initiative roll dialog. Present only on rows
- * the requesting user is allowed to roll for (i.e. actors they could read in
- * full anyway); never carries ownership maps.
- */
-export interface CombatTrackerActorDto {
-    id: string;
-    name?: string | null;
-    img?: string | null;
-    system?: Record<string, unknown>;
-}
-
 export interface CombatTrackerCombatantDto {
     id: string;
     actorId: string | null;
@@ -31,7 +19,17 @@ export interface CombatTrackerCombatantDto {
     hidden: boolean;
     isCurrent: boolean;
     canRollInitiative: boolean;
-    actor: CombatTrackerActorDto | null;
+    isOwned: boolean;
+    canOpenActor: boolean;
+    /** Base Actor stats are unavailable for an unlinked scene Token. */
+    statSource: 'world-actor' | 'unlinked-token' | null;
+    stats: { title: string; value: string | number; subValue?: string | number }[];
+    initiativeRoll: {
+        formula: string;
+        source: 'module' | 'gm' | 'core';
+        rollAvailable: boolean;
+        advantageAvailable: boolean;
+    } | null;
 }
 
 export interface CombatTrackerDto {
@@ -42,13 +40,15 @@ export interface CombatTrackerDto {
     round: number;
     /**
      * Stable id of the combatant whose turn it is, or null when unstarted or
-     * when the current combatant is hidden from this viewer (see
-     * `hasHiddenCurrentCombatant`). Never a positional index.
+     * when the current combatant is not visible to this viewer. Never a
+     * positional index or a hidden-participant marker.
      */
     currentCombatantId: string | null;
-    hasHiddenCurrentCombatant: boolean;
+    /** Next row in this viewer's authorized visible order, not a secret turn slot. */
+    nextShownCombatantId: string | null;
     canAdvanceTurn: boolean;
     canRewindTurn: boolean;
+    canManage: boolean;
     combatants: CombatTrackerCombatantDto[];
 }
 
@@ -63,14 +63,29 @@ export interface CombatTurnSuccessPayload {
     turn: number;
 }
 
+/** State observed by the HUD before requesting an ordinary encounter turn. */
+export interface CombatTurnObservation {
+    active: boolean;
+    started: boolean;
+    round: number;
+    currentCombatantId: string | null;
+}
+
 export interface CombatInitiativeSuccessPayload {
     success: true;
     initiative: number;
 }
 
 export interface CombatInitiativeRequestBody {
-    formula?: string;
     advantageMode?: 'advantage' | 'disadvantage' | 'normal';
+    /** A numeric final total, never a formula override or die face. */
+    manualTotal?: number;
+    observed?: {
+        initiative: number | null;
+        formula: string;
+    };
+    /** Internal manager command only; never accepted on ordinary routes. */
+    formula?: string;
 }
 
 export interface CombatErrorPayload {

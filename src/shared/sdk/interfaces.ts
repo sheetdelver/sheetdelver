@@ -1,5 +1,6 @@
 import { ModuleRuntime } from './runtime';
 import type { ComponentType } from 'react';
+import type { InitiativeRollModalProps } from './ui';
 
 // ---------------------------------------------------------------------------
 // Foundry document primitives
@@ -434,7 +435,8 @@ export interface UIModuleManifest {
     theme?: SystemThemeColors;
     componentStyles?: SystemComponentStyles;
     sheet: () => Promise<{ default: unknown }>;
-    rollModal?: () => Promise<{ default: unknown }>;
+    /** Initiative presentation only; Core supplies formula, policy and callback. */
+    rollModal?: () => Promise<{ default: ComponentType<InitiativeRollModalProps> }>;
     actorPage?: () => Promise<{ default: unknown }>;
     tools?: Record<string, () => Promise<{ default: unknown }>>;
     /** Core-rendered dashboard cards; module pages and dialogs retain their own presentation. */

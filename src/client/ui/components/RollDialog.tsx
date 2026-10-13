@@ -1,5 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
+import InitiativeRollDialog from './InitiativeRollDialog';
+import type { InitiativeRollModalProps } from '@shared/sdk/ui';
 
 interface RollDialogProps {
     isOpen: boolean;
@@ -53,7 +55,7 @@ const defaultTheme = {
     selectArrow: "sd-ui-muted absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none"
 };
 
-export default function RollDialog({ isOpen, title, type, actor, defaults, onConfirm, onClose, theme }: RollDialogProps) {
+function SheetRollDialog({ isOpen, title, type, actor, defaults, onConfirm, onClose, theme }: RollDialogProps) {
     const [abilityBonus, setAbilityBonus] = useState(0);
     const [itemBonus, setItemBonus] = useState(0);
     const [talentBonus, setTalentBonus] = useState(0);
@@ -290,4 +292,9 @@ export default function RollDialog({ isOpen, title, type, actor, defaults, onCon
             </div>
         </div>
     );
+}
+
+/** SDK-injected component retains sheet rolls and adds a bounded HUD mode. */
+export default function RollDialog(props: RollDialogProps | InitiativeRollModalProps) {
+    return props.type === 'initiative' ? <InitiativeRollDialog {...props} /> : <SheetRollDialog {...props} />;
 }

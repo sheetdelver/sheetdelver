@@ -141,7 +141,7 @@ without disposing world state merely because `connected` briefly became false.
 
 ---
 
-## Combat Tracker (ADR-0028)
+## Combat Tracker (ADR-0028, ADR-0060)
 
 `GET /api/combats` returns typed `CombatTrackerDto` projections built from the
 backend encounter read model — never raw Combat/Combatant/Actor documents.
@@ -152,19 +152,31 @@ backend encounter read model — never raw Combat/Combatant/Actor documents.
   fallback, so unlinked NPC tokens show their token name/art; defeated state
   covers the tracker flag, linked-actor dead status, and unlinked-token
   (ActorDelta) dead status.
-- Hidden combatants are pruned for players and flagged for GMs. A hidden
-  current combatant surfaces as `hasHiddenCurrentCombatant: true` with a null
-  `currentCombatantId`.
+- Hidden combatants are absent from player projections, including hidden owned
+  Actors. No placeholder, hidden-current flag, count, queue gap or hidden-only
+  encounter reveals their presence. GMs see the full roster with a **Hidden
+  from players** label. A current row not visible to the player produces a
+  neutral current-turn area and no queue preview.
 - Action capabilities (`canAdvanceTurn`, `canRewindTurn`, per-row
   `canRollInitiative`) are server-computed; the HUD renders them without
   reconstructing ownership.
-- CombatHUD shows `active && started` encounters as the full tracker and
-  renders only during the `dashboard` connection step. Unstarted active
-  encounters appear as a compact pre-combat banner: players see only their own
-  rollable combatants (server-redacted) for initiative pre-rolls; GMs see the
-  forming roster with a Begin Encounter action.
-- `combatChanged` / `combatListInvalidated` are skinny invalidations — the
-  client refetches the projection; payloads never carry document data.
+- The compact HUD shows current turn, **Next shown** (visible-order preview),
+  and an owned-character selector with up to three read-only selected stats.
+  Its expandable roster contains all authorized rows, full names, portraits,
+  initiative, current/owned/defeated labels and GM-only hidden labels. Linked
+  or tokenless owned world Actors may show selected stats; unlinked scene
+  Tokens show no base-Actor stats. The sheet shortcut opens a new tab.
+- Active forming encounters remain visible only when a viewer has projected
+  rows. Managed encounters are view-only in this HUD; role-4 GMs get an Open
+  Combat Manager shortcut. Ordinary encounters retain GM/assistant navigation
+  and current-owner End my turn. Player Begin is denied even if Foundry stores
+  round-zero `turn: 0`.
+- Initiative presentation receives a server-resolved formula and offers only
+  allowed roll modes or a manual final total. Core executes the action;
+  modules may theme the dialog through the versioned SDK slot.
+- `combatChanged`, `combatListInvalidated` and
+  `combatTrackerPreferencesChanged` are skinny invalidations — the client
+  refetches its authorized projection; payloads never carry document data.
 
 Module components should treat realtime as invalidation. Refetch through SDK
 hooks or host APIs instead of applying socket payloads as authoritative document

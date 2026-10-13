@@ -237,6 +237,7 @@ export function registerAppSocketGateway({
             const handleCombatPreferencesChanged = () => {
                 const subject = userStore.createAccessSubject(getSessionUserId());
                 if (subject && isGM(subject)) emitWorldBackedEvent('combatManagerPreferencesChanged', null);
+                if (subject) emitWorldBackedEvent('combatTrackerPreferencesChanged', null);
             };
 
             // Store events are bridged through the system client, not per-user

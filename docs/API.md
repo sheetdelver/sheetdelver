@@ -191,7 +191,10 @@ in the same world/module preference and is used only when the loaded module
 supplies no formula; module rules stay authoritative, followed by the GM
 fallback and Core `1d20`. Preference changes emit an empty
 `combatManagerPreferencesChanged` app-socket event to Gamemaster sockets only,
-causing other GM pages to refetch. A selected descriptor's optional
+causing other GM pages to refetch. An empty
+`combatTrackerPreferencesChanged` event prompts authenticated HUD clients to
+refetch their own authorized tracker projection; it never exposes the GM
+preferences route or descriptor paths. A selected descriptor's optional
 `showInRoster` produces a read-only participant pill, in descriptor order;
 other stats remain in the detail panel. See
 [ADR-0049](adr/0049-core-gm-combat-manager.md).
@@ -240,6 +243,32 @@ combatant rolls to GMs, and preserves current Combatant identity after sorting.
 Progression does not claim native Foundry client-hook, system-override,
 world-time or effect parity. Unmarked Combat routes retain their existing
 audience policy.
+
+### Player/assistant Combat tracker
+
+`GET /api/combats` returns a viewer-specific `CombatTrackerDto[]` rather than
+source documents. Hidden Combatants, even owned ones, are absent from player
+rows; hidden-only encounters are absent from the player list. The DTO has no
+hidden-current marker or raw positional turn index. `currentCombatantId` and
+`nextShownCombatantId` refer only to visible rows, or are `null`; the latter
+is a visible-order preview, not a guarantee of the next actual Foundry turn.
+Rows include bounded read-only owned stats, Actor-sheet capability and the
+server-resolved initiative formula/source/allowed modes where authorized.
+Unlinked scene Tokens do not project base Actor stats. Managed encounters
+disable all HUD mutations; `canManage` is only true for role-4 GMs and links
+back to the separate manager page.
+
+Ordinary `POST /api/combats/:id/next-turn` and `/previous-turn` require
+`{ "observed": { "active": true, "started": true, "round": 2,
+"currentCombatantId": "..." } }` using the last tracker view. A changed
+state returns `409` before writing; the client refetches and asks for a fresh
+action. Player advance additionally requires an active started encounter and
+ownership of the visible current Actor; Begin and rewind remain GM/assistant
+actions. The initiative endpoint requires an `observed` initiative number or
+`null` and effective formula string, plus either an allowed `advantageMode` or
+a finite `manualTotal`. Client-supplied formulas are rejected. Hidden and
+missing rows are both `404` for a player. These are Core-side preflights and
+per-encounter serialization, not atomic native Foundry compare-and-set.
 
 ---
 

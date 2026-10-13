@@ -3,16 +3,15 @@ import { combatManagerService, CombatManagerError } from '@server/services/comba
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
 import { createCombatService } from '@server/services/combats/CombatService';
 import { logger } from '@shared/utils/logger';
+import { EncounterBusyError } from '@server/services/combats/EncounterCommandGuard';
 
 function handleError(error: unknown, res: express.Response): void {
-    res.status(error instanceof CombatManagerError ? error.status : 500).json({ error: getErrorMessage(error),
-        ...(error instanceof CombatManagerError && error.code ? { code: error.code } : {}) });
+    res.status(error instanceof CombatManagerError || error instanceof EncounterBusyError ? error.status : 500).json({ error: getErrorMessage(error),
+        ...((error instanceof CombatManagerError || error instanceof EncounterBusyError) && error.code ? { code: error.code } : {}) });
 }
 
-export function registerCombatManagerRoutes(router: express.Router, deps: {
-    normalizeActors: (actorList: any[], client: any) => Promise<any[]>;
-}): void {
-    const combatService = createCombatService(deps);
+export function registerCombatManagerRoutes(router: express.Router): void {
+    const combatService = createCombatService({});
     router.get('/combat-manager', async (req, res) => {
         try { res.json({ encounters: await combatManagerService.list(req.foundryClient) }); }
         catch (error) { handleError(error, res); }

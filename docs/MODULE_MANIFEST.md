@@ -15,9 +15,10 @@ described below.
 The UI manifest can export optional `theme` and `componentStyles` with SDK
 1.5.0 / `ui-extension-api` 1.3.0. These are client presentation objects, including
 style callbacks; they are not serialized manifest JSON or server configuration.
-Core scopes shared chat, previews and dice trays to the selected module. Declare
-an appropriate 2.x UI contract range for modules using SDK 2.0.0 dashboard
-actions; a 1.x-only range is incompatible with the current host. See
+Core scopes shared chat, previews and dice trays to the selected module. Modules
+targeting the next host release declare a 3.x UI contract range for the HUD
+initiative presentation contract; earlier 2.x dashboard action ranges describe
+historical releases and are incompatible with that host. See
 [Shared UI Themes](MODULE_AUTHORING.md#shared-ui-themes) and
 [ADR-0044](adr/0044-client-owned-module-presentation.md).
 
@@ -247,7 +248,7 @@ is compiled by `module:package` into the reserved artifact
     "coreVersion": ">=1.0.0",
     "apiContracts": {
       "module-api": ">=1.3.0 <2.0.0",
-      "ui-extension-api": ">=2.0.0 <3.0.0",
+      "ui-extension-api": ">=3.0.0 <4.0.0",
       "roll-engine-api": ">=1.0.0 <2.0.0"
     }
   },
@@ -335,7 +336,8 @@ stats. These are read-only presentation hints, not writable Foundry resource
 paths or dashboard Actor-card blocks. Optional `showInRoster: true` suggests a
 compact pill beside each combatant name; absent/false keeps the stat in detail
 only. A module adopting this new manifest field requires
-`"module-api": ">=1.3.0 <2.0.0"`; the merged host advertises SDK 2.2.0.
+`"module-api": ">=1.3.0 <2.0.0"`; this field was introduced in SDK 2.2.0
+and remains available in SDK 3.0.0.
 Older modules without the field require no version change.
 
 `permissions` is a declaration, not an authorization bypass. Foundry ownership and
@@ -471,6 +473,20 @@ Component entries are lazy `() => import(...)` thunks. Each imported module must
 default-export a React component. `stylesheet` is optional and must point at CSS
 under `assets/`. The packager-managed Tailwind artifact is loaded separately via
 `compiledStyles`; do not add it to source `info.json`.
+
+### Combat-HUD `rollModal` (SDK 3.0.0 / UI contract 3.0.0)
+
+This optional lazy component receives `InitiativeRollModalProps` from
+`@sheet-delver/sdk/react`. Core supplies the resolved `formula` and `source`,
+`rollAvailable`, `advantageAvailable`, `manualAvailable`, `audience`,
+`combatantName`, `isOpen`, `onClose` and `onConfirm`. The callback accepts only
+`{ kind: 'roll', advantageMode }` or `{ kind: 'manual', total }`, with a finite
+numeric final total. Core owns authorization, chat, dice and Combat writes;
+the module owns presentation only. The injected SDK `RollDialog` supports
+`type="initiative"` and explicit `theme` without changing sheet-roll modes.
+If `rollModal` is absent, Core shows that shared dialog. Modules adopting
+this breaking slot declare `coreVersion >=0.18.0` and
+`ui-extension-api >=3.0.0 <4.0.0`. Publish Core 0.18.0 first.
 
 ### Dashboard actions (SDK 2.0.0)
 
@@ -862,4 +878,4 @@ works.
 10. Run `npm run module:check <systemId>` before packaging.
 11. Use `useSDK().navigate()` / `replace()` for internal application routes;
     these methods originated in UI contract 1.1.0; modules targeting the
-    current host declare `ui-extension-api: ">=2.0.0 <3.0.0"`.
+    next host release declare `ui-extension-api: ">=3.0.0 <4.0.0"`.

@@ -1,15 +1,16 @@
 import { logger } from '@shared/utils/logger';
 import { getAdapter } from '@modules/registry/server';
-import type { ActorDocument } from '@server/shared/types/actors';
 import type { CombatClientLike, RollChatMessageLike } from '@server/shared/types/documents';
 import {
     DOCUMENT_VISIBILITY,
     isGM,
     isAssistantGM,
+    FoundryUserRole,
     type DocumentAccessSubject,
 } from '@server/core/documents/primary/base/ownership';
 import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
 import { combatStore } from '@server/core/documents/primary/combats/CombatStore';
+import { sceneStore } from '@server/core/documents/primary/scenes/SceneStore';
 import { settingStore } from '@server/core/documents/primary/settings/SettingStore';
 import { combatEncounterReadModel, type PreparedEncounter } from '@server/core/documents/encounters/CombatEncounterReadModel';
 import { PrimaryDocumentCacheNotReadyError } from '@server/core/documents/primary/errors';
@@ -20,23 +21,24 @@ import {
     preparedActorStore,
     PreparedActorUnavailableError,
 } from '@server/core/documents/prepared/actors/PreparedActorStore';
-import type { PreparedActorData } from '@shared/sdk';
+import type { PreparedActorData, SystemAdapter } from '@shared/sdk';
+import type { CombatManagerSelectedStatDto } from '@shared/contracts/combatManager';
 import { buildCombatTrackerDto } from './CombatTrackerProjection';
 import { readCombatManagerFlag } from './combatManagerFlag';
-import { combatStatDisplayService } from './CombatStatDisplayService';
+import { combatStatDisplayService, projectCombatStatFields } from './CombatStatDisplayService';
 import { effectiveInitiativeFormula } from './CombatInitiativeFormula';
+import { withEncounterLock } from './EncounterCommandGuard';
 import type {
     CombatTrackerDto,
-    CombatTrackerActorDto,
     CombatListPayload,
     CombatTurnSuccessPayload,
     CombatInitiativeSuccessPayload,
     CombatInitiativeRequestBody,
+    CombatTurnObservation,
     CombatErrorPayload,
 } from '@shared/contracts/combats';
 
 interface CombatServiceDeps {
-    normalizeActors: (actorList: ActorDocument[], client: CombatClientLike) => Promise<ActorDocument[]>;
     getPreparedActor?: (actorId: string) => PreparedActorData;
 }
 
@@ -74,28 +76,6 @@ export function createCombatService(deps: CombatServiceDeps) {
     const getPreparedActor = deps.getPreparedActor
         ?? ((actorId: string) => preparedActorStore.getRequired(actorId));
 
-    const normalizeAvailableActors = async (
-        actors: ActorDocument[],
-        client: CombatClientLike,
-    ): Promise<ActorDocument[]> => {
-        const projected = await Promise.all(actors.map(async (actor) => {
-            const actorId = actor._id || actor.id;
-            try {
-                return (await deps.normalizeActors([actor], client))[0] ?? null;
-            } catch (error) {
-                if (error instanceof PreparedActorUnavailableError) {
-                    logger.warn('CombatService | Skipping unavailable prepared Actor projection', {
-                        actorId,
-                        diagnostic: error.diagnostic?.message,
-                    });
-                    return null;
-                }
-                throw error;
-            }
-        }));
-        return projected.filter((actor): actor is ActorDocument => actor !== null);
-    };
-
     const createCombatRepository = (client: CombatClientLike): CombatRepository => new CombatRepository({
         dispatchDocument: (
             type: string,
@@ -109,81 +89,83 @@ export function createCombatService(deps: CombatServiceDeps) {
         if (!combatStore.isReady()) throw new PrimaryDocumentCacheNotReadyError('Combat');
     };
 
-    /**
-     * Attach the minimal actor roll payload to rows the subject may roll for,
-     * and resolve display image paths against the Foundry URL prefix. Actor
-     * source authorization is checked through subject-scoped `client.getActor`;
-     * the matching prepared revision is then whitelisted to id/name/img/system
-     * (no ownership and no raw source spread).
-     */
-    const enrichTrackerDto = async (dto: CombatTrackerDto, client: CombatClientLike): Promise<CombatTrackerDto> => {
-        const rollableActorIds = [...new Set(
-            dto.combatants
-                .filter(row => row.canRollInitiative && row.actorId)
-                .map(row => row.actorId as string),
-        )];
-
-        const actorsById = new Map<string, CombatTrackerActorDto>();
-        const fetched: ActorDocument[] = [];
-        await Promise.all(rollableActorIds.map(async (actorId) => {
-            try {
-                const actor = await client.getActor(actorId);
-                if (actor && !actor.error) fetched.push(actor);
-            } catch {
-                logger.error(`Failed to fetch actor ${actorId} for combat ${dto.id}`);
-            }
-        }));
-        const normalized = await normalizeAvailableActors(fetched, client);
-        for (const actor of normalized) {
-            const id = actor._id || actor.id;
-            if (!id) continue;
-            actorsById.set(id, {
-                id,
-                name: typeof actor.name === 'string' ? actor.name : null,
-                img: typeof actor.img === 'string' ? actor.img : null,
-                system: actor.system as Record<string, unknown> | undefined,
-            });
-        }
-
+    /** Add bounded owned-stat/roll metadata and resolve display image paths. */
+    const enrichTrackerDto = async (dto: CombatTrackerDto, client: CombatClientLike,
+        subject: DocumentAccessSubject, attributes: CombatManagerSelectedStatDto[],
+        adapter: SystemAdapter | null, initiativeFallback: string | null): Promise<CombatTrackerDto> => {
+        const combat = combatStore.get(dto.id);
         return {
             ...dto,
-            combatants: dto.combatants.map(row => ({
-                ...row,
-                img: typeof row.img === 'string' ? client.resolveUrl(row.img) : row.img,
-                actor: row.actorId ? actorsById.get(row.actorId) ?? null : null,
-            })),
+            combatants: dto.combatants.map(row => {
+                const source = row.actorId ? actorStore.get(row.actorId, { subject }) : null;
+                const owned = !!row.actorId && subject.role < FoundryUserRole.ASSISTANT
+                    && projectionDeps.canWriteActor(row.actorId, subject);
+                const rawRow = combat?.combatants?.find(entry => (entry._id || entry.id) === row.id);
+                const token = rawRow?.sceneId && rawRow.tokenId
+                    ? sceneStore.getToken(rawRow.sceneId, rawRow.tokenId) : null;
+                const unlinked = !!token && token.actorLink === false;
+                let prepared: PreparedActorData | null = null;
+                if (row.actorId && (owned || row.canRollInitiative)) {
+                    try { prepared = getPreparedActor(row.actorId); }
+                    catch (error) {
+                        if (!(error instanceof PreparedActorUnavailableError)) throw error;
+                    }
+                }
+                const projectedStats = owned && !unlinked && prepared
+                    ? projectCombatStatFields(prepared, attributes).map(stat => ({
+                        title: stat.title, value: stat.value,
+                        ...(stat.subValue !== undefined ? { subValue: stat.subValue } : {}),
+                    })) : [];
+                const initiative = row.canRollInitiative && prepared
+                    ? effectiveInitiativeFormula(adapter, prepared, initiativeFallback) : null;
+                return {
+                    ...row,
+                    canRollInitiative: row.canRollInitiative && prepared !== null,
+                    img: typeof row.img === 'string' ? client.resolveUrl(row.img) : row.img,
+                    isOwned: owned,
+                    canOpenActor: owned && source !== null,
+                    statSource: owned ? unlinked ? 'unlinked-token' as const : 'world-actor' as const : null,
+                    stats: projectedStats,
+                    initiativeRoll: initiative,
+                };
+            }),
         };
     };
 
     // Tracker projection list (ADR-0028 Phases 4): prepared encounters from
     // the read model, redacted + capability-annotated per subject, then
-    // enriched with roll actors. No raw documents are spread to the client.
+    // enriched with bounded display/roll metadata. No raw documents are spread to the client.
     const listCombats = async (client: CombatClientLike): Promise<CombatListPayload> => {
         ensureReady();
         const subject = resolveSubject(client.userId);
         if (!subject) return { success: true, combats: [] };
 
         const visible = combatStore.list({ subject });
+        const preferences = visible.length ? await combatStatDisplayService.resolve(client) : null;
+        const adapter = visible.length ? await getAdapter((await client.getSystem()).id.toLowerCase()) : null;
+        const skipDefeated = isSkipDefeatedEnabled();
         const combats = await Promise.all(visible.map(async (combat) => {
             const combatId = getDocumentId(combat);
             if (!combatId) return null;
             const prepared = combatEncounterReadModel.getOrRebuild(combatId);
             if (!prepared) return null;
-            const dto = buildCombatTrackerDto(prepared, subject, projectionDeps);
+            const dto = buildCombatTrackerDto(prepared, subject, { ...projectionDeps, skipDefeated });
             const managerFlag = readCombatManagerFlag(combat);
-            const permitted = isGM(subject) && managerFlag?.status === 'active';
             const projected = managerFlag ? {
                 ...dto,
                 // Managed encounters use the separate GM-only manager routes.
                 // The legacy HUD is view-only for these encounters.
                 canAdvanceTurn: false,
                 canRewindTurn: false,
-                combatants: dto.combatants.map(row => ({ ...row, canRollInitiative: permitted })),
+                combatants: dto.combatants.map(row => ({ ...row, canRollInitiative: false })),
+                canManage: isGM(subject) && managerFlag.status === 'active',
             } : dto;
-            return enrichTrackerDto(projected, client);
+            return enrichTrackerDto(projected, client, subject, preferences?.attributes ?? [],
+                adapter, preferences?.initiativeFormula ?? null);
         }));
 
-        return { success: true, combats: combats.filter((c): c is CombatTrackerDto => c !== null) };
+        return { success: true, combats: combats.filter((c): c is CombatTrackerDto =>
+            c !== null && (isAssistantGM(subject) || c.combatants.length > 0)) };
     };
 
     /**
@@ -205,6 +187,7 @@ export function createCombatService(deps: CombatServiceDeps) {
         subject: DocumentAccessSubject,
     ): boolean => {
         if (isAssistantGM(subject)) return true;
+        if (!prepared.active || !prepared.started) return false;
         if (!prepared.currentCombatantId) return false;
         const current = prepared.rows.find(row => row.id === prepared.currentCombatantId);
         if (!current || current.hidden || !current.actorId) return false;
@@ -228,17 +211,21 @@ export function createCombatService(deps: CombatServiceDeps) {
             && (config as Record<string, unknown>).skipDefeated === true;
     };
 
-    const advanceTurn = async (
+    const matchesObservation = (prepared: PreparedEncounter, observed: CombatTurnObservation): boolean =>
+        prepared.active === observed.active && prepared.started === observed.started
+        && prepared.round === observed.round && prepared.currentCombatantId === observed.currentCombatantId;
+
+    const advanceTurnCore = async (
         client: CombatClientLike,
         combatId: string,
         managerCommand = false,
+        observed?: CombatTurnObservation,
     ): Promise<CombatTurnSuccessPayload | CombatErrorPayload> => {
         ensureReady();
         const prepared = getPreparedEncounter(combatId);
         if (!prepared) {
             return { error: 'Combat not found', status: 404 };
         }
-
         const subject = resolveSubject(client.userId);
         const managed = readCombatManagerFlag(combatStore.get(combatId));
         if (managed && (!subject || !isGM(subject))) return { error: 'Gamemaster access required', status: 403 };
@@ -246,6 +233,9 @@ export function createCombatService(deps: CombatServiceDeps) {
         if (managed && !managerCommand) return { error: 'Use the GM Combat Manager to advance this encounter', status: 403 };
         if (!subject || !isAuthorizedForCombatTurn(prepared, subject)) {
             return { error: 'Unauthorized: You do not own the current combatant and are not a GM', status: 403 };
+        }
+        if (observed && !matchesObservation(prepared, observed)) {
+            return { error: 'Encounter changed; review the current turn before retrying', status: 409 };
         }
 
         const skipDefeated = isSkipDefeatedEnabled();
@@ -282,17 +272,22 @@ export function createCombatService(deps: CombatServiceDeps) {
 
     // Turn rewind, GM-only. Rewinding past round 1 turn 0 returns the
     // encounter to its unstarted round-zero state.
-    const previousTurn = async (
+    const advanceTurn = (client: CombatClientLike, combatId: string, managerCommand = false,
+        observed?: CombatTurnObservation): Promise<CombatTurnSuccessPayload | CombatErrorPayload> =>
+        managerCommand ? advanceTurnCore(client, combatId, true, observed)
+            : withEncounterLock(combatId, () => advanceTurnCore(client, combatId, false, observed));
+
+    const previousTurnCore = async (
         client: CombatClientLike,
         combatId: string,
         managerCommand = false,
+        observed?: CombatTurnObservation,
     ): Promise<CombatTurnSuccessPayload | CombatErrorPayload> => {
         ensureReady();
         const prepared = getPreparedEncounter(combatId);
         if (!prepared) {
             return { error: 'Combat not found', status: 404 };
         }
-
         const subject = resolveSubject(client.userId);
         const managed = readCombatManagerFlag(combatStore.get(combatId));
         if (managed && (!subject || !isGM(subject))) return { error: 'Gamemaster access required', status: 403 };
@@ -300,6 +295,9 @@ export function createCombatService(deps: CombatServiceDeps) {
         if (managed && !managerCommand) return { error: 'Use the GM Combat Manager to rewind this encounter', status: 403 };
         if (!subject || !isAssistantGM(subject)) {
             return { error: 'Unauthorized: Only GMs can move to previous turns', status: 403 };
+        }
+        if (observed && !matchesObservation(prepared, observed)) {
+            return { error: 'Encounter changed; review the current turn before retrying', status: 409 };
         }
 
         let round = prepared.round;
@@ -354,7 +352,12 @@ export function createCombatService(deps: CombatServiceDeps) {
     // audit CMB-04): an unauthorized caller triggers no roll, no chat
     // message, and no document dispatch. Hidden combatants return the same
     // 404 as missing ones for non-GMs so their existence doesn't leak.
-    const rollInitiative = async (
+    const previousTurn = (client: CombatClientLike, combatId: string, managerCommand = false,
+        observed?: CombatTurnObservation): Promise<CombatTurnSuccessPayload | CombatErrorPayload> =>
+        managerCommand ? previousTurnCore(client, combatId, true, observed)
+            : withEncounterLock(combatId, () => previousTurnCore(client, combatId, false, observed));
+
+    const rollInitiativeCore = async (
         client: CombatClientLike,
         combatId: string,
         combatantId: string,
@@ -363,7 +366,7 @@ export function createCombatService(deps: CombatServiceDeps) {
         managerInitiativeFallback?: string | null,
     ): Promise<CombatInitiativeSuccessPayload | CombatErrorPayload> => {
         ensureReady();
-        const { formula, advantageMode } = body;
+        const { formula, advantageMode, manualTotal, observed } = body;
 
         const combat = combatStore.get(combatId);
         if (!combat) return { error: 'Combat not found', status: 404 };
@@ -387,7 +390,6 @@ export function createCombatService(deps: CombatServiceDeps) {
 
         const systemInfo = await client.getSystem();
         const adapter = await getAdapter(systemInfo.id.toLowerCase());
-        if (!adapter) throw new Error(`Adapter ${systemInfo.id} not found`);
 
         const sourceActor = await client.getActor(combatant.actorId);
         if (!sourceActor || sourceActor.error) {
@@ -404,11 +406,19 @@ export function createCombatService(deps: CombatServiceDeps) {
             ? managerInitiativeFallback
             : (await combatStatDisplayService.resolve(client))?.initiativeFormula ?? null;
         const effective = effectiveInitiativeFormula(adapter, actor, initiativeFallback);
-        if (!formula && !effective.rollAvailable) return { error: 'Initiative formula cannot resolve for this Actor; enter a value manually', status: 409 };
+        if (observed && (observed.initiative !== (combatant.initiative ?? null)
+            || observed.formula !== effective.formula)) {
+            return { error: 'Initiative changed; review the current value before retrying', status: 409 };
+        }
+        if (manualTotal !== undefined && (!Number.isFinite(manualTotal) || advantageMode && advantageMode !== 'normal')) {
+            return { error: 'Invalid manual initiative total', status: 400 };
+        }
+        if (manualTotal !== undefined && formula !== undefined) return { error: 'Invalid initiative request', status: 400 };
+        if (manualTotal === undefined && !formula && !effective.rollAvailable) return { error: 'Initiative formula cannot resolve for this Actor; enter a value manually', status: 409 };
         if (!formula && advantageMode && advantageMode !== 'normal' && !effective.advantageAvailable) {
             return { error: 'Advantage is unavailable for this initiative formula', status: 400 };
         }
-        let finalFormula = formula || effective.formula;
+        let finalFormula = manualTotal !== undefined ? String(manualTotal) : formula || effective.formula;
 
         if (advantageMode === 'advantage') {
             finalFormula = finalFormula.replace(/^(?:1d20|2d20k[hl]1)/i, '2d20kh1');
@@ -425,16 +435,31 @@ export function createCombatService(deps: CombatServiceDeps) {
 
         // Foundry's rollInitiative whispers hidden Combatant rolls to GMs.
         // A public Core chat message would reveal that hidden participant.
-        const chatMessage = await client.roll(finalFormula, 'Initiative', {
+        const chatMessage = await client.roll(finalFormula, manualTotal !== undefined ? 'Manual Initiative' : 'Initiative', {
             speaker,
             ...(combatant.hidden ? { rollMode: 'gmroll' as const } : {}),
         });
         const total = getCombatInitiativeRollTotal(chatMessage);
 
+        const currentId = combatEncounterReadModel.getOrRebuild(combatId)?.currentCombatantId ?? null;
+
         await createCombatRepository(client).updateCombatant(combatId, combatantId, { initiative: total });
+        if (!managerCommand && currentId && (combat.round ?? 0) > 0) {
+            const reordered = combatEncounterReadModel.getOrRebuild(combatId);
+            const newIndex = reordered?.rows.findIndex(row => row.id === currentId) ?? -1;
+            if (newIndex >= 0 && combatStore.get(combatId)?.turn !== newIndex) {
+                await createCombatRepository(client).update(combatId, { turn: newIndex });
+            }
+        }
 
         return { success: true, initiative: total };
     };
+
+    const rollInitiative = (client: CombatClientLike, combatId: string, combatantId: string,
+        body: CombatInitiativeRequestBody, managerCommand = false,
+        managerInitiativeFallback?: string | null): Promise<CombatInitiativeSuccessPayload | CombatErrorPayload> =>
+        managerCommand ? rollInitiativeCore(client, combatId, combatantId, body, true, managerInitiativeFallback)
+            : withEncounterLock(combatId, () => rollInitiativeCore(client, combatId, combatantId, body));
 
     return {
         listCombats,
