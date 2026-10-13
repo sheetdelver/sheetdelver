@@ -425,6 +425,18 @@ export async function run(): Promise<void> {
     assert.equal(batchRoster.find(row => row.actorId === 'ASSISTANTNPC')?.isNpc, true,
         'assistant ownership does not make an Actor player-owned');
     await combatManagerService.turn(gm, batch.id, () => managedTurns.advanceTurn(gm, batch.id, true));
+    for (const [client, canManage] of [[gm, true], [assistant, false], [player, false]] as const) {
+        const tracker = (await managedTurns.listCombats(client)).combats.find(combat => combat.id === batch.id);
+        assert.ok(tracker, 'started managed encounter remains visible to an authorized viewer');
+        assert.equal(tracker.canManage, canManage, 'only a Gamemaster receives the manager shortcut');
+        assert.equal(tracker.canAdvanceTurn, false);
+        assert.equal(tracker.canRewindTurn, false);
+        assert.ok(tracker.combatants.every(row => !row.canRollInitiative),
+            'managed HUD never advertises an initiative command the ordinary route rejects');
+    }
+    const playerTracker = (await managedTurns.listCombats(player)).combats.find(combat => combat.id === batch.id)!;
+    assert.equal(playerTracker.combatants.find(row => row.actorId === 'PLAYERPC')?.isOwned, true,
+        'view-only managed HUD still identifies the player-owned combatant');
     const currentBeforeBatch = (await combatManagerService.detail(gm, batch.id)).currentCombatantId;
     const rolledIds: string[] = [];
     const rollOne = async (rowId: string) => {

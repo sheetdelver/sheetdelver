@@ -276,7 +276,7 @@ sheet-link capability is never authority to write. All endpoints reauthorize.
   hierarchy, owned-only stats, unlinked-token fallback, initiative prop/result
   types, SDK versioning and module release sequence with the user. Obtain
   module branch/edit authorization separately. Preserve this audit checkpoint.
-- [ ] **C1 — projection and commands.** Fix managed capability mismatch, add
+- [x] **C1 — projection and commands.** Fix managed capability mismatch, add
   minimal typed projection/observation fields, share turn/formula helpers and
   guards, verify no side effects on denied/stale commands. Cover ordinary vs
   managed, owner/non-owner/assistant/GM, pre-start (null and zero turn indexes),
@@ -289,7 +289,7 @@ sheet-link capability is never authority to write. All endpoints reauthorize.
   preview when only hidden membership changes and the visible reference is
   unchanged. Verify inaccessible hidden targets remain indistinguishable
   from missing targets.
-- [ ] **C2 — SDK initiative and migration.** Align shared component props,
+- [x] **C2 — SDK initiative and migration.** Align shared component props,
   mocks and module override; migrate Shadowdark and check all module ranges.
   Test fallback and override with module formula, GM fallback, missing formula,
   numeric manual total, d20/non-d20, allowed advantage, privacy and load errors.
@@ -480,7 +480,40 @@ player initiative button as C2 acceptance or quietly expand its permissions.
 Design player turn/initiative requests and authorization for SheetDelver-managed
 combats explicitly under the ADR-0058 follow-up before implementation.
 
-The current work can be checkpointed without closing ADR-0060. C1's remaining
-role/command matrix, C2's end-to-end migration acceptance, C4's isolated-world
-multi-user/lifecycle pass and C5's final documentation/release review remain.
-The user has verified hidden-player visibility, C3 and the new own-turn cue.
+The current work can be checkpointed without closing ADR-0060. C1/C2's offline
+acceptance checks are recorded below; C4's isolated-world multi-user/lifecycle
+pass and C5's final documentation/release review remain. The user has verified
+hidden-player visibility, C3 and the new own-turn cue.
+
+### C1/C2 offline acceptance — October 12, 2026
+
+C1's projection tests cover GM/assistant/player, owned and unavailable Actors,
+hidden rows before/between/after visible rows, consecutive hidden rows,
+hidden-owned and hidden-only views, hide/reveal, round-zero turn variants,
+inactive player turns and visible-only preview. The encounter read-model and
+Store tests cover ordering, deletion and visibility invalidation. The managed
+service fixture now asserts view-only HUD capabilities for GM, assistant and
+player, including the GM-only manager shortcut; its separate manager command
+path remains GM-only. Ordinary service tests verify denied/stale next and
+previous turn requests, hidden/missing initiative parity and stale/manual
+initiative preflight without unintended writes or rolls. A direct route test
+rejects missing/malformed observations, client formulas, non-finite manual
+totals and unsupported roll modes before invoking the service.
+
+C2's formula tests cover module-first, saved GM and Core fallback resolution,
+missing references, throwing hooks, d20/non-d20 advantage availability and
+fractional manual totals. The shared dialog's bounded presentation and the
+Shadowdark override passed an isolated actual-component browser render,
+including manual dispatch, load-error close/retry, focus and both Core themes.
+The SDK integrity suite and Shadowdark, Mörk Borg and D&D module compatibility,
+type, CSS and dry-bundle checks passed. Full Core unit/client suites, TypeScript
+and lint passed after the added regressions.
+
+These checkboxes mean C1/C2 are implemented and verified **offline**. They do
+not claim a native Foundry client command, a production check, or working
+player initiative/turn writes in a SheetDelver-managed Combat. Isolated-world
+multi-user, ownership-change, lifecycle and live module-loading checks remain
+under C4; final Core/module release compatibility remains under C5. The
+standalone smoke harness can emit a registry-not-initialized diagnostic while
+using its Core fallback; module behavior was separately checked through the
+module checker and browser fixture, not inferred from that diagnostic.

@@ -111,6 +111,9 @@ function runVisibleCurrentCapabilities() {
     const otherCurrent = preparedFixture({ turn: 2, currentCombatantId: 'c-npc' });
     const bystanderDto = buildCombatTrackerDto(otherCurrent, player, deps);
     assert.equal(bystanderDto.canAdvanceTurn, false, 'non-owner cannot advance another\'s turn');
+
+    const inactive = buildCombatTrackerDto({ ...prepared, active: false }, player, deps);
+    assert.equal(inactive.canAdvanceTurn, false, 'inactive encounters never grant player turn capability');
 }
 
 function runRoundZero() {

@@ -375,6 +375,15 @@ async function runCombatReadActionSmoke() {
     assert.equal('error' in roundZeroDenied ? roundZeroDenied.status : null, 403);
     assert.equal(roundZeroOwner.dispatchCalls.length, 0, 'a stored turn zero does not let a player Begin');
 
+    const inactiveOwner = await buildCase({
+        userId: 'player-owner', ownershipByActorId: { 'actor-a': 3 },
+        combat: { _id: 'combat-inactive-owner', active: false, round: 1, turn: 0,
+            combatants: [{ _id: 'c1', actorId: 'actor-a', initiative: 15 }] },
+    });
+    const inactiveDenied = await combatService.advanceTurn(inactiveOwner.client, 'combat-inactive-owner');
+    assert.equal('error' in inactiveDenied ? inactiveDenied.status : null, 403);
+    assert.equal(inactiveOwner.dispatchCalls.length, 0, 'an inactive encounter grants no player turn write');
+
     // ---- ADR-0013 Phase 1: turn-auth routes through actorStore.canReadActor(WRITEABLE) ----
     // OBSERVER on the active combatant's actor is NOT enough to advance — the
     // check now requires OWNER (DOCUMENT_VISIBILITY.WRITEABLE). Same shape as
@@ -574,6 +583,11 @@ async function runCombatReadActionSmoke() {
         },
     });
 
+    const stalePrevious = await combatService.previousTurn(previousHappyCase.client, 'combat-prev-happy', false, {
+        active: false, started: true, round: 3, currentCombatantId: 'c2',
+    });
+    assert.deepEqual(stalePrevious, { error: 'Encounter changed; review the current turn before retrying', status: 409 });
+    assert.equal(previousHappyCase.dispatchCalls.length, 0, 'stale rewind never writes');
     const previousHappyResult = await combatService.previousTurn(previousHappyCase.client, 'combat-prev-happy');
     if ('error' in previousHappyResult) {
         assert.fail(`Expected previous turn success, got error: ${previousHappyResult.error}`);
