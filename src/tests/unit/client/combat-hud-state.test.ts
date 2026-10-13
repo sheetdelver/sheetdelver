@@ -21,8 +21,11 @@ export function run() {
     const forming = tracker('forming', { started: false, round: 0, combatants: [row('three')] });
     const hiddenOnly = tracker('hidden-only');
     const inactive = tracker('inactive', { active: false, combatants: [row('four')] });
+    const initiative = tracker('initiative', { active: false, started: false, round: 0,
+        playerInitiative: { open: true, generation: 'phase-one' }, combatants: [row('owned')] });
     assert.deepEqual(selectActiveCombats([a, forming, hiddenOnly, inactive, b]).map(combat => combat.id),
         ['a', 'forming', 'b']);
+    assert.deepEqual(selectActiveCombats([inactive, initiative]).map(combat => combat.id), ['initiative']);
     assert.deepEqual(selectActiveCombats(undefined), []);
     assert.equal(resolveSelectedCombat([], null), null);
     assert.equal(resolveSelectedCombat([a, b], null)?.combat.id, 'a');

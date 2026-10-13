@@ -57,6 +57,10 @@ export function registerCombatManagerRoutes(router: express.Router): void {
         try { res.json({ encounter: await combatManagerService.rename(req.foundryClient, req.params.id, req.body?.label) }); }
         catch (error) { handleError(error, res); }
     });
+    router.patch('/combat-manager/:id/player-actions', async (req, res) => {
+        try { res.json({ encounter: await combatManagerService.setPlayerActions(req.foundryClient, req.params.id, req.body) }); }
+        catch (error) { handleError(error, res); }
+    });
     router.delete('/combat-manager/:id', async (req, res) => {
         try { res.json(await combatManagerService.destroy(req.foundryClient, req.params.id)); }
         catch (error) { handleError(error, res); }

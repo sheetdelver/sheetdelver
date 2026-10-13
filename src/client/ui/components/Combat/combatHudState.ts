@@ -2,7 +2,8 @@ import type { CombatTrackerDto } from '@shared/contracts/combats';
 
 /** A hidden-only encounter is omitted by the player projection; never show an empty slot. */
 export function selectActiveCombats(combats: CombatTrackerDto[] | null | undefined): CombatTrackerDto[] {
-    return (combats || []).filter(combat => combat.active && combat.combatants.length > 0);
+    return (combats || []).filter(combat => combat.combatants.length > 0
+        && (combat.active || (!combat.started && combat.playerInitiative?.open === true)));
 }
 
 export interface SelectedCombat {

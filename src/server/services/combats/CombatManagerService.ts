@@ -32,7 +32,7 @@ import type {
     CombatManagerInitiativeScope,
     CombatManagerHealthBatchDto,
 } from '@shared/contracts/combatManager';
-import { readCombatManagerFlag, type CombatManagerFlag } from './combatManagerFlag';
+import { playerActionsFor, readCombatManagerFlag, type CombatManagerFlag } from './combatManagerFlag';
 import { discoverActorSortFields, parseActorPickerSort, sortActorChoices } from './CombatActorPickerSort';
 import { systemService } from '@server/services/world';
 import type { SystemAdapter } from '@shared/sdk';
@@ -242,6 +242,8 @@ function projectEncounter(combat: CombatDocument, client: CombatClientLike,
                 advantageAvailable: initiative?.advantageAvailable ?? false },
         };
     });
+    const eligiblePlayerRows = participants.filter(row => !row.hidden && row.actorId && !row.isNpc);
+    const actions = playerActionsFor(flag);
     return {
         id,
         label: flag.label,
@@ -250,6 +252,12 @@ function projectEncounter(combat: CombatDocument, client: CombatClientLike,
         deletionRequested: flag.deletionRequested === true || flag.historyRemovalRequested === true,
         round: prepared?.round ?? combat.round ?? 0,
         currentCombatantId: prepared?.currentCombatantId ?? null,
+        playerActions: {
+            initiativeOpen: actions.initiativeOpen && flag.status === 'active' && !flag.deletionRequested,
+            endTurnEnabled: actions.endTurnEnabled,
+            eligible: eligiblePlayerRows.length,
+            scored: eligiblePlayerRows.filter(row => row.initiative !== null).length,
+        },
         participants,
     };
 }
@@ -282,6 +290,34 @@ export const combatManagerService = {
             preferences?.initiativeFormula ?? null);
         if (!projected) throw new CombatManagerError('Encounter unavailable', 404);
         return projected;
+    },
+
+    async setPlayerActions(client: CombatClientLike, combatId: string, input: unknown): Promise<CombatManagerEncounterDto> {
+        roleSubject(client);
+        if (!isRecord(input) || (input.initiativeOpen === undefined && input.endTurnEnabled === undefined)
+            || (input.initiativeOpen !== undefined && typeof input.initiativeOpen !== 'boolean')
+            || (input.endTurnEnabled !== undefined && typeof input.endTurnEnabled !== 'boolean')) {
+            throw new CombatManagerError('Invalid player action settings', 400);
+        }
+        const requested = input as { initiativeOpen?: boolean; endTurnEnabled?: boolean };
+        return withEncounterLock(combatId, async () => {
+            const { combat, flag } = activeEncounter(combatId);
+            if (flag.deletionRequested || flag.historyRemovalRequested) throw new CombatManagerError('Encounter is closing', 409);
+            if (requested.initiativeOpen === true && (combat.round ?? 0) > 0 && combat.active !== true) {
+                throw new CombatManagerError('Encounter is not active in Foundry', 409);
+            }
+            const current = playerActionsFor(flag);
+            const initiativeOpen = requested.initiativeOpen ?? current.initiativeOpen;
+            const endTurnEnabled = requested.endTurnEnabled ?? current.endTurnEnabled;
+            if (initiativeOpen !== current.initiativeOpen || endTurnEnabled !== current.endTurnEnabled) {
+                await updateFlag(client, combatId, { ...flag, playerActions: {
+                    initiativeOpen,
+                    initiativeGeneration: initiativeOpen !== current.initiativeOpen ? crypto.randomUUID() : current.initiativeGeneration,
+                    endTurnEnabled,
+                } });
+            }
+            return this.detail(client, combatId);
+        });
     },
 
     async statPreferences(client: CombatClientLike, actorIdInput?: unknown, includeCatalog = false): Promise<CombatManagerStatPreferencesDto> {
@@ -521,6 +557,9 @@ export const combatManagerService = {
                     nextFlag = updatedFlag;
                     await repositories(client).combats.createCombatant(combatId, {
                         actorId: copyId, tokenId: null, sceneId: null, name: `${sourceName} #${number}`,
+                        flags: { world: { sheetDelverGeneratedName: {
+                            combatId, name: `${sourceName} #${number}`, baseName: sourceName,
+                        } } },
                     });
                     added++;
                     await preserveCurrentTurn(client, combatId, currentId);

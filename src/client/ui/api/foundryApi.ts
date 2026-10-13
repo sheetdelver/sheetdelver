@@ -135,6 +135,11 @@ export function fetchManagedCombats(): Promise<{ encounters: CombatManagerEncoun
     return requestJson('/api/combat-manager', { cache: 'no-store' });
 }
 
+export function updateManagedPlayerActions(combatId: string,
+    body: { initiativeOpen?: boolean; endTurnEnabled?: boolean }): Promise<{ encounter: CombatManagerEncounterDto }> {
+    return requestJson(`/api/combat-manager/${combatId}/player-actions`, { method: 'PATCH', body });
+}
+
 export function fetchManagedStatPreferences(actorId?: string, includeCatalog = false): Promise<{ preferences: CombatManagerStatPreferencesDto }> {
     const params = new URLSearchParams();
     if (actorId) params.set('actorId', actorId);

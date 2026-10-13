@@ -290,9 +290,16 @@ clearance and world-unavailable overlays; modules may present initiative via
 the typed SDK `rollModal` slot, but Core resolves formulas, chooses roll
 audience, reauthorizes observed commands and executes rolls. The slot returns
 only a roll mode or manual final total; it cannot submit a formula or a Foundry
-transport command. SheetDelver-managed Combats stay view-only in the HUD and
-use separate role-4 GM manager routes. Native Foundry browser hooks and
-managed player commands are not part of this boundary (ADR-0060/ADR-0058).
+transport command. SheetDelver-managed Combats retain role-4-only manager
+routes, while the ordinary Combat API permits bounded owner End my turn and
+GM-opened own-Actor initiative under the shared encounter guard (ADR-0061).
+The optional policy and phase generation live on the Combat flag. Reads
+project only the caller's owned visible pre-Begin rows, not manager state;
+player writes use the user's Foundry socket and never borrow manager
+authority. Native Foundry browser hooks, private directed roll requests and
+system turn automation remain out of scope (ADR-0060/ADR-0058). Native
+owner-write acceptance is a separate ADR-0061 integration gate, not inferred
+from Core-side tests.
 
 Prepared data never writes back to Foundry automatically. Embedded Item and Active
 Effect changes update the source Actor first, then atomically replace its prepared

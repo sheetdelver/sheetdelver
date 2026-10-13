@@ -26,6 +26,7 @@ export async function run(): Promise<void> {
     const observed = { initiative: null, formula: '1d20' };
     for (const body of [undefined, {}, { observed, formula: '100d20' },
         { observed: { initiative: null } }, { observed, manualTotal: Number.POSITIVE_INFINITY },
+        { observed: { ...observed, phaseGeneration: 5 } },
         { observed, advantageMode: 'unknown' }]) {
         const response = await invokeHandler(initiative, { body,
             params: { id: 'combat', combatantId: 'row' } } as any);

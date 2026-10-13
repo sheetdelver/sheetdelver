@@ -1,6 +1,6 @@
 # ADR-0061: Managed Combat Player Participation
 
-**Status:** Proposed — design decisions recorded; implementation not authorized
+**Status:** Accepted — implementation underway; native/live acceptance pending
 **Date:** October 13, 2026
 **Related:** ADR-0013, ADR-0028, ADR-0038, ADR-0049, ADR-0057, ADR-0058,
 ADR-0060
@@ -55,8 +55,8 @@ Foundry's base rules; it cannot govern writes made outside SheetDelver.
    actions remain on character sheets; the HUD manages turn information and
    initiative. Hidden participants remain absent, not anonymized.
 
-The lifecycle and contract details below are proposals for review. Approval
-of these two controls alone is not implementation or release authorization.
+The user authorized implementation on October 13. Release and closeout remain
+subject to the acceptance gates below.
 
 ## Proposed decision
 
@@ -271,8 +271,53 @@ registry diagnostics accompany its passing mocked no-adapter cases. These
 checks establish the baseline, not acceptance of proposed player commands or
 the newly identified button/response gaps. No code or new tests changed.
 
-No product question blocks this draft. The lifecycle/audience/label proposals
-need user review; native user-bound write feasibility and asynchronous failure
-behavior remain implementation gates. SDK compatibility/release numbers must
-be chosen against the actual published baseline. ADR-0060's pending Core-first
-release/module-minimum sequence remains separate from this proposed work.
+## Implementation follow-up — October 13, 2026
+
+Core now persists optional participation policy and a rotating phase generation
+on the managed Combat; absent settings default closed initiative and enabled
+owner End my turn. Marked-but-malformed Combats fail closed. The manager has a
+GM-only policy endpoint, Open/Close and End-turn controls, and derived visible
+player-score progress. Begin and rewind to round zero close an open phase in
+the same Combat update. Player actions use ordinary authenticated Combat routes
+under the encounter guard, never the manager command flag or service GM socket.
+
+The HUD projects own visible pre-Begin rows only, shows an opt-in initiative
+button, and uses the same SDK modal after Begin when the GM reopens. Score zero
+is rolled; the first applied score wins. The owner End my turn capability is
+rechecked on submission. Shared initiative-mode logic preserves a module's
+displayed expression when the default Roll omits a mode; explicit d20 modes
+remain overrides. This additive choice raises SDK/UI API to 3.1.0; current
+module `>=3.0.0 <4.0.0` ranges remain compatible, and Shadowdark's wrapper
+delegates to the injected Core dialog. Generated copy labels now carry explicit
+Combatant provenance, allowing player-only ordinal suppression without changing
+the GM label or an authored rename. Turn HTTP acknowledgments omit raw indexes;
+partial/unknown roll outcomes require manual refresh, not automatic retry.
+After a score write, turn-index preservation checks the live parent turn,
+current policy/ownership and world scope before a second write; a concurrent
+turn change returns an uncertain-sync result rather than restoring an old turn.
+
+Focused manager/HUD/dialog/route/SDK tests, full unit and client suites,
+`npx tsc --noEmit`, `npm run lint`, and `git diff --check` pass offline.
+Covered cases include absent policy, pre-Begin projection, phase rotation,
+Begin closure, duplicate-score rejection, hide/ownership loss, world replacement
+during an async read, owner turn disable, generated-name privacy and synthetic
+post-chat score-write failure. These mocked checks do **not** establish native
+Foundry player permission acceptance, browser layout/accessibility, or a
+multi-role HTTP/socket session pass.
+
+The previously approved disposable v14 fixture was started only on
+`/tmp/sd-combat-foundry-v14.wwm6H3/foundry.sock`. It reported “software license
+requires signature”; `/api/status` stayed inactive, so the native player-write
+script could not run. The fixture was stopped; the separate port-30000 instance
+was untouched. P0 native owner initiative/turn writes without a GM browser,
+and P2/P3 live UI/permission checks remain **open**. Do not mark this ADR
+verified or release player capabilities based on offline tests alone. The
+user has been asked to restore a valid isolated fixture or identify another.
+The user is currently using Foundry; no instance should be started, stopped or
+probed for this acceptance run until they explicitly say it is available.
+
+Checkpoint: implementation and offline verification are preserved on the
+Combat HUD branch while native acceptance waits. A separate branch will
+investigate the unrelated cross-browser reload report; this ADR remains open.
+
+ADR-0060's Core-first release/module-minimum sequence remains separate.

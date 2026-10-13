@@ -664,6 +664,26 @@ export default function CombatManagerPage() {
 
                 {encounter.status === 'active' && <p className="sd-ui-muted text-xs">Begin activates this Combat in Foundry. Turn controls persist document state; native client hooks, system overrides, world-time and effect timing are not guaranteed.</p>}
 
+                {encounter.status === 'active' && <section className={`${panelClass} flex flex-wrap items-center gap-4`} aria-label="Player participation">
+                    <div className="min-w-[13rem] flex-1">
+                        <h2 className="sd-ui-accent text-sm font-bold uppercase tracking-widest">Player participation</h2>
+                        <p className="sd-ui-muted text-xs">{encounter.playerActions.scored} of {encounter.playerActions.eligible} visible player combatants have initiative.</p>
+                        <p className="sd-ui-muted text-xs">Owners may roll their own unrolled characters while the phase is open, including before Begin. Begin closes it.</p>
+                    </div>
+                    <button type="button" disabled={busy || encounter.deletionRequested}
+                        onClick={() => void mutate(() => api.updateManagedPlayerActions(encounter.id,
+                            { initiativeOpen: !encounter.playerActions.initiativeOpen }))}
+                        className={encounter.playerActions.initiativeOpen ? secondaryButtonClass : primaryButtonClass}>
+                        {encounter.playerActions.initiativeOpen ? 'Close player initiative' : 'Open player initiative'}
+                    </button>
+                    <label className="flex min-h-11 items-center gap-2 text-sm">
+                        <input type="checkbox" checked={encounter.playerActions.endTurnEnabled} disabled={busy || encounter.deletionRequested}
+                            onChange={event => void mutate(() => api.updateManagedPlayerActions(encounter.id,
+                                { endTurnEnabled: event.target.checked }))} />
+                        Allow owners to end their turn
+                    </label>
+                </section>}
+
                 <div className="grid gap-5 lg:grid-cols-[minmax(17rem,1fr)_minmax(20rem,2fr)]">
                     {encounter.status === 'active' && <section className={panelClass}>
                         <div className="mb-4 flex items-center gap-3">

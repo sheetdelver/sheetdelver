@@ -38,7 +38,8 @@ export interface SheetRollDialogProps {
 }
 
 export type InitiativeRollChoice =
-    | { kind: 'roll'; advantageMode: 'normal' | 'advantage' | 'disadvantage' }
+    /** Omitted mode executes the resolved formula exactly as displayed. */
+    | { kind: 'roll'; advantageMode?: 'normal' | 'advantage' | 'disadvantage' }
     | { kind: 'manual'; total: number };
 
 /** Core owns formula resolution and transport; module overrides present only. */

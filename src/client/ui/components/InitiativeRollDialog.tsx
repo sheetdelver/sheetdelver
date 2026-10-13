@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { InitiativeRollModalProps } from '@shared/sdk/ui';
+import { applyInitiativeMode } from '@shared/contracts/initiativeMode';
 
 /** Shared Core initiative presentation; no formula edits or transport access. */
 export default function InitiativeRollDialog({ isOpen, title, combatantName, formula, source,
@@ -62,10 +63,12 @@ export default function InitiativeRollDialog({ isOpen, title, combatantName, for
                     <p className="sd-ui-muted mt-1">Source: {source === 'gm' ? 'GM setting' : source === 'module' ? 'System module' : 'Core fallback'} · Audience: {audience === 'gm' ? 'GMs' : 'Public'}</p>
                 </div>
                 <div className="mt-4 flex flex-wrap gap-2">
-                    {rollAvailable && <button type="button" className={rollButton('normal')} onClick={() => onConfirm({ kind: 'roll', advantageMode: 'normal' })}>Roll initiative</button>}
+                    {rollAvailable && <button type="button" className={rollButton('normal')} onClick={() => onConfirm({ kind: 'roll' })}>Roll initiative</button>}
                     {rollAvailable && advantageAvailable && <>
-                        <button type="button" className={rollButton('adv')} onClick={() => onConfirm({ kind: 'roll', advantageMode: 'advantage' })}>Advantage</button>
-                        <button type="button" className={rollButton('dis')} onClick={() => onConfirm({ kind: 'roll', advantageMode: 'disadvantage' })}>Disadvantage</button>
+                        <button type="button" className={rollButton('adv')} onClick={() => onConfirm({ kind: 'roll', advantageMode: 'advantage' })}>
+                            Advantage <code>{applyInitiativeMode(formula, 'advantage')}</code></button>
+                        <button type="button" className={rollButton('dis')} onClick={() => onConfirm({ kind: 'roll', advantageMode: 'disadvantage' })}>
+                            Disadvantage <code>{applyInitiativeMode(formula, 'disadvantage')}</code></button>
                     </>}
                     {manualAvailable && <button type="button" className={button} aria-expanded={manual} onClick={() => setManual(value => !value)}>Manual total</button>}
                 </div>

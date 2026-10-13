@@ -18,7 +18,7 @@ import { logger } from '@shared/utils/logger';
 import RollDialog from '../RollDialog';
 
 type PendingAction = 'next-turn' | 'previous-turn' | 'initiative' | null;
-type RollTarget = { combatId: string; row: CombatTrackerCombatantDto };
+type RollTarget = { combatId: string; row: CombatTrackerCombatantDto; phaseGeneration?: string };
 const button = 'sd-ui-button min-h-11 rounded-lg px-3 py-2 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-offset-2';
 
 function Portrait({ row }: { row: CombatTrackerCombatantDto }) {
@@ -81,8 +81,10 @@ export default function CombatHUDView() {
     const combat = selection?.combat ?? null;
     const rollRow = rollTarget && activeCombats.find(item => item.id === rollTarget.combatId)
         ?.combatants.find(row => row.id === rollTarget.row.id);
+    const rollCombat = rollTarget && activeCombats.find(item => item.id === rollTarget.combatId);
     const rollStillValid = !!rollRow && rollRow.canRollInitiative && rollRow.initiative === rollTarget?.row.initiative
-        && rollRow.initiativeRoll?.formula === rollTarget?.row.initiativeRoll?.formula;
+        && rollRow.initiativeRoll?.formula === rollTarget?.row.initiativeRoll?.formula
+        && rollCombat?.playerInitiative?.generation === rollTarget?.phaseGeneration;
     useEffect(() => { if (rollTarget && !rollStillValid) setRollTarget(null); }, [rollTarget, rollStillValid]);
 
     const current = combat?.combatants.find(row => row.isCurrent) ?? null;
@@ -119,7 +121,8 @@ export default function CombatHUDView() {
         setRollTarget(null);
         if (!target?.row.initiativeRoll) return;
         void runAction('initiative', () => foundryApi.postCombatRollInitiative(token, target.combatId, target.row.id, {
-            observed: { initiative: target.row.initiative, formula: target.row.initiativeRoll!.formula },
+            observed: { initiative: target.row.initiative, formula: target.row.initiativeRoll!.formula,
+                ...(target.phaseGeneration ? { phaseGeneration: target.phaseGeneration } : {}) },
             ...(choice.kind === 'manual' ? { manualTotal: choice.total } : { advantageMode: choice.advantageMode }),
         }));
     };
@@ -145,7 +148,15 @@ export default function CombatHUDView() {
                     <button type="button" className={button} disabled={selection.index === activeCombats.length - 1} aria-label="Next encounter"
                         onClick={() => setSelectedCombatId(activeCombats[selection.index + 1].id)}><ChevronRight aria-hidden="true" className="h-4 w-4" /></button>
                 </div>}
-                <div data-own-turn={current?.isOwned ? 'true' : undefined}
+                {!combat.started && combat.playerInitiative?.open ? <div className="flex min-w-0 flex-[2_1_18rem] flex-wrap items-center gap-2" aria-label="Player initiative is open">
+                    <span className="sd-ui-accent text-sm font-semibold">Initiative open</span>
+                    {owned.map(row => <span key={row.id} className="sd-ui-inset flex items-center gap-2 rounded-lg px-2 py-1 text-xs">
+                        <span>{row.name || 'Your character'}: {row.initiative === null ? 'not rolled' : row.initiative}</span>
+                        {row.canRollInitiative && <button type="button" className={`${button} sd-ui-button-primary`} disabled={pendingAction !== null}
+                            onClick={() => setRollTarget({ combatId: combat.id, row,
+                                phaseGeneration: combat.playerInitiative?.generation })}>Roll initiative</button>}
+                    </span>)}
+                </div> : <><div data-own-turn={current?.isOwned ? 'true' : undefined}
                     className={`flex h-10 min-w-0 flex-[1_1_9rem] items-center gap-2 rounded-lg px-2 ${current?.isOwned ? 'sd-combat-own-turn' : ''}`}
                     aria-label={current?.isOwned ? 'Your turn' : 'Current turn'}>
                     {current && <Portrait row={current} />}
@@ -158,7 +169,7 @@ export default function CombatHUDView() {
                     {next && <Portrait row={next} />}
                     <span className="min-w-0"><span className="sd-ui-muted block text-[10px] leading-tight">{gm ? 'Up next' : 'Next shown'}</span>
                         <span className="block truncate text-sm font-semibold">{next?.name || '—'}</span></span>
-                </div>
+                </div></>}
                 <div className="flex min-h-10 min-w-0 flex-[2_1_15rem] flex-wrap items-center gap-x-2 gap-y-1" aria-label="My character">
                     <span className="min-w-0"><span className="sd-ui-muted block text-[10px] leading-tight">My character</span>
                         {owned.length > 1 ? <select aria-label="My combatant" className="sd-ui-control max-w-36 text-sm" value={mine?.id ?? ''}
@@ -195,7 +206,8 @@ export default function CombatHUDView() {
                     <StatChips row={row} compact={false} />
                 </div>
                 {row.canRollInitiative && <button type="button" className={`${button} sd-ui-button-primary`} disabled={pendingAction !== null}
-                    onClick={() => setRollTarget({ combatId: combat.id, row })}>Roll initiative</button>}
+                    onClick={() => setRollTarget({ combatId: combat.id, row,
+                        phaseGeneration: combat.playerInitiative?.generation })}>Roll initiative</button>}
             </li>)}</ol>
         </div>}
         <span className="sr-only" aria-live="polite" aria-atomic="true">{announcement}</span>

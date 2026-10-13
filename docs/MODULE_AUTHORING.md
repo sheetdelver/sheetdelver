@@ -360,9 +360,16 @@ module compatibility to `coreVersion >=0.18.0` and
 For local development against the unreleased Core branch, a temporary
 `coreVersion >=0.17.0` minimum can keep the module visible; the 3.x UI API
 gate still rejects released Core 0.17.0. Restore the Core 0.18.0 minimum
-after that host release and before publishing the module. The HUD calls this
-slot only for an eligible ordinary Combat row; managed encounters remain
-view-only and use the GM-only manager for mutations.
+after that host release and before publishing the module. SDK 3.1.0 /
+`ui-extension-api` 3.1.0 makes `InitiativeRollChoice`'s `advantageMode`
+optional for `kind: "roll"`. Omit it for the default button: Core executes
+the displayed resolved formula unchanged, including module-provided
+keep-highest/lowest terms. Explicit `normal`, `advantage` and `disadvantage`
+remain bounded leading-d20 overrides. Existing 3.x-compatible modules need
+no new minimum range merely for this additive choice; wrappers using the
+injected Core `RollDialog` inherit the corrected behavior. The HUD uses the
+same slot for an eligible owned row during a GM-opened managed initiative
+phase (ADR-0061); authorization and transport remain Core-owned.
 
 ### Player-world lifecycle
 

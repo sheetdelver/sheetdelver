@@ -61,9 +61,9 @@ export function registerCombatRoutes(appRouter: express.Router) {
             if (!observed) return res.status(400).json({ error: 'Observed encounter state required' });
             const payload = await combatService.advanceTurn(client, req.params.id, false, observed);
             if (isErrorPayload(payload)) {
-                return res.status(payload.status).json({ error: payload.error });
+                return res.status(payload.status).json({ error: payload.error, ...(payload.code ? { code: payload.code } : {}) });
             }
-            res.json(payload);
+            res.json({ success: true });
         } catch (error: unknown) {
             res.status(getErrorStatus(error)).json({ error: getErrorMessage(error) });
         }
@@ -78,7 +78,7 @@ export function registerCombatRoutes(appRouter: express.Router) {
             if (isErrorPayload(payload)) {
                 return res.status(payload.status).json({ error: payload.error });
             }
-            res.json(payload);
+            res.json({ success: true });
         } catch (error: unknown) {
             res.status(getErrorStatus(error)).json({ error: getErrorMessage(error) });
         }
@@ -92,13 +92,15 @@ export function registerCombatRoutes(appRouter: express.Router) {
                 || !body.observed || typeof body.observed !== 'object'
                 || !(body.observed.initiative === null || Number.isFinite(body.observed.initiative))
                 || typeof body.observed.formula !== 'string'
+                || (body.observed.phaseGeneration !== undefined && (typeof body.observed.phaseGeneration !== 'string'
+                    || body.observed.phaseGeneration.length > 128))
                 || (body.manualTotal !== undefined && !Number.isFinite(body.manualTotal))
                 || (body.advantageMode !== undefined && !['normal', 'advantage', 'disadvantage'].includes(body.advantageMode))) {
                 return res.status(400).json({ error: 'Invalid initiative request' });
             }
             const payload = await combatService.rollInitiative(client, req.params.id, req.params.combatantId, body);
             if (isErrorPayload(payload)) {
-                return res.status(payload.status).json({ error: payload.error });
+                return res.status(payload.status).json({ error: payload.error, ...(payload.code ? { code: payload.code } : {}) });
             }
             res.json(payload);
         } catch (error: unknown) {

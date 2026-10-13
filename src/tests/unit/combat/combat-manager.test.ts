@@ -5,7 +5,7 @@ import path from 'node:path';
 import { combatManagerService, CombatManagerError } from '@server/services/combats/CombatManagerService';
 import { discoverActorSortFields, parseActorPickerSort, sortActorChoices } from '@server/services/combats/CombatActorPickerSort';
 import { combatStatDisplayService, projectCombatStatFields } from '@server/services/combats/CombatStatDisplayService';
-import { readCombatManagerFlag } from '@server/services/combats/combatManagerFlag';
+import { hasCombatManagerMarker, playerActionsFor, readCombatManagerFlag } from '@server/services/combats/combatManagerFlag';
 import { createCombatService } from '@server/services/combats/CombatService';
 import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
 import { combatStore } from '@server/core/documents/primary/combats/CombatStore';
@@ -23,7 +23,7 @@ import type { ActorDocument } from '@server/shared/types/actors';
 
 type Call = { type: string; action: string; operation: Record<string, any>; parent?: { type: string; id: string } };
 
-function mockClient(userId: string, calls: Call[]): CombatClientLike {
+function mockClient(userId: string, calls: Call[], rolls: string[] = []): CombatClientLike {
     let combatNumber = 0;
     let folderNumber = 0;
     let actorNumber = 0;
@@ -31,6 +31,11 @@ function mockClient(userId: string, calls: Call[]): CombatClientLike {
     return {
         userId,
         getSystem: async () => ({ id: 'test' }),
+        getActor: async (actorId: string) => actorStore.get(actorId),
+        roll: async (formula: string) => {
+            rolls.push(formula);
+            return { rolls: [{ total: Number.isFinite(Number(formula)) ? Number(formula) : 17 }] };
+        },
         resolveUrl: (url?: string) => url || '',
         dispatchDocument: async (type: string, action: string, rawOperation?: unknown, parent?: { type: string; id: string }) => {
             const operation = (rawOperation || {}) as Record<string, any>;
@@ -112,7 +117,8 @@ export async function run(): Promise<void> {
     const calls: Call[] = [];
     const gm = mockClient('gm', calls);
     const assistant = mockClient('assistant', calls);
-    const player = mockClient('player', calls);
+    const playerRolls: string[] = [];
+    const player = mockClient('player', calls, playerRolls);
 
     for (const restricted of [assistant, player]) {
         await assert.rejects(() => combatManagerService.list(restricted), (error: unknown) => error instanceof CombatManagerError && error.status === 403);
@@ -134,6 +140,22 @@ export async function run(): Promise<void> {
     const created = await combatManagerService.create(gm, 'Bridge ambush', false);
     assert.equal(created.status, 'active');
     assert.equal(created.keepHistory, false);
+    assert.deepEqual(created.playerActions, { initiativeOpen: false, endTurnEnabled: true, eligible: 0, scored: 0 });
+    assert.deepEqual(playerActionsFor(readCombatManagerFlag(combatStore.get(created.id))!),
+        { initiativeOpen: false, initiativeGeneration: '', endTurnEnabled: true });
+    assert.equal(hasCombatManagerMarker({ scene: null, flags: { world: { sheetDelverCombat: { mode: 'broken' } } } }), true);
+    const opened = await combatManagerService.setPlayerActions(gm, created.id, { initiativeOpen: true });
+    assert.equal(opened.playerActions.initiativeOpen, true);
+    const openGeneration = readCombatManagerFlag(combatStore.get(created.id))!.playerActions!.initiativeGeneration;
+    assert.ok(openGeneration);
+    await combatManagerService.setPlayerActions(gm, created.id, { endTurnEnabled: false });
+    assert.equal(readCombatManagerFlag(combatStore.get(created.id))!.playerActions!.initiativeGeneration, openGeneration);
+    const closed = await combatManagerService.setPlayerActions(gm, created.id, { initiativeOpen: false });
+    assert.equal(closed.playerActions.initiativeOpen, false);
+    assert.equal(closed.playerActions.endTurnEnabled, false);
+    assert.notEqual(readCombatManagerFlag(combatStore.get(created.id))!.playerActions!.initiativeGeneration, openGeneration);
+    await assert.rejects(() => combatManagerService.setPlayerActions(assistant, created.id, { initiativeOpen: true }),
+        (error: unknown) => error instanceof CombatManagerError && error.status === 403);
     const createsBeforeDuplicate = calls.filter(call => call.type === 'Combat' && call.action === 'create').length;
     const foldersBeforeDuplicate = calls.filter(call => call.type === 'Folder' && call.action === 'create').length;
     await assert.rejects(() => combatManagerService.create(gm, '  bridge  AMBUSH ', true),
@@ -424,7 +446,16 @@ export async function run(): Promise<void> {
     assert.equal(batchRoster.find(row => row.actorId === 'PLAYERPC')?.isNpc, false);
     assert.equal(batchRoster.find(row => row.actorId === 'ASSISTANTNPC')?.isNpc, true,
         'assistant ownership does not make an Actor player-owned');
+    await combatManagerService.setPlayerActions(gm, batch.id, { initiativeOpen: true });
+    const formingPlayerTracker = (await managedTurns.listCombats(player)).combats.find(combat => combat.id === batch.id)!;
+    assert.equal(formingPlayerTracker.active, false, 'player initiative does not activate Foundry Combat');
+    assert.ok(formingPlayerTracker.playerInitiative?.generation);
+    assert.deepEqual(formingPlayerTracker.combatants.map(row => row.actorId), ['PLAYERPC'],
+        'forming phase projects only the caller-owned visible Actor');
+    assert.equal(formingPlayerTracker.combatants[0].canRollInitiative, true);
     await combatManagerService.turn(gm, batch.id, () => managedTurns.advanceTurn(gm, batch.id, true));
+    assert.equal(readCombatManagerFlag(combatStore.get(batch.id))?.playerActions?.initiativeOpen, false,
+        'Begin atomically closes the player phase');
     for (const [client, canManage] of [[gm, true], [assistant, false], [player, false]] as const) {
         const tracker = (await managedTurns.listCombats(client)).combats.find(combat => combat.id === batch.id);
         assert.ok(tracker, 'started managed encounter remains visible to an authorized viewer');
@@ -553,6 +584,117 @@ export async function run(): Promise<void> {
         preparedActorStore.bind(actorStore);
         preparedActorStore.configure(new BaseSystemAdapter(), { worldEpoch: 1, systemId: 'test' });
         preparedActorStore.rebuildAll();
+        const ownerEncounter = await combatManagerService.create(gm, 'Owner participation', false);
+        await combatManagerService.addWorldActor(gm, ownerEncounter.id, 'PLAYERPC');
+        await combatManagerService.setPlayerActions(gm, ownerEncounter.id, { initiativeOpen: true });
+        const ownerService = createCombatService({});
+        const ownerView = (await ownerService.listCombats(player)).combats.find(combat => combat.id === ownerEncounter.id)!;
+        const ownerRow = ownerView.combatants[0];
+        assert.equal(ownerView.active, false);
+        assert.equal(ownerRow.canRollInitiative, true);
+        const ownerObserved = { initiative: null, formula: ownerRow.initiativeRoll!.formula,
+            phaseGeneration: ownerView.playerInitiative!.generation };
+        const rollCount = playerRolls.length;
+        const rolled = await ownerService.rollInitiative(player, ownerEncounter.id, ownerRow.id,
+            { manualTotal: 12.5, observed: ownerObserved });
+        assert.deepEqual(rolled, { success: true, initiative: 12.5 });
+        assert.deepEqual(playerRolls.slice(rollCount), ['12.5']);
+        assert.equal((await ownerService.rollInitiative(player, ownerEncounter.id, ownerRow.id,
+            { manualTotal: 15, observed: ownerObserved }) as any).status, 409,
+        'the first applied score wins across duplicate owner attempts');
+        assert.equal(playerRolls.length, rollCount + 1, 'stale player request produces no second chat roll');
+        await combatManagerService.updateParticipant(gm, ownerEncounter.id, ownerRow.id,
+            { initiative: null, expectedInitiative: 12.5 });
+        await combatManagerService.setPlayerActions(gm, ownerEncounter.id, { initiativeOpen: false });
+        await combatManagerService.setPlayerActions(gm, ownerEncounter.id, { initiativeOpen: true });
+        assert.equal((await ownerService.rollInitiative(player, ownerEncounter.id, ownerRow.id,
+            { manualTotal: 15, observed: ownerObserved }) as any).status, 409,
+        'a reopened phase rejects an older generation');
+        const reopened = (await ownerService.listCombats(player)).combats.find(combat => combat.id === ownerEncounter.id)!;
+        const reopenedObserved = { ...ownerObserved, phaseGeneration: reopened.playerInitiative!.generation };
+        await combatManagerService.updateParticipant(gm, ownerEncounter.id, ownerRow.id, { hidden: true });
+        assert.equal((await ownerService.listCombats(player)).combats.find(combat => combat.id === ownerEncounter.id), undefined);
+        assert.deepEqual(await ownerService.rollInitiative(player, ownerEncounter.id, ownerRow.id,
+            { manualTotal: 15, observed: reopenedObserved }), { error: 'Combatant not found', status: 404 });
+        await combatManagerService.updateParticipant(gm, ownerEncounter.id, ownerRow.id, { hidden: false });
+        const writesBeforeLoss = calls.length;
+        actorStore.applyModifyDocument('Actor', 'update', [{ _id: 'PLAYERPC', ownership: { default: 0, player: 0 } }]);
+        assert.deepEqual(await ownerService.rollInitiative(player, ownerEncounter.id, ownerRow.id,
+            { manualTotal: 15, observed: reopenedObserved }), { error: 'Combatant not found', status: 404 });
+        assert.equal(calls.length, writesBeforeLoss, 'ownership loss has no remote side effect');
+        actorStore.applyModifyDocument('Actor', 'update', [{ _id: 'PLAYERPC', ownership: { player: 3 } }]);
+        const staleClient = { ...player, getActor: async (id: string) => {
+            worldStateStore.clearRuntimeState();
+            return actorStore.get(id);
+        } } as CombatClientLike;
+        assert.equal((await ownerService.rollInitiative(staleClient, ownerEncounter.id, ownerRow.id,
+            { manualTotal: 15, observed: reopenedObserved }) as any).status, 409,
+        'world replacement during a remote read stops before rolling');
+        worldStateStore.seed({ world: { id: 'stat-world' }, system: { id: 'test' } } as any);
+        const secondRoll = await ownerService.rollInitiative(player, ownerEncounter.id, ownerRow.id,
+            { manualTotal: 15, observed: reopenedObserved });
+        assert.deepEqual(secondRoll, { success: true, initiative: 15 });
+        assert.equal((await combatManagerService.detail(gm, ownerEncounter.id)).playerActions.scored, 1);
+        await combatManagerService.updateParticipant(gm, ownerEncounter.id, ownerRow.id,
+            { initiative: null, expectedInitiative: 15 });
+        const partialClient = { ...player, dispatchDocument: async (type: string, action: string,
+            operation?: unknown, parent?: { type: string; id: string }) => {
+            if (type === 'Combatant' && action === 'update') throw new Error('synthetic score-write failure');
+            return player.dispatchDocument(type, action, operation, parent);
+        } } as CombatClientLike;
+        const partialRoll = await ownerService.rollInitiative(partialClient, ownerEncounter.id, ownerRow.id,
+            { manualTotal: 18, observed: reopenedObserved });
+        assert.ok('error' in partialRoll && partialRoll.code === 'ROLL_OUTCOME_UNKNOWN',
+            'chat-created score failure reports an uncertain outcome, never a successful roll');
+        assert.equal((await combatManagerService.detail(gm, ownerEncounter.id)).participants[0].initiative, null);
+        await combatManagerService.updateParticipant(gm, ownerEncounter.id, ownerRow.id,
+            { initiative: 15, expectedInitiative: null });
+        await combatManagerService.turn(gm, ownerEncounter.id, () => ownerService.advanceTurn(gm, ownerEncounter.id, true));
+        const startedOwnerView = (await ownerService.listCombats(player)).combats.find(combat => combat.id === ownerEncounter.id)!;
+        assert.equal(startedOwnerView.playerInitiative, undefined);
+        assert.equal(startedOwnerView.canAdvanceTurn, true, 'owning player can end the managed current turn by default');
+        const turnObserved = { active: startedOwnerView.active, started: startedOwnerView.started,
+            round: startedOwnerView.round, currentCombatantId: startedOwnerView.currentCombatantId };
+        assert.deepEqual(await ownerService.advanceTurn(player, ownerEncounter.id, false, turnObserved),
+            { success: true, round: 2, turn: 0 });
+        await combatManagerService.setPlayerActions(gm, ownerEncounter.id, { endTurnEnabled: false });
+        assert.equal((await ownerService.advanceTurn(player, ownerEncounter.id, false, turnObserved) as any).status, 403);
+        await combatManagerService.updateParticipant(gm, ownerEncounter.id, ownerRow.id,
+            { initiative: null, expectedInitiative: 15 });
+        await combatManagerService.setPlayerActions(gm, ownerEncounter.id, { initiativeOpen: true });
+        const lateView = (await ownerService.listCombats(player)).combats.find(combat => combat.id === ownerEncounter.id)!;
+        const lateObserved = { initiative: null, formula: lateView.combatants[0].initiativeRoll!.formula,
+            phaseGeneration: lateView.playerInitiative!.generation };
+        const turnWritesBeforeRace = calls.filter(call => call.type === 'Combat' && call.action === 'update'
+            && call.operation.updates?.[0]?.turn !== undefined).length;
+        const concurrentTurnClient = { ...player, dispatchDocument: async (type: string, action: string,
+            operation?: unknown, parent?: { type: string; id: string }) => {
+            const result = await player.dispatchDocument(type, action, operation, parent);
+            if (type === 'Combatant' && action === 'update') {
+                combatStore.applyModifyDocument('Combat', 'update', [{ _id: ownerEncounter.id, round: 3 }]);
+            }
+            return result;
+        } } as CombatClientLike;
+        const racedRoll = await ownerService.rollInitiative(concurrentTurnClient, ownerEncounter.id, ownerRow.id,
+            { manualTotal: 14, observed: lateObserved });
+        assert.ok('error' in racedRoll && racedRoll.code === 'TURN_SYNC_UNKNOWN',
+            'a concurrent GM turn change cannot be overwritten after the score write');
+        assert.equal(calls.filter(call => call.type === 'Combat' && call.action === 'update'
+            && call.operation.updates?.[0]?.turn !== undefined).length, turnWritesBeforeRace);
+        assert.equal((await combatManagerService.detail(gm, ownerEncounter.id)).participants[0].initiative, 14,
+            'turn-sync uncertainty does not hide the successfully applied score');
+        const withCopy = await combatManagerService.addPackActor(gm, ownerEncounter.id, 'test.monsters', 'PACK1', 1);
+        const generatedCopy = withCopy.participants.find(row => row.source === 'compendium-copy')!;
+        assert.equal(generatedCopy.name, 'World-Sized Ogre #1', 'GM retains distinct generated labels');
+        const copiedPlayerView = (await ownerService.listCombats(player)).combats.find(combat => combat.id === ownerEncounter.id)!;
+        assert.equal(copiedPlayerView.combatants.find(row => row.id === generatedCopy.id)?.name, 'World-Sized Ogre',
+            'players never see a generated ordinal gap');
+        combatStore.applyModifyDocument('Combatant', 'update', [{ _id: generatedCopy.id, name: 'Authored Ogre' }],
+            { parentUuid: `Combat.${ownerEncounter.id}` });
+        const renamedPlayerView = (await ownerService.listCombats(player)).combats.find(combat => combat.id === ownerEncounter.id)!;
+        assert.equal(renamedPlayerView.combatants.find(row => row.id === generatedCopy.id)?.name, 'Authored Ogre',
+            'authored Combatant names are not stripped');
+        await combatManagerService.complete(gm, ownerEncounter.id);
         const hp = { key: 'hp', label: 'HP', path: 'system.attributes.hp', kind: 'resource' as const, showInRoster: true };
         assert.equal((await combatManagerService.saveStatPreferences(gm, [hp])).source, 'saved');
         assert.deepEqual((await combatManagerService.detail(gm, retained.id)).participants[0].stats,

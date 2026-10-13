@@ -1,5 +1,9 @@
 # Releases
 ## Unreleased
+- Opened managed player initiative
+- Enabled owner turn endings
+- Preserved resolved initiative formulas
+- Concealed generated copy ordinals
 - Refined compact combat HUD
 - Concealed hidden player combatants
 - Added owned combat stats

@@ -3,8 +3,16 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import RollDialog from '@client/ui/components/RollDialog';
 import type { InitiativeRollModalProps } from '@shared/sdk/ui';
+import { applyInitiativeMode } from '@shared/contracts/initiativeMode';
 
 export function run() {
+    assert.equal(applyInitiativeMode('2d20kh1+3'), '2d20kh1+3',
+        'default execution retains a module-selected d20 rule');
+    assert.equal(applyInitiativeMode('2d20kh1+3', 'normal'), '1d20+3');
+    assert.equal(applyInitiativeMode('1d20+3', 'advantage'), '2d20kh1+3');
+    assert.equal(applyInitiativeMode('1d20+3', 'disadvantage'), '2d20kl1+3');
+    assert.equal(applyInitiativeMode('1d12+3', 'advantage'), '1d12+3',
+        'non-d20 system formulas are not rewritten');
     const props: InitiativeRollModalProps = {
         isOpen: true, type: 'initiative', title: 'Roll Initiative',
         combatantName: 'Visible Hero', formula: '1d20+3', source: 'module',
@@ -17,6 +25,7 @@ export function run() {
     assert.match(html, /System module/);
     assert.match(html, /Roll initiative/);
     assert.match(html, /Advantage/);
+    assert.match(html, /2d20kh1\+3/);
     assert.match(html, /Manual total/);
     assert.doesNotMatch(html, /Ability Bonus|Private GM Roll|name="formula"/);
     const noAdvantage = renderToStaticMarkup(createElement(RollDialog, {

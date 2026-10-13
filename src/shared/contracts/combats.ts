@@ -49,6 +49,8 @@ export interface CombatTrackerDto {
     canAdvanceTurn: boolean;
     canRewindTurn: boolean;
     canManage: boolean;
+    /** Only projected for an authorized managed initiative phase. */
+    playerInitiative?: { open: true; generation: string };
     combatants: CombatTrackerCombatantDto[];
 }
 
@@ -59,8 +61,6 @@ export interface CombatListPayload {
 
 export interface CombatTurnSuccessPayload {
     success: true;
-    round: number;
-    turn: number;
 }
 
 /** State observed by the HUD before requesting an ordinary encounter turn. */
@@ -83,6 +83,8 @@ export interface CombatInitiativeRequestBody {
     observed?: {
         initiative: number | null;
         formula: string;
+        /** Required for a managed owner's open phase; never a hidden-row counter. */
+        phaseGeneration?: string;
     };
     /** Internal manager command only; never accepted on ordinary routes. */
     formula?: string;
@@ -91,4 +93,5 @@ export interface CombatInitiativeRequestBody {
 export interface CombatErrorPayload {
     error: string;
     status: number;
+    code?: string;
 }

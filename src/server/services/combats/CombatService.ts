@@ -16,6 +16,8 @@ import { combatEncounterReadModel, type PreparedEncounter } from '@server/core/d
 import { PrimaryDocumentCacheNotReadyError } from '@server/core/documents/primary/errors';
 import { CombatRepository } from '@server/core/documents/primary/combats/CombatRepository';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
+import { worldStateStore } from '@server/core/world/WorldStateStore';
+import { worldBootstrapper } from '@server/services/world/WorldBootstrapper';
 import { getDocumentId } from '@server/core/documents/primary/base/PrimaryDocumentStore';
 import {
     preparedActorStore,
@@ -24,7 +26,7 @@ import {
 import type { PreparedActorData, SystemAdapter } from '@shared/sdk';
 import type { CombatManagerSelectedStatDto } from '@shared/contracts/combatManager';
 import { buildCombatTrackerDto } from './CombatTrackerProjection';
-import { readCombatManagerFlag } from './combatManagerFlag';
+import { hasCombatManagerMarker, playerActionsFor, readCombatManagerFlag } from './combatManagerFlag';
 import { combatStatDisplayService, projectCombatStatFields } from './CombatStatDisplayService';
 import { effectiveInitiativeFormula } from './CombatInitiativeFormula';
 import { withEncounterLock } from './EncounterCommandGuard';
@@ -37,10 +39,14 @@ import type {
     CombatTurnObservation,
     CombatErrorPayload,
 } from '@shared/contracts/combats';
+import { applyInitiativeMode } from '@shared/contracts/initiativeMode';
 
 interface CombatServiceDeps {
     getPreparedActor?: (actorId: string) => PreparedActorData;
 }
+
+/** Internal execution result; HTTP responses never expose the positional turn. */
+type CombatTurnExecution = CombatTurnSuccessPayload & { round: number; turn: number };
 
 function resolveSubject(userId: string | null | undefined): DocumentAccessSubject | null {
     return userStore.createAccessSubject(userId);
@@ -89,6 +95,17 @@ export function createCombatService(deps: CombatServiceDeps) {
         if (!combatStore.isReady()) throw new PrimaryDocumentCacheNotReadyError('Combat');
     };
 
+    const playerScope = (client: CombatClientLike) => ({
+        userId: client.userId,
+        worldId: worldStateStore.getCurrentWorldId(),
+        epoch: worldBootstrapper.getRuntimeEpoch(),
+    });
+    const samePlayerScope = (client: CombatClientLike, scope: ReturnType<typeof playerScope>): boolean =>
+        !!scope.userId && !!scope.worldId && client.userId === scope.userId
+        && worldStateStore.isReady() && worldStateStore.getCurrentWorldId() === scope.worldId
+        && worldBootstrapper.getRuntimeEpoch() === scope.epoch
+        && (client as CombatClientLike & { isConnected?: boolean }).isConnected !== false;
+
     /** Add bounded owned-stat/roll metadata and resolve display image paths. */
     const enrichTrackerDto = async (dto: CombatTrackerDto, client: CombatClientLike,
         subject: DocumentAccessSubject, attributes: CombatManagerSelectedStatDto[],
@@ -101,6 +118,10 @@ export function createCombatService(deps: CombatServiceDeps) {
                 const owned = !!row.actorId && subject.role < FoundryUserRole.ASSISTANT
                     && projectionDeps.canWriteActor(row.actorId, subject);
                 const rawRow = combat?.combatants?.find(entry => (entry._id || entry.id) === row.id);
+                const marker = rawRow?.flags?.world && typeof rawRow.flags.world === 'object'
+                    ? (rawRow.flags.world as Record<string, unknown>).sheetDelverGeneratedName : null;
+                const generated = marker && typeof marker === 'object' && !Array.isArray(marker)
+                    ? marker as Record<string, unknown> : null;
                 const token = rawRow?.sceneId && rawRow.tokenId
                     ? sceneStore.getToken(rawRow.sceneId, rawRow.tokenId) : null;
                 const unlinked = !!token && token.actorLink === false;
@@ -120,6 +141,10 @@ export function createCombatService(deps: CombatServiceDeps) {
                     ? effectiveInitiativeFormula(adapter, prepared, initiativeFallback) : null;
                 return {
                     ...row,
+                    name: subject.role < FoundryUserRole.ASSISTANT
+                        && generated?.combatId === dto.id && generated.name === row.name
+                        && typeof generated.baseName === 'string' && generated.baseName.length > 0
+                        ? generated.baseName : row.name,
                     canRollInitiative: row.canRollInitiative && prepared !== null,
                     img: typeof row.img === 'string' ? client.resolveUrl(row.img) : row.img,
                     isOwned: owned,
@@ -151,14 +176,25 @@ export function createCombatService(deps: CombatServiceDeps) {
             if (!prepared) return null;
             const dto = buildCombatTrackerDto(prepared, subject, { ...projectionDeps, skipDefeated });
             const managerFlag = readCombatManagerFlag(combat);
+            // A corrupted managed marker cannot acquire ordinary tracker capabilities.
+            if (hasCombatManagerMarker(combat) && !managerFlag) return null;
+            const actions = managerFlag ? playerActionsFor(managerFlag) : null;
+            const owner = subject.role < FoundryUserRole.ASSISTANT;
+            const playerPhase = !!managerFlag && owner && managerFlag.status === 'active'
+                && !managerFlag.deletionRequested && !managerFlag.historyRemovalRequested
+                && actions?.initiativeOpen === true && (prepared.round === 0 || prepared.active);
             const projected = managerFlag ? {
                 ...dto,
-                // Managed encounters use the separate GM-only manager routes.
-                // The legacy HUD is view-only for these encounters.
-                canAdvanceTurn: false,
+                canAdvanceTurn: owner && managerFlag.status === 'active'
+                    && !managerFlag.deletionRequested && !managerFlag.historyRemovalRequested
+                    && actions?.endTurnEnabled === true && prepared.active && prepared.started && dto.canAdvanceTurn,
                 canRewindTurn: false,
-                combatants: dto.combatants.map(row => ({ ...row, canRollInitiative: false })),
+                combatants: dto.combatants.map(row => ({ ...row,
+                    canRollInitiative: playerPhase && row.actorId !== null && row.initiative === null
+                        && projectionDeps.canWriteActor(row.actorId, subject) })),
                 canManage: isGM(subject) && managerFlag.status === 'active',
+                ...(playerPhase && dto.combatants.some(row => row.actorId && projectionDeps.canWriteActor(row.actorId, subject))
+                    ? { playerInitiative: { open: true as const, generation: actions!.initiativeGeneration } } : {}),
             } : dto;
             return enrichTrackerDto(projected, client, subject, preferences?.attributes ?? [],
                 adapter, preferences?.initiativeFormula ?? null);
@@ -220,20 +256,32 @@ export function createCombatService(deps: CombatServiceDeps) {
         combatId: string,
         managerCommand = false,
         observed?: CombatTurnObservation,
-    ): Promise<CombatTurnSuccessPayload | CombatErrorPayload> => {
+    ): Promise<CombatTurnExecution | CombatErrorPayload> => {
         ensureReady();
+        const scope = playerScope(client);
         const prepared = getPreparedEncounter(combatId);
         if (!prepared) {
             return { error: 'Combat not found', status: 404 };
         }
         const subject = resolveSubject(client.userId);
-        const managed = readCombatManagerFlag(combatStore.get(combatId));
-        if (managed && (!subject || !isGM(subject))) return { error: 'Gamemaster access required', status: 403 };
+        const sourceCombat = combatStore.get(combatId);
+        const managed = readCombatManagerFlag(sourceCombat);
+        if (hasCombatManagerMarker(sourceCombat) && !managed) return { error: 'Encounter unavailable', status: 409 };
+        if (managed && (!subject || (isAssistantGM(subject) && !isGM(subject)))) {
+            return { error: 'Gamemaster access required', status: 403 };
+        }
         if (managed && managed.status !== 'active') return { error: 'Encounter is not active', status: 409 };
-        if (managed && !managerCommand) return { error: 'Use the GM Combat Manager to advance this encounter', status: 403 };
+        if (managed && (managed.deletionRequested || managed.historyRemovalRequested)) return { error: 'Encounter is closing', status: 409 };
+        if (managed && managerCommand && (!subject || !isGM(subject))) return { error: 'Gamemaster access required', status: 403 };
+        if (managed && !managerCommand && subject && isGM(subject)) {
+            return { error: 'Use the GM Combat Manager to advance this encounter', status: 403 };
+        }
+        if (managed && !managerCommand && (!subject || isAssistantGM(subject)
+            || !playerActionsFor(managed).endTurnEnabled)) return { error: 'End my turn is unavailable', status: 403 };
         if (!subject || !isAuthorizedForCombatTurn(prepared, subject)) {
             return { error: 'Unauthorized: You do not own the current combatant and are not a GM', status: 403 };
         }
+        if (managed && !managerCommand && !observed) return { error: 'Observed encounter state required', status: 400 };
         if (observed && !matchesObservation(prepared, observed)) {
             return { error: 'Encounter changed; review the current turn before retrying', status: 409 };
         }
@@ -262,9 +310,27 @@ export function createCombatService(deps: CombatServiceDeps) {
             }
         }
 
+        // Recheck policy and ownership directly before the only remote write.
+        if (managed && !managerCommand) {
+            const live = combatStore.get(combatId);
+            const livePrepared = getPreparedEncounter(combatId);
+            const liveFlag = readCombatManagerFlag(live);
+            const liveSubject = resolveSubject(client.userId);
+            if (!livePrepared || !liveFlag || liveFlag.status !== 'active' || liveFlag.deletionRequested
+                || liveFlag.historyRemovalRequested || !playerActionsFor(liveFlag).endTurnEnabled
+                || !samePlayerScope(client, scope)
+                || !liveSubject || isAssistantGM(liveSubject) || !isAuthorizedForCombatTurn(livePrepared, liveSubject)
+                || !observed || !matchesObservation(livePrepared, observed)) {
+                return { error: 'Encounter changed; review the current turn before retrying', status: 409 };
+            }
+        }
         await createCombatRepository(client).update(combatId, {
             round, turn,
             ...(managed && managerCommand && prepared.round === 0 ? { active: true } : {}),
+            ...(managed && managerCommand && prepared.round === 0 && playerActionsFor(managed).initiativeOpen
+                ? { 'flags.world.sheetDelverCombat': { ...managed, playerActions: {
+                    ...playerActionsFor(managed), initiativeOpen: false, initiativeGeneration: crypto.randomUUID(),
+                } } } : {}),
         });
 
         return { success: true, round, turn };
@@ -273,7 +339,7 @@ export function createCombatService(deps: CombatServiceDeps) {
     // Turn rewind, GM-only. Rewinding past round 1 turn 0 returns the
     // encounter to its unstarted round-zero state.
     const advanceTurn = (client: CombatClientLike, combatId: string, managerCommand = false,
-        observed?: CombatTurnObservation): Promise<CombatTurnSuccessPayload | CombatErrorPayload> =>
+        observed?: CombatTurnObservation): Promise<CombatTurnExecution | CombatErrorPayload> =>
         managerCommand ? advanceTurnCore(client, combatId, true, observed)
             : withEncounterLock(combatId, () => advanceTurnCore(client, combatId, false, observed));
 
@@ -282,14 +348,16 @@ export function createCombatService(deps: CombatServiceDeps) {
         combatId: string,
         managerCommand = false,
         observed?: CombatTurnObservation,
-    ): Promise<CombatTurnSuccessPayload | CombatErrorPayload> => {
+    ): Promise<CombatTurnExecution | CombatErrorPayload> => {
         ensureReady();
         const prepared = getPreparedEncounter(combatId);
         if (!prepared) {
             return { error: 'Combat not found', status: 404 };
         }
         const subject = resolveSubject(client.userId);
-        const managed = readCombatManagerFlag(combatStore.get(combatId));
+        const sourceCombat = combatStore.get(combatId);
+        const managed = readCombatManagerFlag(sourceCombat);
+        if (hasCombatManagerMarker(sourceCombat) && !managed) return { error: 'Encounter unavailable', status: 409 };
         if (managed && (!subject || !isGM(subject))) return { error: 'Gamemaster access required', status: 403 };
         if (managed && managed.status !== 'active') return { error: 'Encounter is not active', status: 409 };
         if (managed && !managerCommand) return { error: 'Use the GM Combat Manager to rewind this encounter', status: 403 };
@@ -342,6 +410,10 @@ export function createCombatService(deps: CombatServiceDeps) {
         await createCombatRepository(client).update(combatId, {
             round, turn,
             ...(managed && managerCommand && round === 0 ? { active: false } : {}),
+            ...(managed && managerCommand && round === 0 && playerActionsFor(managed).initiativeOpen
+                ? { 'flags.world.sheetDelverCombat': { ...managed, playerActions: {
+                    ...playerActionsFor(managed), initiativeOpen: false, initiativeGeneration: crypto.randomUUID(),
+                } } } : {}),
         });
 
         return { success: true, round, turn };
@@ -353,7 +425,7 @@ export function createCombatService(deps: CombatServiceDeps) {
     // message, and no document dispatch. Hidden combatants return the same
     // 404 as missing ones for non-GMs so their existence doesn't leak.
     const previousTurn = (client: CombatClientLike, combatId: string, managerCommand = false,
-        observed?: CombatTurnObservation): Promise<CombatTurnSuccessPayload | CombatErrorPayload> =>
+        observed?: CombatTurnObservation): Promise<CombatTurnExecution | CombatErrorPayload> =>
         managerCommand ? previousTurnCore(client, combatId, true, observed)
             : withEncounterLock(combatId, () => previousTurnCore(client, combatId, false, observed));
 
@@ -373,11 +445,46 @@ export function createCombatService(deps: CombatServiceDeps) {
 
         const subject = resolveSubject(client.userId);
         const managed = readCombatManagerFlag(combat);
-        if (managed && (!subject || !isGM(subject))) return { error: 'Gamemaster access required', status: 403 };
+        if (hasCombatManagerMarker(combat) && !managed) return { error: 'Encounter unavailable', status: 409 };
+        if (managed && (!subject || (isAssistantGM(subject) && !isGM(subject)))) {
+            return { error: 'Gamemaster access required', status: 403 };
+        }
         if (managed && managed.status !== 'active') return { error: 'Encounter is not active', status: 409 };
-        if (managed && !managerCommand) return { error: 'Use the GM Combat Manager to roll initiative', status: 403 };
+        if (managed && (managed.deletionRequested || managed.historyRemovalRequested)) return { error: 'Encounter is closing', status: 409 };
+        if (managed && managerCommand && (!subject || !isGM(subject))) return { error: 'Gamemaster access required', status: 403 };
+        if (managed && !managerCommand && subject && isGM(subject)) {
+            return { error: 'Use the GM Combat Manager to roll initiative', status: 403 };
+        }
+        const playerManaged = !!managed && !managerCommand;
+        if (playerManaged && (!subject || isAssistantGM(subject))) return { error: 'Player initiative unavailable', status: 403 };
         if (!subject) return { error: 'Unauthorized', status: 403 };
         const gm = isAssistantGM(subject);
+        const scope = playerScope(client);
+
+        const checkManagedOwner = (expectedInitiative: number | null = null): CombatErrorPayload | null => {
+            if (!playerManaged) return null;
+            if (!samePlayerScope(client, scope)) return { error: 'Encounter changed; refresh before retrying', status: 409 };
+            const live = combatStore.get(combatId);
+            const flag = readCombatManagerFlag(live);
+            const actorSubject = resolveSubject(client.userId);
+            if (!live || !flag || flag.status !== 'active' || flag.deletionRequested || flag.historyRemovalRequested
+                || !actorSubject || isAssistantGM(actorSubject)) return { error: 'Encounter changed; refresh before retrying', status: 409 };
+            const actions = playerActionsFor(flag);
+            if (!actions.initiativeOpen || !observed || !observed.phaseGeneration
+                || actions.initiativeGeneration !== observed.phaseGeneration
+                || ((live.round ?? 0) > 0 && !live.active)) {
+                return { error: 'Initiative phase changed; refresh before retrying', status: 409 };
+            }
+            const row = live.combatants?.find(item => (item._id || item.id) === combatantId);
+            if (!row || row.hidden || !row.actorId) return { error: 'Combatant not found', status: 404 };
+            if (!projectionDeps.canWriteActor(row.actorId, actorSubject)) return { error: 'Combatant not found', status: 404 };
+            if ((row.initiative ?? null) !== expectedInitiative || observed.initiative !== null) {
+                return { error: 'Initiative changed; refresh before retrying', status: 409 };
+            }
+            return null;
+        };
+        const initialManagedError = checkManagedOwner();
+        if (initialManagedError) return initialManagedError;
 
         const combatant = combat.combatants?.find((c) => (c._id || c.id) === combatantId);
         if (!combatant || (combatant.hidden && !gm)) {
@@ -385,13 +492,19 @@ export function createCombatService(deps: CombatServiceDeps) {
         }
         if (!combatant.actorId) return { error: 'Actor not found', status: 404 };
         if (!gm && !projectionDeps.canWriteActor(combatant.actorId, subject)) {
-            return { error: 'Unauthorized: You do not own this combatant', status: 403 };
+            return { error: playerManaged ? 'Combatant not found' : 'Unauthorized: You do not own this combatant', status: playerManaged ? 404 : 403 };
         }
 
         const systemInfo = await client.getSystem();
+        const afterSystem = checkManagedOwner();
+        if (afterSystem) return afterSystem;
         const adapter = await getAdapter(systemInfo.id.toLowerCase());
+        const afterAdapter = checkManagedOwner();
+        if (afterAdapter) return afterAdapter;
 
         const sourceActor = await client.getActor(combatant.actorId);
+        const afterActor = checkManagedOwner();
+        if (afterActor) return afterActor;
         if (!sourceActor || sourceActor.error) {
             return {
                 error: sourceActor?.error || 'Actor not found',
@@ -406,6 +519,8 @@ export function createCombatService(deps: CombatServiceDeps) {
             ? managerInitiativeFallback
             : (await combatStatDisplayService.resolve(client))?.initiativeFormula ?? null;
         const effective = effectiveInitiativeFormula(adapter, actor, initiativeFallback);
+        const afterReads = checkManagedOwner();
+        if (afterReads) return afterReads;
         if (observed && (observed.initiative !== (combatant.initiative ?? null)
             || observed.formula !== effective.formula)) {
             return { error: 'Initiative changed; review the current value before retrying', status: 409 };
@@ -414,18 +529,23 @@ export function createCombatService(deps: CombatServiceDeps) {
             return { error: 'Invalid manual initiative total', status: 400 };
         }
         if (manualTotal !== undefined && formula !== undefined) return { error: 'Invalid initiative request', status: 400 };
+        if (playerManaged && formula !== undefined) return { error: 'Invalid initiative request', status: 400 };
         if (manualTotal === undefined && !formula && !effective.rollAvailable) return { error: 'Initiative formula cannot resolve for this Actor; enter a value manually', status: 409 };
         if (!formula && advantageMode && advantageMode !== 'normal' && !effective.advantageAvailable) {
             return { error: 'Advantage is unavailable for this initiative formula', status: 400 };
         }
-        let finalFormula = manualTotal !== undefined ? String(manualTotal) : formula || effective.formula;
+        const finalFormula = manualTotal !== undefined ? String(manualTotal)
+            : applyInitiativeMode(formula || effective.formula, advantageMode);
 
-        if (advantageMode === 'advantage') {
-            finalFormula = finalFormula.replace(/^(?:1d20|2d20k[hl]1)/i, '2d20kh1');
-        } else if (advantageMode === 'disadvantage') {
-            finalFormula = finalFormula.replace(/^(?:1d20|2d20k[hl]1)/i, '2d20kl1');
-        } else if (advantageMode === 'normal') {
-            finalFormula = finalFormula.replace(/^(?:2d20k[hl]1)/i, '1d20');
+        if (playerManaged) {
+            const latestFallback = (await combatStatDisplayService.resolve(client))?.initiativeFormula ?? null;
+            const latestActor = getPreparedActor(combatant.actorId);
+            const latestFormula = effectiveInitiativeFormula(adapter, latestActor, latestFallback);
+            const stale = checkManagedOwner();
+            if (stale) return stale;
+            if (latestFormula.formula !== observed?.formula) {
+                return { error: 'Initiative formula changed; refresh before retrying', status: 409 };
+            }
         }
 
         const speaker = {
@@ -435,20 +555,51 @@ export function createCombatService(deps: CombatServiceDeps) {
 
         // Foundry's rollInitiative whispers hidden Combatant rolls to GMs.
         // A public Core chat message would reveal that hidden participant.
-        const chatMessage = await client.roll(finalFormula, manualTotal !== undefined ? 'Manual Initiative' : 'Initiative', {
-            speaker,
-            ...(combatant.hidden ? { rollMode: 'gmroll' as const } : {}),
-        });
-        const total = getCombatInitiativeRollTotal(chatMessage);
+        let chatMessage: RollChatMessageLike;
+        try {
+            chatMessage = await client.roll(finalFormula, manualTotal !== undefined ? 'Manual Initiative' : 'Initiative', {
+                speaker,
+                ...(combatant.hidden ? { rollMode: 'gmroll' as const } : {}),
+            });
+        } catch {
+            return { error: 'Roll outcome unknown; refresh and inspect chat before retrying',
+                status: 502, code: 'ROLL_OUTCOME_UNKNOWN' };
+        }
+        let total: number;
+        try { total = getCombatInitiativeRollTotal(chatMessage); }
+        catch { return { error: 'Rolled, but initiative was not applied; inspect chat before entering the total manually', status: 502,
+            code: 'ROLL_NOT_APPLIED' }; }
+
+        if (checkManagedOwner()) {
+            return { error: 'Rolled, but initiative was not applied; refresh and inspect chat before entering the total manually',
+                status: 409, code: 'ROLL_NOT_APPLIED' };
+        }
 
         const currentId = combatEncounterReadModel.getOrRebuild(combatId)?.currentCombatantId ?? null;
+        const turnBeforeScore = { round: combat.round ?? 0, turn: combat.turn ?? null, active: combat.active };
 
-        await createCombatRepository(client).updateCombatant(combatId, combatantId, { initiative: total });
+        try { await createCombatRepository(client).updateCombatant(combatId, combatantId, { initiative: total }); }
+        catch {
+            return { error: 'Rolled, but initiative may not have been applied; refresh and inspect chat before retrying',
+                status: 502, code: 'ROLL_OUTCOME_UNKNOWN' };
+        }
         if (!managerCommand && currentId && (combat.round ?? 0) > 0) {
+            const live = combatStore.get(combatId);
+            // A concurrent Foundry/GM turn command is outside our in-process
+            // lock. Never restore an old turn over that newer command.
+            if (!live || live.round !== turnBeforeScore.round || (live.turn ?? null) !== turnBeforeScore.turn
+                || live.active !== turnBeforeScore.active || checkManagedOwner(total)) {
+                return { error: 'Initiative was applied, but turn synchronization is uncertain; refresh before continuing',
+                    status: 409, code: 'TURN_SYNC_UNKNOWN' };
+            }
             const reordered = combatEncounterReadModel.getOrRebuild(combatId);
             const newIndex = reordered?.rows.findIndex(row => row.id === currentId) ?? -1;
+            if (newIndex < 0) return { error: 'Initiative was applied, but turn synchronization is uncertain; refresh before continuing',
+                status: 409, code: 'TURN_SYNC_UNKNOWN' };
             if (newIndex >= 0 && combatStore.get(combatId)?.turn !== newIndex) {
-                await createCombatRepository(client).update(combatId, { turn: newIndex });
+                try { await createCombatRepository(client).update(combatId, { turn: newIndex }); }
+                catch { return { error: 'Initiative was applied, but turn synchronization is uncertain; refresh before continuing',
+                    status: 502, code: 'TURN_SYNC_UNKNOWN' }; }
             }
         }
 

@@ -209,6 +209,7 @@ other stats remain in the detail panel. See
 | `PUT` | `/api/combat-manager/initiative-fallback` | Save `{ "formula": "1d20+@system.attributes.init.value" }` or clear with `null`. Limited dice/arithmetic grammar and safe prepared-Actor paths; a module-supplied formula still wins. |
 | `GET` | `/api/combat-manager/:id` | Read one marked tokenless encounter. |
 | `PATCH` | `/api/combat-manager/:id` | Rename with `{ "label": "..." }` only while active at round zero. Reject duplicate normalized labels and verify the child Actor Folder marker before renaming it. |
+| `PATCH` | `/api/combat-manager/:id/player-actions` | GM-only `{ "initiativeOpen"?: boolean, "endTurnEnabled"?: boolean }`. Phase changes rotate an opaque generation on the Combat; owner End my turn defaults enabled. Begin and rewind to round zero close initiative. The encounter DTO includes policy and GM-only eligible/scored counts. |
 | `GET` | `/api/combat-manager/world-actors?q=...&sort=...` | Search linkable world Actors (PCs and NPCs), excluding marked encounter-owned compendium copies. Returns all matching Actors in order and a separate `sortFields` catalog discovered from readable Actor source stats. |
 | `GET` | `/api/combat-manager/packs` | List available Actor compendiums. |
 | `GET` | `/api/combat-manager/packs/:packId/actors?q=...&sort=...` | Search a GM-bound Actor pack index, projecting `system` server-side for a source-stat sort catalog. Returns all matching Actors in order; no Actor source documents cross to the browser. |
@@ -235,11 +236,14 @@ values sort last in either direction, then Name and Actor ID break ties. The
 catalog is independent of the saved combat-stat display preference. Without
 `sort`, results default to Name ascending.
 
-The older `/api/combats/:id/next-turn` and `previous-turn` endpoints reject
-manager-marked encounters; those turns go through the GM-only manager routes.
-Initiative rolls on marked encounters require role-4 GM and active status. The
-batch route reuses Core's user-bound, adapter-formula roll path, whispers hidden
-combatant rolls to GMs, and preserves current Combatant identity after sorting.
+The ordinary `/api/combats/:id/next-turn` endpoint also accepts an owning
+player's End my turn for a managed encounter when the started, active, visible
+current Actor is theirs and GM policy permits it. It never starts or rewinds
+a managed encounter; GM Next/Previous remain manager-only. Managed player
+initiative requires an open GM phase and a visible owned unrolled row; score
+zero counts as rolled. The manager batch route reuses Core's user-bound,
+adapter-formula roll path, whispers hidden combatant rolls to GMs, and
+preserves current Combatant identity after sorting.
 Progression does not claim native Foundry client-hook, system-override,
 world-time or effect parity. Unmarked Combat routes retain their existing
 audience policy.
@@ -254,12 +258,16 @@ hidden-current marker or raw positional turn index. `currentCombatantId` and
 is a visible-order preview, not a guarantee of the next actual Foundry turn.
 Rows include bounded read-only owned stats, Actor-sheet capability and the
 server-resolved initiative formula/source/allowed modes where authorized.
-Unlinked scene Tokens do not project base Actor stats. Managed encounters
-disable all HUD mutations; `canManage` is only true for role-4 GMs and links
-back to the separate manager page.
+Unlinked scene Tokens do not project base Actor stats. An open managed
+initiative phase adds `playerInitiative: { open: true, generation }` only to
+an authorized player view, including before Begin; pre-Begin rows contain
+only that player's visible owned Actors. This does not activate the Foundry
+Combat. Core-generated compendium-copy ordinals are suppressed in player
+display when their Combatant provenance marker still matches; GM labels and
+authored renames remain unchanged. `canManage` is role-4-only.
 
 The tracker is an authorized projection, not a write grant. Its encounter
-fields are `id`, `active`, `started`, `round`, visible
+fields are `id`, `active`, `started`, `round`, optional `playerInitiative`, visible
 `currentCombatantId`/`nextShownCombatantId`, `canAdvanceTurn`,
 `canRewindTurn`, `canManage`, and `combatants`. Each visible row carries its
 display identity, initiative/defeated/hidden state, `isCurrent`,
@@ -273,24 +281,32 @@ not derive a formula from raw Actor data.
 | --- | --- | --- |
 | Role-4 GM | Full roster; Begin/Next/Previous and eligible initiative | Full roster, view-only; `canManage` links to GM Combat Manager |
 | Assistant GM | Full roster; Begin/Next/Previous and eligible initiative | Full roster, view-only; no manager access |
-| Player | Visible roster; own eligible initiative and End my turn only while active, started and current | Visible roster, view-only; no manager access |
+| Player | Visible roster; own eligible initiative and End my turn only while active, started and current | Own visible unrolled initiative while GM phase is open, including before Begin; End my turn for current owned Actor by default unless GM disables it; no manager access |
 
 The ordinary action routes independently recheck role, Actor ownership,
 visibility and current state. Hidden and missing initiative targets are
 indistinguishable (`404`) to a player.
 
-Ordinary `POST /api/combats/:id/next-turn` and `/previous-turn` require
+`POST /api/combats/:id/next-turn` and `/previous-turn` require
 `{ "observed": { "active": true, "started": true, "round": 2,
 "currentCombatantId": "..." } }` using the last tracker view. A changed
 state returns `409` before writing; the client refetches and asks for a fresh
 action. Player advance additionally requires an active started encounter and
 ownership of the visible current Actor; Begin and rewind remain GM/assistant
 actions. The initiative endpoint requires an `observed` initiative number or
-`null` and effective formula string, plus either an allowed `advantageMode` or
-a finite `manualTotal`. Client-supplied formulas are rejected. Hidden and
+`null` and effective formula string, plus an optional supported
+`advantageMode` or a finite `manualTotal`. Omitting the mode preserves the
+displayed resolved formula; explicit `normal` changes a bounded leading
+keep-highest/lowest d20 term to `1d20`. Managed player submissions also
+require the projected `observed.phaseGeneration`. Client-supplied formulas
+are rejected. Hidden and
 missing rows are both `404` for a player. These are Core-side preflights and
 per-encounter serialization, not atomic native Foundry compare-and-set.
 Core chooses public/GM roll audience; the initiative request cannot set it.
+Turn-command success is `{ "success": true }`, with no raw turn index.
+`ROLL_NOT_APPLIED` means a known post-chat failure; `ROLL_OUTCOME_UNKNOWN`
+means a roll or score-write timeout may have applied. Refresh and inspect
+chat before any manual recovery, never automatically reroll.
 
 ---
 

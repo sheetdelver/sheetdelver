@@ -95,6 +95,12 @@ export interface CombatManagerEncounterDto {
     deletionRequested: boolean;
     round: number;
     currentCombatantId: string | null;
+    playerActions: {
+        initiativeOpen: boolean;
+        endTurnEnabled: boolean;
+        eligible: number;
+        scored: number;
+    };
     participants: CombatManagerParticipantDto[];
 }
 

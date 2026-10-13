@@ -10,11 +10,28 @@ export interface CombatManagerFlag {
     copyIds: string[];
     /** Last allocated Combatant label number per source pack UUID. */
     copyNameCounters?: Record<string, number>;
+    /** GM-authored participation policy; absent settings retain safe legacy defaults. */
+    playerActions?: {
+        initiativeOpen: boolean;
+        initiativeGeneration: string;
+        endTurnEnabled: boolean;
+    };
     completedAt?: string;
     /** Set before explicit deletion, including an uncompleted encounter. */
     deletionRequested?: true;
     /** Legacy A2 history-cleanup marker; read only so older flags can retry safely. */
     historyRemovalRequested?: true;
+}
+
+/** A malformed marked encounter must never fall through to ordinary Combat permissions. */
+export function hasCombatManagerMarker(combat: CombatDocument | null | undefined): boolean {
+    const world = combat?.flags?.world;
+    return !!world && typeof world === 'object' && !Array.isArray(world)
+        && Object.prototype.hasOwnProperty.call(world, 'sheetDelverCombat');
+}
+
+export function playerActionsFor(flag: CombatManagerFlag) {
+    return flag.playerActions ?? { initiativeOpen: false, initiativeGeneration: '', endTurnEnabled: true };
 }
 
 export function readCombatManagerFlag(combat: CombatDocument | null | undefined): CombatManagerFlag | null {
@@ -34,5 +51,13 @@ export function readCombatManagerFlag(combat: CombatDocument | null | undefined)
         || Object.values(flag.copyNameCounters).some(value => !Number.isSafeInteger(value) || (value as number) < 1))) return null;
     if (flag.historyRemovalRequested !== undefined && flag.historyRemovalRequested !== true) return null;
     if (flag.deletionRequested !== undefined && flag.deletionRequested !== true) return null;
+    if (flag.playerActions !== undefined) {
+        const policy = flag.playerActions;
+        if (!policy || typeof policy !== 'object' || Array.isArray(policy)) return null;
+        const actions = policy as Record<string, unknown>;
+        if (typeof actions.initiativeOpen !== 'boolean' || typeof actions.endTurnEnabled !== 'boolean'
+            || typeof actions.initiativeGeneration !== 'string' || actions.initiativeGeneration.length > 128
+            || (actions.initiativeOpen && !actions.initiativeGeneration)) return null;
+    }
     return flag as unknown as CombatManagerFlag;
 }
