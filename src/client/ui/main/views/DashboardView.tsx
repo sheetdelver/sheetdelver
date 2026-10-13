@@ -106,7 +106,7 @@ export const DashboardView = ({
 
 
                 {/* System Specific Tools (Modularized) */}
-                {(user?.role ?? 0) >= 4 && (
+                {(user?.role ?? 0) >= 3 && (
                     <section aria-label="GM Tools">
                         <div className="flex items-center gap-3 mb-4">
                             <h3 className="text-xl font-bold uppercase tracking-widest sd-ui-accent">GM Tools</h3>

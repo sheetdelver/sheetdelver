@@ -16,7 +16,7 @@ import type {
 } from '@shared/contracts/actors';
 import {
     DocumentOwnershipLevel,
-    getEffectiveOwnership,
+    getActorOperationOwnership,
 } from '@server/core/documents/primary/base/ownership';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
 
@@ -145,7 +145,7 @@ export function createActorService(deps: ActorServiceDeps) {
 
         const subject = userStore.createAccessSubject(currentUserId);
         const permissionFor = (actor: ActorDocument) => {
-            if (subject) return getEffectiveOwnership(actor.ownership, subject);
+            if (subject) return getActorOperationOwnership(actor.ownership, subject);
             const explicit = currentUserId ? actor.ownership?.[currentUserId] : undefined;
             return explicit ?? actor.ownership?.default ?? DocumentOwnershipLevel.NONE;
         };

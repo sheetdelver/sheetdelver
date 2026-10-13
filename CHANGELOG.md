@@ -5,6 +5,7 @@
 - Unified player media overlays
 - Rendered journal image shares
 - Refined player presentation
+- Enabled native Assistant combat access
 
 ## 0.17.0
 - Hardened world recovery ownership

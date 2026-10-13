@@ -72,6 +72,8 @@ import { run as runCombatStore } from './combat/combat-store.test';
 import { run as runCombatEncounterReadModel } from './combat/combat-encounter-read-model.test';
 import { run as runCombatTrackerProjection } from './combat/combat-tracker-projection.test';
 import { run as runCombatManager } from './combat/combat-manager.test';
+import { run as runNativeCombatPermissions } from './combat/native-combat-permissions.test';
+import { run as runAssistantCombatManager } from './combat/assistant-combat-manager.test';
 import { run as runCombatStatPreferences } from './combat/combat-stat-preferences.test';
 
 // ── documents ─────────────────────────────────────────────────────────────────
@@ -230,6 +232,8 @@ async function runAllUnitTests() {
     await runCombatEncounterReadModel();
     await runCombatTrackerProjection();
     await runCombatManager();
+    runNativeCombatPermissions();
+    await runAssistantCombatManager();
     runCombatStatPreferences();
     await runItemStore();
     await runOwnershipHelpers();

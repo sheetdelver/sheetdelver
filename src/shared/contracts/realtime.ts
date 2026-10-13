@@ -37,6 +37,9 @@ export interface RealtimeSharedContentPayload {
     timestamp?: number;
     /** Opaque identity for one native share event, including identical re-shares. */
     shareId?: string;
+    /** Ordered receipts within one opaque server-session stream. */
+    streamId?: string;
+    sequence?: number;
     [key: string]: unknown;
 }
 

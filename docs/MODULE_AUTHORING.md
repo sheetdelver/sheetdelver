@@ -103,7 +103,12 @@ layout. Its SDK `SharedContentModal` export remains callable and renders
 nothing when that host is present, so existing module mounts do not duplicate
 the overlay. A module removing its mount must require the Core release that
 provides the host; older Core releases still depend on the module mount on
-sheet pages. That release minimum is an open checkpoint, not yet published.
+sheet pages. Shadowdark and Mörk Borg retain their SDK mounts for those older
+Core versions. Core 0.16.0 first provided module-api 1.3; Shadowdark targets the
+user-approved Core 0.17.0 minimum and CI/release toolchain for this branch.
+Mörk Borg's Core 0.14.2 minimum is unchanged. Validate companion modules with
+the pinned release and an isolated data directory, not only Core's root check:
+the root `data/` exclusion can omit module-only logic/tests from typechecking.
 
 Do not import from Sheet Delver internals such as `@shared/*`, `@client/*`, `@server/*`, `@core/*`, or `@modules/*`. If a module needs something that is not in the SDK, treat that as either a missing SDK surface or module-specific code that should live inside the module.
 

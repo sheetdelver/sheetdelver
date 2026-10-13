@@ -17,9 +17,8 @@ import { sharedContentStore } from '@server/core/world/SharedContentStore';
 import { readPlayerSessionCookie } from '@server/security/playerSessionCookie';
 import { combatManagerPreferenceEvents } from '@server/services/combats/CombatManagerPreferenceEvents';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
-import { isGM } from '@server/core/documents/primary/base/ownership';
+import { isAssistantGM } from '@server/core/documents/primary/base/ownership';
 import { STATUS_ROOMS } from './SystemStatusBroadcaster';
-import type { RealtimeSharedContentPayload } from '@shared/contracts/realtime';
 
 type AppSocket = Socket & {
     playerSessionId?: string;
@@ -235,49 +234,14 @@ export function registerAppSocketGateway({
             const handleSceneListInvalidated = createAudienceHandler('sceneListInvalidated');
             const handleSettingChanged = createAudienceHandler('settingChanged');
             const handleSettingListInvalidated = createAudienceHandler('settingListInvalidated');
-            const deliverShare = (payload: RealtimeSharedContentPayload) => {
-                if (sessionAuthorityRetired || !socket.rooms.has(STATUS_ROOMS.authenticated)
-                    || !systemService.isReady()) return;
-                const sessionId = socket.userSession?.id;
-                const worldId = socket.userSession?.worldId;
-                if (!sessionId || !worldId) return;
-                sharedContentStore.set(sessionId, worldId, payload);
-                emitWorldBackedEvent('sharedContentUpdate', payload);
-            };
-            // Foundry sends selected shares to each selected user's socket and
-            // omits the recipient list on the relay. Only this caller-bound
-            // transport can authorize the browser and its HTTP snapshot.
-            const handleShareImage = (raw: unknown) => {
-                if (!raw || typeof raw !== 'object') return;
-                const event = raw as { data?: { image?: unknown; title?: unknown }; timestamp?: unknown; shareId?: unknown };
-                if (typeof event.data?.image !== 'string' || !event.data.image) return;
-                deliverShare({
-                    type: 'image',
-                    data: {
-                        url: event.data.image,
-                        title: typeof event.data.title === 'string' ? event.data.title : undefined,
-                    },
-                    timestamp: typeof event.timestamp === 'number' ? event.timestamp : Date.now(),
-                    shareId: typeof event.shareId === 'string' ? event.shareId : undefined,
-                });
-            };
-            const handleShowEntry = (raw: unknown) => {
-                if (!raw || typeof raw !== 'object') return;
-                const event = raw as { uuid?: unknown; timestamp?: unknown; shareId?: unknown };
-                if (typeof event.uuid !== 'string') return;
-                const parts = event.uuid.split('.');
-                if (parts[0] !== 'JournalEntry' || !parts[1]
-                    || (parts.length !== 2 && (parts.length !== 4 || parts[2] !== 'JournalEntryPage' || !parts[3]))) return;
-                deliverShare({
-                    type: 'journal',
-                    data: { id: parts[1], uuid: event.uuid, pageId: parts[3] },
-                    timestamp: typeof event.timestamp === 'number' ? event.timestamp : Date.now(),
-                    shareId: typeof event.shareId === 'string' ? event.shareId : undefined,
-                });
-            };
+            const unsubscribeShares = sharedContentStore.onChanged(update => {
+                if (update.sessionId !== socket.playerSessionId
+                    || update.worldId !== socket.userSession?.worldId) return;
+                emitWorldBackedEvent('sharedContentUpdate', update.payload);
+            });
             const handleCombatPreferencesChanged = () => {
                 const subject = userStore.createAccessSubject(getSessionUserId());
-                if (subject && isGM(subject)) emitWorldBackedEvent('combatManagerPreferencesChanged', null);
+                if (subject && isAssistantGM(subject)) emitWorldBackedEvent('combatManagerPreferencesChanged', null);
             };
 
             // Store events are bridged through the system client, not per-user
@@ -310,8 +274,6 @@ export function registerAppSocketGateway({
             systemClient.on('sceneListInvalidated', handleSceneListInvalidated);
             systemClient.on('settingChanged', handleSettingChanged);
             systemClient.on('settingListInvalidated', handleSettingListInvalidated);
-            foundryClient.on('foundry:shareImage', handleShareImage);
-            foundryClient.on('foundry:showEntry', handleShowEntry);
             const unsubscribeCombatPreferences = combatManagerPreferenceEvents.onChanged(handleCombatPreferencesChanged);
 
             let detached = false;
@@ -344,8 +306,7 @@ export function registerAppSocketGateway({
                 systemClient.off('sceneListInvalidated', handleSceneListInvalidated);
                 systemClient.off('settingChanged', handleSettingChanged);
                 systemClient.off('settingListInvalidated', handleSettingListInvalidated);
-                foundryClient.off('foundry:shareImage', handleShareImage);
-                foundryClient.off('foundry:showEntry', handleShowEntry);
+                unsubscribeShares();
                 unsubscribeCombatPreferences();
             };
             detachWorldBackedListeners = detachListeners;

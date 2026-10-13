@@ -1,5 +1,7 @@
 import { strict as assert } from 'node:assert';
 import { SharedContentStore, type SharedContentPayload } from '@server/core/world/SharedContentStore';
+import { EventEmitter } from 'node:events';
+import { attachSharedContentIngress } from '@server/services/utility/SharedContentIngress';
 
 const image = (): SharedContentPayload => ({
     type: 'image',
@@ -13,7 +15,10 @@ export async function run() {
 
     const input = image();
     store.set('alice', 'world-a', input);
-    assert.deepEqual(store.getCurrent('alice', 'world-a'), image());
+    const first = store.getCurrent('alice', 'world-a')!;
+    assert.deepEqual(first.data, image().data);
+    assert.equal(first.sequence, 1);
+    assert.ok(first.streamId);
     assert.equal(store.getCurrent('bob', 'world-a'), null, 'another recipient sees no share');
     assert.equal(store.getCurrent('alice', 'world-b'), null, 'another world sees no share');
 
@@ -29,6 +34,31 @@ export async function run() {
 
     store.clear('world-closed');
     assert.equal(store.getCurrent('bob', 'world-a'), null);
+    const client = new EventEmitter();
+    let authorized = true;
+    const receipts: SharedContentPayload[] = [];
+    const unsubscribe = store.onChanged(update => receipts.push(update.payload));
+    const detach = attachSharedContentIngress(client, {
+        sessionId: 'alice', worldId: 'world-a', isCurrent: () => authorized,
+    }, store);
+    // No app browser is attached. The retained user session still records shares.
+    client.emit('foundry:shareImage', { data: { image: '/a.png' }, shareId: 'one' });
+    client.emit('foundry:shareImage', { data: { image: '/a.png' }, shareId: 'one' });
+    assert.equal(receipts.length, 1, 'duplicate receipt does not create another presentation');
+    client.emit('foundry:shareImage', { data: { image: '/a.png' }, shareId: 'two' });
+    assert.equal(store.getCurrent('alice', 'world-a')?.sequence, 2, 'identical URL can be shared again');
+    client.emit('foundry:showEntry', { uuid: 'JournalEntry.j.JournalEntryPage.p', shareId: 'three' });
+    assert.equal(store.getCurrent('alice', 'world-a')?.data?.pageId, 'p');
+    assert.equal(store.getCurrent('bob', 'world-a'), null);
+    client.emit('foundry:showEntry', { uuid: 'Actor.secret', shareId: 'bad' });
+    assert.equal(receipts.length, 3);
+    authorized = false;
+    client.emit('foundry:shareImage', { data: { image: '/retired.png' }, shareId: 'four' });
+    assert.equal(receipts.length, 3, 'retired authority cannot ingest late shares');
+    detach();
+    unsubscribe();
+    assert.equal(client.listenerCount('foundry:shareImage'), 0);
+    assert.equal(client.listenerCount('foundry:showEntry'), 0);
     console.log('  - SharedContentStore: all checks passed');
 }
 

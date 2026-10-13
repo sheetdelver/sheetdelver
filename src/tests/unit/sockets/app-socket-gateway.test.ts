@@ -7,6 +7,8 @@ import { FoundryUserRole } from '@server/core/documents/primary/base/ownership';
 import type { SystemStatusPayload } from '@shared/contracts/status';
 import { PLAYER_SESSION_COOKIE_NAME } from '@server/security/playerSessionCookie';
 import { sharedContentStore } from '@server/core/world/SharedContentStore';
+import { attachSharedContentIngress } from '@server/services/utility/SharedContentIngress';
+import { combatManagerPreferenceEvents } from '@server/services/combats/CombatManagerPreferenceEvents';
 import type {
     FoundrySessionInvalidationEvent,
     FoundrySessionInvalidationListener,
@@ -184,7 +186,7 @@ async function runGatewayTests() {
 
         assert.ok(emitted.some((entry) => entry.event === 'systemStatus'));
         // Document updates flow through the system Store bridges. Native share
-        // events alone are attached to the caller's Foundry transport.
+        // receipt lifetime belongs to the user session, outside the gateway.
         // The system client carries Store-bridged events:
         //   actorChanged + actorListInvalidated
         //   + chatMessageChanged + chatMessageListInvalidated
@@ -198,19 +200,17 @@ async function runGatewayTests() {
         //   + cardsChanged + cardsListInvalidated
         //   + sceneChanged + sceneListInvalidated
         //   + settingChanged + settingListInvalidated = 26.
-        assert.deepEqual(attachedHandlers.map(entry => entry.event), ['foundry:shareImage', 'foundry:showEntry']);
+        assert.deepEqual(attachedHandlers, [], 'gateway does not attach upstream receipt handlers');
         assert.equal(systemAttachedHandlers.length, 26);
         assert.ok(systemAttachedHandlers.some((entry) => entry.event === 'actorListInvalidated'));
         assert.ok(systemAttachedHandlers.some((entry) => entry.event === 'sceneListInvalidated'));
         assert.ok(systemAttachedHandlers.some((entry) => entry.event === 'settingListInvalidated'));
         assert.ok(browserCounts.includes(1));
 
-        const shareImage = attachedHandlers.find(entry => entry.event === 'foundry:shareImage')?.handler;
-        assert.ok(shareImage);
-        shareImage!({ data: { image: '/worlds/w1/map.webp', title: 'Map' }, timestamp: 123, shareId: 'share-1' });
-        assert.deepEqual(sharedContentStore.getCurrent('valid-token', 'w1'), {
+        sharedContentStore.set('valid-token', 'w1', {
             type: 'image', data: { url: '/worlds/w1/map.webp', title: 'Map' }, timestamp: 123, shareId: 'share-1',
         });
+        assert.equal(sharedContentStore.getCurrent('valid-token', 'w1')?.shareId, 'share-1');
         assert.equal(sharedContentStore.getCurrent('other-token', 'w1'), null);
         assert.equal(emitted.filter(entry => entry.event === 'sharedContentUpdate').length, 1);
 
@@ -272,6 +272,16 @@ async function runGatewayTests() {
             settingEventCount,
         );
 
+        userStore.patch('user-1', { role: FoundryUserRole.ASSISTANT });
+        combatManagerPreferenceEvents.changed();
+        assert.equal(emitted.filter(entry => entry.event === 'combatManagerPreferencesChanged').length, 1,
+            'Assistant receives shared manager preference invalidation');
+        userStore.patch('user-1', { role: FoundryUserRole.TRUSTED });
+        combatManagerPreferenceEvents.changed();
+        assert.equal(emitted.filter(entry => entry.event === 'combatManagerPreferencesChanged').length, 1,
+            'role downgrade removes preference fan-out immediately');
+        userStore.patch('user-1', { role: FoundryUserRole.GAMEMASTER });
+
         // An unrelated session event leaves this socket authorized. Its own
         // invalidation immediately strips rooms, references, and listeners.
         for (const listener of invalidationListeners) {
@@ -314,7 +324,7 @@ async function runGatewayTests() {
         socket.connected = false;
         for (const handler of socketHandlers.get('disconnect') ?? []) handler();
 
-        assert.equal(detachedHandlers.length, 2);
+        assert.equal(detachedHandlers.length, 0);
         assert.equal(systemDetachedHandlers.length, 26);
         assert.ok(systemDetachedHandlers.some((entry) => entry.event === 'actorListInvalidated'));
         assert.ok(systemDetachedHandlers.some((entry) => entry.event === 'sceneListInvalidated'));
@@ -431,6 +441,8 @@ async function runCrossUserShareIsolation() {
     const originalGetSystemClient = (systemService as any).getSystemClient;
     const originalIsReady = (systemService as any).isReady;
     const originalSetActiveBrowserCount = engagementService.setActiveBrowserCount;
+    const detachShares = ['a', 'b'].map(id => attachSharedContentIngress(clients.get(id)! as any,
+        { sessionId: id, worldId: 'w1', isCurrent: () => clients.has(id) }));
     try {
         (systemService as any).getSystemClient = () => ({ on: () => undefined, off: () => undefined });
         (systemService as any).isReady = () => true;
@@ -469,6 +481,7 @@ async function runCrossUserShareIsolation() {
         assert.equal(sharedContentStore.getCurrent('a', 'w1')?.data?.url, '/private/a.webp');
         assert.equal(emissions.get('b')!.filter(event => event === 'sharedContentUpdate').length, 1);
     } finally {
+        for (const detach of detachShares) detach();
         sharedContentStore.clear('cross-user-share-test');
         (systemService as any).getSystemClient = originalGetSystemClient;
         (systemService as any).isReady = originalIsReady;

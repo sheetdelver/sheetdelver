@@ -16,7 +16,7 @@ import {
 } from '../base/audience';
 import {
     DocumentOwnershipLevel,
-    isGM,
+    isAssistantGM,
     type DocumentAccessSubject,
     type ResolvedDocumentOwnershipLevel,
 } from '../base/ownership';
@@ -116,7 +116,7 @@ export class FolderStore extends PrimaryDocumentStore<FolderDocument> {
         folder: FolderDocument,
         subject: DocumentAccessSubject,
     ): ResolvedDocumentOwnershipLevel {
-        if (isGM(subject)) return DocumentOwnershipLevel.OWNER;
+        if (isAssistantGM(subject)) return DocumentOwnershipLevel.OWNER;
         return this.resolveFolderPermission(folder, subject, new Set<string>());
     }
 

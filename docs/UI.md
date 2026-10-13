@@ -36,7 +36,12 @@ The persistent layout mounts one shared-content host outside page-filtered
 panels. Image shares use a viewport-bounded dialog; journal shares open the
 authorized entry/page in `JournalModal`. Dismissal is scoped to user, world and
 share identity across route changes. SDK `SharedContentModal` remains a
-compatibility delegate, not a second overlay. Actor-page chat/dice may use the
+compatibility delegate, not a second overlay. Images and shared journals replace
+each other, and journal replies are guarded by request/share identity. Each new
+image receipt owns its loading state, including cached identical URLs. Both
+dialogs contain keyboard focus, close on Escape and restore the prior control.
+Only one dismissal record is kept per tab; storage denial still permits closing.
+Actor-page chat/dice may use the
 currently owned Actor as speaker; the server verifies Actor ownership while
 the authenticated user remains the message author.
 

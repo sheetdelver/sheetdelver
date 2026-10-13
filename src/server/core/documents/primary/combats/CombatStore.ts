@@ -14,7 +14,7 @@ import { unionDocumentAudiences } from '../base/audience';
 import {
     DOCUMENT_VISIBILITY,
     DocumentOwnershipLevel,
-    isGM,
+    isAssistantGM,
     type DocumentAccessSubject,
     type ResolvedDocumentOwnershipLevel,
 } from '../base/ownership';
@@ -157,7 +157,7 @@ export class CombatStore extends PrimaryDocumentStore<CombatDocument> {
         combat: CombatDocument,
         subject: DocumentAccessSubject,
     ): ResolvedDocumentOwnershipLevel {
-        if (isGM(subject)) return DocumentOwnershipLevel.OWNER;
+        if (isAssistantGM(subject)) return DocumentOwnershipLevel.OWNER;
 
         // Without an ActorStore binding we can't cross-check; fail closed for non-GMs.
         if (!this.actorStore) return DocumentOwnershipLevel.NONE;

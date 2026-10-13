@@ -7,6 +7,8 @@ import { useSession } from '@client/ui/context/SessionContext';
 import { useConfig } from '@client/ui/context/ConfigContext';
 import { useUI } from '@client/ui/context/UIContext';
 import type { RealtimeSharedContentPayload } from '@shared/contracts/realtime';
+import { readDismissedShare, sharedContentKey } from '@client/ui/context/sharedContentState';
+import { useModalFocus } from '@client/ui/hooks/useModalFocus';
 
 /** One world-scoped presentation owner, mounted in the persistent player layout. */
 export function SharedContentHost() {
@@ -15,23 +17,28 @@ export function SharedContentHost() {
     const { resolveImageUrl } = useConfig();
     const {
         dismissedShareKey, dismissSharedContent, setActiveShareKey,
-        setActiveJournalId, setSharedJournalId, setSharedJournalPageId,
+        activeShareKey, activeJournalId, sharedJournalId, setActiveJournalId, setSharedJournalId, setSharedJournalPageId,
     } = useUI();
     const [image, setImage] = useState<RealtimeSharedContentPayload | null>(null);
-    const [imageState, setImageState] = useState<'loading' | 'ready' | 'error'>('loading');
     const lastPresentedKey = useRef<string | null>(null);
-    const dialogRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         if (!worldId || !currentUserId || !sharedContent?.type) {
             lastPresentedKey.current = null;
             setImage(null);
+            if (sharedJournalId) {
+                if (activeJournalId === sharedJournalId) setActiveJournalId(null);
+                setSharedJournalId(null);
+                setSharedJournalPageId(null);
+                setActiveShareKey(null);
+            }
             return;
         }
-        const identity = sharedContent.shareId ?? `${sharedContent.timestamp ?? 0}:${sharedContent.type}`;
-        const key = `sheetdelver:dismissed-share:${JSON.stringify([worldId, currentUserId, identity])}`;
-        if (lastPresentedKey.current === key || dismissedShareKey === key
-            || window.sessionStorage.getItem(key) === 'dismissed') return;
+        const key = sharedContentKey(worldId, currentUserId, sharedContent);
+        let remembered: string | null = null;
+        try { remembered = readDismissedShare(window.sessionStorage); } catch { /* In-memory state suffices. */ }
+        if (lastPresentedKey.current === key || dismissedShareKey === key || remembered === key) return;
+        if (sharedContent.type === 'journal' && (typeof sharedContent.data?.id !== 'string' || !sharedContent.data.id)) return;
         lastPresentedKey.current = key;
         setActiveShareKey(key);
         if (sharedContent.type === 'journal') {
@@ -43,30 +50,35 @@ export function SharedContentHost() {
             setSharedJournalId(id);
             setActiveJournalId(id);
         } else if (sharedContent.type === 'image') {
-            setImageState('loading');
+            setActiveJournalId(null);
+            setSharedJournalId(null);
+            setSharedJournalPageId(null);
             setImage(sharedContent);
         }
-    }, [worldId, currentUserId, sharedContent, dismissedShareKey,
+    }, [worldId, currentUserId, sharedContent, dismissedShareKey, activeJournalId, sharedJournalId,
         setActiveShareKey, setActiveJournalId, setSharedJournalId, setSharedJournalPageId]);
 
     useEffect(() => {
-        if (!image) return;
-        dialogRef.current?.focus();
-        const onKeyDown = (event: KeyboardEvent) => {
-            if (event.key === 'Escape') {
-                event.preventDefault();
-                dismissSharedContent();
-                setImage(null);
-            }
-        };
-        document.addEventListener('keydown', onKeyDown);
-        return () => document.removeEventListener('keydown', onKeyDown);
-    }, [image, dismissSharedContent]);
+        if (image && activeJournalId) {
+            dismissSharedContent();
+            setImage(null);
+        }
+    }, [image, activeJournalId, dismissSharedContent]);
 
     if (!image || image.type !== 'image') return null;
     const close = () => { dismissSharedContent(); setImage(null); };
     const imageUrl = resolveImageUrl(image.data?.url || '');
     const title = image.data?.title || 'Shared image';
+    // Only the asset remounts per receipt. Keep the dialog's focus lifetime
+    // intact when replacing an already-open share.
+    return <SharedImageDialog assetKey={activeShareKey} imageUrl={imageUrl} title={title} close={close} />;
+}
+
+function SharedImageDialog({ assetKey, imageUrl, title, close }: {
+    assetKey: string | null; imageUrl: string; title: string; close: () => void;
+}) {
+    const dialogRef = useRef<HTMLDivElement>(null);
+    useModalFocus(dialogRef, true, close);
 
     return (
         <div className="sd-ui-overlay fixed inset-0 z-[220] flex items-center justify-center p-4 backdrop-blur-sm"
@@ -79,15 +91,20 @@ export function SharedContentHost() {
                     <button type="button" onClick={close} className="sd-ui-button shrink-0 rounded-lg p-2"
                         aria-label="Close shared image"><X className="h-5 w-5" /></button>
                 </div>
-                <div className="flex min-h-0 items-center justify-center overflow-auto p-3">
-                    {imageUrl && imageState === 'loading' && <p role="status">Loading image…</p>}
-                    {imageState === 'error' && <p role="alert">This image could not be loaded.</p>}
-                    {imageUrl && <img src={imageUrl} alt={title}
-                        onLoad={() => setImageState('ready')} onError={() => setImageState('error')}
-                        className={`max-h-[calc(100dvh-8rem)] max-w-full object-contain ${imageState === 'ready' ? '' : 'hidden'}`} />}
-                    {!imageUrl && <p role="alert">This image has no available URL.</p>}
-                </div>
+                <SharedImageAsset key={assetKey} imageUrl={imageUrl} title={title} />
             </div>
         </div>
     );
+}
+
+function SharedImageAsset({ imageUrl, title }: { imageUrl: string; title: string }) {
+    const [imageState, setImageState] = useState<'loading' | 'ready' | 'error'>('loading');
+    return <div className="flex min-h-0 items-center justify-center overflow-auto p-3">
+        {imageUrl && imageState === 'loading' && <p role="status">Loading image…</p>}
+        {imageState === 'error' && <p role="alert">This image could not be loaded.</p>}
+        {imageUrl && <img src={imageUrl} alt={title}
+            onLoad={() => setImageState('ready')} onError={() => setImageState('error')}
+            className={`max-h-[calc(100dvh-8rem)] max-w-full object-contain ${imageState === 'ready' ? '' : 'hidden'}`} />}
+        {!imageUrl && <p role="alert">This image has no available URL.</p>}
+    </div>;
 }

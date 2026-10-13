@@ -23,7 +23,7 @@ import type { ActorDocument } from '@server/shared/types/actors';
 
 type Call = { type: string; action: string; operation: Record<string, any>; parent?: { type: string; id: string } };
 
-function mockClient(userId: string, calls: Call[]): CombatClientLike {
+export function mockClient(userId: string, calls: Call[]): CombatClientLike {
     let combatNumber = 0;
     let folderNumber = 0;
     let actorNumber = 0;
@@ -64,9 +64,11 @@ function mockClient(userId: string, calls: Call[]): CombatClientLike {
     } as unknown as CombatClientLike;
 }
 
-async function seed(): Promise<void> {
+export async function seed(): Promise<void> {
     await userStore.seed(async () => [
-        { _id: 'gm', role: 4 }, { _id: 'assistant', role: 3 }, { _id: 'player', role: 1 },
+        { _id: 'gm', role: 4, permissions: { ACTOR_CREATE: true, FILES_BROWSE: true } },
+        { _id: 'assistant', role: 3, permissions: { ACTOR_CREATE: true, FILES_BROWSE: true } },
+        { _id: 'player', role: 1 }, { _id: 'trusted', role: 2 }, { _id: 'banned', role: 0 },
     ]);
     await actorStore.seed(async () => [{
         _id: 'WORLDNPC', name: 'Ongoing NPC', type: 'npc', img: 'npc.webp',
@@ -114,7 +116,7 @@ export async function run(): Promise<void> {
     const assistant = mockClient('assistant', calls);
     const player = mockClient('player', calls);
 
-    for (const restricted of [assistant, player]) {
+    for (const restricted of [player, mockClient('trusted', calls), mockClient('banned', calls)]) {
         await assert.rejects(() => combatManagerService.list(restricted), (error: unknown) => error instanceof CombatManagerError && error.status === 403);
         await assert.rejects(() => combatManagerService.statPreferences(restricted), (error: unknown) => error instanceof CombatManagerError && error.status === 403);
         await assert.rejects(() => combatManagerService.saveStatPreferences(restricted, []), (error: unknown) => error instanceof CombatManagerError && error.status === 403);
@@ -164,7 +166,7 @@ export async function run(): Promise<void> {
     assert.equal(folderStore.get(rootId)?.type, 'Actor');
     assert.deepEqual((folderStore.get(rootId)?.flags as any)?.world?.sheetDelverCombatRoot, { schemaVersion: 1 });
 
-    await assert.rejects(() => combatManagerService.rename(assistant, combatId, 'Unauthorized'),
+    await assert.rejects(() => combatManagerService.rename(player, combatId, 'Unauthorized'),
         (error: unknown) => error instanceof CombatManagerError && error.status === 403);
     const renameCollision = await combatManagerService.create(gm, 'Reserved label', false);
     await assert.rejects(() => combatManagerService.rename(gm, combatId, 'Reserved label'),
@@ -203,8 +205,8 @@ export async function run(): Promise<void> {
         () => managedTurns.previousTurn(gm, combatId, true)), { success: true, round: 0, turn: 0 });
     assert.equal(combatStore.get(combatId)?.active, false, 'rewinding to unstarted deactivates the Combat');
     await combatManagerService.turn(gm, combatId, () => managedTurns.advanceTurn(gm, combatId, true));
-    await assert.rejects(() => combatManagerService.turn(assistant, combatId,
-        () => managedTurns.advanceTurn(assistant, combatId, true)),
+    await assert.rejects(() => combatManagerService.turn(player, combatId,
+        () => managedTurns.advanceTurn(player, combatId, true)),
     (error: unknown) => error instanceof CombatManagerError && error.status === 403);
     assert.equal((await combatManagerService.detail(gm, combatId)).participants[0].source, 'world');
     assert.equal((await combatManagerService.detail(gm, combatId)).participants[0].actorId, 'WORLDNPC');
@@ -301,7 +303,7 @@ export async function run(): Promise<void> {
         'Compendium.test.monsters.Actor.PACK1');
     assert.equal(copies[0].resource?.value, 18);
     const observedCopy = { actorId: copies[0].actorId, path: copies[0].resource!.path, value: copies[0].resource!.value };
-    await assert.rejects(() => combatManagerService.updateResource(assistant, combatId, copies[0].id,
+    await assert.rejects(() => combatManagerService.updateResource(player, combatId, copies[0].id,
         { value: 7, expected: observedCopy }), (error: unknown) => error instanceof CombatManagerError && error.status === 403);
     await assert.rejects(() => combatManagerService.updateResource(gm, combatId, copies[0].id, { value: 7 }),
         (error: unknown) => error instanceof CombatManagerError && error.status === 400);
@@ -405,8 +407,8 @@ export async function run(): Promise<void> {
         { error: 'Encounter is not active', status: 409 },
         'legacy turn endpoint cannot mutate retained history');
     assert.deepEqual(await managedTurns.advanceTurn(assistant, retained.id),
-        { error: 'Gamemaster access required', status: 403 },
-        'assistant cannot bypass manager restriction through legacy turn endpoint');
+        { error: 'Encounter is not active', status: 409 },
+        'Assistant also cannot mutate retained history through legacy turn endpoint');
     await assert.rejects(() => combatManagerService.resetInitiative(gm, retained.id),
         (error: unknown) => error instanceof CombatManagerError && error.status === 409);
     const retainedRowId = (await combatManagerService.detail(gm, retained.id)).participants[0].id;
@@ -433,7 +435,7 @@ export async function run(): Promise<void> {
             { parentUuid: `Combat.${batch.id}` });
         return { success: true as const, initiative: rolledIds.length * 10 };
     };
-    await assert.rejects(() => combatManagerService.rollInitiativeBatch(assistant, batch.id, 'npc', rollOne),
+    await assert.rejects(() => combatManagerService.rollInitiativeBatch(player, batch.id, 'npc', rollOne),
         (error: unknown) => error instanceof CombatManagerError && error.status === 403);
     await assert.rejects(() => combatManagerService.rollInitiativeBatch(gm, batch.id, 'invalid', rollOne),
         (error: unknown) => error instanceof CombatManagerError && error.status === 400);
@@ -472,7 +474,7 @@ export async function run(): Promise<void> {
     const npcRowId = batchRoster.find(row => row.actorId === 'WORLDNPC')!.id;
     const playerRowId = batchRoster.find(row => row.actorId === 'PLAYERPC')!.id;
     const rollsBeforeSingle = rolledIds.length;
-    await assert.rejects(() => combatManagerService.rollInitiativeOne(assistant, batch.id, npcRowId, rollOne),
+    await assert.rejects(() => combatManagerService.rollInitiativeOne(player, batch.id, npcRowId, rollOne),
         (error: unknown) => error instanceof CombatManagerError && error.status === 403);
     await assert.rejects(() => combatManagerService.rollInitiativeOne(gm, 'UNMARKED', npcRowId, rollOne),
         (error: unknown) => error instanceof CombatManagerError && error.status === 404);
@@ -487,7 +489,7 @@ export async function run(): Promise<void> {
     await combatManagerService.updateParticipant(gm, batch.id, playerRowId, { initiative: null });
     assert.equal((await combatManagerService.detail(gm, batch.id)).participants.find(row => row.id === playerRowId)?.initiative, null,
         'per-row Clear uses the guarded manager participant update');
-    await assert.rejects(() => combatManagerService.resetInitiative(assistant, batch.id),
+    await assert.rejects(() => combatManagerService.resetInitiative(player, batch.id),
         (error: unknown) => error instanceof CombatManagerError && error.status === 403);
     await assert.rejects(() => combatManagerService.resetInitiative(gm, 'UNMARKED'),
         (error: unknown) => error instanceof CombatManagerError && error.status === 404);
@@ -566,7 +568,7 @@ export async function run(): Promise<void> {
         const expectedLinked = { actorId: linked.actorId, path: linked.stats[0].edit!.path,
             value: linked.stats[0].edit!.value };
         const statWrites = calls.filter(call => call.type === 'Actor' && call.action === 'update').length;
-        await assert.rejects(() => combatManagerService.updateStat(assistant, editableEncounter.id,
+        await assert.rejects(() => combatManagerService.updateStat(player, editableEncounter.id,
             linked.id, 'hp', { value: 20, expected: expectedLinked }),
         (error: unknown) => error instanceof CombatManagerError && error.status === 403);
         await assert.rejects(() => combatManagerService.updateStat(gm, editableEncounter.id,
@@ -604,7 +606,7 @@ export async function run(): Promise<void> {
             { combatantId: thirdCopy.id, statKey: 'hp', expected: { actorId: thirdCopy.actorId,
                 path: thirdCopy.stats[0].edit!.path, value: thirdCopy.stats[0].edit!.value } },
         ];
-        await assert.rejects(() => combatManagerService.applyHealthBatch(assistant, editableEncounter.id,
+        await assert.rejects(() => combatManagerService.applyHealthBatch(player, editableEncounter.id,
             { operation: 'damage', amount: 3, targets: healthTargets }),
         (error: unknown) => error instanceof CombatManagerError && error.status === 403);
         await assert.rejects(() => combatManagerService.applyHealthBatch(gm, editableEncounter.id,
@@ -685,7 +687,7 @@ export async function run(): Promise<void> {
     await combatManagerService.complete(gm, newerHistory.id);
     const historyIds = (await combatManagerService.list(gm)).filter(row => row.status === 'completed').map(row => row.id);
     assert.deepEqual(historyIds.slice(0, 2), [newerHistory.id, retained.id], 'completed history is newest first');
-    await assert.rejects(() => combatManagerService.destroy(assistant, newerHistory.id),
+    await assert.rejects(() => combatManagerService.destroy(player, newerHistory.id),
         (error: unknown) => error instanceof CombatManagerError && error.status === 403);
     sceneStore.applyModifyDocument('Scene', 'create', [{ _id: 'HISTORYSCENE', tokens: [{ _id: 'HISTORYTOKEN', actorId: historyCopy }] }]);
     await assert.rejects(() => combatManagerService.destroy(gm, newerHistory.id),

@@ -72,18 +72,16 @@ export async function run() {
         data: { url: '/worlds/test/map.webp', title: 'Map' },
         timestamp: 123,
     });
+    const receipt = sharedContentStore.getCurrent('player-session', 'world-a')!;
     const shared = await utilityService.getSharedContent(createClient(async () => null), 'player-session', 'world-a');
     assert.deepEqual(shared, {
-        type: 'image',
+        ...receipt,
         data: { url: 'https://foundry.test/worlds/test/map.webp', title: 'Map' },
-        timestamp: 123,
     });
 
-    assert.deepEqual(sharedContentStore.getCurrent('player-session', 'world-a'), {
-        type: 'image',
-        data: { url: '/worlds/test/map.webp', title: 'Map' },
-        timestamp: 123,
-    });
+    assert.deepEqual(sharedContentStore.getCurrent('player-session', 'world-a'), receipt);
+    assert.equal(receipt.data?.url, '/worlds/test/map.webp');
+    assert.equal(receipt.sequence, 1);
 
     assert.deepEqual(await utilityService.getSharedContent(fallbackClient, 'other-session', 'world-a'), { type: null });
     assert.deepEqual(await utilityService.getSharedContent(fallbackClient, 'player-session', 'world-b'), { type: null });

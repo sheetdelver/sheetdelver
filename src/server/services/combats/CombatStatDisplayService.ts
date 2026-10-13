@@ -8,6 +8,7 @@ import { worldStateStore } from '@server/core/world/WorldStateStore';
 import { listModules } from '@modules/registry/server';
 import { combatStatPreferenceStore } from './CombatStatPreferenceStore';
 import { combatManagerPreferenceEvents } from './CombatManagerPreferenceEvents';
+import { requireCombatManagerSubject } from './CombatManagerAccess';
 
 function readPath(actor: unknown, path: string): unknown {
     if (!isSafeCombatStatPath(path)) return null;
@@ -173,6 +174,7 @@ export const combatStatDisplayService = {
     async save(client: CombatClientLike, attributes: unknown): Promise<CombatManagerStatPreferencesDto | null> {
         const scope = await activeScope(client);
         if (!scope) return null;
+        requireCombatManagerSubject(client.userId);
         const parsed = parseCombatStatSelection(attributes);
         if (!parsed) throw new Error('Invalid combat-stat selection');
         combatStatPreferenceStore.set(scope.worldId, scope.moduleId, parsed);
@@ -182,6 +184,7 @@ export const combatStatDisplayService = {
     async reset(client: CombatClientLike): Promise<CombatManagerStatPreferencesDto | null> {
         const scope = await activeScope(client);
         if (!scope) return null;
+        requireCombatManagerSubject(client.userId);
         combatStatPreferenceStore.reset(scope.worldId, scope.moduleId);
         combatManagerPreferenceEvents.changed();
         return resolve(client);
@@ -189,6 +192,7 @@ export const combatStatDisplayService = {
     async saveInitiativeFormula(client: CombatClientLike, formula: string | null): Promise<CombatManagerStatPreferencesDto | null> {
         const scope = await activeScope(client);
         if (!scope) return null;
+        requireCombatManagerSubject(client.userId);
         combatStatPreferenceStore.setInitiativeFormula(scope.worldId, scope.moduleId, formula);
         combatManagerPreferenceEvents.changed();
         return resolve(client);

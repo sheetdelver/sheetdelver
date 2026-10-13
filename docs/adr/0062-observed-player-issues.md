@@ -238,8 +238,8 @@ The user's clarified rule is to follow **Foundry's permission for the actual
 document operation**, including any limit it imposes. Assistant is GM-like for
 many operations, but this is not an unconditional grant to every document or
 every kind of private content. No further product choice between blanket GM
-access and manager-only bypasses is needed. C4 remains unimplemented; this
-review clarifies the required implementation, not an already-effective grant.
+access and manager-only bypasses is needed. The implementation follow-up below
+records C4's applied boundaries; native acceptance remains pending.
 
 Native source matrix (v13.351/v14.367):
 
@@ -281,6 +281,19 @@ The broader chat-visibility discrepancy found during consumer review is recorded
 below as a separate existing behavior. C4 must not amplify it through a global
 role substitution; any correction beyond the manager's dependencies needs its
 own bounded review.
+
+October 13 implementation clarification: the user reaffirmed that the relevant
+document policies must match Foundry, after automatic approval review rejected
+an Actor authorization patch as broader than the manager. Native world Actor
+OWNER capability applies to Assistant reads/updates through sheets and SDK
+readers as well as manager requests; a default-private encounter copy cannot be
+managed consistently otherwise. Apply that explicit Actor policy and native
+Combat/Folder capabilities at their Stores and authorized projections. Keep the
+legacy shared ownership helper unchanged, so this correction does not silently
+alter Item/Scene/Journal/Chat or administrative policies. Test the changed
+Stores, ActorService, SDK readers, manager operations and realtime audiences;
+record remaining type-specific discrepancies separately. Pack access and
+Actor-create/wildcard checks remain version-specific native limits.
 
 ### 7. Keep module corrections module-owned
 
@@ -484,3 +497,154 @@ new media components or prove native permissions, so they do not close the
 findings above. No code was revised in this review and no live service was
 started, stopped or contacted. Checkpoint commits preserve the work for the
 next implementation pass; they are not release/acceptance approval.
+
+### October 13, 2026 — R1–R5 and C4 implementation follow-up
+
+- [x] R1: each image receipt remounts only its loading-state/asset owner,
+  including an identical cached URL. Old image callbacks belong to the retired
+  instance; the dialog retains its focus lifetime across replacement.
+- [x] R2: image/journal replacement clears the prior presentation. Journal
+  reads and save refreshes use a request revision; a closed or superseded
+  same-entry request cannot select an old page or restore the old dialog.
+- [x] R3: image and journal dialogs share Core keyboard/focus handling, including
+  Escape, Tab containment and focus restoration. Dismissal uses one bounded
+  per-tab storage record; denied storage falls back to in-memory dismissal.
+- [x] R4: `FoundryUserConnectionService` attaches `SharedContentIngress` once
+  for the user-session lifetime and removes it on retirement. The Store keeps
+  one latest receipt for that session/world even between browser connections.
+  The gateway subscribes to scoped Store changes; multiple tabs do not install
+  duplicate upstream receipt listeners. Stream/sequence ordering and a local
+  receipt revision prevent delayed HTTP replies from replacing newer realtime
+  delivery or retired state. No service-account receipt is fanned out.
+- [x] C4: ActorStore/ActorService now resolve native Assistant world Actor
+  operation capability; Combat/Folder Stores and manager UI/routes/projections
+  admit Assistant. The shared ownership helper and other type-specific
+  chat/journal/settings policies are unchanged. Copy/pack preflights use current
+  release, User, Setting and pack data. Dispatches and durable preference
+  writes recheck current authority, use caller transports and retain partial
+  failure/retry reporting. Realtime Actor/Combat/Folder audiences follow the
+  changed Store policies; preference invalidation includes current Assistants
+  and stops after downgrade.
+- [x] R5 media compatibility: Shadowdark/Mörk Borg retain their SDK media mounts
+  for older compatible Core releases; the new Core component remains inert. Review
+  additionally found Shadowdark's already-required module-api 1.3 was absent
+  from its pinned Core 0.15.1 toolchain (module-api 1.2). The first released
+  implementation is Core 0.16.0, verified against its tracked contract authority.
+  The user approved **Core 0.17.0** for Shadowdark's minimum and CI/release pins;
+  the future 0.18.0 HUD reconciliation is separate. Isolated released 0.16.0
+  and 0.17.0 checks also exposed module-local Actor/roll typing errors hidden
+  by the root `data/` exclusion, not an SDK version difference. Module-owned
+  hook types, the existing random-gear table's array guard and concrete test
+  assertions now respect the neutral SDK bags without widening Core's SDK or
+  changing roll formulas. Mörk Borg stays at 0.14.2; its card resources likewise
+  use module-owned types and reject non-scalar Silver values. Application,
+  SDK/API and module release versions were not bumped.
+- [ ] C2/C4/C5 native and user acceptance. These implementation checks do not
+  substitute for v13/v14 caller-bound writes and browser recipient checks.
+- [ ] C6 integration with parked HUD/participation branches remains separately
+  authorized work. Follow-up changes on this branch and both companion branches
+  remain uncommitted after the previously recorded checkpoint commits.
+
+Offline regressions cover recipient isolation, independent session receipt,
+duplicate/current receipt identity, delayed/empty/cross-stream HTTP replies,
+retirement, bounded/denied storage, GM/Assistant/player/trusted/banned roles,
+private Actors, hidden participants, pack restrictions, native version-specific
+copy permissions, shared preferences, SDK Actor readers, ActorService,
+invalidation audiences, role downgrade before writes and during a health batch,
+and interrupted cleanup retry. Unrelated private chat/journal/Item/Setting
+policies are asserted unchanged. The isolated browser fixture renders the actual
+media components and verifies cached re-share, focus/Tab/Escape, image/journal
+handoff, same-entry page races and closing before a late response. It connects
+to no Core or Foundry service. Full validation results are recorded at the final
+checkpoint below after the remaining checks finish.
+
+The existing non-roll whisper presentation discrepancy has a **bounded follow-up
+plan**, not an implementation in this pass: compare ordinary whisper visibility
+for author, selected recipients, full GM, Assistant and unrelated player; separate
+that content decision from raw document operation authority; correct ChatService
+list/detail DTOs and non-roll delivery audiences together, preserving distinct
+roll placeholders/result rules. Review SDK/raw-reader consequences before any
+Store policy change. C4 does not extend the existing full-GM behavior to Assistants.
+
+### October 13, 2026 — C0 isolated reproduction and mitigation trial
+
+An actual copied Next/Shell checkout with copied local modules, a local mock
+API/socket server, two isolated browsers and mocked local fonts reproduced the
+incident without starting Core or contacting Foundry. Source files remained
+unchanged throughout each run. After an authenticated Actor page settled:
+
+| Mode / trigger | Existing Actor document | Result |
+| --- | --- | --- |
+| Next 16.3.8 `dev --webpack`, first cold homepage guest visit | `performance.timeOrigin` changed; three main-frame navigation notifications | Reproduced full development document reload, with Fast Refresh output; the Actor URL and mock session identity remained unchanged. |
+| Same development run, repeated warm homepage visit | No navigation or time-origin change | Stable. |
+| `build --webpack` / `next start`, first and repeated homepage guest visits | No navigation or time-origin change | Stable. |
+| Fresh development run, plain homepage GET before the Actor browser opens | No navigation or time-origin change on first or repeated guest visit | Supported homepage-prewarm trial passed for the demonstrated cold-start sequence. |
+
+This confirms cold-route compilation/HMR as the demonstrated trigger, rather
+than login/session replacement. It does not prove all framework refresh behavior
+or later entry-eviction behavior is solved. The user chose **keep C0 open for
+deeper investigation**, not a startup prewarm. No startup, Next configuration
+or lifecycle change was applied. Next investigation should capture the HMR
+message and client bailout/module graph responsible for the cold compilation,
+including later entry eviction, while preserving normal source-edit HMR and
+production lifecycle behavior. C0 correction/acceptance remains open. The
+failed initial fixture attempts involved mock font/status
+setup and are not application regressions. Temporary fixture processes were
+stopped; the user's existing services were untouched.
+
+### October 13, 2026 — final offline verification and remaining acceptance
+
+- [x] Full Core unit/client suites, typecheck and lint pass after the follow-up.
+- [x] Both current local modules pass `module:check`, including typecheck,
+  scoped CSS and logic/UI/server dry bundles.
+- [x] The actual media-component browser fixture passes two consecutive runs
+  after correcting return-focus loss on identical-image replacement: the
+  dialog stays mounted while its asset/loading owner changes. Cached re-share,
+  Tab/Escape/focus, denied storage, image/journal handoff, reversed same-entry
+  responses and late-close checks pass without a Core/Foundry connection.
+- [x] R5 target decision: user approved released Core 0.17.0; Shadowdark's
+  manifest and validation/release workflows agree. Released-baseline checks
+  are required in addition to the root check.
+- [x] Archived Core 0.17.0 + Shadowdark checker, five module regressions and
+  package build pass. Archived Core 0.14.2 + Mörk Borg checker, three regressions
+  and package build pass. Both fixtures use isolated data and existing installed
+  dependencies, not a fresh CI `npm ci`; no service or workflow was launched.
+- [ ] C5 responsive and fresh wizard acceptance; no module was published.
+- [ ] C0 deeper investigation; native C2/C4 checks remain paused pending fresh
+  scoped approval. Do not equate offline tests with native/user acceptance.
+- [ ] C6 parked-branch reconciliation and final user review. No staging, commit,
+  branch mutation or remote operation occurred in this follow-up pass.
+
+User/native acceptance checklist (run only on a user-approved environment):
+
+1. Assistant and full GM: create/rename an encounter, link a private world
+   Actor, copy two NPCs, edit HP, hide/defeat, begin/reset/roll initiative and
+   delete/clean up. Shared stat choices update both managers; linked world
+   Actors survive cleanup. Player/trusted users have no manager access. A
+   role downgrade stops subsequent writes and preference invalidation.
+2. Version-specific limits: native-denied v14 packs cannot be selected/read;
+   v13 revoked `ACTOR_CREATE`/wildcard `FILES_BROWSE` fails before copies land.
+   Do not expect a false v14 override to revoke mandatory Assistant/GM grants.
+3. GM, two players and a guest: all-recipient versus selected-player images and
+   journal pages appear only for authorized recipients. A share to the service
+   account alone does not reach players. Nonrecipient HTTP snapshots expose
+   no share. Unsupported force-only page visibility remains a stated limit.
+4. Re-share an identical image while open and after dismissal; replace image
+   with journal and back; rapidly share two pages of one journal. Test Tab,
+   Escape and focus return, route navigation, tall/wide images and failed loads.
+   Disconnect/reconnect a browser while its user transport is retained: only
+   the latest receipt returns. Logout/new world must clear prior presentation;
+   same-session tabs must not multiply upstream listeners.
+5. Core: sheet chat/dice uses the owned Actor speaker, dashboard uses the user;
+   author and public/private roll visibility stay correct. Verify participant
+   labels/counts, stat-path labels, Tools return, light/dark and world/setup art.
+   Official catalog discovery succeeds with defaults; explicit deny/empty
+   allowlists stay authoritative.
+6. Shadowdark: fresh Light-spell wizard has no three description-linked Gear
+   additions, NPC AC/default stat suggestions are correct, GM overrides survive,
+   and 390/820px titles fit. Mörk Borg: opaque mobile tabs, long weapon/armor
+   wrapping and open/closed Core dock work without changing its sheet palette.
+
+C0 is deliberately not an acceptance claim or startup mitigation; C6 remains
+separately approved integration work. Keep this ADR open until the outstanding
+acceptance and C0 disposition are actually resolved.

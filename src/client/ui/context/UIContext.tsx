@@ -1,6 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
+import { rememberDismissedShare } from './sharedContentState';
 
 interface UIContextType {
     isSettingsOpen: boolean;
@@ -45,7 +46,7 @@ export function UIProvider({ children }: { children: ReactNode }) {
 
     const dismissSharedContent = useCallback(() => {
         if (!activeShareKey) return;
-        window.sessionStorage.setItem(activeShareKey, 'dismissed');
+        try { rememberDismissedShare(window.sessionStorage, activeShareKey); } catch { /* Storage may be unavailable. */ }
         setDismissedShareKey(activeShareKey);
         setActiveShareKey(null);
     }, [activeShareKey]);

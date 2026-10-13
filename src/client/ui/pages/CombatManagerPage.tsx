@@ -61,7 +61,7 @@ type InitiativeEdit = { combatantId: string; expectedValue: number | null; value
 export default function CombatManagerPage() {
     const { currentUser, step, appSocket, worldId, token, system } = useFoundry();
     const bgStyle = useWorldBackground();
-    const isGamemaster = (currentUser?.role ?? 0) >= 4;
+    const isGamemaster = (currentUser?.role ?? 0) >= 3;
     const allowed = step === 'dashboard' && isGamemaster;
     const [encounters, setEncounters] = useState<CombatManagerEncounterDto[]>([]);
     const [selectedId, setSelectedId] = useState('');
@@ -440,7 +440,7 @@ export default function CombatManagerPage() {
         <main className={pageClass} style={bgStyle}>
             <div className="sd-ui-panel-raised mx-auto max-w-3xl rounded-xl p-6 backdrop-blur-md">
                 <h1 className="sd-ui-accent text-2xl font-bold">Combat Manager</h1>
-                <p className="mt-3">This tool is available to Gamemasters only.</p>
+                <p className="mt-3">This tool is available to Gamemasters and Assistants.</p>
                 <Link href="/" className="sd-ui-accent mt-6 inline-block text-sm hover:underline">Back to Dashboard</Link>
             </div>
         </main>
@@ -453,7 +453,7 @@ export default function CombatManagerPage() {
                 <div>
                     <Link href="/" className="sd-ui-accent text-sm hover:underline">← Back to Dashboard</Link>
                     <h1 className="sd-ui-accent mt-2 text-3xl font-bold">Combat Manager</h1>
-                    <p className="sd-ui-muted mt-1 text-sm">GM-only · tokenless Foundry encounters</p>
+                    <p className="sd-ui-muted mt-1 text-sm">GM & Assistant · tokenless Foundry encounters</p>
                 </div>
                 <label className="flex items-center gap-2 text-sm">
                     Encounter

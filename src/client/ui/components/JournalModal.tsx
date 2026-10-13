@@ -10,6 +10,7 @@ import { useSession } from '@client/ui/context/SessionContext';
 import { logger } from '@shared/utils/logger';
 import { sanitizeRichHtml } from '@shared/security/safeHtml';
 import { SafeHtmlContent } from './SafeHtmlContent';
+import { useModalFocus } from '@client/ui/hooks/useModalFocus';
 import {
     getJournalPageId,
     resolveJournalPageSelection,
@@ -39,6 +40,8 @@ export default function JournalModal() {
     const [imageFailed, setImageFailed] = useState(false);
     const requestedJournalIdRef = React.useRef<string | null>(null);
     const requestedShareKeyRef = React.useRef<string | null>(null);
+    const requestRevision = React.useRef(0);
+    const dialogRef = React.useRef<HTMLDivElement>(null);
     const activeJournalRevision = activeJournalId ? (journalRevisions[activeJournalId] ?? 0) : 0;
     // Foundry persists page order in each JournalEntryPage.sort value; socket
     // and REST payload array order is not itself the ordering contract.
@@ -55,10 +58,14 @@ export default function JournalModal() {
     };
 
     useEffect(() => {
+        const request = ++requestRevision.current;
+        let current = true;
         if (activeJournalId) {
             const journalChanged = requestedJournalIdRef.current !== activeJournalId;
+            const newShare = !!activeShareKey && requestedShareKeyRef.current !== activeShareKey;
             requestedJournalIdRef.current = activeJournalId;
-            if (journalChanged) {
+            requestedShareKeyRef.current = activeShareKey;
+            if (journalChanged || newShare) {
                 setLoading(true);
                 setIsEditing(false);
                 setActivePageId(null);
@@ -67,16 +74,20 @@ export default function JournalModal() {
             getJournal(activeJournalId).then(data => {
                 // Ignore a late response from a journal that has since closed
                 // or been replaced by another journal in the same modal.
-                if (requestedJournalIdRef.current !== activeJournalId) return;
+                if (!current || requestRevision.current !== request) return;
                 const requestedPage = activeJournalId === sharedJournalId ? sharedJournalPageId : null;
-                const newShare = !!activeShareKey && requestedShareKeyRef.current !== activeShareKey;
-                requestedShareKeyRef.current = activeShareKey;
                 const pageVisible = !requestedPage || !!data?.pages?.some(page => getJournalPageId(page) === requestedPage);
                 setSharedPageUnavailable(!data || !pageVisible);
                 setJournal(pageVisible ? data : null);
                 setActivePageId(current => requestedPage
                     ? (!newShare && current && data?.pages?.some(page => getJournalPageId(page) === current) ? current : requestedPage)
                     : resolveJournalPageSelection(data?.pages ?? [], current));
+                setLoading(false);
+            }).catch(error => {
+                if (!current || requestRevision.current !== request) return;
+                logger.debug('JournalModal | Journal temporarily unavailable:', error);
+                setJournal(null);
+                setSharedPageUnavailable(true);
                 setLoading(false);
             });
         } else {
@@ -86,6 +97,7 @@ export default function JournalModal() {
             setActivePageId(null);
             setSharedPageUnavailable(false);
         }
+        return () => { current = false; };
     // Realtime revisions are scoped by Journal id; broad invalidations use the
     // global revision. getJournal coalesces a change during an active detail
     // read into one trailing request whose result is returned to this modal.
@@ -101,17 +113,20 @@ export default function JournalModal() {
 
     const isShared = activeJournalId === sharedJournalId;
     const close = () => {
+        requestRevision.current++;
         if (isShared) dismissSharedContent();
         setActiveJournalId(null);
         setSharedJournalId(null);
         setSharedJournalPageId(null);
         setJournal(null);
     };
+    useModalFocus(dialogRef, !!activeJournalId, close);
 
     useEffect(() => { setImageFailed(false); }, [activePageId]);
 
     const handleSave = async (html: string) => {
         if (!journal) return;
+        const request = requestRevision.current;
 
         try {
             if (journal.pages && journal.pages.length > 0) {
@@ -129,6 +144,7 @@ export default function JournalModal() {
 
             // Refresh local state
             const updated = await getJournal(journal._id);
+            if (requestRevision.current !== request || requestedJournalIdRef.current !== journal._id) return;
             setJournal(updated);
             setIsEditing(false);
         } catch (error) {
@@ -163,7 +179,7 @@ export default function JournalModal() {
             {/* Backdrop click to close */}
             <div className="absolute inset-0" onClick={close} />
 
-            <div className="sd-ui-panel-raised w-full max-w-5xl h-full sm:h-[85vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden relative hud-panel" onClick={e => e.stopPropagation()}>
+            <div ref={dialogRef} tabIndex={-1} className="sd-ui-panel-raised w-full max-w-5xl h-full sm:h-[85vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden relative hud-panel outline-none" onClick={e => e.stopPropagation()}>
 
                 {/* Header */}
                 <div className="sd-ui-inset p-4 sm:p-5 border-b sd-ui-divider flex items-center justify-between">
@@ -193,6 +209,7 @@ export default function JournalModal() {
                         )}
                         <button
                             onClick={close}
+                            aria-label="Close journal"
                             className="sd-ui-button p-2 rounded-full transition-all ml-1"
                         >
                             <X className="w-6 h-6" />
