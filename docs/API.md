@@ -111,6 +111,9 @@ An absent, expired, revoked or conclusively invalid player session returns
 `401`. A pending or temporarily failed restoration returns `503`; the client
 must not treat that as logout. A successful read validates the current cookie,
 not continuity with a previous same-user cookie in another tab.
+The authenticated roster may mark the resolved service account with
+`isServiceAccount: true` for human-participant UI filtering. It remains in the
+canonical Foundry user store and retains its authorization semantics.
 
 ### `POST /api/login`
 
@@ -394,6 +397,13 @@ Deletes a journal entry or folder. Pass `type=JournalEntry` or `type=Folder`.
 Auth: protected.
 
 Returns the latest media or journal content shared with the current user.
+The snapshot is keyed to the authenticated player session and world, with
+`Cache-Control: no-store`; a different user/session or world gets no share.
+Trusted service-bearer requests to this player presentation route return `403`.
+Selected Foundry shares are received on the recipient's user socket, never
+inferred to be public from a service-account receipt. A journal share can carry
+`data.pageId`; the subsequent journal detail read still enforces entry and
+page visibility. Image URLs are resolved only for the requesting client.
 
 ---
 
@@ -913,6 +923,13 @@ Disable rejects when another enabled module depends on the target.
 
 
 ## Chat Presentation and Notifications
+
+`POST /api/chat/send` accepts `message`, optional `rollMode` and `speaker`,
+and optional `speakerActorId` for an owned Actor. When an Actor is requested,
+Core checks effective OWNER access and uses that Actor's canonical name/ID;
+the authenticated Foundry user remains the author. An invalid Actor identifier
+returns `400`; an Actor for which the caller lacks OWNER access returns `403`. A sheet page's
+speaker context does not grant ownership or alter roll visibility.
 
 ChatMessage remains a primary Foundry document mirrored by Core. The existing
 chat endpoint supplies permission-filtered DTOs; realtime chat hints cause

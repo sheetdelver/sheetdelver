@@ -70,7 +70,7 @@ graph TD
     - Commands `CoreSocket` as a transport; it does not live in `core/`.
     - A socket interruption gates world APIs but retains the last ready runtime. Affirmative, corroborated setup or explicit shutdown retires it; the controller alone reconnects the service-account socket.
 - **Foundry Event Ingress (`src/server/services/world/FoundryEventIngress.ts`)**:
-    - Subscribes to neutral Foundry socket events and applies application semantics such as document routing, user presence, shared-content updates, and runtime teardown.
+    - Subscribes to neutral Foundry socket events and applies application semantics such as document routing, user presence, and runtime teardown. Selected shared-media relays retain the receiving user's transport identity at `AppSocketGateway`.
 - **Foundry Sockets (`@core/foundry/sockets`)**:
     - **CoreSocket**: A singleton service-account transport. Emits protocol facts and raw dispatch helpers; controller/ingress services own policy and Store mutation.
     - **ClientSocket**: A per-user transport. Receives neutral Foundry protocol events and performs user-authorized writes after identity is resolved by services.
@@ -89,7 +89,7 @@ graph TD
     - **Module Routing**:
         - **API**: RegEx-based routing allows system-specific packages to mount their own API logic dynamically.
         - **UI**: The core actor page delegates rendering to the module's registered `ActorPage`, ensuring full UI autonomy.
-    - **Shared Content**: Tracks shared media (images/journals) targeted at the current user.
+    - **Shared Content**: `SharedContentStore` retains one latest share per authenticated session and world, populated only from that user's Foundry socket. HTTP snapshots and realtime emits use the same recipient scope; service-account receipts are not public broadcasts. Terminal session/world teardown clears the scope.
 
 ### 3.3 World-Ready Bootstrap Gates
 
@@ -117,7 +117,7 @@ On a same-world reconnect, `WorldBootstrapper.recover()` verifies world/system i
 ### 4.1 React Contexts
 - **FoundryProvider**: Coordinates connection-step presentation and authorized world data from the shared realtime and session providers; it does not treat public status as authentication.
 - **JournalProvider**: Manages journal entry loading, folder hierarchies, and pagination logic.
-- **UIProvider**: Manages the state of global overlays like the sidebars, floating HUD, and shared content modals.
+- **UIProvider**: Manages global overlay state. One layout-owned shared-content host presents images and delegates authorized journal reads to `JournalModal`; module-mounted compatibility components are inert to avoid duplicate overlays.
 - **PlayerWorldBoundary**: The player layout owns login/setup/closed/loading
   presentation for home, Actor and module-tool routes. Cold routes do not mount
   their page effects or persistent tools until authenticated readiness. A

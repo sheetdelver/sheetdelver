@@ -32,6 +32,14 @@ redirect on world lifecycle. They still own local resource loading, errors,
 and module-specific styling. A temporary Actor read failure is not proof that
 the Actor was deleted; only a confirmed 404 should show that state.
 
+The persistent layout mounts one shared-content host outside page-filtered
+panels. Image shares use a viewport-bounded dialog; journal shares open the
+authorized entry/page in `JournalModal`. Dismissal is scoped to user, world and
+share identity across route changes. SDK `SharedContentModal` remains a
+compatibility delegate, not a second overlay. Actor-page chat/dice may use the
+currently owned Actor as speaker; the server verifies Actor ownership while
+the authenticated user remains the message author.
+
 ---
 
 ## State Model
@@ -117,7 +125,7 @@ Important raw event families:
 | `systemStatus` | Connection, world, auth, and readiness status. |
 | `<type>Changed` | One document changed, e.g. actor, item, combat, journal, chat message, roll table, macro, playlist, or cards. |
 | `<type>ListInvalidated` | A document list should be refreshed. |
-| `sharedContentUpdate` | GM-shared image or journal content changed. |
+| `sharedContentUpdate` | Image or journal share delivered only through this session's authorized Foundry transport. |
 | `moduleSourceChanged` / `moduleStateChanged` / `moduleRegistryChanged` | Module source/lifecycle changes that require UI manifest cache invalidation. |
 
 Module UI receives the stable SDK signals instead:

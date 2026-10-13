@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { Swords } from 'lucide-react';
-import { SharedContentModal } from '@client/ui/components/SharedContentModal';
 import { ConfirmationModal } from '@client/ui/components/ConfirmationModal';
 import SystemTools from '@client/ui/components/SystemTools';
 import { useNotifications } from '@client/ui/components/NotificationSystem';
@@ -81,9 +80,6 @@ export const DashboardView = ({
     return (
         <div className="flex-1 w-full">
             <div className="max-w-7xl mx-auto space-y-8 p-4 sm:p-6 sd-ui-panel rounded-xl backdrop-blur-sm">
-                {/* Overlays */}
-                <SharedContentModal />
-
                 {/* Header / Status */}
                 <div className="flex justify-between items-center sd-ui-inset p-4 rounded-lg">
                     <div>

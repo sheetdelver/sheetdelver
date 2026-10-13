@@ -98,6 +98,13 @@ import { json, error } from '@sheet-delver/sdk/server';
 The checker rejects `@sheet-delver/sdk/server` imports from UI (`.tsx`) source — server helpers must not reach the client bundle.
 Managed module UI runs as native browser ESM outside the host Next.js build. Module source must not import `next` or `next/*`; use React, browser APIs, or `@sheet-delver/sdk/react` instead. `module:check` rejects this host-framework coupling before packaging.
 
+ADR-0062 moves shared image/journal presentation to Core's persistent player
+layout. Its SDK `SharedContentModal` export remains callable and renders
+nothing when that host is present, so existing module mounts do not duplicate
+the overlay. A module removing its mount must require the Core release that
+provides the host; older Core releases still depend on the module mount on
+sheet pages. That release minimum is an open checkpoint, not yet published.
+
 Do not import from Sheet Delver internals such as `@shared/*`, `@client/*`, `@server/*`, `@core/*`, or `@modules/*`. If a module needs something that is not in the SDK, treat that as either a missing SDK surface or module-specific code that should live inside the module.
 
 ## Metadata

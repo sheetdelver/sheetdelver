@@ -2,16 +2,11 @@ import express from 'express';
 import { logger } from '@shared/utils/logger';
 import { createUtilityService } from '@server/services/utility/UtilityService';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
-import type { RouteFoundryClient } from '@server/shared/types/requestContext';
 import { isErrorPayload } from '@server/shared/utils/isErrorPayload';
 
-interface UtilityRouteDeps {
-    getFallbackSharedContentClient: () => RouteFoundryClient;
-}
-
-export function registerUtilityRoutes(appRouter: express.Router, deps: UtilityRouteDeps) {
+export function registerUtilityRoutes(appRouter: express.Router) {
     // Utility domain service: displaced dashboard helper logic for documents, users, and shared content.
-    const utilityService = createUtilityService(deps);
+    const utilityService = createUtilityService();
 
     appRouter.get('/foundry/document', async (req, res) => {
         try {
@@ -41,8 +36,14 @@ export function registerUtilityRoutes(appRouter: express.Router, deps: UtilityRo
     // --- Shared Content API ---
     appRouter.get('/shared-content', (req, res) => {
         try {
+            res.setHeader('Cache-Control', 'no-store');
+            const sessionId = req.userSession?.id;
+            const worldId = req.userSession?.worldId;
+            if (req.isSystem || !sessionId || !worldId) {
+                return res.status(403).json({ error: 'A player world session is required' });
+            }
             const client = req.foundryClient;
-            utilityService.getSharedContent(client).then(payload => res.json(payload)).catch((error: unknown) => {
+            utilityService.getSharedContent(client, sessionId, worldId).then(payload => res.json(payload)).catch((error: unknown) => {
                 logger.error('Error fetching shared content:', error);
                 res.status(500).json({ error: 'Internal server error' });
             });

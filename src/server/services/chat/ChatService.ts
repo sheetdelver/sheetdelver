@@ -16,6 +16,8 @@ import {
     normalizeSpeaker,
 } from '@server/core/documents/primary/chat-messages/chatMessagePayload';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
+import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
+import { DocumentOwnershipLevel } from '@server/core/documents/primary/base/ownership';
 import { PrimaryDocumentCacheNotReadyError } from '@server/core/documents/primary/errors';
 
 interface ChatServiceDeps {
@@ -127,6 +129,21 @@ export function createChatService(deps: ChatServiceDeps) {
         const { message } = body;
         if (!message) return { error: 'Message is empty', status: 400 };
 
+        let speaker = normalizeSpeaker(body.speaker);
+        const requestedActorId = body.speakerActorId || (typeof speaker === 'object' ? speaker?.actor : undefined);
+        if (requestedActorId !== undefined && (typeof requestedActorId !== 'string'
+            || !requestedActorId.trim() || requestedActorId.length > 128)) {
+            return { error: 'Invalid Actor speaker', status: 400 };
+        }
+        if (requestedActorId) {
+            const subject = userStore.createAccessSubject(client.userId);
+            const actor = subject && actorStore.get(requestedActorId, {
+                subject, minOwnership: DocumentOwnershipLevel.OWNER,
+            });
+            if (!actor) return { error: 'Actor speaker is not owned by this user', status: 403 };
+            speaker = { actor: requestedActorId, alias: String(actor.name || '') };
+        }
+
         const ROLL_CMD = /^\/(r|roll|gmr|gmroll|br|blindroll|sr|selfroll)(?=\s|$|\d)/i;
         const match = message.trim().match(ROLL_CMD);
 
@@ -141,7 +158,7 @@ export function createChatService(deps: ChatServiceDeps) {
             const cleanFormula = message.trim().replace(ROLL_CMD, '').trim();
             const synthetic = await client.roll(cleanFormula, undefined, {
                 rollMode,
-                speaker: normalizeSpeaker(body.speaker),
+                speaker,
                 displayChat: false,
             });
             const chatData = normalizeChatMessageCreateData(isRecord(synthetic)
@@ -163,7 +180,7 @@ export function createChatService(deps: ChatServiceDeps) {
             content: message,
             author: client.userId,
             rollMode: body.rollMode,
-            speaker: body.speaker,
+            speaker,
             getGmUserIds: () => userStore.getGmUserIds(),
         });
 

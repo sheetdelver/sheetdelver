@@ -19,7 +19,6 @@ import { registerUtilityRoutes } from '@server/routes/protected/registerUtilityR
 import { createModuleRouter } from '@server/routes/modules/createModuleRouter';
 import { createAdminRouter } from '@server/routes/admin/createAdminRouter';
 import { createActorNormalizationService } from '@server/services/actors/ActorNormalizationService';
-import { createSystemRouteFoundryClient } from '@server/shared/utils/createRouteFoundryClient';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
 import { readRequestSessionCredential } from '@server/security/playerSessionCookie';
 import { logger } from '@shared/utils/logger';
@@ -140,9 +139,7 @@ export function registerRoutes(deps: RegisterRoutesDeps): void {
     registerCombatRoutes(appRouter, { normalizeActors });
     registerCombatManagerRoutes(appRouter, { normalizeActors });
     registerJournalRoutes(appRouter);
-    registerUtilityRoutes(appRouter, {
-        getFallbackSharedContentClient: () => createSystemRouteFoundryClient(systemService.getSystemClient())
-    });
+    registerUtilityRoutes(appRouter);
 
     const moduleRouter = createModuleRouter({
         tryAuthenticateSession

@@ -6,6 +6,7 @@ import { userStore } from '@server/core/documents/primary/users/UserStore';
 import { FoundryUserRole } from '@server/core/documents/primary/base/ownership';
 import type { SystemStatusPayload } from '@shared/contracts/status';
 import { PLAYER_SESSION_COOKIE_NAME } from '@server/security/playerSessionCookie';
+import { sharedContentStore } from '@server/core/world/SharedContentStore';
 import type {
     FoundrySessionInvalidationEvent,
     FoundrySessionInvalidationListener,
@@ -73,7 +74,7 @@ async function runGatewayTests() {
         isValidSession: (token: string) => token === 'valid-token' && validSession,
         getOrRestoreSession: async (token: string) => {
             if (token === 'valid-token') {
-                return { client: foundryClient, userId: 'user-1', username: 'tester' };
+                return { id: 'valid-token', client: foundryClient, userId: 'user-1', username: 'tester', worldId: 'w1' };
             }
             return undefined;
         },
@@ -182,9 +183,8 @@ async function runGatewayTests() {
         await connectionHandler!(socket);
 
         assert.ok(emitted.some((entry) => entry.event === 'systemStatus'));
-        // Per-user Foundry clients are route transports only here. World lifecycle,
-        // shared-content, presence/status, and combat updates flow through the
-        // system client / Store bridges.
+        // Document updates flow through the system Store bridges. Native share
+        // events alone are attached to the caller's Foundry transport.
         // The system client carries Store-bridged events:
         //   actorChanged + actorListInvalidated
         //   + chatMessageChanged + chatMessageListInvalidated
@@ -198,12 +198,21 @@ async function runGatewayTests() {
         //   + cardsChanged + cardsListInvalidated
         //   + sceneChanged + sceneListInvalidated
         //   + settingChanged + settingListInvalidated = 26.
-        assert.equal(attachedHandlers.length, 0);
+        assert.deepEqual(attachedHandlers.map(entry => entry.event), ['foundry:shareImage', 'foundry:showEntry']);
         assert.equal(systemAttachedHandlers.length, 26);
         assert.ok(systemAttachedHandlers.some((entry) => entry.event === 'actorListInvalidated'));
         assert.ok(systemAttachedHandlers.some((entry) => entry.event === 'sceneListInvalidated'));
         assert.ok(systemAttachedHandlers.some((entry) => entry.event === 'settingListInvalidated'));
         assert.ok(browserCounts.includes(1));
+
+        const shareImage = attachedHandlers.find(entry => entry.event === 'foundry:shareImage')?.handler;
+        assert.ok(shareImage);
+        shareImage!({ data: { image: '/worlds/w1/map.webp', title: 'Map' }, timestamp: 123, shareId: 'share-1' });
+        assert.deepEqual(sharedContentStore.getCurrent('valid-token', 'w1'), {
+            type: 'image', data: { url: '/worlds/w1/map.webp', title: 'Map' }, timestamp: 123, shareId: 'share-1',
+        });
+        assert.equal(sharedContentStore.getCurrent('other-token', 'w1'), null);
+        assert.equal(emitted.filter(entry => entry.event === 'sharedContentUpdate').length, 1);
 
         const userChanged = systemAttachedHandlers.find((entry) => entry.event === 'userChanged')?.handler;
         assert.ok(userChanged);
@@ -282,6 +291,7 @@ async function runGatewayTests() {
         assert.equal(socket.rooms.has('status:public'), true);
         assert.equal(socket.userSession, undefined);
         assert.equal(socket.foundryClient, undefined);
+        assert.equal(sharedContentStore.getCurrent('valid-token', 'w1'), null);
         const invalidated = emitted.find(entry => entry.event === 'sessionInvalidated')?.payload as Record<string, unknown>;
         assert.deepEqual(invalidated, { reason: 'expired' });
         assert.equal(JSON.stringify(invalidated).includes('valid-token'), false);
@@ -304,7 +314,7 @@ async function runGatewayTests() {
         socket.connected = false;
         for (const handler of socketHandlers.get('disconnect') ?? []) handler();
 
-        assert.equal(detachedHandlers.length, 0);
+        assert.equal(detachedHandlers.length, 2);
         assert.equal(systemDetachedHandlers.length, 26);
         assert.ok(systemDetachedHandlers.some((entry) => entry.event === 'actorListInvalidated'));
         assert.ok(systemDetachedHandlers.some((entry) => entry.event === 'sceneListInvalidated'));
@@ -378,6 +388,91 @@ async function runGatewayTests() {
         (systemService as any).isReady = originalIsReady;
         engagementService.setActiveBrowserCount = originalSetActiveBrowserCount;
         userStore.clear('app-socket-gateway-test');
+    }
+}
+
+async function runCrossUserShareIsolation() {
+    let authenticate: ((socket: MockSocket, next: () => void) => Promise<void>) | undefined;
+    let connect: ((socket: MockSocket) => Promise<void>) | undefined;
+    const io = {
+        engine: { clientsCount: 3 },
+        use: (handler: typeof authenticate) => { authenticate = handler; },
+        on: (event: string, handler: typeof connect) => { if (event === 'connection') connect = handler; },
+    };
+    const listeners = new Map<string, Map<string, EventHandler>>();
+    const emissions = new Map<string, string[]>();
+    const clients = new Map(['a', 'b'].map(id => [id, {
+        userId: `user-${id}`, isConnected: true, url: 'http://foundry.test',
+        on(event: string, handler: EventHandler) { listeners.get(id)!.set(event, handler); },
+        off(event: string) { listeners.get(id)!.delete(event); },
+    }]));
+    for (const id of ['a', 'b', 'guest']) {
+        listeners.set(id, new Map());
+        emissions.set(id, []);
+    }
+    const socket = (id: string): MockSocket => ({
+        id, connected: true,
+        handshake: { headers: id === 'guest' ? {} : { cookie: `${PLAYER_SESSION_COOKIE_NAME}=${id}` } },
+        rooms: new Set(),
+        join(room: string) { this.rooms.add(room); },
+        leave(room: string) { this.rooms.delete(room); },
+        emit(event: string) { emissions.get(id)!.push(event); },
+        on: () => undefined,
+        off: () => undefined,
+    });
+    const sessions = {
+        isCacheReady: () => true,
+        isValidSession: (id: string) => clients.has(id),
+        getOrRestoreSession: async (id: string) => clients.has(id) ? {
+            id, worldId: 'w1', userId: `user-${id}`, username: `User ${id}`, client: clients.get(id),
+        } : undefined,
+        onSessionInvalidated: () => () => undefined,
+    };
+    const originalGetSystemClient = (systemService as any).getSystemClient;
+    const originalIsReady = (systemService as any).isReady;
+    const originalSetActiveBrowserCount = engagementService.setActiveBrowserCount;
+    try {
+        (systemService as any).getSystemClient = () => ({ on: () => undefined, off: () => undefined });
+        (systemService as any).isReady = () => true;
+        engagementService.setActiveBrowserCount = (() => ({
+            previousCount: 0, browserCount: 3, becameEngaged: true,
+        })) as typeof engagementService.setActiveBrowserCount;
+        const status = {
+            connected: true, initialized: true, isConfigured: true, foundryCompatibility: null,
+            users: [], system: { id: 'shadowdark', status: 'active' }, appVersion: 'test',
+        };
+        registerAppSocketGateway({
+            io: io as any, foundryUserConnections: sessions as any,
+            getSystemStatusPayload: async () => ({ ...status, worldId: 'w1', url: 'http://foundry.test',
+                debug: { enabled: false, level: 1 } }) as SystemStatusPayload,
+            getPublicStatusPayload: async () => status,
+            broadcastSystemStatus: () => undefined,
+        });
+        assert.ok(authenticate && connect);
+        for (const id of ['a', 'b', 'guest']) {
+            const browser = socket(id);
+            await authenticate!(browser, () => undefined);
+            await connect!(browser);
+        }
+        const shareA = listeners.get('a')!.get('foundry:shareImage');
+        const shareB = listeners.get('b')!.get('foundry:shareImage');
+        assert.ok(shareA && shareB);
+        shareA!({ data: { image: '/private/a.webp' }, shareId: 'only-a', timestamp: 1 });
+        assert.equal(sharedContentStore.getCurrent('a', 'w1')?.data?.url, '/private/a.webp');
+        assert.equal(sharedContentStore.getCurrent('b', 'w1'), null);
+        assert.equal(emissions.get('a')!.filter(event => event === 'sharedContentUpdate').length, 1);
+        assert.equal(emissions.get('b')!.includes('sharedContentUpdate'), false);
+        assert.equal(emissions.get('guest')!.includes('sharedContentUpdate'), false);
+
+        shareB!({ data: { image: '/private/b.webp' }, shareId: 'only-b', timestamp: 2 });
+        assert.equal(sharedContentStore.getCurrent('b', 'w1')?.data?.url, '/private/b.webp');
+        assert.equal(sharedContentStore.getCurrent('a', 'w1')?.data?.url, '/private/a.webp');
+        assert.equal(emissions.get('b')!.filter(event => event === 'sharedContentUpdate').length, 1);
+    } finally {
+        sharedContentStore.clear('cross-user-share-test');
+        (systemService as any).getSystemClient = originalGetSystemClient;
+        (systemService as any).isReady = originalIsReady;
+        engagementService.setActiveBrowserCount = originalSetActiveBrowserCount;
     }
 }
 
@@ -530,6 +625,7 @@ async function runDeferredAttachWhenNotReady() {
 
 export async function run() {
     await runGatewayTests();
+    await runCrossUserShareIsolation();
     await runDeferredAttachWhenNotReady();
 }
 

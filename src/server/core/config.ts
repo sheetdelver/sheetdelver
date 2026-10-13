@@ -16,6 +16,7 @@ import {
 let _cachedConfig: AppConfig | null = null;
 
 export const DEFAULT_PUBLIC_MODULE_HOST_ALLOWLIST = Object.freeze([
+    'sheetdelver.com',
     'sheetdelver.github.io',
     'github.com',
     '*.githubusercontent.com',

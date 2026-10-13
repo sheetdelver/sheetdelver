@@ -37,9 +37,7 @@ export async function run() {
     ]);
 
     const fallbackClient = createClient(async () => null);
-    const utilityService = createUtilityService({
-        getFallbackSharedContentClient: () => fallbackClient,
-    });
+    const utilityService = createUtilityService();
 
     assert.deepEqual(
         await utilityService.getFoundryDocument(createClient(async () => null), undefined),
@@ -67,25 +65,28 @@ export async function run() {
     assert.equal(assistant?.canDeleteActors, true);
 
     sharedContentStore.clear('utility-service-test');
-    assert.deepEqual(await utilityService.getSharedContent(), { type: null });
+    assert.deepEqual(await utilityService.getSharedContent(fallbackClient, 'player-session', 'world-a'), { type: null });
 
-    sharedContentStore.set({
+    sharedContentStore.set('player-session', 'world-a', {
         type: 'image',
         data: { url: '/worlds/test/map.webp', title: 'Map' },
         timestamp: 123,
     });
-    const shared = await utilityService.getSharedContent(createClient(async () => null));
+    const shared = await utilityService.getSharedContent(createClient(async () => null), 'player-session', 'world-a');
     assert.deepEqual(shared, {
         type: 'image',
         data: { url: 'https://foundry.test/worlds/test/map.webp', title: 'Map' },
         timestamp: 123,
     });
 
-    assert.deepEqual(sharedContentStore.getCurrent(), {
+    assert.deepEqual(sharedContentStore.getCurrent('player-session', 'world-a'), {
         type: 'image',
         data: { url: '/worlds/test/map.webp', title: 'Map' },
         timestamp: 123,
     });
+
+    assert.deepEqual(await utilityService.getSharedContent(fallbackClient, 'other-session', 'world-a'), { type: null });
+    assert.deepEqual(await utilityService.getSharedContent(fallbackClient, 'player-session', 'world-b'), { type: null });
 
     sharedContentStore.clear('utility-service-test');
     actorStore.clear('utility-service-test');

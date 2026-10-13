@@ -1,4 +1,11 @@
 # Releases
+## Unreleased
+- Repaired official module catalog
+- Scoped shared media delivery
+- Unified player media overlays
+- Rendered journal image shares
+- Refined player presentation
+
 ## 0.17.0
 - Hardened world recovery ownership
 - Preserved confirmed Setup presentation

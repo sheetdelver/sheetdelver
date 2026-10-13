@@ -20,6 +20,12 @@ interface UIContextType {
     setActiveJournalId: (id: string | null) => void;
     sharedJournalId: string | null;
     setSharedJournalId: (id: string | null) => void;
+    sharedJournalPageId: string | null;
+    setSharedJournalPageId: (id: string | null) => void;
+    activeShareKey: string | null;
+    setActiveShareKey: (key: string | null) => void;
+    dismissedShareKey: string | null;
+    dismissSharedContent: () => void;
     resetUI: () => void;
 }
 
@@ -33,6 +39,16 @@ export function UIProvider({ children }: { children: ReactNode }) {
     const [isPlayerListOpen, setPlayerListOpen] = useState(false);
     const [activeJournalId, setActiveJournalId] = useState<string | null>(null);
     const [sharedJournalId, setSharedJournalId] = useState<string | null>(null);
+    const [sharedJournalPageId, setSharedJournalPageId] = useState<string | null>(null);
+    const [activeShareKey, setActiveShareKey] = useState<string | null>(null);
+    const [dismissedShareKey, setDismissedShareKey] = useState<string | null>(null);
+
+    const dismissSharedContent = useCallback(() => {
+        if (!activeShareKey) return;
+        window.sessionStorage.setItem(activeShareKey, 'dismissed');
+        setDismissedShareKey(activeShareKey);
+        setActiveShareKey(null);
+    }, [activeShareKey]);
 
     const toggleDiceTray = useCallback(() => setDiceTrayOpen(prev => !prev), []);
     const toggleJournal = useCallback(() => setJournalOpen(prev => !prev), []);
@@ -47,6 +63,9 @@ export function UIProvider({ children }: { children: ReactNode }) {
         setPlayerListOpen(false);
         setActiveJournalId(null);
         setSharedJournalId(null);
+        setSharedJournalPageId(null);
+        setActiveShareKey(null);
+        setDismissedShareKey(null);
     }, []);
 
     const contextValue = React.useMemo(() => ({
@@ -57,10 +76,14 @@ export function UIProvider({ children }: { children: ReactNode }) {
         isPlayerListOpen, setPlayerListOpen, togglePlayerList,
         activeJournalId, setActiveJournalId,
         sharedJournalId, setSharedJournalId,
+        sharedJournalPageId, setSharedJournalPageId,
+        activeShareKey, setActiveShareKey,
+        dismissedShareKey, dismissSharedContent,
         resetUI
     }), [
         isSettingsOpen, isChatOpen, isDiceTrayOpen, isJournalOpen, isPlayerListOpen,
-        activeJournalId, sharedJournalId,
+        activeJournalId, sharedJournalId, sharedJournalPageId,
+        activeShareKey, dismissedShareKey, dismissSharedContent,
         toggleDiceTray, toggleJournal, togglePlayerList, resetUI
     ]);
 

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Swords, UserRound } from 'lucide-react';
+import { useWorldBackground } from '@client/ui/main/hooks/useWorldBackground';
 import { useFoundry } from '@client/ui/context/FoundryContext';
 import { ConfirmationModal } from '@client/ui/components/ConfirmationModal';
 import { ApiError } from '@client/ui/api/http';
@@ -30,9 +31,10 @@ function errorMessage(error: unknown): string {
 }
 
 function statChoiceContext(choice: ModuleCombatStatAttribute & { observedActorTypes?: string[] }): string {
-    if (choice.actorTypes?.length) return choice.actorTypes.join(', ');
-    if (choice.observedActorTypes?.length) return `seen on ${choice.observedActorTypes.join(', ')}`;
-    return 'all Actor types';
+    const actorContext = choice.actorTypes?.length ? choice.actorTypes.join(', ')
+        : choice.observedActorTypes?.length ? `seen on ${choice.observedActorTypes.join(', ')}`
+            : 'all Actor types';
+    return `${choice.path} · ${choice.kind} · ${actorContext}`;
 }
 
 function compactStatValue(stat: CombatManagerStatDto): string {
@@ -58,14 +60,7 @@ type InitiativeEdit = { combatantId: string; expectedValue: number | null; value
 
 export default function CombatManagerPage() {
     const { currentUser, step, appSocket, worldId, token, system } = useFoundry();
-    // This Core tool retains world artwork, but not the system module's fallback theme or background.
-    const worldBackground = system?.worldBackground || null;
-    const bgStyle = worldBackground ? {
-        backgroundImage: `linear-gradient(var(--sd-ui-image-scrim), var(--sd-ui-image-scrim)), url(${worldBackground})`,
-        backgroundSize: 'cover',
-        backgroundPosition: 'center',
-        backgroundRepeat: 'no-repeat',
-    } : { backgroundImage: 'none' };
+    const bgStyle = useWorldBackground();
     const isGamemaster = (currentUser?.role ?? 0) >= 4;
     const allowed = step === 'dashboard' && isGamemaster;
     const [encounters, setEncounters] = useState<CombatManagerEncounterDto[]>([]);
@@ -506,7 +501,7 @@ export default function CombatManagerPage() {
                     {statDraft.map((field, index) => <div key={`${field.key}:${index}`} className="sd-ui-inset flex flex-wrap items-center gap-2 rounded-lg p-2">
                         <input aria-label={`Stat ${index + 1} label`} value={field.label} maxLength={32} onChange={event => setStatDraft(current => current.map((row, at) => at === index ? { ...row, label: event.target.value } : row))}
                             className={`w-32 ${inputClass}`} />
-                        <span className="sd-ui-muted min-w-0 flex-1 truncate text-xs" title={field.path}>{field.actorTypes?.join(', ') || 'All Actor types'} · {field.kind}</span>
+                        <span className="sd-ui-muted min-w-0 flex-1 break-all text-xs">{statChoiceContext(field)}</span>
                         <label className="flex items-center gap-1.5 text-xs">
                             <input type="checkbox" aria-label={`Show ${field.label} beside names`} checked={field.showInRoster === true}
                                 onChange={event => setStatDraft(current => current.map((row, at) => at === index ? { ...row, showInRoster: event.target.checked } : row))}

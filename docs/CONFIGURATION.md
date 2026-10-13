@@ -148,7 +148,7 @@ and managed module artifacts.
 | `security.module-policy.allow-unverified-in-development` | Optional; `true` outside production | Allows unverified artifacts only in development policy. Override with `APP_MODULE_POLICY_ALLOW_UNVERIFIED_IN_DEVELOPMENT`. |
 | `security.module-policy.require-admin-override-for-lower-trust` | Optional; `true` in production | Requires an explicit admin override below the configured trust floor. Override with `APP_MODULE_POLICY_REQUIRE_ADMIN_OVERRIDE_FOR_LOWER_TRUST`. |
 | `security.module-policy.require-permission-escalation-approval` | Optional; default `true` | Requires approval when an upgrade requests additional module permissions. Override with `APP_MODULE_POLICY_REQUIRE_PERMISSION_ESCALATION_APPROVAL`. |
-| `security.source-governance.host-allowlist` | Optional; defaults to Sheet Delver Pages and public GitHub release hosts | Exact hosts or `*.example.org` wildcard suffixes permitted for catalogs, release manifests, archives, and every redirect hop. An explicitly empty list fails closed. |
+| `security.source-governance.host-allowlist` | Optional; defaults to SheetDelver catalog and public GitHub release hosts | Exact hosts or `*.example.org` wildcard suffixes permitted for catalogs, release manifests, archives, and every redirect hop. An explicitly empty list fails closed. |
 
 Boolean environment overrides accept `true` or `false`. Invalid values are
 ignored in favor of the YAML value or documented default.
@@ -161,9 +161,12 @@ module manager never uses `<DATA_DIR>/local/modules` as an installation target.
 See [API.md](API.md#local-archive-operations) for CLI and admin endpoint usage.
 
 Public release retrieval uses the same transaction and also defaults to
-`unverified`. The built-in allowlist contains `sheetdelver.github.io`,
-`github.com`, and `*.githubusercontent.com` for the official catalog and public
-GitHub releases. Configure an explicit list to replace those defaults. Every
+`unverified`. The official catalog is
+`https://sheetdelver.com/module-catalog/catalog.json`. The built-in allowlist
+contains `sheetdelver.com`, the legacy redirect host `sheetdelver.github.io`,
+`github.com`, and `*.githubusercontent.com` for the catalog and public GitHub
+releases. Configure an explicit list to replace those defaults. Include
+`sheetdelver.com` if the official catalog should work under a custom list. Every
 redirect is revalidated against the allowlist and public-address policy;
 development mode does not bypass it.
 
@@ -171,6 +174,7 @@ development mode does not bypass it.
 security:
   source-governance:
     host-allowlist:
+      - sheetdelver.com
       - github.com
       - "*.githubusercontent.com"
 ```

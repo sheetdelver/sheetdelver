@@ -357,6 +357,8 @@ export interface JournalDeleteQuery {
 export interface ChatSendBody {
     message?: string;
     rollMode?: RollMode;
+    /** Optional Actor speaker requested from an owned sheet route. */
+    speakerActorId?: string;
     speaker?: string | {
         actor?: string;
         alias?: string;

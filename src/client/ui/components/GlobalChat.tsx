@@ -15,6 +15,7 @@ import { useSession } from '@client/ui/context/SessionContext';
 import { useFoundry } from '@client/ui/context/FoundryContext';
 import { useUI } from '@client/ui/context/UIContext';
 import { useConfig } from '@client/ui/context/ConfigContext';
+import { usePathname } from 'next/navigation';
 
 interface GlobalChatProps {
     hideDice?: boolean;
@@ -24,10 +25,17 @@ interface GlobalChatProps {
 export default function GlobalChat(props: GlobalChatProps) {
     const diceFeedbackAnchor = useDiceTrayFeedbackAnchor();
     const { messages, handleChatSend: onSend } = useChat();
-    const { system } = useFoundry();
+    const { system, ownedActors } = useFoundry();
     const { step } = useSession();
     const { isChatOpen, setChatOpen, isDiceTrayOpen, setDiceTrayOpen } = useUI();
     const { foundryUrl } = useConfig();
+    const pathname = usePathname();
+    const routeActorId = pathname?.match(/^\/actors\/([^/]+)(?:\/|$)/)?.[1];
+    const sheetActor = ownedActors.find(actor => actor.id === routeActorId);
+    const speaker = props.speaker || sheetActor?.name;
+    const sendWithSheetSpeaker = (message: string, options?: { rollMode?: string; speaker?: string; throwOnError?: boolean }) =>
+        onSend(message, { ...options, speaker: options?.speaker || speaker,
+            speakerActorId: sheetActor?.id });
 
     const onToggleDiceTray = () => setDiceTrayOpen(!isDiceTrayOpen);
     const setIsChatOpen = (open: boolean) => setChatOpen(open);
@@ -115,9 +123,9 @@ export default function GlobalChat(props: GlobalChatProps) {
                                 </div>
                                 <div className="p-0">
                                     <DiceTray
-                                        onSend={(msg, options) => { onSend(msg, { ...options, speaker: options?.speaker || props.speaker }); }}
+                                        onSend={sendWithSheetSpeaker}
                                         hideHeader={true}
-                                        speaker={props.speaker}
+                                        speaker={speaker}
                                     />
                                 </div>
                             </>
@@ -145,11 +153,11 @@ export default function GlobalChat(props: GlobalChatProps) {
                         <ChatTab
                             active={isChatOpen}
                             messages={messages || []}
-                            onSend={onSend}
+                            onSend={sendWithSheetSpeaker}
                             foundryUrl={foundryUrl}
                             hideDiceTray={true}
                             hideHeader={true}
-                            speaker={props.speaker}
+                            speaker={speaker}
                         />
                     </div>
                 </div>

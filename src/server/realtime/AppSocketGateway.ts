@@ -13,12 +13,13 @@ import {
     documentAudienceIncludes,
     isDocumentAudience,
 } from '@server/core/documents/primary/base/audience';
-import { sharedContentStore, type SharedContentChangedEvent } from '@server/core/world/SharedContentStore';
+import { sharedContentStore } from '@server/core/world/SharedContentStore';
 import { readPlayerSessionCookie } from '@server/security/playerSessionCookie';
 import { combatManagerPreferenceEvents } from '@server/services/combats/CombatManagerPreferenceEvents';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
 import { isGM } from '@server/core/documents/primary/base/ownership';
 import { STATUS_ROOMS } from './SystemStatusBroadcaster';
+import type { RealtimeSharedContentPayload } from '@shared/contracts/realtime';
 
 type AppSocket = Socket & {
     playerSessionId?: string;
@@ -75,6 +76,12 @@ export function registerAppSocketGateway({
     });
 
     logger.info('Core Service | Socket.io server initialized with secure middleware');
+
+    // Retire snapshots even when their browser sockets are not connected.
+    foundryUserConnections.onSessionInvalidated((event) => {
+        if (event.scope === 'all') sharedContentStore.clear(event.reason);
+        else sharedContentStore.clearSession(event.sessionId);
+    });
 
     // Per-connection lifecycle: initial push, per-user listener attach/detach, disconnect cleanup
     io.on('connection', async (rawSocket) => {
@@ -228,11 +235,45 @@ export function registerAppSocketGateway({
             const handleSceneListInvalidated = createAudienceHandler('sceneListInvalidated');
             const handleSettingChanged = createAudienceHandler('settingChanged');
             const handleSettingListInvalidated = createAudienceHandler('settingListInvalidated');
-            // Shared-content fan-out subscribes to SharedContentStore directly.
-            // SocketBase writes Foundry wire events into the Store, and the
-            // gateway preserves the browser-facing `sharedContentUpdate` event.
-            const handleSharedUpdate = (event: SharedContentChangedEvent) => {
-                emitWorldBackedEvent('sharedContentUpdate', event.payload ?? { type: null });
+            const deliverShare = (payload: RealtimeSharedContentPayload) => {
+                if (sessionAuthorityRetired || !socket.rooms.has(STATUS_ROOMS.authenticated)
+                    || !systemService.isReady()) return;
+                const sessionId = socket.userSession?.id;
+                const worldId = socket.userSession?.worldId;
+                if (!sessionId || !worldId) return;
+                sharedContentStore.set(sessionId, worldId, payload);
+                emitWorldBackedEvent('sharedContentUpdate', payload);
+            };
+            // Foundry sends selected shares to each selected user's socket and
+            // omits the recipient list on the relay. Only this caller-bound
+            // transport can authorize the browser and its HTTP snapshot.
+            const handleShareImage = (raw: unknown) => {
+                if (!raw || typeof raw !== 'object') return;
+                const event = raw as { data?: { image?: unknown; title?: unknown }; timestamp?: unknown; shareId?: unknown };
+                if (typeof event.data?.image !== 'string' || !event.data.image) return;
+                deliverShare({
+                    type: 'image',
+                    data: {
+                        url: event.data.image,
+                        title: typeof event.data.title === 'string' ? event.data.title : undefined,
+                    },
+                    timestamp: typeof event.timestamp === 'number' ? event.timestamp : Date.now(),
+                    shareId: typeof event.shareId === 'string' ? event.shareId : undefined,
+                });
+            };
+            const handleShowEntry = (raw: unknown) => {
+                if (!raw || typeof raw !== 'object') return;
+                const event = raw as { uuid?: unknown; timestamp?: unknown; shareId?: unknown };
+                if (typeof event.uuid !== 'string') return;
+                const parts = event.uuid.split('.');
+                if (parts[0] !== 'JournalEntry' || !parts[1]
+                    || (parts.length !== 2 && (parts.length !== 4 || parts[2] !== 'JournalEntryPage' || !parts[3]))) return;
+                deliverShare({
+                    type: 'journal',
+                    data: { id: parts[1], uuid: event.uuid, pageId: parts[3] },
+                    timestamp: typeof event.timestamp === 'number' ? event.timestamp : Date.now(),
+                    shareId: typeof event.shareId === 'string' ? event.shareId : undefined,
+                });
             };
             const handleCombatPreferencesChanged = () => {
                 const subject = userStore.createAccessSubject(getSessionUserId());
@@ -269,7 +310,8 @@ export function registerAppSocketGateway({
             systemClient.on('sceneListInvalidated', handleSceneListInvalidated);
             systemClient.on('settingChanged', handleSettingChanged);
             systemClient.on('settingListInvalidated', handleSettingListInvalidated);
-            const unsubscribeSharedContent = sharedContentStore.onSharedContentChanged(handleSharedUpdate);
+            foundryClient.on('foundry:shareImage', handleShareImage);
+            foundryClient.on('foundry:showEntry', handleShowEntry);
             const unsubscribeCombatPreferences = combatManagerPreferenceEvents.onChanged(handleCombatPreferencesChanged);
 
             let detached = false;
@@ -302,7 +344,8 @@ export function registerAppSocketGateway({
                 systemClient.off('sceneListInvalidated', handleSceneListInvalidated);
                 systemClient.off('settingChanged', handleSettingChanged);
                 systemClient.off('settingListInvalidated', handleSettingListInvalidated);
-                unsubscribeSharedContent();
+                foundryClient.off('foundry:shareImage', handleShareImage);
+                foundryClient.off('foundry:showEntry', handleShowEntry);
                 unsubscribeCombatPreferences();
             };
             detachWorldBackedListeners = detachListeners;
