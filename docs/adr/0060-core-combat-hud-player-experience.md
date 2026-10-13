@@ -1,6 +1,6 @@
 # ADR-0060: Core Combat HUD Player Experience
 
-**Status:** Accepted — implementation in progress; not yet operator-verified
+**Status:** Accepted — C0–C4 verified; C5 release review remains
 **Date:** October 12, 2026
 **Related:** ADR-0013, ADR-0027, ADR-0028, ADR-0038, ADR-0040, ADR-0049,
 ADR-0053, ADR-0057, ADR-0058, ADR-0059
@@ -300,7 +300,7 @@ sheet-link capability is never authority to write. All endpoints reauthorize.
   fixture-driven browser rendering before live tests. Check module themes.
   Inspect accessible labels, focus order, tooltips, counters, notifications
   and transitions for hidden-participant existence/position disclosures.
-- [ ] **C4 — integration and operator acceptance.** In an explicitly approved
+- [x] **C4 — integration and operator acceptance.** In an explicitly approved
   disposable world, exercise Begin/Next/Previous, initiative, hide/reveal,
   damage/stat changes, ownership change, completion/delete and concurrent
   users. Test ordinary and managed encounters, two GMs, current/non-current
@@ -481,8 +481,8 @@ Design player turn/initiative requests and authorization for SheetDelver-managed
 combats explicitly under the ADR-0058 follow-up before implementation.
 
 The current work can be checkpointed without closing ADR-0060. C1/C2's offline
-acceptance checks are recorded below; C4's isolated-world multi-user/lifecycle
-pass and C5's final documentation/release review remain. The user has verified
+acceptance checks and C4's isolated-world pass are recorded below; C5's final
+documentation/release review remains. The user has verified
 hidden-player visibility, C3 and the new own-turn cue.
 
 ### C1/C2 offline acceptance — October 12, 2026
@@ -512,8 +512,51 @@ and lint passed after the added regressions.
 These checkboxes mean C1/C2 are implemented and verified **offline**. They do
 not claim a native Foundry client command, a production check, or working
 player initiative/turn writes in a SheetDelver-managed Combat. Isolated-world
-multi-user, ownership-change, lifecycle and live module-loading checks remain
-under C4; final Core/module release compatibility remains under C5. The
+multi-user, ownership-change, lifecycle and live module-loading checks are
+recorded under C4 below; final Core/module release compatibility remains under C5. The
 standalone smoke harness can emit a registry-not-initialized diagnostic while
 using its Core fallback; module behavior was separately checked through the
 module checker and browser fixture, not inferred from that diagnostic.
+
+### C4 acceptance focus — October 12, 2026
+
+The GM reports that changes are already visible on both GM and player sides;
+another visual repetition of C1/C2 would add little evidence. C4 should instead
+exercise the live integration boundaries that the offline fixtures cannot
+establish: loading the intended local module and its initiative presentation,
+authorized ordinary versus managed actions across different users, a changed
+Actor ownership/hidden state, and state retirement/recovery across world
+transitions. Reuse one disposable encounter where possible and verify reads
+and writes through SheetDelver's authorized API; native Foundry browser controls
+are outside this HUD acceptance target. If the disposable fixture lacks a role
+or transition, record that limitation rather than treating an offline mock as
+live-world proof. The user authorized this isolated pass and a C4 checkpoint
+commit once verified; the evidence and limits follow.
+
+### C4 isolated-world integration — October 12, 2026
+
+An isolated Core/Next stack used a fresh `/tmp` data root, loopback-only ports,
+the disposable local Foundry v14 world and a copied current local Shadowdark
+module. It did not use the repository's production-connected `.env`, hosted
+Foundry, or a native Foundry browser dependency. A real local browser loaded
+the GM dashboard, the current Shadowdark bundle and an expanded two-row HUD
+without page errors.
+
+Live API checks covered an ordinary Combat's initiative/chat result, owner
+advance, stale turn rejection (409), assistant rewind, hide/reveal privacy,
+health and selected-stat refresh, and Actor ownership loss/restoration. A
+separate SheetDelver-managed Combat confirmed the GM-only manager shortcut and
+commands, view-only HUD for other roles, deletion and completion refresh. Two
+GMs, an assistant and a player were exercised. The test also confirmed one
+chat card for one roll and no write from a stale old-scope command.
+
+A transient upstream disconnect recovered with the same session. Definitive
+world shutdown made protected reads unavailable (503), and a later start
+rejected the old session (401); a fresh login worked. A switch to a disposable
+cloned world likewise rejected old-session reads and writes, allowed a fresh
+login, and restored the original world afterward. All marked test Users,
+Actors, Combats, Folders and ChatMessages were absent on the final cleanup
+check. The isolated services stopped; the cloned world and copied license were
+removed. This is evidence for the live Core/Foundry boundaries, not a claim
+about production or native Foundry UI controls. Managed player initiative and
+turn writes remain deliberately outside this ADR's authorized scope.
