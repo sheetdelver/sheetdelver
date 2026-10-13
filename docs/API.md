@@ -258,6 +258,27 @@ Unlinked scene Tokens do not project base Actor stats. Managed encounters
 disable all HUD mutations; `canManage` is only true for role-4 GMs and links
 back to the separate manager page.
 
+The tracker is an authorized projection, not a write grant. Its encounter
+fields are `id`, `active`, `started`, `round`, visible
+`currentCombatantId`/`nextShownCombatantId`, `canAdvanceTurn`,
+`canRewindTurn`, `canManage`, and `combatants`. Each visible row carries its
+display identity, initiative/defeated/hidden state, `isCurrent`,
+`canRollInitiative`, `isOwned`, `canOpenActor`, `statSource`, bounded `stats`,
+and optional `initiativeRoll` (`formula`, `source`, `rollAvailable`,
+`advantageAvailable`). `statSource: "unlinked-token"` never implies a base
+Actor stat read. `initiativeRoll` is `null` when unavailable; the client does
+not derive a formula from raw Actor data.
+
+| Viewer | Ordinary Combat HUD | SheetDelver-managed Combat HUD |
+| --- | --- | --- |
+| Role-4 GM | Full roster; Begin/Next/Previous and eligible initiative | Full roster, view-only; `canManage` links to GM Combat Manager |
+| Assistant GM | Full roster; Begin/Next/Previous and eligible initiative | Full roster, view-only; no manager access |
+| Player | Visible roster; own eligible initiative and End my turn only while active, started and current | Visible roster, view-only; no manager access |
+
+The ordinary action routes independently recheck role, Actor ownership,
+visibility and current state. Hidden and missing initiative targets are
+indistinguishable (`404`) to a player.
+
 Ordinary `POST /api/combats/:id/next-turn` and `/previous-turn` require
 `{ "observed": { "active": true, "started": true, "round": 2,
 "currentCombatantId": "..." } }` using the last tracker view. A changed
@@ -269,6 +290,7 @@ actions. The initiative endpoint requires an `observed` initiative number or
 a finite `manualTotal`. Client-supplied formulas are rejected. Hidden and
 missing rows are both `404` for a player. These are Core-side preflights and
 per-encounter serialization, not atomic native Foundry compare-and-set.
+Core chooses public/GM roll audience; the initiative request cannot set it.
 
 ---
 

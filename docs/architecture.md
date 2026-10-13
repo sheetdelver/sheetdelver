@@ -287,7 +287,12 @@ share a Core encounter guard; ordinary writes additionally check the client's
 observed state. Stat-preference changes invalidate player tracker projections
 without granting access to GM preference routes. The player shell owns HUD
 clearance and world-unavailable overlays; modules may present initiative via
-the SDK, but Core resolves formulas and executes rolls.
+the typed SDK `rollModal` slot, but Core resolves formulas, chooses roll
+audience, reauthorizes observed commands and executes rolls. The slot returns
+only a roll mode or manual final total; it cannot submit a formula or a Foundry
+transport command. SheetDelver-managed Combats stay view-only in the HUD and
+use separate role-4 GM manager routes. Native Foundry browser hooks and
+managed player commands are not part of this boundary (ADR-0060/ADR-0058).
 
 Prepared data never writes back to Foundry automatically. Embedded Item and Active
 Effect changes update the source Actor first, then atomically replace its prepared

@@ -487,6 +487,12 @@ the module owns presentation only. The injected SDK `RollDialog` supports
 If `rollModal` is absent, Core shows that shared dialog. Modules adopting
 this breaking slot declare `coreVersion >=0.18.0` and
 `ui-extension-api >=3.0.0 <4.0.0`. Publish Core 0.18.0 first.
+The override is used only where the HUD projects an eligible ordinary Combat
+initiative action; it does not grant a module or player a managed-Combat
+command. Core may decline or reject an action when ownership, visibility or
+the observed initiative changed after the dialog opened. Module UI should
+call `onConfirm(choice)` and let Core handle the result, notification and refetch;
+it must not retry a stale choice itself.
 
 ### Dashboard actions (SDK 2.0.0)
 

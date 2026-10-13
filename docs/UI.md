@@ -181,6 +181,19 @@ backend encounter read model — never raw Combat/Combatant/Actor documents.
   `combatTrackerPreferencesChanged` are skinny invalidations — the client
   refetches its authorized projection; payloads never carry document data.
 
+| Viewer | Ordinary HUD actions | Managed HUD actions |
+| --- | --- | --- |
+| Player | Roll initiative for eligible owned rows; End my turn only when the visible owned row is current in an active, started Combat | None; view-only |
+| Assistant GM | Begin/Next/Previous and eligible initiative | None; view-only |
+| Role-4 GM | Begin/Next/Previous and eligible initiative | Open Combat Manager; HUD itself remains view-only |
+
+The assistant and GM receive the full roster, including hidden rows; players
+receive only visible rows. HUD buttons follow these projected capabilities,
+but Core reauthorizes every command and checks the observed state before a
+write. A stale ordinary command refetches on `409` rather than replaying the
+old action. Managed player initiative/turn actions are deferred to the
+separate ADR-0058 design, not silently routed through the GM manager API.
+
 Module components should treat realtime as invalidation. Refetch through SDK
 hooks or host APIs instead of applying socket payloads as authoritative document
 diffs.

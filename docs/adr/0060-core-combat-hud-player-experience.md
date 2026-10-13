@@ -1,6 +1,6 @@
 # ADR-0060: Core Combat HUD Player Experience
 
-**Status:** Accepted — C0–C4 verified; C5 release review remains
+**Status:** Accepted — C0–C5 verified; PR and release pending
 **Date:** October 12, 2026
 **Related:** ADR-0013, ADR-0027, ADR-0028, ADR-0038, ADR-0040, ADR-0049,
 ADR-0053, ADR-0057, ADR-0058, ADR-0059
@@ -308,7 +308,7 @@ sheet-link capability is never authority to write. All endpoints reauthorize.
   Confirm no duplicate command/chat or stale old-scope action. Then request
   user acceptance. Record evidence, limitations and cleanup; no production
   probes or required native-browser dependency.
-- [ ] **C5 — documentation/release review.** Update `docs/API.md` (DTO/action
+- [x] **C5 — documentation/release review.** Update `docs/API.md` (DTO/action
   preconditions/audience), `docs/UI.md` (HUD behavior and role matrix),
   `docs/architecture.md` (projection/shell/invalidation),
   `docs/MODULE_MANIFEST.md`, `docs/MODULE_AUTHORING.md` and SDK exports/types/
@@ -560,3 +560,27 @@ check. The isolated services stopped; the cloned world and copied license were
 removed. This is evidence for the live Core/Foundry boundaries, not a claim
 about production or native Foundry UI controls. Managed player initiative and
 turn writes remain deliberately outside this ADR's authorized scope.
+
+### C5 documentation and PR readiness — October 12, 2026
+
+The API guide now names the bounded tracker fields, ordinary command
+observations/errors and role-specific HUD capabilities. The UI guide records
+the compact/expanded behavior, privacy policy and ordinary/managed role
+matrix; architecture documents the Core/module initiative boundary and
+invalidation ownership. Module manifest and authoring guides describe the
+typed SDK 3.0.0/UI API 3.0.0 presentation contract, stale-choice behavior
+and the temporary local-development Core range. SDK exports, types and unit
+fixtures already match that contract; the three module READMEs describe their
+override/fallback choices and temporary Core minimums. ADR-0028 already has
+an explicit successor note for its historical hidden-current example.
+Notification behavior did not change, so `docs/NOTIFICATIONS.md` needs no edit.
+The Unreleased changelog contains the delivered feature snapshot.
+
+`git diff --check`, `npm run lint` and `npx tsc --noEmit` passed for this
+documentation-only checkpoint; C1–C4 record the earlier full unit/client,
+module and isolated live checks. The PR/release sequence is still external:
+the user will review/push/merge Core, then prepare Core 0.18.0 per
+`docs/RELEASING.md`; only after that release should each module restore its
+`coreVersion >=0.18.0` minimum, run compatibility/package checks and publish.
+Do not treat this checkpoint as a tag, release, production acceptance test or
+authorization for the deferred ADR-0058 managed-player command design.

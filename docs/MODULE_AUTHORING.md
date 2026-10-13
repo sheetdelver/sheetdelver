@@ -357,6 +357,12 @@ Foundry transport from this modal. Use the injected SDK `RollDialog` with
 generic fallback. Sheet-oriented `RollDialog` modes remain available. Upgrade
 module compatibility to `coreVersion >=0.18.0` and
 `ui-extension-api >=3.0.0 <4.0.0`; publish Core before module releases.
+For local development against the unreleased Core branch, a temporary
+`coreVersion >=0.17.0` minimum can keep the module visible; the 3.x UI API
+gate still rejects released Core 0.17.0. Restore the Core 0.18.0 minimum
+after that host release and before publishing the module. The HUD calls this
+slot only for an eligible ordinary Combat row; managed encounters remain
+view-only and use the GM-only manager for mutations.
 
 ### Player-world lifecycle
 
