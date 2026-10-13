@@ -24,6 +24,15 @@ export function run() {
     }));
     assert.match(noAdvantage, /Audience: GMs/);
     assert.doesNotMatch(noAdvantage, />Advantage</);
+    const manualOnly = renderToStaticMarkup(createElement(RollDialog, {
+        ...props, formula: '', source: 'module', rollAvailable: false,
+        advantageAvailable: false, audience: 'gm',
+    }));
+    assert.match(manualOnly, /Formula: <code>Unavailable<\/code>/);
+    assert.match(manualOnly, /Manual total/);
+    assert.doesNotMatch(manualOnly, />Roll initiative</);
+    assert.doesNotMatch(manualOnly, />Advantage</);
+    assert.doesNotMatch(manualOnly, />Disadvantage</);
     console.log('  - InitiativeRollDialog: bounded presentation passed');
 }
 

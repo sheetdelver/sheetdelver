@@ -145,9 +145,13 @@ export default function CombatHUDView() {
                     <button type="button" className={button} disabled={selection.index === activeCombats.length - 1} aria-label="Next encounter"
                         onClick={() => setSelectedCombatId(activeCombats[selection.index + 1].id)}><ChevronRight aria-hidden="true" className="h-4 w-4" /></button>
                 </div>}
-                <div className="flex h-10 min-w-0 flex-[1_1_9rem] items-center gap-2" aria-label="Current turn">
+                <div data-own-turn={current?.isOwned ? 'true' : undefined}
+                    className={`flex h-10 min-w-0 flex-[1_1_9rem] items-center gap-2 rounded-lg px-2 ${current?.isOwned ? 'sd-combat-own-turn' : ''}`}
+                    aria-label={current?.isOwned ? 'Your turn' : 'Current turn'}>
                     {current && <Portrait row={current} />}
-                    <span className="min-w-0"><span className="sd-ui-muted block text-[10px] leading-tight">Current turn</span>
+                    <span className="min-w-0"><span className={current?.isOwned
+                        ? 'sd-combat-own-turn-label block text-[11px] font-bold leading-tight uppercase tracking-wide'
+                        : 'sd-ui-muted block text-[10px] leading-tight'}>{current?.isOwned ? 'Your turn' : 'Current turn'}</span>
                         <span className="block truncate text-sm font-semibold">{current?.name || '—'}</span></span>
                 </div>
                 <div className="flex h-10 min-w-0 flex-[1_1_9rem] items-center gap-2" aria-label={gm ? 'Up next' : 'Next shown'}>
@@ -177,12 +181,13 @@ export default function CombatHUDView() {
         </div>
         {expanded && <div id="combat-hud-roster" className="sd-ui-panel-raised absolute inset-x-0 top-full max-h-[min(65dvh,36rem)] overflow-y-auto rounded-none border-x-0 border-t-0 p-3 shadow-xl">
             <ol className="mx-auto max-w-7xl space-y-2" aria-label="Visible combatants">{combat.combatants.map(row => <li key={row.id}
-                aria-current={row.isCurrent ? 'step' : undefined} className="sd-ui-inset flex flex-wrap items-center gap-2 rounded-xl p-2">
+                aria-current={row.isCurrent ? 'step' : undefined}
+                className={`sd-ui-inset flex flex-wrap items-center gap-2 rounded-xl p-2 ${row.isCurrent && row.isOwned ? 'sd-combat-own-turn' : ''}`}>
                 <Portrait row={row} />
                 <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-1.5 text-sm"><span className="break-words font-semibold">{row.name || 'Combatant'}</span>
-                        {row.isCurrent && <span className="sd-ui-accent text-xs">Current</span>}
-                        {row.isOwned && <span className="sd-ui-muted text-xs">Yours</span>}
+                        {row.isCurrent && <span className="sd-ui-accent text-xs font-semibold">{row.isOwned ? 'Your turn' : 'Current'}</span>}
+                        {row.isOwned && !row.isCurrent && <span className="sd-ui-muted text-xs">Yours</span>}
                         {row.defeated && <span className="sd-ui-danger text-xs">Defeated</span>}
                         {row.hidden && <span className="sd-ui-muted text-xs">Hidden from players</span>}
                     </div>

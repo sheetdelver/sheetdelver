@@ -294,7 +294,7 @@ sheet-link capability is never authority to write. All endpoints reauthorize.
   Test fallback and override with module formula, GM fallback, missing formula,
   numeric manual total, d20/non-d20, allowed advantage, privacy and load errors.
   No caller may bypass manager restrictions through the new callback/body.
-- [ ] **C3 — HUD and shell.** Build compact/expanded layouts, owned chips and
+- [x] **C3 — HUD and shell.** Build compact/expanded layouts, owned chips and
   sheet/manager shortcuts; wire preference invalidation. Review dark/light,
   mobile/desktop, keyboard, focus, reduced motion and all overlay states using
   fixture-driven browser rendering before live tests. Check module themes.
@@ -402,7 +402,8 @@ lint pass. A follow-up screenshot exposed the remaining centered, rounded
 panel seam above the dashboard; the HUD surface now spans the viewport with
 only its contents width-constrained, and the expanded roster aligns to that
 full-width surface. The user visually accepted the revised desktop HUD on
-October 12; mobile, zoom, keyboard, focus and overlay review remain in C3. The same
+October 12; the later isolated browser pass and operator review completed C3.
+The same
 screenshot showed no turn action because this was a SheetDelver-managed
 encounter viewed as a player; that remains the intentional GM-command boundary
 for this pass. The user reconfirmed that managed player turn actions require a
@@ -423,3 +424,63 @@ minimum. Live module loading and full operator acceptance remain unverified.
 After the full-width desktop refinement, `npm run test:unit`,
 `npm run test:client`, `npx tsc --noEmit` and `npm run lint` passed. Desktop
 visual acceptance is recorded above; broader C1–C5 acceptance remains open.
+
+### C1–C3 offline acceptance preparation — October 12, 2026
+
+Projection regressions now cover assistant visibility, actorless and
+unavailable-Actor capabilities, and hide/reveal of the current row in addition
+to existing hidden-position, hidden/missing-target and managed-command cases.
+Initiative regressions cover Core/GM/module precedence, non-d20 advantage
+suppression, a throwing module hook, manual-only presentation and invalid
+manual-mode preflight without roll or write side effects.
+
+An isolated browser fixture rendered the actual Core HUD and RollDialog plus
+Shadowdark's module override with compiled scoped CSS, stubbed context/API
+inputs and no Core/Foundry/network connection. It passed 320/375/1280px,
+dark/light surfaces, expanded roster, 44px roster control, focus entry/return,
+reverse-Tab/Escape, bounded manual dispatch, load-error presentation, dialog
+retirement when an owned row disappears, reduced-motion operability and
+overlay hit-testing. A light-mode contrast check found that the unlayered Core
+panel surface suppressed Shadowdark's scoped black/white theme. The shared
+initiative dialog now honors complete module header/body/button skin slots;
+the isolated render confirms a black header with white title and white body
+with dark text at 320px. The Shadowdark roll-dialog theme supplies explicit
+header/body text colors. This fixture is a local development check, not a
+substitute for two-user or native Foundry integration. Full Core unit/client,
+TypeScript, lint and all three local module checks pass. C1–C3 remain open
+until operator review; C4 remains a separate live pass.
+
+### Owned current-turn cue and operator review — October 12, 2026
+
+The user accepted C3's preceding HUD presentation and verified C1's
+hidden-participant visibility in a live check. Their initiative check used the
+GM Combat Manager because the player HUD offered no roll control. This is the
+SheetDelver-managed player-command gap deliberately left outside C2's SDK
+presentation migration, not a request to test Foundry's separate native UI.
+C1 and C2 remain open for their remaining acceptance matrix; C3's prior scope
+was accepted before the additional cue below.
+
+The user also identified that an owned current turn lacked a clear visual cue.
+The compact HUD now highlights only a projected current row with `isOwned` and
+labels it **Your turn**; the expanded roster applies the same treatment. Use
+Core light/dark accent tokens, a static outline/tint and text rather than
+motion or a module theme. An unowned, hidden, or unavailable current row must
+never receive the cue. This is presentation only: it grants no managed player
+initiative or turn command. The user visually verified the cue as obvious when
+their character is current.
+
+### Checkpoint boundary — October 12, 2026
+
+Foundry's own player combat controls are external to SheetDelver and are not
+an operator acceptance target for this HUD pass. C2's versioned SDK dialog,
+server-resolved formula, Core fallback and module migration are technical
+presentation work; their offline fixtures and module checks do not supply a
+player command in a managed encounter. Do not treat the unavailable managed
+player initiative button as C2 acceptance or quietly expand its permissions.
+Design player turn/initiative requests and authorization for SheetDelver-managed
+combats explicitly under the ADR-0058 follow-up before implementation.
+
+The current work can be checkpointed without closing ADR-0060. C1's remaining
+role/command matrix, C2's end-to-end migration acceptance, C4's isolated-world
+multi-user/lifecycle pass and C5's final documentation/release review remain.
+The user has verified hidden-player visibility, C3 and the new own-turn cue.

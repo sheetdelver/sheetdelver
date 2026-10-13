@@ -53,14 +53,24 @@ export function run(): void {
     assert.equal(effectiveInitiativeFormula(new BaseSystemAdapter(), prepared,
         '1d20+@system.missing').rollAvailable, false);
     assert.equal(effectiveInitiativeFormula(new BaseSystemAdapter(), prepared, null).source, 'core');
+    assert.deepEqual(effectiveInitiativeFormula(new BaseSystemAdapter(), prepared, null), {
+        source: 'core', formula: '1d20', rollAvailable: true, advantageAvailable: true,
+    }, 'Core has a usable d20 fallback when neither module nor GM supplies a formula');
     assert.equal(effectiveInitiativeFormula({ getInitiativeFormula: () => '1d6+2' } as any, prepared,
         '1d20').source, 'module', 'module-supplied initiative always wins');
+    assert.deepEqual(effectiveInitiativeFormula({ getInitiativeFormula: () => '1d6+2' } as any,
+        prepared, null), { source: 'module', formula: '1d6+2', rollAvailable: true,
+        advantageAvailable: false }, 'non-d20 initiative must not offer advantage');
     assert.deepEqual(effectiveInitiativeFormula({ getInitiativeFormula: () => '1d6+@system.attributes.init.value' } as any,
         prepared, '1d20'), { source: 'module', formula: '1d6+@system.attributes.init.value',
         rollAvailable: true, advantageAvailable: false },
     'Core does not rewrite a module-supplied formula reference');
     assert.equal(effectiveInitiativeFormula({ getInitiativeFormula: () => '' } as any, prepared,
         '1d20').source, 'gm', 'an empty module formula permits the saved fallback');
+    assert.deepEqual(effectiveInitiativeFormula({ getInitiativeFormula: () => {
+        throw new Error('module formula unavailable');
+    } } as any, prepared, '1d20'), { source: 'module', formula: '', rollAvailable: false,
+        advantageAvailable: false }, 'a failing module hook must not silently become a GM roll');
 
     const discovered = discoverCombatStatFields([
         { type: 'npc', system: { attributes: { hp: { value: 12, max: 20 }, armorClass: 15,

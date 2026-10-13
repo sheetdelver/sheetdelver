@@ -822,6 +822,12 @@ async function runCombatReadActionSmoke() {
     assert.deepEqual(staleInitiative, { error: 'Initiative changed; review the current value before retrying', status: 409 });
     assert.deepEqual(rolls, [], 'stale initiative never rolls');
     assert.deepEqual(initiativeWrites, [], 'stale initiative never writes');
+    const invalidManualInitiative = await combatService.rollInitiative(authorizedClient, 'combat-init-auth', 'c-mine', {
+        observed: { initiative: null, formula: '1d20' }, manualTotal: 7.5, advantageMode: 'advantage',
+    });
+    assert.deepEqual(invalidManualInitiative, { error: 'Invalid manual initiative total', status: 400 });
+    assert.deepEqual(rolls, [], 'invalid manual initiative never rolls');
+    assert.deepEqual(initiativeWrites, [], 'invalid manual initiative never writes');
     const manualInitiative = await combatService.rollInitiative(authorizedClient, 'combat-init-auth', 'c-mine', {
         observed: { initiative: null, formula: '1d20' }, manualTotal: 7.5,
     });

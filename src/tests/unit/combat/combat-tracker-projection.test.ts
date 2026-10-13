@@ -14,6 +14,7 @@ import {
  */
 
 const gm: DocumentAccessSubject = { userId: 'gm-1', role: FoundryUserRole.GAMEMASTER };
+const assistant: DocumentAccessSubject = { userId: 'assistant-1', role: FoundryUserRole.ASSISTANT };
 const player: DocumentAccessSubject = { userId: 'p-1', role: FoundryUserRole.PLAYER };
 
 function preparedFixture(overrides: Partial<PreparedEncounter> = {}): PreparedEncounter {
@@ -56,6 +57,8 @@ export function run() {
     runVisibleCurrentCapabilities();
     runRoundZero();
     runHiddenPrivacy();
+    runRoleAndMissingActorMatrix();
+    runHideRevealTransition();
     console.log('  - CombatTrackerProjection: all checks passed');
 }
 
@@ -175,6 +178,50 @@ function runHiddenPrivacy() {
     const gmDto = buildCombatTrackerDto(base, gm, deps);
     assert.equal(gmDto.combatants[1].name, 'Lurker');
     assert.equal(gmDto.combatants[1].hidden, true);
+}
+
+function runRoleAndMissingActorMatrix() {
+    const prepared = preparedFixture({ currentCombatantId: 'c-player', turn: 0 });
+    const assistantDto = buildCombatTrackerDto(prepared, assistant, deps);
+    assert.deepEqual(assistantDto.combatants.map(row => row.id), ['c-player', 'c-hidden', 'c-npc'],
+        'assistant retains the existing GM-like tracker read policy');
+    assert.equal(assistantDto.canAdvanceTurn, true);
+    assert.equal(assistantDto.canRewindTurn, true);
+    assert.equal(assistantDto.combatants[1].hidden, true);
+
+    const actorless = preparedFixture({ rows: [
+        { ...prepared.rows[0], actorId: null },
+        prepared.rows[2],
+    ], currentCombatantId: 'c-player', turn: 0 });
+    const playerDto = buildCombatTrackerDto(actorless, player, deps);
+    assert.equal(playerDto.combatants[0].canRollInitiative, false);
+    assert.equal(playerDto.canAdvanceTurn, false, 'actorless current rows cannot confer player actions');
+    assert.equal(buildCombatTrackerDto(actorless, gm, deps).canAdvanceTurn, true);
+
+    const missingActor = buildCombatTrackerDto(prepared, player, {
+        canWriteActor: () => false,
+    });
+    assert.equal(missingActor.canAdvanceTurn, false);
+    assert.equal(missingActor.combatants[0].canRollInitiative, false,
+        'unavailable Actor ownership never grants a capability');
+}
+
+function runHideRevealTransition() {
+    const prepared = preparedFixture({ currentCombatantId: 'c-player', turn: 0 });
+    const before = buildCombatTrackerDto(prepared, player, deps);
+    assert.equal(before.currentCombatantId, 'c-player');
+    assert.equal(before.canAdvanceTurn, true);
+    const hidden = buildCombatTrackerDto({ ...prepared, rows: [
+        { ...prepared.rows[0], hidden: true }, ...prepared.rows.slice(1),
+    ] }, player, deps);
+    assert.deepEqual(hidden.combatants.map(row => row.id), ['c-npc']);
+    assert.equal(hidden.currentCombatantId, null);
+    assert.equal(hidden.nextShownCombatantId, null);
+    assert.equal(hidden.canAdvanceTurn, false);
+    assert.equal(JSON.stringify(hidden).includes('c-player'), false,
+        'hiding the current row removes its identity from player JSON');
+    const revealed = buildCombatTrackerDto(prepared, player, deps);
+    assert.deepEqual(revealed, before, 'revealing restores only the normal authorized projection');
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

@@ -162,6 +162,9 @@ backend encounter read model — never raw Combat/Combatant/Actor documents.
   reconstructing ownership.
 - The compact HUD shows current turn, **Next shown** (visible-order preview),
   and an owned-character selector with up to three read-only selected stats.
+  When the visible current combatant is owned by the player, **Your turn** gets
+  a Core-themed accent highlight in the strip and expanded roster; other or
+  unavailable current combatants do not get that cue.
   Its expandable roster contains all authorized rows, full names, portraits,
   initiative, current/owned/defeated labels and GM-only hidden labels. Linked
   or tokenless owned world Actors may show selected stats; unlinked scene
