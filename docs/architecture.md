@@ -118,6 +118,15 @@ On a same-world reconnect, `WorldBootstrapper.recover()` verifies world/system i
 - **FoundryProvider**: Coordinates connection-step presentation and authorized world data from the shared realtime and session providers; it does not treat public status as authentication.
 - **JournalProvider**: Manages journal entry loading, folder hierarchies, and pagination logic.
 - **UIProvider**: Manages global overlay state. One layout-owned shared-content host presents images and delegates authorized journal reads to `JournalModal`; module-mounted compatibility components are inert to avoid duplicate overlays.
+  Optional SDK footer registrations reserve measured visible bottom-bar space
+  for Core chrome. SDKProvider releases its module/world/user registrations;
+  terminal UI reset clears the host registry. Modules register only their own
+  element via the public client SDK, never Core DOM or server-side layout state.
+  Native journal sharing has a separate recipient/receipt-bound read-only lease
+  and whitelisted JournalStore projection. Source ownership and ordinary reads
+  remain unchanged; Secret content is filtered server-side for non-owners.
+  Leases are modal-owned and bounded in the existing scoped SharedContentStore,
+  not a persistent permission store (ADR-0062 J1).
 - **PlayerWorldBoundary**: The player layout owns login/setup/closed/loading
   presentation for home, Actor and module-tool routes. Cold routes do not mount
   their page effects or persistent tools until authenticated readiness. A

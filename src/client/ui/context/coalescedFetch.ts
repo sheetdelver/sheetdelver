@@ -39,9 +39,11 @@ export function createCoalescedFetch<TResult>(
         })();
 
         inFlight = request;
-        void request.finally(() => {
+        const release = () => {
             if (inFlight === request) inFlight = null;
-        });
+        };
+        // finally() would create an unobserved rejected promise on failures.
+        void request.then(release, release);
         return request;
     };
 

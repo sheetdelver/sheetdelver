@@ -99,7 +99,7 @@ export default function GlobalChat(props: GlobalChatProps) {
         <div
             ref={containerRef}
             data-step={step}
-            className={`${system?.id ? `sdk-module--${system.id}` : ''} fixed bottom-24 left-1/2 -translate-x-1/2 sm:left-auto sm:right-6 sm:translate-x-0 z-[100] flex flex-col items-center sm:items-end gap-4 pointer-events-none font-inter `}
+            className={`${system?.id ? `sdk-module--${system.id}` : ''} fixed bottom-[calc(6rem+var(--sd-bottom-navigation-inset,0px))] left-1/2 -translate-x-1/2 sm:left-auto sm:right-6 sm:translate-x-0 z-[100] flex flex-col items-center sm:items-end gap-4 pointer-events-none font-inter `}
         >
 
             {/* --- WINDOWS --- */}

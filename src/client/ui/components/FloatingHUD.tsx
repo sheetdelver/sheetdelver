@@ -101,7 +101,7 @@ export default function FloatingHUD() {
     return (
         <div
             ref={hudRef}
-            className={`fixed bottom-6 z-[150] transition-all duration-500 ease-in-out pointer-events-auto
+            className={`fixed bottom-[calc(1.5rem+var(--sd-bottom-navigation-inset,0px))] z-[150] transition-all duration-500 ease-in-out pointer-events-auto
                 ${isMinimized
                     ? 'left-1/2 -translate-x-1/2 sm:left-auto sm:right-6 sm:translate-x-0'
                     : 'left-1/2 -translate-x-1/2 sm:left-auto sm:right-6 sm:translate-x-0'

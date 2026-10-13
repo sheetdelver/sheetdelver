@@ -25,7 +25,10 @@ export function attachSharedContentIngress(client: FoundryClientLike, scope: {
         const parts = raw.uuid.split('.');
         if (parts[0] !== 'JournalEntry' || !parts[1]
             || (parts.length !== 2 && (parts.length !== 4 || parts[2] !== 'JournalEntryPage' || !parts[3]))) return;
-        deliver({ type: 'journal', data: { id: parts[1], uuid: raw.uuid, pageId: parts[3] }, ...identity(raw) });
+        // Foundry relays force as the first positional argument; browsers do
+        // not supply this authority when opening the corresponding view.
+        const force = Array.isArray(raw.args) && raw.args[0] === true;
+        deliver({ type: 'journal', data: { id: parts[1], uuid: raw.uuid, pageId: parts[3], force }, ...identity(raw) });
     };
     client.on('foundry:shareImage', image);
     client.on('foundry:showEntry', journal);

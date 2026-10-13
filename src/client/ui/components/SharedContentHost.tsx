@@ -18,6 +18,7 @@ export function SharedContentHost() {
     const {
         dismissedShareKey, dismissSharedContent, setActiveShareKey,
         activeShareKey, activeJournalId, sharedJournalId, setActiveJournalId, setSharedJournalId, setSharedJournalPageId,
+        setSharedJournalReceipt,
     } = useUI();
     const [image, setImage] = useState<RealtimeSharedContentPayload | null>(null);
     const lastPresentedKey = useRef<string | null>(null);
@@ -30,6 +31,7 @@ export function SharedContentHost() {
                 if (activeJournalId === sharedJournalId) setActiveJournalId(null);
                 setSharedJournalId(null);
                 setSharedJournalPageId(null);
+                setSharedJournalReceipt(null);
                 setActiveShareKey(null);
             }
             return;
@@ -47,16 +49,20 @@ export function SharedContentHost() {
             const pageId = sharedContent.data?.pageId;
             setImage(null);
             setSharedJournalPageId(typeof pageId === 'string' ? pageId : null);
+            const { streamId, sequence, shareId } = sharedContent;
+            setSharedJournalReceipt(typeof streamId === 'string' && typeof sequence === 'number' && typeof shareId === 'string'
+                ? { streamId, sequence, shareId } : null);
             setSharedJournalId(id);
             setActiveJournalId(id);
         } else if (sharedContent.type === 'image') {
             setActiveJournalId(null);
             setSharedJournalId(null);
             setSharedJournalPageId(null);
+            setSharedJournalReceipt(null);
             setImage(sharedContent);
         }
     }, [worldId, currentUserId, sharedContent, dismissedShareKey, activeJournalId, sharedJournalId,
-        setActiveShareKey, setActiveJournalId, setSharedJournalId, setSharedJournalPageId]);
+        setActiveShareKey, setActiveJournalId, setSharedJournalId, setSharedJournalPageId, setSharedJournalReceipt]);
 
     useEffect(() => {
         if (image && activeJournalId) {

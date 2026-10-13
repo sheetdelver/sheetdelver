@@ -2,6 +2,7 @@ import express from 'express';
 import { createJournalService } from '@server/services/journals/JournalService';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
 import { isErrorPayload } from '@server/shared/utils/isErrorPayload';
+import { createSharedJournalService } from '@server/services/journals/SharedJournalService';
 
 /**
  * Journal route registrar — ownership-threshold contract (ADR-0013):
@@ -21,6 +22,32 @@ import { isErrorPayload } from '@server/shared/utils/isErrorPayload';
 export function registerJournalRoutes(appRouter: express.Router) {
     // Journal domain service: displaced logic for visibility-filtered listing and CRUD operations.
     const journalService = createJournalService();
+    const sharedJournals = createSharedJournalService();
+    const recipient = (req: express.Request) => {
+        const session = req.userSession;
+        return !req.isSystem && session?.id && session.worldId && session.userId
+            && session.userId === req.foundryClient.userId
+            ? { sessionId: session.id, worldId: session.worldId, userId: session.userId } : null;
+    };
+    const shareRequest = (operation: 'open' | 'read' | 'close'): express.RequestHandler => (req, res) => {
+        res.setHeader('Cache-Control', 'no-store');
+        const scope = recipient(req);
+        if (!scope) return res.status(403).json({ error: 'A player world session is required' });
+        try {
+            if (operation === 'close') {
+                sharedJournals.close(scope, req.body?.viewId);
+                return res.json({ ok: true });
+            }
+            const payload = operation === 'open' ? sharedJournals.open(scope, req.body) : sharedJournals.read(scope, req.query.viewId);
+            if (isErrorPayload(payload)) return res.status(payload.status).json({ error: payload.error });
+            return res.json(payload);
+        } catch (error: unknown) {
+            return res.status(500).json({ error: getErrorMessage(error) });
+        }
+    };
+    appRouter.post('/shared-content/journal-view', shareRequest('open'));
+    appRouter.get('/shared-content/journal-view', shareRequest('read'));
+    appRouter.delete('/shared-content/journal-view', shareRequest('close'));
 
     appRouter.get('/journals', async (req, res) => {
         try {

@@ -46,3 +46,15 @@ export interface JournalErrorPayload {
     error: string;
     status: number;
 }
+
+/** Presentation identity, never a browser-selected document permission. */
+export interface SharedJournalReceipt {
+    streamId: string;
+    sequence: number;
+    shareId: string;
+}
+
+export interface SharedJournalView {
+    viewId: string;
+    expiresAt: number;
+}

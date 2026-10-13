@@ -70,9 +70,9 @@ export function NotificationProvider({ children, placement = 'player' }: { child
         {children}
         <div ref={setViewport} aria-label="Live feedback" className="fixed right-4 z-[200] pointer-events-none flex flex-col gap-2 overflow-y-auto"
             style={{
-                bottom: clearance ? `max(calc(6rem + env(safe-area-inset-bottom)), ${clearance.bottom}px)` : 'calc(6rem + env(safe-area-inset-bottom))',
+                bottom: clearance ? `max(calc(6rem + env(safe-area-inset-bottom) + var(--sd-bottom-navigation-inset, 0px)), ${clearance.bottom}px)` : 'calc(6rem + env(safe-area-inset-bottom) + var(--sd-bottom-navigation-inset, 0px))',
                 width: 'min(420px, calc(100vw - 32px))',
-                maxHeight: clearance ? `min(calc(100dvh - 7rem), ${clearance.maxHeight}px)` : 'calc(100dvh - 7rem)',
+                maxHeight: clearance ? `min(calc(100dvh - 7rem - var(--sd-bottom-navigation-inset, 0px)), ${clearance.maxHeight}px)` : 'calc(100dvh - 7rem - var(--sd-bottom-navigation-inset, 0px))',
                 ...(placement === 'admin' ? {
                     bottom: 'calc(1rem + env(safe-area-inset-bottom))',
                     maxHeight: 'calc(100dvh - 2rem - env(safe-area-inset-bottom))',

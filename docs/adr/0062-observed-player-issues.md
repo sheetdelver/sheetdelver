@@ -1,8 +1,46 @@
 # ADR-0062: Observed Player Issues and Cross-Browser Isolation
 
-**Status:** Accepted — implementation in progress; user verification pending
+**Status:** Completed — user accepted; verification limits and publication gates recorded
 **Date:** October 13, 2026
 **Related:** ADR-0013, ADR-0038, ADR-0049, ADR-0053, ADR-0054, ADR-0057, ADR-0059
+
+## Closeout — October 13, 2026
+
+The user confirmed the corrections work and authorized closing this iteration
+and committing its checkpoint. The implementation, regression checks, mobile
+footer/gear corrections and J1 temporary journal views are complete and accepted.
+Earlier pending checklists below are historical checkpoint records, not a new
+request to reopen this completed scope.
+
+Core unit/client/integration suites, typecheck and lint pass, as do the two module checkers,
+eight module regressions, explicit module-source typing and isolated rendered
+fixtures. C0's copied-Next dev/build tests verify cross-browser isolation while
+preserving normal HMR/restart recovery. The user confirmation is operator
+acceptance; it does not assert that every native v13/v14 permission/recipient
+matrix case was manually repeated, or that a fresh dependency install ran.
+Native test services remain paused and have not been contacted during closeout.
+
+The following are **separate follow-ups, not unimplemented fixes in this ADR**:
+
+- **Publication:** merge/release Core first (target 0.17.1). Mörk Borg's CI and
+  release references need that published tag; then promote its provisional
+  application minimum to `>=0.17.1` and validate/package against it before
+  module publication. This checkpoint intentionally keeps current development
+  working; it is not authorization to publish staging metadata. Core/package
+  and module release versions remain unchanged. SDK 2.3.0 / UI API 2.2.0 are
+  the approved additions and remain authoritative in contractVersions.ts.
+- **C6 parked integration:** reconciliation with ADR-0060/0061 and SDK/UI 3.x
+  is deferred until separately authorized. Inventory/review is complete;
+  branch merging and participation/native tests were not performed here.
+- **Existing privacy:** ordinary-journal Secret display versus raw/editor
+  projection and the pre-existing non-roll private-whisper mismatch have
+  bounded plans below. They were not broadened or claimed fixed by this scope.
+- **Toolchain maintenance:** remove the pinned Next development correction
+  only after a supported upstream fix passes the recorded regression gates.
+
+The audit is archived, remaining work stays in the single local follow-up
+queue, and the handoff records the checkpoint and release order. PR creation,
+push, squash/delete merge and release operations remain with the user.
 
 ## Context and scope
 
@@ -77,6 +115,13 @@ on-demand home/login compilation refreshing the already-open Actor client,
 not guest login replacing its session. An HTTP request can trigger this before
 the guest's application socket connects. Do not dismiss the disruption because
 Core remained healthy or because this was a development server.
+
+**Current diagnosis:** the later debugger/protocol capture in the October 13
+checkpoint review below identifies Next 16.3.8's Webpack HMR `sync` hash check
+as the full-document reload path. Cold compilation alone is not sufficient;
+a subsequent HMR client connection broadcasts the new hash to the existing
+connection. The initial incident trace above is retained as historical evidence,
+not a continuing claim that the responsible reload path is unknown.
 
 Proposed invariant: a new guest or unrelated authenticated user must not replace
 another session, retire its world scope, navigate it, or bootstrap the world.
@@ -327,7 +372,7 @@ not permission to perform live tests, Git operations or releases.
 
 | Checkpoint | Deliverable | Required evidence |
 | --- | --- | --- |
-| C0 | Cross-browser development-refresh diagnosis and bounded correction | Trace confirms home-route compilation plus Actor HMR. Compare cold/warm routes with unchanged files, capture HMR and navigation, verify guest opens do not disrupt the first client after the correction, and compare built mode. Preserve same-user replacement/admin restart controls; review any framework-only limitation explicitly. |
+| C0 | Cross-browser development-refresh diagnosis and bounded correction | Debugger/protocol capture identifies Next Webpack HMR broadcast `sync` plus stale hash comparison. Validate a supported toolchain correction against cold compilation followed by a new HMR connection, warm visits and built mode; preserve source-edit HMR and legitimate restart/session controls. A development limitation requires explicit user acceptance. |
 | C1 | Catalog URL/default-policy repair | Default config, persisted official profile, legacy redirect, explicit allowlist denial, malicious/private redirect rejection, install/update discovery; no runtime imports of incompatible packages. |
 | C2 | Scoped shared-media delivery, one overlay host, journal image pages | GM plus two distinct players plus guest; public and selected shares including a share to service account only; HTTP/socket agreement, no cross-recipient metadata, journal page permissions, navigation/dismiss/re-share, terminal teardown; tall/wide images and keyboard dismissal. |
 | C3 | Dice speaker/placeholder, participants, stat labels, Core background/menu consistency | Sheet/dashboard navigation, author versus speaker, public/private rolls, accurate roles/counts, distinct selectable stat paths, preserved saved prefs, world/setup transitions, light/dark and explicit module theme overrides. |
@@ -357,9 +402,9 @@ public-distribution and journal smoke tests passed October 13. They validate
 their current fixtures; they do not reproduce the reported incognito reload,
 prove targeted-share isolation, or validate native Assistant writes. No live
 service was started, production configuration changed, or world data mutated.
-Development HMR during the reported incident is verified; the exact invalidation
-cause, navigation/remount mechanism, wizard Item provenance and native acceptance
-remain open. The approved background/menu/shared-setting choices remain bounded
+This paragraph records the initial audit limits; subsequent implementation and
+review records below supersede its open investigations. The approved
+background/menu/shared-setting choices remain bounded
 to this ADR; offline implementation is not a substitute for user/native checks.
 
 ## Implementation record
@@ -648,3 +693,407 @@ User/native acceptance checklist (run only on a user-approved environment):
 C0 is deliberately not an acceptance claim or startup mitigation; C6 remains
 separately approved integration work. Keep this ADR open until the outstanding
 acceptance and C0 disposition are actually resolved.
+
+### October 13, 2026 — authorized checkpoints and C0 protocol diagnosis
+
+The user authorized committing current work before a **no-application-code**
+review. Core and both companion modules were checkpointed on their existing
+`fix/observed-player-issues` branches. No branch switch, remote operation,
+version bump or native Foundry test was performed. Later audit/documentation
+revisions are separate from those implementation checkpoints.
+
+- [x] R1–R4/C4/R5 source review against the implemented boundaries and tests.
+  Core unit/client suites, typecheck, lint and ADR metadata pass again; the
+  actual-component media browser fixture also passes. Existing module
+  released-baseline validation remains applicable to their unchanged source.
+- [x] C0 exact development reload trigger captured, including its client
+  debugger stack, HMR messages, uninterrupted existing HMR connection and
+  changed document time origin. This is diagnosis, **not a correction**.
+- [ ] C0 supported correction or explicit acceptance of a documented
+  development limitation. No prewarm, dependency/bundler change, Next patch,
+  or SheetDelver lifecycle workaround is implemented.
+- [ ] The six user/native acceptance checks above, including v13/v14 caller
+  writes and recipient wire behavior, still need their recorded evidence.
+- [ ] C6 parked-branch reconciliation still requires separate approval. No
+  implicit merge or contract rollback follows from this checkpoint.
+
+#### Exact mechanism and controls
+
+Application manifest, lockfile and installed package all specify **Next
+16.3.8**. The isolated copied app/modules ran against mock HTTP/Socket.IO only;
+source files were unchanged, no user credentials/configuration were copied,
+and no Core or Foundry service ran in the fixture.
+
+1. The Actor browser receives initial HMR `sync` with compilation hash **A**.
+2. The first homepage request causes on-demand compilation. The Actor receives
+   `serverComponentChanges` and `built` with hash **B**, applies Fast Refresh
+   successfully and reports its HMR latency. There are no compile errors.
+3. When the new browser's **Next HMR** connection attaches,
+   `server/dev/hot-middleware.js`, `WebpackHotMiddleware.onHMR`, calls
+   `publish(sync)` rather than sending only to the joining client. Thus the
+   existing, still-open connection receives another `sync`, now with **B**.
+4. `client/dev/hot-reloader/app/web-socket.js:86–90` compares that hash with
+   `mostRecentCompilationHash`, which this handler updates on `sync` but not
+   on ordinary `built` messages. It still holds **A**. The debugger stops at
+   `handleMessage` → `window.location.reload()` with these two different hashes;
+   the browser records a reload navigation and a new `performance.timeOrigin`.
+   The old HMR/application sockets close **after** this call, not before it.
+
+This is not a SheetDelver `serverRestarting` announcement, user replacement,
+world teardown, connection-count policy, or a React component error bailout.
+It also explains the absence of Next's `client-full-reload` warning: this
+hash-check path does not go through `performFullReload`.
+
+An HTTP-only control compiled the cold homepage after the Actor was open:
+Fast Refresh occurred, but document time origin stayed unchanged and the HMR
+connection stayed open. A repeated warm HTTP request was also stable. Opening
+a guest browser on that **already compiled** homepage afterward produced the
+hash-check reload, with no additional compilation between the HTTP control
+and its HMR connection. A read-only test of the installed Next middleware,
+using fake compilers/clients,
+independently confirms `sync(A) → built(B) → sync(B)` reaches the original
+client when the second client attaches. Ordinary warm browser visits after
+the reload are stable because the refreshed browser starts at hash B. Earlier
+built-mode controls remain stable and do not contain development HMR.
+
+The shared CSS/SDK/module update list records what Fast Refresh successfully
+applied; its breadth does not establish a broken SheetDelver module boundary.
+No such refactor is justified by this evidence. Later entry eviction or a
+source edit could supply another compilation hash (an inference, not a tested
+eviction claim); prewarming only the homepage cannot promise general protection.
+The inspected [upstream client](https://github.com/vercel/next.js/blob/canary/packages/next/src/client/dev/hot-reloader/app/web-socket.ts)
+and [middleware](https://github.com/vercel/next.js/blob/canary/packages/next/src/server/dev/hot-middleware.ts)
+still show the relevant pattern at review time. No fixed released version was
+established; do not claim a blind dependency upgrade resolves it.
+
+#### C0 corrective action — scope initial HMR synchronization to its client
+
+**Status: user approved continuation; version-pinned correction implemented and
+offline-validated. User acceptance remains pending.**
+The preceding review identified the cause but did not implement a mitigation.
+Its former follow-up list omitted the actual change. This section supplies that
+change; the subsequent implementation record documents its selected delivery.
+
+The implementation record below supersedes that initial planning status: the
+user subsequently authorized proceeding with this corrected action.
+
+**Technical correction:** in Next's development
+`WebpackHotMiddleware.onHMR(client, htmlRequestId)`, send the initial `SYNC`
+envelope through the existing `publishToClient(client, envelope)` helper instead
+of `publish(envelope)`. The joining connection must receive the current hash,
+errors, warnings and development metadata. Other already-connected browsers
+must receive no extra `SYNC` as a consequence of that connection joining.
+
+Expected sequence after the correction:
+
+| Recipient | Initial connection | Normal compilation | Second browser joins |
+| --- | --- | --- | --- |
+| Existing browser | `sync(A)` | `built(B)` and normal refresh events | No additional connection-specific `sync`; document remains loaded. |
+| Joining browser | — | — | Receives its own `sync(B)` and initializes normally. |
+
+Preserve broadcast delivery of ordinary compilation updates, errors and other
+existing global HMR events. Keep the client reload/hash checks intact: a
+connection that actually reconnects must still receive synchronization and
+perform the framework's recovery when necessary. Updating client hash bookkeeping
+or suppressing reloads is not required to remove the demonstrated cross-browser
+trigger and would expand this correction's behavior.
+
+**Delivery and temporary mitigation:**
+
+1. Prefer a supported Next release containing this behavior (or an equivalent
+   verified correction). Confirm its source change and pass the regression
+   below before updating the pinned dependency and lockfile. No such release
+   has yet been established by this audit.
+2. The user approved proceeding with the corrected action. Selected delivery
+   is a **tracked, version-pinned dependency patch limited to that one `onHMR`
+   send site**, applied by the existing development startup manager. This is
+   the bounded exception to the earlier framework-internals restriction.
+   It must be reproducible after a clean install,
+   verify the expected Next version and exact target, fail clearly on mismatch,
+   and include a removal condition once a verified upstream fix is adopted.
+   An untracked edit inside `node_modules` is not an implementation deliverable.
+3. Until the correction is applied and validated, use an isolated built Shell
+   (`next build --webpack` / `next start`, through the documented project
+   workflow) for stable concurrent-browser acceptance. Existing built-mode
+   controls support this operational mitigation. It does not change `npm run
+   dev` behavior or mark its defect fixed. Homepage prewarming remains an
+   unselected, incomplete mitigation because later compilation can change the
+   hash again.
+
+**Implementation tasks and completion evidence:**
+
+- [x] Identify the exact correction site and required recipient behavior.
+- [x] Select and apply the reviewed delivery mechanism. Record the framework
+  version or tracked patch, installation behavior and rollback/removal steps.
+- [x] Turn the existing middleware diagnostic into a regression: after
+  `built(B)`, connecting another client sends `sync(B)` only to that client;
+  later ordinary `built(C)` still reaches both. Cover initial sync with
+  compilation errors/warnings and actual connection replacement as well.
+- [x] Repeat isolated Actor-first and Dashboard-first browser checks: cold
+  route compilation then another browser, HTTP-only compilation followed by a
+  warm browser connection, repeated warm connects, and idle/entry eviction.
+  Require unchanged existing-document time origin for new-client attachment.
+- [x] Verify ordinary source-edit HMR, a genuine development-server restart
+  and HMR reconnection still work. Repeat built-mode isolation and retain the
+  existing intentional same-user/logout/admin-restart controls.
+- [x] Update the developer guide, terse changelog, audit and handoff with the
+  implemented mechanism and evidence.
+- [ ] User acceptance for C0 and the remaining C1–C5 workflows.
+
+SheetDelver session/world handlers, module contracts and the application socket
+protocol need no changes for this correction. C0 remains open until the
+implementation and acceptance boxes are satisfied, or the user explicitly
+accepts the documented development limitation.
+
+This review changes only documentation and ignored local diagnostic tooling.
+It does not close the ADR or authorize publishing/merging the checkpoints.
+
+### October 13, 2026 — C0 correction implemented; handoff for acceptance
+
+After the user approved proceeding, the one-site version-pinned dependency
+correction was selected. No fixed upstream release was established.
+`patches/next-16.3.8-webpack-hmr-sync.json` records the original and corrected
+checksums, target and exact replacement. `prepare-next-dev.ts` verifies the
+installed version and file before writing, accepts an already-applied patch,
+and can restore the original. It changes only the initial `onHMR` send to
+`publishToClient(client, envelope)`.
+
+The existing manager invokes preparation in its development path before either
+Core or Next starts, including manager-initiated development restarts. Build,
+production start and managed-config generation do not apply it. This approved
+bounded correction supersedes the earlier no-framework-patch constraint only
+for this artifact. There is no browser HMR filter, startup prewarm or client
+reload suppression. Installation/removal commands and failure behavior are in
+the [contributor guide](../CONTRIBUTING.md#next-development-synchronization-correction).
+The application, SDK/API, module and Next dependency versions are unchanged.
+
+Tracked `src/tests/unit/runtime/next-dev-hmr.test.ts` runs through the normal
+unit suite. It executes the corrected vendor middleware with fake compiler/
+client inputs; the unrelated compiler-classification import is stubbed to
+avoid initializing Next server globals in the broader unit environment. It
+verifies scoped initial synchronization, normal broadcasts to both clients,
+error/warning metadata, actual client replacement, repeat preparation,
+restoration and refusal of changed versions/contents. It operates on a
+temporary file and asserts the real installed dependency remains untouched.
+
+Isolated browser fixtures copy Next physically before applying the preparation
+helper. The current app/module source, local mock HTTP/Socket.IO and local
+fonts exercise the actual Shell. No root settings/credentials are copied; no
+Core, native Foundry or hosted service is contacted. Results:
+
+| Check | Automated result |
+| --- | --- |
+| Actor-first, first cold guest-home visit and warm repeats | Existing Actor document time origin unchanged. |
+| Dashboard-first, cold Actor-route HTTP compilation, then warm guest-home HMR attachment | Existing Dashboard time origin unchanged throughout; joining client receives synchronization. |
+| Real client-component edit and restoration | Edited Settings control appears through HMR; document time origin unchanged. |
+| Actual HMR connection close/reconnect | Existing browser recovers; framework recovery/reload behavior remains enabled. |
+| Three other routes, 35 seconds idle, new guest visit | Existing document time origin unchanged through subsequent compilation/attachment. |
+| Owned Next development-server stop/restart on the same port | Existing browser reconnects and recovers its Actor; genuine restart can reload as expected. |
+| Isolated Webpack build/production start, cold and warm guest visits | Build succeeds; existing document time origin unchanged, no dev HMR present. |
+
+The idle case exercises the configured disposal window and subsequent route
+compilation; it does not instrument every internal entry's disposal flag.
+The framework recipient invariant also covers fresh compilation independently
+of why the framework initiated it. Fresh-file preparation and repeated
+preparation pass; a fresh network `npm ci` was not performed in this pass.
+Full Core unit/client suites, typecheck and lint pass. Existing same-user,
+logout, boundary and administrator-restart regressions remain passing.
+
+**Ready for user verification; keep the ADR open.** On the user's chosen test
+environment, restart SheetDelver in development mode to load the correction,
+open an Actor in one authenticated browser, then visit the login page in a
+fresh incognito browser before logging in. The first browser must keep its
+page. Repeat with Dashboard open and after normal editing/idle periods.
+Native v13/v14 media-recipient and Assistant-operation checks plus the six
+acceptance cases recorded above remain for the user. Native testing is still
+paused; it is not implied by this offline Shell fixture.
+C6 parked-branch reconciliation remains separately authorized integration work.
+No staging, commit, branch mutation or remote operation accompanied this fix.
+
+### October 13, 2026 — mobile acceptance additions and temporary journal views
+
+The user reported unreadable Shadowdark gear columns on phone/tablet and
+Mörk Borg tabs above, rather than below, Core's Tools control. They approved
+an **optional bottom-navigation SDK contract**, targeting SDK 2.3.0,
+`ui-extension-api` 2.2.0 and Core 0.17.1. Only adopting modules raise their UI
+minimum; unrelated modules keep their defaults. Core application version stays
+0.17.0 until the separately authorized release workflow.
+
+The module registers its own fixed bottom-bar element through
+`useBottomNavigation(ref)` from the public React SDK. Core measures only a
+connected, visible bar aligned with the viewport bottom; it reserves the
+maximum height, not a sum, and moves its Tools, Chat, Players and player feedback
+above it. Responsive hiding, unmount, module/world/user scope replacement and
+terminal UI reset release reservations. Module appearance stays module-owned;
+no private host DOM import, global mobile offset, portal API or server behavior
+is introduced. Mörk Borg uses two visible tabs plus More with the active tab
+leftmost. Shadowdark uses stacked readable gear rows below the desktop breakpoint
+and a native modal HTML dialog above ancestor stacking contexts/HUDs. It adds
+no SDK requirement.
+
+**Publication gate:** Mörk Borg's new UI minimum is `>=2.2.0 <3.0.0`; local
+development temporarily retains `coreVersion >=0.17.0` so the current development
+host can load it. Released Core 0.17.0 has UI API 2.1.0 and is correctly rejected
+by the named-contract requirement. Before publishing the module, after Core
+0.17.1 is released, promote its application minimum to `>=0.17.1` and validate
+against that tag. CI/release references target `v0.17.1` and cannot run remotely
+until it exists. Do not publish these provisional metadata as a finished release
+or pull the parked 0.18/SDK 3.x work into this branch.
+
+#### J1 — native Show Players access, approved bounded correction
+
+The user approved implementing this correction with its mechanics documented
+here. This explicitly revises section 3's earlier unsupported force-only limit;
+it does **not** relax ordinary journal permissions.
+
+Read-only inspection of native Foundry v13.351/v14.367 establishes:
+
+- `Journal.show(document, {force, users})` relays UUID and force to selected
+  recipients. The native Show Players dialog can separately update saved
+  ownership when the GM chooses that option; otherwise its final show uses
+  `force: true` with no document mutation.
+- The receiving client temporarily sets observer permission on the shown
+  entry or page. A page opens in single-page mode; sharing it does not grant
+  its siblings. For an entry, independently restricted pages remain subject
+  to their own permissions/inheritance. Native close restores source ownership
+  for a forced temporary view.
+- Native enrichment excludes unrevealed `section.secret` blocks for non-owners;
+  revealed sections remain visible. Temporary observer access is not ownership.
+- The recipient event does not carry a verifiable sender ID. Treat the received
+  event as Foundry's native presentation instruction, not evidence that Core
+  independently authenticated a GM sender. Never accept a browser-supplied
+  UUID/force/recipient list as equivalent authority.
+
+See the [Journal API](https://foundryvtt.com/api/v13/classes/foundry.documents.collections.Journal.html)
+and [journal guide](https://foundryvtt.com/article/journal/).
+Before J1, SheetDelver received the instruction but hydrated through its ordinary
+Observer-only detail route, explaining Access Denied for a private shared page.
+J1's separate view projection corrects that path without weakening the ordinary
+route.
+
+**Mechanism and bounds:**
+
+1. Preserve the boolean native force value in the existing recipient-scoped
+   receipt. A protected open-view request supplies only its exact
+   `streamId/sequence/shareId`; the server resolves entry/page/force from its
+   latest receipt, never from browser document parameters. Require a current
+   player session/world; reject service bearer, other sessions, changed streams,
+   superseded shares and malformed identities.
+2. Issue an opaque **read-only view lease**, scoped to that receipt and session.
+   Reads use a dedicated JournalStore projection, not an unfiltered Store read
+   or a service-account/native transport fallback. A forced page returns only
+   that page plus its parent display name. A forced entry applies temporary
+   Observer inheritance but does not bypass independently restricted pages.
+   Non-forced shares retain ordinary entry/page visibility thresholds.
+3. Whitelist display fields; omit source flags, ownership maps and statistics.
+   Strip unrevealed Secret sections **on the server before transmission**, unless
+   the requesting user already has source ownership of that page. Keep normal
+   directory/detail/write routes unchanged; correcting any existing Secret
+   exposure on those ordinary routes is a separately bounded follow-up.
+4. The modal owns the lease. Closing, replacement, route unmount or logout
+   attempts immediate disposal; late opens are also disposed rather than shown.
+   A new native share or terminal session/world retirement invalidates all old
+   leases server-side. Other open browsers have independent leases. No browser
+   heartbeats or periodic journal polling are added.
+5. As a failure bound, leases expire after **30 minutes without a read**;
+   reads renew that idle interval. Store at most **16 simultaneous views per
+   current receipt** and fail further opens clearly rather than evicting another
+   browser. Prune expired leases on requests; do not add a rotation service or
+   a permanent grant database. Failed close delivery therefore has bounded
+   access lifetime. Already-delivered content cannot be recalled from a browser.
+   An authenticated browser can open the latest retained receipt while its
+   upstream session remains current, matching this ADR's existing catch-up
+   policy; a closed lease itself is never reusable. This is not a persistent
+   ownership grant or a promise of exact native browser-window internals.
+6. Support current **world** JournalEntry/Page UUIDs only. Compendium journals,
+   expanded native enrichment and module-specific page renderers remain outside
+   this correction; do not fall back to privileged live fetches.
+
+Acceptance must cover private selected page versus whole entry, unaffected
+siblings/directory/ordinary reads, forced versus non-forced access, Secrets and
+revealed sections in the network response, non-recipient/system rejection,
+stale/closed/expired leases, independent browser leases, supersession/world/
+session retirement, deleted pages, close during an in-flight open and read-only
+UI. Native tests remain paused until separately authorized.
+
+- [x] Optional footer contract and both module layout corrections implemented.
+- [x] Actual-component/compiled-CSS offline checks: 390/820/1280px gear dialog,
+  full labels, top-layer header, Add, Escape/focus/overflow restoration; actual
+  SDKProvider with StrictMode, footer placement, two-tab/More selection/focus,
+  world-scope replacement, responsive hiding, unmount and terminal reset.
+- [x] J1 bounded view implementation and automated validation below.
+- [x] User accepted J1 in the October 13 closeout; exhaustive generation-specific
+  native checks are not claimed and agent-operated Foundry testing remains paused.
+- [x] User accepted the mobile/footer corrections.
+- [ ] Separate publication gate: Mörk Borg metadata promotion/released-tag validation.
+
+#### Implementation follow-up for these additions
+
+The footer registry and public SDK hook/context/testing facade are implemented.
+Mörk Borg consumes only the public hook; its scope-specific idempotent disposer
+prevents an old provider cleanup from removing a new world's registration.
+Shadowdark's native modal dialog and readable mobile/tablet rows preserve item
+creation and module-owned styling. Core/package/lock and module release versions
+are unchanged; SDK/UI versions and Mörk Borg's named-contract minimum advance as
+approved. The publication gate above remains.
+
+J1 preserves native force and stores view leases inside SharedContentStore.
+`SharedJournalService` and three protected `/api/shared-content/journal-view`
+operations require the current player session and exact received identity.
+System bearer and session/client mismatches are rejected. The dedicated
+`JournalStore.projectSharedView` selects display fields, page visibility and
+source-owned Secret access without mutating ownership, relaxing ordinary reads
+or calling a Foundry transport. The client owns one modal lease with coalesced
+reads; revisions reuse it and close/replacement/logout/unmount release it even
+if its open finishes late. The shared presentation host sets its entry/page and
+receipt identity together, avoiding a new live receipt being read against an
+old displayed page. Failed coalesced requests now use settled cleanup handlers
+rather than an unobserved rejected `finally` promise; retry is tested.
+
+Tracked tests cover the footer registry's visibility/max-height/cleanup and
+late observers; journal ingress/force, exact receipt, recipient/session/world
+and real route gates, no-store, normal-read denial, no source mutation,
+page/entry inheritance, forced/non-forced reads, Secrets/revealed/source-owner
+distinctions, independent browser leases, close/supersession/idle renewal/expiry,
+16-view bound, retirement and deleted pages. Client tests cover late opens,
+out-of-order reads, close/replacement, revision refresh and failed open/close.
+See `client/bottom-navigation.test.ts`, `documents/shared-journal-view.test.ts`,
+`client/shared-journal-view.test.ts` and `client/coalesced-fetch.test.ts` under
+`src/tests/unit/`.
+
+Actual browser fixtures use current components with mocked HTTP/contexts and
+in-memory server Stores, never production settings or native Foundry. The real
+JournalProvider/SharedContentHost/JournalModal verifies a private page without
+forbidden response bodies, sibling pagination or editing controls, lease close/
+focus restore, identical re-share, non-forced denial and close-before-open.
+Footer/gear checks use the real SDKProvider, StrictMode and compiled CSS. Core
+unit/client suites, typecheck and lint, module checkers, eight module regressions
+and explicit module-source typing pass. These are automated checks, not
+user/native acceptance or validation against unpublished Core 0.17.1.
+
+API/UI/architecture and public SDK/module-authoring guides, module README/
+release gates, terse changelog and local reports/handoff are updated. This
+implementation record preceded operator acceptance; the closeout above records
+the subsequent confirmation and authorized checkpoint. Remote actions remain
+with the user.
+
+**Existing privacy follow-up:** ordinary authorized journal detail still returns
+source HTML without owner-only Secret filtering. J1 does not broaden that path;
+its shared DTOs filter before transmission. Before correcting ordinary reads,
+inventory journal detail and SDK/UUID consumers, derive per-page ownership and
+separate server display projections from owner raw/editor round-tripping.
+Test Secret/revealed/nested sections and saves; do not accidentally persist
+filtered owner source text or expand this work into private-whisper policy.
+
+**User verification for this addendum:**
+
+1. Shadowdark gear on phone/tablet: complete names/descriptions, labelled
+   cost/slots, visible header/close above the combat HUD, Add/search and Escape.
+2. Mörk Borg phone: bottom tabs, two plus More, active leftmost; switch all four
+   sections, open Core Tools/Chat/Players, resize to desktop, navigate away and
+   check light/dark without changing SCVM sheet colors.
+3. Private journal with an inherited page, restricted sibling and unrevealed
+   Secret: Show Players to one player **without changing ownership**. Only the
+   selected page opens read-only; other players get nothing and neither sibling
+   nor Secret body appears in the response. Close/re-share; compare entry/page,
+   revealed Secret, image page and second browser. Normal private reads stay denied.

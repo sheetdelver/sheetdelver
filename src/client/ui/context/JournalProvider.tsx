@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useSession } from './SessionContext';
 import { useRealtime } from '@client/ui/context/RealtimeContext';
 import { logger } from '@shared/utils/logger';
@@ -10,8 +10,10 @@ import type {
     JournalEntryDto,
     JournalFolderDto,
     JournalPageDto,
+    SharedJournalReceipt,
 } from '@shared/contracts/journals';
 import { createCoalescedFetch, type CoalescedFetch } from '@client/ui/context/coalescedFetch';
+import { createSharedJournalViewReader } from './sharedJournalView';
 import type {
     RealtimeJournalChangedPayload,
     RealtimeJournalListInvalidatedPayload,
@@ -35,6 +37,8 @@ interface JournalContextType {
     journalGlobalRevision: number;
     fetchJournals: () => Promise<void>;
     getJournal: (id: string) => Promise<JournalEntry | null>;
+    getSharedJournal: (receipt: SharedJournalReceipt) => Promise<JournalEntry | null>;
+    closeSharedJournal: () => void;
     createJournal: (name: string, folderId?: string) => Promise<void>;
     updateJournal: (id: string, data: Partial<JournalEntry>) => Promise<void>;
     updateJournalPage: (journalId: string, pageId: string, data: Partial<JournalPageDto>) => Promise<void>;
@@ -57,11 +61,18 @@ export function JournalProvider({ children }: { children: React.ReactNode }) {
     const listFetcherRef = useRef<{ token: string; fetch: CoalescedFetch<void> } | null>(null);
     const detailFetchersRef = useRef(new Map<string, CoalescedFetch<JournalEntry | null>>());
     const requestEpochRef = useRef(0);
+    const sharedView = useMemo(() => createSharedJournalViewReader({
+        open: receipt => journalApi.openSharedJournal(token ?? '', receipt),
+        read: viewId => journalApi.readSharedJournal(token ?? '', viewId),
+        close: viewId => journalApi.closeSharedJournal(token ?? '', viewId),
+    }), [token]);
+    useEffect(() => () => sharedView.clear(), [sharedView]);
 
     const resetJournalState = useCallback(() => {
         requestEpochRef.current += 1;
         listFetcherRef.current = null;
         detailFetchersRef.current.clear();
+        sharedView.clear();
         if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
         refreshTimerRef.current = null;
         setJournals([]);
@@ -70,7 +81,7 @@ export function JournalProvider({ children }: { children: React.ReactNode }) {
         setJournalGlobalRevision(0);
         setLoading(false);
         setError(null);
-    }, []);
+    }, [sharedView]);
 
     useEffect(() => registerLogoutCleanup(resetJournalState), [registerLogoutCleanup, resetJournalState]);
 
@@ -196,6 +207,20 @@ export function JournalProvider({ children }: { children: React.ReactNode }) {
         return (await fetcher()) ?? null;
     }, [token, linkState, invalidateLocalSession]);
 
+    const getSharedJournal = useCallback(async (receipt: SharedJournalReceipt) => {
+        if (!token || linkState !== 'ready') return null;
+        const epoch = requestEpochRef.current;
+        try {
+            const data = await sharedView.read(receipt);
+            return epoch === requestEpochRef.current ? data : null;
+        } catch (error) {
+            if (epoch !== requestEpochRef.current) return null;
+            if (error instanceof UnauthorizedApiError) invalidateLocalSession('shared-journal-401');
+            else logger.debug('JournalProvider | Shared view unavailable:', error);
+            return null;
+        }
+    }, [token, linkState, sharedView, invalidateLocalSession]);
+
     const createJournal = async (name: string, folderId?: string) => {
         try {
             await journalApi.createJournalEntry(token, name, folderId);
@@ -245,7 +270,8 @@ export function JournalProvider({ children }: { children: React.ReactNode }) {
     return (
         <JournalContext.Provider value={{
             journals, folders, loading, error, journalRevisions, journalGlobalRevision,
-            fetchJournals, getJournal, createJournal, updateJournal, updateJournalPage,
+            fetchJournals, getJournal, getSharedJournal, closeSharedJournal: sharedView.clear,
+            createJournal, updateJournal, updateJournalPage,
             deleteJournal, createFolder
         }}>
             {children}

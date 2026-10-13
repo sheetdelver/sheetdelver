@@ -41,6 +41,15 @@ each other, and journal replies are guarded by request/share identity. Each new
 image receipt owns its loading state, including cached identical URLs. Both
 dialogs contain keyboard focus, close on Escape and restore the prior control.
 Only one dismissal record is kept per tab; storage denial still permits closing.
+Native journal shares use a separate read-only view lease, not the ordinary
+journal detail cache. The server resolves the exact entry/page and force value
+from this recipient's latest receipt; a page-only share has no sibling navigation.
+Unrevealed owner-only Secret sections are filtered before transmission. Close,
+replacement and unmount dispose the modal's lease; late opens are disposed too.
+New shares and session/world retirement invalidate old leases. Failed close
+delivery is bounded by 30-minute idle expiry, without polling. Ordinary journal
+browsing/ownership/editing are unchanged. See ADR-0062 J1 and
+[shared-view endpoints](API.md#temporary-shared-journal-views).
 Actor-page chat/dice may use the
 currently owned Actor as speaker; the server verifies Actor ownership while
 the authenticated user remains the message author.
@@ -48,6 +57,13 @@ the authenticated user remains the message author.
 ---
 
 ## State Model
+
+Module sheets may opt into SDK 2.3.0 / UI API 2.2.0 bottom-navigation clearance.
+Core measures only registered visible viewport-bottom bars and offsets its
+Tools, Chat, Players and player feedback above them. Hidden/unmounted/retired
+bars release their reservation; other pages keep the default positioning.
+This does not theme module tabs, reposition every mobile page or add a portal
+API. Full-screen dialogs/drawers retain their existing overlay layout.
 
 The UI state is split into focused providers and hooks:
 

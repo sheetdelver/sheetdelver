@@ -6,6 +6,9 @@
 - Rendered journal image shares
 - Refined player presentation
 - Enabled native Assistant combat access
+- Isolated development HMR handshakes
+- Added optional footer clearance
+- Enabled temporary journal views
 
 ## 0.17.0
 - Hardened world recovery ownership

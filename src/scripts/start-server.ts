@@ -7,6 +7,7 @@ import { spawn, ChildProcess } from 'child_process';
 import { resolveDataDir, initDataDir, getConfigFilePath, getCacheDir, getDataDir } from '../server/core/paths';
 import { configureServerFileLogging } from '../server/observability/ServerFileLogger';
 import { resolveAdminOrigin } from '../shared/security/adminOrigin';
+import { prepareNextDev } from './tools/development/prepare-next-dev';
 import {
     FULL_STACK_RESTART_EXIT_CODE,
     FULL_STACK_RESTART_SIGNAL,
@@ -239,6 +240,8 @@ async function start() {
 
     // 0. Generate Dynamic Configuration
     if (command === 'dev') {
+        const patchResult = prepareNextDev();
+        if (patchResult === 'applied') logger.info('[Manager] Applied Next development HMR synchronization correction.');
         ensureManagedConfigs();
     }
 

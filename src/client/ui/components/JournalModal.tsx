@@ -21,9 +21,12 @@ export default function JournalModal() {
     const {
         activeJournalId, setActiveJournalId, sharedJournalId, setSharedJournalId,
         sharedJournalPageId, setSharedJournalPageId, activeShareKey, dismissSharedContent,
+        sharedJournalReceipt, setSharedJournalReceipt,
     } = useUI();
     const {
         getJournal,
+        getSharedJournal,
+        closeSharedJournal,
         updateJournal,
         updateJournalPage,
         journalRevisions,
@@ -31,6 +34,7 @@ export default function JournalModal() {
     } = useJournal();
     const { foundryUrl, resolveImageUrl } = useConfig();
     const { currentUser } = useSession();
+    const isShared = !!sharedJournalId && activeJournalId === sharedJournalId;
 
     const [journal, setJournal] = useState<JournalEntry | null>(null);
     const [loading, setLoading] = useState(false);
@@ -71,7 +75,10 @@ export default function JournalModal() {
                 setActivePageId(null);
                 setSharedPageUnavailable(false);
             }
-            getJournal(activeJournalId).then(data => {
+            const read = isShared
+                ? (sharedJournalReceipt ? getSharedJournal(sharedJournalReceipt) : Promise.resolve(null))
+                : getJournal(activeJournalId);
+            read.then(data => {
                 // Ignore a late response from a journal that has since closed
                 // or been replaced by another journal in the same modal.
                 if (!current || requestRevision.current !== request) return;
@@ -105,19 +112,22 @@ export default function JournalModal() {
         activeJournalId,
         activeJournalRevision,
         getJournal,
+        getSharedJournal,
+        isShared, sharedJournalReceipt,
         journalGlobalRevision,
         sharedJournalId,
         sharedJournalPageId,
         activeShareKey,
     ]);
 
-    const isShared = activeJournalId === sharedJournalId;
+    useEffect(() => () => closeSharedJournal(), [activeJournalId, activeShareKey, closeSharedJournal]);
     const close = () => {
         requestRevision.current++;
-        if (isShared) dismissSharedContent();
+        if (isShared) { closeSharedJournal(); dismissSharedContent(); }
         setActiveJournalId(null);
         setSharedJournalId(null);
         setSharedJournalPageId(null);
+        setSharedJournalReceipt(null);
         setJournal(null);
     };
     useModalFocus(dialogRef, !!activeJournalId, close);

@@ -7,6 +7,8 @@ export type SafeHtml = string & { readonly [safeHtmlBrand]: true };
 
 export interface SanitizeRichHtmlOptions {
     foundryBaseUrl?: string;
+    /** Server-side journal projections exclude owner-only content before sending. */
+    excludeUnrevealedSecrets?: boolean;
 }
 
 const ALLOWED_TAGS = [
@@ -117,5 +119,9 @@ export function sanitizeRichHtml(
             a: (tagName, attribs) => transformUrlTag(tagName, attribs, options.foundryBaseUrl),
             img: (tagName, attribs) => transformUrlTag(tagName, attribs, options.foundryBaseUrl),
         },
+        exclusiveFilter: options.excludeUnrevealedSecrets ? frame => {
+            const classes = frame.attribs.class?.split(/\s+/) ?? [];
+            return frame.tag === 'section' && classes.includes('secret') && !classes.includes('revealed');
+        } : undefined,
     }) as SafeHtml;
 }

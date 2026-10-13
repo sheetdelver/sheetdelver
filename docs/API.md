@@ -411,13 +411,47 @@ The snapshot is keyed to the authenticated player session and world, with
 Trusted service-bearer requests to this player presentation route return `403`.
 Selected Foundry shares are received on the recipient's user socket, never
 inferred to be public from a service-account receipt. A journal share can carry
-`data.pageId`; the subsequent journal detail read still enforces entry and
-page visibility. Image URLs are resolved only for the requesting client.
+`data.pageId` and the native boolean `data.force`; its temporary display uses
+the separate read-only view below, not an ordinary journal permission grant.
+Image URLs are resolved only for the requesting client.
 Receipt listeners live with the authenticated Foundry session, independently of
 browser tabs. `streamId` and `sequence` order the latest receipt; HTTP and socket
 delivery carry the same values. These are presentation identifiers, not session
 credentials. Session/world retirement clears the snapshot. Only the latest
 receipt is retained in memory; there is no persistent/offline share history.
+
+### Temporary shared journal views
+
+Auth: protected **player world session only**; all responses are `no-store`.
+System/service bearer requests receive `403`.
+
+| Endpoint | Input | Result |
+| --- | --- | --- |
+| `POST /api/shared-content/journal-view` | JSON `{ streamId, sequence, shareId }` from the latest native journal receipt | `{ viewId, expiresAt }`, a read-only view lease. |
+| `GET /api/shared-content/journal-view?viewId=…` | Lease ID plus the same authenticated session | Display-only journal DTO. |
+| `DELETE /api/shared-content/journal-view` | JSON `{ viewId }` | Idempotent `{ ok: true }`; no Foundry document mutation. |
+
+The server resolves UUID/page/force exclusively from its recipient-scoped native
+receipt. Caller-supplied document/force/recipient fields are rejected. A forced
+page returns just that page and its parent display name; a forced entry applies
+Observer inheritance without exposing independently restricted pages.
+Non-forced shares retain normal read thresholds. Display projections omit
+ownership maps, flags and source statistics, and exclude unrevealed Secret
+sections unless the requester already owns that page. Revealed sections remain.
+Ordinary journal list/detail/write endpoints and their permission thresholds do
+not use this lease and are unchanged.
+
+Each browser view has an independent lease; the ID alone is not authentication.
+Close attempts immediate disposal. Superseding shares or session/world
+retirement invalidate old leases; a read renews the 30-minute idle expiry.
+There is no periodic polling. At most 16 leases are retained per current receipt;
+further opens return `429` until one closes/expires. Malformed receipt input is
+`400`, stale/non-recipient/closed/expired/unavailable views are `404`, and an
+unready journal cache is `503`. Failed close delivery remains bounded by idle
+expiry; already-transmitted content cannot be recalled. Latest-receipt catch-up
+allows another authenticated browser to open its own view while that upstream
+session remains current. World JournalEntry/Page UUIDs only; no compendium or
+privileged live-fetch fallback. See ADR-0062 J1 for native evidence and limits.
 
 ---
 

@@ -68,7 +68,7 @@ export default function PlayerList() {
     };
 
     return (
-        <div ref={containerRef} className="fixed bottom-24 left-1/2 -translate-x-1/2 sm:left-auto sm:right-6 sm:translate-x-0 z-[110] flex flex-col items-center sm:items-end gap-4">
+        <div ref={containerRef} className="fixed bottom-[calc(6rem+var(--sd-bottom-navigation-inset,0px))] left-1/2 -translate-x-1/2 sm:left-auto sm:right-6 sm:translate-x-0 z-[110] flex flex-col items-center sm:items-end gap-4">
 
             {/* List Popup */}
             <div className={`
