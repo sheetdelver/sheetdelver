@@ -1,9 +1,23 @@
 # ADR-0060: Core Combat HUD Player Experience
 
-**Status:** Accepted — C0–C5 verified; PR and release pending
+**Status:** Completed — C0–C5 verified; user-directed closeout October 13, 2026
 **Date:** October 12, 2026
 **Related:** ADR-0013, ADR-0027, ADR-0028, ADR-0038, ADR-0040, ADR-0049,
 ADR-0053, ADR-0057, ADR-0058, ADR-0059
+
+## Closeout — October 13, 2026
+
+The user confirmed the implemented and verified scope is complete. C0–C5 and
+their evidence below close this ADR; historical proposal/pending wording is
+retained as the decision and implementation chronology, not an open checklist.
+This closeout does not claim a published Core or module release. The recorded
+Core-first compatibility/release sequence still applies.
+
+[ADR-0061](0061-managed-combat-player-participation.md) proposes the separate
+managed-player initiative and End my turn scope, including newly identified
+formula-preservation and command-response privacy follow-ups. It does not
+retroactively enable managed player commands under this ADR. Directed generic
+roll requests and the other deferred features remain separate work.
 
 ## Context
 
