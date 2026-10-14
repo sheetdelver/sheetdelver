@@ -1,5 +1,5 @@
 # Releases
-## Unreleased
+## 0.17.1
 - Repaired official module catalog
 - Scoped shared media delivery
 - Unified player media overlays
