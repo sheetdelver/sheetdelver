@@ -5,7 +5,7 @@ import path from 'node:path';
 import { parseCombatStatAttributes, parseCombatStatSelection } from '@shared/contracts/combatStatAttributes';
 import { validateModuleInfoShape } from '@modules/registry/lifecycle/validation';
 import { CombatStatPreferenceStore, CombatStatPreferenceLimitError } from '@server/services/combats/CombatStatPreferenceStore';
-import { discoverCombatStatFields, resolveCombatStatSelection } from '@server/services/combats/CombatStatDisplayService';
+import { discoverCombatStatFields, resolveCombatStatSelection, projectCombatStatFields } from '@server/services/combats/CombatStatDisplayService';
 import { effectiveInitiativeFormula, validInitiativeFallback, validateInitiativeOverride } from '@server/services/combats/CombatInitiativeFormula';
 import { NumberGenerator } from '@dice-roller/rpg-dice-roller';
 import { BaseSystemAdapter } from '@shared/sdk';
@@ -37,6 +37,24 @@ export function run(): void {
     assert.equal(parseCombatStatSelection(many)?.length, 32, 'GM-selected stats have no eight/16 count cap');
     assert.equal(parseCombatStatAttributes(many.slice(0, 16))?.length, 16, 'module metadata remains independently bounded');
     assert.equal(parseCombatStatAttributes(many.slice(0, 17)), null);
+    const notes = { key: 'notes', label: 'Notes', path: 'system.notes', kind: 'textarea' as const,
+        layout: { columnSpan: 3, rowSpan: 2, textRows: 4 } };
+    assert.deepEqual(parseCombatStatSelection([notes]), [notes]);
+    assert.equal(parseCombatStatAttributes([notes]), null, 'textarea does not broaden module metadata');
+    for (const layout of [{ ...notes.layout, columnSpan: 4 }, { ...notes.layout, rowSpan: 0 },
+        { ...notes.layout, textRows: 13 }, { ...notes.layout, rowSpan: 1.5 },
+        { ...notes.layout, css: 'position:fixed' }]) {
+        assert.equal(parseCombatStatSelection([{ ...notes, layout }]), null, 'layout values/keys are validated');
+    }
+    assert.equal(parseCombatStatSelection([{ ...notes, editable: true }]), null);
+    assert.equal(parseCombatStatSelection([{ ...notes, health: true }]), null);
+    assert.equal(parseCombatStatSelection([{ ...notes, showInRoster: true }]), null, 'multiline text stays out of roster pills');
+    const longText = '<script>not executable</script>\n' + 'Long paragraph\n'.repeat(200);
+    const projected = projectCombatStatFields({ type: 'npc', system: { notes: longText }, derived: {} } as any, [notes]);
+    assert.deepEqual(projected, [{ title: 'Notes', value: longText, multiline: true, layout: notes.layout }],
+        'textarea preserves plain content/newlines instead of the old 48-character truncation');
+    assert.equal(projectCombatStatFields({ type: 'npc', system: { notes: 12 }, derived: {} } as any, [notes]).length, 0);
+    assert.equal(projectCombatStatFields({ type: 'npc', system: { notes: '' }, derived: {} } as any, [notes])[0]?.value, '');
 
     const manifest = { id: 'test-system', title: 'Test', manifest: { ui: 'module/ui', logic: 'module/logic' } };
     assert.equal(validateModuleInfoShape({ ...manifest, combatTracking: { attributes: [hp, ac] } }).valid, true);
@@ -114,6 +132,8 @@ export function run(): void {
     assert.equal(discovered.find(field => field.path === 'system.attributes.stamina.max'), undefined,
         'resource maximum paths are discovered only if they actually exist');
     assert.equal(discovered.some(field => field.path.includes('__proto__')), false);
+    assert.equal(discoverCombatStatFields([{ type: 'npc', system: { notes: longText }, derived: {} }] as any)
+        .find(field => field.path === 'system.notes')?.kind, 'textarea', 'long/multiline fields are discoverable for GM display');
     const initiativeFields = discoverCombatStatFields([{ type: 'npc', system: {
         attributes: { some: { thing: 0 } }, text: 'Not a numeric reference',
     }, derived: { initiative: { value: -2, advantage: 0 } } }] as any);
@@ -138,8 +158,10 @@ export function run(): void {
         first.set('world-one', 'test-system', [{ ...hp, showInRoster: true, editable: true, health: true }]);
         first.set('world-two', 'test-system', [ac]);
         first.set('world-one', 'other-system', []);
+        first.set('textarea-world', 'test-system', [notes]);
         first.setInitiativeFormula('world-one', 'test-system', '1d20+@system.attributes.init.value');
         const reopened = new CombatStatPreferenceStore(filePath);
+        assert.deepEqual(reopened.get('textarea-world', 'test-system'), [notes], 'layout/kind persist without altering old record defaults');
         assert.equal(reopened.getInitiativeFormula('world-one', 'test-system'), '1d20+@system.attributes.init.value');
         assert.deepEqual(reopened.get('world-one', 'test-system'), [{ ...hp, showInRoster: true, editable: true, health: true }],
             'selection and roster placement survive a new store instance');

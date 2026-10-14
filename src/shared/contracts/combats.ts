@@ -51,6 +51,8 @@ export interface CombatTrackerDto {
     canManage: boolean;
     /** Only projected for an authorized managed initiative phase. */
     playerInitiative?: { open: true; generation: string };
+    /** Own visible pending rows, independent of the scored managed turn roster. */
+    initiativeCandidates?: CombatTrackerCombatantDto[];
     combatants: CombatTrackerCombatantDto[];
 }
 

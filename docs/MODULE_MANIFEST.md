@@ -341,6 +341,20 @@ only. A module adopting this new manifest field requires
 `"module-api": ">=1.3.0 <2.0.0"`; this field was introduced in SDK 2.2.0
 and remains available in SDK 3.0.0.
 Older modules without the field require no version change.
+Core's GM editor additionally supports textarea and detail-layout preferences;
+these are not part of the supported module `combatTracking.attributes` contract. No
+module API/SDK adoption or compatibility bump is implied by that editor option.
+
+**Proposed, not supported yet — ADR-0061 N5:** extend these read-only suggestions
+with `kind: "textarea"`, optional `contentFormat: "plain" | "html"` (plain by
+default), and `layout: { columnSpan, rowSpan, textRows }` using Core's validated
+detail-grid ranges. HTML means host-sanitized static detail, not executable
+Foundry enrichment. Textarea stays out of HUD/roster pills and cannot be writable
+or health. Suggestions seed defaults/explicit Reset, never replace saved GM
+choices automatically. The example and acceptance plan are in ADR-0061's
+N4–N6 addendum. Record the SDK/module-api revision and minimum released Core
+before adopting these fields; current module-api 1.3.0 does not promise them.
+No module manifest/version changes have been made for this proposal.
 
 `permissions` is a declaration, not an authorization bypass. Foundry ownership and
 the Sheet Delver request runtime still gate document reads and writes. Module

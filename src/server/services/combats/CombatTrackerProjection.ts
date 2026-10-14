@@ -16,6 +16,8 @@ export interface CombatTrackerProjectionDeps {
     canWriteActor(actorId: string, subject: DocumentAccessSubject): boolean;
     /** Foundry tracker policy for the GM's next actual eligible row. */
     skipDefeated?: boolean;
+    /** Managed visible previews follow executable eligibility for all viewers. */
+    managedQueue?: boolean;
 }
 
 /**
@@ -75,7 +77,8 @@ export function buildCombatTrackerDto(
     if (currentIndex >= 0 && rows.length > 1) {
         for (let offset = 1; offset <= rows.length; offset += 1) {
             const candidate = rows[(currentIndex + offset) % rows.length];
-            if (!gm || !deps.skipDefeated || !candidate.defeated) {
+            if (deps.managedQueue && candidate.initiative === null) continue;
+            if ((!gm && !deps.managedQueue) || !deps.skipDefeated || !candidate.defeated) {
                 nextShownCombatantId = candidate.id;
                 break;
             }

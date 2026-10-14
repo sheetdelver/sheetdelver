@@ -7,13 +7,21 @@ export function combatManagerNameKey(label: string): string {
 }
 
 /** Core-owned GM selection; module info.json suggestions remain read-only. */
-export interface CombatManagerSelectedStatDto extends ModuleCombatStatAttribute {
+export type CombatManagerStatKind = ModuleCombatStatAttribute['kind'] | 'textarea';
+/** Three-column detail grid; bounded spans/viewport avoid pathological layout. */
+export const COMBAT_STAT_LAYOUT_LIMITS = { columns: 3, rows: 6, textRows: 12 } as const;
+export interface CombatManagerStatLayout { columnSpan: number; rowSpan: number; textRows: number }
+
+export interface CombatManagerSelectedStatDto extends Omit<ModuleCombatStatAttribute, 'kind'> {
+    kind: CombatManagerStatKind;
+    layout?: CombatManagerStatLayout;
     editable?: true;
     /** The one GM-selected stat used by roster health actions. */
     health?: true;
 }
 
-export interface CombatManagerAvailableStatDto extends ModuleCombatStatAttribute {
+export interface CombatManagerAvailableStatDto extends Omit<ModuleCombatStatAttribute, 'kind'> {
+    kind: CombatManagerStatKind;
     /** Actor types where the field was observed; not a saved display restriction. */
     observedActorTypes: string[];
 }
@@ -21,7 +29,7 @@ export interface CombatManagerAvailableStatDto extends ModuleCombatStatAttribute
 /** Read-only path/type verification. No Actor IDs or values are returned. */
 export interface CombatManagerStatPathValidationDto {
     path: string;
-    kind: ModuleCombatStatAttribute['kind'];
+    kind: CombatManagerStatKind;
     observedActorTypes: string[];
 }
 
@@ -52,6 +60,8 @@ export interface CombatManagerStatDto {
     title: string;
     value: string | number;
     subValue?: string | number;
+    multiline?: true;
+    layout?: CombatManagerStatLayout;
     showInRoster?: true;
     health?: true;
     edit?: { key: string; path: string; value: number; max?: number };
@@ -88,6 +98,8 @@ export interface CombatManagerParticipantDto {
     initiative: number | null;
     hidden: boolean;
     defeated: boolean;
+    /** Explicit Combatant flag, separate from effective Actor dead status. */
+    defeatedFlag?: boolean;
     isCurrent: boolean;
     resource: CombatManagerResourceDto | null;
     effects: string[];
@@ -103,6 +115,9 @@ export interface CombatManagerEncounterDto {
     deletionRequested: boolean;
     round: number;
     currentCombatantId: string | null;
+    /** Manager-only pause/no-current state. Never a player hidden-turn marker. */
+    awaitingInitiative?: boolean;
+    canNavigateTurns?: boolean;
     playerActions: {
         initiativeOpen: boolean;
         endTurnEnabled: boolean;

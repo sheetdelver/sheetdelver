@@ -1,11 +1,11 @@
 # Releases
 ## Unreleased
-- Opened managed player initiative
+- Opened managed initiative prompts
 - Enabled owner turn endings
 - Preserved resolved initiative formulas
 - Validated GM initiative overrides
 - Added initiative attribute picker
-- Verified custom combat fields
+- Configured validated combat fields
 - Removed GM stat-count cap
 - Concealed generated copy ordinals
 - Refined compact combat HUD
@@ -14,6 +14,10 @@
 - Revalidated combat scopes and ownership
 - Versioned initiative dialog contract
 - Reused standard roller presentation
+- Separated pending turn participants
+- Paused cleared current turns
+- Added multiline stat layouts
+- Added roster defeated controls
 
 ## 0.17.1
 - Repaired official module catalog

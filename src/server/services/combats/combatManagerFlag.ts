@@ -16,6 +16,8 @@ export interface CombatManagerFlag {
         initiativeGeneration: string;
         endTurnEnabled: boolean;
     };
+    /** Restart-safe navigation anchor when a GM clears the active score. */
+    turnPause?: { combatantId: string; initiative: number } | null;
     completedAt?: string;
     /** Set before explicit deletion, including an uncompleted encounter. */
     deletionRequested?: true;
@@ -51,6 +53,13 @@ export function readCombatManagerFlag(combat: CombatDocument | null | undefined)
         || Object.values(flag.copyNameCounters).some(value => !Number.isSafeInteger(value) || (value as number) < 1))) return null;
     if (flag.historyRemovalRequested !== undefined && flag.historyRemovalRequested !== true) return null;
     if (flag.deletionRequested !== undefined && flag.deletionRequested !== true) return null;
+    if (flag.turnPause !== undefined && flag.turnPause !== null) {
+        const pause = flag.turnPause;
+        if (!pause || typeof pause !== 'object' || Array.isArray(pause)) return null;
+        const anchor = pause as Record<string, unknown>;
+        if (typeof anchor.combatantId !== 'string' || !/^[A-Za-z0-9]{1,64}$/.test(anchor.combatantId)
+            || typeof anchor.initiative !== 'number' || !Number.isFinite(anchor.initiative)) return null;
+    }
     if (flag.playerActions !== undefined) {
         const policy = flag.playerActions;
         if (!policy || typeof policy !== 'object' || Array.isArray(policy)) return null;

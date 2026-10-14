@@ -231,12 +231,12 @@ backend encounter read model — never raw Combat/Combatant/Actor documents.
   `combatTrackerPreferencesChanged` are skinny invalidations — the client
   refetches its authorized projection; payloads never carry document data.
 
-### Planned managed-HUD refinements (ADR-0061 N1–N3; not implemented)
+### Managed-HUD refinements (ADR-0061 N1–N3; operator-accepted baseline)
 
 The October 14 operator review accepts the existing formulas, module rollers,
-privacy/layout, turn controls and recovery. It requests a compact **Roll
+privacy/layout, turn controls and recovery. A compact **Roll
 initiative** cue for eligible owned characters even with the roster collapsed,
-with a chooser for multiple characters. Pending own initiative is separate
+with a chooser for multiple characters is now available. Pending own initiative is separate
 from the player turn roster: unrolled/cleared rows stay at the bottom of the
 GM list and are skipped by managed turn navigation until scored. Late NPCs
 default hidden and remain so after scoring until the GM reveals them. Hidden
@@ -244,15 +244,41 @@ or other-owner pending counts never appear in the cue. Clearing the current
 row's score pauses with **Awaiting initiative** until GM Next or a GM-restored
 score; player rolls alone do not resume it. No owner End my turn while paused.
 
-The manager will reuse one Add/Edit stat editor for Text, Value / Max, Number
+The manager reuses one Add/Edit stat editor for Text, Value / Max, Number
 and Textarea, with editable labels, detail-grid column/row spans and a bounded
 scrollable multiline text viewport. Narrow layouts clamp/stack spans; text
 remains plain and read-only, not a new Actor-text write capability. Existing
-configuration Save persists the shared world/module settings. A row-level
-Defeated/Restore toggle will reuse the existing participant-detail action.
-These are requested changes, not current UI behavior; implementation and
-acceptance checkpoints are in
+configuration Save persists the shared world/module settings. Apply changes
+updates an existing draft selection without duplicating/reordering it; Cancel
+discards that editor draft. Supported spans are 1–3 columns/1–6 rows, with
+1–12 visible textarea rows; these bound the grid/viewport, not the stat count.
+Textarea stays detail-only. A row-level Defeated/Restore toggle reuses the
+existing participant-detail action and changes only the explicit Combatant
+flag, not Actor dead effects. Awaiting initiative is shown in the manager;
+navigation is disabled when no scored eligible rows exist. These additions
+are implemented and offline verified. The user accepts queue/cue, pause, stat
+editor/layout and row/detail Defeated reconciliation; explicit Skip is new scope in
 [ADR-0061](adr/0061-managed-combat-player-participation.md#operator-acceptance-and-late-entrystat-addendum--october-14-2026).
+
+**Proposed next refinements, not implemented (ADR-0061 N4–N6):** retain the thin
+strip but visually group Current / Next shown / My character, with owned stats,
+sheet and explicitly targeted initiative controls together. Preserve Your turn,
+privacy, portraits and narrow-screen reading order. The stat editor would offer
+plain or sanitized HTML textarea content in its existing scrollable detail
+viewport; plain remains the old-record default and rich text stays read-only/
+detail-only. Reuse Core's sanitizer/rendering boundary, not raw HTML or Foundry
+interactive enrichment. Matching module defaults require a documented SDK
+manifest extension; they are not supported today.
+
+Add separate Defeated and Skip controls in participant details/quick rows.
+The per-encounter **Skip defeated enemies automatically** checkbox defaults off;
+when enabled, marking an NPC defeated checks the same persisted Skip flag.
+Manual Unskip while still defeated must persist. NPC Restore clears Skip;
+player defeat never automatically skips, but explicit GM player Skip is allowed.
+No separate derived automatic-exclusion layer. Disabling the encounter setting
+does not clear existing flags. Current-row/bulk/external-change edge handling
+and final acceptance are tracked in the ADR; none of these proposed controls
+exist yet.
 
 | Viewer | Ordinary HUD actions | Managed HUD actions |
 | --- | --- | --- |

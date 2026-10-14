@@ -29,8 +29,10 @@ import { hasCombatManagerMarker, playerActionsFor, readCombatManagerFlag } from 
 import { combatStatDisplayService, projectCombatStatFields } from './CombatStatDisplayService';
 import { effectiveInitiativeFormula } from './CombatInitiativeFormula';
 import { withEncounterLock } from './EncounterCommandGuard';
+import { isManagedTurnEligible, managedCurrentCombatantId, resolveManagedTurn } from './CombatTurnQueue';
 import type {
     CombatTrackerDto,
+    CombatTrackerCombatantDto,
     CombatListPayload,
     CombatTurnSuccessPayload,
     CombatInitiativeSuccessPayload,
@@ -114,9 +116,7 @@ export function createCombatService(deps: CombatServiceDeps) {
         subject: DocumentAccessSubject, attributes: CombatManagerSelectedStatDto[],
         adapter: SystemAdapter | null, initiativeFallback: string | null): CombatTrackerDto => {
         const combat = combatStore.get(dto.id);
-        return {
-            ...dto,
-            combatants: dto.combatants.map(row => {
+        const enrichRow = (row: CombatTrackerCombatantDto): CombatTrackerCombatantDto => {
                 const source = row.actorId ? actorStore.get(row.actorId, { subject }) : null;
                 const owned = !!row.actorId && subject.role < FoundryUserRole.ASSISTANT
                     && projectionDeps.canWriteActor(row.actorId, subject);
@@ -136,7 +136,7 @@ export function createCombatService(deps: CombatServiceDeps) {
                     }
                 }
                 const projectedStats = owned && !unlinked && prepared
-                    ? projectCombatStatFields(prepared, attributes).map(stat => ({
+                    ? projectCombatStatFields(prepared, attributes.filter(attribute => attribute.kind !== 'textarea')).map(stat => ({
                         title: stat.title, value: stat.value,
                         ...(stat.subValue !== undefined ? { subValue: stat.subValue } : {}),
                     })) : [];
@@ -156,7 +156,11 @@ export function createCombatService(deps: CombatServiceDeps) {
                     stats: projectedStats,
                     initiativeRoll: initiative,
                 };
-            }),
+        };
+        return {
+            ...dto,
+            combatants: dto.combatants.map(enrichRow),
+            ...(dto.initiativeCandidates ? { initiativeCandidates: dto.initiativeCandidates.map(enrichRow) } : {}),
         };
     };
 
@@ -196,26 +200,37 @@ export function createCombatService(deps: CombatServiceDeps) {
             if (!combatId) return null;
             const prepared = combatEncounterReadModel.getOrRebuild(combatId);
             if (!prepared) return null;
-            const dto = buildCombatTrackerDto(prepared, subject, { ...projectionDeps, skipDefeated });
             const managerFlag = readCombatManagerFlag(combat);
             // A corrupted managed marker cannot acquire ordinary tracker capabilities.
             if (hasCombatManagerMarker(combat) && !managerFlag) return null;
+            // Only the projection is filtered. Native indexes remain in the
+            // shared read model and all document writes map through that order.
+            const dto = buildCombatTrackerDto(managerFlag ? {
+                ...prepared, currentCombatantId: managedCurrentCombatantId(prepared, managerFlag),
+                rows: isAssistantGM(subject) ? prepared.rows : prepared.rows.filter(row => isManagedTurnEligible(row)),
+            } : prepared, subject, { ...projectionDeps, skipDefeated, managedQueue: !!managerFlag });
             const actions = managerFlag ? playerActionsFor(managerFlag) : null;
             const owner = subject.role < FoundryUserRole.ASSISTANT;
             const playerPhase = !!managerFlag && owner && managerFlag.status === 'active'
                 && !managerFlag.deletionRequested && !managerFlag.historyRemovalRequested
                 && actions?.initiativeOpen === true && (prepared.round === 0 || prepared.active);
+            const candidates = playerPhase ? buildCombatTrackerDto(prepared, subject,
+                { ...projectionDeps, skipDefeated }).combatants.filter(row => row.initiative === null
+                    && row.actorId !== null && projectionDeps.canWriteActor(row.actorId, subject))
+                .map(row => ({ ...row, isCurrent: false, canRollInitiative: true })) : [];
             const projected = managerFlag ? {
                 ...dto,
                 canAdvanceTurn: owner && managerFlag.status === 'active'
                     && !managerFlag.deletionRequested && !managerFlag.historyRemovalRequested
-                    && actions?.endTurnEnabled === true && prepared.active && prepared.started && dto.canAdvanceTurn,
+                    && !managerFlag.turnPause && actions?.endTurnEnabled === true
+                    && prepared.active && prepared.started && dto.canAdvanceTurn,
                 canRewindTurn: false,
                 combatants: dto.combatants.map(row => ({ ...row,
                     canRollInitiative: playerPhase && row.actorId !== null && row.initiative === null
                         && projectionDeps.canWriteActor(row.actorId, subject) })),
                 canManage: isAssistantGM(subject) && managerFlag.status === 'active',
-                ...(playerPhase && dto.combatants.some(row => row.actorId && projectionDeps.canWriteActor(row.actorId, subject))
+                ...(playerPhase ? { initiativeCandidates: candidates } : {}),
+                ...(playerPhase && (candidates.length > 0 || dto.combatants.some(row => row.actorId && projectionDeps.canWriteActor(row.actorId, subject)))
                     ? { playerInitiative: { open: true as const, generation: actions!.initiativeGeneration } } : {}),
             } : dto;
             return enrichTrackerDto(projected, client, subject, preferences?.attributes ?? [],
@@ -223,7 +238,7 @@ export function createCombatService(deps: CombatServiceDeps) {
         });
 
         return { success: true, combats: combats.filter((c): c is CombatTrackerDto =>
-            c !== null && (isAssistantGM(subject) || c.combatants.length > 0)) };
+            c !== null && (isAssistantGM(subject) || c.combatants.length > 0 || !!c.initiativeCandidates?.length)) };
     };
 
     /**
@@ -296,7 +311,8 @@ export function createCombatService(deps: CombatServiceDeps) {
             return { error: 'Use the GM Combat Manager to advance this encounter', status: 403 };
         }
         if (managed && !managerCommand && (!subject || isAssistantGM(subject)
-            || !playerActionsFor(managed).endTurnEnabled)) return { error: 'End my turn is unavailable', status: 403 };
+            || managed.turnPause || !playerActionsFor(managed).endTurnEnabled
+            || !managedCurrentCombatantId(prepared, managed))) return { error: 'End my turn is unavailable', status: 403 };
         if (!subject || !isAuthorizedForCombatTurn(prepared, subject)) {
             return { error: 'Unauthorized: You do not own the current combatant and are not a GM', status: 403 };
         }
@@ -306,6 +322,8 @@ export function createCombatService(deps: CombatServiceDeps) {
         }
 
         const skipDefeated = isSkipDefeatedEnabled();
+        const managedTurn = managed ? resolveManagedTurn(prepared, managed, 'next', skipDefeated) : null;
+        if (managed && !managedTurn) return { error: 'Awaiting initiative: no eligible scored combatants', status: 409 };
         const eligible = (row: PreparedEncounter['rows'][number]): boolean =>
             !skipDefeated || !row.defeated;
         const firstEligibleIndex = (): number => {
@@ -316,7 +334,10 @@ export function createCombatService(deps: CombatServiceDeps) {
         let round = prepared.round;
         let turn = prepared.turn ?? -1;
 
-        if (round === 0) {
+        if (managedTurn) {
+            round = managedTurn.round;
+            turn = managedTurn.turn!;
+        } else if (round === 0) {
             round = 1;
             turn = firstEligibleIndex();
         } else {
@@ -336,20 +357,27 @@ export function createCombatService(deps: CombatServiceDeps) {
             const liveFlag = readCombatManagerFlag(live);
             const liveSubject = resolveSubject(client.userId);
             if (!livePrepared || !liveFlag || liveFlag.status !== 'active' || liveFlag.deletionRequested
-                || liveFlag.historyRemovalRequested || !playerActionsFor(liveFlag).endTurnEnabled
+                || liveFlag.historyRemovalRequested || liveFlag.turnPause || !playerActionsFor(liveFlag).endTurnEnabled
+                || !managedCurrentCombatantId(livePrepared, liveFlag)
                 || !samePlayerScope(client, scope)
                 || !liveSubject || isAssistantGM(liveSubject) || !isAuthorizedForCombatTurn(livePrepared, liveSubject)
                 || !observed || !matchesObservation(livePrepared, observed)) {
                 return { error: 'Encounter changed; review the current turn before retrying', status: 409 };
             }
         }
+        const nextFlag = managed ? { ...managed } : null;
+        if (nextFlag) {
+            nextFlag.turnPause = null;
+            if (prepared.round === 0 && playerActionsFor(nextFlag).initiativeOpen) {
+                nextFlag.playerActions = { ...playerActionsFor(nextFlag), initiativeOpen: false,
+                    initiativeGeneration: crypto.randomUUID() };
+            }
+        }
         await createCombatRepository(client).update(combatId, {
             round, turn,
             ...(managed && managerCommand && prepared.round === 0 ? { active: true } : {}),
-            ...(managed && managerCommand && prepared.round === 0 && playerActionsFor(managed).initiativeOpen
-                ? { 'flags.world.sheetDelverCombat': { ...managed, playerActions: {
-                    ...playerActionsFor(managed), initiativeOpen: false, initiativeGeneration: crypto.randomUUID(),
-                } } } : {}),
+            ...(nextFlag && managerCommand && (managed?.turnPause || prepared.round === 0)
+                ? { 'flags.world.sheetDelverCombat': nextFlag } : {}),
         });
 
         return { success: true, round, turn };
@@ -396,6 +424,8 @@ export function createCombatService(deps: CombatServiceDeps) {
         // rewinding past round 1 turn 0 returns the encounter to its
         // unstarted round-zero state.
         const skipDefeated = isSkipDefeatedEnabled();
+        const managedTurn = managed ? resolveManagedTurn(prepared, managed, 'previous', skipDefeated) : null;
+        if (managed && !managedTurn) return { error: 'Awaiting initiative: no eligible scored combatants', status: 409 };
         const eligible = (row: PreparedEncounter['rows'][number]): boolean =>
             !skipDefeated || !row.defeated;
         const previousEligible = (before: number): number => {
@@ -411,7 +441,10 @@ export function createCombatService(deps: CombatServiceDeps) {
             return Math.max(0, prepared.rows.length - 1);
         };
 
-        if (round === 0) {
+        if (managedTurn) {
+            round = managedTurn.round;
+            turn = managedTurn.turn ?? 0;
+        } else if (round === 0) {
             // Not started — nothing to rewind.
         } else {
             const previous = previousEligible(turn);
@@ -426,13 +459,19 @@ export function createCombatService(deps: CombatServiceDeps) {
             }
         }
 
+        const previousFlag = managed ? { ...managed } : null;
+        if (previousFlag) {
+            previousFlag.turnPause = null;
+            if (round === 0 && playerActionsFor(previousFlag).initiativeOpen) {
+                previousFlag.playerActions = { ...playerActionsFor(previousFlag), initiativeOpen: false,
+                    initiativeGeneration: crypto.randomUUID() };
+            }
+        }
         await createCombatRepository(client).update(combatId, {
             round, turn,
             ...(managed && managerCommand && round === 0 ? { active: false } : {}),
-            ...(managed && managerCommand && round === 0 && playerActionsFor(managed).initiativeOpen
-                ? { 'flags.world.sheetDelverCombat': { ...managed, playerActions: {
-                    ...playerActionsFor(managed), initiativeOpen: false, initiativeGeneration: crypto.randomUUID(),
-                } } } : {}),
+            ...(previousFlag && managerCommand && (managed?.turnPause || round === 0)
+                ? { 'flags.world.sheetDelverCombat': previousFlag } : {}),
         });
 
         return { success: true, round, turn };
@@ -593,13 +632,24 @@ export function createCombatService(deps: CombatServiceDeps) {
                 status: 409, code: 'ROLL_NOT_APPLIED' };
         }
 
-        const currentId = combatEncounterReadModel.getOrRebuild(combatId)?.currentCombatantId ?? null;
+        const currentId = managed?.turnPause ? null
+            : combatEncounterReadModel.getOrRebuild(combatId)?.currentCombatantId ?? null;
         const turnBeforeScore = { round: combat.round ?? 0, turn: combat.turn ?? null, active: combat.active };
 
         try { await createCombatRepository(client).updateCombatant(combatId, combatantId, { initiative: total }); }
         catch {
             return { error: 'Rolled, but initiative may not have been applied; refresh and inspect chat before retrying',
                 status: 502, code: 'ROLL_OUTCOME_UNKNOWN' };
+        }
+        // Pending-only/paused encounters have no current row to repair, but
+        // that must not bypass the post-write identity/scope checks.
+        if (playerManaged) {
+            const live = combatStore.get(combatId);
+            if (!live || live.round !== turnBeforeScore.round || (live.turn ?? null) !== turnBeforeScore.turn
+                || live.active !== turnBeforeScore.active || checkManagedOwner(total)) {
+                return { error: 'Initiative was applied, but encounter synchronization is uncertain; refresh before continuing',
+                    status: 409, code: 'TURN_SYNC_UNKNOWN' };
+            }
         }
         if (!managerCommand && currentId && (combat.round ?? 0) > 0) {
             const live = combatStore.get(combatId);

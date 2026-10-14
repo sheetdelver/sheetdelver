@@ -38,6 +38,7 @@ import { systemService } from '@server/services/world';
 import type { SystemAdapter } from '@shared/sdk';
 import { effectiveInitiativeFormula, validInitiativeFallback } from './CombatInitiativeFormula';
 import { withEncounterLock } from './EncounterCommandGuard';
+import { isManagedTurnEligible, managedCurrentCombatantId } from './CombatTurnQueue';
 import { worldStateStore } from '@server/core/world/WorldStateStore';
 import { canReadCombatActorPack, hasCombatCopyPermission, type CombatCopyPermission }
     from '@server/core/documents/primary/base/nativeCombatPermissions';
@@ -244,11 +245,38 @@ async function preserveCurrentTurn(client: CombatClientLike, combatId: string, c
     if (!currentCombatantId) return;
     const combat = combatStore.get(combatId);
     if (!combat || (combat.round ?? 0) < 1) return;
+    if (readCombatManagerFlag(combat)?.turnPause) return;
     const prepared = combatEncounterReadModel.getOrRebuild(combatId);
     const newIndex = prepared?.rows.findIndex(row => row.id === currentCombatantId) ?? -1;
     if (newIndex >= 0 && combat.turn !== newIndex) {
         await repositories(client).combats.update(combatId, { turn: newIndex });
     }
+}
+
+async function pauseCurrentTurn(client: CombatClientLike, combatId: string): Promise<void> {
+    const { combat, flag } = activeEncounter(combatId);
+    if (flag.turnPause || (combat.round ?? 0) < 1) return;
+    const prepared = combatEncounterReadModel.getOrRebuild(combatId);
+    const current = prepared?.rows.find(row => row.id === prepared.currentCombatantId);
+    if (!current || !isManagedTurnEligible(current)) return;
+    // Persist the pause first. A later score failure must not silently advance
+    // the encounter; the GM can restore its score or explicitly choose Next.
+    await repositories(client).combats.update(combatId, { turn: null,
+        'flags.world.sheetDelverCombat': { ...flag,
+            turnPause: { combatantId: current.id, initiative: current.initiative! } },
+    });
+}
+
+async function restorePausedTurn(client: CombatClientLike, combatId: string, combatantId: string): Promise<void> {
+    const { flag } = activeEncounter(combatId);
+    if (flag.turnPause?.combatantId !== combatantId) return;
+    const prepared = combatEncounterReadModel.getOrRebuild(combatId);
+    const index = prepared?.rows.findIndex(row => row.id === combatantId && isManagedTurnEligible(row)) ?? -1;
+    if (index < 0) return;
+    const resumed = { ...flag };
+    // Native flags merge objects: omission would leave the old pause intact.
+    resumed.turnPause = null;
+    await repositories(client).combats.update(combatId, { turn: index, 'flags.world.sheetDelverCombat': resumed });
 }
 
 function projectEncounter(combat: CombatDocument, client: CombatClientLike,
@@ -259,6 +287,7 @@ function projectEncounter(combat: CombatDocument, client: CombatClientLike,
     if (!flag || !id) return null;
     const subject = roleSubject(client);
     const prepared = combatEncounterReadModel.getOrRebuild(id);
+    const currentId = prepared ? managedCurrentCombatantId(prepared, flag) : null;
     const resourcePath = trackedResourcePath();
     const participants: CombatManagerParticipantDto[] = (prepared?.rows || []).map(row => {
         const actor = row.actorId ? actorStore.get(row.actorId, { subject }) : null;
@@ -276,7 +305,8 @@ function projectEncounter(combat: CombatDocument, client: CombatClientLike,
             initiative: row.initiative,
             hidden: row.hidden,
             defeated: row.defeated,
-            isCurrent: prepared?.currentCombatantId === row.id,
+            defeatedFlag: combat.combatants?.find(candidate => getDocumentId(candidate) === row.id)?.defeated === true,
+            isCurrent: currentId === row.id,
             resource: sourceResource(actor, resourcePath),
             effects: effectLabels(actor),
             stats: projectCombatStatFields(actor && row.actorId ? preparedActorStore.get(row.actorId) : null, attributes, actor),
@@ -286,6 +316,8 @@ function projectEncounter(combat: CombatDocument, client: CombatClientLike,
     });
     const eligiblePlayerRows = participants.filter(row => !row.hidden && row.actorId && !row.isNpc);
     const actions = playerActionsFor(flag);
+    const trackerSetting = settingStore.getValueByKey('core.combatTrackerConfig');
+    const skipDefeated = isRecord(trackerSetting) && trackerSetting.skipDefeated === true;
     return {
         id,
         label: flag.label,
@@ -293,7 +325,10 @@ function projectEncounter(combat: CombatDocument, client: CombatClientLike,
         keepHistory: flag.keepHistory,
         deletionRequested: flag.deletionRequested === true || flag.historyRemovalRequested === true,
         round: prepared?.round ?? combat.round ?? 0,
-        currentCombatantId: prepared?.currentCombatantId ?? null,
+        currentCombatantId: currentId,
+        awaitingInitiative: prepared?.started === true && currentId === null,
+        canNavigateTurns: flag.status === 'active' && !flag.deletionRequested && !flag.historyRemovalRequested
+            && (prepared?.rows.some(row => isManagedTurnEligible(row, skipDefeated)) ?? false),
         playerActions: {
             initiativeOpen: actions.initiativeOpen && flag.status === 'active' && !flag.deletionRequested,
             endTurnEnabled: actions.endTurnEnabled,
@@ -539,7 +574,8 @@ export const combatManagerService = {
                 throw new CombatManagerError('World Actor is already in this encounter', 409);
             }
             const currentId = combatEncounterReadModel.getOrRebuild(combatId)?.currentCombatantId ?? null;
-            await repositories(client).combats.createCombatant(combatId, { actorId, tokenId: null, sceneId: null });
+            await repositories(client).combats.createCombatant(combatId, { actorId, tokenId: null, sceneId: null,
+                hidden: (combat.round ?? 0) > 0 && !hasPlayerOwner(actor) });
             await preserveCurrentTurn(client, combatId, currentId);
             return this.detail(client, combatId);
         });
@@ -614,6 +650,7 @@ export const combatManagerService = {
                     nextFlag = updatedFlag;
                     await repositories(client).combats.createCombatant(combatId, {
                         actorId: copyId, tokenId: null, sceneId: null, name: `${sourceName} #${number}`,
+                        hidden: (activeEncounter(combatId).combat.round ?? 0) > 0,
                         flags: { world: { sheetDelverGeneratedName: {
                             combatId, name: `${sourceName} #${number}`, baseName: sourceName,
                         } } },
@@ -656,8 +693,12 @@ export const combatManagerService = {
             if ('hidden' in body && typeof body.hidden !== 'boolean') throw new CombatManagerError('Hidden must be a boolean', 400);
             if ('defeated' in body && typeof body.defeated !== 'boolean') throw new CombatManagerError('Defeated must be a boolean', 400);
             const { expectedInitiative: _expectedInitiative, ...updates } = body;
+            if (body.initiative === null && currentId === combatantId) await pauseCurrentTurn(client, combatId);
             await repositories(client).combats.updateCombatant(combatId, combatantId, updates);
-            if ('initiative' in body) await preserveCurrentTurn(client, combatId, currentId);
+            if ('initiative' in body) {
+                if (body.initiative !== null) await restorePausedTurn(client, combatId, combatantId);
+                await preserveCurrentTurn(client, combatId, currentId);
+            }
             return this.detail(client, combatId);
         });
     },
@@ -692,6 +733,10 @@ export const combatManagerService = {
                     if ('error' in result) throw new CombatManagerError(result.error, result.status);
                     rolled++;
                 }
+                const pausedId = readCombatManagerFlag(combatStore.get(combatId))?.turnPause?.combatantId;
+                if (pausedId && targets.some(row => getDocumentId(row) === pausedId)) {
+                    await restorePausedTurn(client, combatId, pausedId);
+                }
             } catch (cause) {
                 const message = cause instanceof Error ? cause.message : 'Initiative roll failed';
                 const status = cause instanceof CombatManagerError ? cause.status : 502;
@@ -724,6 +769,7 @@ export const combatManagerService = {
             try {
                 const result = await rollOne(combatantId);
                 if ('error' in result) throw new CombatManagerError(result.error, result.status);
+                await restorePausedTurn(client, combatId, combatantId);
             } finally {
                 await preserveCurrentTurn(client, combatId, currentId);
             }
@@ -740,6 +786,7 @@ export const combatManagerService = {
             if (updates.some(row => !row._id)) throw new CombatManagerError('Combatant ID missing', 409);
             const currentId = combatEncounterReadModel.getOrRebuild(combatId)?.currentCombatantId ?? null;
             if (updates.length) {
+                await pauseCurrentTurn(client, combatId);
                 try {
                     await repositories(client).combats.dispatchDocument('Combatant', 'update', { updates },
                         { type: 'Combat', id: combatId });
@@ -911,9 +958,13 @@ export const combatManagerService = {
             await repositories(client).combats.deleteCombatant(combatId, combatantId);
             if (before?.started) {
                 const after = combatEncounterReadModel.getOrRebuild(combatId);
-                if (after && !after.rows.length) await repositories(client).combats.update(combatId, { turn: null });
+                if (after && !after.rows.some(row => isManagedTurnEligible(row))) {
+                    await repositories(client).combats.update(combatId, { turn: null });
+                }
                 else if (before.currentCombatantId === combatantId && after) {
-                    await repositories(client).combats.update(combatId, { turn: Math.min(before.turn ?? 0, after.rows.length - 1) });
+                    const next = after.rows.findIndex((row, index) => index >= (before.turn ?? 0) && isManagedTurnEligible(row));
+                    await repositories(client).combats.update(combatId, { turn: next >= 0 ? next
+                        : after.rows.findIndex(row => isManagedTurnEligible(row)) });
                 } else await preserveCurrentTurn(client, combatId, before.currentCombatantId);
             }
             // An owned pack copy remains marked in the encounter until completion.

@@ -1,5 +1,5 @@
 import type { ModuleCombatStatAttribute } from '@shared/sdk/interfaces';
-import type { CombatManagerSelectedStatDto } from './combatManager';
+import { COMBAT_STAT_LAYOUT_LIMITS, type CombatManagerSelectedStatDto } from './combatManager';
 
 const MAX_DECLARED_STATS = 16;
 const KEY_PATTERN = /^[A-Za-z][A-Za-z0-9_-]{0,31}$/;
@@ -50,18 +50,33 @@ export function parseCombatStatAttributes(value: unknown, limit = MAX_DECLARED_S
 /** Validate Core's persisted GM selection without broadening module metadata. */
 export function parseCombatStatSelection(value: unknown): CombatManagerSelectedStatDto[] | null {
     if (!Array.isArray(value)) return null;
-    const attributes = parseAttributeRows(value);
+    // Textarea is a Core GM display choice, not a new module metadata kind.
+    const attributes = parseAttributeRows(value.map(item => item && typeof item === 'object' && !Array.isArray(item)
+        && (item as Record<string, unknown>).kind === 'textarea' ? { ...item, kind: 'text' } : item));
     if (!attributes) return null;
     const selected: CombatManagerSelectedStatDto[] = [];
     let healthCount = 0;
     for (const [index, attribute] of attributes.entries()) {
         const raw = (value as Record<string, unknown>[])[index];
+        const kind = raw.kind === 'textarea' ? 'textarea' : attribute.kind;
+        if (kind === 'textarea' && raw.showInRoster === true) return null;
+        let layout: CombatManagerSelectedStatDto['layout'];
+        if (raw.layout !== undefined) {
+            if (!raw.layout || typeof raw.layout !== 'object' || Array.isArray(raw.layout)) return null;
+            const proposed = raw.layout as Record<string, unknown>;
+            if (Object.keys(proposed).some(key => !['columnSpan', 'rowSpan', 'textRows'].includes(key))) return null;
+            for (const [key, max] of [['columnSpan', COMBAT_STAT_LAYOUT_LIMITS.columns],
+                ['rowSpan', COMBAT_STAT_LAYOUT_LIMITS.rows], ['textRows', COMBAT_STAT_LAYOUT_LIMITS.textRows]] as const) {
+                if (!Number.isInteger(proposed[key]) || (proposed[key] as number) < 1 || (proposed[key] as number) > max) return null;
+            }
+            layout = { columnSpan: proposed.columnSpan as number, rowSpan: proposed.rowSpan as number, textRows: proposed.textRows as number };
+        }
         if (raw.editable !== undefined && typeof raw.editable !== 'boolean') return null;
         if (raw.health !== undefined && typeof raw.health !== 'boolean') return null;
         if (raw.editable === true && (!attribute.path.startsWith('system.')
-            || !['number', 'resource'].includes(attribute.kind))) return null;
+            || !['number', 'resource'].includes(kind))) return null;
         if (raw.health === true && (raw.editable !== true || ++healthCount > 1)) return null;
-        selected.push({ ...attribute, ...(raw.editable === true ? { editable: true } : {}),
+        selected.push({ ...attribute, kind, ...(layout ? { layout } : {}), ...(raw.editable === true ? { editable: true } : {}),
             ...(raw.health === true ? { health: true } : {}) });
     }
     return selected;

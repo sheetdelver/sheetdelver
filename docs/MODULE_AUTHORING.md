@@ -378,6 +378,19 @@ stat counts are not limited by the module's at-most-16 suggestion contract.
 Its numeric reference picker uses observed prepared fields; advanced custom
 paths are verified by Core without module-specific schema code or transports.
 Do not assume that a catalog suggestion is available on every participant.
+GM-selected textarea/detail-layout choices are Core-owned presentation options,
+not new `info.json` suggestion kinds or module text-write capability. The module
+suggestion contract remains number/text/resource; HUD initiative continues
+using the same typed dialog callback for candidates outside the turn roster.
+
+ADR-0061 N5 now proposes adding textarea, plain/HTML format and validated detail
+layout to module suggestions. This is **planned**, not a supported `info.json`
+shape yet. Use the existing number/text/resource contract until its SDK/
+module-api revision and Core minimum are recorded. New declarations would only
+seed defaults or explicit Reset; GM-saved selections win. Core would authorize,
+sanitize and render static HTML using its existing shared boundary; modules must
+not add private host imports, native enrichers, transports or text-write behavior
+to obtain this presentation. Existing declarations remain valid without changes.
 
 Upgrade module compatibility to `coreVersion >=0.18.0` and
 `ui-extension-api >=3.0.0 <4.0.0`; publish Core before module releases.

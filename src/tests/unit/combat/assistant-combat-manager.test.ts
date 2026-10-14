@@ -70,6 +70,8 @@ export async function run() {
         assert.equal(tracker.playerInitiative, undefined, 'Assistant does not receive an owner initiative phase');
         const deniedHudTurn = await turns.advanceTurn(assistant, created.id);
         assert.ok('error' in deniedHudTurn && deniedHudTurn.status === 403);
+        await combatManagerService.updateParticipant(assistant, created.id,
+            encounter.participants.find(row => !row.defeated)!.id, { initiative: 0 });
         await combatManagerService.turn(assistant, created.id, () => turns.advanceTurn(assistant, created.id, true));
         assert.equal(combatStore.get(created.id)?.round, 1);
         assert.equal(readCombatManagerFlag(combatStore.get(created.id))!.playerActions!.initiativeOpen, false,

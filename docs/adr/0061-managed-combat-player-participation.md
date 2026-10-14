@@ -1,6 +1,6 @@
 # ADR-0061: Managed Combat Player Participation
 
-**Status:** Accepted — baseline operator checks accepted; late-entry/stat refinements and generation/release gates pending
+**Status:** Accepted — N1/N2 and N3 flag control operator-accepted; N4–N6 proposed refinements and generation/release gates open
 **Date:** October 13, 2026
 **Related:** ADR-0013, ADR-0028, ADR-0038, ADR-0049, ADR-0057, ADR-0058,
 ADR-0060, ADR-0062
@@ -240,9 +240,9 @@ the reconciled HUD checkpoint plus the hardening/native follow-up confirms this 
 | --- | --- | --- |
 | P0 policy/native boundary | Approved local Foundry 14.367 / D&D 5e 6.0.2: native owner tokenless score and turn writes accepted with no full-GM client online; caller-bound SheetDelver actions also pass | v13 evidence or an explicit supported-generation decision; v14 is not v13 proof |
 | P1 correctness/authorization | R1/R2 and retired-user guard implemented; extended controlled-await, concurrent-owner, partial/unknown-result and route regressions pass; full Core/module offline validation passes | Automated verification complete for the bounded matrix; operator acceptance remains P3 |
-| P2 manager/player UI | Automated rendering passes; user accepts corrected module rollers, formula/settings, privacy/layout and existing turn controls | New compact initiative reminder, pending queue, stat editor/layout and row Defeated control below |
-| P3 integration/operator | v14 native/multi-role evidence and automated race checks; user accepts checklist items 1, 3, 5, 6 and existing item 4 controls; phase-close retirement confirmed | Acceptance of the new refinements; no new explicit shared-owner/manual-total operator result was supplied |
-| P4 docs/release | Contracts, module-owned verification notes, feature-snapshot changelog and local handoff updated; no versions or Git writes | Core-first release, module minima/unused versions, released-host CI/package checks and final closeout |
+| P2 manager/player UI | Baseline and N1/N2 operator-accepted; N3 Defeated/Restore matches details | N4 compact grouping, N5 rich content/module suggestions and N6 explicit Skip proposal below |
+| P3 integration/operator | v14 native/multi-role evidence and automated race checks; user accepts baseline and the latest queue/pause/stat checks | New N4–N6 acceptance after implementation; v13 remains deferred to the final pass; no new explicit shared-owner/manual-total operator result was supplied |
+| P4 docs/release | Contracts, module-owned notes, feature-snapshot changelog and handoff updated; approved local checkpoints saved; new Core work uncommitted | Core-first release, module minima/unused versions, released-host CI/package checks and final closeout |
 
 - [x] Approved participation design and baseline Core/module implementation are
   preserved on the existing branches; no new tracker or generic roll tool is needed.
@@ -830,7 +830,7 @@ establish the absence of those restrictions. The earlier v14 HTTP pass already
 accepted manual zero/fraction writes. No Foundry service was contacted in this
 review, and schema inspection does **not** close the v13 owner-write gate.
 
-### N1 — discoverable owner initiative and a separate pending queue (not implemented)
+### N1 — discoverable owner initiative and a separate pending queue (implemented; operator-accepted)
 
 The user reports that a late-added or cleared owned character at the end of the
 roster offers Roll only after expanding the entire list. Add a compact bar cue
@@ -889,7 +889,7 @@ from current initiative and policy. Audit roster selection, manager controls,
 HUD-only-pending encounter retention, role-filtered DTOs, all queue consumers
 and score/reset/remove synchronization before editing shared helpers.
 
-### N2 — one stat editor and configurable detail layout (not implemented)
+### N2 — one stat editor and configurable detail layout (implemented; operator-accepted; N5 extension proposed)
 
 Provide **Text**, **Value / Max** (existing resource representation), **Number**
 and **Textarea** choices in a reusable Add/Edit attribute editor. Textarea
@@ -922,7 +922,7 @@ number/text/resource. If module-authored textarea/layout hints are later needed,
 review/version that contract separately. Existing byte/HTTP/security safeguards
 remain; ensure absent/new metadata round-trips and cannot bypass write guards.
 
-### N3 — roster Defeated toggle (not implemented)
+### N3 — roster Defeated toggle (implemented; flag control operator-accepted; N6 Skip extension proposed)
 
 Add an accessible **Defeated / Restore** toggle beside Hide/Roll/Clear on each
 manager Actor row. Reuse the existing caller-bound Combatant `defeated` update,
@@ -938,24 +938,298 @@ toggle removes native effects or expand into system condition management.
 
 - [x] **N0:** record operator acceptance and numeric schema evidence; preserve
   existing source changes. This pass changes documentation only.
-- [ ] **N1:** implement the compact own-pending cue and shared managed queue
+- [x] **N1 implemented and offline verified:** compact own-pending cue and shared managed queue
   policy, including the confirmed current-score-clear pause. Test late Player/NPC,
   NPC hidden default, clear/re-score/reveal, multiple owned pending characters,
   collapsed HUD, last/all eligible removal, round wrap and native-index mapping.
   Assert no hidden IDs/counts/ordinal leaks or automatic modal/roll replay.
-- [ ] **N2:** implement shared Add/Edit stat presentation and persistent
+- [x] **N2 implemented and offline verified:** shared Add/Edit stat presentation and persistent
   textarea/layout metadata; test all four kinds, type rejection, edit/cancel,
   stable order/keys, reload/two-GM synchronization, scrolling/keyboard and
   narrow/desktop light/dark. Preserve read-only text and existing health guards.
-- [ ] **N3:** expose the row Defeated toggle; verify detail/row reconciliation,
+- [x] **N3 implemented and offline verified:** expose the row Defeated toggle; verify detail/row reconciliation,
   native failure/stale handling and skip-defeated interactions with pending rows.
-- [ ] Re-run affected Core/module checks and obtain operator acceptance of N1–N3.
-  Current successful suites cover the previous implementation, **not** these
-  documented additions. No new tests, code, commits, services or release edits
-  accompany this addendum. Changelog additions wait for implementation.
+- [x] Re-run affected Core/module checks; current evidence is recorded below.
+- [x] User accepts N1/N2 and N3 row/detail Defeated/Restore reconciliation in
+  the October 14 follow-up below. Explicit per-participant Skip is new scope,
+  not an already-implemented or accepted N3 capability.
 
 ADR-0061 remains open. The v13 native-write/support decision and Core0.18.0-first
 module publication gates remain unchanged. No new SDK version, release number,
 branch, commit or live-test permission is implied. General reminders, directed
 roll requests, ledger/history, action bars and native bridges remain deferred;
 only this bounded owned-initiative reminder is brought into scope.
+
+## N1–N3 implementation follow-up — October 14, 2026
+
+The user authorized a local checkpoint of the accepted formula/stat/module work
+**before** continuing. Core and all three module checkpoints were committed;
+no push, branch change, version/tag/release or subsequent commit occurred.
+The user explicitly defers **v13 verification to the final pass**; it remains
+a gate, not waived or claimed complete. The following new Core work is
+implemented and uncommitted. The subsequent operator follow-up below records
+acceptance and new proposed refinements; this section preserves its original
+implementation/evidence scope.
+
+### Shared queue, durable pause and compact cue
+
+- `CombatTurnQueue` centralizes managed finite-score/defeated eligibility and
+  maps Next/Previous to native full-order indexes. Ordinary Combats/read-model
+  order remain unchanged. No eligible scored rows means 409/no turn or round
+  write; manager navigation is disabled. Hidden scored NPCs retain real turns.
+- Late linked NPCs use existing non-GM ownership classification; late private
+  pack copies also start hidden. Both await initiative at the end of the GM
+  list and require explicit Reveal after scoring. No migration/Actor visibility
+  change. Players see only scored visible turn rows plus a separately enriched
+  `initiativeCandidates` collection for their own visible pending targets while
+  the phase is open. GM/Assistant HUDs retain their full roster; previews skip
+  pending/appropriately defeated rows. A pending-only owner encounter remains
+  selectable; hidden-only/non-owner pending encounters do not gain a slot.
+- The compact bar offers Roll initiative independently of the expanded roster,
+  with a chooser for multiple eligible owned characters. It reuses the current
+  module/Core modal and observed phase. Candidates take part in stale Actor/
+  score/phase retirement; no polling, auto-modal or action replay was introduced.
+  Multiline stat detail is excluded from owned HUD chips.
+- Clearing/resetting the started current score first persists `turn: null` and
+  a validated `turnPause: { combatantId, initiative }` anchor containing its
+  previous ordering position. This survives cache rebuild/refresh/restart and
+  hides current identity/owner End-turn without exposing a player pause marker
+  for hidden Actors. Unrelated scores and owner rolls cannot resume it. GM
+  Next/Previous resumes by the saved position; explicit GM manual/single/batch
+  restoration of the anchored score can resume it. A successful restoration
+  clears the flag with **null**, not omission (native flags merge objects).
+- Pause-before-clear is deliberately fail-safe, not atomic: if the score write
+  fails, the old score can remain while the encounter stays paused. Refresh and
+  recover through explicit GM action. A failed/uncertain roll never resumes
+  through the automatic-success path. Post-score owner identity/scope checks
+  still run when there is no current row to repair.
+
+### Stat editing/layout and Defeated rows
+
+- `CombatStatAttributeEditor` is the single Add/Edit form. Apply changes replaces
+  the existing key in the configuration draft, preserving order and compatible
+  roster/editable/health choices; Cancel discards the editor draft. Existing
+  configuration Save persists, not Apply. Incompatible kind/path changes clear
+  writable/health placement, exact path/type validation is reused, and stale
+  checks cannot add changed/retired fields. Draft controls are gated during
+  verification. Save/reset now pin caller/world/runtime through system reads;
+  invalid selected metadata yields 400 without replacement.
+- Core GM kinds are number/text/resource/**textarea**. Long/multiline Actor
+  strings are discoverable; textarea also accepts an existing empty string.
+  Projection preserves plain text/newlines instead of short-text truncation.
+  A read-only native textarea provides keyboard scrolling; no rich HTML, text
+  writes, roster pill or default-health capability. Module suggestion kinds
+  remain number/text/resource, with no SDK/API/minimum bump.
+- Optional `layout: { columnSpan, rowSpan, textRows }` persists with the shared
+  world/module selection. Supported integers are **1–3 columns**, **1–6 grid
+  rows**, **1–12 visible text rows**. Columns follow the actual three-column
+  detail grid; row/viewport bounds prevent pathological page-sized spans.
+  These are documented presentation safeguards, not a stat-count limit.
+  Absent metadata retains one cell/four text rows; narrow screens stack spans.
+- Roster Defeated/Restore reuses native-authorized Combatant PATCH. The DTO
+  separates explicit `defeatedFlag` from effective defeated state: clearing a
+  flag does not remove an Actor's dead effect. Row/details update from refreshed
+  server state, with existing busy/error handling and no HP/condition automation.
+
+### Automated evidence and remaining operator checks
+
+Core full unit/client/integration, TypeScript and lint pass; all ten module
+tests, explicit three-module source typing, three compatibility checks and
+isolated package builds pass. Package fixture sources were compared to the
+current module checkpoints. Unit regressions cover pending-only/redacted reads,
+late NPC classification, native index mapping, zero eligibility, cache-rebuild
+pause persistence, owner/unrelated-score non-resume, safe failed clear,
+round wrap and defeated skipping. Existing concurrency/identity/partial-result
+tests remain green. Stat tests cover old/new record round-trips, module-kind
+isolation, malformed layouts, string/type validation, plain-text preservation
+and scope retirement during save/reset.
+
+The retained offline browser fixture renders actual components/CSS at
+320/375/1280 in both themes. It checks the collapsed multiple-owner chooser,
+pending-only phase, existing module dialogs/keyboard/stale/ordinary controls,
+eleven-field Add/Edit/Save without duplicates, multiline scrolling/responsive
+spans and Defeated/Restore. Narrow dark/desktop light detail screenshots were
+inspected. Browser API projections are mocked; this is **not** new native
+Foundry acceptance. No application/Foundry service was started or contacted.
+
+For operator acceptance, verify only these additions:
+
+1. In a started encounter, add one/two player-owned characters and a linked/
+   copied NPC. Pending rows sort last and Next/End turn skips them. The NPC
+   starts hidden, remains hidden after scoring, and appears only after Reveal.
+   Owners can roll through the compact bar with the roster collapsed; a score
+   inserts the character into order without stealing the current turn.
+2. Clear a non-current score, then the current score. The former waits pending;
+   the latter pauses. Refresh/restart while paused, roll as owner or score an
+   unrelated row: it must stay paused. GM Next resumes from the prior position
+   without a spurious round increment, or GM restoring the anchored score
+   resumes that character. Clear all: no navigation until an eligible score.
+3. Add/edit Text, Value/Max, Number and Textarea fields. Change labels/spans/text
+   viewport, Apply/Cancel and Save/reload; other GMs see saved settings. Long text
+   scrolls and does not become writable or a HUD/pill. Check narrow/desktop and
+   both themes, type errors, existing health flags and no selection count cap.
+4. Toggle row Defeated/Restore and compare participant details. Check configured
+   skip-defeated navigation; Actor dead effects remain independent of the flag.
+5. After refinement acceptance, finish the v13 native-write/support gate and
+   separately approved Core-first publication/minimum/version checks.
+
+ADR stays open. Documentation/audit/single queue/handoff and terse feature
+snapshot are updated; accepted baseline checks need not be repeated by default.
+
+## Operator confirmations and proposed N4–N6 refinements — October 14, 2026
+
+**Documentation-only follow-up; no new implementation or automated/live run.**
+The user confirms checklist 1 (pending/late queue and compact Roll cue), 2
+(pause until GM acts), and 3 (stat editor/layout). Checklist 4 confirms that
+Defeated/Restore matches participant details, but reports defeated NPCs are
+not skipped. That does not establish the world's tracker-setting value.
+Source review confirms current managed navigation uses the world-wide
+`core.combatTrackerConfig.skipDefeated` setting, default off; there is **no
+per-participant Skip control** yet. The screenshot also shows insufficient
+separation between current, next, own-character stats and the own Roll action.
+
+### N4 — compact, distinct HUD regions
+
+Keep the thin, full-width strip; do not return to tall cards. Separate **Current
+turn**, **Next shown** and **My character** into clear, labeled regions using
+theme tokens, restrained dividers/background contrast and spacing. Emphasize
+the current identity and retain the accepted **Your turn** treatment; next is
+secondary. Player wording remains *Next shown*, not a promise about hidden
+queue positions. Round/encounter context and roster/GM controls remain distinct.
+
+Group owned-character stats, sheet shortcut and initiative action together,
+making the Roll target explicit without the current detached duplicate name.
+Multiple owned/pending characters must still have an unambiguous accessible
+target selector; the displayed stats and Roll action must not silently target
+different Actors. Preserve collapsed pending discovery and existing capabilities.
+On narrow screens, wrap these groups in the same reading/focus order, not one
+undifferentiated line. Retain portraits, touch targets and both themes without
+adding polling, prompts, private counters or module-specific action bars.
+
+### N5 — sanitized rich detail and declared module defaults
+
+Current textarea preserves **plain text**; HTML rendering and module-authored
+textarea/layout defaults are **not implemented**. Propose an explicit textarea
+format choice, `contentFormat: "plain" | "html"`, default plain for absent/old
+records. HTML mode displays sanitized rich content in the same bounded,
+keyboard-scrollable detail viewport. Plain mode preserves literal angle brackets
+and newlines; do not guess format with a regex or treat every string as HTML.
+Neither format authorizes Actor text writes, roster pills or HUD rich content.
+
+Reuse `src/shared/security/safeHtml.ts` (`sanitizeRichHtml`) and Core's sole
+`SafeHtmlContent` rendering boundary, not a second sanitizer or unreviewed raw
+HTML insertion. Authorize the Actor/current scope first; sanitize the selected
+HTML before DTO delivery, then cross the client sanitizer boundary before
+rendering (JSON strings are not branded `SafeHtml`). Non-GM projections must
+exclude unrevealed secret sections **before transmission**, if such a detail
+projection is ever provided. Retain existing URL/tag/image allowlists and safe
+relative Foundry URL resolution. Static formatting is not a Foundry enrichment
+runtime: no hook execution, dice/document-action delegation, embedded documents,
+new permission grants, scripts, inline event handlers or arbitrary CSS. Scope
+rich styles to the detail viewport; test tables/images/long content and safe
+empty/failure rendering so Actor markup cannot disturb surrounding controls.
+
+Extend `ModuleCombatStatAttribute`/`info.json` `combatTracking.attributes` with
+optional **textarea**, the same validated `layout` defaults/ranges, and textarea
+`contentFormat`. Number/text/resource, `actorTypes` and `showInRoster` continue
+unchanged; textarea remains detail-only. Module defaults seed an unconfigured
+selection or an explicit **Reset to module suggestions**; they do not overwrite
+saved GM choices. Module and GM metadata must share validation, defaults and
+round-trip tests rather than diverging parsers. Missing/wrong-type Actor paths
+retain current validation/omission behavior; suggestions are not permissions.
+
+Illustrative **proposed, not currently supported** module descriptor (the actual
+Actor string path must be verified for that module):
+
+```json
+{
+  "key": "description", "label": "Description", "path": "system.description",
+  "kind": "textarea", "contentFormat": "html",
+  "layout": { "columnSpan": 3, "rowSpan": 2, "textRows": 6 }
+}
+```
+
+Before implementing/publishing the manifest extension, record the appropriate
+SDK/module-api contract revision and required Core host. Current module-api
+1.3.0 does not promise these new descriptors. Preserve old modules and the
+Core0.18.0-first release plan; no version bump, compatibility promotion or module
+publication is authorized by this documentation pass. Inventory all suggestion,
+reset, persistence, discovery, projection and packaging consumers first.
+
+### N6 — explicit Skip, separate from Defeated/Hidden
+
+**User-confirmed policy:** add **Skip** beside **Defeated** in participant details
+and as an accessible quick row toggle. One persisted per-Combatant Skip boolean
+controls managed turn exclusion; it is not an Actor condition or a separate
+derived automatic-skip layer. The GM/authorized Assistant may explicitly Skip
+any participant, including a player-owned character. Defeat alone must never
+automatically Skip a player-owned character.
+
+Add a per-encounter GM configuration checkbox **Skip defeated enemies
+automatically**, **off by default** for new/old encounters. When enabled,
+marking an NPC defeated also sets that same Skip flag. The GM can uncheck Skip
+in the row or details while leaving the NPC defeated; reads, refetches and
+refreshes must not re-check it. **Restore clears Skip for that NPC**, as confirmed
+by the user. This is an explicit NPC Restore action, not an automatic change to
+player/manual skips or Actor dead effects. Classify NPCs through the existing
+non-manager ownership rule, not system Actor-type names. Changing Hidden or
+initiative does not change manual Skip.
+
+Implement this through validated manager Combat/Combatant flags and the existing
+operation-specific, caller-bound writes. Defeated+Skip must use one authorized
+Combatant update where possible. No read-side writes, GM impersonation, shared
+ownership-helper expansion or player flag-write lane. Turning the configuration
+off stops automatic assignment; it does not silently erase existing Skip flags.
+Before implementation, settle and document whether enabling it also offers an
+explicit apply-to-existing-defeated action and how external Foundry dead/defeated
+changes enter this bounded write workflow. Do not invent a service-account
+observer or continually reapply Skip after the GM opts out.
+
+All managed consumers must share **finite initiative and not Skip** eligibility:
+Begin, Next, Previous, owner End my turn, turn repair, previews and manager
+navigation availability. A scored skipped row stays visible in the authorized
+roster with its score/flags and can be Unskipped; unlike unrolled rows it is not
+removed from the player roster by this rule. Hidden privacy remains independent.
+Map eligible identities to full native indexes and retain no-eligible 409/no
+round advancement. Propose pausing, not silently advancing, if the current row
+becomes skipped; explicit GM Next/Unskip/Restore resolves it. Test this transition
+alongside the accepted initiative-clear pause before exposing the new controls.
+
+For managed encounters, these explicit flags replace the world-wide defeated
+setting as the queue-exclusion authority; otherwise a player or manually
+unskipped defeated NPC could still be excluded against the new policy. Ordinary
+Combats retain their current Foundry-setting behavior. Old managed records default
+to no Skip and automatic assignment off; no migration/read-side flag synthesis.
+
+### Proposed implementation checkpoints / acceptance
+
+- [x] Record N1/N2 and flag-only N3 operator acceptance and the Skip decisions.
+- [ ] **N4:** group compact HUD regions and own target/action; test 320/375/1280,
+  both themes, keyboard/focus, multiple owners, pending-only and hidden rows.
+- [ ] **N5:** agree the additive SDK/module-api revision, implement validated
+  format/layout suggestions and sanitized detail; test old/default records,
+  Reset versus saved choices, wrong-type paths, secret/XSS/unsafe URL fixtures,
+  overflow, and all affected module typing/compatibility/packages.
+- [ ] **N6:** settle external/bulk assignment edges, implement one durable Skip
+  flag plus default-off encounter setting and row/detail controls. Test explicit
+  player Skip, NPC automatic assignment/manual opt-out/Restore, setting changes,
+  current/all skipped, zero/fraction scores, round wrap, native indexes,
+  concurrent GMs, failures, restart and ordinary-Combat non-regression.
+- [ ] Re-run documented Core/module offline checks and obtain acceptance only
+  for these new additions; do not repeat accepted baseline tests by default.
+- [ ] Finish deferred v13 owner-write/support decision and separately approved
+  Core-first release/module promotion before ADR closeout.
+
+These are proposals for the next implementation pass, not completed behavior.
+Existing uncommitted N1–N3 work remains preserved. No code, changelog feature
+claims, stage/commit, branch, version, remote or live-service changes in this pass.
+
+### Checkpoint and continuation approval — October 14
+
+The user authorizes a local checkpoint of the accepted N1–N3 implementation
+and N4–N6 planning, followed by N4–N6 implementation on the existing branch.
+They separately approve the additive **SDK 3.2.0 / module-api 1.4.0** metadata
+contract, with **Core 0.18.0** required for modules adopting it. UI/roll API
+versions and application/module release versions do not change for this
+approval. Existing modules remain compatible; publication/minimum promotion,
+new commits after this checkpoint and live tests still require scoped approval.

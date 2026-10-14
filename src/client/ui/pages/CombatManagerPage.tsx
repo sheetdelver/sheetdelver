@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import Link from 'next/link';
 import { Swords, UserRound } from 'lucide-react';
 import { useWorldBackground } from '@client/ui/main/hooks/useWorldBackground';
@@ -10,9 +10,10 @@ import { ApiError } from '@client/ui/api/http';
 import { CombatHealthModal, type CombatHealthTarget } from './CombatHealthModal';
 import { CombatBatchHealthModal } from './CombatBatchHealthModal';
 import { CombatBeginModal, type CombatBeginChoice } from './CombatBeginModal';
+import { CombatStatAttributeEditor } from './CombatStatAttributeEditor';
 import * as api from '@client/ui/api/foundryApi';
 import { combatManagerNameKey } from '@shared/contracts/combatManager';
-import { isSafeCombatStatPath } from '@shared/contracts/combatStatAttributes';
+import { isSafeCombatStatPath, parseCombatStatSelection } from '@shared/contracts/combatStatAttributes';
 import { insertInitiativeAttribute } from './combatInitiativeDraft';
 import type {
     CombatManagerActorChoiceDto,
@@ -25,14 +26,15 @@ import type {
     CombatManagerStatPreferencesDto,
     CombatManagerSelectedStatDto,
     CombatManagerHealthBatchRequest,
+    CombatManagerStatKind,
+    CombatManagerStatLayout,
 } from '@shared/contracts/combatManager';
-import type { ModuleCombatStatAttribute } from '@shared/sdk';
 
 function errorMessage(error: unknown): string {
     return error instanceof Error ? error.message : 'The request failed';
 }
 
-function statChoiceContext(choice: ModuleCombatStatAttribute & { observedActorTypes?: string[] }): string {
+function statChoiceContext(choice: CombatManagerSelectedStatDto & { observedActorTypes?: string[] }): string {
     const actorContext = choice.actorTypes?.length ? choice.actorTypes.join(', ')
         : choice.observedActorTypes?.length ? `seen on ${choice.observedActorTypes.join(', ')}`
             : 'all Actor types';
@@ -101,7 +103,11 @@ export default function CombatManagerPage() {
     const [loadingStatCatalog, setLoadingStatCatalog] = useState(false);
     const [customPath, setCustomPath] = useState('');
     const [customLabel, setCustomLabel] = useState('');
-    const [customKind, setCustomKind] = useState<ModuleCombatStatAttribute['kind']>('number');
+    const [customKind, setCustomKind] = useState<CombatManagerStatKind>('number');
+    const [customLayout, setCustomLayout] = useState<CombatManagerStatLayout>({ columnSpan: 1, rowSpan: 1, textRows: 4 });
+    const [editingAttributeKey, setEditingAttributeKey] = useState<string | null>(null);
+    const [attributeEditorOpen, setAttributeEditorOpen] = useState(false);
+    const attributeEditor = useRef<HTMLDetailsElement>(null);
     const [customStatError, setCustomStatError] = useState('');
     const [validatingCustomStat, setValidatingCustomStat] = useState(false);
     const [busy, setBusy] = useState(false);
@@ -451,7 +457,7 @@ export default function CombatManagerPage() {
             : previous);
     };
 
-    const addStat = (choice: ModuleCombatStatAttribute) => {
+    const addStat = (choice: CombatManagerSelectedStatDto) => {
         setStatDraft(current => {
             const keys = new Set(current.map(row => row.key));
             let key = choice.key, suffix = 2;
@@ -461,6 +467,7 @@ export default function CombatManagerPage() {
             }
             return [...current, { key, label: choice.label, path: choice.path,
                 kind: choice.kind, ...(choice.actorTypes ? { actorTypes: choice.actorTypes } : {}),
+                ...(choice.layout ? { layout: choice.layout } : {}),
                 ...(choice.showInRoster === true ? { showInRoster: true } : {}) }];
         });
     };
@@ -469,6 +476,7 @@ export default function CombatManagerPage() {
         customValidationVersion.current += 1;
         setValidatingCustomStat(false);
         setCustomStatError('');
+        setEditingAttributeKey(null); setCustomLabel(''); setCustomPath('');
         return () => { customValidationVersion.current += 1; };
     }, [allowed, worldId, editingStats]);
 
@@ -485,15 +493,37 @@ export default function CombatManagerPage() {
         setValidatingCustomStat(true);
         setCustomStatError('');
         try {
+            const existing = statDraft.find(row => row.key === editingAttributeKey);
+            const draft = { ...existing, key: existing?.key ?? 'custom', label, path: customPath.trim(),
+                kind: customKind, layout: customLayout,
+                ...(customKind === 'textarea' ? { showInRoster: undefined } : {}),
+                ...(!['number', 'resource'].includes(customKind) || !customPath.trim().startsWith('system.')
+                    ? { editable: undefined, health: undefined } : {}),
+            };
+            if (!parseCombatStatSelection([draft])) throw new Error('Invalid stat label, type or detail layout');
             const { attribute } = await api.validateManagedStatPath(customPath.trim(), customKind);
             if (version !== customValidationVersion.current) return;
-            addStat({ key: 'custom', label, path: attribute.path, kind: attribute.kind });
+            if (editingAttributeKey) {
+                if (!existing) throw new Error('This stat was removed; choose it again before editing');
+                setStatDraft(current => current.map(row => row.key === existing.key ? { ...draft, path: attribute.path } : row));
+                setEditingAttributeKey(null);
+            } else addStat({ ...draft, path: attribute.path });
             setCustomLabel(''); setCustomPath('');
         } catch (cause) {
             if (version === customValidationVersion.current) setCustomStatError(errorMessage(cause));
         } finally {
             if (version === customValidationVersion.current) setValidatingCustomStat(false);
         }
+    };
+
+    const editAttribute = (field: CombatManagerSelectedStatDto) => {
+        invalidateCustomValidation();
+        setEditingAttributeKey(field.key); setCustomLabel(field.label); setCustomPath(field.path); setCustomKind(field.kind);
+        setCustomLayout(field.layout ?? { columnSpan: 1, rowSpan: 1, textRows: 4 }); setAttributeEditorOpen(true);
+        window.requestAnimationFrame(() => {
+            attributeEditor.current?.scrollIntoView({ block: 'nearest' });
+            attributeEditor.current?.querySelector<HTMLInputElement>('input')?.focus();
+        });
     };
 
     const confirmPending = () => {
@@ -595,12 +625,13 @@ export default function CombatManagerPage() {
                 </div>
                 {editingStats && <div className="sd-ui-divider mt-4 space-y-3 border-t pt-4">
                     <p className="sd-ui-muted text-xs">Choose fields found on Actors in this world or suggested by the system module. Missing values are hidden. Only source-backed numeric and resource values can be made editable; derived and text fields stay read-only. Choose one editable field as default health for the roster action.</p>
-                    {statDraft.map((field, index) => <div key={`${field.key}:${index}`} className="sd-ui-inset flex flex-wrap items-center gap-2 rounded-lg p-2">
+                    {statDraft.map((field, index) => <fieldset disabled={busy || validatingCustomStat} key={`${field.key}:${index}`} className="sd-ui-inset flex min-w-0 flex-wrap items-center gap-2 rounded-lg p-2">
                         <input aria-label={`Stat ${index + 1} label`} value={field.label} maxLength={32} onChange={event => setStatDraft(current => current.map((row, at) => at === index ? { ...row, label: event.target.value } : row))}
                             className={`w-32 ${inputClass}`} />
                         <span className="sd-ui-muted min-w-0 flex-1 break-all text-xs">{statChoiceContext(field)}</span>
                         <label className="flex items-center gap-1.5 text-xs">
                             <input type="checkbox" aria-label={`Show ${field.label} beside names`} checked={field.showInRoster === true}
+                                disabled={field.kind === 'textarea'}
                                 onChange={event => setStatDraft(current => current.map((row, at) => at === index ? { ...row, showInRoster: event.target.checked } : row))}
                                 style={{ accentColor: 'var(--sd-ui-accent)' }} /> Beside names
                         </label>
@@ -623,8 +654,12 @@ export default function CombatManagerPage() {
                         </label>
                         <button disabled={index === 0} onClick={() => setStatDraft(current => { const next = [...current]; [next[index - 1], next[index]] = [next[index], next[index - 1]]; return next; })} className={secondaryButtonClass} aria-label={`Move ${field.label} up`}>↑</button>
                         <button disabled={index === statDraft.length - 1} onClick={() => setStatDraft(current => { const next = [...current]; [next[index + 1], next[index]] = [next[index], next[index + 1]]; return next; })} className={secondaryButtonClass} aria-label={`Move ${field.label} down`}>↓</button>
-                        <button onClick={() => setStatDraft(current => current.filter((_, at) => at !== index))} className={secondaryButtonClass} aria-label={`Remove ${field.label}`}>Remove</button>
-                    </div>)}
+                        <button type="button" onClick={() => editAttribute(field)} className={secondaryButtonClass} aria-label={`Edit ${field.label} presentation`}>Edit</button>
+                        <button onClick={() => {
+                            if (editingAttributeKey === field.key) { invalidateCustomValidation(); setEditingAttributeKey(null); setCustomLabel(''); setCustomPath(''); }
+                            setStatDraft(current => current.filter((_, at) => at !== index));
+                        }} className={secondaryButtonClass} aria-label={`Remove ${field.label}`}>Remove</button>
+                    </fieldset>)}
                     <div className="flex flex-wrap items-center gap-2">
                         <input aria-label="Find an Actor field" placeholder="Search Actor fields" value={statSearch}
                             onChange={event => { setStatSearch(event.target.value); setStatChoice(''); }} className={`min-w-48 ${inputClass}`} />
@@ -634,28 +669,20 @@ export default function CombatManagerPage() {
                                 {choice.label} ({statChoiceContext(choice)})
                             </option>)}
                         </select>
-                        <button disabled={busy || loadingStatCatalog || statChoice === ''} onClick={() => { addStat(statChoices[Number(statChoice)]); setStatChoice(''); }} className={secondaryButtonClass}>Add field</button>
+                        <button disabled={busy || validatingCustomStat || loadingStatCatalog || statChoice === ''} onClick={() => { addStat(statChoices[Number(statChoice)]); setStatChoice(''); }} className={secondaryButtonClass}>Add field</button>
                     </div>
                     {loadingStatCatalog && <p className="sd-ui-muted text-xs">Finding Actor fields…</p>}
                     {!loadingStatCatalog && statChoices.length === 0 && <p className="sd-ui-muted text-xs">No Actor fields are available yet. Add a world or compendium Actor, then reopen this configuration.</p>}
-                    <details className="sd-ui-inset rounded-lg p-3 text-xs">
-                        <summary className="cursor-pointer">Advanced: enter an attribute path manually</summary>
-                        <div className="mt-3 flex flex-wrap items-center gap-2">
-                        <input aria-label="Custom stat label" placeholder="Label" value={customLabel} maxLength={32} onChange={event => { invalidateCustomValidation(); setCustomLabel(event.target.value); }} className={`w-32 ${inputClass}`} />
-                        <input aria-label="Custom Actor path" aria-describedby="custom-stat-help" aria-invalid={!!customStatError}
-                            placeholder="system.attributes.example" value={customPath} maxLength={128}
-                            onChange={event => { invalidateCustomValidation(); setCustomPath(event.target.value); }} className={`min-w-0 flex-1 basis-64 font-mono ${inputClass}`} />
-                        <select aria-label="Custom stat kind" value={customKind} onChange={event => { invalidateCustomValidation(); setCustomKind(event.target.value as ModuleCombatStatAttribute['kind']); }} className={inputClass}>
-                            <option value="number">Number</option><option value="resource">Value / max</option><option value="text">Text</option>
-                        </select>
-                        <button disabled={busy || validatingCustomStat || !!customDisabledReason} onClick={() => void addCustomStat()}
-                            className={secondaryButtonClass}>{validatingCustomStat ? 'Checking attribute…' : 'Add custom'}</button>
-                        </div>
-                        <p id="custom-stat-help" className="sd-ui-muted mt-2 text-xs">{customDisabledReason || 'Add custom checks the path and selected type against current world Actors before adding to this draft. Save applies the configuration.'}</p>
-                        {customStatError && <p role="alert" className="sd-ui-danger mt-2 break-words text-xs">{customStatError}</p>}
+                    <details ref={attributeEditor} open={attributeEditorOpen} onToggle={event => setAttributeEditorOpen(event.currentTarget.open)} className="sd-ui-inset rounded-lg p-3 text-xs">
+                        <summary className="cursor-pointer">{editingAttributeKey ? 'Edit attribute presentation' : 'Advanced: enter an attribute path manually'}</summary>
+                        <div className="mt-3"><CombatStatAttributeEditor value={{ label: customLabel, path: customPath, kind: customKind, layout: customLayout }}
+                            onChange={draft => { invalidateCustomValidation(); setCustomLabel(draft.label); setCustomPath(draft.path); setCustomKind(draft.kind); setCustomLayout(draft.layout); }}
+                            onApply={() => void addCustomStat()} onCancel={() => { invalidateCustomValidation(); setEditingAttributeKey(null); setCustomLabel(''); setCustomPath(''); }}
+                            editing={editingAttributeKey !== null} disabled={busy} checking={validatingCustomStat} reason={customDisabledReason}
+                            error={customStatError} inputClass={inputClass} buttonClass={secondaryButtonClass} /></div>
                     </details>
                     <div className="flex flex-wrap gap-2">
-                        <button disabled={busy || validatingCustomStat} onClick={() => void mutate(async () => {
+                        <button disabled={busy || validatingCustomStat || editingAttributeKey !== null} onClick={() => void mutate(async () => {
                             const { preferences } = await api.saveManagedStatPreferences(statDraft);
                             setStatPreferences(preferences); setEditingStats(false);
                             await refresh();
@@ -733,6 +760,7 @@ export default function CombatManagerPage() {
                     <div>
                         <h2 className="sd-ui-accent text-xl font-bold">{encounter.label}</h2>
                         <p className="sd-ui-muted text-sm">{encounter.status} · round {encounter.round} · {encounter.participants.length} participants · {encounter.keepHistory ? 'retain on completion' : 'delete on completion'}</p>
+                        {encounter.awaitingInitiative && <p role="status" className="sd-ui-accent mt-2 text-sm font-semibold">Awaiting initiative · paused until the GM restores the current score or chooses Next.</p>}
                         {encounter.status === 'active' && encounter.round === 0 && (renameDraft?.combatId === encounter.id
                             ? <div className="mt-2 flex flex-wrap items-center gap-2">
                                 <input aria-label="Rename encounter" value={renameDraft.label} maxLength={100}
@@ -749,9 +777,9 @@ export default function CombatManagerPage() {
                                 className="sd-ui-accent mt-2 text-xs underline">Rename encounter</button>)}
                     </div>
                     <div className="flex flex-wrap gap-2">
-                        <button disabled={busy || encounter.status !== 'active' || encounter.round === 0 || encounter.participants.length === 0} onClick={() => void mutate(() => api.postManagedPreviousTurn(encounter.id))}
+                        <button disabled={busy || encounter.status !== 'active' || encounter.round === 0 || encounter.participants.length === 0 || encounter.canNavigateTurns === false} onClick={() => void mutate(() => api.postManagedPreviousTurn(encounter.id))}
                             className={secondaryButtonClass}>Previous</button>
-                        <button disabled={busy || encounter.status !== 'active' || encounter.participants.length === 0} onClick={() => {
+                        <button disabled={busy || encounter.status !== 'active' || encounter.participants.length === 0 || encounter.canNavigateTurns === false} onClick={() => {
                             if (encounter.round !== 0) {
                                 void mutate(() => api.postManagedNextTurn(encounter.id));
                                 return;
@@ -930,7 +958,7 @@ export default function CombatManagerPage() {
                             {encounter.participants.map(row => {
                                 const health = row.stats.find(stat => stat.health && stat.edit);
                                 return <div key={row.id}
-                                className={`${selected?.id === row.id ? 'sd-ui-inset' : 'sd-ui-panel-raised'} flex w-full items-center gap-1 rounded-lg p-1 transition-colors ${row.isCurrent ? 'ring-2 ring-[var(--sd-ui-accent)]' : ''}`}>
+                                className={`${selected?.id === row.id ? 'sd-ui-inset' : 'sd-ui-panel-raised'} flex w-full flex-wrap items-center gap-1 rounded-lg p-1 transition-colors ${row.isCurrent ? 'ring-2 ring-[var(--sd-ui-accent)]' : ''}`}>
                                 {encounter.status === 'active' && statPreferences?.attributes.some(field => field.health) && <input
                                     type="checkbox" aria-label={`Select ${row.name} for batch health`}
                                     title={health?.edit ? `Select ${row.name}` : 'No editable default health for this Actor'}
@@ -967,13 +995,20 @@ export default function CombatManagerPage() {
                                 {row.resource && <span className="text-sm">{row.resource.value}{row.resource.max !== null ? `/${row.resource.max}` : ''}</span>}
                                 {row.hidden && <span className="sd-ui-muted text-xs">hidden</span>}
                                 {row.defeated && <span className="sd-ui-danger text-xs">defeated</span>}
+                                {row.initiative === null && <span className="sd-ui-muted text-xs">Awaiting initiative</span>}
                                 {row.isCurrent && <span className="sd-ui-inset sd-ui-accent shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider">Current</span>}
                                 </button>
-                                {encounter.status === 'active' && <div className="flex shrink-0 items-center gap-1">
+                                {encounter.status === 'active' && <div className="flex basis-full flex-wrap items-center justify-end gap-1 sm:basis-auto">
                                     <button disabled={busy} aria-pressed={row.hidden}
                                         aria-label={`${row.hidden ? 'Reveal' : 'Hide'} ${row.name} in player combat HUD`}
                                         onClick={() => void mutate(() => api.updateManagedCombatant(encounter.id, row.id, { hidden: !row.hidden }))}
                                         className="sd-ui-button px-2 py-2 text-xs font-semibold">{row.hidden ? 'Reveal' : 'Hide'}</button>
+                                    <button disabled={busy} aria-pressed={row.defeatedFlag ?? row.defeated}
+                                        aria-label={`${(row.defeatedFlag ?? row.defeated) ? 'Restore' : 'Mark defeated'} ${row.name}`}
+                                        title={row.defeated && row.defeatedFlag === false ? 'Actor dead status also marks this row defeated; this toggle changes only the Combatant flag.' : 'Toggle the Combatant defeated flag'}
+                                        onClick={() => void mutate(() => api.updateManagedCombatant(encounter.id, row.id,
+                                            { defeated: !(row.defeatedFlag ?? row.defeated) }))}
+                                        className="sd-ui-button px-2 py-2 text-xs font-semibold">{(row.defeatedFlag ?? row.defeated) ? 'Restore' : 'Defeated'}</button>
                                     <button disabled={busy || !row.initiativeRoll.rollAvailable}
                                         title={row.initiativeRoll.rollAvailable ? `Uses ${row.initiativeRoll.source} initiative formula` : 'Formula unavailable; enter initiative manually'}
                                         onClick={() => void mutate(() => api.postManagedInitiativeOne(encounter.id, row.id))}
@@ -1008,11 +1043,14 @@ export default function CombatManagerPage() {
                                     className="sd-ui-accent text-sm underline">Open Actor sheet ↗</Link>
                             </div>
                             <p className="sd-ui-muted text-xs">{selected.source === 'world' ? 'Linked world Actor — edits affect ongoing world state.' : 'Encounter-owned copy from a compendium.'}</p>
-                            {selected.stats.length > 0 && <div aria-label="Basic stats" className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                            {selected.stats.length > 0 && <div aria-label="Basic stats" className="sd-combat-stat-grid grid grid-cols-1 gap-2 sm:grid-cols-3">
                                 <span className="sd-ui-muted col-span-full text-xs font-semibold uppercase tracking-wider">Basic stats</span>
-                                {selected.stats.map((stat, index) => <div key={`${stat.title}:${index}`} className="sd-ui-inset min-w-0 rounded-lg px-3 py-2">
+                                {selected.stats.map((stat, index) => <div key={`${stat.title}:${index}`} className="sd-combat-stat-field sd-ui-inset flex min-w-0 flex-col rounded-lg px-3 py-2"
+                                    style={{ '--sd-stat-columns': stat.layout?.columnSpan ?? 1, '--sd-stat-rows': stat.layout?.rowSpan ?? 1 } as CSSProperties}>
                                     <span className="sd-ui-muted block truncate text-[10px] font-bold uppercase tracking-wider" title={stat.title}>{stat.title}</span>
-                                    {stat.edit && encounter.status === 'active' ? <div className="mt-1 flex flex-wrap items-center gap-1">
+                                    {stat.multiline ? <textarea aria-label={stat.title} readOnly value={String(stat.value)} rows={stat.layout?.textRows ?? 4}
+                                        className="sd-ui-control mt-1 min-h-0 w-full resize-none overflow-y-auto whitespace-pre-wrap break-words text-sm" />
+                                    : stat.edit && encounter.status === 'active' ? <div className="mt-1 flex flex-wrap items-center gap-1">
                                         <input type="number" aria-label={`Edit ${stat.title}`} className={`min-w-0 w-24 ${inputClass}`}
                                             value={statEdit?.combatantId === selected.id && statEdit.key === stat.edit.key
                                                 && statEdit.actorId === selected.actorId && statEdit.path === stat.edit.path
@@ -1065,7 +1103,7 @@ export default function CombatManagerPage() {
                                 </span>}
                                 <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={selected.hidden} disabled={busy || encounter.status !== 'active'} style={{ accentColor: 'var(--sd-ui-accent)' }}
                                     onChange={event => void mutate(() => api.updateManagedCombatant(encounter.id, selected.id, { hidden: event.target.checked }))} /> Hidden</label>
-                                <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={selected.defeated} disabled={busy || encounter.status !== 'active'} style={{ accentColor: 'var(--sd-ui-accent)' }}
+                                <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={selected.defeatedFlag ?? selected.defeated} disabled={busy || encounter.status !== 'active'} style={{ accentColor: 'var(--sd-ui-accent)' }}
                                     onChange={event => void mutate(() => api.updateManagedCombatant(encounter.id, selected.id, { defeated: event.target.checked }))} /> Defeated</label>
                                 {encounter.status === 'active' && selected.initiativeRoll.advantageAvailable && <span className="flex flex-wrap gap-1">
                                     <button disabled={busy} className={secondaryButtonClass}
