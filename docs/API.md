@@ -197,10 +197,31 @@ and applies Heal/Damage as plain arithmetic without system-specific rules or
 automatic clamping. A GM may also select up to 100 eligible rows for one
 guarded Damage/Heal batch; all targets are checked for stale values before
 writing, while a later write failure reports how many writes completed. A GM
-initiative fallback formula is stored
-in the same world/module preference and is used only when the loaded module
-supplies no formula; module rules stay authoritative, followed by the GM
-fallback and Core `1d20`. Preference changes emit an empty
+initiative override formula is stored in the same world/module preference.
+Resolution is explicit GM override, then module formula, then Core `1d20`.
+Clearing it restores module-first resolution; a broken explicit override fails
+closed rather than falling back. Before saving, Core validates the bounded
+grammar and safe finite numeric prepared-Actor references against every current
+participant in active managed encounters, including hidden/scored rows. Actor
+source access and user/world/runtime scope are rechecked after dependency reads.
+An attribute formula without participants cannot be certified and returns 400;
+invalid inputs leave the saved preference unchanged. Validation parses without
+rolling or creating chat. New participants/value changes still require execution
+revalidation. Module formulas are not passed through the GM reference resolver.
+The manager's searchable numeric picker uses the existing observed field catalog,
+including resource leaves such as `.value` and `.max`, to insert references into
+the draft. It does not save or evaluate them. GM stat selections have no fixed
+field-count cap; path/type/label/key/editability checks remain. Module metadata
+still permits at most 16 suggestions, and compact HUD presentation is separate.
+The existing 256000-byte preference-file limit is checked before replacement;
+an oversized save returns 413 without making the prior file unreadable. Ordinary
+HTTP body limits also still apply. Advanced custom fields use a read-only exact
+path/type check against authorized prepared world Actors, not catalog sampling.
+Missing fields return 404, invalid/mismatched kinds 400; no Actor values or IDs,
+document writes, chat, dice or persisted permissions are involved. Existence
+on one type does not guarantee every Actor supplies it; missing display values
+remain hidden and future edits retain their normal source-backed guards.
+Preference changes emit an empty
 `combatManagerPreferencesChanged` app-socket event to current Gamemaster and
 Assistant sockets, causing other manager pages to refetch. An empty
 `combatTrackerPreferencesChanged` event prompts authenticated HUD clients to
@@ -211,14 +232,29 @@ other stats remain in the detail panel. See
 [ADR-0049](adr/0049-core-gm-combat-manager.md) and the Assistant amendment in
 [ADR-0062](adr/0062-observed-player-issues.md).
 
+**Planned, not implemented — ADR-0061 N1–N3:** separate authorized own-pending
+initiative from the managed player's turn roster; navigation must skip null
+scores while mapping eligible identities to the full native turn index. Zero
+and finite fractions remain scored values, not pending. Late NPC Combatants
+will default hidden. GM stat-selection presentation will gain textarea and
+optional detail-layout metadata plus an Add/Edit workflow; current module
+suggestion kinds remain number/text/resource. Exact DTO names/validation and
+old-preference defaults must be documented when implemented, not assumed by
+API clients now. Textarea does not grant text writes. The row Defeated toggle
+can use the already-documented Combatant PATCH below. Clearing the current
+score will pause until GM action; the existing reset identity promise must be
+revised with that implementation. No new endpoints or SDK versions
+are created by this documentation checkpoint.
+
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `GET` | `/api/combat-manager` | List marked encounters, including retained completed history. |
 | `POST` | `/api/combat-manager` | Create with `{ "label": "Ambush", "keepHistory": false }`; returns the encounter. Its Actor Folder is nested under the shared top-level `SheetDelver` Actor Folder. A normalized name already held by a marked encounter returns 409 before any create write. |
 | `GET` | `/api/combat-manager/stat-preferences?catalog=1&actorId=...` | Read shared GM selection and module suggestions. `catalog=1` additionally discovers bounded fields from prepared world Actors; optional authorized Actor ID prioritizes its fields. Catalog `observedActorTypes` is a picker hint, not a saved type restriction. |
 | `PUT` | `/api/combat-manager/stat-preferences` | Save `{ "attributes": [...] }` for this world/system module, including an intentional empty list. A selected numeric/resource `system.*` descriptor may have `"editable": true`; exactly one editable descriptor may also have `"health": true`. Module suggestions remain display-only until a GM saves those choices. |
+| `POST` | `/api/combat-manager/stat-preferences/validate-path` | GM/Assistant read-only `{ "path": "system.attributes.hp.value", "kind": "number" }` check for custom fields. Returns `{ "attribute": { "path", "kind", "observedActorTypes" } }`; 400 unsafe/type mismatch, 404 absent field, 401 retired session, 403 unauthorized role, 503 retired/unavailable world. No configuration or Foundry write. |
 | `DELETE` | `/api/combat-manager/stat-preferences` | Remove saved selection and return to module suggestions. |
-| `PUT` | `/api/combat-manager/initiative-fallback` | Save `{ "formula": "1d20+@system.attributes.init.value" }` or clear with `null`. Limited dice/arithmetic grammar and safe prepared-Actor paths; a module-supplied formula still wins. |
+| `PUT` | `/api/combat-manager/initiative-fallback` | Legacy URL retained: save a GM override such as `{ "formula": "1d20+@system.attributes.init.value" }` only if that numeric path exists on every current managed participant, or clear with `null`. Validate before persistence; 400 invalid/missing-reference/no-participant evidence, 409 unavailable Actor, 401 retired caller, 503 replaced/unavailable world. GM override takes precedence. |
 | `GET` | `/api/combat-manager/:id` | Read one marked tokenless encounter. |
 | `PATCH` | `/api/combat-manager/:id` | Rename with `{ "label": "..." }` only while active at round zero. Reject duplicate normalized labels and verify the child Actor Folder marker before renaming it. |
 | `PATCH` | `/api/combat-manager/:id/player-actions` | GM/Assistant `{ "initiativeOpen"?: boolean, "endTurnEnabled"?: boolean }`. Phase changes rotate an opaque generation on the Combat; owner End my turn defaults enabled. Begin and rewind to round zero close initiative. The encounter DTO includes policy and manager-only eligible/scored counts. |
@@ -228,7 +264,7 @@ other stats remain in the detail panel. See
 | `POST` | `/api/combat-manager/:id/world-actors` | Add `{ "actorId": "..." }` as a world link. Marked encounter-owned copies are rejected even by direct API request. |
 | `POST` | `/api/combat-manager/:id/pack-actors` | Add `{ "packId": "...", "actorId": "...", "quantity": 1 }` as 1–20 independent encounter-owned world Actor copies. Partial failures report how many completed; retry is manual. |
 | `POST` | `/api/combat-manager/:id/next-turn` and `/previous-turn` | Run SheetDelver-managed turn progression under the GM/Assistant encounter guard. |
-| `POST` | `/api/combat-manager/:id/roll-initiative` | Roll available unrolled combatants with `{ "scope": "all" }` or `{ "scope": "npc" }`; NPC means no non-GM owner. Unresolved fallback references remain for manual entry. Returns `rolled` and the refreshed encounter. Partial failures report the count already rolled. |
+| `POST` | `/api/combat-manager/:id/roll-initiative` | Roll available unrolled combatants with `{ "scope": "all" }` or `{ "scope": "npc" }`; NPC means no non-GM owner. Invalid/unresolved override references remain for manual entry. Returns `rolled` and the refreshed encounter. Partial failures report the count already rolled. |
 | `POST` | `/api/combat-manager/:id/combatants/:combatantId/roll-initiative` | Roll or reroll one participant through the guarded, user-bound initiative path. Optional `advantageMode` applies only to leading d20 formulas. Returns `rolled: 1` and the refreshed encounter. |
 | `POST` | `/api/combat-manager/:id/reset-initiative` | Clear all scored participants in one embedded-document update. Returns `cleared` and the refreshed encounter; current-turn identity is preserved. |
 | `PATCH` | `/api/combat-manager/:id/combatants/:combatantId` | Change `initiative`, `hidden` or `defeated`. Manual initiative edits may include `expectedInitiative` (number or `null`); a changed mirrored score returns 409. This is a Store preflight, not an atomic Foundry compare-and-set. |

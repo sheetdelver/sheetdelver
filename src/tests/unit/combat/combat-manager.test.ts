@@ -5,6 +5,7 @@ import path from 'node:path';
 import { combatManagerService, CombatManagerError } from '@server/services/combats/CombatManagerService';
 import { discoverActorSortFields, parseActorPickerSort, sortActorChoices } from '@server/services/combats/CombatActorPickerSort';
 import { combatStatDisplayService, projectCombatStatFields } from '@server/services/combats/CombatStatDisplayService';
+import { combatStatPreferenceStore } from '@server/services/combats/CombatStatPreferenceStore';
 import { hasCombatManagerMarker, playerActionsFor, readCombatManagerFlag } from '@server/services/combats/combatManagerFlag';
 import { createCombatService } from '@server/services/combats/CombatService';
 import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
@@ -21,6 +22,7 @@ import { BaseSystemAdapter } from '@shared/sdk';
 import type { CombatClientLike } from '@server/shared/types/documents';
 import type { ActorDocument } from '@server/shared/types/actors';
 import { registerCombatRoutes } from '@server/routes/protected/registerCombatRoutes';
+import { registerCombatManagerRoutes } from '@server/routes/protected/registerCombatManagerRoutes';
 import { createRouteMap, createRouterStub, getLastHandler, invokeHandler } from '../routing/route-test-helpers';
 
 type Call = { type: string; action: string; operation: Record<string, any>; parent?: { type: string; id: string } };
@@ -355,6 +357,169 @@ export async function runParticipationHardening(): Promise<void> {
     } finally {
         preparedActorStore.clear();
         worldStateStore.clear();
+        if (previousWorld) worldStateStore.seed(previousWorld);
+        __resetDataDirForTests(previousDataDir);
+        fs.rmSync(dataDir, { recursive: true, force: true });
+    }
+}
+
+async function verifyCustomStatPaths(gm: CombatClientLike, calls: Call[], dataDir: string): Promise<void> {
+    actorStore.applyModifyDocument('Actor', 'update', [{ _id: 'WORLDNPC',
+        'system.custom': { zero: 0, negative: -2.5, text: 'Displayable', notNumber: '12',
+            resource: { value: 0, max: null }, list: [1, 2] } }]);
+    assert.deepEqual(await combatManagerService.validateStatPath(gm, 'system.custom.zero', 'number'),
+        { path: 'system.custom.zero', kind: 'number', observedActorTypes: ['npc'] });
+    assert.equal((await combatManagerService.validateStatPath(mockClient('assistant', calls),
+        'system.custom.negative', 'number')).kind, 'number');
+    assert.equal((await combatManagerService.validateStatPath(gm, 'system.custom.text', 'text')).kind, 'text');
+    assert.equal((await combatManagerService.validateStatPath(gm, 'system.custom.resource', 'resource')).kind, 'resource');
+    for (const [path, kind, status] of [
+        ['system.__proto__.value', 'number', 400], ['system.custom.missing', 'number', 404],
+        ['system.custom.notNumber', 'number', 400], ['system.custom.zero', 'resource', 400],
+        ['system.custom.list', 'number', 400], ['system.custom.zero', 'wrong', 400],
+    ] as const) {
+        await assert.rejects(() => combatManagerService.validateStatPath(gm, path, kind),
+            (error: unknown) => error instanceof CombatManagerError && error.status === status);
+    }
+    await assert.rejects(() => combatManagerService.validateStatPath(mockClient('player', calls), 'system.custom.zero', 'number'),
+        (error: unknown) => error instanceof CombatManagerError && error.status === 403);
+    // Exact custom lookup must not confuse catalog sampling with existence.
+    actorStore.applyModifyDocument('Actor', 'create', Array.from({ length: 5 }, (_, index) => ({
+        _id: `FIELD${index}`, type: 'npc', system: index === 4 ? { unsampled: 7 } : {}, ownership: { default: 0 },
+    })));
+    assert.equal((await combatManagerService.validateStatPath(gm, 'system.unsampled', 'number')).path, 'system.unsampled');
+    assert.equal((await combatManagerService.validateStatPath(mockClient('assistant', calls), 'system.unsampled', 'number')).path,
+        'system.unsampled', 'native Assistant Actor ownership applies without a service transport');
+    const managerRoutes = createRouteMap();
+    registerCombatManagerRoutes(createRouterStub(managerRoutes) as any);
+    const validate = getLastHandler(managerRoutes, 'post', '/combat-manager/stat-preferences/validate-path');
+    const result = await invokeHandler(validate, { foundryClient: gm, body: { path: 'system.custom.zero', kind: 'number' } } as any);
+    assert.equal(result.statusCode, 200);
+    assert.deepEqual(result.payload, { attribute: { path: 'system.custom.zero', kind: 'number', observedActorTypes: ['npc'] } });
+    assert.equal((await invokeHandler(validate, { foundryClient: gm,
+        body: { path: 'system.missing', kind: 'number' } } as any)).statusCode, 404);
+    assert.equal((await invokeHandler(validate, { foundryClient: mockClient('player', calls),
+        body: { path: 'system.custom.zero', kind: 'number' } } as any)).statusCode, 403);
+    assert.equal(fs.existsSync(path.join(dataDir, 'config/gm-combat-stats.json')), false,
+        'path validation does not create preference files');
+}
+
+export async function runInitiativeOverrideValidation(): Promise<void> {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sd-initiative-override-'));
+    const previousWorld = worldStateStore.getGameDataSnapshot();
+    let previousDataDir: string | null = null;
+    try { previousDataDir = getDataDir(); } catch { /* Focused standalone run. */ }
+    const calls: Call[] = [], rolls: string[] = [];
+    const gm = mockClient('gm', calls, rolls);
+    const formula = '1d20+@system.init';
+    const saved = () => combatStatPreferenceStore.getInitiativeFormula('test-world', 'test');
+    const reset = async () => {
+        await seed();
+        preparedActorStore.bind(actorStore);
+        preparedActorStore.configure(new BaseSystemAdapter(), { worldEpoch: 1, systemId: 'test' });
+        preparedActorStore.rebuildAll();
+    };
+    const addParticipants = () => {
+        actorStore.applyModifyDocument('Actor', 'update', [
+            { _id: 'WORLDNPC', 'system.init': 1.5 }, { _id: 'PLAYERPC', 'system.init': 0 },
+        ]);
+        combatStore.applyModifyDocument('Combat', 'create', ['WORLDNPC', 'PLAYERPC'].map((actorId, index) => ({
+            _id: `OVERRIDE${index}`, scene: null, active: false,
+            flags: { world: { sheetDelverCombat: { schemaVersion: 1, mode: 'tokenless',
+                label: `Override ${index}`, status: 'active', keepHistory: false, folderId: null, copyIds: [] } } },
+            combatants: [{ _id: `ROW${index}`, actorId, hidden: index === 1, initiative: index === 1 ? 10 : null }],
+        })));
+    };
+    try {
+        __resetDataDirForTests(dataDir);
+        await reset();
+        await verifyCustomStatPaths(gm, calls, dataDir);
+        assert.equal((await combatManagerService.saveInitiativeFormula(gm, '1d20+2')).initiativeFormula, '1d20+2');
+        await assert.rejects(() => combatManagerService.saveInitiativeFormula(gm, formula), /Add encounter participants/);
+        assert.equal(saved(), '1d20+2', 'no participants cannot falsely validate an attribute formula');
+        addParticipants();
+        await combatManagerService.saveInitiativeFormula(mockClient('assistant', calls), formula);
+        assert.equal(saved(), formula, 'native-authorized Assistants can save a validated override');
+        const persisted = fs.readFileSync(path.join(dataDir, 'config/gm-combat-stats.json'), 'utf8');
+        for (const invalid of ['1d20+@system.missing', '101d6', '1d20/0', '1d20+@system.__proto__.value']) {
+            await assert.rejects(() => combatManagerService.saveInitiativeFormula(gm, invalid),
+                (error: unknown) => error instanceof CombatManagerError && error.status === 400);
+            assert.equal(fs.readFileSync(path.join(dataDir, 'config/gm-combat-stats.json'), 'utf8'), persisted);
+        }
+        actorStore.applyModifyDocument('Actor', 'update', [{ _id: 'PLAYERPC', 'system.init': 'not numeric' }]);
+        await assert.rejects(() => combatManagerService.saveInitiativeFormula(gm, formula), /non-numeric/,
+            'a hidden/scored participant in another managed encounter is also validated');
+        actorStore.applyModifyDocument('Actor', 'update', [{ _id: 'PLAYERPC', 'system.init': 0 }]);
+        const changedActorClient = { ...gm, getSystem: async () => {
+            actorStore.applyModifyDocument('Actor', 'update', [{ _id: 'WORLDNPC', 'system.init': 'changed' }]);
+            return { id: 'test' };
+        } } as CombatClientLike;
+        await assert.rejects(() => combatManagerService.saveInitiativeFormula(changedActorClient, formula), /non-numeric/);
+        assert.equal(saved(), formula, 'failed save preserves the prior expression');
+        const changes = [
+            { status: 403, change: (_client: CombatClientLike) => userStore.patch('gm', { role: 1 }) },
+            { status: 401, change: (client: CombatClientLike) => { client.userId = 'assistant'; } },
+            { status: 401, change: (_client: CombatClientLike) => userStore.applyModifyDocument('User', 'delete', ['gm']) },
+            { status: 401, change: (_client: CombatClientLike) => userStore.patch('gm', { banned: true }) },
+            { status: 503, change: (_client: CombatClientLike) => worldStateStore.seed({ world: { id: 'replacement' }, system: { id: 'test' } }) },
+            { status: 503, change: (client: CombatClientLike) => { (client as any).isConnected = false; } },
+            { status: 503, change: (_client: CombatClientLike) => worldStateStore.clearRuntimeState() },
+        ];
+        for (const test of changes) {
+            await reset(); addParticipants();
+            const client = { ...gm, isConnected: true, getSystem: async () => {
+                test.change(client); return { id: 'test' };
+            } } as CombatClientLike;
+            await assert.rejects(() => combatManagerService.saveInitiativeFormula(client, '1d20+3'),
+                (error: unknown) => error instanceof CombatManagerError && error.status === test.status);
+            assert.equal(saved(), formula, 'retired scope/role cannot replace the preference');
+            await reset();
+            const pathClient = { ...gm, isConnected: true, getSystem: async () => {
+                test.change(pathClient); return { id: 'test' };
+            } } as CombatClientLike;
+            await assert.rejects(() => combatManagerService.validateStatPath(pathClient, 'system.attributes.hp.value', 'number'),
+                (error: unknown) => error instanceof CombatManagerError && error.status === test.status);
+        }
+        await reset(); addParticipants();
+        await assert.rejects(() => combatManagerService.saveInitiativeFormula(mockClient('player', calls), '1d20'),
+            (error: unknown) => error instanceof CombatManagerError && error.status === 403);
+        await assert.rejects(() => combatManagerService.saveInitiativeFormula({ ...gm,
+            getSystem: async () => ({ id: 'other' }) } as CombatClientLike, '1d20'),
+            (error: unknown) => error instanceof CombatManagerError && error.status === 503);
+        assert.equal((await combatManagerService.saveInitiativeFormula(gm, null)).initiativeFormula, null);
+        assert.equal(saved(), null, 'clear restores module-first resolution');
+        assert.equal(calls.length, 0, 'validation never dispatches Foundry writes');
+        assert.equal(rolls.length, 0, 'validation never rolls or creates chat');
+        await combatManagerService.saveInitiativeFormula(gm, formula);
+        combatStore.applyModifyDocument('Combat', 'update', [{ _id: 'OVERRIDE1',
+            'flags.world.sheetDelverCombat.playerActions': { initiativeOpen: true,
+                initiativeGeneration: 'override-phase', endTurnEnabled: true },
+            combatants: [{ _id: 'ROW1', actorId: 'PLAYERPC', hidden: false, initiative: null }],
+        }]);
+        const owner = mockClient('player', calls, rolls);
+        const service = createCombatService({});
+        const view = (await service.listCombats(owner)).combats.find(row => row.id === 'OVERRIDE1')!;
+        const observed = { initiative: null, formula: view.combatants[0].initiativeRoll!.formula,
+            phaseGeneration: view.playerInitiative!.generation };
+        assert.equal(observed.formula, '1d20+0');
+        actorStore.applyModifyDocument('Actor', 'update', [{ _id: 'PLAYERPC', 'system.init': 'missing now' }]);
+        const invalidView = (await service.listCombats(owner)).combats.find(row => row.id === 'OVERRIDE1')!;
+        assert.equal(invalidView.combatants[0].initiativeRoll!.rollAvailable, false);
+        assert.equal((await service.rollInitiative(owner, 'OVERRIDE1', 'ROW1', { observed }) as any).status, 409,
+            'a valid saved override cannot certify later missing Actor values');
+        actorStore.applyModifyDocument('Actor', 'update', [{ _id: 'PLAYERPC', 'system.init': 0 }]);
+        const changedDuringRead = { ...owner, getActor: async (id: string) => {
+            const source = actorStore.get(id);
+            actorStore.applyModifyDocument('Actor', 'update', [{ _id: id, 'system.init': 2 }]);
+            return source;
+        } } as CombatClientLike;
+        assert.equal((await service.rollInitiative(changedDuringRead, 'OVERRIDE1', 'ROW1', { observed }) as any).status, 409);
+        assert.equal(rolls.length, 0, 'post-save invalidation makes no chat or fallback roll');
+        assert.equal(calls.length, 0, 'post-save invalidation makes no score writes');
+        await combatManagerService.saveInitiativeFormula(gm, null);
+        console.log('  - Initiative override: all-participant validation, persistence and retired-scope checks passed');
+    } finally {
+        preparedActorStore.clear(); worldStateStore.clear();
         if (previousWorld) worldStateStore.seed(previousWorld);
         __resetDataDirForTests(previousDataDir);
         fs.rmSync(dataDir, { recursive: true, force: true });
@@ -1171,6 +1336,7 @@ export async function run(): Promise<void> {
         'ambiguous parent folders fail before creating a provisional Combat');
     folderStore.applyModifyDocument('Folder', 'delete', ['DUPROOT', 'USERROOT']);
     await runParticipationHardening();
+    await runInitiativeOverrideValidation();
     console.log('  - CombatManager: role, identity, resource, retention and cleanup checks passed');
 }
 

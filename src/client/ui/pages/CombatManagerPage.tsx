@@ -12,6 +12,8 @@ import { CombatBatchHealthModal } from './CombatBatchHealthModal';
 import { CombatBeginModal, type CombatBeginChoice } from './CombatBeginModal';
 import * as api from '@client/ui/api/foundryApi';
 import { combatManagerNameKey } from '@shared/contracts/combatManager';
+import { isSafeCombatStatPath } from '@shared/contracts/combatStatAttributes';
+import { insertInitiativeAttribute } from './combatInitiativeDraft';
 import type {
     CombatManagerActorChoiceDto,
     CombatManagerActorSortFieldDto,
@@ -88,6 +90,10 @@ export default function CombatManagerPage() {
     const [batchModal, setBatchModal] = useState<{ targets: CombatManagerHealthBatchRequest['targets']; names: string[] } | null>(null);
     const [statPreferences, setStatPreferences] = useState<CombatManagerStatPreferencesDto | null>(null);
     const [initiativeFallbackDraft, setInitiativeFallbackDraft] = useState('');
+    const [initiativeFormulaError, setInitiativeFormulaError] = useState('');
+    const [pickingInitiativeAttribute, setPickingInitiativeAttribute] = useState(false);
+    const [initiativeAttributeSearch, setInitiativeAttributeSearch] = useState('');
+    const [initiativeAttributeChoice, setInitiativeAttributeChoice] = useState('');
     const [editingStats, setEditingStats] = useState(false);
     const [statDraft, setStatDraft] = useState<CombatManagerSelectedStatDto[]>([]);
     const [statChoice, setStatChoice] = useState('');
@@ -96,6 +102,8 @@ export default function CombatManagerPage() {
     const [customPath, setCustomPath] = useState('');
     const [customLabel, setCustomLabel] = useState('');
     const [customKind, setCustomKind] = useState<ModuleCombatStatAttribute['kind']>('number');
+    const [customStatError, setCustomStatError] = useState('');
+    const [validatingCustomStat, setValidatingCustomStat] = useState(false);
     const [busy, setBusy] = useState(false);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
@@ -105,6 +113,10 @@ export default function CombatManagerPage() {
     const refreshVersion = useRef(0);
     const lastPreferenceSelection = useRef('');
     const initiativeDraftDirty = useRef(false);
+    const initiativeInput = useRef<HTMLInputElement>(null);
+    const initiativeSelection = useRef<{ start: number; end: number } | null>(null);
+    const pendingInitiativeCursor = useRef<number | null>(null);
+    const customValidationVersion = useRef(0);
     const discardBlurForSelection = useRef(false);
     const beginSelection = () => {
         // Pointer focus blurs the old field before onChange/onClick switches
@@ -120,6 +132,12 @@ export default function CombatManagerPage() {
         setEncounters([]);
         setSelectedId('');
         setSelectedCombatantId('');
+        setInitiativeFormulaError('');
+        setPickingInitiativeAttribute(false);
+        setInitiativeAttributeSearch('');
+        setInitiativeAttributeChoice('');
+        initiativeSelection.current = null;
+        pendingInitiativeCursor.current = null;
         setInitiativeEdit(null);
         setResourceEdit(null);
         setStatEdit(null);
@@ -151,6 +169,11 @@ export default function CombatManagerPage() {
         setEditingStats(false);
         setStatDraft([]);
         setStatSearch('');
+        setCustomPath('');
+        setCustomLabel('');
+        setCustomKind('number');
+        setCustomStatError('');
+        setValidatingCustomStat(false);
         setLoadingStatCatalog(false);
         setLoading(true);
     }, [worldId]);
@@ -247,6 +270,14 @@ export default function CombatManagerPage() {
     const filteredStatChoices = statChoices.map((choice, index) => ({ choice, index }))
         .filter(({ choice }) => `${choice.label} ${choice.path} ${choice.actorTypes?.join(' ') || ''}`
             .toLocaleLowerCase().includes(statSearch.trim().toLocaleLowerCase()));
+    const initiativeAttributes = (statPreferences?.available || []).filter(field =>
+        field.kind === 'number' && isSafeCombatStatPath(field.path));
+    const filteredInitiativeAttributes = initiativeAttributes.filter(field =>
+        `${field.label} ${field.path} ${field.observedActorTypes.join(' ')}`
+            .toLocaleLowerCase().includes(initiativeAttributeSearch.trim().toLocaleLowerCase()));
+    const customDisabledReason = !customLabel.trim() ? 'Enter a label for the custom stat.'
+        : !customPath.trim() ? 'Enter an Actor attribute path.'
+        : !isSafeCombatStatPath(customPath.trim()) ? 'Use a safe system.* or derived.* path, without @.' : '';
     const unrolledCount = encounter?.participants.filter(row => row.initiative == null && row.actorId).length ?? 0;
     const unrolledNpcCount = encounter?.participants.filter(row => row.initiative == null && row.actorId && row.isNpc).length ?? 0;
     const rollableCount = encounter?.participants.filter(row => row.initiative == null && row.initiativeRoll.rollAvailable).length ?? 0;
@@ -315,7 +346,10 @@ export default function CombatManagerPage() {
             }
             lastPreferenceSelection.current = selection;
             setStatPreferences(previous => ({ ...preferences, available: previous?.available || [] }));
-            if (!initiativeDraftDirty.current) setInitiativeFallbackDraft(preferences.initiativeFormula || '');
+            if (!initiativeDraftDirty.current) {
+                setInitiativeFallbackDraft(preferences.initiativeFormula || '');
+                initiativeSelection.current = null;
+            }
         };
         const reload = () => { void load().catch(cause => { if (active) setError(errorMessage(cause)); }); };
         reload();
@@ -328,19 +362,43 @@ export default function CombatManagerPage() {
             appSocket?.off('connect', reload);
             appSocket?.off('combatManagerPreferencesChanged', reload);
         };
-    }, [allowed, worldId, selected?.actorId, appSocket, refresh]);
+    }, [allowed, worldId, selected?.actorId, appSocket, refresh, statPreferences?.initiativeFormula]);
 
     useEffect(() => {
-        if (!allowed || !editingStats) return;
+        if (!allowed || !(editingStats || pickingInitiativeAttribute)) return;
         let active = true;
         setLoadingStatCatalog(true);
+        setInitiativeAttributeChoice('');
+        setStatPreferences(previous => previous ? { ...previous, available: [] } : previous);
         void api.fetchManagedStatPreferences(selected?.actorId, true).then(({ preferences }) => {
             if (active) setStatPreferences(preferences);
         }).catch(cause => {
             if (active) setError(errorMessage(cause));
         }).finally(() => { if (active) setLoadingStatCatalog(false); });
         return () => { active = false; };
-    }, [allowed, editingStats, selected?.actorId, worldId]);
+    }, [allowed, editingStats, pickingInitiativeAttribute, selected?.actorId, worldId]);
+
+    useEffect(() => {
+        const cursor = pendingInitiativeCursor.current;
+        if (cursor === null || !initiativeInput.current) return;
+        pendingInitiativeCursor.current = null;
+        initiativeInput.current.focus();
+        initiativeInput.current.setSelectionRange(cursor, cursor);
+    }, [initiativeFallbackDraft]);
+
+    const insertInitiativeField = () => {
+        const field = initiativeAttributes.find(row => row.path === initiativeAttributeChoice);
+        if (!field || loadingStatCatalog || busy) return;
+        try {
+            const insertion = insertInitiativeAttribute(initiativeFallbackDraft, field.path, initiativeSelection.current);
+            initiativeDraftDirty.current = true;
+            pendingInitiativeCursor.current = insertion.cursor;
+            initiativeSelection.current = { start: insertion.cursor, end: insertion.cursor };
+            setInitiativeFallbackDraft(insertion.value);
+            setInitiativeAttributeChoice('');
+            setInitiativeFormulaError('');
+        } catch (cause) { setInitiativeFormulaError(errorMessage(cause)); }
+    };
 
     const mutate = async (action: () => Promise<unknown>): Promise<{ ok: true } | { ok: false; cause: unknown }> => {
         setBusy(true);
@@ -394,13 +452,48 @@ export default function CombatManagerPage() {
     };
 
     const addStat = (choice: ModuleCombatStatAttribute) => {
-        if (statDraft.length >= 8) return;
-        let key = choice.key;
-        let suffix = 2;
-        while (statDraft.some(row => row.key === key)) key = `${choice.key.slice(0, 28)}_${suffix++}`;
-        setStatDraft(current => [...current, { key, label: choice.label, path: choice.path,
-            kind: choice.kind, ...(choice.actorTypes ? { actorTypes: choice.actorTypes } : {}),
-            ...(choice.showInRoster === true ? { showInRoster: true } : {}) }]);
+        setStatDraft(current => {
+            const keys = new Set(current.map(row => row.key));
+            let key = choice.key, suffix = 2;
+            while (keys.has(key)) {
+                const tail = `_${suffix++}`;
+                key = `${choice.key.slice(0, 32 - tail.length)}${tail}`;
+            }
+            return [...current, { key, label: choice.label, path: choice.path,
+                kind: choice.kind, ...(choice.actorTypes ? { actorTypes: choice.actorTypes } : {}),
+                ...(choice.showInRoster === true ? { showInRoster: true } : {}) }];
+        });
+    };
+
+    useEffect(() => {
+        customValidationVersion.current += 1;
+        setValidatingCustomStat(false);
+        setCustomStatError('');
+        return () => { customValidationVersion.current += 1; };
+    }, [allowed, worldId, editingStats]);
+
+    const invalidateCustomValidation = () => {
+        customValidationVersion.current += 1;
+        setCustomStatError('');
+        setValidatingCustomStat(false);
+    };
+
+    const addCustomStat = async () => {
+        if (customDisabledReason || validatingCustomStat || busy) return;
+        const version = ++customValidationVersion.current;
+        const label = customLabel.trim();
+        setValidatingCustomStat(true);
+        setCustomStatError('');
+        try {
+            const { attribute } = await api.validateManagedStatPath(customPath.trim(), customKind);
+            if (version !== customValidationVersion.current) return;
+            addStat({ key: 'custom', label, path: attribute.path, kind: attribute.kind });
+            setCustomLabel(''); setCustomPath('');
+        } catch (cause) {
+            if (version === customValidationVersion.current) setCustomStatError(errorMessage(cause));
+        } finally {
+            if (version === customValidationVersion.current) setValidatingCustomStat(false);
+        }
     };
 
     const confirmPending = () => {
@@ -497,7 +590,7 @@ export default function CombatManagerPage() {
                         <h2 className="sd-ui-accent text-lg font-bold uppercase tracking-widest">Combat stat display</h2>
                         <p className="sd-ui-muted mt-1 text-xs">Shared by GMs in this world · {statPreferences?.source === 'saved' ? 'customized' : statPreferences?.source === 'module' ? 'module suggestions' : 'no defaults'}</p>
                     </div>
-                    <button disabled={!statPreferences || busy} onClick={() => { setStatDraft(statPreferences?.attributes || []); setEditingStats(value => !value); }}
+                    <button disabled={!statPreferences || busy} onClick={() => { invalidateCustomValidation(); setStatDraft(statPreferences?.attributes || []); setEditingStats(value => !value); }}
                         className={secondaryButtonClass}>{editingStats ? 'Close configuration' : 'Configure stats'}</button>
                 </div>
                 {editingStats && <div className="sd-ui-divider mt-4 space-y-3 border-t pt-4">
@@ -541,26 +634,28 @@ export default function CombatManagerPage() {
                                 {choice.label} ({statChoiceContext(choice)})
                             </option>)}
                         </select>
-                        <button disabled={statDraft.length >= 8 || statChoice === ''} onClick={() => { addStat(statChoices[Number(statChoice)]); setStatChoice(''); }} className={secondaryButtonClass}>Add field</button>
+                        <button disabled={busy || loadingStatCatalog || statChoice === ''} onClick={() => { addStat(statChoices[Number(statChoice)]); setStatChoice(''); }} className={secondaryButtonClass}>Add field</button>
                     </div>
                     {loadingStatCatalog && <p className="sd-ui-muted text-xs">Finding Actor fields…</p>}
                     {!loadingStatCatalog && statChoices.length === 0 && <p className="sd-ui-muted text-xs">No Actor fields are available yet. Add a world or compendium Actor, then reopen this configuration.</p>}
                     <details className="sd-ui-inset rounded-lg p-3 text-xs">
                         <summary className="cursor-pointer">Advanced: enter an attribute path manually</summary>
                         <div className="mt-3 flex flex-wrap items-center gap-2">
-                        <input aria-label="Custom stat label" placeholder="Label" value={customLabel} maxLength={32} onChange={event => setCustomLabel(event.target.value)} className={`w-32 ${inputClass}`} />
-                        <input aria-label="Custom Actor path" placeholder="system.attributes.example" value={customPath} maxLength={128} onChange={event => setCustomPath(event.target.value)} className={`min-w-64 flex-1 font-mono ${inputClass}`} />
-                        <select aria-label="Custom stat kind" value={customKind} onChange={event => setCustomKind(event.target.value as ModuleCombatStatAttribute['kind'])} className={inputClass}>
+                        <input aria-label="Custom stat label" placeholder="Label" value={customLabel} maxLength={32} onChange={event => { invalidateCustomValidation(); setCustomLabel(event.target.value); }} className={`w-32 ${inputClass}`} />
+                        <input aria-label="Custom Actor path" aria-describedby="custom-stat-help" aria-invalid={!!customStatError}
+                            placeholder="system.attributes.example" value={customPath} maxLength={128}
+                            onChange={event => { invalidateCustomValidation(); setCustomPath(event.target.value); }} className={`min-w-0 flex-1 basis-64 font-mono ${inputClass}`} />
+                        <select aria-label="Custom stat kind" value={customKind} onChange={event => { invalidateCustomValidation(); setCustomKind(event.target.value as ModuleCombatStatAttribute['kind']); }} className={inputClass}>
                             <option value="number">Number</option><option value="resource">Value / max</option><option value="text">Text</option>
                         </select>
-                        <button disabled={statDraft.length >= 8 || !customLabel.trim() || !customPath.trim()} onClick={() => {
-                            addStat({ key: 'custom', label: customLabel.trim(), path: customPath.trim(), kind: customKind });
-                            setCustomLabel(''); setCustomPath('');
-                        }} className={secondaryButtonClass}>Add custom</button>
+                        <button disabled={busy || validatingCustomStat || !!customDisabledReason} onClick={() => void addCustomStat()}
+                            className={secondaryButtonClass}>{validatingCustomStat ? 'Checking attribute…' : 'Add custom'}</button>
                         </div>
+                        <p id="custom-stat-help" className="sd-ui-muted mt-2 text-xs">{customDisabledReason || 'Add custom checks the path and selected type against current world Actors before adding to this draft. Save applies the configuration.'}</p>
+                        {customStatError && <p role="alert" className="sd-ui-danger mt-2 break-words text-xs">{customStatError}</p>}
                     </details>
                     <div className="flex flex-wrap gap-2">
-                        <button disabled={busy} onClick={() => void mutate(async () => {
+                        <button disabled={busy || validatingCustomStat} onClick={() => void mutate(async () => {
                             const { preferences } = await api.saveManagedStatPreferences(statDraft);
                             setStatPreferences(preferences); setEditingStats(false);
                             await refresh();
@@ -573,29 +668,62 @@ export default function CombatManagerPage() {
                     </div>
                 </div>}
                 <div className="sd-ui-divider mt-4 border-t pt-4">
-                    <h3 className="sd-ui-accent text-sm font-bold">Initiative formula fallback</h3>
-                    <p className="sd-ui-muted mt-1 text-xs">Used only when the loaded system module supplies no formula for an Actor. Dice, numbers, +/− and safe @system or @derived numeric paths are supported.</p>
+                    <h3 className="sd-ui-accent text-sm font-bold">Initiative formula override</h3>
+                    <p id="initiative-formula-help" className="sd-ui-muted mt-1 text-xs">A saved override takes precedence over the system module and Core. Clear and save to use the module, then Core. Save validates dice, numbers, +/− and safe numeric @system or @derived paths against all current encounter participants.</p>
                     <div className="mt-2 flex flex-wrap items-center gap-2">
-                        <input aria-label="GM initiative fallback formula" value={initiativeFallbackDraft}
-                            onChange={event => { initiativeDraftDirty.current = true; setInitiativeFallbackDraft(event.target.value); }}
-                            placeholder="1d20+@system.attributes.init.value" maxLength={160}
-                            className={`min-w-64 flex-1 font-mono ${inputClass}`} />
+                        <input ref={initiativeInput} aria-label="GM initiative override formula" value={initiativeFallbackDraft}
+                            aria-invalid={!!initiativeFormulaError}
+                            aria-describedby={`initiative-formula-help${initiativeFormulaError ? ' initiative-formula-error' : ''}`}
+                            onChange={event => { initiativeDraftDirty.current = true; setInitiativeFormulaError(''); setInitiativeFallbackDraft(event.target.value); }}
+                            onSelect={event => { initiativeSelection.current = {
+                                start: event.currentTarget.selectionStart ?? event.currentTarget.value.length,
+                                end: event.currentTarget.selectionEnd ?? event.currentTarget.value.length,
+                            }; }}
+                            placeholder="1d20 + …" maxLength={160}
+                            className={`min-w-0 flex-1 basis-64 font-mono ${inputClass}`} />
                         <button disabled={busy || !statPreferences || initiativeFallbackDraft === (statPreferences.initiativeFormula || '')}
                             onClick={() => void mutate(async () => {
+                                setInitiativeFormulaError('');
                                 const { preferences } = await api.saveManagedInitiativeFallback(initiativeFallbackDraft.trim() || null);
                                 initiativeDraftDirty.current = false;
                                 setInitiativeFallbackDraft(preferences.initiativeFormula || '');
                                 setStatPreferences(previous => ({ ...preferences, available: previous?.available || [] }));
-                            })} className={secondaryButtonClass}>Save fallback</button>
+                            }).then(result => { if (!result.ok) setInitiativeFormulaError(errorMessage(result.cause)); })}
+                            className={secondaryButtonClass}>Save</button>
+                        <button disabled={busy || !statPreferences} aria-expanded={pickingInitiativeAttribute}
+                            aria-controls="initiative-attribute-picker"
+                            onClick={() => setPickingInitiativeAttribute(value => !value)} className={secondaryButtonClass}>
+                            {pickingInitiativeAttribute ? 'Close attributes' : 'Insert attribute'}
+                        </button>
                     </div>
+                    {pickingInitiativeAttribute && <div id="initiative-attribute-picker" className="sd-ui-inset mt-3 space-y-2 rounded-lg p-3">
+                        <p className="sd-ui-muted text-xs">Type a dice formula, then choose a numeric Actor field to insert at the cursor or replace selected text. Choosing a field does not save; Save checks all current participants.</p>
+                        <div className="flex flex-wrap items-center gap-2">
+                            <input aria-label="Find an initiative attribute" placeholder="Search numeric fields" value={initiativeAttributeSearch}
+                                onChange={event => { setInitiativeAttributeSearch(event.target.value); setInitiativeAttributeChoice(''); }}
+                                className={`min-w-0 flex-1 basis-48 ${inputClass}`} />
+                            <select aria-label="Numeric initiative attribute" value={initiativeAttributeChoice} disabled={loadingStatCatalog || busy}
+                                onChange={event => setInitiativeAttributeChoice(event.target.value)} className={`min-w-0 max-w-full flex-1 basis-64 ${inputClass}`}>
+                                <option value="">Choose a numeric field</option>
+                                {filteredInitiativeAttributes.map(field => <option key={field.path} value={field.path}>
+                                    {field.label} ({statChoiceContext(field)})
+                                </option>)}
+                            </select>
+                            <button disabled={busy || loadingStatCatalog || !initiativeAttributeChoice} onClick={insertInitiativeField}
+                                className={secondaryButtonClass}>Insert into formula</button>
+                        </div>
+                        {loadingStatCatalog && <p role="status" className="sd-ui-muted text-xs">Finding numeric Actor fields…</p>}
+                        {!loadingStatCatalog && !filteredInitiativeAttributes.length && <p className="sd-ui-muted text-xs">
+                            {initiativeAttributeSearch.trim() ? 'No numeric fields match your search.' : 'No numeric fields are available yet. Add an Actor and reopen the picker.'}
+                        </p>}
+                    </div>}
+                    {initiativeFormulaError && <p id="initiative-formula-error" role="alert" className="sd-ui-danger mt-2 break-words text-xs">{initiativeFormulaError}</p>}
                     {statPreferences?.initiativePreview && <p className="sd-ui-muted mt-2 text-xs">
                         Selected Actor: {statPreferences.initiativePreview.source === 'module' ? 'system module'
-                            : statPreferences.initiativePreview.source === 'gm' ? 'GM fallback' : 'Core default'}
+                            : statPreferences.initiativePreview.source === 'gm' ? 'GM override' : 'Core default'}
                         {' · '}{statPreferences.initiativePreview.rollAvailable
-                            ? statPreferences.initiativePreview.formula : 'unresolved reference; manual initiative required'}
+                            ? statPreferences.initiativePreview.formula : 'invalid or unresolved formula; manual initiative required'}
                         {statPreferences.initiativePreview.source === 'core' && ' · Using Core default 1d20; this may not match your system.'}
-                        {statPreferences.initiativePreview.source === 'module' && statPreferences.initiativeFormula
-                            && ' · The saved GM fallback does not override this formula.'}
                     </p>}
                 </div>
             </section>

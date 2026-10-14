@@ -44,7 +44,7 @@ export default function InitiativeRollDialog({ isOpen, title, combatantName, for
         footer={<div className="flex flex-col gap-3">
             {manualAvailable && <button type="button" aria-expanded={manual}
                 className="sd-ui-button w-full py-2 px-4 font-bold text-xs uppercase tracking-widest"
-                onClick={() => setManual(value => !value)}>Manual total</button>}
+                onClick={() => setManual(value => !value)}>Input Manually</button>}
             {manual && manualAvailable ? <>
                 <div className={t.inputGroup}>
                     <label className={t.label} htmlFor="initiative-manual-total">Final initiative total</label>
@@ -72,6 +72,6 @@ export default function InitiativeRollDialog({ isOpen, title, combatantName, for
             <span className={t.label}>Mode</span>
             <span className={t.input}>{audience === 'gm' ? 'Private GM Roll' : 'Public Roll'}</span>
         </div>
-        <p className="text-xs opacity-70">Source: {source === 'gm' ? 'GM setting' : source === 'module' ? 'System module' : 'Core fallback'}</p>
+        <p className="text-xs opacity-70">Source: {source === 'gm' ? 'GM override' : source === 'module' ? 'System module' : 'Core fallback'}</p>
     </RollDialogFrame>;
 }

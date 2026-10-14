@@ -18,11 +18,19 @@ export interface CombatManagerAvailableStatDto extends ModuleCombatStatAttribute
     observedActorTypes: string[];
 }
 
+/** Read-only path/type verification. No Actor IDs or values are returned. */
+export interface CombatManagerStatPathValidationDto {
+    path: string;
+    kind: ModuleCombatStatAttribute['kind'];
+    observedActorTypes: string[];
+}
+
 export interface CombatManagerStatPreferencesDto {
     source: 'saved' | 'module' | 'none';
     attributes: CombatManagerSelectedStatDto[];
     suggestions: ModuleCombatStatAttribute[];
     available: CombatManagerAvailableStatDto[];
+    /** Explicit GM override; null restores module formula, then Core fallback. */
     initiativeFormula: string | null;
     initiativePreview?: { source: 'module' | 'gm' | 'core'; formula: string; rollAvailable: boolean; advantageAvailable: boolean };
 }

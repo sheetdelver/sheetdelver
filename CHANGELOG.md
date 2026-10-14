@@ -3,6 +3,10 @@
 - Opened managed player initiative
 - Enabled owner turn endings
 - Preserved resolved initiative formulas
+- Validated GM initiative overrides
+- Added initiative attribute picker
+- Verified custom combat fields
+- Removed GM stat-count cap
 - Concealed generated copy ordinals
 - Refined compact combat HUD
 - Concealed hidden player combatants

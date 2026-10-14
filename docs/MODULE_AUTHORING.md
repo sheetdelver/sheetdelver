@@ -362,11 +362,24 @@ The optional UI-manifest `rollModal` is now a typed initiative presentation
 slot. Its `InitiativeRollModalProps` include Core's resolved formula/source,
 allowed roll and advantage modes, manual-final-total availability, effective
 audience, display name, open/close state and a bounded `onConfirm` choice.
+Resolution is explicit saved GM override → module `getInitiativeFormula` →
+Core `1d20`. Clearing the override restores module-first behavior. Core
+validates GM expressions before saving and before execution; it does not
+reinterpret a module's formula references or invoke the module hook when an
+explicit override exists. Module hooks must use their prepared Actor model and
+return an executable formula; the modal must display that supplied formula.
 Modules must not recalculate or submit a formula, set recipients, or call a
 Foundry transport from this modal. Use the injected SDK `RollDialog` with
 `type="initiative"` to retain a module theme, or omit `rollModal` for Core's
-generic fallback. Sheet-oriented `RollDialog` modes remain available. Upgrade
-module compatibility to `coreVersion >=0.18.0` and
+generic fallback. Sheet-oriented `RollDialog` modes remain available.
+
+The Combat Manager separately owns GM stat/formula configuration: selected
+stat counts are not limited by the module's at-most-16 suggestion contract.
+Its numeric reference picker uses observed prepared fields; advanced custom
+paths are verified by Core without module-specific schema code or transports.
+Do not assume that a catalog suggestion is available on every participant.
+
+Upgrade module compatibility to `coreVersion >=0.18.0` and
 `ui-extension-api >=3.0.0 <4.0.0`; publish Core before module releases.
 For local development against the unreleased Core branch, a temporary
 `coreVersion >=0.17.0` minimum can keep the module visible; the 3.x UI API

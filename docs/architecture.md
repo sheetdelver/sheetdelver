@@ -315,6 +315,21 @@ system turn automation remain out of scope (ADR-0060/ADR-0058). Native
 owner-write acceptance is a separate ADR-0061 integration gate, not inferred
 from Core-side tests.
 
+ADR-0061's October 14 N1–N3 additions are **planned, not implemented**. Core
+will distinguish managed pending participants from the executable queue and
+project an own-pending initiative cue independently of the player roster.
+Keep the full native read-model order/index intact; shared managed navigation,
+score/clear synchronization and preview consumers must agree on finite-score
+eligibility. Do not implement a client-only skip rule, second pending store,
+ordinary-Combat behavior change or new module transport. Late NPC hidden
+defaults use existing ownership classification. GM textarea/layout preferences
+belong in the existing shared world/module data-directory store, with plain
+read-only text, responsive validated metadata and old-record defaults. The
+existing document authorization/SDK module suggestion contract does not
+broaden merely because the editor gains another display option. Current-score
+clearing will pause until GM action, with restart-safe native/validated Combat
+state rather than a browser latch. See the ADR for new acceptance checkpoints.
+
 Prepared data never writes back to Foundry automatically. Embedded Item and Active
 Effect changes update the source Actor first, then atomically replace its prepared
 revision before `actorChanged` reaches clients. `runtime.documents` remains a
@@ -333,12 +348,23 @@ dependencies.
   encounter Actor Folder. Combat flags hold manager lifecycle/retention state,
   while Actor HP/effects stay on source Actors. Server services authorize and
   dispatch user-bound Foundry writes; the browser owns presentation only. Batch
-  initiative uses the existing adapter formula/user-bound roll path and a
+  and player initiative use explicit GM override → module formula → Core
+  fallback. Core validates override syntax/current authorized participants
+  without dice/chat effects before persistence, pins its scope across awaited
+  dependencies, and revalidates Actor values at execution. Module formula
+  references retain module authority; no system-specific rules move into Core.
+  Batch initiative uses the existing adapter formula/user-bound roll path and a
   Foundry-style non-GM ownership test for NPC selection; the universal CombatHUD
   is hidden on the manager page to avoid duplicate controls.
   Optional combat-stat suggestions come from the active module manifest, while
   Core persists authorized managers' shared world/module display selection under
-  the configured data directory's durable `config/`. Server projection reads
+  the configured data directory's durable `config/`. GM selections
+  have no fixed field-count cap; module metadata/catalog bounds and
+  compact HUD presentation are separate. Read-only exact custom path validation
+  rechecks caller/world/runtime scope and reads prepared Actors only after source
+  authorization. Numeric formula insertion reuses catalog metadata in browser
+  UI, never resolves rules there. The existing preference-file byte guard is
+  checked before replacement, not merely on a later read. Server projection reads
   only bounded prepared Actor values. A GM-selected Editable flag permits
   guarded writes to matching numeric source Actor fields, never derived or
   arbitrary fields. Client-side filesystem access and Combat-flag preference

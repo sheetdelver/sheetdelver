@@ -1,6 +1,6 @@
 # ADR-0061: Managed Combat Player Participation
 
-**Status:** Accepted — hardening verified; final acceptance and release gates pending
+**Status:** Accepted — baseline operator checks accepted; late-entry/stat refinements and generation/release gates pending
 **Date:** October 13, 2026
 **Related:** ADR-0013, ADR-0028, ADR-0038, ADR-0049, ADR-0057, ADR-0058,
 ADR-0060, ADR-0062
@@ -131,7 +131,9 @@ as an override rather than silently redefining it. Show the expression an
 explicit supported override will execute. Manual input remains a finite
 **final total**, including fractional tie-breakers, and has no die modifier.
 
-Keep module-first selection and current GM-fallback reference substitution;
+Original scope kept module-first selection and GM-fallback reference substitution;
+the approved October 14 formula addendum below supersedes precedence with an
+explicit GM override first. Module expressions still remain unchanged;
 do not interpret new `@` references in module formulas. Unavailable module
 formula/prepared data must not silently become an incorrect system roll.
 Keep the existing manual/unavailable behavior and label the Core fallback.
@@ -238,8 +240,8 @@ the reconciled HUD checkpoint plus the hardening/native follow-up confirms this 
 | --- | --- | --- |
 | P0 policy/native boundary | Approved local Foundry 14.367 / D&D 5e 6.0.2: native owner tokenless score and turn writes accepted with no full-GM client online; caller-bound SheetDelver actions also pass | v13 evidence or an explicit supported-generation decision; v14 is not v13 proof |
 | P1 correctness/authorization | R1/R2 and retired-user guard implemented; extended controlled-await, concurrent-owner, partial/unknown-result and route regressions pass; full Core/module offline validation passes | Automated verification complete for the bounded matrix; operator acceptance remains P3 |
-| P2 manager/player UI | Actual HUD/dialog rendered at 320/375/1280 in both themes; focus/keyboard/stale/loading/error/selection checks pass. Subsequent visual correction reuses shared Shadowdark and native Mörk/D&D roller frames | Fresh operator visual acceptance; live D&D interaction evidence predates this presentation correction |
-| P3 integration/operator | v14 native proof; GM/Assistant/owner/shared-owner/non-owner HTTP checks and D&D player browser actions pass; failure/lifecycle races injected offline | Live other-system formula/dialog checks, restart/transient/terminal lifecycle acceptance, generated-copy inspection and user sign-off |
+| P2 manager/player UI | Automated rendering passes; user accepts corrected module rollers, formula/settings, privacy/layout and existing turn controls | New compact initiative reminder, pending queue, stat editor/layout and row Defeated control below |
+| P3 integration/operator | v14 native/multi-role evidence and automated race checks; user accepts checklist items 1, 3, 5, 6 and existing item 4 controls; phase-close retirement confirmed | Acceptance of the new refinements; no new explicit shared-owner/manual-total operator result was supplied |
 | P4 docs/release | Contracts, module-owned verification notes, feature-snapshot changelog and local handoff updated; no versions or Git writes | Core-first release, module minima/unused versions, released-host CI/package checks and final closeout |
 
 - [x] Approved participation design and baseline Core/module implementation are
@@ -549,7 +551,11 @@ SheetDelver manager/children were stopped; local Foundry and the existing
 31000/31001 stack remain running. The temporary credential file was removed.
 No staging, commit, branch operation, remote write, tag or release occurred.
 
-### Operator acceptance still required
+### Operator checklist presented before the latest acceptance
+
+The October 14 acceptance/addendum at the end of this ADR supersedes the
+pending operator items below where explicitly accepted; retain this list as
+the test definition, not a request to repeat completed checks.
 
 1. With GM/Assistant plus two owners, open an inactive managed encounter's
    initiative. Only each owner's visible unrolled rows offer Roll; a non-owner
@@ -624,12 +630,12 @@ contacted or restarted for this presentation correction. No Git writes or
 release operations were made; the broader v13/operator/publication gates stay
 open.
 
-## Next correction addendum — October 14, 2026 (approved, not yet implemented)
+## Formula correction addendum — October 14, 2026 (approved; completion below)
 
-The user reports Shadowdark initiative displaying only `1d20`, expects the
+At the presentation checkpoint, the user reported Shadowdark initiative displaying only `1d20`, expected the
 appropriate Actor initiative modifier, and requests **Input Manually** instead
-of Manual total. The existing module hook computes only a DEX-based formula;
-the GM setting is still implemented as a lower-priority fallback. These are
+of Manual total. At that point the module hook computed only a DEX-based formula;
+the GM setting was still a lower-priority fallback. These are
 separate from the completed presentation correction above.
 
 The user confirmed the new precedence: **explicit GM override → module
@@ -663,3 +669,293 @@ regress precedence/clear/invalid/missing-reference/participant-change cases,
 update API/UI/module documentation, terse changelogs and handoff. No versions
 or release operations are authorized. The current hardening/presentation
 checkpoint must not be described as already implementing this addendum.
+
+## Formula correction follow-up — October 14, 2026
+
+The user-authorized local hardening/presentation checkpoint was committed first
+on the existing Core and three module branches, with this addendum recorded as
+pending. The following changes are implemented afterward, still uncommitted
+and awaiting operator acceptance. No branch/version/remote operation or live
+service contact accompanies this correction.
+
+- Shared resolution is now **explicit GM override → module formula → Core
+  `1d20`**. An override bypasses the module hook; clearing restores module-first
+  selection. Invalid/missing GM references disable automatic rolling rather
+  than falling back. Module expressions are not rewritten by the GM resolver.
+  The stored `initiativeFormula` and legacy `initiative-fallback` URL remain;
+  their new override semantics are explicit in API/UI/module-authoring docs.
+- Saving first validates the restricted additive dice/number/reference grammar
+  and the same bounded server parser used for execution, without evaluating
+  dice or consuming RNG. It resolves every distinct authorized Actor in active
+  managed encounters, including hidden/scored participants, not a sample or
+  unrelated world scan. No participants means a referenced formula cannot be
+  certified. A missing/non-numeric/path/limit error leaves the previous file
+  unchanged. Caller role/user/world/runtime/transport is rechecked after the
+  system dependency; no await separates final participant checks and storage.
+  This is a current cache snapshot, not a promise that future Actors or native
+  mutations cannot invalidate it; execution retains the current-value guards.
+- Manager wording is override, with a field-level accessible validation error
+  and retained invalid draft. Saving/clearing refreshes the current preview.
+  Core/Shadowdark, Mörk and D&D HUD adapters say **Input Manually**, still meaning
+  a final total. Mörk's sheet-only Auto/Manual wording/raw-die math is unchanged.
+- Shadowdark's module prepares initiative from effect-applied Player DEX score
+  (native −4…4 modifier), explicit NPC DEX modifier, initiative bonus and signed
+  advantage. Its hook consumes that prepared value rather than stale serialized
+  Player `.mod`, and handles modern zero/disadvantage plus legacy advantage
+  arrays. `derived.initiative.value`/`advantage` are module-owned prepared fields;
+  no source Actor write or Core system-name logic is introduced. Native 4.0.6
+  source (`_ActorBaseSD`, Player/NPC models) establishes these rules, not
+  `system.attributes.init.value`. That sample path is usable only if actual
+  Actors provide it. Existing supported numeric effect handling is reused;
+  arbitrary native hooks/effect parity are not certified.
+
+Core unit/client/integration/type/lint checks pass. Unit regressions prove
+precedence/clear, unresolved override fail-closed, unchanged module references,
+zero/fractional attributes, bounded parsing without RNG, all-encounter hidden/
+scored validation, no-evidence and invalid-input persistence protection,
+Assistant access, and role/session/world/transport changes during awaits.
+Shadowdark tests cover Player/NPC modifiers, bonuses, enabled/disabled numeric
+effects, legacy/modern advantage, zero/negative bounds and source immutability.
+All ten module tests, explicit three-module source typing and three isolated
+check/packages pass. The actual-component offline browser fixture checks
+**Input Manually** and preserves native sheet callbacks, plus manager invalid
+draft/error, valid save and clear. No native permissions are inferred from it.
+
+Operator checks for this correction:
+
+1. With no override, inspect a Shadowdark Actor with known DEX/initiative bonus:
+   displayed formula, chat and applied score agree, including an NPC and any
+   applicable advantage/disadvantage. HUD uses the existing themed frame.
+2. Save a deliberate override (`1d20+2`, or a verified numeric path such as
+   Shadowdark `1d20+@derived.initiative.value`): manager/HUD use GM source even
+   when a module provides its own formula. Clear/save restores module source.
+3. Try an invalid expression or missing path: inline error, draft retained and
+   old preference unchanged. Later Actor/reference changes disable automatic
+   rolling rather than selecting another source. Confirm **Input Manually**
+   still applies zero/fraction final totals without additional modifiers.
+
+The prior v13 evidence/support decision, broader operator acceptance and
+Core-first publication gates remain open. No new release/minimum was selected.
+
+## Operator refinement addendum — October 14, 2026 (implemented; subsequently user-accepted below)
+
+The user reports that Shadowdark still omits a zero initiative modifier and
+requests explicit `1d20+0`, plus a searchable numeric attribute picker to insert
+safe `@system`/`@derived` paths into the manager's formula draft. The zero branch
+is corrected with zero/advantage/disadvantage regressions. The
+picker reuses the existing bounded stat catalog, now retaining resource numeric
+leaves as well as aggregate display fields. It inserts a reference at the
+cursor/selection without saving or evaluating; existing server validation
+remains authoritative. Choosing an attribute does not invent system dice rules;
+the GM authors the dice expression. Only observed numeric leaves are offered,
+not resource objects or text. Discovery is lazy, with current loading/search
+state, and insertion restores focus while respecting selected text.
+
+The user also requests validation of manually added custom stat paths, rejecting
+unsafe, absent or mismatched fields before adding them. A read-only manager
+`POST /api/combat-manager/stat-preferences/validate-path` now checks current
+user/world/runtime scope, source-authorized prepared Actors and selected value
+type; it returns only path/kind/observed types, never Actor IDs/values. Exact
+lookup is not limited by catalog sampling. Zero/negative values and supported
+resources/text are accepted; unsafe/missing/mismatched paths reject before
+adding. UI explains missing label/path, retains invalid input with inline
+errors, and ignores late responses after edits/configuration/world retirement.
+Adding enters only a local stat draft; Save remains the persistence action.
+
+Investigation found an existing eight-selected-stat cap in both UI
+and shared validation, distinct from Foundry permissions or Actor counts.
+ADR-0049 describes bounded display fields but does not document why eight was
+chosen. The authoring reference also documented eight, but without a rationale.
+The user explicitly approved its removal: **GM display selections have no fixed
+field-count cap**. If a future count limit is necessary, document its evidence
+and obtain a product decision rather than silently imposing it. Module metadata
+still permits at most 16 suggestions; field-shape/key/path/label/type/editability
+validation, catalog discovery bounds, normal HTTP limits and the existing
+256000-byte preference-file limit are separate safeguards. The compact HUD's
+three-stat presentation remains unchanged. GM parsing/persistence no longer
+inherits the metadata ceiling or truncates defaults at eight. Unique generated
+keys remain valid for longer lists. The byte guard now rejects an oversized
+write with 413 before replacing the file, avoiding a file that its own reader
+would subsequently reject. No new arbitrary count replaces eight.
+
+Core unit/client/integration/type/lint pass. Tests verify 32-field persistence/reload,
+independent 16-suggestion metadata bounds, oversized-file preservation, exact
+custom lookup outside catalog samples, GM/Assistant authorization, HTTP error
+status/whitelisted responses, and retired role/session/world/transport during
+reads. Rule tests cover explicit normal/advantage/disadvantage `+0`. The offline
+actual-component browser proves lazy numeric discovery, safe leaf filtering,
+search/cursor replacement/focus, narrow/dark/light controls, custom path/type
+rejection, a ninth/tenth stat plus Save, and stale custom-response suppression.
+All ten module tests, explicit source typing and three isolated check/packages
+pass. Dark/light screenshots were inspected after Core palette transitions
+settled. These use isolated data/mocked API, not new Foundry integration or operator
+acceptance. Existing broader native/v13/publication gates stay open.
+
+Operator checks: confirm zero is visible in Shadowdark's manager preview/HUD;
+type `1d20`, use **Insert attribute** to choose a real numeric path, then Save;
+check manual custom fields with valid/missing/wrong-kind paths and add/save/reload
+more than eight selections. This addendum is not ADR closeout, a version bump
+or authorization to commit/push. Existing checkpoint and subsequent uncommitted
+work are preserved.
+
+## Operator acceptance and late-entry/stat addendum — October 14, 2026
+
+**Documentation-only checkpoint.** The user visually accepts the refinements
+and reports checklist **1 (formula/settings), 3 (module rollers), 5 (privacy/
+layout), and 6 (persistence/recovery)** verified. Existing turn controls in
+item 4 are accepted, except the late/cleared initiative discovery and queue
+gap below. Item 2 confirms Close retires the modal; the user questions zero/
+fractional totals rather than reporting a new manual/shared-owner test.
+Do not turn that question into acceptance or a new positive-integer rule.
+These are operator reports, not a new agent-run integration pass. Earlier
+v14/native/offline evidence remains valid within its recorded scope.
+
+### N0 — numeric initiative evidence (review complete)
+
+Foundry itself permits zero and fractional initiative. Read-only inspection of
+local v13/v14 `common/documents/combatant.mjs` finds `initiative` declared as
+`NumberField({required: true})` without integer, positive, min or step overrides.
+Both versions' `common/data/fields.mjs` default to `integer: false`,
+`positive: false`, unset min/max/step and nullable numbers; validation accepts
+finite numbers. Therefore **null means unrolled; zero and finite fractions mean
+scored**, including negative finite results. Do not round, use truthiness or
+impose a system-agnostic positive-only restriction. A system's dice/rules may
+produce a narrower set, but that is not Foundry's document-field constraint.
+
+Official references: [v14 Combatant data](https://foundryvtt.com/api/interfaces/foundry.documents.types.CombatantData.html),
+[v13 BaseCombatant schema](https://foundryvtt.com/api/v13/classes/foundry.documents.BaseCombatant.html#defineSchema),
+and [NumberField options](https://foundryvtt.com/api/classes/foundry.data.fields.NumberField.html).
+Public docs identify the numeric field/options; the local schema/defaults
+establish the absence of those restrictions. The earlier v14 HTTP pass already
+accepted manual zero/fraction writes. No Foundry service was contacted in this
+review, and schema inspection does **not** close the v13 owner-write gate.
+
+### N1 — discoverable owner initiative and a separate pending queue (not implemented)
+
+The user reports that a late-added or cleared owned character at the end of the
+roster offers Roll only after expanding the entire list. Add a compact bar cue
+while the phase is open: one eligible character offers **Roll initiative**;
+multiple eligible characters offer an accessible owned-character chooser.
+It must work with the roster collapsed and when the caller has only pending
+owned rows. No automatic modal, timer, polling, repeated notification or roll
+replay. Each choice uses the existing server capability, observed phase and
+module/Core dialog. Hidden/non-owned rows and other players' pending counts
+never enter this cue; Close, scoring, hide/remove, ownership/session/world
+changes retire it and any stale dialog under the existing boundary.
+
+For **SheetDelver-managed** encounters, distinguish the GM participant list
+from the executable queue and player turn roster:
+
+- An unrolled addition or cleared score stays in the GM list, **after all
+  scored participants**, visibly awaiting initiative. Preserve deterministic
+  ordering within that pending section; do not delete the Actor/Combatant.
+- Pending rows are absent from the player's turn roster/current/next preview.
+  Only an eligible owner's separate initiative cue may expose their own
+  pending character. Once scored, the row joins initiative order, subject to
+  normal hidden/ownership projection. This applies before Begin as well as
+  to late arrivals after Begin; pre-Begin redaction still remains own-only.
+- Late NPC additions default to **hidden on the created Combatant**, classified
+  by the existing native-style non-GM ownership test, not system Actor-type
+  strings. Scoring does not reveal them: the GM explicitly uses Reveal.
+  This default is for late additions to a started encounter, not a migration
+  or blanket visibility change to existing/unstarted participants.
+- Begin, Next, Previous, owner End my turn, turn repair and next previews use
+  the same managed eligibility rule: **finite initiative required**, plus the
+  existing defeated-skip policy. Hidden scored NPCs still have real GM turns;
+  hiding is not a global queue-exclusion rule.
+- Map the selected eligible Combatant back to its **full native order index**
+  for caller-bound writes. Do not filter the shared raw/prepared order and
+  then write the filtered index to Foundry. Retain ordinary/native Combat
+  behavior; implement the managed policy once in shared server orchestration.
+- Adding/scoring a different participant preserves the current Actor identity;
+  it does not steal a turn or automatically begin combat. A newly scored row
+  joins its score position and becomes reachable through subsequent navigation.
+  If no eligible rows remain, show **Awaiting initiative** and disable turn
+  advancement rather than cycling pending rows or incrementing rounds.
+
+**User-confirmed clearing policy:** clearing the *current* character's score
+removes it from executable/player turn state and **pauses with Awaiting
+initiative until the GM acts**. No implicit turn/round advancement or owner
+End my turn while paused. The GM can choose Next (skipping pending rows) or
+set a score; neither an owner roll nor scoring an unrelated pending row silently
+releases the pause. Preserve enough native/validated Combat state to keep it across
+refresh/restart and resume deterministic navigation, not a browser-only latch.
+Test current/all-score clear, subsequent scoring and round-wrap behavior;
+pending regrouping alone must not increment a round. This supersedes the old
+promise that reset never changes executable current-turn state.
+
+No second pending ledger or permanent placeholder is required: derive pending
+from current initiative and policy. Audit roster selection, manager controls,
+HUD-only-pending encounter retention, role-filtered DTOs, all queue consumers
+and score/reset/remove synchronization before editing shared helpers.
+
+### N2 — one stat editor and configurable detail layout (not implemented)
+
+Provide **Text**, **Value / Max** (existing resource representation), **Number**
+and **Textarea** choices in a reusable Add/Edit attribute editor. Textarea
+displays an Actor string as multiline **plain text**, preserves newlines and
+wraps long content; never treat arbitrary Actor text as HTML. Retain exact
+safe-path/type validation. Textarea is a display option, not authorization to
+edit Actor text: numeric/source-resource editing and health constraints remain.
+
+Allow each selected stat's label and presentation to be edited in place or
+through the same shared Core editor. Keep its stable key/order, roster/health/
+editable choices where still valid, and revalidate incompatible kind/path
+changes. Editing an existing selection must replace it, not append a duplicate.
+Keep persistence in the existing shared world/module preferences under data/
+config, with the current configuration Save action; editor apply/cancel changes
+the draft and is clearly distinguished from saving the configuration.
+
+Configure **column span and row span** in the participant detail grid, including
+textarea's visible text rows/height. Content beyond that viewport scrolls
+vertically inside the field with keyboard-accessible focus, not by stretching
+the entire page. Use explicit supported grid dimensions and responsive span
+clamping/stacking on narrow screens; do not invent another selected-stat cap.
+Missing layout metadata uses the current layout. Preserve the compact HUD's
+three-stat limit and concise roster pills; multiline content belongs in detail,
+not an expanded HUD/pill. Decide concrete metadata names/ranges at implementation
+and document their purpose; no arbitrary large/unvalidated CSS spans.
+
+Add optional GM-selection presentation metadata without silently changing
+`info.json`/SDK module suggestion kinds. Existing module declarations stay
+number/text/resource. If module-authored textarea/layout hints are later needed,
+review/version that contract separately. Existing byte/HTTP/security safeguards
+remain; ensure absent/new metadata round-trips and cannot bypass write guards.
+
+### N3 — roster Defeated toggle (not implemented)
+
+Add an accessible **Defeated / Restore** toggle beside Hide/Roll/Clear on each
+manager Actor row. Reuse the existing caller-bound Combatant `defeated` update,
+which already exists in participant details and the manager API; no new Actor
+HP/dead-condition automation or player write lane. Use pressed state, pending/
+disabled feedback, refresh reconciliation and the existing native GM/Assistant
+permissions. Keep detail/row/HUD state consistent and test the configured
+skip-defeated behavior. An Actor-derived dead status may still make effective
+defeated true after clearing the explicit Combatant flag; do not pretend the
+toggle removes native effects or expand into system condition management.
+
+### Next checkpoints and acceptance
+
+- [x] **N0:** record operator acceptance and numeric schema evidence; preserve
+  existing source changes. This pass changes documentation only.
+- [ ] **N1:** implement the compact own-pending cue and shared managed queue
+  policy, including the confirmed current-score-clear pause. Test late Player/NPC,
+  NPC hidden default, clear/re-score/reveal, multiple owned pending characters,
+  collapsed HUD, last/all eligible removal, round wrap and native-index mapping.
+  Assert no hidden IDs/counts/ordinal leaks or automatic modal/roll replay.
+- [ ] **N2:** implement shared Add/Edit stat presentation and persistent
+  textarea/layout metadata; test all four kinds, type rejection, edit/cancel,
+  stable order/keys, reload/two-GM synchronization, scrolling/keyboard and
+  narrow/desktop light/dark. Preserve read-only text and existing health guards.
+- [ ] **N3:** expose the row Defeated toggle; verify detail/row reconciliation,
+  native failure/stale handling and skip-defeated interactions with pending rows.
+- [ ] Re-run affected Core/module checks and obtain operator acceptance of N1–N3.
+  Current successful suites cover the previous implementation, **not** these
+  documented additions. No new tests, code, commits, services or release edits
+  accompany this addendum. Changelog additions wait for implementation.
+
+ADR-0061 remains open. The v13 native-write/support decision and Core0.18.0-first
+module publication gates remain unchanged. No new SDK version, release number,
+branch, commit or live-test permission is implied. General reminders, directed
+roll requests, ledger/history, action bars and native bridges remain deferred;
+only this bounded owned-initiative reminder is brought into scope.

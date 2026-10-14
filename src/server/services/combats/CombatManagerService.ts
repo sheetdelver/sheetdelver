@@ -399,6 +399,11 @@ export const combatManagerService = {
         return preferences;
     },
 
+    async validateStatPath(client: CombatClientLike, path: unknown, kind: unknown) {
+        roleSubject(client);
+        return combatStatDisplayService.validateStatPath(client, path, kind);
+    },
+
     async resetStatPreferences(client: CombatClientLike): Promise<CombatManagerStatPreferencesDto> {
         roleSubject(client);
         const preferences = await combatStatDisplayService.reset(client);

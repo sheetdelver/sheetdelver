@@ -205,8 +205,21 @@ backend encounter read model — never raw Combat/Combatant/Actor documents.
   users get an Open Combat Manager shortcut and use manager controls. Ordinary
   encounters retain GM/Assistant navigation and current-owner End my turn.
   Player Begin is denied even if Foundry stores round-zero `turn: 0`.
-- Initiative presentation receives a server-resolved formula and offers only
-  allowed roll modes or a manual final total. Core executes the action;
+- Initiative presentation receives a server-resolved formula: explicit GM
+  override, module formula or Core fallback, in that order. The manager's
+  override Save validates all current managed participants
+  before persistence and shows field-level errors while preserving the draft.
+  Clearing and saving restores module-first behavior. **Input Manually** means
+  a final total, not an unmodified die; future Actor changes are checked again.
+  **Insert attribute** lazily opens the existing field catalog filtered to safe
+  numeric leaves, with search and cursor/selected-text insertion. Insertion
+  changes only the draft, preserves keyboard focus and does not imply validation
+  success for every participant. Advanced custom stat fields must have a label,
+  safe path and matching current Actor value type before entering the draft;
+  inline errors explain disabled controls or rejected checks, and late checks
+  cannot add a changed/retired draft. GM configuration has no fixed stat-count
+  cap; the compact HUD's existing three-stat presentation remains independent.
+  The dialog offers only allowed roll modes or a manual final total. Core executes the action;
   modules may theme the dialog through the versioned SDK slot.
   A changed phase, score, formula, Actor association or lost row capability
   retires an open initiative dialog; the player chooses a fresh action.
@@ -217,6 +230,29 @@ backend encounter read model — never raw Combat/Combatant/Actor documents.
 - `combatChanged`, `combatListInvalidated` and
   `combatTrackerPreferencesChanged` are skinny invalidations — the client
   refetches its authorized projection; payloads never carry document data.
+
+### Planned managed-HUD refinements (ADR-0061 N1–N3; not implemented)
+
+The October 14 operator review accepts the existing formulas, module rollers,
+privacy/layout, turn controls and recovery. It requests a compact **Roll
+initiative** cue for eligible owned characters even with the roster collapsed,
+with a chooser for multiple characters. Pending own initiative is separate
+from the player turn roster: unrolled/cleared rows stay at the bottom of the
+GM list and are skipped by managed turn navigation until scored. Late NPCs
+default hidden and remain so after scoring until the GM reveals them. Hidden
+or other-owner pending counts never appear in the cue. Clearing the current
+row's score pauses with **Awaiting initiative** until GM Next or a GM-restored
+score; player rolls alone do not resume it. No owner End my turn while paused.
+
+The manager will reuse one Add/Edit stat editor for Text, Value / Max, Number
+and Textarea, with editable labels, detail-grid column/row spans and a bounded
+scrollable multiline text viewport. Narrow layouts clamp/stack spans; text
+remains plain and read-only, not a new Actor-text write capability. Existing
+configuration Save persists the shared world/module settings. A row-level
+Defeated/Restore toggle will reuse the existing participant-detail action.
+These are requested changes, not current UI behavior; implementation and
+acceptance checkpoints are in
+[ADR-0061](adr/0061-managed-combat-player-participation.md#operator-acceptance-and-late-entrystat-addendum--october-14-2026).
 
 | Viewer | Ordinary HUD actions | Managed HUD actions |
 | --- | --- | --- |

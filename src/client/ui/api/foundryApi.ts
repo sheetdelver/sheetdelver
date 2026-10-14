@@ -14,7 +14,7 @@ import type { RealtimeSharedContentPayload } from '@shared/contracts/realtime';
 import type { CombatManagerActorSearchDto, CombatManagerActorSortRequest, CombatManagerEncounterDto, CombatManagerInitiativeBatchDto,
     CombatManagerInitiativeResetDto, CombatManagerHealthBatchRequest, CombatManagerHealthBatchDto,
     CombatManagerResourceUpdateRequest, CombatManagerSelectedStatDto, CombatManagerStatPreferencesDto, CombatManagerStatUpdateRequest,
-    CombatManagerInitiativeScope, CombatManagerPackDto } from '@shared/contracts/combatManager';
+    CombatManagerInitiativeScope, CombatManagerPackDto, CombatManagerStatPathValidationDto } from '@shared/contracts/combatManager';
 
 interface LoginPayload {
     success: boolean;
@@ -150,6 +150,10 @@ export function fetchManagedStatPreferences(actorId?: string, includeCatalog = f
 
 export function saveManagedStatPreferences(attributes: CombatManagerSelectedStatDto[]): Promise<{ preferences: CombatManagerStatPreferencesDto }> {
     return requestJson('/api/combat-manager/stat-preferences', { method: 'PUT', body: { attributes } });
+}
+
+export function validateManagedStatPath(path: string, kind: CombatManagerStatPathValidationDto['kind']): Promise<{ attribute: CombatManagerStatPathValidationDto }> {
+    return requestJson('/api/combat-manager/stat-preferences/validate-path', { method: 'POST', body: { path, kind } });
 }
 
 export function resetManagedStatPreferences(): Promise<{ preferences: CombatManagerStatPreferencesDto }> {

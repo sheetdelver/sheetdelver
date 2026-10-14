@@ -4,9 +4,10 @@ import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
 import { createCombatService } from '@server/services/combats/CombatService';
 import { logger } from '@shared/utils/logger';
 import { EncounterBusyError } from '@server/services/combats/EncounterCommandGuard';
+import { CombatStatPreferenceLimitError } from '@server/services/combats/CombatStatPreferenceStore';
 
 function handleError(error: unknown, res: express.Response): void {
-    res.status(error instanceof CombatManagerError || error instanceof EncounterBusyError ? error.status : 500).json({ error: getErrorMessage(error),
+    res.status(error instanceof CombatManagerError || error instanceof EncounterBusyError || error instanceof CombatStatPreferenceLimitError ? error.status : 500).json({ error: getErrorMessage(error),
         ...((error instanceof CombatManagerError || error instanceof EncounterBusyError) && error.code ? { code: error.code } : {}) });
 }
 
@@ -22,6 +23,10 @@ export function registerCombatManagerRoutes(router: express.Router): void {
     });
     router.put('/combat-manager/stat-preferences', async (req, res) => {
         try { res.json({ preferences: await combatManagerService.saveStatPreferences(req.foundryClient, req.body?.attributes) }); }
+        catch (error) { handleError(error, res); }
+    });
+    router.post('/combat-manager/stat-preferences/validate-path', async (req, res) => {
+        try { res.json({ attribute: await combatManagerService.validateStatPath(req.foundryClient, req.body?.path, req.body?.kind) }); }
         catch (error) { handleError(error, res); }
     });
     router.delete('/combat-manager/stat-preferences', async (req, res) => {

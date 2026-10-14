@@ -1,7 +1,6 @@
 import type { ModuleCombatStatAttribute } from '@shared/sdk/interfaces';
 import type { CombatManagerSelectedStatDto } from './combatManager';
 
-export const MAX_COMBAT_STATS = 8;
 const MAX_DECLARED_STATS = 16;
 const KEY_PATTERN = /^[A-Za-z][A-Za-z0-9_-]{0,31}$/;
 const SEGMENT_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -16,9 +15,8 @@ export function isSafeCombatStatPath(value: unknown): value is string {
             && !['__proto__', 'constructor', 'prototype'].includes(segment));
 }
 
-/** Pure validator shared by module manifest ingestion and GM preference writes. */
-export function parseCombatStatAttributes(value: unknown, limit = MAX_COMBAT_STATS): ModuleCombatStatAttribute[] | null {
-    if (!Array.isArray(value) || value.length > limit || value.length > MAX_DECLARED_STATS) return null;
+/** Validate field shapes independently of any module metadata count limit. */
+function parseAttributeRows(value: unknown[]): ModuleCombatStatAttribute[] | null {
     const keys = new Set<string>();
     const attributes: ModuleCombatStatAttribute[] = [];
     for (const item of value) {
@@ -43,9 +41,16 @@ export function parseCombatStatAttributes(value: unknown, limit = MAX_COMBAT_STA
     return attributes;
 }
 
+/** Module metadata remains bounded; it does not limit GM display selections. */
+export function parseCombatStatAttributes(value: unknown, limit = MAX_DECLARED_STATS): ModuleCombatStatAttribute[] | null {
+    if (!Array.isArray(value) || value.length > limit || value.length > MAX_DECLARED_STATS) return null;
+    return parseAttributeRows(value);
+}
+
 /** Validate Core's persisted GM selection without broadening module metadata. */
-export function parseCombatStatSelection(value: unknown, limit = MAX_COMBAT_STATS): CombatManagerSelectedStatDto[] | null {
-    const attributes = parseCombatStatAttributes(value, limit);
+export function parseCombatStatSelection(value: unknown): CombatManagerSelectedStatDto[] | null {
+    if (!Array.isArray(value)) return null;
+    const attributes = parseAttributeRows(value);
     if (!attributes) return null;
     const selected: CombatManagerSelectedStatDto[] = [];
     let healthCount = 0;

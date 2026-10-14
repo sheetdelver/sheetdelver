@@ -331,8 +331,10 @@ for posting recorded rolls without changing the display-summary contract.
 Combat-stat descriptors have a unique key, label (up to 32 characters), path
 under `system.*` or `derived.*`, kind `number`, `text`, or `resource` (a numeric
 `value` with optional numeric `max`), and optional `actorTypes`. Up to 16
-suggestions may be declared; the manager displays at most eight selected
-stats. These are read-only presentation hints, not writable Foundry resource
+suggestions may be declared. GM display selections have no fixed field-count
+cap; module metadata limits, observed-catalog discovery bounds and compact HUD
+presentation are separate. Ordinary request/preference-file byte safeguards
+still apply. These are read-only presentation hints, not writable Foundry resource
 paths or dashboard Actor-card blocks. Optional `showInRoster: true` suggests a
 compact pill beside each combatant name; absent/false keeps the stat in detail
 only. A module adopting this new manifest field requires
