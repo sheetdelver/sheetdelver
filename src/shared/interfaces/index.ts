@@ -30,6 +30,8 @@ export interface AppSystemInfo {
     appVersion?: string;
     worldTitle?: string;
     worldBackground?: string;
+    /** Foundry's default artwork for Core-only presentation fallback. */
+    coreFallbackBackground?: string;
     worldDescription?: string | null;
     nextSession?: string | null;
     isLoggedIn?: boolean;
@@ -59,6 +61,7 @@ export interface User {
     role?: number;
     /** Server-derived display hint; Foundry remains authoritative on deletion. */
     canDeleteActors?: boolean;
+    isServiceAccount?: boolean;
     color?: string;
     characterName?: string;
 }

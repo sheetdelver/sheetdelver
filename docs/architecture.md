@@ -70,7 +70,7 @@ graph TD
     - Commands `CoreSocket` as a transport; it does not live in `core/`.
     - A socket interruption gates world APIs but retains the last ready runtime. Affirmative, corroborated setup or explicit shutdown retires it; the controller alone reconnects the service-account socket.
 - **Foundry Event Ingress (`src/server/services/world/FoundryEventIngress.ts`)**:
-    - Subscribes to neutral Foundry socket events and applies application semantics such as document routing, user presence, shared-content updates, and runtime teardown.
+    - Subscribes to neutral Foundry socket events and applies application semantics such as document routing, user presence, and runtime teardown. `SharedContentIngress` receives selected media through each authenticated user session; `AppSocketGateway` forwards the matching Store projection.
 - **Foundry Sockets (`@core/foundry/sockets`)**:
     - **CoreSocket**: A singleton service-account transport. Emits protocol facts and raw dispatch helpers; controller/ingress services own policy and Store mutation.
     - **ClientSocket**: A per-user transport. Receives neutral Foundry protocol events and performs user-authorized writes after identity is resolved by services.
@@ -89,7 +89,7 @@ graph TD
     - **Module Routing**:
         - **API**: RegEx-based routing allows system-specific packages to mount their own API logic dynamically.
         - **UI**: The core actor page delegates rendering to the module's registered `ActorPage`, ensuring full UI autonomy.
-    - **Shared Content**: Tracks shared media (images/journals) targeted at the current user.
+    - **Shared Content**: `SharedContentStore` retains one latest share per authenticated session and world, populated only from that user's Foundry socket for the session lifetime, including gaps between browser connections. Opaque stream IDs and receipt sequences order HTTP snapshots and realtime emits; a late snapshot cannot supersede newer delivery or retirement. Service-account receipts are not public broadcasts. Terminal session/world teardown clears the scope; no persistent share history is introduced.
 
 ### 3.3 World-Ready Bootstrap Gates
 
@@ -117,7 +117,16 @@ On a same-world reconnect, `WorldBootstrapper.recover()` verifies world/system i
 ### 4.1 React Contexts
 - **FoundryProvider**: Coordinates connection-step presentation and authorized world data from the shared realtime and session providers; it does not treat public status as authentication.
 - **JournalProvider**: Manages journal entry loading, folder hierarchies, and pagination logic.
-- **UIProvider**: Manages the state of global overlays like the sidebars, floating HUD, and shared content modals.
+- **UIProvider**: Manages global overlay state. One layout-owned shared-content host presents images and delegates authorized journal reads to `JournalModal`; module-mounted compatibility components are inert to avoid duplicate overlays.
+  Optional SDK footer registrations reserve measured visible bottom-bar space
+  for Core chrome. SDKProvider releases its module/world/user registrations;
+  terminal UI reset clears the host registry. Modules register only their own
+  element via the public client SDK, never Core DOM or server-side layout state.
+  Native journal sharing has a separate recipient/receipt-bound read-only lease
+  and whitelisted JournalStore projection. Source ownership and ordinary reads
+  remain unchanged; Secret content is filtered server-side for non-owners.
+  Leases are modal-owned and bounded in the existing scoped SharedContentStore,
+  not a persistent permission store (ADR-0062 J1).
 - **PlayerWorldBoundary**: The player layout owns login/setup/closed/loading
   presentation for home, Actor and module-tool routes. Cold routes do not mount
   their page effects or persistent tools until authenticated readiness. A
@@ -289,7 +298,8 @@ dependencies.
 ## 7. Security & Isolation
 - **Core GM Combat Manager (ADR-0049)**: `/tools/combat` is a dedicated
   Gamemaster page, not a module tool or the player CombatHUD. Its authenticated
-  `/api/combat-manager` routes enforce strict role-4 access server-side and
+  `/api/combat-manager` routes admit full GM/Assistant server-side under
+  ADR-0062's native operation policy and
   project only marked, scene-null Combats. World Actor selections link their
   existing IDs; direct compendium selections become marked world copies in an
   encounter Actor Folder. Combat flags hold manager lifecycle/retention state,
@@ -299,12 +309,20 @@ dependencies.
   Foundry-style non-GM ownership test for NPC selection; the universal CombatHUD
   is hidden on the manager page to avoid duplicate controls.
   Optional combat-stat suggestions come from the active module manifest, while
-  Core persists the role-4 GMs' shared world/module display selection under
+  Core persists authorized managers' shared world/module display selection under
   the configured data directory's durable `config/`. Server projection reads
   only bounded prepared Actor values. A GM-selected Editable flag permits
   guarded writes to matching numeric source Actor fields, never derived or
   arbitrary fields. Client-side filesystem access and Combat-flag preference
   state are not introduced.
+- **Native combat document capabilities (ADR-0062)**: ActorStore and ActorService
+  resolve native Assistant OWNER capability for world Actor operations; Combat
+  and Folder Stores apply their native GM-like policies. Their audiences use
+  those same resolvers. The legacy cross-type ownership helper, private
+  chat/journal policies and app administration remain separate. Manager copy
+  checks read current User/Setting/pack state with v13/v14 differences, before
+  predictable failures can cause provisioning writes; native Foundry is the
+  final authority for every caller-bound dispatch.
 - **Per-User Sockets**: Every user has their own dedicated socket. Foundry's native permission model is enforced at the transport layer.
 - **Local Admin Surface**: `/admin` is a provider-isolated route group in the application shell. The shell exposes it and `/api/admin` only on the configured local hostname; other hostnames return `404`. Browser sessions use a path-scoped opaque HttpOnly cookie plus CSRF protection. Core independently enforces the configured browser origin and client CIDR allowlist.
 - **Foundry Session Persistence**: Reusable Foundry cookies are stored only in an authenticated-encryption envelope. An explicit external 32-byte key takes priority; otherwise Core creates and reuses an owner-only installation key under the host configuration directory, outside `<DATA_DIR>`. Missing or mismatched key material fails restoration rather than reverting to plaintext.

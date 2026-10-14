@@ -18,6 +18,13 @@ export async function run() {
     await runQuietFetchRunsOnce();
     await runBurstCoalescesIntoSingleTrailingFetch();
     await runConcurrentReadDedupDoesNotQueueTrailingFetch();
+    let attempts = 0;
+    const recoverable = createCoalescedFetch(async () => {
+        if (++attempts === 1) throw new Error('unavailable');
+        return 'recovered';
+    });
+    await assert.rejects(recoverable(), /unavailable/);
+    assert.equal(await recoverable(), 'recovered', 'failed cleanup must not leave an unhandled rejection or hold the flight');
     console.log('  - createCoalescedFetch: all checks passed');
 }
 

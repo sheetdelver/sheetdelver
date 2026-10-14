@@ -22,6 +22,7 @@ interface RequestJsonOptions {
     token?: string | null;
     body?: unknown;
     cache?: RequestCache;
+    keepalive?: boolean;
 }
 
 export async function requestJson<T>(path: string, options: RequestJsonOptions = {}): Promise<T> {
@@ -36,6 +37,7 @@ export async function requestJson<T>(path: string, options: RequestJsonOptions =
         headers,
         body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
         cache: options.cache,
+        keepalive: options.keepalive,
         credentials: 'same-origin',
     });
 

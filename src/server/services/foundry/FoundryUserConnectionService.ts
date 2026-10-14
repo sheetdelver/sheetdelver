@@ -15,6 +15,8 @@ import type {
     RestoredFoundrySessionCredential,
 } from '@server/shared/types/foundry';
 import { foundryEventIngress } from '@server/services/world/FoundryEventIngress';
+import { attachSharedContentIngress } from '@server/services/utility/SharedContentIngress';
+import { sharedContentStore } from '@server/core/world/SharedContentStore';
 import { FoundryUserIdentityResolver } from './FoundryUserIdentityResolver';
 import { FoundryUserDiscoveryProbe } from './FoundryUserDiscoveryProbe';
 import {
@@ -120,8 +122,6 @@ export class FoundryUserConnectionService {
             if (authorityEpoch !== this.authorityEpoch || this.deletedUserIds.has(userId)) {
                 throw new Error('World session authority changed while login was in progress');
             }
-            const detachFoundryEventIngress = foundryEventIngress.attach(client);
-
             const sessionId = randomUUID();
             const connection = {
                 id: sessionId,
@@ -132,9 +132,10 @@ export class FoundryUserConnectionService {
                 worldId: worldStateStore.getCurrentWorldId() || undefined,
                 cookie: client.getSessionCookie() ?? undefined,
                 authorizationRole,
-                detachFoundryEventIngress,
+                detachFoundryEventIngress: undefined as (() => void) | undefined,
             };
             this.connections.set(sessionId, connection);
+            this.attachConnectionIngress(connection);
 
             await this.saveSession(sessionId, client, username);
             if (authorityEpoch !== this.authorityEpoch || !this.connections.has(sessionId)) {
@@ -369,6 +370,16 @@ export class FoundryUserConnectionService {
         }
     }
 
+    private attachConnectionIngress(connection: FoundryUserConnection): void {
+        const detachDocuments = foundryEventIngress.attach(connection.client);
+        const detachShares = connection.worldId ? attachSharedContentIngress(connection.client, {
+            sessionId: connection.id, worldId: connection.worldId,
+            isCurrent: () => this.connections.get(connection.id) === connection
+                && worldStateStore.getCurrentWorldId() === connection.worldId,
+        }) : () => undefined;
+        connection.detachFoundryEventIngress = () => { detachShares(); detachDocuments(); };
+    }
+
     private detachConnectionIngress(connection: FoundryUserConnection): void {
         const detach = connection.detachFoundryEventIngress;
         connection.detachFoundryEventIngress = undefined;
@@ -387,6 +398,7 @@ export class FoundryUserConnectionService {
         this.authorityEpoch += 1;
         this.deletedUserIds.clear();
         this.connections.clear();
+        sharedContentStore.clear(reason);
         for (const connection of connections) this.detachConnectionIngress(connection);
         this.emitSessionInvalidated({ scope: 'all', reason });
         try {
@@ -516,9 +528,7 @@ export class FoundryUserConnectionService {
                 client.disconnect();
                 return { status: 'terminal' };
             }
-            const detachFoundryEventIngress = foundryEventIngress.attach(client);
-
-            this.connections.set(sessionId, {
+            const connection: FoundryUserConnection = {
                 id: sessionId,
                 client,
                 userId: credential.userId,
@@ -527,8 +537,9 @@ export class FoundryUserConnectionService {
                 worldId: sessionData.worldId,
                 cookie: credential.cookie,
                 authorizationRole,
-                detachFoundryEventIngress,
-            });
+            };
+            this.connections.set(sessionId, connection);
+            this.attachConnectionIngress(connection);
 
             await this.refreshSessionAuthorization(sessionId);
             if (!this.connections.has(sessionId)) return { status: 'terminal' };
@@ -645,6 +656,8 @@ export class FoundryUserConnectionService {
     ): FoundryUserConnection | undefined {
         const connection = this.connections.get(sessionId);
         this.connections.delete(sessionId);
+        if (connection) this.detachConnectionIngress(connection);
+        sharedContentStore.clearSession(sessionId);
         // A per-session version is needed only while restore is in flight;
         // avoiding permanent entries keeps arbitrary invalid token churn bounded.
         if (this.restorePromises.has(sessionId)) {

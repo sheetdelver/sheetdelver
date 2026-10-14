@@ -261,6 +261,7 @@ export function createMockSdkContext(opts: MockSdkContextOptions = {}): SDKConte
         toggleDiceTray: () => {},
         isChatOpen: false,
         setChatOpen: () => {},
+        registerBottomNavigation: () => () => {},
         fetchWithAuth: async () => new Response('{}', { status: 200 }),
         events: createMockSdkEvents(),
         logger: { debug() {}, info() {}, warn() {}, error() {} },

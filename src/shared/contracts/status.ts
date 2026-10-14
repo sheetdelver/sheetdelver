@@ -11,6 +11,8 @@ export interface StatusUser {
     color?: string;
     characterId?: string | { id?: string; _id?: string } | null;
     img?: string;
+    /** Presentation hint only; this user remains in Foundry's canonical roster. */
+    isServiceAccount?: boolean;
 }
 
 /** Minimum roster entry exposed before Foundry authentication. */
@@ -50,6 +52,7 @@ export interface SystemStatusPayload {
         worldTitle?: string;
         worldDescription?: string | null;
         worldBackground?: string;
+        coreFallbackBackground?: string;
         background?: string;
         nextSession?: string | null;
         status?: string;
@@ -83,6 +86,7 @@ export interface PublicStatusPayload {
         worldTitle?: string;
         worldDescription?: string | null;
         worldBackground?: string;
+        coreFallbackBackground?: string;
         background?: string;
         nextSession?: string | null;
         status?: string;

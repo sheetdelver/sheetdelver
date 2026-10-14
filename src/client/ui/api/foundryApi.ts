@@ -63,7 +63,7 @@ export function fetchChatLog(token: string): Promise<ChatLogPayload> {
     return requestJson<ChatLogPayload>('/api/chat', { token });
 }
 
-export function sendChat(token: string | null, body: { message: string; rollMode?: string; speaker?: string }): Promise<ChatSendPayload> {
+export function sendChat(token: string | null, body: { message: string; rollMode?: string; speaker?: string; speakerActorId?: string }): Promise<ChatSendPayload> {
     return requestJson<ChatSendPayload>('/api/chat/send', {
         method: 'POST',
         token,

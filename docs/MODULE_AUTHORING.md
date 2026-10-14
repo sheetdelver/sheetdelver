@@ -98,6 +98,18 @@ import { json, error } from '@sheet-delver/sdk/server';
 The checker rejects `@sheet-delver/sdk/server` imports from UI (`.tsx`) source — server helpers must not reach the client bundle.
 Managed module UI runs as native browser ESM outside the host Next.js build. Module source must not import `next` or `next/*`; use React, browser APIs, or `@sheet-delver/sdk/react` instead. `module:check` rejects this host-framework coupling before packaging.
 
+ADR-0062 moves shared image/journal presentation to Core's persistent player
+layout. Its SDK `SharedContentModal` export remains callable and renders
+nothing when that host is present, so existing module mounts do not duplicate
+the overlay. A module removing its mount must require the Core release that
+provides the host; older Core releases still depend on the module mount on
+sheet pages. Shadowdark and Mörk Borg retain their SDK mounts for those older
+Core versions. Core 0.16.0 first provided module-api 1.3; Shadowdark targets the
+user-approved Core 0.17.0 minimum and CI/release toolchain for this branch.
+Mörk Borg's Core 0.14.2 minimum is unchanged. Validate companion modules with
+the pinned release and an isolated data directory, not only Core's root check:
+the root `data/` exclusion can omit module-only logic/tests from typechecking.
+
 Do not import from Sheet Delver internals such as `@shared/*`, `@client/*`, `@server/*`, `@core/*`, or `@modules/*`. If a module needs something that is not in the SDK, treat that as either a missing SDK surface or module-specific code that should live inside the module.
 
 ## Metadata
@@ -160,8 +172,7 @@ const uiManifest: UIModuleManifest = {
 };
 ```
 
-These fields originated in UI contract 1.3.0. Modules targeting the current
-SDK 2.2.0 modules using the current UI contract require
+These fields originated in UI contract 1.3.0. SDK 2.2.0 lifecycle behavior requires
 `"ui-extension-api": ">=2.1.0 <3.0.0"` and must
 pin CI/release tooling to a released Core that supports it. See
 [ADR-0044](adr/0044-client-owned-module-presentation.md).
@@ -362,6 +373,43 @@ SDK `connection:changed` reports transport health. Since UI contract 2.1.0,
 world replacement, and `world:ready` announces an established world after
 startup or replacement. A same-world socket blip is not world teardown. See
 [ADR-0057](adr/0057-core-player-world-state-boundary.md).
+
+### Optional bottom navigation
+
+SDK 2.3.0 / `ui-extension-api` 2.2.0 adds an opt-in clearance contract for a
+module-owned fixed footer. Import only the public hook and register the bar
+element, not a measured number or a private Core selector:
+
+```tsx
+import { useRef } from 'react';
+import { useBottomNavigation } from '@sheet-delver/sdk/react';
+
+function MobileSections() {
+    const bar = useRef<HTMLElement>(null);
+    useBottomNavigation(bar);
+    return <nav ref={bar} className="fixed bottom-0 left-0 right-0 sm:hidden">
+        {/* Module-owned controls, styling and safe-area padding. */}
+    </nav>;
+}
+```
+
+Core measures the connected, visible element only while it meets the viewport
+bottom. Its Tools, Chat, Players and player feedback reserve the largest active
+bar height. Hidden responsive bars reserve nothing; without a registration,
+Core placement stays unchanged. The hook releases on unmount/ref/provider
+change, and Core retires registrations with the module/world/user or terminal
+UI scope. Mount the hook with the bar (rather than conditionally rendering only
+the ref target) so its lifecycle matches the element. Module colors and layout
+remain module-owned; do not set Core's internal CSS variable directly.
+
+The imperative `useSDK().registerBottomNavigation(element)` returns an
+idempotent disposer; custom consumers must call it on cleanup. Mock SDK hosts
+provide an inert registration. Adopting modules require
+`"ui-extension-api": ">=2.2.0 <3.0.0"` and a released Core supporting it
+(target Core 0.17.1 in ADR-0062). Modules not using the addition need no minimum
+bump. Before publication, pin CI/packaging to that available release tag and
+align the application minimum; never ship a local-development staging minimum
+as a substitute for release validation.
 
 ## Server Routes
 

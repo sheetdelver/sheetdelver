@@ -18,7 +18,7 @@ import {
 } from '../base/PrimaryDocumentStore';
 import type { DocumentAudience } from '../base/audience';
 import {
-    getEffectiveOwnership,
+    getActorOperationOwnership,
     type DocumentAccessSubject,
     type DocumentOwnershipMap,
     type ResolvedDocumentOwnershipLevel,
@@ -52,7 +52,7 @@ export class ActorStore extends PrimaryDocumentStore<ActorDocument> {
         subject: DocumentAccessSubject,
     ): ResolvedDocumentOwnershipLevel {
         const ownership = actor.ownership as DocumentOwnershipMap | undefined;
-        return getEffectiveOwnership(ownership, subject);
+        return getActorOperationOwnership(ownership, subject);
     }
 
     // ---------------------------------------------------------------------

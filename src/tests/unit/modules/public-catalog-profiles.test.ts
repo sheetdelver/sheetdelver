@@ -14,6 +14,7 @@ import {
     deleteSourceProfile,
     loadSourceProfiles,
     OFFICIAL_CATALOG_PROFILE_ID,
+    OFFICIAL_CATALOG_URL,
     updateSourceProfile,
 } from '@modules/registry/distribution/sourceProfiles';
 
@@ -36,12 +37,27 @@ export function run() {
             hostAllowlist: ['catalog.example'],
             createdAt: 1,
             updatedAt: 1,
+        }, {
+            id: OFFICIAL_CATALOG_PROFILE_ID,
+            name: 'Sheet Delver Official Catalog',
+            kind: 'indexed',
+            baseUrl: 'https://sheetdelver.github.io/module-catalog/catalog.json',
+            enabled: false,
+            priority: 37,
+            trustTier: 'first-party',
+            createdAt: 1,
+            updatedAt: 1,
         }]));
         __resetSourceProfilesForTests();
 
         const profiles = loadSourceProfiles();
         assert.equal(profiles.some((profile) => profile.id === 'local-default'), true);
         assert.equal(profiles.some((profile) => profile.id === OFFICIAL_CATALOG_PROFILE_ID), true);
+        const official = profiles.find((profile) => profile.id === OFFICIAL_CATALOG_PROFILE_ID);
+        assert.equal(official?.baseUrl, OFFICIAL_CATALOG_URL);
+        assert.equal(official?.name, 'SheetDelver Official Catalog');
+        assert.equal(official?.enabled, false);
+        assert.equal(official?.priority, 37);
         const migrated = profiles.find((profile) => profile.id === 'legacy-custom');
         assert.equal(migrated?.trustTier, 'unverified');
         assert.equal(migrated ? 'auth' in migrated : true, false);
@@ -66,6 +82,7 @@ export function run() {
 
         const persisted = fs.readFileSync(profilesFile, 'utf8');
         assert.equal(persisted.includes('must-be-removed'), false);
+        assert.equal(persisted.includes('https://sheetdelver.github.io/module-catalog/catalog.json'), false);
         if (process.platform !== 'win32') {
             assert.equal(fs.statSync(profilesFile).mode & 0o777, 0o600);
         }

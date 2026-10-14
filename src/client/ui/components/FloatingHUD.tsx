@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Home, MessageSquare, Users, Book, ChevronUp, ChevronLeft, X } from 'lucide-react';
+import { Home, MessageSquare, Users, Book, ChevronUp, ChevronLeft, ArrowLeft, X } from 'lucide-react';
 import { PlayerSettingsButton } from './Settings/PlayerSettingsButton';
 import { useUI } from '@client/ui/context/UIContext';
 import { useChat } from '@client/ui/context/ChatContext';
@@ -21,8 +21,9 @@ export default function FloatingHUD() {
     const pathname = usePathname();
     const router = useRouter();
     const hudRef = useRef<HTMLDivElement>(null);
+    const menuButtonRef = useRef<HTMLButtonElement>(null);
 
-    const activeCount = users?.filter(u => u.active).length || 0;
+    const activeCount = users?.filter(u => u.active && !u.isServiceAccount).length || 0;
 
     const anyToolOpen = isChatOpen || isDiceTrayOpen || isJournalOpen || isPlayerListOpen;
 
@@ -56,6 +57,7 @@ export default function FloatingHUD() {
         setJournalOpen(false);
         setPlayerListOpen(false);
         setIsMinimized(false); // Return to menu
+        window.requestAnimationFrame(() => menuButtonRef.current?.focus());
     }, [setChatOpen, setDiceTrayOpen, setJournalOpen, setPlayerListOpen]);
 
     // Click outside handler
@@ -99,7 +101,7 @@ export default function FloatingHUD() {
     return (
         <div
             ref={hudRef}
-            className={`fixed bottom-6 z-[150] transition-all duration-500 ease-in-out pointer-events-auto
+            className={`fixed bottom-[calc(1.5rem+var(--sd-bottom-navigation-inset,0px))] z-[150] transition-all duration-500 ease-in-out pointer-events-auto
                 ${isMinimized
                     ? 'left-1/2 -translate-x-1/2 sm:left-auto sm:right-6 sm:translate-x-0'
                     : 'left-1/2 -translate-x-1/2 sm:left-auto sm:right-6 sm:translate-x-0'
@@ -113,7 +115,8 @@ export default function FloatingHUD() {
             >
                 {/* Trigger / Collapse Button */}
                 <button
-                    aria-label={anyToolOpen ? 'Back to menu' : isMinimized ? 'Open menu' : 'Close menu'}
+                    ref={menuButtonRef}
+                    aria-label={anyToolOpen ? 'Back to tools' : isMinimized ? 'Open tools' : 'Close tools'}
                     onClick={() => {
                         if (anyToolOpen) {
                             closeAll();
@@ -121,11 +124,14 @@ export default function FloatingHUD() {
                             setIsMinimized(!isMinimized);
                         }
                     }}
-                    className={`h-10 w-10 shrink-0 sm:h-12 sm:w-12 p-2 sm:p-3 rounded-full transition-all duration-500 flex items-center justify-center
+                    className={`h-10 shrink-0 sm:h-12 p-2 sm:p-3 rounded-full transition-all duration-500 flex items-center justify-center
+                        ${anyToolOpen ? 'min-w-10 gap-1.5 px-3' : 'w-10 sm:w-12'}
                         ${isMinimized ? 'sd-ui-accent hover:scale-110' : 'sd-ui-muted hover:opacity-80 rotate-[360deg]'}
                     `}
                 >
-                    {isMinimized ? (
+                    {anyToolOpen ? (
+                        <><ArrowLeft className="h-5 w-5" /><span className="text-xs font-semibold">Tools</span></>
+                    ) : isMinimized ? (
                         <>
                             <ChevronLeft className="w-6 h-6 hidden sm:block" />
                             <ChevronUp className="w-6 h-6 sm:hidden" />

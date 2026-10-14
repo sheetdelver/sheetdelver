@@ -15,14 +15,12 @@ import {
     type NormalizedFoundryDocumentResult,
 } from '@server/core/foundry/sockets/FoundryDocumentResponse';
 import { userPresence } from '@server/core/documents/primary/users/UserPresence';
-import { sharedContentStore } from '@server/core/world/SharedContentStore';
 import { worldStateStore } from '@server/core/world/WorldStateStore';
 import { compendiumStore } from '@server/core/compendium';
 import type { CompendiumPackMetadata } from '@server/core/compendium/types';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
 import { parseDocumentUuid, type ParsedDocumentUuid } from '@server/services/documents';
 import { worldBootstrapper } from './WorldBootstrapper';
-import type { RealtimeSharedContentPayload } from '@shared/contracts/realtime';
 import type {
     FoundryAutosaveEvent,
     FoundryDocumentCompatibilityEvent,
@@ -30,8 +28,6 @@ import type {
     FoundryManageCompendiumEvent,
     FoundryModifyDocumentEvent,
     FoundryModifyDocumentBatchEvent,
-    FoundryShareImageEvent,
-    FoundryShowEntryEvent,
     FoundryUserActivityEvent,
     FoundryUserConnectedEvent,
     FoundryUserDisconnectedEvent,
@@ -166,8 +162,6 @@ export class FoundryEventIngress {
             ['foundry:userConnected', (event: unknown) => this.handleUserConnected(event as FoundryUserConnectedEvent, options)],
             ['foundry:userDisconnected', (event: unknown) => this.handleUserDisconnected(event as FoundryUserDisconnectedEvent, options)],
             ['foundry:userActivity', (event: unknown) => this.handleUserActivity(event as FoundryUserActivityEvent, options)],
-            ['foundry:shareImage', (event: unknown) => this.handleShareImage(event as FoundryShareImageEvent)],
-            ['foundry:showEntry', (event: unknown) => this.handleShowEntry(event as FoundryShowEntryEvent)],
             ['foundry:shutdown', () => options.onStatusUpdate?.()],
             ['foundry:reload', () => options.onStatusUpdate?.()],
             ['foundry:runtimeTeardown', (event: unknown) => this.handleRuntimeTeardown(event as FoundryRuntimeTeardownEvent)],
@@ -688,35 +682,6 @@ export class FoundryEventIngress {
         if (userPresence.setActive(event.userId, isActive)) {
             options.onStatusUpdate?.();
         }
-    }
-
-    private handleShareImage(event: FoundryShareImageEvent): void {
-        logger.info(`FoundryEventIngress | Received shared image: ${event.data?.image}`);
-        const payload: RealtimeSharedContentPayload = {
-            type: 'image',
-            data: {
-                url: event.data?.image,
-                title: event.data?.title,
-            },
-            timestamp: Date.now(),
-        };
-        sharedContentStore.set(payload);
-    }
-
-    private handleShowEntry(event: FoundryShowEntryEvent): void {
-        logger.info(`FoundryEventIngress | Received shared entry: ${event.uuid}`);
-        const parts = event.uuid.split('.');
-        if (parts.length < 2 || parts[0] !== 'JournalEntry') return;
-
-        const payload: RealtimeSharedContentPayload = {
-            type: 'journal',
-            data: {
-                id: parts[1],
-                uuid: event.uuid,
-            },
-            timestamp: Date.now(),
-        };
-        sharedContentStore.set(payload);
     }
 
     private handleRuntimeTeardown(event: FoundryRuntimeTeardownEvent): void {

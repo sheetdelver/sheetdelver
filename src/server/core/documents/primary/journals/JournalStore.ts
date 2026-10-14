@@ -1,4 +1,7 @@
 import type { JournalEntryDocument, JournalEntryPageDocument } from '@server/shared/types/documents';
+import type { JournalEntryDto, JournalPageDto } from '@shared/contracts/journals';
+import { sanitizeRichHtml } from '@shared/security/safeHtml';
+import type { SharedJournalAccess } from '@server/core/world/SharedContentStore';
 import {
     cloneDocument,
     appendCreatedById,
@@ -97,6 +100,40 @@ export class JournalStore extends PrimaryDocumentStore<JournalEntryDocument> {
             : ownership.default ?? DocumentOwnershipLevel.NONE;
         if (raw === DocumentOwnershipLevel.INHERIT) return entryEffectiveLevel;
         return clampResolvedLevel(raw);
+    }
+
+    /** Dedicated display projection for a server-resolved native share lease.
+     * It never changes source ownership or grants ordinary get/list access.
+     */
+    public projectSharedView(access: SharedJournalAccess, subject: DocumentAccessSubject): JournalEntryDto | null {
+        const entry = this.documents.get(access.journalId);
+        if (!entry) return null;
+        const sourceEntryLevel = this.resolveOwnership(entry, subject);
+        if (!access.force && sourceEntryLevel < DocumentOwnershipLevel.OBSERVER) return null;
+        const temporaryEntryLevel = access.force ? Math.max(sourceEntryLevel, DocumentOwnershipLevel.OBSERVER) as ResolvedDocumentOwnershipLevel : sourceEntryLevel;
+        const sourcePages = entry.pages ?? [];
+        const pages = access.pageId
+            ? sourcePages.filter(page => pageId(page) === access.pageId)
+            : sourcePages.filter(page => this.resolvePageOwnership(page, temporaryEntryLevel, subject) >= DocumentOwnershipLevel.OBSERVER);
+        if (access.pageId && (!pages.length || (!access.force
+            && this.resolvePageOwnership(pages[0], sourceEntryLevel, subject) < DocumentOwnershipLevel.OBSERVER))) return null;
+        const projectPage = (page: JournalEntryPageDocument): JournalPageDto => ({
+            _id: pageId(page) ?? undefined,
+            name: typeof page.name === 'string' ? page.name : '',
+            type: typeof page.type === 'string' ? page.type : 'text',
+            sort: typeof page.sort === 'number' ? page.sort : 0,
+            ...(typeof page.src === 'string' ? { src: page.src } : {}),
+            ...(typeof page.image?.caption === 'string' ? { image: { caption: page.image.caption } } : {}),
+            ...(typeof page.text?.content === 'string' ? { text: { content: sanitizeRichHtml(page.text.content, {
+                excludeUnrevealedSecrets: this.resolvePageOwnership(page, sourceEntryLevel, subject) < DocumentOwnershipLevel.OWNER,
+            }) } } : {}),
+        });
+        return { _id: access.journalId, name: typeof entry.name === 'string' ? entry.name : '', folder: null,
+            pages: pages.map(projectPage),
+            ...(!sourcePages.length && typeof entry.content === 'string' ? { content: sanitizeRichHtml(entry.content, {
+                excludeUnrevealedSecrets: sourceEntryLevel < DocumentOwnershipLevel.OWNER,
+            }) } : {}),
+        };
     }
 
     /**

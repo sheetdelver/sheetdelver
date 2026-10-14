@@ -1,5 +1,5 @@
-import { createContext, useContext } from 'react';
-import type { ComponentType } from 'react';
+import { createContext, useContext, useLayoutEffect } from 'react';
+import type { ComponentType, RefObject } from 'react';
 import type { RealtimeActorChangedPayload } from './contracts';
 import type { ClientDocumentSource } from './client-documents';
 import type { SdkEvents } from './events';
@@ -54,6 +54,8 @@ export interface SDKContextValue extends NotificationAPI {
     toggleDiceTray: () => void;
     isChatOpen: boolean;
     setChatOpen: (open: boolean) => void;
+    /** Register an opt-in fixed bottom navigation bar; disposer releases its space. */
+    registerBottomNavigation: (element: HTMLElement) => () => void;
 
     // Authenticated fetch for platform REST APIs (/api/actors/[id], etc.)
     fetchWithAuth: (input: string, init?: RequestInit) => Promise<Response>;
@@ -107,6 +109,12 @@ export function useSDKComponents(): SDKComponentsValue {
         throw new Error('useSDKComponents() must be called inside a module component rendered by the platform');
     }
     return ctx;
+}
+
+/** Reserve the visible bar's height for Core tools; hidden/unmounted bars reserve zero. */
+export function useBottomNavigation(ref: RefObject<HTMLElement | null>): void {
+    const { registerBottomNavigation } = useSDK();
+    useLayoutEffect(() => ref.current ? registerBottomNavigation(ref.current) : undefined, [ref, registerBottomNavigation]);
 }
 
 // Re-export so callers can import RealtimeActorChangedPayload from '@sheet-delver/sdk'

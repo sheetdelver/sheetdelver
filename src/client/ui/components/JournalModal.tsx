@@ -10,6 +10,7 @@ import { useSession } from '@client/ui/context/SessionContext';
 import { logger } from '@shared/utils/logger';
 import { sanitizeRichHtml } from '@shared/security/safeHtml';
 import { SafeHtmlContent } from './SafeHtmlContent';
+import { useModalFocus } from '@client/ui/hooks/useModalFocus';
 import {
     getJournalPageId,
     resolveJournalPageSelection,
@@ -17,22 +18,34 @@ import {
 } from './journalOrdering';
 
 export default function JournalModal() {
-    const { activeJournalId, setActiveJournalId, sharedJournalId, setSharedJournalId } = useUI();
+    const {
+        activeJournalId, setActiveJournalId, sharedJournalId, setSharedJournalId,
+        sharedJournalPageId, setSharedJournalPageId, activeShareKey, dismissSharedContent,
+        sharedJournalReceipt, setSharedJournalReceipt,
+    } = useUI();
     const {
         getJournal,
+        getSharedJournal,
+        closeSharedJournal,
         updateJournal,
         updateJournalPage,
         journalRevisions,
         journalGlobalRevision,
     } = useJournal();
-    const { foundryUrl } = useConfig();
+    const { foundryUrl, resolveImageUrl } = useConfig();
     const { currentUser } = useSession();
+    const isShared = !!sharedJournalId && activeJournalId === sharedJournalId;
 
     const [journal, setJournal] = useState<JournalEntry | null>(null);
     const [loading, setLoading] = useState(false);
     const [isEditing, setIsEditing] = useState(false);
     const [activePageId, setActivePageId] = useState<string | null>(null);
+    const [sharedPageUnavailable, setSharedPageUnavailable] = useState(false);
+    const [imageFailed, setImageFailed] = useState(false);
     const requestedJournalIdRef = React.useRef<string | null>(null);
+    const requestedShareKeyRef = React.useRef<string | null>(null);
+    const requestRevision = React.useRef(0);
+    const dialogRef = React.useRef<HTMLDivElement>(null);
     const activeJournalRevision = activeJournalId ? (journalRevisions[activeJournalId] ?? 0) : 0;
     // Foundry persists page order in each JournalEntryPage.sort value; socket
     // and REST payload array order is not itself the ordering contract.
@@ -49,20 +62,39 @@ export default function JournalModal() {
     };
 
     useEffect(() => {
+        const request = ++requestRevision.current;
+        let current = true;
         if (activeJournalId) {
             const journalChanged = requestedJournalIdRef.current !== activeJournalId;
+            const newShare = !!activeShareKey && requestedShareKeyRef.current !== activeShareKey;
             requestedJournalIdRef.current = activeJournalId;
-            if (journalChanged) {
+            requestedShareKeyRef.current = activeShareKey;
+            if (journalChanged || newShare) {
                 setLoading(true);
                 setIsEditing(false);
                 setActivePageId(null);
+                setSharedPageUnavailable(false);
             }
-            getJournal(activeJournalId).then(data => {
+            const read = isShared
+                ? (sharedJournalReceipt ? getSharedJournal(sharedJournalReceipt) : Promise.resolve(null))
+                : getJournal(activeJournalId);
+            read.then(data => {
                 // Ignore a late response from a journal that has since closed
                 // or been replaced by another journal in the same modal.
-                if (requestedJournalIdRef.current !== activeJournalId) return;
-                setJournal(data);
-                setActivePageId(current => resolveJournalPageSelection(data?.pages ?? [], current));
+                if (!current || requestRevision.current !== request) return;
+                const requestedPage = activeJournalId === sharedJournalId ? sharedJournalPageId : null;
+                const pageVisible = !requestedPage || !!data?.pages?.some(page => getJournalPageId(page) === requestedPage);
+                setSharedPageUnavailable(!data || !pageVisible);
+                setJournal(pageVisible ? data : null);
+                setActivePageId(current => requestedPage
+                    ? (!newShare && current && data?.pages?.some(page => getJournalPageId(page) === current) ? current : requestedPage)
+                    : resolveJournalPageSelection(data?.pages ?? [], current));
+                setLoading(false);
+            }).catch(error => {
+                if (!current || requestRevision.current !== request) return;
+                logger.debug('JournalModal | Journal temporarily unavailable:', error);
+                setJournal(null);
+                setSharedPageUnavailable(true);
                 setLoading(false);
             });
         } else {
@@ -70,7 +102,9 @@ export default function JournalModal() {
             setJournal(null);
             setIsEditing(false);
             setActivePageId(null);
+            setSharedPageUnavailable(false);
         }
+        return () => { current = false; };
     // Realtime revisions are scoped by Journal id; broad invalidations use the
     // global revision. getJournal coalesces a change during an active detail
     // read into one trailing request whose result is returned to this modal.
@@ -78,17 +112,31 @@ export default function JournalModal() {
         activeJournalId,
         activeJournalRevision,
         getJournal,
+        getSharedJournal,
+        isShared, sharedJournalReceipt,
         journalGlobalRevision,
+        sharedJournalId,
+        sharedJournalPageId,
+        activeShareKey,
     ]);
 
+    useEffect(() => () => closeSharedJournal(), [activeJournalId, activeShareKey, closeSharedJournal]);
     const close = () => {
+        requestRevision.current++;
+        if (isShared) { closeSharedJournal(); dismissSharedContent(); }
         setActiveJournalId(null);
         setSharedJournalId(null);
+        setSharedJournalPageId(null);
+        setSharedJournalReceipt(null);
         setJournal(null);
     };
+    useModalFocus(dialogRef, !!activeJournalId, close);
+
+    useEffect(() => { setImageFailed(false); }, [activePageId]);
 
     const handleSave = async (html: string) => {
         if (!journal) return;
+        const request = requestRevision.current;
 
         try {
             if (journal.pages && journal.pages.length > 0) {
@@ -106,6 +154,7 @@ export default function JournalModal() {
 
             // Refresh local state
             const updated = await getJournal(journal._id);
+            if (requestRevision.current !== request || requestedJournalIdRef.current !== journal._id) return;
             setJournal(updated);
             setIsEditing(false);
         } catch (error) {
@@ -113,14 +162,19 @@ export default function JournalModal() {
         }
     };
 
-    const isShared = activeJournalId === sharedJournalId;
     const isGM = currentUser?.isGM || false;
     const currentUserId = currentUser?._id || currentUser?.id || '';
-    const canEdit = !isShared && (isGM || (journal?.ownership?.[currentUserId] || 0) >= 3);
+    const currentPage = orderedPages[activePageIndex];
+    const pageType = currentPage?.type ?? 'text';
+    const canEdit = !isShared && pageType === 'text'
+        && (isGM || (journal?.ownership?.[currentUserId] || 0) >= 3);
     const canShare = isGM && !isShared;
 
-    const currentPage = orderedPages[activePageIndex];
-    const rawContent = currentPage?.text?.content || journal?.content || '';
+    const rawContent = currentPage?.text?.content || (!currentPage ? journal?.content : '') || '';
+    const imageSource = typeof currentPage?.src === 'string' ? currentPage.src : '';
+    const imageCaption = typeof currentPage?.image === 'object' && currentPage.image
+        && 'caption' in currentPage.image && typeof currentPage.image.caption === 'string'
+        ? currentPage.image.caption : '';
 
     // Keep editor input raw for round-tripping; only display content receives
     // the SafeHtml brand and Foundry-relative URL transformation.
@@ -131,11 +185,11 @@ export default function JournalModal() {
     if (!activeJournalId) return null;
 
     return (
-        <div className="sd-ui-overlay fixed inset-0 z-[200] flex items-center justify-center p-4 sm:p-8 backdrop-blur-md animate-in fade-in duration-300">
+        <div className="sd-ui-overlay fixed inset-0 z-[200] flex items-center justify-center p-4 sm:p-8 backdrop-blur-md animate-in fade-in duration-300" role="dialog" aria-modal="true" aria-label="Journal">
             {/* Backdrop click to close */}
             <div className="absolute inset-0" onClick={close} />
 
-            <div className="sd-ui-panel-raised w-full max-w-5xl h-full sm:h-[85vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden relative hud-panel" onClick={e => e.stopPropagation()}>
+            <div ref={dialogRef} tabIndex={-1} className="sd-ui-panel-raised w-full max-w-5xl h-full sm:h-[85vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden relative hud-panel outline-none" onClick={e => e.stopPropagation()}>
 
                 {/* Header */}
                 <div className="sd-ui-inset p-4 sm:p-5 border-b sd-ui-divider flex items-center justify-between">
@@ -165,6 +219,7 @@ export default function JournalModal() {
                         )}
                         <button
                             onClick={close}
+                            aria-label="Close journal"
                             className="sd-ui-button p-2 rounded-full transition-all ml-1"
                         >
                             <X className="w-6 h-6" />
@@ -195,7 +250,19 @@ export default function JournalModal() {
                                             <h2 className="text-xl sm:text-3xl m-0 text-white font-cinzel leading-relaxed">{currentPage.name}</h2>
                                         </div>
                                     )}
-                                    {rawContent ? (
+                                    {sharedPageUnavailable ? (
+                                        <p role="alert">This shared journal page is not available to you.</p>
+                                    ) : pageType === 'image' ? (
+                                        imageSource && !imageFailed ? (
+                                            <figure className="m-0 flex flex-col items-center gap-4">
+                                                <img src={resolveImageUrl(imageSource)} alt={currentPage?.name || 'Journal image'}
+                                                    onError={() => setImageFailed(true)} className="max-h-[65vh] max-w-full object-contain" />
+                                                {imageCaption && <figcaption className="text-center text-sm">{imageCaption}</figcaption>}
+                                            </figure>
+                                        ) : <p role="alert">This journal image could not be loaded.</p>
+                                    ) : pageType !== 'text' ? (
+                                        <p>This journal page type ({String(pageType)}) is not supported here.</p>
+                                    ) : rawContent ? (
                                         <SafeHtmlContent
                                             className="journal-content-render"
                                             html={displayContent}

@@ -14,7 +14,6 @@ import { isPostedChatMessage } from '@shared/utils/postedChatMessage';
 import { processHtmlContent } from '@modules/registry/client';
 import { useNotifications } from '@client/ui/components/NotificationSystem';
 import LoadingModal from '@client/ui/components/LoadingModal';
-import { SharedContentModal } from '@client/ui/components/SharedContentModal';
 import { createCoalescedFetch, type CoalescedFetch } from '@client/ui/context/coalescedFetch';
 
 export interface GenericActorPageProps {
@@ -290,7 +289,6 @@ export default function GenericActorPage({ actorId }: GenericActorPageProps) {
                 </div>
             )}
 
-            <SharedContentModal />
 
             {showDeleteModal && (
                 <div className="sd-ui-overlay fixed inset-0 z-[100] flex items-center justify-center backdrop-blur-sm p-4 animate-in fade-in duration-300">

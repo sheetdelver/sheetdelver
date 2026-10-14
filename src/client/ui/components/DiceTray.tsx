@@ -217,7 +217,7 @@ export default function DiceTray({ onSend, hideHeader = false, speaker }: DiceTr
                         }
                     }}
                     className={s.textarea || defaultStyles.textarea}
-                    placeholder="/r 1d20 + 5 OR Hello World"
+                    placeholder="Roll with /r 1d20 + 5"
                 />
                 <button
                     onClick={clear}

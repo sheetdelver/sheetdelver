@@ -10,7 +10,7 @@ import { ActorRepository } from '@server/core/documents/primary/actors/ActorRepo
 import { CombatRepository } from '@server/core/documents/primary/combats/CombatRepository';
 import { FolderRepository } from '@server/core/documents/primary/folders/FolderRepository';
 import { getDocumentId, isRecord } from '@server/core/documents/primary/base/PrimaryDocumentStore';
-import { DocumentOwnershipLevel, FoundryUserRole, getEffectiveOwnership, isGM,
+import { DocumentOwnershipLevel, FoundryUserRole, getEffectiveOwnership,
     type DocumentOwnershipMap } from '@server/core/documents/primary/base/ownership';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
 import { compendiumStore } from '@server/core/compendium/CompendiumStore';
@@ -37,10 +37,11 @@ import { discoverActorSortFields, parseActorPickerSort, sortActorChoices } from 
 import { systemService } from '@server/services/world';
 import type { SystemAdapter } from '@shared/sdk';
 import { effectiveInitiativeFormula, validInitiativeFallback } from './CombatInitiativeFormula';
-
-export class CombatManagerError extends Error {
-    constructor(message: string, public readonly status: number, public readonly code?: string) { super(message); }
-}
+import { worldStateStore } from '@server/core/world/WorldStateStore';
+import { canReadCombatActorPack, hasCombatCopyPermission, type CombatCopyPermission }
+    from '@server/core/documents/primary/base/nativeCombatPermissions';
+import { CombatManagerError, requireCombatManagerSubject } from './CombatManagerAccess';
+export { CombatManagerError } from './CombatManagerAccess';
 
 const ID_PATTERN = /^[A-Za-z0-9]{1,64}$/;
 const STAT_KEY_PATTERN = /^[A-Za-z][A-Za-z0-9_-]{0,31}$/;
@@ -167,9 +168,24 @@ function hasPlayerOwner(actor: ActorDocument): boolean {
 }
 
 function roleSubject(client: CombatClientLike) {
-    const subject = userStore.createAccessSubject(client.userId);
-    if (!subject || !isGM(subject)) throw new CombatManagerError('Gamemaster access required', 403);
-    return subject;
+    return requireCombatManagerSubject(client.userId);
+}
+
+function requireCopyPermission(client: CombatClientLike, permission: CombatCopyPermission): void {
+    const subject = roleSubject(client);
+    if (!hasCombatCopyPermission(subject, permission, worldStateStore.getRelease()?.generation,
+        userStore.get(subject.userId)?.permissions, settingStore.getValueByKey('core.permissions'))) {
+        throw new CombatManagerError(`Foundry permission ${permission} is required to copy this Actor`, 403);
+    }
+}
+
+function packReadable(client: CombatClientLike, pack: Record<string, unknown>): boolean {
+    const subject = roleSubject(client);
+    const config = settingStore.getValueByKey('core.compendiumConfiguration');
+    const id = typeof pack.id === 'string' ? pack.id : typeof pack._id === 'string' ? pack._id : '';
+    const entry = isRecord(config) && isRecord(config[id]) ? config[id] : null;
+    return canReadCombatActorPack(subject, worldStateStore.getRelease()?.generation,
+        pack.ownership, entry?.ownership);
 }
 
 function requiredEncounter(combatId: string): { combat: CombatDocument; flag: CombatManagerFlag } {
@@ -193,7 +209,32 @@ async function withEncounterLock<T>(combatId: string, operation: () => Promise<T
 }
 
 function repositories(client: CombatClientLike) {
-    const transport = { dispatchDocument: client.dispatchDocument.bind(client) };
+    // Current User/Setting/pack state is checked per dispatch, including later
+    // batch targets and rollback. Native Foundry receives only the caller's transport.
+    const transport = { dispatchDocument: async (type: string, action: string, operation?: unknown,
+        parent?: { type: string; id: string }) => {
+        const subject = roleSubject(client);
+        const op = isRecord(operation) ? operation : {};
+        if (type === 'Actor' && action === 'create') {
+            requireCopyPermission(client, 'ACTOR_CREATE');
+            for (const row of Array.isArray(op.data) ? op.data : []) {
+                if (isRecord(row) && isRecord(row.prototypeToken) && row.prototypeToken.randomImg === true) {
+                    requireCopyPermission(client, 'FILES_BROWSE');
+                }
+            }
+        }
+        const store = type === 'Actor' ? actorStore : type === 'Folder' ? folderStore : combatStore;
+        const ids = action === 'update' && Array.isArray(op.updates)
+            ? op.updates.filter(isRecord).map(row => getDocumentId(row))
+            : action === 'delete' && Array.isArray(op.ids) ? op.ids : [];
+        for (const id of parent ? [parent.id] : ids) {
+            const target = parent ? combatStore : store;
+            if (typeof id !== 'string' || !target.canReadDocument(id, subject, DocumentOwnershipLevel.OWNER)) {
+                throw new CombatManagerError('Foundry document operation is no longer authorized', 403);
+            }
+        }
+        return client.dispatchDocument(type, action, operation, parent);
+    } };
     return {
         combats: new CombatRepository(transport),
         actors: new ActorRepository(transport),
@@ -222,10 +263,11 @@ function projectEncounter(combat: CombatDocument, client: CombatClientLike,
     const flag = readCombatManagerFlag(combat);
     const id = getDocumentId(combat);
     if (!flag || !id) return null;
+    const subject = roleSubject(client);
     const prepared = combatEncounterReadModel.getOrRebuild(id);
     const resourcePath = trackedResourcePath();
     const participants: CombatManagerParticipantDto[] = (prepared?.rows || []).map(row => {
-        const actor = row.actorId ? actorStore.get(row.actorId) : null;
+        const actor = row.actorId ? actorStore.get(row.actorId, { subject }) : null;
         const preparedActor = row.actorId ? preparedActorStore.get(row.actorId) : null;
         const initiative = preparedActor ? effectiveInitiativeFormula(adapter, preparedActor, initiativeFallback) : null;
         const source = row.actorId && flag.copyIds.includes(row.actorId) ? 'compendium-copy' : 'world';
@@ -295,6 +337,7 @@ export const combatManagerService = {
         const actorId = actorIdInput === undefined ? undefined : requiredId(actorIdInput);
         if (actorId && !actorStore.get(actorId, { subject })) throw new CombatManagerError('Actor not found', 404);
         const preferences = await combatStatDisplayService.detail(client, actorId, includeCatalog);
+        roleSubject(client);
         if (!preferences) throw new CombatManagerError('World is not ready', 503);
         if (actorId) {
             const actor = preparedActorStore.get(actorId);
@@ -311,6 +354,7 @@ export const combatManagerService = {
             throw new CombatManagerError('Use dice, numbers, +/− and safe @system or @derived paths', 400);
         }
         const preferences = await combatStatDisplayService.saveInitiativeFormula(client, formula);
+        roleSubject(client);
         if (!preferences) throw new CombatManagerError('World is not ready', 503);
         return preferences;
     },
@@ -320,6 +364,7 @@ export const combatManagerService = {
         const attributes = parseCombatStatSelection(attributesInput);
         if (!attributes) throw new CombatManagerError('Invalid combat-stat selection', 400);
         const preferences = await combatStatDisplayService.save(client, attributes);
+        roleSubject(client);
         if (!preferences) throw new CombatManagerError('World is not ready', 503);
         return preferences;
     },
@@ -327,6 +372,7 @@ export const combatManagerService = {
     async resetStatPreferences(client: CombatClientLike): Promise<CombatManagerStatPreferencesDto> {
         roleSubject(client);
         const preferences = await combatStatDisplayService.reset(client);
+        roleSubject(client);
         if (!preferences) throw new CombatManagerError('World is not ready', 503);
         return preferences;
     },
@@ -352,7 +398,7 @@ export const combatManagerService = {
     packs(client: CombatClientLike): CombatManagerPackDto[] {
         roleSubject(client);
         return compendiumStore.listPackMetadata()
-            .filter(pack => [pack.type, pack.documentName, pack.entity].includes('Actor'))
+            .filter(pack => [pack.type, pack.documentName, pack.entity].includes('Actor') && packReadable(client, pack))
             .map(pack => ({ id: pack.id || pack._id || '', label: pack.label || pack.title || pack.name || pack.id || 'Actor pack' }))
             .filter(pack => PACK_PATTERN.test(pack.id)).slice(0, 200);
     },
@@ -367,6 +413,7 @@ export const combatManagerService = {
         const response = await client.dispatchDocument('Actor', 'get', {
             pack: packId, index: true, query: {}, indexFields: ['_id', 'name', 'img', 'type', 'system'], broadcast: false,
         });
+        if (!this.packs(client).some(pack => pack.id === packId)) throw new CombatManagerError('Actor pack access changed', 403);
         const term = query.trim().toLocaleLowerCase().slice(0, 80);
         const source = resultRows(response);
         const sortFields = discoverActorSortFields(source);
@@ -467,6 +514,7 @@ export const combatManagerService = {
         quantityInput: unknown = 1): Promise<CombatManagerEncounterDto> {
         roleSubject(client);
         const actorId = requiredId(documentId);
+        requireCopyPermission(client, 'ACTOR_CREATE');
         if (!Number.isInteger(quantityInput) || (quantityInput as number) < 1
             || (quantityInput as number) > MAX_PACK_COPIES_PER_ADD) {
             throw new CombatManagerError(`Choose 1–${MAX_PACK_COPIES_PER_ADD} copies per Add`, 400);
@@ -484,6 +532,10 @@ export const combatManagerService = {
             });
             const source = resultRows(response).find(row => row._id === actorId);
             if (!source) throw new CombatManagerError('Compendium Actor not found', 404);
+            if (!this.packs(client).some(pack => pack.id === packId)) throw new CombatManagerError('Actor pack access changed', 403);
+            if (isRecord(source.prototypeToken) && source.prototypeToken.randomImg === true) {
+                requireCopyPermission(client, 'FILES_BROWSE');
+            }
             const { _id, id, folder, ownership, _stats, flags, ...copy } = source;
             void _id; void id; void folder; void ownership; void _stats;
             const sourceFlags = isRecord(flags) ? flags : {};

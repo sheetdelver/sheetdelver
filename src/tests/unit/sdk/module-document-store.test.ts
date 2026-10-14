@@ -335,6 +335,19 @@ export async function run() {
         chatMessageStore.clear('module-document-store-test');
     }
 
+    // Native Assistant Actor capability reaches the same SDK authorization
+    // boundary, without broadening journal pages or private chat visibility.
+    userStore.upsert({ _id: 'assistant-user', role: FoundryUserRole.ASSISTANT });
+    const assistantCalls: DispatchCall[] = [];
+    const assistantStore = createDocumentStore(makeClient('assistant-user', assistantCalls), noop);
+    assert.equal((await assistantStore.get('Actor', 'actor-limited'))?.name, 'Limited Actor');
+    await assistantStore.patch('Actor', 'actor-limited', { name: 'Assistant edit' });
+    assert.equal(assistantCalls.length, 1);
+    assert.equal(await assistantStore.get('JournalEntry', 'journal-observed'), null);
+    userStore.patch('assistant-user', { role: FoundryUserRole.TRUSTED });
+    await rejectsWithCode(() => assistantStore.patch('Actor', 'actor-owned', { name: 'Denied after downgrade' }), 'permission_denied');
+    assert.equal(assistantCalls.length, 1, 'current UserStore role controls subsequent SDK operations');
+
     actorStore.clear('module-document-store-test');
     journalStore.clear('module-document-store-test');
     userStore.clear('module-document-store-test');

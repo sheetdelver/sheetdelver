@@ -3,6 +3,7 @@ import { strict as assert } from 'node:assert';
 import { createChatService } from '@server/services/chat/ChatService';
 import { chatMessageStore } from '@server/core/documents/primary/chat-messages/ChatMessageStore';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
+import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
 import { FoundryUserRole } from '@server/core/documents/primary/base/ownership';
 import type { ChatClientLike } from '@server/shared/types/documents';
 
@@ -31,7 +32,40 @@ export async function run() {
     await runBlindWriteResponse();
     await runNormalChatWritesThroughCreateChatMessage();
     await runRollChatWritesThroughCreateChatMessage();
+    await runOwnedSheetSpeaker();
     console.log('  - ChatService: all checks passed');
+}
+
+async function runOwnedSheetSpeaker() {
+    await withMockUsers(async () => {
+        await actorStore.seed(async () => [
+            { _id: 'owned-actor', name: 'Zali', ownership: { default: 0, 'p-author': 3 } as Record<string, number> },
+            { _id: 'unowned-actor', name: 'Secret NPC', ownership: { default: 0 } as Record<string, number> },
+        ]);
+        try {
+            const created: Array<Record<string, unknown>> = [];
+            const service = createChatService(config);
+            const client = createMockClient({ createChatMessage: async data => { created.push(data); return {}; } });
+            const sent = await service.sendChatMessage(client, {
+                message: 'Hello', speaker: 'Forged alias', speakerActorId: 'owned-actor',
+            });
+            assert.equal('success' in sent && sent.success, true);
+            assert.equal(created[0].author, 'p-author');
+            assert.deepEqual(created[0].speaker, { actor: 'owned-actor', alias: 'Zali' });
+
+            const denied = await service.sendChatMessage(client, {
+                message: 'Hello', speakerActorId: 'unowned-actor',
+            });
+            assert.deepEqual(denied, { error: 'Actor speaker is not owned by this user', status: 403 });
+            const malformed = await service.sendChatMessage(client, {
+                message: 'Hello', speakerActorId: { _id: 'owned-actor' } as unknown as string,
+            });
+            assert.deepEqual(malformed, { error: 'Invalid Actor speaker', status: 400 });
+            assert.equal(created.length, 1);
+        } finally {
+            actorStore.clear('chat-speaker-test');
+        }
+    });
 }
 
 async function withMockUsers(callback: () => Promise<void>) {

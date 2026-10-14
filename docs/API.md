@@ -111,6 +111,9 @@ An absent, expired, revoked or conclusively invalid player session returns
 `401`. A pending or temporarily failed restoration returns `503`; the client
 must not treat that as logout. A successful read validates the current cookie,
 not continuity with a previous same-user cookie in another tab.
+The authenticated roster may mark the resolved service account with
+`isServiceAccount: true` for human-participant UI filtering. It remains in the
+canonical Foundry user store and retains its authorization semantics.
 
 ### `POST /api/login`
 
@@ -159,8 +162,16 @@ the module runtime, not from a broad module-facing client.
 
 ## GM Combat Manager
 
-All `/api/combat-manager` routes require an authenticated Foundry role-4
-Gamemaster; Assistants and players receive `403`. The manager lists only
+All `/api/combat-manager` routes require an authenticated Foundry Gamemaster
+or Assistant (roles 4/3); players, trusted users and banned users receive `403`.
+Actor/Combat/Folder operation capability includes Assistant, matching native
+Foundry. Compendium access uses the native generation and current role ownership;
+Actor copies additionally require `ACTOR_CREATE`, and wildcard token images
+require `FILES_BROWSE`. v13 permits explicit revocation; v14 mandates these two
+permissions for Assistant/GM. Missing permission state fails closed. Every write
+uses the caller's transport and rechecks current authority; no service-account
+fallback occurs. SheetDelver administration and world-setting writes retain
+their separate policies. The manager lists only
 SheetDelver-marked, scene-null Combats. Responses are bounded projections, not
 raw Combat, Actor, Folder or compendium documents. Errors return `{ "error":
 "..." }`; a write rejected because another change to the same encounter is in
@@ -190,11 +201,12 @@ initiative fallback formula is stored
 in the same world/module preference and is used only when the loaded module
 supplies no formula; module rules stay authoritative, followed by the GM
 fallback and Core `1d20`. Preference changes emit an empty
-`combatManagerPreferencesChanged` app-socket event to Gamemaster sockets only,
-causing other GM pages to refetch. A selected descriptor's optional
+`combatManagerPreferencesChanged` app-socket event to current Gamemaster and
+Assistant sockets, causing other manager pages to refetch. A selected descriptor's optional
 `showInRoster` produces a read-only participant pill, in descriptor order;
 other stats remain in the detail panel. See
-[ADR-0049](adr/0049-core-gm-combat-manager.md).
+[ADR-0049](adr/0049-core-gm-combat-manager.md) and the Assistant amendment in
+[ADR-0062](adr/0062-observed-player-issues.md).
 
 | Method | Path | Purpose |
 | --- | --- | --- |
@@ -211,7 +223,7 @@ other stats remain in the detail panel. See
 | `GET` | `/api/combat-manager/packs/:packId/actors?q=...&sort=...` | Search a GM-bound Actor pack index, projecting `system` server-side for a source-stat sort catalog. Returns all matching Actors in order; no Actor source documents cross to the browser. |
 | `POST` | `/api/combat-manager/:id/world-actors` | Add `{ "actorId": "..." }` as a world link. Marked encounter-owned copies are rejected even by direct API request. |
 | `POST` | `/api/combat-manager/:id/pack-actors` | Add `{ "packId": "...", "actorId": "...", "quantity": 1 }` as 1–20 independent encounter-owned world Actor copies. Partial failures report how many completed; retry is manual. |
-| `POST` | `/api/combat-manager/:id/next-turn` and `/previous-turn` | Run SheetDelver-managed turn progression under the GM-only encounter guard. |
+| `POST` | `/api/combat-manager/:id/next-turn` and `/previous-turn` | Run SheetDelver-managed turn progression under the GM/Assistant encounter guard. |
 | `POST` | `/api/combat-manager/:id/roll-initiative` | Roll available unrolled combatants with `{ "scope": "all" }` or `{ "scope": "npc" }`; NPC means no non-GM owner. Unresolved fallback references remain for manual entry. Returns `rolled` and the refreshed encounter. Partial failures report the count already rolled. |
 | `POST` | `/api/combat-manager/:id/combatants/:combatantId/roll-initiative` | Roll or reroll one participant through the guarded, user-bound initiative path. Optional `advantageMode` applies only to leading d20 formulas. Returns `rolled: 1` and the refreshed encounter. |
 | `POST` | `/api/combat-manager/:id/reset-initiative` | Clear all scored participants in one embedded-document update. Returns `cleared` and the refreshed encounter; current-turn identity is preserved. |
@@ -233,8 +245,8 @@ catalog is independent of the saved combat-stat display preference. Without
 `sort`, results default to Name ascending.
 
 The older `/api/combats/:id/next-turn` and `previous-turn` endpoints reject
-manager-marked encounters; those turns go through the GM-only manager routes.
-Initiative rolls on marked encounters require role-4 GM and active status. The
+manager-marked encounters; those turns go through the GM/Assistant manager routes.
+Initiative rolls on marked encounters require GM/Assistant and active status. The
 batch route reuses Core's user-bound, adapter-formula roll path, whispers hidden
 combatant rolls to GMs, and preserves current Combatant identity after sorting.
 Progression does not claim native Foundry client-hook, system-override,
@@ -394,6 +406,52 @@ Deletes a journal entry or folder. Pass `type=JournalEntry` or `type=Folder`.
 Auth: protected.
 
 Returns the latest media or journal content shared with the current user.
+The snapshot is keyed to the authenticated player session and world, with
+`Cache-Control: no-store`; a different user/session or world gets no share.
+Trusted service-bearer requests to this player presentation route return `403`.
+Selected Foundry shares are received on the recipient's user socket, never
+inferred to be public from a service-account receipt. A journal share can carry
+`data.pageId` and the native boolean `data.force`; its temporary display uses
+the separate read-only view below, not an ordinary journal permission grant.
+Image URLs are resolved only for the requesting client.
+Receipt listeners live with the authenticated Foundry session, independently of
+browser tabs. `streamId` and `sequence` order the latest receipt; HTTP and socket
+delivery carry the same values. These are presentation identifiers, not session
+credentials. Session/world retirement clears the snapshot. Only the latest
+receipt is retained in memory; there is no persistent/offline share history.
+
+### Temporary shared journal views
+
+Auth: protected **player world session only**; all responses are `no-store`.
+System/service bearer requests receive `403`.
+
+| Endpoint | Input | Result |
+| --- | --- | --- |
+| `POST /api/shared-content/journal-view` | JSON `{ streamId, sequence, shareId }` from the latest native journal receipt | `{ viewId, expiresAt }`, a read-only view lease. |
+| `GET /api/shared-content/journal-view?viewId=…` | Lease ID plus the same authenticated session | Display-only journal DTO. |
+| `DELETE /api/shared-content/journal-view` | JSON `{ viewId }` | Idempotent `{ ok: true }`; no Foundry document mutation. |
+
+The server resolves UUID/page/force exclusively from its recipient-scoped native
+receipt. Caller-supplied document/force/recipient fields are rejected. A forced
+page returns just that page and its parent display name; a forced entry applies
+Observer inheritance without exposing independently restricted pages.
+Non-forced shares retain normal read thresholds. Display projections omit
+ownership maps, flags and source statistics, and exclude unrevealed Secret
+sections unless the requester already owns that page. Revealed sections remain.
+Ordinary journal list/detail/write endpoints and their permission thresholds do
+not use this lease and are unchanged.
+
+Each browser view has an independent lease; the ID alone is not authentication.
+Close attempts immediate disposal. Superseding shares or session/world
+retirement invalidate old leases; a read renews the 30-minute idle expiry.
+There is no periodic polling. At most 16 leases are retained per current receipt;
+further opens return `429` until one closes/expires. Malformed receipt input is
+`400`, stale/non-recipient/closed/expired/unavailable views are `404`, and an
+unready journal cache is `503`. Failed close delivery remains bounded by idle
+expiry; already-transmitted content cannot be recalled. Latest-receipt catch-up
+allows another authenticated browser to open its own view while that upstream
+session remains current. World JournalEntry/Page UUIDs only; no compendium or
+privileged live-fetch fallback. See ADR-0062 J1 for native evidence and limits.
 
 ---
 
@@ -913,6 +971,13 @@ Disable rejects when another enabled module depends on the target.
 
 
 ## Chat Presentation and Notifications
+
+`POST /api/chat/send` accepts `message`, optional `rollMode` and `speaker`,
+and optional `speakerActorId` for an owned Actor. When an Actor is requested,
+Core checks effective OWNER access and uses that Actor's canonical name/ID;
+the authenticated Foundry user remains the author. An invalid Actor identifier
+returns `400`; an Actor for which the caller lacks OWNER access returns `403`. A sheet page's
+speaker context does not grant ownership or alter roll visibility.
 
 ChatMessage remains a primary Foundry document mirrored by Core. The existing
 chat endpoint supplies permission-filtered DTOs; realtime chat hints cause

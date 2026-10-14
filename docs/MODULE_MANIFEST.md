@@ -750,6 +750,8 @@ It checks:
 When it finds legacy imports, it prints migration hints such as:
 
 - `useSDK()` / `useSDKComponents()` from `@sheet-delver/sdk/react`
+- Optional `useBottomNavigation(ref)` from the same React entry (SDK 2.3.0,
+  UI API 2.2.0); see [footer clearance](MODULE_AUTHORING.md#optional-bottom-navigation).
 - `ModuleServerRequest` and route helpers from `@sheet-delver/sdk/server`
 - `req.runtime.documents` / `req.runtime.chat` instead of `req.foundryClient`
 - SDK utility exports from `@sheet-delver/sdk`

@@ -4,7 +4,6 @@ import type { ActorDocument } from '@server/shared/types/actors';
 import type { CombatClientLike, RollChatMessageLike } from '@server/shared/types/documents';
 import {
     DOCUMENT_VISIBILITY,
-    isGM,
     isAssistantGM,
     type DocumentAccessSubject,
 } from '@server/core/documents/primary/base/ownership';
@@ -171,10 +170,10 @@ export function createCombatService(deps: CombatServiceDeps) {
             if (!prepared) return null;
             const dto = buildCombatTrackerDto(prepared, subject, projectionDeps);
             const managerFlag = readCombatManagerFlag(combat);
-            const permitted = isGM(subject) && managerFlag?.status === 'active';
+            const permitted = isAssistantGM(subject) && managerFlag?.status === 'active';
             const projected = managerFlag ? {
                 ...dto,
-                // Managed encounters use the separate GM-only manager routes.
+                // Managed encounters use the separate GM/Assistant manager routes.
                 // The legacy HUD is view-only for these encounters.
                 canAdvanceTurn: false,
                 canRewindTurn: false,
@@ -241,7 +240,7 @@ export function createCombatService(deps: CombatServiceDeps) {
 
         const subject = resolveSubject(client.userId);
         const managed = readCombatManagerFlag(combatStore.get(combatId));
-        if (managed && (!subject || !isGM(subject))) return { error: 'Gamemaster access required', status: 403 };
+        if (managed && (!subject || !isAssistantGM(subject))) return { error: 'Gamemaster or Assistant access required', status: 403 };
         if (managed && managed.status !== 'active') return { error: 'Encounter is not active', status: 409 };
         if (managed && !managerCommand) return { error: 'Use the GM Combat Manager to advance this encounter', status: 403 };
         if (!subject || !isAuthorizedForCombatTurn(prepared, subject)) {
@@ -280,7 +279,7 @@ export function createCombatService(deps: CombatServiceDeps) {
         return { success: true, round, turn };
     };
 
-    // Turn rewind, GM-only. Rewinding past round 1 turn 0 returns the
+    // Turn rewind, GM/Assistant only. Rewinding past round 1 turn 0 returns the
     // encounter to its unstarted round-zero state.
     const previousTurn = async (
         client: CombatClientLike,
@@ -295,7 +294,7 @@ export function createCombatService(deps: CombatServiceDeps) {
 
         const subject = resolveSubject(client.userId);
         const managed = readCombatManagerFlag(combatStore.get(combatId));
-        if (managed && (!subject || !isGM(subject))) return { error: 'Gamemaster access required', status: 403 };
+        if (managed && (!subject || !isAssistantGM(subject))) return { error: 'Gamemaster or Assistant access required', status: 403 };
         if (managed && managed.status !== 'active') return { error: 'Encounter is not active', status: 409 };
         if (managed && !managerCommand) return { error: 'Use the GM Combat Manager to rewind this encounter', status: 403 };
         if (!subject || !isAssistantGM(subject)) {
@@ -370,7 +369,7 @@ export function createCombatService(deps: CombatServiceDeps) {
 
         const subject = resolveSubject(client.userId);
         const managed = readCombatManagerFlag(combat);
-        if (managed && (!subject || !isGM(subject))) return { error: 'Gamemaster access required', status: 403 };
+        if (managed && (!subject || !isAssistantGM(subject))) return { error: 'Gamemaster or Assistant access required', status: 403 };
         if (managed && managed.status !== 'active') return { error: 'Encounter is not active', status: 409 };
         if (managed && !managerCommand) return { error: 'Use the GM Combat Manager to roll initiative', status: 403 };
         if (!subject) return { error: 'Unauthorized', status: 403 };

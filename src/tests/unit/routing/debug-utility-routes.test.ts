@@ -80,9 +80,7 @@ async function runUtilityRouteSmokeTests() {
     ] as import('@server/shared/types/actors').ActorDocument[]));
 
     const routeMap: RouteMap = { get: new Map() };
-    registerUtilityRoutes(createRouterStub(routeMap) as any, {
-        getFallbackSharedContentClient: () => createRouteClient(async () => null),
-    });
+    registerUtilityRoutes(createRouterStub(routeMap) as any);
 
     assert.equal(routeMap.get.has('/foundry/document'), true);
     assert.equal(routeMap.get.has('/session/users'), true);

@@ -41,6 +41,7 @@ import {
     useActorSheet,
     useModuleSettings,
     createActorPage,
+    useBottomNavigation,
 } from '../../../shared/sdk/entry-react';
 
 // ---------------------------------------------------------------------------
@@ -379,6 +380,7 @@ function runClientSdkTests() {
     assert.equal(typeof useDocumentMutation, 'function');
     assert.equal(typeof useActorSheet, 'function');
     assert.equal(typeof useModuleSettings, 'function');
+    assert.equal(typeof useBottomNavigation, 'function');
 
     // createActorPage produces a component without rendering it.
     const Page = createActorPage(() => null);
@@ -409,9 +411,9 @@ function runClientSdkTests() {
 // ---------------------------------------------------------------------------
 
 function runVersionTests() {
-    assert.equal(SDK_VERSION, '2.2.0');
+    assert.equal(SDK_VERSION, '2.3.0');
     assert.equal(API_CONTRACT_VERSIONS['module-api'], '1.3.0');
-    assert.equal(API_CONTRACT_VERSIONS['ui-extension-api'], '2.1.0');
+    assert.equal(API_CONTRACT_VERSIONS['ui-extension-api'], '2.2.0');
     assert.equal(API_CONTRACT_VERSIONS['roll-engine-api'], '1.0.0');
 
     // Capability detection (decision 23)
