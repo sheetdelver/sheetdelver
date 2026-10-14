@@ -41,6 +41,18 @@ export function run() {
                     ts.forEachChild(child, collect);
                 }
                 collect(attr.initializer);
+                // A speaker-aware wrapper is allowed, but its body must still
+                // only dispatch the roll; it must not toggle/close the tray.
+                if (calls.length === 0 && ts.isJsxExpression(attr.initializer)
+                    && attr.initializer.expression && ts.isIdentifier(attr.initializer.expression)) {
+                    const name = attr.initializer.expression.text;
+                    function findWrapper(child: ts.Node) {
+                        if (ts.isVariableDeclaration(child) && child.name.getText(source) === name
+                            && child.initializer) collect(child.initializer);
+                        ts.forEachChild(child, findWrapper);
+                    }
+                    findWrapper(source);
+                }
                 assert.deepEqual(calls, ['onSend'], `${file}: sending must not toggle or close the tray`);
                 checked++;
             }

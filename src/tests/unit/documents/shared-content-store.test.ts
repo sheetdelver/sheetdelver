@@ -1,122 +1,67 @@
 import { strict as assert } from 'node:assert';
-import {
-    SharedContentStore,
-    type SharedContentChangedEvent,
-    type SharedContentPayload,
-} from '@server/core/world/SharedContentStore';
+import { SharedContentStore, type SharedContentPayload } from '@server/core/world/SharedContentStore';
+import { EventEmitter } from 'node:events';
+import { attachSharedContentIngress } from '@server/services/utility/SharedContentIngress';
+
+const image = (): SharedContentPayload => ({
+    type: 'image',
+    data: { url: 'icons/foo.png', title: 'Foo' },
+    timestamp: 1700000000000,
+});
 
 export async function run() {
-    await runInitialState();
-    await runSetAndGet();
-    await runDefensiveCopyOnRead();
-    await runDefensiveCopyOnWrite();
-    await runEventFiresOnSetAndClear();
-    await runClearIdempotent();
-    await runUnsubscribe();
+    const store = new SharedContentStore();
+    assert.equal(store.getCurrent('alice', 'world-a'), null);
+
+    const input = image();
+    store.set('alice', 'world-a', input);
+    const first = store.getCurrent('alice', 'world-a')!;
+    assert.deepEqual(first.data, image().data);
+    assert.equal(first.sequence, 1);
+    assert.ok(first.streamId);
+    assert.equal(store.getCurrent('bob', 'world-a'), null, 'another recipient sees no share');
+    assert.equal(store.getCurrent('alice', 'world-b'), null, 'another world sees no share');
+
+    if (input.data) input.data.url = 'mutated-input.png';
+    const output = store.getCurrent('alice', 'world-a');
+    if (output?.data) output.data.url = 'mutated-output.png';
+    assert.equal(store.getCurrent('alice', 'world-a')?.data?.url, 'icons/foo.png');
+
+    store.set('bob', 'world-a', { type: 'journal', data: { id: 'j-1' } });
+    store.clearSession('alice');
+    assert.equal(store.getCurrent('alice', 'world-a'), null);
+    assert.equal(store.getCurrent('bob', 'world-a')?.type, 'journal');
+
+    store.clear('world-closed');
+    assert.equal(store.getCurrent('bob', 'world-a'), null);
+    const client = new EventEmitter();
+    let authorized = true;
+    const receipts: SharedContentPayload[] = [];
+    const unsubscribe = store.onChanged(update => receipts.push(update.payload));
+    const detach = attachSharedContentIngress(client, {
+        sessionId: 'alice', worldId: 'world-a', isCurrent: () => authorized,
+    }, store);
+    // No app browser is attached. The retained user session still records shares.
+    client.emit('foundry:shareImage', { data: { image: '/a.png' }, shareId: 'one' });
+    client.emit('foundry:shareImage', { data: { image: '/a.png' }, shareId: 'one' });
+    assert.equal(receipts.length, 1, 'duplicate receipt does not create another presentation');
+    client.emit('foundry:shareImage', { data: { image: '/a.png' }, shareId: 'two' });
+    assert.equal(store.getCurrent('alice', 'world-a')?.sequence, 2, 'identical URL can be shared again');
+    client.emit('foundry:showEntry', { uuid: 'JournalEntry.j.JournalEntryPage.p', shareId: 'three' });
+    assert.equal(store.getCurrent('alice', 'world-a')?.data?.pageId, 'p');
+    assert.equal(store.getCurrent('bob', 'world-a'), null);
+    client.emit('foundry:showEntry', { uuid: 'Actor.secret', shareId: 'bad' });
+    assert.equal(receipts.length, 3);
+    authorized = false;
+    client.emit('foundry:shareImage', { data: { image: '/retired.png' }, shareId: 'four' });
+    assert.equal(receipts.length, 3, 'retired authority cannot ingest late shares');
+    detach();
+    unsubscribe();
+    assert.equal(client.listenerCount('foundry:shareImage'), 0);
+    assert.equal(client.listenerCount('foundry:showEntry'), 0);
     console.log('  - SharedContentStore: all checks passed');
 }
 
-function buildImagePayload(): SharedContentPayload {
-    return {
-        type: 'image',
-        data: { url: 'icons/foo.png', title: 'Foo' },
-        timestamp: 1700000000000,
-    };
-}
-
-async function runInitialState() {
-    const store = new SharedContentStore();
-    assert.equal(store.getCurrent(), null);
-}
-
-async function runSetAndGet() {
-    const store = new SharedContentStore();
-    const payload = buildImagePayload();
-    store.set(payload);
-
-    const got = store.getCurrent();
-    assert.ok(got);
-    assert.equal(got.type, 'image');
-    assert.equal(got.data?.url, 'icons/foo.png');
-    assert.equal(got.timestamp, 1700000000000);
-}
-
-async function runDefensiveCopyOnRead() {
-    // Mutating a value returned from getCurrent() must not affect the next read.
-    const store = new SharedContentStore();
-    store.set(buildImagePayload());
-
-    const first = store.getCurrent();
-    assert.ok(first);
-    if (first.data) first.data.url = 'icons/hijacked.png';
-
-    const second = store.getCurrent();
-    assert.equal(second?.data?.url, 'icons/foo.png', 'second read should be unaffected by mutation of first');
-}
-
-async function runDefensiveCopyOnWrite() {
-    // Mutating the original input reference after set() must not affect the
-    // canonical Store snapshot — the wire listener may reuse a payload object.
-    const store = new SharedContentStore();
-    const payload = buildImagePayload();
-    store.set(payload);
-
-    if (payload.data) payload.data.url = 'icons/hijacked.png';
-
-    const got = store.getCurrent();
-    assert.equal(got?.data?.url, 'icons/foo.png', 'Store snapshot should be detached from caller reference');
-}
-
-async function runEventFiresOnSetAndClear() {
-    const store = new SharedContentStore();
-    const events: SharedContentChangedEvent[] = [];
-    store.onSharedContentChanged((event) => events.push(event));
-
-    store.set(buildImagePayload());
-    assert.equal(events.length, 1);
-    assert.equal(events[0].reason, 'set');
-    assert.equal(events[0].payload?.type, 'image');
-
-    store.clear('test-clear');
-    assert.equal(events.length, 2);
-    assert.equal(events[1].reason, 'clear');
-    assert.equal(events[1].payload, null);
-
-    // Event payloads are themselves defensive copies — mutating one must not
-    // affect the next.
-    if (events[0].payload?.data) events[0].payload.data.url = 'icons/hijacked.png';
-    const got = store.getCurrent();
-    assert.equal(got, null, 'after clear the Store is empty regardless of event-payload mutation');
-}
-
-async function runClearIdempotent() {
-    const store = new SharedContentStore();
-    const events: SharedContentChangedEvent[] = [];
-    store.onSharedContentChanged((event) => events.push(event));
-
-    // Initial state is already null — clearing again should not emit.
-    store.clear('redundant');
-    assert.equal(events.length, 0);
-
-    store.set(buildImagePayload());
-    assert.equal(events.length, 1);
-
-    store.clear('first-real-clear');
-    assert.equal(events.length, 2);
-
-    store.clear('second-redundant-clear');
-    assert.equal(events.length, 2, 'consecutive clears do not re-emit');
-}
-
-async function runUnsubscribe() {
-    const store = new SharedContentStore();
-    const events: SharedContentChangedEvent[] = [];
-    const unsubscribe = store.onSharedContentChanged((event) => events.push(event));
-
-    store.set(buildImagePayload());
-    assert.equal(events.length, 1);
-
-    unsubscribe();
-    store.set({ type: 'journal', data: { id: 'j-1', uuid: 'JournalEntry.j-1' }, timestamp: 0 });
-    assert.equal(events.length, 1, 'unsubscribed listener does not receive further events');
+if (import.meta.url === `file://${process.argv[1]}`) {
+    run().catch(error => { console.error(error); process.exit(1); });
 }

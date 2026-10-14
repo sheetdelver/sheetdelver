@@ -1,5 +1,5 @@
 import { requestJson } from '@client/ui/api/http';
-import type { JournalEntryDto, JournalListPayload, JournalPageDto } from '@shared/contracts/journals';
+import type { JournalEntryDto, JournalListPayload, JournalPageDto, SharedJournalReceipt, SharedJournalView } from '@shared/contracts/journals';
 
 export function fetchJournals(token: string): Promise<JournalListPayload> {
     return requestJson<JournalListPayload>('/api/journals', { token });
@@ -7,6 +7,16 @@ export function fetchJournals(token: string): Promise<JournalListPayload> {
 
 export function fetchJournalById(token: string, id: string): Promise<JournalEntryDto> {
     return requestJson<JournalEntryDto>(`/api/journals/${id}`, { token });
+}
+
+export function openSharedJournal(token: string, receipt: SharedJournalReceipt): Promise<SharedJournalView> {
+    return requestJson('/api/shared-content/journal-view', { token, method: 'POST', body: receipt });
+}
+export function readSharedJournal(token: string, viewId: string): Promise<JournalEntryDto> {
+    return requestJson(`/api/shared-content/journal-view?viewId=${encodeURIComponent(viewId)}`, { token });
+}
+export function closeSharedJournal(token: string, viewId: string): Promise<{ ok: true }> {
+    return requestJson('/api/shared-content/journal-view', { token, method: 'DELETE', body: { viewId }, keepalive: true });
 }
 
 export function createJournalEntry(token: string | null, name: string, folderId?: string): Promise<Record<string, unknown>> {

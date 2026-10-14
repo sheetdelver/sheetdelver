@@ -7,6 +7,8 @@ import {
     isPublicDistributionAddress,
     type PublicDistributionDependencies,
 } from '@modules/registry/distribution/publicDistributionClient';
+import { DEFAULT_PUBLIC_MODULE_HOST_ALLOWLIST } from '@core/config';
+import { OFFICIAL_CATALOG_URL } from '@modules/registry/distribution/sourceProfiles';
 
 const PUBLIC_ADDRESS = { address: '93.184.216.34', family: 4 as const };
 
@@ -57,6 +59,9 @@ export async function run() {
     assert.equal(isDistributionHostAllowed('github.com', ['github.com']), true);
     assert.equal(isDistributionHostAllowed('objects.githubusercontent.com', ['*.githubusercontent.com']), true);
     assert.equal(isDistributionHostAllowed('evilgithub.com', ['*.github.com']), false);
+    assert.equal(isDistributionHostAllowed('sheetdelver.com', [...DEFAULT_PUBLIC_MODULE_HOST_ALLOWLIST]), true);
+    assert.equal(isDistributionHostAllowed('sheetdelver.github.io', [...DEFAULT_PUBLIC_MODULE_HOST_ALLOWLIST]), true);
+    assert.equal(isDistributionHostAllowed('unlisted.example.com', [...DEFAULT_PUBLIC_MODULE_HOST_ALLOWLIST]), false);
     assert.equal(isPublicDistributionAddress('8.8.8.8'), true);
     for (const address of [
         '127.0.0.1',
@@ -117,6 +122,24 @@ export async function run() {
     );
 
     const redirectedUrls: string[] = [];
+    const legacyRedirectUrls: string[] = [];
+    const legacyRedirect = await fetchPublicDistributionResource('https://sheetdelver.github.io/module-catalog/catalog.json', {
+        accept: 'application/json', maxBytes: 1024, contentType: 'json',
+    }, { allowedHosts: [...DEFAULT_PUBLIC_MODULE_HOST_ALLOWLIST], retries: 0 }, dependencies([
+        { statusCode: 301, headers: { location: OFFICIAL_CATALOG_URL } },
+        { statusCode: 200, headers: { 'content-type': 'application/json' }, body: '{"ok":true}' },
+    ], legacyRedirectUrls));
+    assert.equal(legacyRedirect.finalUrl, OFFICIAL_CATALOG_URL);
+    assert.deepEqual(legacyRedirectUrls, [
+        'https://sheetdelver.github.io/module-catalog/catalog.json',
+        OFFICIAL_CATALOG_URL,
+    ]);
+    await expectCode(
+        () => fetchPublicDistributionResource(OFFICIAL_CATALOG_URL, {
+            accept: 'application/json', maxBytes: 1024, contentType: 'json',
+        }, { allowedHosts: ['github.com'], retries: 0 }),
+        'host-not-allowed',
+    );
     const redirected = await fetchPublicDistributionResource('https://releases.example.com/manifest.json', {
         accept: 'application/json', maxBytes: 1024, contentType: 'json',
     }, policy, dependencies([

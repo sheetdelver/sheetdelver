@@ -3,14 +3,16 @@
 **Status:** Accepted — implementation underway; native/live acceptance pending
 **Date:** October 13, 2026
 **Related:** ADR-0013, ADR-0028, ADR-0038, ADR-0049, ADR-0057, ADR-0058,
-ADR-0060
+ADR-0060, ADR-0062
 
 ## Context and completed baseline
 
 ADR-0060 is complete and user-accepted. It delivered the compact Core HUD,
 authorized visibility and owned stats, ordinary-Combat command preconditions,
 and SDK 3.0.0/UI API 3.0.0 initiative presentation. Managed encounters remain
-view-only in that HUD by design; their manager commands require role-4 GM.
+view-only in that baseline HUD by design; manager commands originally required
+role-4 GM. ADR-0062 subsequently enabled native Assistant management, retained
+by the October 14 integration amendment below.
 This ADR proposes the next slice, not unfinished work in ADR-0060.
 
 The review found reusable foundations and two concrete correctness gaps:
@@ -65,7 +67,7 @@ subject to the acceptance gates below.
 Extend the validated `flags.world.sheetDelverCombat` policy with an optional
 player-actions block: initiative open/closed, an opaque phase generation and
 whether owner End my turn is enabled. No second store or browser persistence.
-The role-4 GM writes policy under the existing encounter guard. Player
+The GM or native-authorized Assistant writes policy under the existing encounter guard. Player
 responses write initiative/round/turn only, never GM-authored policy flags.
 
 - Valid existing managed encounters with absent new settings default to
@@ -91,16 +93,15 @@ responses write initiative/round/turn only, never GM-authored policy flags.
 ### 2. Add owner actions without exposing manager authority
 
 Reuse the existing authenticated Combat API and underlying orchestration;
-keep `/api/combat-manager` role-4-only. Distinguish ordinary HUD, managed owner
-and GM-manager authorization internally, then call a shared executor once
+keep `/api/combat-manager` GM/Assistant-only under ADR-0062's document policies.
+Distinguish ordinary HUD, managed owner and manager authorization internally, then call a shared executor once
 under the encounter guard. A request body cannot select the privileged path.
 
 | Caller/state | Managed initiative | Managed turn control |
 | --- | --- | --- |
 | Player/trusted player, owns visible world Actor | Own null score while phase open; automatic or manual final total | End current owned turn if enabled, active and started |
 | Non-owner, hidden/missing/actorless row | No action; hidden and missing targets indistinguishable | No action |
-| Assistant | Existing authorized tracker reads only | No manager privilege added |
-| Role-4 GM | Existing manager roll/manual/bulk/reset controls; Open/Close phase | Existing manager Begin/Next/Previous; policy switch |
+| Assistant or full GM | Existing manager roll/manual/bulk/reset controls; Open/Close phase, subject to native document permissions | Existing manager Begin/Next/Previous; policy switch |
 | Provisioning, cleanup, completed, deleted or unavailable world/session | No action | No action |
 
 End my turn advances exactly one step using the existing server order and
@@ -321,3 +322,34 @@ Combat HUD branch while native acceptance waits. A separate branch will
 investigate the unrelated cross-browser reload report; this ADR remains open.
 
 ADR-0060's Core-first release/module-minimum sequence remains separate.
+
+## Main reconciliation — October 14, 2026
+
+The user authorized merging each repository's current `main` into its existing
+HUD branch, without publishing those branches. Core includes released 0.17.1 /
+ADR-0062; all three module branches include their released fixes and historical
+changelogs. SDK/UI 3.1 retains the additive footer reservation and shared-media
+fixes, not a rollback to UI 2.x. No new application/module version was chosen.
+
+The October 13 role-4-only policy description above is historical. Current
+manager authorization follows ADR-0062: native-authorized Assistants can set
+participation policy and use manager initiative/Begin/Next/Previous; their HUD
+gets the manager shortcut, not the player-owner lane. Players retain the
+bounded visible-owner phase/turn rules. Manager preference invalidations reach
+GM/Assistant sockets; all authorized HUD clients receive the separate skinny
+tracker invalidation. Chat, journal, compendium and administration boundaries
+are not replaced with a blanket role override.
+
+Validation: Core unit/client/integration suites, type-checking and lint pass;
+all ten module regressions and explicit three-module source typing pass.
+Regression coverage combines Assistant policy/Begin/rewind/caller-bound
+initiative with the existing managed-owner checks. These are offline checks,
+not native player-write or operator acceptance. P0/P2/P3 remain open and
+agent-operated Foundry testing remains paused pending fresh approval.
+
+Module CI/release workflow pins retain the already-planned future Core 0.18.0
+target. Development UI 3.x ranges stay in place; Shadowdark/D&D retain their
+temporary Core >=0.17.0 minimum and Mörk retains >=0.17.1 for footer support.
+Before publishing, promote minima to the released 0.18.0 host and select unused
+module release versions; Mörk's existing branch version 0.8.1 has since shipped
+on main. No tag, release or remote operation is part of this reconciliation.

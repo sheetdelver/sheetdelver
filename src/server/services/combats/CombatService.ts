@@ -3,7 +3,6 @@ import { getAdapter } from '@modules/registry/server';
 import type { CombatClientLike, RollChatMessageLike } from '@server/shared/types/documents';
 import {
     DOCUMENT_VISIBILITY,
-    isGM,
     isAssistantGM,
     FoundryUserRole,
     type DocumentAccessSubject,
@@ -192,7 +191,7 @@ export function createCombatService(deps: CombatServiceDeps) {
                 combatants: dto.combatants.map(row => ({ ...row,
                     canRollInitiative: playerPhase && row.actorId !== null && row.initiative === null
                         && projectionDeps.canWriteActor(row.actorId, subject) })),
-                canManage: isGM(subject) && managerFlag.status === 'active',
+                canManage: isAssistantGM(subject) && managerFlag.status === 'active',
                 ...(playerPhase && dto.combatants.some(row => row.actorId && projectionDeps.canWriteActor(row.actorId, subject))
                     ? { playerInitiative: { open: true as const, generation: actions!.initiativeGeneration } } : {}),
             } : dto;
@@ -267,13 +266,10 @@ export function createCombatService(deps: CombatServiceDeps) {
         const sourceCombat = combatStore.get(combatId);
         const managed = readCombatManagerFlag(sourceCombat);
         if (hasCombatManagerMarker(sourceCombat) && !managed) return { error: 'Encounter unavailable', status: 409 };
-        if (managed && (!subject || (isAssistantGM(subject) && !isGM(subject)))) {
-            return { error: 'Gamemaster access required', status: 403 };
-        }
         if (managed && managed.status !== 'active') return { error: 'Encounter is not active', status: 409 };
         if (managed && (managed.deletionRequested || managed.historyRemovalRequested)) return { error: 'Encounter is closing', status: 409 };
-        if (managed && managerCommand && (!subject || !isGM(subject))) return { error: 'Gamemaster access required', status: 403 };
-        if (managed && !managerCommand && subject && isGM(subject)) {
+        if (managed && managerCommand && (!subject || !isAssistantGM(subject))) return { error: 'Gamemaster or Assistant access required', status: 403 };
+        if (managed && !managerCommand && subject && isAssistantGM(subject)) {
             return { error: 'Use the GM Combat Manager to advance this encounter', status: 403 };
         }
         if (managed && !managerCommand && (!subject || isAssistantGM(subject)
@@ -336,7 +332,7 @@ export function createCombatService(deps: CombatServiceDeps) {
         return { success: true, round, turn };
     };
 
-    // Turn rewind, GM-only. Rewinding past round 1 turn 0 returns the
+    // Turn rewind, GM/Assistant only. Rewinding past round 1 turn 0 returns the
     // encounter to its unstarted round-zero state.
     const advanceTurn = (client: CombatClientLike, combatId: string, managerCommand = false,
         observed?: CombatTurnObservation): Promise<CombatTurnExecution | CombatErrorPayload> =>
@@ -358,7 +354,7 @@ export function createCombatService(deps: CombatServiceDeps) {
         const sourceCombat = combatStore.get(combatId);
         const managed = readCombatManagerFlag(sourceCombat);
         if (hasCombatManagerMarker(sourceCombat) && !managed) return { error: 'Encounter unavailable', status: 409 };
-        if (managed && (!subject || !isGM(subject))) return { error: 'Gamemaster access required', status: 403 };
+        if (managed && (!subject || !isAssistantGM(subject))) return { error: 'Gamemaster or Assistant access required', status: 403 };
         if (managed && managed.status !== 'active') return { error: 'Encounter is not active', status: 409 };
         if (managed && !managerCommand) return { error: 'Use the GM Combat Manager to rewind this encounter', status: 403 };
         if (!subject || !isAssistantGM(subject)) {
@@ -446,13 +442,10 @@ export function createCombatService(deps: CombatServiceDeps) {
         const subject = resolveSubject(client.userId);
         const managed = readCombatManagerFlag(combat);
         if (hasCombatManagerMarker(combat) && !managed) return { error: 'Encounter unavailable', status: 409 };
-        if (managed && (!subject || (isAssistantGM(subject) && !isGM(subject)))) {
-            return { error: 'Gamemaster access required', status: 403 };
-        }
         if (managed && managed.status !== 'active') return { error: 'Encounter is not active', status: 409 };
         if (managed && (managed.deletionRequested || managed.historyRemovalRequested)) return { error: 'Encounter is closing', status: 409 };
-        if (managed && managerCommand && (!subject || !isGM(subject))) return { error: 'Gamemaster access required', status: 403 };
-        if (managed && !managerCommand && subject && isGM(subject)) {
+        if (managed && managerCommand && (!subject || !isAssistantGM(subject))) return { error: 'Gamemaster or Assistant access required', status: 403 };
+        if (managed && !managerCommand && subject && isAssistantGM(subject)) {
             return { error: 'Use the GM Combat Manager to roll initiative', status: 403 };
         }
         const playerManaged = !!managed && !managerCommand;

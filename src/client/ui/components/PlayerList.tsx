@@ -6,6 +6,7 @@ import type { User } from '@shared/interfaces';
 
 import { useSession } from '@client/ui/context/SessionContext';
 import { useUI } from '@client/ui/context/UIContext';
+import { UserRole } from '@shared/constants';
 
 export default function PlayerList() {
     const { users, currentUser, handleLogout, step } = useSession();
@@ -33,11 +34,12 @@ export default function PlayerList() {
 
     if (!users || users.length === 0 || step === 'login' || step === 'logging-out') return null;
 
-    const activeCount = users.filter(u => u.active).length;
+    const participants = users.filter(u => !u.isServiceAccount);
+    const activeCount = participants.filter(u => u.active).length;
 
     // Split Users
-    const gamemasters = users.filter(u => u.isGM);
-    const players = users.filter(u => !u.isGM);
+    const gamemasters = participants.filter(u => u.isGM);
+    const players = participants.filter(u => !u.isGM);
 
     const activeGMCount = gamemasters.filter(u => u.active).length;
     const activePlayerCount = players.filter(u => u.active).length;
@@ -55,7 +57,7 @@ export default function PlayerList() {
                 <div className="flex flex-col leading-tight min-w-0">
                     <span className="text-sm font-bold flex items-center gap-1.5 truncate">
                         {u.name}
-                        {u.isGM && <span className="text-[8px] sd-ui-button-primary px-1 rounded-sm font-black tracking-tighter">GM</span>}
+                        {u.isGM && <span className="text-[8px] sd-ui-button-primary px-1 rounded-sm font-black tracking-tighter">{u.role === UserRole.ASSISTANT ? 'Assistant GM' : 'GM'}</span>}
                     </span>
                     {u.characterName && (
                         <span className="text-[10px] sd-ui-muted truncate">{u.characterName}</span>
@@ -66,7 +68,7 @@ export default function PlayerList() {
     };
 
     return (
-        <div ref={containerRef} className="fixed bottom-24 left-1/2 -translate-x-1/2 sm:left-auto sm:right-6 sm:translate-x-0 z-[110] flex flex-col items-center sm:items-end gap-4">
+        <div ref={containerRef} className="fixed bottom-[calc(6rem+var(--sd-bottom-navigation-inset,0px))] left-1/2 -translate-x-1/2 sm:left-auto sm:right-6 sm:translate-x-0 z-[110] flex flex-col items-center sm:items-end gap-4">
 
             {/* List Popup */}
             <div className={`
@@ -77,7 +79,7 @@ export default function PlayerList() {
                 {/* Header */}
                 <div className="sd-ui-inset p-2 border-b sd-ui-divider flex justify-between items-center">
                     <span className="sd-ui-muted text-[10px] uppercase font-bold tracking-widest pl-1">
-                        Participants ({activeCount}/{users.length})
+                        Participants ({activeCount}/{participants.length})
                     </span>
                     <button onClick={() => setIsOpen(false)} className="sd-ui-muted hover:opacity-80 px-2">✕</button>
                 </div>

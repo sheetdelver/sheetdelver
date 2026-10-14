@@ -26,7 +26,7 @@ interface ChatContextType {
     toastSettings: ChatToastSettings;
     setToastSettings: (settings: ChatToastSettings) => void;
     fetchChat: () => Promise<void>;
-    handleChatSend: (message: string, options?: { rollMode?: string; speaker?: string; throwOnError?: boolean }) => Promise<void>;
+    handleChatSend: (message: string, options?: { rollMode?: string; speaker?: string; speakerActorId?: string; throwOnError?: boolean }) => Promise<void>;
     resetChatState: () => void;
 }
 
@@ -141,13 +141,14 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         }, 75);
     }, [fetchChat]);
 
-    const handleChatSend = useCallback(async (message: string, options?: { rollMode?: string; speaker?: string; throwOnError?: boolean }) => {
+    const handleChatSend = useCallback(async (message: string, options?: { rollMode?: string; speaker?: string; speakerActorId?: string; throwOnError?: boolean }) => {
         try {
             if (linkState !== 'ready') throw new Error('World connection unavailable');
             const data = await foundryApi.sendChat(token, {
                 message,
                 rollMode: options?.rollMode,
                 speaker: options?.speaker,
+                speakerActorId: options?.speakerActorId,
             });
             if (data.success) {
                 requestChatRefresh();

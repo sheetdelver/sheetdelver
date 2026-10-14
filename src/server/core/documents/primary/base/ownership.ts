@@ -44,8 +44,8 @@ export const DOCUMENT_VISIBILITY = {
 
 /**
  * Strict GAMEMASTER check. Used by Store `resolveOwnership` short-circuits
- * where Foundry's implicit OWNER grant applies. ASSISTANT does NOT pass —
- * ASSISTANT GMs have moderation authority but not full ownership override.
+ * for full-GM-only platform policies. Native Actor/Combat/Folder operation
+ * policies include Assistant; content-specific policies require their own checks.
  */
 export function isGM(subject: DocumentAccessSubject): boolean {
     return subject.role >= FoundryUserRole.GAMEMASTER;
@@ -53,10 +53,8 @@ export function isGM(subject: DocumentAccessSubject): boolean {
 
 /**
  * GM-like check for permission-elevated contexts. Returns true for ASSISTANT
- * and GAMEMASTER. Used where Foundry treats ASSISTANT as GM-equivalent: chat
- * blind/whisper unmasking, journal world-list visibility, combat turn
- * advancement, world-config writes. Distinct from {@link isGM} which is the
- * narrower implicit-OWNER grant on `resolveOwnership` short-circuits.
+ * and GAMEMASTER. Each caller must still apply the document/content-specific
+ * policy; this predicate alone does not authorize private chat or journals.
  */
 export function isAssistantGM(subject: DocumentAccessSubject): boolean {
     return subject.role >= FoundryUserRole.ASSISTANT;
@@ -88,4 +86,15 @@ export function createDocumentAccessSubject(
         userId,
         role: typeof role === 'number' ? role : FoundryUserRole.NONE,
     };
+}
+
+/** Native world Actor operation capability (Foundry Document.testUserPermission).
+ * The user explicitly requires native parity for these document operations.
+ * Kept separate from the legacy helper used by other document types.
+ */
+export function getActorOperationOwnership(
+    ownership: DocumentOwnershipMap | undefined,
+    subject: DocumentAccessSubject,
+): ResolvedDocumentOwnershipLevel {
+    return isAssistantGM(subject) ? DocumentOwnershipLevel.OWNER : getEffectiveOwnership(ownership, subject);
 }

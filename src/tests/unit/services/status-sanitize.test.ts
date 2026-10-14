@@ -15,11 +15,12 @@ function runStatusSanitizeTests() {
         avatar: '/avatar.png',
     };
 
-    const sanitizedAvatar = sanitizeStatusUser(userWithAvatar, foundryBaseUrl);
+    const sanitizedAvatar = sanitizeStatusUser(userWithAvatar, foundryBaseUrl, 'u1');
     assert.equal(sanitizedAvatar._id, 'u1');
     assert.equal(sanitizedAvatar.isGM, true);
     assert.equal(sanitizedAvatar.canDeleteActors, true);
     assert.equal(sanitizedAvatar.img, 'http://foundry.test/avatar.png');
+    assert.equal(sanitizedAvatar.isServiceAccount, true);
 
     const userWithImgFallback = {
         id: 'u2',
@@ -60,6 +61,7 @@ function runStatusSanitizeTests() {
             worldTitle: 'Public World Title',
             worldDescription: '<p>Public campaign introduction</p>',
             worldBackground: 'http://foundry.test/world-background.png',
+            coreFallbackBackground: 'http://foundry.test/ui/backgrounds/setup.webp',
             background: 'http://foundry.test/system-background.png',
             nextSession: 'Saturday at 7 PM',
             theme: { bg: 'bg-black', accent: 'text-red-500' },
@@ -86,6 +88,7 @@ function runStatusSanitizeTests() {
         worldTitle: 'Public World Title',
         worldDescription: '<p>Public campaign introduction</p>',
         worldBackground: 'http://foundry.test/world-background.png',
+        coreFallbackBackground: 'http://foundry.test/ui/backgrounds/setup.webp',
         background: 'http://foundry.test/system-background.png',
         nextSession: 'Saturday at 7 PM',
         status: 'active',

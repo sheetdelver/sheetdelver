@@ -113,8 +113,8 @@ export function createJournalService() {
     };
 
     // Journal detail fetch — reads from JournalStore with ownership filtering.
-    // Shared-content `showEntry` sends a UUID reference and the client hydrates
-    // through this route; ownership is enforced here.
+    // Native temporary shares use SharedJournalService instead; ordinary
+    // browsing and SDK/detail reads keep their ownership gate here.
     const getJournalById = async (
         client: JournalClientLike,
         journalId: string

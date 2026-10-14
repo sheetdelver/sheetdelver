@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useCallback, useEffect } from 'react';
+import React, { useMemo, useCallback, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { SDKContext, SDKComponentsContext, type SDKContextValue } from '@shared/sdk/react';
 import { useFoundry } from '@client/ui/context/FoundryContext';
@@ -48,7 +48,7 @@ export function SDKProvider({ children, moduleId }: { children: React.ReactNode;
     const router = useRouter();
     const { token, currentUser, system, worldId, step, appSocket } = useFoundry();
     const { linkState } = useRealtime();
-    const { isDiceTrayOpen, toggleDiceTray, isChatOpen, setChatOpen } = useUI();
+    const { isDiceTrayOpen, toggleDiceTray, isChatOpen, setChatOpen, registerBottomNavigation: registerHostBottomNavigation } = useUI();
     const { foundryUrl, resolveImageUrl } = useConfig();
     const { addNotification, updateNotification, removeNotification } = useNotifications();
 
@@ -107,6 +107,28 @@ export function SDKProvider({ children, moduleId }: { children: React.ReactNode;
     }, [isConnected, documentScope]);
 
     const resolvedModuleId = moduleId ?? system?.id ?? null;
+    // Scope-specific sets keep an old passive cleanup from removing a new
+    // module's layout-effect registration during the same React commit.
+    const footerScope = JSON.stringify([resolvedModuleId, documentScope]);
+    const footerRegistrations = useRef(new Map<string, Set<() => void>>());
+    const registerBottomNavigation = useCallback((element: HTMLElement) => {
+        const dispose = registerHostBottomNavigation(element);
+        const registrations = footerRegistrations.current.get(footerScope) ?? new Set<() => void>();
+        footerRegistrations.current.set(footerScope, registrations);
+        const release = () => {
+            if (!registrations.delete(release)) return;
+            dispose();
+            if (!registrations.size && footerRegistrations.current.get(footerScope) === registrations) {
+                footerRegistrations.current.delete(footerScope);
+            }
+        };
+        registrations.add(release);
+        return release;
+    }, [registerHostBottomNavigation, footerScope]);
+    useEffect(() => {
+        const scopes = footerRegistrations.current;
+        return () => { for (const release of scopes.get(footerScope) ?? []) release(); };
+    }, [footerScope]);
     const assetUrl = useCallback(
         (assetPath: string) => (resolvedModuleId ? buildModuleAssetUrl(resolvedModuleId, assetPath) : assetPath),
         [resolvedModuleId],
@@ -175,6 +197,7 @@ export function SDKProvider({ children, moduleId }: { children: React.ReactNode;
         toggleDiceTray,
         isChatOpen,
         setChatOpen,
+        registerBottomNavigation,
         fetchWithAuth,
         events: eventsPublic,
         logger,
@@ -184,6 +207,7 @@ export function SDKProvider({ children, moduleId }: { children: React.ReactNode;
         foundryUrl, resolveImageUrl, assetUrl, navigate, replace, addNotification,
         updateNotification, removeNotification,
         isDiceTrayOpen, toggleDiceTray, isChatOpen, setChatOpen,
+        registerBottomNavigation,
         fetchWithAuth, eventsPublic, logger,
     ]);
 

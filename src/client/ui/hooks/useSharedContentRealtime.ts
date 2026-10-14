@@ -5,6 +5,7 @@ import type { Dispatch, SetStateAction } from 'react';
 import type { Socket } from 'socket.io-client';
 import type { RealtimeSharedContentPayload } from '@shared/contracts/realtime';
 import { areSharedContentEqual } from '@client/ui/context/foundryRealtimeComparisons';
+import { latestSharedContent } from '@client/ui/context/sharedContentState';
 
 interface UseSharedContentRealtimeOptions {
     appSocket: Socket | null;
@@ -29,8 +30,10 @@ export function subscribeSharedContentRealtime({
     setSharedContent,
 }: SharedContentSubscriptionOptions) {
     const handleSharedContentUpdate = (scData: RealtimeSharedContentPayload) => {
-        if (!areSharedContentEqual(getSharedContent(), scData)) {
-            setSharedContent(scData);
+        const current = getSharedContent();
+        const next = latestSharedContent(current, scData);
+        if (next && !areSharedContentEqual(current, next)) {
+            setSharedContent(next);
         }
     };
 
@@ -56,7 +59,10 @@ export function useSharedContentRealtime({
         return subscribeSharedContentRealtime({
             appSocket,
             getSharedContent: () => sharedContentRef.current,
-            setSharedContent,
+            setSharedContent: next => {
+                sharedContentRef.current = next;
+                setSharedContent(next);
+            },
         });
     }, [appSocket, setSharedContent]);
 }

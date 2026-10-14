@@ -38,7 +38,7 @@ export interface PublicCatalogProfileInput {
 
 export const DEFAULT_LOCAL_PROFILE_ID = SourceProfileId.LocalDefault;
 export const OFFICIAL_CATALOG_PROFILE_ID = SourceProfileId.OfficialCatalog;
-export const OFFICIAL_CATALOG_URL = 'https://sheetdelver.github.io/module-catalog/catalog.json';
+export const OFFICIAL_CATALOG_URL = 'https://sheetdelver.com/module-catalog/catalog.json';
 
 export const DEFAULT_LOCAL_PROFILE: SourceProfile = {
     id: DEFAULT_LOCAL_PROFILE_ID,
@@ -54,7 +54,7 @@ export const DEFAULT_LOCAL_PROFILE: SourceProfile = {
 
 export const DEFAULT_OFFICIAL_CATALOG_PROFILE: SourceProfile = {
     id: OFFICIAL_CATALOG_PROFILE_ID,
-    name: 'Sheet Delver Official Catalog',
+    name: 'SheetDelver Official Catalog',
     kind: ModuleSourceKind.Indexed,
     baseUrl: OFFICIAL_CATALOG_URL,
     enabled: true,

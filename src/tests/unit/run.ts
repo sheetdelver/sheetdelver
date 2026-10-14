@@ -6,6 +6,7 @@ import { run as runFoundryUrl } from './utils/foundry-url.test';
 
 // ── runtime ──────────────────────────────────────────────────────────────────
 import { run as runFullStackRestart } from './runtime/full-stack-restart.test';
+import { run as runNextDevHmr } from './runtime/next-dev-hmr.test';
 import { run as runServerFileLogger } from './observability/server-file-logger.test';
 
 // ── documentation ─────────────────────────────────────────────────────────────
@@ -72,6 +73,8 @@ import { run as runCombatStore } from './combat/combat-store.test';
 import { run as runCombatEncounterReadModel } from './combat/combat-encounter-read-model.test';
 import { run as runCombatTrackerProjection } from './combat/combat-tracker-projection.test';
 import { run as runCombatManager } from './combat/combat-manager.test';
+import { run as runNativeCombatPermissions } from './combat/native-combat-permissions.test';
+import { run as runAssistantCombatManager } from './combat/assistant-combat-manager.test';
 import { run as runCombatStatPreferences } from './combat/combat-stat-preferences.test';
 
 // ── documents ─────────────────────────────────────────────────────────────────
@@ -90,6 +93,7 @@ import { run as runStubStores } from './documents/stub-stores.test';
 import { run as runSettingStore } from './documents/setting-store.test';
 import { run as runSceneStore } from './documents/scene-store.test';
 import { run as runSharedContentStore } from './documents/shared-content-store.test';
+import { run as runSharedJournalView } from './documents/shared-journal-view.test';
 import { run as runDocumentResolver } from './documents/document-resolver.test';
 
 // ── routing ───────────────────────────────────────────────────────────────────
@@ -178,6 +182,7 @@ async function runAllUnitTests() {
 
     runFoundryUrl();
     runFullStackRestart();
+    runNextDevHmr();
     runServerFileLogger();
     runAdrMetadata();
     await runSensitiveFilePermissions();
@@ -231,6 +236,8 @@ async function runAllUnitTests() {
     await runCombatEncounterReadModel();
     await runCombatTrackerProjection();
     await runCombatManager();
+    runNativeCombatPermissions();
+    await runAssistantCombatManager();
     runCombatStatPreferences();
     await runItemStore();
     await runOwnershipHelpers();
@@ -252,6 +259,7 @@ async function runAllUnitTests() {
     await runWorldBootstrapper();
     await runWorldTransportController();
     await runSharedContentStore();
+    await runSharedJournalView();
     await runDocumentResolver();
     await runCompendiumStore();
     await runCompendiumService();

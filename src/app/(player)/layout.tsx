@@ -5,6 +5,7 @@ import FloatingHUD from "@client/ui/components/FloatingHUD";
 import CombatHUD from "@client/ui/components/Combat/CombatHUD";
 import JournalBrowser from "@client/ui/components/JournalBrowser";
 import JournalModal from "@client/ui/components/JournalModal";
+import { SharedContentHost } from "@client/ui/components/SharedContentHost";
 import VideoPlaysinlineFix from "@client/ui/components/VideoPlaysinlineFix";
 import PlayerProviders from "./PlayerProviders";
 
@@ -25,6 +26,7 @@ export default function PlayerLayout({
           <FloatingHUD />
           <JournalBrowser />
           <JournalModal />
+          <SharedContentHost />
       </div>
       </PlayerWorldBoundary>
     </PlayerProviders>

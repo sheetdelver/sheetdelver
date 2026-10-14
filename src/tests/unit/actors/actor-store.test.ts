@@ -64,6 +64,11 @@ async function runActorStoreOwnershipAndClone() {
         ['observed'],
     );
     assert.equal(store.getActor('hidden', { subject: gm })?._id, 'hidden');
+    for (const role of [0, 1, 2, 3, 4]) {
+        const caller = { userId: `native-${role}`, role: role as FoundryUserRole };
+        assert.equal(store.canReadActor('hidden', caller, DOCUMENT_VISIBILITY.WRITEABLE), role >= 3,
+            'native world Actor capability includes Assistant even on a private Actor');
+    }
 
     const clone = store.get('observed')!;
     clone.name = 'Mutated Outside Store';

@@ -25,6 +25,7 @@ import type { ChatMessageDto } from '@shared/contracts/chat';
 import type {
     RealtimeSharedContentPayload,
 } from '@shared/contracts/realtime';
+import { applySharedContentSnapshot } from './sharedContentState';
 
 interface FoundryContextType {
     step: ConnectionStep;
@@ -104,6 +105,11 @@ export function FoundryProvider({ children }: { children: ReactNode }) {
     const [system, setSystem] = useState<AppSystemInfo | null>(null);
     const [sharedContent, setSharedContent] = useState<RealtimeSharedContentPayload | null>(null);
     const [lastWorldId, setLastWorldId] = useState<string | null>(null);
+    const shareReceiptVersion = React.useRef(0);
+    const receiveSharedContent = React.useCallback((update: React.SetStateAction<RealtimeSharedContentPayload | null>) => {
+        shareReceiptVersion.current++;
+        setSharedContent(update);
+    }, []);
     const activeUIModule = useModuleHotReload({ appSocket, systemId: system?.id });
 
     useEffect(() => {
@@ -113,10 +119,10 @@ export function FoundryProvider({ children }: { children: ReactNode }) {
             resetActorCombatState();
             resetChatState();
             resetClientDocumentSource();
-            setSharedContent(null);
+            receiveSharedContent(null);
         });
         return unregister;
-    }, [registerLogoutCleanup, resetActorCombatState, resetChatState, setCurrentUserId, setUsers]);
+    }, [registerLogoutCleanup, resetActorCombatState, resetChatState, setCurrentUserId, setUsers, receiveSharedContent]);
 
     useEffect(() => {
         if (step !== 'world-closed' && step !== 'setup') return;
@@ -126,8 +132,8 @@ export function FoundryProvider({ children }: { children: ReactNode }) {
         resetActorCombatState();
         resetChatState();
         resetClientDocumentSource();
-        setSharedContent(null);
-    }, [step, resetActorCombatState, resetChatState]);
+        receiveSharedContent(null);
+    }, [step, resetActorCombatState, resetChatState, receiveSharedContent]);
 
     // The socket's initial status seeds world/configuration state. The
     // protected read in RealtimeProvider, never public /api/status, decides
@@ -135,8 +141,12 @@ export function FoundryProvider({ children }: { children: ReactNode }) {
     useEffect(() => {
         if (!token || linkState !== 'ready' || step !== 'dashboard') return;
         let current = true;
+        const receiptVersion = shareReceiptVersion.current;
         void foundryApi.fetchSharedContent(token).then((data) => {
-            if (current) setSharedContent(data);
+            if (current) {
+                setSharedContent(previous => current ? applySharedContentSnapshot(previous, data,
+                    receiptVersion, shareReceiptVersion.current) : previous);
+            }
         }).catch((error) => {
             if (!current) return;
             if (error instanceof UnauthorizedApiError) {
@@ -146,7 +156,7 @@ export function FoundryProvider({ children }: { children: ReactNode }) {
             }
         });
         return () => { current = false; };
-    }, [token, linkState, step, invalidateLocalSession]);
+    }, [token, linkState, step, lastWorldId, currentUser?._id, currentUser?.id, invalidateLocalSession]);
 
     useEffect(() => {
         if (!token || linkState !== 'ready' || step !== 'dashboard') return;
@@ -173,13 +183,13 @@ export function FoundryProvider({ children }: { children: ReactNode }) {
         setIsConfigured,
         setStep,
         invalidateLocalSession,
-        setSharedContent,
+        setSharedContent: receiveSharedContent,
         setLastWorldId,
         resetActorCombatState,
         fetchActors,
         isExplicitLogoutPending,
     });
-    useSharedContentRealtime({ appSocket, sharedContent, setSharedContent });
+    useSharedContentRealtime({ appSocket, sharedContent, setSharedContent: receiveSharedContent });
     useActorRealtime({ appSocket, token, actorCards, patchActorCard, fetchActors });
     useUserRosterRealtime({ appSocket, token, users, setUsers });
     useCombatRealtime({ appSocket, step, token, fetchCombats });

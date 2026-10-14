@@ -32,6 +32,41 @@ Welcome to **SheetDelver**! We appreciate your interest in contributing to this 
     ```
     Open [http://localhost:3000](http://localhost:3000) in your browser.
 
+### Next development synchronization correction
+
+For pinned Next 16.3.8, `npm run dev` prepares the dependency before starting
+either service. [ADR-0062](adr/0062-observed-player-issues.md) records a framework
+defect where a new browser's HMR handshake can reload an existing browser after
+compilation. The tracked patch sends initial synchronization only to the joining
+HMR connection; normal compilation broadcasts and reconnect checks remain.
+
+Preparation checks the Next version and complete target checksum, accepts only
+the original or already-corrected file, and is idempotent. A clean dependency
+install restores the original file; the next development startup reapplies the
+correction. Unexpected contents or versions stop development startup before
+Core or Next is launched. Build, production start and managed-config generation
+do not apply the patch. No additional package dependency is required.
+
+When launching Next directly for an isolated test, prepare it first from the
+project root:
+
+```sh
+npx tsx src/scripts/tools/development/prepare-next-dev.ts
+```
+
+For a copied Next installation, add `--next-package=/absolute/path/to/next/package.json`.
+To restore the exact original file, stop the development server and run:
+
+```sh
+npx tsx src/scripts/tools/development/prepare-next-dev.ts --restore
+```
+
+The next `npm run dev` reapplies the correction. Remove the manifest in
+`patches/`, preparation helper, manager call and associated regression only
+after verifying a supported Next release fixes this behavior. Restore or
+reinstall the dependency before that upgrade, then repeat the ADR's browser
+and HMR/restart checks. Do not relax checksums to accommodate an unknown file.
+
 ## Project Structure
 
 SheetDelver follows a **Decoupled Core/Shell** architecture to ensure stability and separation of concerns.

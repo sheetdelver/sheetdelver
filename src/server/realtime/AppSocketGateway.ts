@@ -13,11 +13,11 @@ import {
     documentAudienceIncludes,
     isDocumentAudience,
 } from '@server/core/documents/primary/base/audience';
-import { sharedContentStore, type SharedContentChangedEvent } from '@server/core/world/SharedContentStore';
+import { sharedContentStore } from '@server/core/world/SharedContentStore';
 import { readPlayerSessionCookie } from '@server/security/playerSessionCookie';
 import { combatManagerPreferenceEvents } from '@server/services/combats/CombatManagerPreferenceEvents';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
-import { isGM } from '@server/core/documents/primary/base/ownership';
+import { isAssistantGM } from '@server/core/documents/primary/base/ownership';
 import { STATUS_ROOMS } from './SystemStatusBroadcaster';
 
 type AppSocket = Socket & {
@@ -75,6 +75,12 @@ export function registerAppSocketGateway({
     });
 
     logger.info('Core Service | Socket.io server initialized with secure middleware');
+
+    // Retire snapshots even when their browser sockets are not connected.
+    foundryUserConnections.onSessionInvalidated((event) => {
+        if (event.scope === 'all') sharedContentStore.clear(event.reason);
+        else sharedContentStore.clearSession(event.sessionId);
+    });
 
     // Per-connection lifecycle: initial push, per-user listener attach/detach, disconnect cleanup
     io.on('connection', async (rawSocket) => {
@@ -228,15 +234,14 @@ export function registerAppSocketGateway({
             const handleSceneListInvalidated = createAudienceHandler('sceneListInvalidated');
             const handleSettingChanged = createAudienceHandler('settingChanged');
             const handleSettingListInvalidated = createAudienceHandler('settingListInvalidated');
-            // Shared-content fan-out subscribes to SharedContentStore directly.
-            // SocketBase writes Foundry wire events into the Store, and the
-            // gateway preserves the browser-facing `sharedContentUpdate` event.
-            const handleSharedUpdate = (event: SharedContentChangedEvent) => {
-                emitWorldBackedEvent('sharedContentUpdate', event.payload ?? { type: null });
-            };
+            const unsubscribeShares = sharedContentStore.onChanged(update => {
+                if (update.sessionId !== socket.playerSessionId
+                    || update.worldId !== socket.userSession?.worldId) return;
+                emitWorldBackedEvent('sharedContentUpdate', update.payload);
+            });
             const handleCombatPreferencesChanged = () => {
                 const subject = userStore.createAccessSubject(getSessionUserId());
-                if (subject && isGM(subject)) emitWorldBackedEvent('combatManagerPreferencesChanged', null);
+                if (subject && isAssistantGM(subject)) emitWorldBackedEvent('combatManagerPreferencesChanged', null);
                 if (subject) emitWorldBackedEvent('combatTrackerPreferencesChanged', null);
             };
 
@@ -270,7 +275,6 @@ export function registerAppSocketGateway({
             systemClient.on('sceneListInvalidated', handleSceneListInvalidated);
             systemClient.on('settingChanged', handleSettingChanged);
             systemClient.on('settingListInvalidated', handleSettingListInvalidated);
-            const unsubscribeSharedContent = sharedContentStore.onSharedContentChanged(handleSharedUpdate);
             const unsubscribeCombatPreferences = combatManagerPreferenceEvents.onChanged(handleCombatPreferencesChanged);
 
             let detached = false;
@@ -303,7 +307,7 @@ export function registerAppSocketGateway({
                 systemClient.off('sceneListInvalidated', handleSceneListInvalidated);
                 systemClient.off('settingChanged', handleSettingChanged);
                 systemClient.off('settingListInvalidated', handleSettingListInvalidated);
-                unsubscribeSharedContent();
+                unsubscribeShares();
                 unsubscribeCombatPreferences();
             };
             detachWorldBackedListeners = detachListeners;

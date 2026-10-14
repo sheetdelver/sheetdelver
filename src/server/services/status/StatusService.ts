@@ -27,7 +27,7 @@ interface StatusServiceDeps {
     getFoundryCompatibility?: () => FoundryCompatibilityStatusPayload | null;
 }
 
-export const sanitizeStatusUser = (user: Partial<UserWithPresence>, foundryBaseUrl: string) => ({
+export const sanitizeStatusUser = (user: Partial<UserWithPresence>, foundryBaseUrl: string, serviceAccountId?: string | null) => ({
     _id: user._id || user.id,
     name: user.name,
     role: user.role,
@@ -36,7 +36,8 @@ export const sanitizeStatusUser = (user: Partial<UserWithPresence>, foundryBaseU
     active: user.active,
     color: user.color,
     characterId: user.character,
-    img: resolveFoundryUrl(user.avatar || user.img || '', foundryBaseUrl)
+    img: resolveFoundryUrl(user.avatar || user.img || '', foundryBaseUrl),
+    ...(serviceAccountId && (user._id || user.id) === serviceAccountId ? { isServiceAccount: true } : {}),
 });
 
 /**
@@ -67,6 +68,8 @@ export function projectPublicStatus(payload: SystemStatusPayload): PublicStatusP
             worldTitle: payload.system.worldTitle,
             worldDescription: payload.system.worldDescription,
             worldBackground: payload.system.worldBackground,
+            ...(payload.system.coreFallbackBackground
+                ? { coreFallbackBackground: payload.system.coreFallbackBackground } : {}),
             background: payload.system.background,
             nextSession: payload.system.nextSession,
             status: payload.system.status,
@@ -115,6 +118,7 @@ export function createStatusService(deps: StatusServiceDeps) {
                     worldTitle: gameData.world?.title || 'Foundry VTT',
                     worldDescription: gameData.world?.description,
                     worldBackground: resolveFoundryUrl(gameData.world?.background || '', systemClient.url),
+                    coreFallbackBackground: resolveFoundryUrl('ui/backgrounds/setup.webp', systemClient.url),
                     background: resolveFoundryUrl(
                         gameData.system?.background ||
                         gameData.system?.worldBackground ||
@@ -164,7 +168,8 @@ export function createStatusService(deps: StatusServiceDeps) {
         }
 
         // Keep payload shape stable by always returning a sanitized user array.
-        const sanitizedUsers = users?.length > 0 ? users.map((u) => sanitizeUser(u, systemClient.url)) : [];
+        const sanitizedUsers = users?.length > 0
+            ? users.map((u) => sanitizeUser(u, systemClient.url, systemClient.userId)) : [];
         const foundryCompatibility = getFoundryCompatibility();
 
         return {

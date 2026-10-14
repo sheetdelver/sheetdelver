@@ -32,9 +32,38 @@ redirect on world lifecycle. They still own local resource loading, errors,
 and module-specific styling. A temporary Actor read failure is not proof that
 the Actor was deleted; only a confirmed 404 should show that state.
 
+The persistent layout mounts one shared-content host outside page-filtered
+panels. Image shares use a viewport-bounded dialog; journal shares open the
+authorized entry/page in `JournalModal`. Dismissal is scoped to user, world and
+share identity across route changes. SDK `SharedContentModal` remains a
+compatibility delegate, not a second overlay. Images and shared journals replace
+each other, and journal replies are guarded by request/share identity. Each new
+image receipt owns its loading state, including cached identical URLs. Both
+dialogs contain keyboard focus, close on Escape and restore the prior control.
+Only one dismissal record is kept per tab; storage denial still permits closing.
+Native journal shares use a separate read-only view lease, not the ordinary
+journal detail cache. The server resolves the exact entry/page and force value
+from this recipient's latest receipt; a page-only share has no sibling navigation.
+Unrevealed owner-only Secret sections are filtered before transmission. Close,
+replacement and unmount dispose the modal's lease; late opens are disposed too.
+New shares and session/world retirement invalidate old leases. Failed close
+delivery is bounded by 30-minute idle expiry, without polling. Ordinary journal
+browsing/ownership/editing are unchanged. See ADR-0062 J1 and
+[shared-view endpoints](API.md#temporary-shared-journal-views).
+Actor-page chat/dice may use the
+currently owned Actor as speaker; the server verifies Actor ownership while
+the authenticated user remains the message author.
+
 ---
 
 ## State Model
+
+Module sheets may opt into SDK 2.3.0 / UI API 2.2.0 bottom-navigation clearance.
+Core measures only registered visible viewport-bottom bars and offsets its
+Tools, Chat, Players and player feedback above them. Hidden/unmounted/retired
+bars release their reservation; other pages keep the default positioning.
+This does not theme module tabs, reposition every mobile page or add a portal
+API. Full-screen dialogs/drawers retain their existing overlay layout.
 
 The UI state is split into focused providers and hooks:
 
@@ -117,7 +146,7 @@ Important raw event families:
 | `systemStatus` | Connection, world, auth, and readiness status. |
 | `<type>Changed` | One document changed, e.g. actor, item, combat, journal, chat message, roll table, macro, playlist, or cards. |
 | `<type>ListInvalidated` | A document list should be refreshed. |
-| `sharedContentUpdate` | GM-shared image or journal content changed. |
+| `sharedContentUpdate` | Image or journal share delivered only through this session's authorized Foundry transport. |
 | `moduleSourceChanged` / `moduleStateChanged` / `moduleRegistryChanged` | Module source/lifecycle changes that require UI manifest cache invalidation. |
 
 Module UI receives the stable SDK signals instead:
@@ -170,10 +199,12 @@ backend encounter read model — never raw Combat/Combatant/Actor documents.
   or tokenless owned world Actors may show selected stats; unlinked scene
   Tokens show no base-Actor stats. The sheet shortcut opens a new tab.
 - Active forming encounters remain visible only when a viewer has projected
-  rows. Managed encounters are view-only in this HUD; role-4 GMs get an Open
-  Combat Manager shortcut. Ordinary encounters retain GM/assistant navigation
-  and current-owner End my turn. Player Begin is denied even if Foundry stores
-  round-zero `turn: 0`.
+  rows. During an open managed initiative phase, an inactive pre-Begin encounter
+  exposes only the player's own visible rows. Eligible owners can roll their
+  unrolled initiative and, after Begin, End my turn when enabled. GM/Assistant
+  users get an Open Combat Manager shortcut and use manager controls. Ordinary
+  encounters retain GM/Assistant navigation and current-owner End my turn.
+  Player Begin is denied even if Foundry stores round-zero `turn: 0`.
 - Initiative presentation receives a server-resolved formula and offers only
   allowed roll modes or a manual final total. Core executes the action;
   modules may theme the dialog through the versioned SDK slot.
@@ -183,16 +214,17 @@ backend encounter read model — never raw Combat/Combatant/Actor documents.
 
 | Viewer | Ordinary HUD actions | Managed HUD actions |
 | --- | --- | --- |
-| Player | Roll initiative for eligible owned rows; End my turn only when the visible owned row is current in an active, started Combat | None; view-only |
-| Assistant GM | Begin/Next/Previous and eligible initiative | None; view-only |
-| Role-4 GM | Begin/Next/Previous and eligible initiative | Open Combat Manager; HUD itself remains view-only |
+| Player | Roll initiative for eligible owned rows; End my turn only when the visible owned row is current in an active, started Combat | Own unrolled initiative during an open phase; End my turn when enabled for the current visible owned row after Begin |
+| Assistant GM | Begin/Next/Previous and eligible initiative | Open Combat Manager; manager controls respect native document permissions |
+| Role-4 GM | Begin/Next/Previous and eligible initiative | Open Combat Manager; no player-owner HUD lane |
 
 The assistant and GM receive the full roster, including hidden rows; players
 receive only visible rows. HUD buttons follow these projected capabilities,
 but Core reauthorizes every command and checks the observed state before a
 write. A stale ordinary command refetches on `409` rather than replaying the
-old action. Managed player initiative/turn actions are deferred to the
-separate ADR-0058 design, not silently routed through the GM manager API.
+old action. Managed owner commands follow ADR-0061's phase and observed-state
+guards, never the privileged manager path; native/live acceptance remains
+pending. The broader private directed-roll workflow stays deferred in ADR-0058.
 
 Module components should treat realtime as invalidation. Refetch through SDK
 hooks or host APIs instead of applying socket payloads as authoritative document

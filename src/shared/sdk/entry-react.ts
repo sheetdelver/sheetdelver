@@ -9,6 +9,7 @@
 export {
     useSDK,
     useSDKComponents,
+    useBottomNavigation,
     SDKContext,
     SDKComponentsContext,
 } from './react';

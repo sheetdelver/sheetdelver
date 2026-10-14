@@ -1,7 +1,8 @@
 # Public Module Catalogs
 
-Sheet Delver discovers distributable modules from static, credential-free JSON
-catalogs. The official catalog is served from GitHub Pages; administrators may
+SheetDelver discovers distributable modules from static, credential-free JSON
+catalogs. The official catalog is served at
+`https://sheetdelver.com/module-catalog/catalog.json`; administrators may
 add other public HTTPS catalogs whose hosts are explicitly allowed by local
 configuration.
 
@@ -20,7 +21,7 @@ The current schema identifier is `sheet-delver-catalog.v1`:
       "title": "Shadowdark RPG",
       "repository": "https://github.com/sheetdelver/sd-shadowdark",
       "manifest": "https://github.com/sheetdelver/sd-shadowdark/releases/latest/download/sheet-delver-manifest.json",
-      "description": "Shadowdark support for Sheet Delver",
+      "description": "Shadowdark support for SheetDelver",
       "tags": ["fantasy", "old-school"]
     }
   }
@@ -37,12 +38,12 @@ compatibility, or trust tier. Those release facts come from the generated
 release manifest and archive `info.json`. Trust is assigned by the local source
 profile, never by catalog content.
 
-The stable manifest URL also anchors module-owned release history. Sheet Delver
+The stable manifest URL also anchors module-owned release history. SheetDelver
 looks for `sheet-delver-releases.json` beside `sheet-delver-manifest.json` and
 uses it to discover immutable manifests for earlier releases. The central
 catalog does not list or copy those versions.
 
-Only releases whose declared Sheet Delver core and SDK contract constraints
+Only releases whose declared SheetDelver core and SDK contract constraints
 match the running application are offered. A catalog module is omitted from the
 Available view when none of its published releases are compatible. Missing or
 invalid history is a supported legacy state: the module remains latest-only if
@@ -50,10 +51,10 @@ its latest release is compatible, and the admin review displays a warning.
 
 ## Source Policy
 
-Sheet Delver creates two protected profiles:
+SheetDelver creates two protected profiles:
 
 - `local-default` represents the scan-only developer source.
-- `official-catalog` points to the Sheet Delver GitHub Pages catalog.
+- `official-catalog` points to the SheetDelver catalog's canonical URL.
 
 The official catalog is first-party. Custom catalogs are always unverified and
 cannot include authentication. Administrators can disable or reprioritize the
@@ -101,7 +102,7 @@ Catalog changes should be schema-validated in CI before GitHub Pages publishes
 `sheet-delver-manifest.json` and `sheet-delver-releases.json`; updating a module
 release therefore does not require editing the catalog. The reusable release
 workflow rebuilds history from up to 100 existing non-draft, non-prerelease
-releases that contain a Sheet Delver release manifest.
+releases that contain a SheetDelver release manifest.
 
 See [MODULE_MANIFEST.md](MODULE_MANIFEST.md) for release-manifest fields,
 [RELEASING.md](RELEASING.md) for release assets, [CONFIGURATION.md](CONFIGURATION.md)

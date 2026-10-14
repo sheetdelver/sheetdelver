@@ -73,6 +73,7 @@ export interface RestoredFoundrySessionCredential {
 export interface FoundrySystemClientLike {
     isConnected: boolean;
     url: string;
+    userId?: string | null;
 }
 
 export interface FoundryUserConnectionLike {

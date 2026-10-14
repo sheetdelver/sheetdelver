@@ -2,6 +2,7 @@ import { io, Socket } from 'socket.io-client';
 import { logger } from '@shared/utils/logger';
 import { FoundryConfig } from '../types';
 import { EventEmitter } from 'events';
+import { randomUUID } from 'node:crypto';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
 
 type HeadersWithSetCookie = Headers & {
@@ -356,13 +357,13 @@ export abstract class SocketBase extends EventEmitter {
 
     protected setupSharedContentListeners(socket: Socket) {
         socket.on('shareImage', (data: any) => {
-            logger.info(`[${this.constructor.name}] Received shared image: ${data.image}`);
-            this.emit('foundry:shareImage', { data });
+            logger.info(`[${this.constructor.name}] Received shared image.`);
+            this.emit('foundry:shareImage', { data, timestamp: Date.now(), shareId: randomUUID() });
         });
 
         socket.on('showEntry', (uuid: string, ...args: any[]) => {
-            logger.info(`[${this.constructor.name}] Received shared entry: ${uuid}`);
-            this.emit('foundry:showEntry', { uuid, args });
+            logger.info(`[${this.constructor.name}] Received shared journal.`);
+            this.emit('foundry:showEntry', { uuid, args, timestamp: Date.now(), shareId: randomUUID() });
         });
     }
 

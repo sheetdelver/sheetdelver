@@ -9,6 +9,8 @@ import { run as runDiceFollowups } from './dice-followups.test';
 import { run as runDiceDisposal } from './dice-disposal.test';
 import { run as runChatToast } from './chat-toast.test';
 import { run as runUiContextStability } from './ui-context-stability.test';
+import { run as runBottomNavigation } from './bottom-navigation.test';
+import { run as runSharedJournalView } from './shared-journal-view.test';
 import { run as runDiceBehavior } from './dice-behavior.test';
 import { run as runDiceAppearance } from './dice-appearance.test';
 import { run as runDiceAudio } from './dice-audio.test';
@@ -44,6 +46,8 @@ export async function run() {
     runDiceDisposal();
     runChatToast();
     runUiContextStability();
+    runBottomNavigation();
+    await runSharedJournalView();
     runFoundryStateHelpers();
     runRuntimeSurface();
     runSharedContentRealtime();

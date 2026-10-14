@@ -41,6 +41,7 @@ import {
     useActorSheet,
     useModuleSettings,
     createActorPage,
+    useBottomNavigation,
 } from '../../../shared/sdk/entry-react';
 
 // ---------------------------------------------------------------------------
@@ -380,6 +381,7 @@ function runClientSdkTests() {
     assert.equal(typeof useDocumentMutation, 'function');
     assert.equal(typeof useActorSheet, 'function');
     assert.equal(typeof useModuleSettings, 'function');
+    assert.equal(typeof useBottomNavigation, 'function');
 
     // createActorPage produces a component without rendering it.
     const Page = createActorPage(() => null);

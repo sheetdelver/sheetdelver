@@ -1,4 +1,4 @@
-/** GM-only, whitelisted Combat Manager API. Foundry source documents never cross this boundary. */
+/** GM/Assistant, whitelisted Combat Manager API. Foundry source documents never cross this boundary. */
 import type { ModuleCombatStatAttribute } from '@shared/sdk';
 
 /** Identity used only for detecting duplicate manager encounter labels. */
