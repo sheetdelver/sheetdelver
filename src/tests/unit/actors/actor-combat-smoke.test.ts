@@ -7,6 +7,7 @@ import { createCombatService, getCombatInitiativeRollTotal } from '@server/servi
 import { combatStore } from '@server/core/documents/primary/combats/CombatStore';
 import { settingStore } from '@server/core/documents/primary/settings/SettingStore';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
+import { worldStateStore } from '@server/core/world/WorldStateStore';
 import { PreparedActorUnavailableError } from '@server/core/documents/prepared/actors/PreparedActorStore';
 import type { CombatDocument } from '@server/shared/types/documents';
 import type { ActorDocument } from '@server/shared/types/actors';
@@ -857,9 +858,13 @@ async function runCombatReadActionSmoke() {
 
 export async function run() {
     await runActorReadWriteSmoke();
+    const previousWorld = worldStateStore.getGameDataSnapshot();
     try {
+        worldStateStore.seed({ world: { id: 'combat-smoke' }, system: { id: 'generic' } });
         await runCombatReadActionSmoke();
     } finally {
+        worldStateStore.clear();
+        if (previousWorld) worldStateStore.seed(previousWorld);
         combatStore.clear('actor-combat-smoke-test');
         settingStore.clear('actor-combat-smoke-test');
         userStore.clear('actor-combat-smoke-test');

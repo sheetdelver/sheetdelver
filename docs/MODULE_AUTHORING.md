@@ -382,6 +382,14 @@ no new minimum range merely for this additive choice; wrappers using the
 injected Core `RollDialog` inherit the corrected behavior. The HUD uses the
 same slot for an eligible owned row during a GM-opened managed initiative
 phase (ADR-0061); authorization and transport remain Core-owned.
+Reuse the existing sheet roller's presentation: injected `RollDialog` shares
+its frame/theme between sheet and initiative modes. A module with its own
+sheet modal can register a typed `rollModal` adapter around reusable module
+frame/field/button components (Mörk Borg and D&D do this). Do not reuse sheet
+rule execution, bonus/formula editing, recipient selection or raw-die manual
+math in that adapter: `kind: "manual"` is already the final total. Theme
+classes own their surfaces; Core must not add a conflicting skin. No additional
+SDK surface is needed for this presentation reuse.
 
 ### Player-world lifecycle
 

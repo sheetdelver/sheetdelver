@@ -31,17 +31,28 @@ export function run() {
     const noAdvantage = renderToStaticMarkup(createElement(RollDialog, {
         ...props, advantageAvailable: false, audience: 'gm', source: 'gm',
     }));
-    assert.match(noAdvantage, /Audience: GMs/);
+    assert.match(noAdvantage, /Private GM Roll/);
     assert.doesNotMatch(noAdvantage, />Advantage</);
     const manualOnly = renderToStaticMarkup(createElement(RollDialog, {
         ...props, formula: '', source: 'module', rollAvailable: false,
         advantageAvailable: false, audience: 'gm',
     }));
-    assert.match(manualOnly, /Formula: <code>Unavailable<\/code>/);
+    assert.match(manualOnly, /aria-label="Initiative formula">Unavailable<\/code>/);
     assert.match(manualOnly, /Manual total/);
     assert.doesNotMatch(manualOnly, />Roll initiative</);
     assert.doesNotMatch(manualOnly, />Advantage</);
     assert.doesNotMatch(manualOnly, />Disadvantage</);
+    const theme = { container: 'module-sheet-frame', header: 'module-sheet-header',
+        body: 'module-sheet-body', footer: 'module-sheet-footer', closeBtn: 'module-sheet-close',
+        rollBtn: () => 'module-sheet-roll' };
+    for (const dialogProps of [props, { isOpen: true, type: 'ability' as const, title: 'Ability Check',
+        onClose: () => {}, onConfirm: () => {} }]) {
+        const themed = renderToStaticMarkup(createElement(RollDialog, { ...dialogProps, theme }));
+        assert.match(themed, /class="module-sheet-frame"/);
+        assert.match(themed, /class="module-sheet-footer"/);
+        assert.match(themed, /class="module-sheet-roll"/);
+        assert.doesNotMatch(themed, /sd-ui-inset|rounded-2xl/, 'the shared frame never appends Core chrome to a module skin');
+    }
     console.log('  - InitiativeRollDialog: bounded presentation passed');
 }
 

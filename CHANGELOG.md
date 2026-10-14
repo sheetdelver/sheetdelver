@@ -7,8 +7,9 @@
 - Refined compact combat HUD
 - Concealed hidden player combatants
 - Added owned combat stats
-- Guarded stale combat commands
+- Revalidated combat scopes and ownership
 - Versioned initiative dialog contract
+- Reused standard roller presentation
 
 ## 0.17.1
 - Repaired official module catalog

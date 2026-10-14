@@ -20,6 +20,8 @@ import { __resetDataDirForTests, getDataDir } from '@server/core/paths';
 import { BaseSystemAdapter } from '@shared/sdk';
 import type { CombatClientLike } from '@server/shared/types/documents';
 import type { ActorDocument } from '@server/shared/types/actors';
+import { registerCombatRoutes } from '@server/routes/protected/registerCombatRoutes';
+import { createRouteMap, createRouterStub, getLastHandler, invokeHandler } from '../routing/route-test-helpers';
 
 type Call = { type: string; action: string; operation: Record<string, any>; parent?: { type: string; id: string } };
 
@@ -70,6 +72,7 @@ export function mockClient(userId: string, calls: Call[], rolls: string[] = []):
 }
 
 export async function seed(): Promise<void> {
+    worldStateStore.seed({ world: { id: 'test-world' }, system: { id: 'test' } });
     await userStore.seed(async () => [
         { _id: 'gm', role: 4, permissions: { ACTOR_CREATE: true, FILES_BROWSE: true } },
         { _id: 'assistant', role: 3, permissions: { ACTOR_CREATE: true, FILES_BROWSE: true } },
@@ -92,6 +95,270 @@ export async function seed(): Promise<void> {
     compendiumStore.clear();
     compendiumStore.setPackMetadata('test.monsters', { id: 'test.monsters', type: 'Actor', label: 'Monsters' });
     compendiumStore.setPackMetadata('test.sort-pack', { id: 'test.sort-pack', type: 'Actor', label: 'Sort pack' });
+}
+
+/** Pause a real service await so mutations race with the request, not its setup. */
+function requestGate() {
+    let enter!: () => void;
+    let release!: () => void;
+    const entered = new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('Service did not reach the paused await')), 5000);
+        enter = () => { clearTimeout(timeout); resolve(); };
+    });
+    const resumed = new Promise<void>(resolve => { release = resolve; });
+    return { entered, release, pause: async () => { enter(); await resumed; } };
+}
+
+export async function runParticipationHardening(): Promise<void> {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sd-participation-guards-'));
+    const previousWorld = worldStateStore.getGameDataSnapshot();
+    let previousDataDir: string | null = null;
+    try { previousDataDir = getDataDir(); } catch { /* Standalone run. */ }
+    const calls: Call[] = [];
+    const rolls: string[] = [];
+    const player = mockClient('player', calls, rolls);
+    const coowner = mockClient('coowner', calls, rolls);
+    const service = createCombatService({});
+    const policy = { initiativeOpen: true, initiativeGeneration: 'phase-one', endTurnEnabled: true };
+    const observed = { initiative: null, formula: '1d20', phaseGeneration: 'phase-one' };
+    const patchRow = (updates: Record<string, unknown>) => combatStore.applyModifyDocument('Combatant', 'update',
+        [{ _id: 'OWNERROW', ...updates }], { parentUuid: 'Combat.OWNERGUARD' });
+    const patchPolicy = (updates: Record<string, unknown>) => combatStore.patch('OWNERGUARD',
+        { 'flags.world.sheetDelverCombat.playerActions': { ...policy, ...updates } });
+    const reset = async () => {
+        await seed();
+        userStore.upsert({ _id: 'coowner', role: 1 });
+        actorStore.patch('PLAYERPC', { ownership: { player: 3, coowner: 3 } });
+        actorStore.upsert({ _id: 'ALTPC', name: 'Other owned Actor', type: 'character', ownership: { player: 3 } });
+        combatStore.upsert({ _id: 'OWNERGUARD', scene: null, active: false, round: 0, turn: null,
+            flags: { world: { sheetDelverCombat: { schemaVersion: 1, mode: 'tokenless',
+                label: 'Guard fixture', status: 'active', keepHistory: false, folderId: null,
+                copyIds: [], playerActions: { ...policy } } } },
+            combatants: [{ _id: 'OWNERROW', actorId: 'PLAYERPC', initiative: null, hidden: false },
+                { _id: 'HIDDENROW', actorId: 'WORLDNPC', initiative: 4, hidden: true }],
+        });
+        preparedActorStore.bind(actorStore);
+        preparedActorStore.configure(new BaseSystemAdapter(), { worldEpoch: 1, systemId: 'test' });
+        preparedActorStore.rebuildAll();
+        calls.length = 0;
+        rolls.length = 0;
+    };
+    const submit = (client: CombatClientLike, manualTotal?: number, advantageMode?: 'advantage' | 'disadvantage') =>
+        service.rollInitiative(client, 'OWNERGUARD', 'OWNERROW', { observed, manualTotal, advantageMode });
+    try {
+        __resetDataDirForTests(dataDir);
+        // R1: both owned and unowned replacement Actors invalidate the original target.
+        for (const stage of ['read', 'chat', 'score'] as const) {
+            for (const actorId of ['ALTPC', 'WORLDNPC']) {
+                await reset();
+                if (stage === 'score') combatStore.patch('OWNERGUARD', { active: true, round: 1, turn: 0 });
+                const gate = requestGate();
+                const client = { ...player,
+                    getActor: async (id: string) => {
+                        const actor = await player.getActor(id);
+                        if (stage === 'read') await gate.pause();
+                        return actor;
+                    },
+                    roll: async (...args: Parameters<typeof player.roll>) => {
+                        const result = await player.roll(...args);
+                        if (stage === 'chat') await gate.pause();
+                        return result;
+                    },
+                    dispatchDocument: async (...args: Parameters<typeof player.dispatchDocument>) => {
+                        const result = await player.dispatchDocument(...args);
+                        if (stage === 'score' && args[0] === 'Combatant') await gate.pause();
+                        return result;
+                    },
+                } as CombatClientLike;
+                const pending = submit(client, 12);
+                try { await gate.entered; patchRow({ actorId }); } finally { gate.release(); }
+                const result = await pending;
+                assert.ok('error' in result && result.status === 409, `${stage}: changed Actor association rejected`);
+                if ('error' in result && stage !== 'read') {
+                    assert.equal(result.code, stage === 'chat' ? 'ROLL_NOT_APPLIED' : 'TURN_SYNC_UNKNOWN');
+                }
+                assert.equal(rolls.length, stage === 'read' ? 0 : 1, 'no reroll for a changed target');
+                assert.equal(calls.filter(call => call.type === 'Combatant').length, stage === 'score' ? 1 : 0);
+                assert.equal(calls.filter(call => call.type === 'Combat').length, 0, 'no turn repair onto a changed Actor');
+            }
+        }
+
+        // R2: final projection must use current subject, rows, flags and request scope.
+        const readChanges: Array<{ name: string; userId: string; status?: number;
+            change: (client: CombatClientLike & { isConnected: boolean }) => void }> = [
+            { name: 'GM demotion', userId: 'gm', change: () => userStore.patch('gm', { role: 1 }) },
+            { name: 'Assistant demotion', userId: 'assistant', change: () => userStore.patch('assistant', { role: 1 }) },
+            { name: 'phase closure', userId: 'player', change: () => patchPolicy({ initiativeOpen: false }) },
+            { name: 'row hidden', userId: 'player', change: () => patchRow({ hidden: true }) },
+            { name: 'row removed', userId: 'player', change: () => combatStore.applyModifyDocument('Combatant', 'delete',
+                ['OWNERROW'], { parentUuid: 'Combat.OWNERGUARD' }) },
+            { name: 'Combat removed', userId: 'player', change: () => combatStore.delete('OWNERGUARD') },
+            { name: 'user removed', userId: 'gm', change: () => userStore.delete('gm'), status: 401 },
+            { name: 'user banned', userId: 'player', change: () => userStore.patch('player', { role: 0 }), status: 401 },
+            { name: 'world replaced', userId: 'player', change: () => worldStateStore.seed({
+                world: { id: 'replacement-world' }, system: { id: 'test' } }), status: 503 },
+            { name: 'world closed', userId: 'player', change: () => worldStateStore.clearRuntimeState(), status: 503 },
+            { name: 'caller replaced', userId: 'player', change: client => { client.userId = 'coowner'; }, status: 401 },
+            { name: 'transport lost', userId: 'player', change: client => { client.isConnected = false; }, status: 503 },
+        ];
+        for (const test of readChanges) {
+            await reset();
+            actorStore.patch('PLAYERPC', { ownership: { player: 3, gm: 3, assistant: 3 } });
+            const gate = requestGate();
+            const client = { ...mockClient(test.userId, calls), isConnected: true, getSystem: async () => {
+                await gate.pause(); return { id: 'test' };
+            } } as CombatClientLike & { isConnected: boolean };
+            const pending = service.listCombats(client);
+            // Attach rejection observation before mutating the paused request.
+            const outcome = pending.then(value => ({ value }), error => ({ error }));
+            try { await gate.entered; test.change(client); } finally { gate.release(); }
+            const result = await outcome;
+            if (test.status !== undefined) {
+                assert.ok('error' in result && result.error.status === test.status, test.name);
+            } else {
+                assert.ok('value' in result, test.name);
+                if ('value' in result) {
+                    const view = result.value.combats.find(row => row.id === 'OWNERGUARD');
+                    if (test.name.endsWith('demotion')) {
+                        assert.deepEqual(view?.combatants.map(row => row.id), ['OWNERROW'], 'old-role hidden rows never escape');
+                        assert.equal(view?.canManage, false);
+                    } else if (test.name === 'phase closure') {
+                        assert.equal(view?.playerInitiative, undefined);
+                        assert.equal(view?.combatants[0]?.canRollInitiative, false);
+                    } else assert.equal(view, undefined, 'retired rows/Combats leave no player encounter');
+                }
+            }
+            assert.equal(calls.length, 0, 'tracker reads never dispatch document operations');
+        }
+
+        // Changes during the file-backed preference await receive the same revalidation.
+        await reset();
+        const preferenceGate = requestGate();
+        const originalResolve = combatStatDisplayService.resolve;
+        combatStatDisplayService.resolve = async client => {
+            const value = await originalResolve(client); await preferenceGate.pause(); return value;
+        };
+        try {
+            const pending = service.listCombats(player);
+            try { await preferenceGate.entered; patchPolicy({ initiativeOpen: false }); } finally { preferenceGate.release(); }
+            assert.equal((await pending).combats.find(row => row.id === 'OWNERGUARD')?.playerInitiative, undefined);
+        } finally { combatStatDisplayService.resolve = originalResolve; }
+
+        // Two owners overlap in time; only the admitted request can create chat/write.
+        await reset();
+        const chatGate = requestGate();
+        const first = submit({ ...player, roll: async (...args: Parameters<typeof player.roll>) => {
+            const result = await player.roll(...args); await chatGate.pause(); return result;
+        } } as CombatClientLike, 0);
+        try {
+            await chatGate.entered;
+            await assert.rejects(() => submit(coowner, 20), (error: any) => error.status === 409 && error.code === 'ENCOUNTER_BUSY');
+        } finally { chatGate.release(); }
+        assert.deepEqual(await first, { success: true, initiative: 0 });
+        const stale = await submit(coowner, 20);
+        assert.ok('error' in stale && stale.status === 409, 'first applied score wins, including zero');
+        assert.deepEqual(rolls, ['0']);
+        assert.equal(calls.filter(call => call.type === 'Combatant').length, 1);
+
+        // Turn requests use the same encounter guard while the caller's write awaits.
+        await reset();
+        combatStore.patch('OWNERGUARD', { active: true, round: 1, turn: 1 });
+        const turnGate = requestGate();
+        const turnObserved = { active: true, started: true, round: 1, currentCombatantId: 'OWNERROW' };
+        const firstTurn = service.advanceTurn({ ...player, dispatchDocument: async (...args: Parameters<typeof player.dispatchDocument>) => {
+            await turnGate.pause(); return player.dispatchDocument(...args);
+        } } as CombatClientLike, 'OWNERGUARD', false, turnObserved);
+        try {
+            await turnGate.entered;
+            await assert.rejects(() => service.advanceTurn(coowner, 'OWNERGUARD', false, turnObserved),
+                (error: any) => error.status === 409 && error.code === 'ENCOUNTER_BUSY');
+        } finally { turnGate.release(); }
+        assert.ok('success' in await firstTurn);
+        assert.equal(calls.filter(call => call.type === 'Combat').length, 1);
+
+        const preflightChanges = [
+            () => actorStore.patch('PLAYERPC', { ownership: { player: 0 } }),
+            () => patchRow({ hidden: true }),
+            () => combatStore.applyModifyDocument('Combatant', 'delete', ['OWNERROW'], { parentUuid: 'Combat.OWNERGUARD' }),
+            () => patchPolicy({ initiativeOpen: false }),
+            () => patchPolicy({ initiativeGeneration: 'phase-two' }),
+            () => combatStore.patch('OWNERGUARD', { 'flags.world.sheetDelverCombat.status': 'cleaning' }),
+            () => worldStateStore.clearRuntimeState(),
+            () => userStore.delete('player'),
+        ];
+        for (const change of preflightChanges) {
+            await reset();
+            const gate = requestGate();
+            const client = { ...player, getActor: async (id: string) => {
+                const actor = await player.getActor(id); await gate.pause(); return actor;
+            } } as CombatClientLike;
+            const pending = submit(client, 12);
+            try { await gate.entered; change(); } finally { gate.release(); }
+            const result = await pending;
+            assert.ok('error' in result, 'lost authority during an await rejects the submission');
+            assert.deepEqual(rolls, []);
+            assert.equal(calls.length, 0);
+        }
+        await reset();
+        const disconnected = { ...player, isConnected: false } as CombatClientLike;
+        assert.ok('error' in await submit(disconnected, 12));
+        assert.deepEqual(rolls, []);
+
+        for (const [manual, mode, formula] of [[undefined, undefined, '1d20'],
+            [undefined, 'advantage', '2d20kh1'], [undefined, 'disadvantage', '2d20kl1'],
+            [12.5, undefined, '12.5']] as const) {
+            await reset();
+            assert.ok('success' in await submit(player, manual, mode));
+            assert.deepEqual(rolls, [formula]);
+        }
+        // Known post-chat policy loss has no score write; timeout is uncertain.
+        await reset();
+        const closedAfterChat = await submit({ ...player, roll: async (...args: Parameters<typeof player.roll>) => {
+            const result = await player.roll(...args); patchPolicy({ initiativeOpen: false }); return result;
+        } } as CombatClientLike, 8);
+        assert.ok('error' in closedAfterChat && closedAfterChat.code === 'ROLL_NOT_APPLIED');
+        assert.equal(rolls.length, 1);
+        assert.equal(calls.length, 0);
+        await reset();
+        const timeout = await submit({ ...player, roll: async (...args: Parameters<typeof player.roll>) => {
+            await player.roll(...args); throw new Error('Synthetic chat acknowledgement timeout');
+        } } as CombatClientLike, 8);
+        assert.ok('error' in timeout && timeout.code === 'ROLL_OUTCOME_UNKNOWN');
+        assert.equal(rolls.length, 1);
+        assert.equal(calls.length, 0);
+
+        // Public HTTP acknowledgements expose no positional turn information.
+        await reset();
+        combatStore.patch('OWNERGUARD', { active: true, round: 1, turn: 1 });
+        const tracker = (await service.listCombats(player)).combats.find(row => row.id === 'OWNERGUARD')!;
+        const routes = createRouteMap();
+        registerCombatRoutes(createRouterStub(routes) as any);
+        const next = getLastHandler(routes, 'post', '/combats/:id/next-turn');
+        const response = await invokeHandler(next, { foundryClient: player, params: { id: 'OWNERGUARD' },
+            body: { observed: { active: tracker.active, started: tracker.started, round: tracker.round,
+                currentCombatantId: tracker.currentCombatantId } } } as any);
+        assert.equal(response.statusCode, 200);
+        assert.deepEqual(response.payload, { success: true });
+        const staleResponse = await invokeHandler(next, { foundryClient: player, params: { id: 'OWNERGUARD' },
+            body: { observed: { active: tracker.active, started: tracker.started, round: tracker.round,
+                currentCombatantId: tracker.currentCombatantId } } } as any);
+        assert.notEqual(staleResponse.statusCode, 200);
+        assert.equal(calls.filter(call => call.type === 'Combat').length, 1, 'stale HTTP turn is never replayed');
+        userStore.delete('player');
+        const read = await invokeHandler(getLastHandler(routes, 'get', '/combats'), { foundryClient: player } as any);
+        assert.equal(read.statusCode, 401, 'HTTP preserves retired-session status');
+        await reset();
+        worldStateStore.clearRuntimeState();
+        const unavailable = await invokeHandler(getLastHandler(routes, 'get', '/combats'), { foundryClient: player } as any);
+        assert.equal(unavailable.statusCode, 503, 'HTTP preserves retired-world status');
+        console.log('  - Managed participation: Actor continuity, fresh tracker scope, concurrent owners and partial outcomes passed');
+    } finally {
+        preparedActorStore.clear();
+        worldStateStore.clear();
+        if (previousWorld) worldStateStore.seed(previousWorld);
+        __resetDataDirForTests(previousDataDir);
+        fs.rmSync(dataDir, { recursive: true, force: true });
+    }
 }
 
 export async function run(): Promise<void> {
@@ -903,6 +1170,7 @@ export async function run(): Promise<void> {
     assert.equal(calls.filter(call => call.type === 'Combat' && call.action === 'create').length, createdCombats,
         'ambiguous parent folders fail before creating a provisional Combat');
     folderStore.applyModifyDocument('Folder', 'delete', ['DUPROOT', 'USERROOT']);
+    await runParticipationHardening();
     console.log('  - CombatManager: role, identity, resource, retention and cleanup checks passed');
 }
 

@@ -208,6 +208,12 @@ backend encounter read model — never raw Combat/Combatant/Actor documents.
 - Initiative presentation receives a server-resolved formula and offers only
   allowed roll modes or a manual final total. Core executes the action;
   modules may theme the dialog through the versioned SDK slot.
+  A changed phase, score, formula, Actor association or lost row capability
+  retires an open initiative dialog; the player chooses a fresh action.
+  The shared initiative renderer reuses the SDK sheet roller's frame/theme,
+  without appending Core chrome over a module skin. Module overrides may reuse
+  their own sheet modal's presentation, but not its formula/recipient editors
+  or raw-die arithmetic. Formula and audience remain server-owned.
 - `combatChanged`, `combatListInvalidated` and
   `combatTrackerPreferencesChanged` are skinny invalidations — the client
   refetches its authorized projection; payloads never carry document data.

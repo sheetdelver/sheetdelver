@@ -83,6 +83,7 @@ export default function CombatHUDView() {
         ?.combatants.find(row => row.id === rollTarget.row.id);
     const rollCombat = rollTarget && activeCombats.find(item => item.id === rollTarget.combatId);
     const rollStillValid = !!rollRow && rollRow.canRollInitiative && rollRow.initiative === rollTarget?.row.initiative
+        && rollRow.actorId === rollTarget?.row.actorId
         && rollRow.initiativeRoll?.formula === rollTarget?.row.initiativeRoll?.formula
         && rollCombat?.playerInitiative?.generation === rollTarget?.phaseGeneration;
     useEffect(() => { if (rollTarget && !rollStillValid) setRollTarget(null); }, [rollTarget, rollStillValid]);

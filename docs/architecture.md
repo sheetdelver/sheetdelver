@@ -306,7 +306,11 @@ GM/Assistant-opened own-Actor initiative under the shared encounter guard
 The optional policy and phase generation live on the Combat flag. Reads
 project only the caller's owned visible pre-Begin rows, not manager state;
 player writes use the user's Foundry socket and never borrow manager
-authority. Native Foundry browser hooks, private directed roll requests and
+authority. Tracker reads revalidate user/world/runtime scope after awaited
+dependencies and synchronously project current subject-filtered documents;
+initiative commands pin the Combatant-to-Actor association through rolling,
+score application and turn repair. Retired scope fails closed; an uncertain
+post-chat result is never replayed automatically. Native Foundry browser hooks, private directed roll requests and
 system turn automation remain out of scope (ADR-0060/ADR-0058). Native
 owner-write acceptance is a separate ADR-0061 integration gate, not inferred
 from Core-side tests.

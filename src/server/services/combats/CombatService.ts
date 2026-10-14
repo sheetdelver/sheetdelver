@@ -48,7 +48,11 @@ interface CombatServiceDeps {
 type CombatTurnExecution = CombatTurnSuccessPayload & { round: number; turn: number };
 
 function resolveSubject(userId: string | null | undefined): DocumentAccessSubject | null {
-    return userStore.createAccessSubject(userId);
+    const subject = userStore.createAccessSubject(userId);
+    // A deleted/banned user can still be named in Actor ownership. That map
+    // does not keep a retired caller authorized through a pending request.
+    return subject && subject.role >= FoundryUserRole.PLAYER && userStore.get(subject.userId)
+        ? subject : null;
 }
 
 const projectionDeps = {
@@ -106,9 +110,9 @@ export function createCombatService(deps: CombatServiceDeps) {
         && (client as CombatClientLike & { isConnected?: boolean }).isConnected !== false;
 
     /** Add bounded owned-stat/roll metadata and resolve display image paths. */
-    const enrichTrackerDto = async (dto: CombatTrackerDto, client: CombatClientLike,
+    const enrichTrackerDto = (dto: CombatTrackerDto, client: CombatClientLike,
         subject: DocumentAccessSubject, attributes: CombatManagerSelectedStatDto[],
-        adapter: SystemAdapter | null, initiativeFallback: string | null): Promise<CombatTrackerDto> => {
+        adapter: SystemAdapter | null, initiativeFallback: string | null): CombatTrackerDto => {
         const combat = combatStore.get(dto.id);
         return {
             ...dto,
@@ -161,14 +165,33 @@ export function createCombatService(deps: CombatServiceDeps) {
     // enriched with bounded display/roll metadata. No raw documents are spread to the client.
     const listCombats = async (client: CombatClientLike): Promise<CombatListPayload> => {
         ensureReady();
-        const subject = resolveSubject(client.userId);
-        if (!subject) return { success: true, combats: [] };
-
+        if (!client.userId) return { success: true, combats: [] };
+        const scope = playerScope(client);
+        const currentSubject = (): DocumentAccessSubject => {
+            const subject = resolveSubject(client.userId);
+            if (client.userId !== scope.userId || !subject) {
+                throw Object.assign(new Error('Player session is no longer valid'), { status: 401 });
+            }
+            if (!samePlayerScope(client, scope)) {
+                throw Object.assign(new Error('Combat view changed; refresh after reconnecting'), { status: 503 });
+            }
+            ensureReady();
+            return subject;
+        };
+        // Read dependencies before the final authorization/projection pass. A
+        // role, world or phase can change while the file/module lookup awaits.
+        if (!combatStore.list({ subject: currentSubject() }).length) return { success: true, combats: [] };
+        const preferences = await combatStatDisplayService.resolve(client);
+        currentSubject();
+        const systemInfo = await client.getSystem();
+        currentSubject();
+        const adapter = await getAdapter(systemInfo.id.toLowerCase());
+        const subject = currentSubject();
         const visible = combatStore.list({ subject });
-        const preferences = visible.length ? await combatStatDisplayService.resolve(client) : null;
-        const adapter = visible.length ? await getAdapter((await client.getSystem()).id.toLowerCase()) : null;
         const skipDefeated = isSkipDefeatedEnabled();
-        const combats = await Promise.all(visible.map(async (combat) => {
+        // Projection is synchronous: there is no later await that can retain a
+        // privileged subject or old Combat flag into the response.
+        const combats = visible.map((combat) => {
             const combatId = getDocumentId(combat);
             if (!combatId) return null;
             const prepared = combatEncounterReadModel.getOrRebuild(combatId);
@@ -197,7 +220,7 @@ export function createCombatService(deps: CombatServiceDeps) {
             } : dto;
             return enrichTrackerDto(projected, client, subject, preferences?.attributes ?? [],
                 adapter, preferences?.initiativeFormula ?? null);
-        }));
+        });
 
         return { success: true, combats: combats.filter((c): c is CombatTrackerDto =>
             c !== null && (isAssistantGM(subject) || c.combatants.length > 0)) };
@@ -453,6 +476,8 @@ export function createCombatService(deps: CombatServiceDeps) {
         if (!subject) return { error: 'Unauthorized', status: 403 };
         const gm = isAssistantGM(subject);
         const scope = playerScope(client);
+        const combatant = combat.combatants?.find((c) => (c._id || c.id) === combatantId);
+        const actorId = combatant?.actorId;
 
         const checkManagedOwner = (expectedInitiative: number | null = null): CombatErrorPayload | null => {
             if (!playerManaged) return null;
@@ -470,6 +495,7 @@ export function createCombatService(deps: CombatServiceDeps) {
             }
             const row = live.combatants?.find(item => (item._id || item.id) === combatantId);
             if (!row || row.hidden || !row.actorId) return { error: 'Combatant not found', status: 404 };
+            if (row.actorId !== actorId) return { error: 'Combatant changed; refresh before retrying', status: 409 };
             if (!projectionDeps.canWriteActor(row.actorId, actorSubject)) return { error: 'Combatant not found', status: 404 };
             if ((row.initiative ?? null) !== expectedInitiative || observed.initiative !== null) {
                 return { error: 'Initiative changed; refresh before retrying', status: 409 };
@@ -479,12 +505,11 @@ export function createCombatService(deps: CombatServiceDeps) {
         const initialManagedError = checkManagedOwner();
         if (initialManagedError) return initialManagedError;
 
-        const combatant = combat.combatants?.find((c) => (c._id || c.id) === combatantId);
         if (!combatant || (combatant.hidden && !gm)) {
             return { error: 'Combatant not found', status: 404 };
         }
-        if (!combatant.actorId) return { error: 'Actor not found', status: 404 };
-        if (!gm && !projectionDeps.canWriteActor(combatant.actorId, subject)) {
+        if (!actorId) return { error: 'Actor not found', status: 404 };
+        if (!gm && !projectionDeps.canWriteActor(actorId, subject)) {
             return { error: playerManaged ? 'Combatant not found' : 'Unauthorized: You do not own this combatant', status: playerManaged ? 404 : 403 };
         }
 
@@ -495,7 +520,7 @@ export function createCombatService(deps: CombatServiceDeps) {
         const afterAdapter = checkManagedOwner();
         if (afterAdapter) return afterAdapter;
 
-        const sourceActor = await client.getActor(combatant.actorId);
+        const sourceActor = await client.getActor(actorId);
         const afterActor = checkManagedOwner();
         if (afterActor) return afterActor;
         if (!sourceActor || sourceActor.error) {
@@ -505,7 +530,7 @@ export function createCombatService(deps: CombatServiceDeps) {
             };
         }
 
-        const actor = getPreparedActor(combatant.actorId);
+        const actor = getPreparedActor(actorId);
 
         // A guarded manager batch supplies one preference snapshot for every roll.
         const initiativeFallback = managerCommand && managerInitiativeFallback !== undefined
@@ -532,7 +557,7 @@ export function createCombatService(deps: CombatServiceDeps) {
 
         if (playerManaged) {
             const latestFallback = (await combatStatDisplayService.resolve(client))?.initiativeFormula ?? null;
-            const latestActor = getPreparedActor(combatant.actorId);
+            const latestActor = getPreparedActor(actorId);
             const latestFormula = effectiveInitiativeFormula(adapter, latestActor, latestFallback);
             const stale = checkManagedOwner();
             if (stale) return stale;

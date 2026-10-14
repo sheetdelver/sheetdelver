@@ -276,7 +276,12 @@ an authorized player view, including before Begin; pre-Begin rows contain
 only that player's visible owned Actors. This does not activate the Foundry
 Combat. Core-generated compendium-copy ordinals are suppressed in player
 display when their Combatant provenance marker still matches; GM labels and
-authored renames remain unchanged. `canManage` is role-4-only.
+authored renames remain unchanged. `canManage` is available to native-authorized
+GM/Assistant managers. After asynchronous preference/system/module lookups,
+the service rechecks caller/world/runtime scope and projects current,
+subject-filtered Combat and Actor data. Removed/banned/replaced callers return
+`401`; unavailable or replaced world/transport scope returns `503`, without
+an old privileged tracker payload.
 
 The tracker is an authorized projection, not a write grant. Its encounter
 fields are `id`, `active`, `started`, `round`, optional `playerInitiative`, visible
@@ -292,7 +297,7 @@ not derive a formula from raw Actor data.
 | Viewer | Ordinary Combat HUD | SheetDelver-managed Combat HUD |
 | --- | --- | --- |
 | Role-4 GM | Full roster; Begin/Next/Previous and eligible initiative | Full roster, view-only; `canManage` links to GM Combat Manager |
-| Assistant GM | Full roster; Begin/Next/Previous and eligible initiative | Full roster, view-only; no manager access |
+| Assistant GM | Full roster; Begin/Next/Previous and eligible initiative | Full roster, view-only HUD controls; `canManage` links to Combat Manager under native document permissions |
 | Player | Visible roster; own eligible initiative and End my turn only while active, started and current | Own visible unrolled initiative while GM phase is open, including before Begin; End my turn for current owned Actor by default unless GM disables it; no manager access |
 
 The ordinary action routes independently recheck role, Actor ownership,
@@ -315,6 +320,10 @@ are rejected. Hidden and
 missing rows are both `404` for a player. These are Core-side preflights and
 per-encounter serialization, not atomic native Foundry compare-and-set.
 Core chooses public/GM roll audience; the initiative request cannot set it.
+Managed owner initiative stays bound to the original Combatant's Actor ID
+through reads, rolling, score application and subsequent turn synchronization.
+Changing that association rejects a stale request; a change after chat returns
+a partial result rather than rerolling or updating the replacement Actor.
 Turn-command success is `{ "success": true }`, with no raw turn index.
 `ROLL_NOT_APPLIED` means a known post-chat failure; `ROLL_OUTCOME_UNKNOWN`
 means a roll or score-write timeout may have applied. Refresh and inspect
