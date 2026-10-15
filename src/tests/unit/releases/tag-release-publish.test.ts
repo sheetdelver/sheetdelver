@@ -52,7 +52,7 @@ function resumeFixture(answers: boolean[] = []) {
     const calls: { program: string; args: string[] }[] = [], output: string[] = [];
     const old = '0'.repeat(40), tagObject = 'c'.repeat(40);
     const state = {
-        remoteMain: old, remoteTag: '' as string, localTag: tagObject,
+        remoteMain: old, remoteTag: '' as string, localTag: tagObject, branch: 'main', dirty: '',
         failMainPushAfterLanding: false, ciConclusion: 'success', releaseConclusion: 'success',
         releaseExists: false, taggedRunCommit: release.commit, runAttempt: 1,
     };
@@ -62,6 +62,8 @@ function resumeFixture(answers: boolean[] = []) {
         command: (program, args) => {
             calls.push({ program, args });
             if (program === 'git' && args[0] === 'remote') return remote;
+            if (program === 'git' && args[0] === 'branch') return state.branch;
+            if (program === 'git' && args[0] === 'status') return state.dirty;
             if (program === 'git' && args[0] === 'rev-parse') return args[1].startsWith('refs/tags/') ? state.localTag : release.commit;
             if (program === 'git' && args[0] === 'ls-remote') {
                 assert.equal(args[2], remote, 'remote checks must use the verified push URL');
@@ -69,7 +71,10 @@ function resumeFixture(answers: boolean[] = []) {
                 if (ref === 'refs/heads/main') return `${state.remoteMain}\t${ref}`;
                 return state.remoteTag ? `${state.remoteTag}\t${ref}` : '';
             }
-            if (program === 'git' && args[0] === 'tag') { state.localTag = 'd'.repeat(40); return ''; }
+            if (program === 'git' && args[0] === 'tag') {
+                if (args[1] === '--list') return state.localTag ? release.tag : '';
+                state.localTag = 'd'.repeat(40); return '';
+            }
             if (program === 'git' && args[0] === 'push') {
                 if (args.at(-1)?.includes('refs/heads/main')) {
                     state.remoteMain = release.commit;
@@ -170,6 +175,34 @@ export async function run() {
         'refs/heads/main:refs/heads/main', 'refs/tags/v1.2.3:refs/tags/v1.2.3',
     ]);
     assert.equal(resume.state.remoteTag, resume.tagObject);
+    const missingTag = resumeFixture();
+    missingTag.state.remoteMain = release.commit;
+    missingTag.state.localTag = '';
+    await resumeLocalRelease(release, missingTag.io, false, missingTag.print);
+    const created = missingTag.calls.filter(call => call.program === 'git' && call.args[0] === 'tag' && call.args[1] !== '--list');
+    assert.deepEqual(created.map(call => call.args), [['tag', '-a', release.tag, '-m', `SheetDelver ${release.tag}`, release.commit]]);
+    assert.equal(missingTag.pushes().length, 0, 'missing-tag no-push recovery creates only a local annotated tag');
+    assert.ok(missingTag.calls.findIndex(call => call.program === 'gh' && call.args[0] === 'release') < missingTag.calls.indexOf(created[0]),
+        'publication checks precede tag creation');
+    for (const problem of ['remote-tag', 'published', 'dirty', 'branch', 'local-tag-race', 'api-error']) {
+        const blocked = resumeFixture();
+        blocked.state.localTag = '';
+        const command = blocked.io.command;
+        if (problem === 'remote-tag') blocked.state.remoteTag = blocked.tagObject;
+        if (problem === 'published') blocked.state.releaseExists = true;
+        if (problem === 'dirty') blocked.state.dirty = ' M package.json';
+        if (problem === 'branch') blocked.state.branch = 'feature';
+        blocked.io.command = (program, args) => {
+            if (program === 'gh' && args[0] === 'release') {
+                if (problem === 'local-tag-race') blocked.state.localTag = blocked.tagObject;
+                if (problem === 'api-error') throw new Error('HTTP 401 credentials unavailable');
+            }
+            return command(program, args);
+        };
+        await assert.rejects(resumeLocalRelease(release, blocked.io, false, blocked.print));
+        assert.equal(blocked.calls.filter(call => call.program === 'git' && call.args[0] === 'tag' && call.args[1] !== '--list').length, 0, problem);
+        assert.equal(blocked.pushes().length, 0, problem);
+    }
     const uncertain = resumeFixture([true, true]);
     uncertain.state.failMainPushAfterLanding = true;
     await assert.rejects(resumeLocalRelease({ ...release, taggedCommit: release.commit }, uncertain.io, true, uncertain.print), /uncertain main push/);

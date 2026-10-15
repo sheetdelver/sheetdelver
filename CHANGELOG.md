@@ -1,5 +1,6 @@
 # Releases
 ## 0.18.1
+- Recovered pre-bumped release tagging
 - Coordinated sheet navigation clearance
 - Added owned initiative chooser
 - Preserved shared image captions

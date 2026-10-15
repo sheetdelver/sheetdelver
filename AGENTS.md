@@ -45,6 +45,13 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - Running the release helper without --dry-run makes commits/tags and can offer
   pushes. Do not run it on the real repository without release authorization.
   Tool/sandbox approval alone is not user authorization for Git or remote writes.
+- During feature work and ADR closeout, prepare changelog entries only. Do not
+  pre-bump Core package.json/package-lock.json or module release versions unless
+  separately authorized for release preparation. Core version changes belong to
+  release:tag; a planned CHANGELOG.md heading does not authorize metadata bumps.
+  If metadata was already committed, use the helper's tag-only recovery rather
+  than reverting versions or inventing another patch release. Record the pending
+  release state and required approvals in the handoff.
 
 ## Production and Test Safety
 

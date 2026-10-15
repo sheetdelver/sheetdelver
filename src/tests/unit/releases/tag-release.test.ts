@@ -7,6 +7,7 @@ import { pathToFileURL } from 'node:url';
 import { parseReleaseOptions, planLocalRelease, planResumeRelease, runLocalRelease, runReleaseCommand, type ReleasePublishIO } from '../../../scripts/tools/releases/tag-release';
 
 export async function run() {
+    await preparedMetadataRegression();
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sheet-delver-release-tag-'));
     const git = (...args: string[]) => execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
     const read = (file: string) => fs.readFileSync(path.join(root, file), 'utf8');
@@ -74,7 +75,7 @@ export async function run() {
             ['--notes-file', 'a', '--notes-file', 'b'],
             ['--notes-file', 'a', '--notes', 'Entry'], ['--note', 'Entry', '--notes-file', 'a'],
         ]) assert.throws(() => parseReleaseOptions(['0.11.0', ...flags]));
-        assert.throws(() => planLocalRelease(root, { ...options, tag: 'v0.10.2' }), /must be newer/);
+        assert.throws(() => planLocalRelease(root, { ...options, tag: 'v0.10.2' }), /omit --note/);
         assert.throws(() => planLocalRelease(root, { ...options, tag: 'v0.9.9' }), /must be newer/);
         assert.throws(() => planLocalRelease(root, { ...options, notes: [] }), /missing the exact heading/);
 
@@ -142,6 +143,94 @@ export async function run() {
         assert.equal(git('tag', '--list', 'v0.11.2'), '', 'a failed commit must not create a tag');
         assert.equal(JSON.parse(read('package.json')).version, '0.11.2', 'failed work is preserved for inspection');
         console.log('  - local release tagging: all checks passed');
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+}
+
+/** Metadata may have been bumped/merged before the release helper is invoked. */
+async function preparedMetadataRegression() {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sheet-delver-prebumped-release-'));
+    const git = (...args: string[]) => execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+    const options = parseReleaseOptions(['0.18.1', '--dry-run']);
+    const releaseFiles = ['package.json', 'package-lock.json', 'CHANGELOG.md'];
+    const snapshot = () => releaseFiles.map(file => fs.readFileSync(path.join(root, file), 'utf8'));
+    const io: ReleasePublishIO = { command: () => { throw new Error('Dry run contacted a remote'); },
+        confirm: async () => { throw new Error('Dry run prompted'); }, sleep: async () => {}, now: () => 0 };
+    try {
+        git('init', '-b', 'main');
+        git('config', 'user.name', 'Release Test'); git('config', 'user.email', 'release@example.invalid');
+        git('config', 'commit.gpgsign', 'false'); git('config', 'tag.gpgsign', 'false');
+        git('config', 'core.hooksPath', path.join(root, '.git', 'hooks'));
+        fs.writeFileSync(path.join(root, 'package.json'), '{ "name": "fixture", "version": "0.18.1" }\n');
+        fs.writeFileSync(path.join(root, 'package-lock.json'), '{ "version": "0.18.1", "packages": { "": { "version": "0.18.1" } } }\n');
+        fs.writeFileSync(path.join(root, 'CHANGELOG.md'), '# Releases\n## 0.18.1\n- Prepared metadata\n');
+        git('add', '.'); git('commit', '-m', 'merged version bump');
+        const before = snapshot(), head = git('rev-parse', 'HEAD');
+        const messages: string[] = [];
+        assert.equal(planLocalRelease(root, options).tagOnly, true);
+        for (const resume of [false, true]) {
+            await runReleaseCommand(root, { ...options, resume }, io, line => messages.push(line));
+            assert.equal(git('tag'), '');
+            assert.equal(git('status', '--porcelain'), '');
+            assert.equal(git('rev-parse', 'HEAD'), head);
+            assert.deepEqual(snapshot(), before, 'tag-only previews preserve exact metadata bytes');
+        }
+        assert.ok(messages.some(line => /no (new )?release commit/i.test(line)));
+        assert.throws(() => planLocalRelease(root, { ...options, notes: ['Do not replace notes'] }), /omit.*note/i);
+        assert.throws(() => planLocalRelease(root, { ...options, notesFile: 'ignored.txt' }), /omit.*note/i);
+        fs.writeFileSync(path.join(root, 'package-lock.json'), '{ "version": "0.18.0" }');
+        assert.throws(() => planLocalRelease(root, options), /must match/);
+        fs.writeFileSync(path.join(root, 'package-lock.json'), before[1]);
+        fs.writeFileSync(path.join(root, 'CHANGELOG.md'), '# Releases\n');
+        assert.throws(() => planLocalRelease(root, options), /missing the exact heading/);
+        fs.writeFileSync(path.join(root, 'CHANGELOG.md'), before[2]);
+        fs.appendFileSync(path.join(root, 'CHANGELOG.md'), '- Uncommitted note\n');
+        assert.throws(() => runLocalRelease(root, options, () => {}), /clean worktree/);
+        assert.throws(() => planResumeRelease(root, { ...options, resume: true }), /clean worktree/);
+        fs.writeFileSync(path.join(root, 'CHANGELOG.md'), before[2]);
+        fs.writeFileSync(path.join(root, 'unrelated.txt'), 'keep');
+        assert.throws(() => runLocalRelease(root, options, () => {}), /clean worktree/);
+        fs.unlinkSync(path.join(root, 'unrelated.txt'));
+        fs.writeFileSync(path.join(root, '.git', 'MERGE_HEAD'), head);
+        assert.throws(() => runLocalRelease(root, options, () => {}), /in-progress/);
+        fs.unlinkSync(path.join(root, '.git', 'MERGE_HEAD'));
+        let raced = false;
+        assert.throws(() => runLocalRelease(root, { ...options, dryRun: false }, () => {
+            if (!raced) { raced = true; fs.writeFileSync(path.join(root, 'raced.txt'), 'preserve'); }
+        }), /state changed/);
+        assert.equal(git('tag'), '', 'state changes after displaying the plan must not create a tag');
+        fs.unlinkSync(path.join(root, 'raced.txt'));
+        // A failing commit hook proves recovery does not try to create an empty commit.
+        fs.writeFileSync(path.join(root, '.git', 'hooks', 'pre-commit'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+        const commands: string[][] = [];
+        const resumeIO: ReleasePublishIO = { ...io, command: (program, args) => {
+            if (program === 'gh') {
+                if (args[0] === 'release') throw new Error('HTTP 404 release not found');
+                if (args[0] === 'run') return JSON.stringify([{ databaseId: 1, headSha: head, headBranch: 'main',
+                    event: 'push', status: 'completed', conclusion: 'success', url: 'https://example.invalid/run/1' }]);
+                return 'fixture';
+            }
+            commands.push(args);
+            if (args[0] === 'remote') return 'git@github.com:fixture/release.git';
+            if (args[0] === 'ls-remote') return args.at(-1) === 'refs/heads/main' ? `${head}\trefs/heads/main` : '';
+            assert.notEqual(args[0], 'push', 'no-push resume cannot publish');
+            return git(...args);
+        } };
+        await runReleaseCommand(root, { ...options, resume: true, dryRun: false, noPush: true }, resumeIO, line => messages.push(line));
+        assert.equal(git('rev-parse', 'v0.18.1^{}'), head);
+        assert.equal(git('rev-list', '--count', 'HEAD'), '1');
+        assert.deepEqual(snapshot(), before);
+        assert.equal(git('status', '--porcelain'), '');
+        assert.equal(commands.filter(args => ['add', 'commit', 'push'].includes(args[0])).length, 0);
+        git('tag', '-d', 'v0.18.1'); // Fixture-only reset to exercise the non-resume path as well.
+        const release = runLocalRelease(root, { ...options, dryRun: false, noPush: true }, line => messages.push(line));
+        assert.equal(release?.commit, head);
+        assert.equal(git('rev-list', '--count', 'HEAD'), '1');
+        assert.equal(git('cat-file', '-t', 'refs/tags/v0.18.1'), 'tag');
+        assert.equal(git('rev-parse', 'v0.18.1^{}'), head);
+        assert.deepEqual(snapshot(), before);
+        assert.equal(git('status', '--porcelain'), '');
+        assert.throws(() => runLocalRelease(root, options, () => {}), /already exists/);
+        assert.throws(() => planLocalRelease(root, { ...options, tag: 'v0.18.0' }), /must be newer/);
     } finally { fs.rmSync(root, { recursive: true, force: true }); }
 }
 

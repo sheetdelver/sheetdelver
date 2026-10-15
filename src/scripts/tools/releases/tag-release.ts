@@ -73,15 +73,21 @@ export function planLocalRelease(root: string, options: ReleaseOptions) {
     if (lock.version !== pkg.version || lock.packages?.['']?.version !== pkg.version) {
         throw new Error('package.json and both root package-lock.json versions must match before releasing.');
     }
-    if (!newerVersion(version, pkg.version)) throw new Error(`Version ${version} must be newer than ${pkg.version}.`);
+    const tagOnly = version === pkg.version;
+    if (!tagOnly && !newerVersion(version, pkg.version)) throw new Error(`Version ${version} must be newer than ${pkg.version}.`);
+    if (tagOnly && (options.notes.length || options.notesFile)) {
+        throw new Error(`Version ${version} is already prepared; omit --note, --notes and --notes-file to use its committed changelog section.`);
+    }
 
     const branch = git(root, ['branch', '--show-current']);
     const blockers: string[] = [];
     if (branch !== 'main') blockers.push('Check out main after merging the feature; this command never changes branches.');
-    if (git(root, ['tag', '--list', options.tag])) blockers.push(`Tag ${options.tag} already exists; tags are never replaced.`);
+    if (git(root, ['tag', '--list', options.tag])) blockers.push(`Tag ${options.tag} already exists; use --resume. Local preparation never replaces tags.`);
     const dirty = execFileSync('git', ['status', '--porcelain=v1', '-z', '--untracked-files=all'], { cwd: root, encoding: 'utf8' });
     // A hand-written release entry is allowed, but no other staged or unstaged work is swept into the commit.
-    if (dirty.split('\0').filter(Boolean).some(entry => !/^ M CHANGELOG\.md$|^M  CHANGELOG\.md$|^MM CHANGELOG\.md$/.test(entry))) {
+    if (tagOnly && dirty) {
+        blockers.push('Tagging an already-prepared version requires a clean worktree; commit all implementation and release metadata first.');
+    } else if (dirty.split('\0').filter(Boolean).some(entry => !/^ M CHANGELOG\.md$|^M  CHANGELOG\.md$|^MM CHANGELOG\.md$/.test(entry))) {
         blockers.push('Commit or move unrelated work first; only CHANGELOG.md may have uncommitted edits.');
     }
     for (const file of releaseFiles) {
@@ -113,12 +119,12 @@ export function planLocalRelease(root: string, options: ReleaseOptions) {
     lock.packages[''].version = version;
     const json = (value: unknown, original: string) => JSON.stringify(value, null, 2).replace(/\n/g, original.includes('\r\n') ? '\r\n' : '\n')
         + (original.includes('\r\n') ? '\r\n' : '\n');
-    const after: Record<string, string> = {
+    const after: Record<string, string> = tagOnly ? { ...before } : {
         'package.json': json(pkg, before['package.json']),
         'package-lock.json': json(lock, before['package-lock.json']),
         'CHANGELOG.md': changelog,
     };
-    return { tag: options.tag, oldVersion, version, notes, before, after, blockers };
+    return { tag: options.tag, oldVersion, version, notes, before, after, blockers, tagOnly, commit: git(root, ['rev-parse', 'HEAD']) };
 }
 
 export function runLocalRelease(root: string, options: ReleaseOptions, output: (line: string) => void = console.log): LocalRelease | undefined {
@@ -127,12 +133,28 @@ export function runLocalRelease(root: string, options: ReleaseOptions, output: (
     output(`package.json version: ${plan.oldVersion} -> ${plan.version}`);
     output(`package-lock.json version and packages[""].version: ${plan.oldVersion} -> ${plan.version}`);
     output(`CHANGELOG.md:\n## ${plan.version}\n${plan.notes}`);
-    output(`Commit: chore(release): prepare ${plan.tag}\nAnnotated tag: ${plan.tag} (SheetDelver ${plan.tag})`);
+    output(plan.tagOnly ? `Metadata is already prepared. Tag existing commit ${plan.commit}; no new release commit or file changes.`
+        : `Commit: chore(release): prepare ${plan.tag}`);
+    output(`Annotated tag: ${plan.tag} (SheetDelver ${plan.tag})`);
     output('Local preparation creates no branch and performs no remote operations, SDK version changes, or dependency updates.');
     if (plan.blockers.length) throw new Error(plan.blockers.join('\n'));
     if (options.dryRun) {
         output('Validation passed. No files, commits, tags, prompts, or remote operations. Repeat without --dry-run to prepare.');
         return;
+    }
+
+    if (plan.tagOnly) {
+        // Revalidate after displaying the plan: never tag a changed branch,
+        // dirty metadata or a different commit, and never replace a new tag.
+        const current = planLocalRelease(root, options);
+        if (current.blockers.length || !current.tagOnly || current.commit !== plan.commit
+            || releaseFiles.some(file => current.before[file] !== plan.before[file])) {
+            throw new Error('Prepared state changed before tagging; no tag created. Inspect and rerun.');
+        }
+        try { git(root, ['tag', '-a', plan.tag, '-m', `SheetDelver ${plan.tag}`, plan.commit]); }
+        catch (error) { throw new Error('Tag creation stopped. Inspect git status/log/tags before retrying; no push or rollback was performed.', { cause: error }); }
+        output(`Prepared ${plan.tag} locally at ${plan.commit} using existing metadata. No release commit created; nothing pushed.`);
+        return { tag: plan.tag, commit: plan.commit };
     }
 
     // No automatic reset/rollback: a failed hook or signing operation leaves inspectable local work, never a misleading tag.
@@ -158,7 +180,7 @@ export function runLocalRelease(root: string, options: ReleaseOptions, output: (
 export interface LocalRelease { tag: string; commit: string }
 
 /** Resume an already prepared version without creating another release commit. */
-export function planResumeRelease(root: string, options: ReleaseOptions): LocalRelease & { taggedCommit: string } {
+export function planResumeRelease(root: string, options: ReleaseOptions): LocalRelease & { taggedCommit?: string } {
     const version = versionFromReleaseTag(options.tag);
     const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
     const lock = JSON.parse(fs.readFileSync(path.join(root, 'package-lock.json'), 'utf8'));
@@ -172,11 +194,15 @@ export function planResumeRelease(root: string, options: ReleaseOptions): LocalR
         const markerPath = git(root, ['rev-parse', '--git-path', marker]);
         if (fs.existsSync(path.resolve(root, markerPath))) throw new Error(`Finish the in-progress Git operation (${marker}) first.`);
     }
-    if (!git(root, ['tag', '--list', options.tag])) throw new Error(`Local tag ${options.tag} is missing; prepare the release first.`);
+    const commit = git(root, ['rev-parse', 'HEAD']);
+    if (!git(root, ['tag', '--list', options.tag])) {
+        const plan = planLocalRelease(root, options);
+        if (plan.blockers.length) throw new Error(plan.blockers.join('\n'));
+        return { tag: options.tag, commit };
+    }
     if (git(root, ['cat-file', '-t', `refs/tags/${options.tag}`]) !== 'tag') {
         throw new Error(`Local tag ${options.tag} must be annotated.`);
     }
-    const commit = git(root, ['rev-parse', 'HEAD']);
     const taggedCommit = git(root, ['rev-parse', `refs/tags/${options.tag}^{commit}`]);
     try { git(root, ['merge-base', '--is-ancestor', taggedCommit, commit]); }
     catch { throw new Error(`Local tag ${options.tag} is not an ancestor of main; refusing to move it.`); }
@@ -202,7 +228,7 @@ function remoteRef(io: ReleasePublishIO, pushUrl: string, kind: 'heads' | 'tags'
 
 /** Re-read remote refs on every invocation, including after an uncertain push result. */
 export async function resumeLocalRelease(
-    release: LocalRelease & { taggedCommit: string }, io: ReleasePublishIO, allowPush: boolean,
+    release: LocalRelease & { taggedCommit?: string }, io: ReleasePublishIO, allowPush: boolean,
     output: (line: string) => void = console.log, reuseFailedTag = false,
 ): Promise<void> {
     const pushUrl = io.command('git', ['remote', 'get-url', '--push', '--all', 'origin']);
@@ -212,6 +238,22 @@ export async function resumeLocalRelease(
     let remoteMain = remoteRef(io, pushUrl, 'heads', 'main');
     if (!remoteMain) throw new Error('origin/main is missing.');
     let remoteTag = remoteRef(io, pushUrl, 'tags', release.tag);
+    if (!release.taggedCommit) {
+        // Missing local tag is distinct from moving an existing one. Never
+        // recreate a tag already on origin or reuse a published Release.
+        if (remoteTag) throw new Error(`Remote tag ${release.tag} exists but the local tag is missing. Fetch and inspect it before resuming; no tag created.`);
+        if (githubReleaseExists(io, repo, release.tag)) throw new Error(`GitHub Release ${release.tag} exists; refusing to create a replacement local tag.`);
+        if (io.command('git', ['rev-parse', 'refs/heads/main']) !== release.commit
+            || io.command('git', ['branch', '--show-current']) !== 'main'
+            || io.command('git', ['status', '--porcelain=v1', '--untracked-files=all'])
+            || io.command('git', ['tag', '--list', release.tag])
+            || io.command('git', ['remote', 'get-url', '--push', '--all', 'origin']) !== pushUrl) {
+            throw new Error('Prepared state changed before missing-tag recovery; no tag created.');
+        }
+        output(`Creating missing local annotated tag ${release.tag} at ${release.commit}; no new release commit.`);
+        io.command('git', ['tag', '-a', release.tag, '-m', `SheetDelver ${release.tag}`, release.commit]);
+        return resumeLocalRelease({ ...release, taggedCommit: release.commit }, io, allowPush, output, reuseFailedTag);
+    }
     let localTag = io.command('git', ['rev-parse', `refs/tags/${release.tag}`]);
     if (remoteTag && remoteTag !== localTag) {
         throw new Error(`${release.tag} already exists on origin at a different tag object; never replace a published tag. Prepare a new version.`);
@@ -459,7 +501,9 @@ export async function runReleaseCommand(root: string, options: ReleaseOptions, i
     if (options.resume) {
         const release = planResumeRelease(root, options);
         output(`Resume plan: ${release.tag} on main at ${release.commit}.`);
-        if (release.taggedCommit !== release.commit) {
+        if (!release.taggedCommit) {
+            output(`Local ${release.tag} is missing. Create its annotated tag on the existing commit without file changes or a new release commit, after remote recovery checks.`);
+        } else if (release.taggedCommit !== release.commit) {
             output(`The local tag at ${release.taggedCommit} can move to current main only if remote recovery checks permit it.`);
         }
         if (options.dryRun) {

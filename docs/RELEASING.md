@@ -15,6 +15,12 @@ needed. Fetch tags first so the local duplicate-tag check includes published
 releases. The helper never fetches, pulls, or switches branches. Remote pushes
 require explicit confirmation after local preparation.
 
+During feature work and ADR closeout, prepare changelog entries only (Unreleased
+or the intended version heading). Leave package.json/package-lock.json versions
+to release:tag; do not pre-bump them in the feature commit. Module release
+versions likewise require separate release-preparation approval. Updating a
+changelog heading is not permission to bump application/module metadata.
+
 Use the local release command to preview a new version and short changelog
 bullets (the version below is illustrative):
 
@@ -54,10 +60,12 @@ section and note flags are rejected together to prevent accidental replacement.
 
 The command:
 
-- Requires `main`, a newer stable version, matching current package/lock
-  versions, and no existing local tag with the requested name.
+- Requires `main`, matching current package/lock versions, and no existing
+  local tag with the requested name. Normally the requested stable version is
+  newer; matching already-committed metadata uses tag-only recovery below.
 - Refuses unrelated staged, unstaged, or untracked work and unfinished Git
-  operations. Only a hand-written `CHANGELOG.md` edit may be pending.
+  operations. Only a hand-written `CHANGELOG.md` edit may be pending for a new
+  version; tag-only recovery requires a completely clean worktree.
 - Shows the package version changes, changelog section, commit, and tag.
 - Updates `package.json`, both root version fields in `package-lock.json`,
   and the changelog entry without changing dependencies or SDK versions.
@@ -74,6 +82,32 @@ Use `--no-push` to prepare locally and print manual commands without prompts.
 Noninteractive runs also stay local. Blockers produce a nonzero exit status.
 Run `npm run release:tag -- --help` for the argument summary.
 
+### Already-bumped metadata, missing tag
+
+If a prior commit already bumped package.json and both root lock versions, do
+not revert it or select another patch just to satisfy the helper. On clean main,
+with a committed matching changelog section, use the same command without note
+flags:
+
+```sh
+npm run release:tag -- 0.18.1 --dry-run
+npm run release:tag -- 0.18.1
+```
+
+The helper recognizes the matching version and creates only its missing
+annotated tag at the existing main commit. It does not rewrite files, stage
+anything or create an empty release commit. Dry-run previews that action without
+creating the tag or contacting a remote. Commit implementation/tooling changes
+first: a dirty tree, mismatched lock version, missing notes, in-progress Git
+operation or existing local tag still blocks preparation. A local tag that
+already exists uses --resume; it is never silently replaced.
+
+Local preparation, including tag-only recovery, remains offline and cannot
+prove absence of remote tags/releases; fetch/inspect tags first as above.
+The resume path below additionally performs read-only remote checks before
+creating a missing local tag. Neither path force-pushes tags or overwrites a
+published release. This is recovery support, not the normal version-bump process.
+
 An already-prepared version uses a separate resume path rather than the
 new-version check:
 
@@ -83,15 +117,20 @@ npm run release:tag -- 0.15.1 --resume
 ```
 
 The resume dry-run validates the local version, changelog, clean `main`, and
-annotated tag without contacting the remote or changing refs. Actual resume
+existing annotated tag (or previews its creation when missing), without
+contacting the remote or changing refs. Actual resume
 checks remote refs and GitHub workflows, then continues from the missing step.
+If the local tag is missing, resume verifies that no remote tag or GitHub
+Release exists before creating it at current main without a version bump or
+commit. A remote-only tag requires fetching/inspection, not a replacement tag;
+API/authentication errors fail closed.
 It recognizes pushes that landed despite a local command error. If main CI
 failed and a fix advanced `main`, it moves an **unpublished local** tag to the
 fixed commit only after verifying there is no remote tag or GitHub Release.
 For a completed failed CI or release run, an interactive resume can offer one
 explicit rerun of the same workflow and wait for the new attempt. An interactive
 run asks before each missing push. `--resume --no-push` may
-repair an unpublished local tag after read-only remote checks, but performs no
+create a missing local tag or repair an unpublished one after read-only remote checks, but performs no
 remote writes; a noninteractive resume likewise performs no remote writes.
 
 Commit the helper itself and other implementation work before using it for a
@@ -174,7 +213,10 @@ If preparation fails during a commit hook or signing operation, the helper
 stops without pushing or resetting your work. Inspect `git status` and
 `git log -1`; a successful commit may exist even if tagging failed. Fix the
 reported problem, verify the release metadata, then finish the commit/tag
-manually. Do not rerun with a different version just to bypass the failure.
+using the same-version/tag-only path if metadata is committed and the tag is
+missing, or --resume for guarded recovery. Uncommitted failed work still needs
+inspection/correction first. Do not choose a different version just to bypass
+the failure.
 
 If local preparation succeeded but publishing stopped or was declined, do not
 rerun preparation for that version. Its commit and tag already exist. Use
