@@ -23,7 +23,7 @@ Welcome to **SheetDelver**! We appreciate your interest in contributing to this 
     ```
 
 4.  **Configure connection:**
-    Follow the [Configuration instructions in README.md](README.md#configuration) to create your `settings.yaml` file.
+    Follow the [Configuration instructions in README.md](../README.md#configuration) to create your `settings.yaml` file.
     Ensure `security.service-token` is set (or export `APP_SERVICE_TOKEN`) for privileged internal bearer flows.
 
 5.  **Run the development server:**
@@ -89,6 +89,13 @@ in its ADR or guide; do not rely on ignored local reports, screenshots or
 machine-specific paths as references. Link to tracked tests or public primary
 sources for supporting detail. Temporary command examples are fine when they
 describe a file the reader creates, rather than unavailable historical evidence.
+
+Each system module owns its `AGENTS.md`, `CLAUDE.md` and ignored
+`temp/AGENT-HANDOFF.md`. Module workflow/test commands belong in `AGENTS.md`,
+technical reference in `docs/architecture.md`, decisions in `docs/adr/`, and
+durable audit evidence in `docs/audits/`. The handoff names the module's active
+work; Core's handoff and audit queue do not substitute for it. Keep module-only
+plans in the module repository and report Core dependencies explicitly.
 
 ## Module Architecture
 
@@ -184,7 +191,7 @@ version tag is pushed.
 ## Module API & Server-Side Logic
 
 Modules can define server-side API handlers that are automatically routed via `/api/modules/<systemId>/<route>`.
-For details on implementing module APIs, see [docs/API.md](docs/API.md).
+For details on implementing module APIs, see [docs/API.md](API.md).
 
 ## Data Persistence & Caching
 
@@ -279,8 +286,8 @@ To ensure assets (images, icons) load correctly from the Foundry server, do not 
 ## Reusable UI Components
 
 We provide several core UI components (RichTextEditor, Toast, Modal, DiceTray) to ensure a consistent UI.
-For detailed documentation and usage examples, see [docs/UI.md](docs/UI.md).
+For detailed documentation and usage examples, see [docs/UI.md](UI.md).
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License - see the [LICENSE](../LICENSE) file for details.

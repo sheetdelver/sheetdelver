@@ -12,10 +12,14 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 ## Start and Handoff
 
-- Read `temp/AGENT-HANDOFF.md` when present, then the active tracker it names.
-  These are local snapshots, not substitutes for current user instructions or
-  verification of branch, worktree, version and process state.
-- Keep one current handoff at that stable path. Update it at context/model
+- For Core work, read `temp/AGENT-HANDOFF.md` when present, then the active Core
+  tracker it names. For work in `data/local/modules/<id>`, start with that
+  repository's own `AGENTS.md`, `CLAUDE.md` and `temp/AGENT-HANDOFF.md`; the Core
+  handoff is not a module task queue. These are local snapshots, not substitutes
+  for current user instructions or verification of branch, worktree, version
+  and process state.
+- Keep one current handoff at that stable path within each owning repository.
+  Update it at context/model
   switches; retain at most one previous snapshot if useful, not an ever-growing
   transcript. Record verified facts, user reports and unknowns separately.
 - `AGENTS.md` and `CLAUDE.md` are tracked project guidance; keep them current.
@@ -77,6 +81,10 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
   not private host imports or direct Foundry transports. Reuse existing helpers.
 - System module repositories live in data/local/modules/<id>. Keep their source,
   documentation and audits inside the module (D&D uses temp/audit-report/).
+  Each module owns its agent guidance and handoff. Durable module decisions and
+  evidence belong in its docs/adr/ and docs/audits/; keep agent workflow in its
+  AGENTS.md and technical reference in docs/architecture.md. Do not use Core
+  trackers or developer documents as substitutes for module agent instructions.
   Managed installs belong in the configured data directory's modules/, never
   local/modules/. Do not overwrite development copies or add system-name hacks.
 - Foundry source documents, host-prepared models and authorized projections are
@@ -95,8 +103,9 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 ## Scope and Documentation
 
-- Keep one active audit/follow-up report in `temp/audit-reports/`; its README
-  indexes that report, and the handoff links to it. Before retiring a report to
+- Keep one active Core audit/follow-up report in `temp/audit-reports/`; its README
+  indexes that report, and the Core handoff links to it. Modules maintain their
+  own active report, selected by their local handoff. Before retiring a report to
   `completed/`, verify its ADR/evidence and carry unresolved content into the
   successor. Distinguish completed fixes, superseded plans and explicit deferrals.
   Module-owned technical evidence stays with the module, not in another root queue.

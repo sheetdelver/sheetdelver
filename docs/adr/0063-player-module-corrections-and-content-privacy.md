@@ -295,7 +295,8 @@ git diff --check
 ```
 
 Integration covers module lifecycle, not native Foundry permission proof.
-Use module-owned test commands in each docs/DEVELOPMENT.md, explicit module
+Use module-owned test commands in each AGENTS.md (moved from docs/DEVELOPMENT.md),
+explicit module
 source typing (root tsc excludes them), module:check and isolated package output.
 Inspect retained browser tooling before reuse; do not add it to runtime dependencies.
 
