@@ -258,7 +258,7 @@ export default function GenericActorPage({ actorId }: GenericActorPageProps) {
 
     return (
         <main className="sd-ui-page font-sans pb-20">
-            <nav className="sd-ui-panel-raised fixed top-0 left-0 right-0 z-50 px-4 py-3 shadow-md flex items-center justify-between backdrop-blur-sm">
+            <nav className="sd-ui-panel-raised relative px-4 py-3 shadow-md flex items-center justify-between backdrop-blur-sm">
                 <button
                     onClick={() => router.push('/')}
                     className="sd-ui-muted flex items-center gap-2 hover:opacity-80 transition-opacity font-semibold group text-sm uppercase tracking-wide cursor-pointer"
@@ -272,7 +272,7 @@ export default function GenericActorPage({ actorId }: GenericActorPageProps) {
             </nav>
 
             {actor && (
-                <div className="w-full max-w-5xl mx-auto p-4 pt-20">
+                <div className="w-full max-w-5xl mx-auto p-4">
                     <SheetRouter
                         systemId={actor.systemId || 'generic'}
                         actor={actor}

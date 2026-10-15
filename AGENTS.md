@@ -88,11 +88,20 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 ## Scope and Documentation
 
-- Keep one active follow-up list. Completed audits move to completed/ only after
-  checking disposition/evidence. Closed ADRs and archived research do not create
-  new obligations because an old paragraph says pending.
+- Keep one active audit/follow-up report in `temp/audit-reports/`; its README
+  indexes that report, and the handoff links to it. Before retiring a report to
+  `completed/`, verify its ADR/evidence and carry unresolved content into the
+  successor. Distinguish completed fixes, superseded plans and explicit deferrals.
+  Module-owned technical evidence stays with the module, not in another root queue.
+  Closed ADRs and archived research do not create new obligations because an old
+  paragraph says pending.
 - Deferred ideas stay deferred until the user chooses them. Do not revive the
   parked native D&D preparation-runtime experiment without explicit direction.
+- Record deferred work in `temp/audit-reports/DEFERRED-WORK.md`, with stable IDs,
+  status, rationale, source ADR/audit, rejection details when applicable and
+  criteria for reconsideration. This standing ledger is separate from the one
+  active audit. Update decisions without erasing their history; when selected,
+  link the active ADR/report rather than duplicating its implementation checklist.
 - New unrelated work gets its own scope/ADR when appropriate, not additions to
   an already-closed ADR. Update architecture/API/SDK/module-authoring docs when
   their contracts change; keep module-only documentation module-owned.

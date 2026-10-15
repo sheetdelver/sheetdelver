@@ -1,6 +1,9 @@
 import { strict as assert } from 'node:assert';
 import { JournalRepository } from '@server/core/documents/primary/journals/JournalRepository';
 import { JournalStore, journalStore } from '@server/core/documents/primary/journals/JournalStore';
+import { userStore } from '@server/core/documents/primary/users/UserStore';
+import { createJournalService } from '@server/services/journals/JournalService';
+import { createDocumentStore } from '@server/shared/utils/moduleDocumentServices';
 import {
     DOCUMENT_VISIBILITY,
     DocumentOwnershipLevel,
@@ -22,10 +25,65 @@ export async function run() {
     await runEntryOwnershipPolicy();
     await runPageOwnershipPolicy();
     await runPageInheritResolution();
+    await runOrdinarySecretProjection();
     await runListByFolderIds();
     await runEmbeddedPageMutationRouting();
     await runRepositoryMirrorsWrites();
     console.log('  - JournalStore: all checks passed');
+}
+
+async function runOrdinarySecretProjection() {
+    const html = '<p>PUBLIC</p><section id="s" class="secret"><p>UNREVEALED</p><section class="secret revealed">NESTED HIDDEN</section></section><section class="secret revealed"><p>REVEALED</p><section class="secret">INNER HIDDEN</section></section>';
+    await userStore.seed(async () => [
+        { _id: 'reader', role: 1 }, { _id: 'owner', role: 1 },
+        { _id: 'assistant', role: 3 }, { _id: 'gm', role: 4 },
+    ]);
+    await journalStore.seed(async () => [{
+        _id: 'secrets', name: 'Secrets', content: html, ownership: { default: 2, owner: 3 },
+        pages: [
+            { _id: 'inherit', ownership: { default: -1 }, text: { content: html, markdown: 'RAW SECRET MARKDOWN' } },
+            { _id: 'observed', ownership: { default: 2 }, text: { content: html } },
+            { _id: 'page-owned', ownership: { default: 0, reader: 3 }, text: { content: html } },
+        ],
+    }] as JournalEntryDocument[]);
+    const source = journalStore.get('secrets');
+    const service = createJournalService();
+    try {
+        for (const userId of ['reader', 'owner', 'assistant', 'gm']) {
+            const client = { userId, fetchByUuid: async () => { throw new Error('raw journal resolver must not be called'); } } as any;
+            const sdk = createDocumentStore(client, async () => {});
+            const http = await service.getJournalById(client, 'secrets');
+            const sdkEntry = await sdk.get('JournalEntry', 'secrets');
+            const sdkUuid = await sdk.fetchByUuid('JournalEntry.secrets');
+            assert.deepEqual(sdkEntry, sdkUuid);
+            assert.deepEqual(http, { ...sdkEntry, folder: null });
+            for (const page of (sdkEntry?.pages ?? []) as any[]) {
+                const embedded = await sdk.fetchByUuid(`JournalEntry.secrets.JournalEntryPage.${page._id}`);
+                assert.deepEqual(embedded, page, 'embedded UUID uses the same current authorized projection');
+                const owner = userId === 'gm' || (page._id === 'inherit' && userId === 'owner')
+                    || (page._id === 'page-owned' && userId === 'reader');
+                if (owner) assert.equal(page.text.content, html, 'owner retains exact raw source');
+                else {
+                    assert.match(page.text.content, /PUBLIC|REVEALED/);
+                    assert.doesNotMatch(JSON.stringify(page), /UNREVEALED|NESTED HIDDEN|INNER HIDDEN|RAW SECRET MARKDOWN/);
+                }
+            }
+            assert.equal((await sdk.list('JournalEntry')).rows[0].pages, undefined);
+        }
+        const ownerSubject = userStore.createAccessSubject('owner')!;
+        assert.equal(journalStore.projectDetail('secrets', ownerSubject)?.pages?.[0].text?.content, html);
+        // Simulate an owner saving the untouched source through the real repository.
+        let written: unknown;
+        await service.updateJournalPage({ userId: 'owner', dispatchDocument: async (_type: string, _action: string, operation: unknown) => {
+            written = operation; return { result: [] };
+        } } as any, 'secrets', 'inherit', { data: { text: { content: html } } });
+        assert.match(JSON.stringify(written), /UNREVEALED/);
+        assert.deepEqual(journalStore.get('secrets'), source, 'projection/save fixture never redacts the Store');
+        userStore.applyModifyDocument('User', 'update', [{ _id: 'gm', role: 1 }]);
+        assert.doesNotMatch(JSON.stringify(await service.getJournalById({ userId: 'gm' } as any, 'secrets')), /UNREVEALED|INNER HIDDEN/);
+        userStore.applyModifyDocument('User', 'delete', null, { ids: ['gm'] });
+        assert.equal((await service.getJournalById({ userId: 'gm' } as any, 'secrets') as any).status, 404);
+    } finally { journalStore.clear(); userStore.clear(); }
 }
 
 async function runSeedAndCloneOnRead() {

@@ -102,6 +102,31 @@ export class JournalStore extends PrimaryDocumentStore<JournalEntryDocument> {
         return clampResolvedLevel(raw);
     }
 
+    /** Ordinary subject-scoped detail, distinct from a temporary share lease.
+     * Owners retain raw source for editing; other readers receive display HTML
+     * without unrevealed Secrets or an alternate Markdown source of those Secrets.
+     * The primary Store and its defensive raw reads remain lossless.
+     */
+    public projectDetail(entryId: string, subject: DocumentAccessSubject): JournalEntryDocument | null {
+        const entry = this.get(entryId, { subject, minOwnership: DocumentOwnershipLevel.OBSERVER });
+        if (!entry) return null;
+        const entryLevel = this.resolveOwnership(entry, subject);
+        if (entryLevel < DocumentOwnershipLevel.OWNER && typeof entry.content === 'string') {
+            entry.content = sanitizeRichHtml(entry.content, { excludeUnrevealedSecrets: true });
+        }
+        entry.pages = (entry.pages ?? []).filter(page =>
+            this.resolvePageOwnership(page, entryLevel, subject) >= DocumentOwnershipLevel.OBSERVER,
+        ).map(page => {
+            if (this.resolvePageOwnership(page, entryLevel, subject) >= DocumentOwnershipLevel.OWNER || !page.text) return page;
+            const text = { ...page.text };
+            if (typeof text.content === 'string') text.content = sanitizeRichHtml(text.content, { excludeUnrevealedSecrets: true });
+            // Markdown is an editor source, not the authorized HTML projection.
+            delete text.markdown;
+            return { ...page, text };
+        });
+        return entry;
+    }
+
     /** Dedicated display projection for a server-resolved native share lease.
      * It never changes source ownership or grants ordinary get/list access.
      */

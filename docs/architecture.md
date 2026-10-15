@@ -127,6 +127,11 @@ On a same-world reconnect, `WorldBootstrapper.recover()` verifies world/system i
   remain unchanged; Secret content is filtered server-side for non-owners.
   Leases are modal-owned and bounded in the existing scoped SharedContentStore,
   not a persistent permission store (ADR-0062 J1).
+  Ordinary journal detail and SDK embedded UUID reads additionally use one
+  page-ownership projection: non-owners receive filtered display HTML without
+  alternate Markdown source; page owners retain raw source for editing. Store
+  source is never redacted. The rich editor preserves Secret wrappers on edits
+  and original source on unchanged saves (ADR-0063).
 - **PlayerWorldBoundary**: The player layout owns login/setup/closed/loading
   presentation for home, Actor and module-tool routes. Cold routes do not mount
   their page effects or persistent tools until authenticated readiness. A
@@ -140,6 +145,9 @@ On a same-world reconnect, `WorldBootstrapper.recover()` verifies world/system i
   API reads; history alone never creates a preview. ChatMessageCard renders the
   chronological log and the latest transient preview using the same sanitizer.
   ChatMessageStore remains primary; previews are not secondary documents.
+  Native v13/v14 ordinary whispers are author/recipient-only, including for
+  GMs; Store reads and realtime audiences enforce the same predicate. This is
+  distinct from public roll-existence hints and result redaction (ADR-0063).
   Dice admission runs before a new authorized read is published; held IDs filter
   the shared visible log and preview until settlement. Core delivery is unchanged.
 - **NotificationProvider**: Owns transient application feedback, independently

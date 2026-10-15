@@ -9,6 +9,7 @@ export interface JournalPageDto {
     name?: string;
     sort?: number;
     text?: JournalPageTextDto;
+    ownership?: Record<string, number>;
     [key: string]: unknown;
 }
 

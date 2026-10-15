@@ -41,6 +41,10 @@ each other, and journal replies are guarded by request/share identity. Each new
 image receipt owns its loading state, including cached identical URLs. Both
 dialogs contain keyboard focus, close on Escape and restore the prior control.
 Only one dismissal record is kept per tab; storage denial still permits closing.
+Image captions from native shares render as bounded, scrollable plain text
+within that same dialog. Markup in a caption stays inert. Owner journal edits
+retain raw source on unchanged saves and preserve nested Foundry Secret wrappers
+when editing rich text; non-owner display responses are filtered by Core.
 Native journal shares use a separate read-only view lease, not the ordinary
 journal detail cache. The server resolves the exact entry/page and force value
 from this recipient's latest receipt; a page-only share has no sibling navigation.
@@ -172,6 +176,22 @@ without disposing world state merely because `connected` briefly became false.
 
 ## Combat Tracker (ADR-0028, ADR-0060)
 
+ADR-0063 refinements: Actor/tool navigation uses normal flow below the HUD;
+modules do not reserve a guessed HUD height. My character defaults to the
+visible owned current turn, then an actionable owned initiative target, then
+the first visible owned row. A manual choice resets with turn/encounter or
+authority context. It never changes the encounter turn.
+
+The initiative cue counts eligible owned unrolled participants independently
+of the stats selector: zero hides it, one opens the registered module roller,
+and multiple open a Core chooser. Individual rolls retain the module dialog.
+Roll all confirms a fixed set of targets, refreshes eligibility before each
+existing single-target command and uses each server default formula. It reports
+applied/skipped/failed/unknown/unattempted outcomes and stops on failure or
+uncertainty. It never automatically retries. Closing/session/world retirement
+stops undispatched rolls; an in-flight request may complete. End my turn stays
+tied to the current server-authorized row. No open-sheet detection is used.
+
 `GET /api/combats` returns typed `CombatTrackerDto` projections built from the
 backend encounter read model — never raw Combat/Combatant/Actor documents.
 
@@ -264,10 +284,11 @@ editor/layout and row/detail Defeated reconciliation; explicit Skip is new scope
 **Implemented and operator-accepted refinements (ADR-0061 N4–N6):** the
 thin strip groups Current / Next shown / My character, with owned portrait,
 stats, sheet and explicitly targeted initiative controls together. One own-character
-selector includes unrolled targets; default selection prioritizes an eligible
-pending character. If Roll targets someone other than the selected stats, its
-button explicitly names that target. Your turn, privacy, portraits and narrow
-reading order remain. The stat editor offers plain or sanitized HTML textarea
+selector includes unrolled targets. ADR-0063 refines its default to the current
+owned turn, then pending initiative, then the first owned participant; manual
+selection lasts for that turn/context. The independent Roll initiative cue opens
+one eligible participant's module dialog or a chooser for multiple participants.
+Your turn, privacy, portraits and narrow reading order remain. The stat editor offers plain or sanitized HTML textarea
 in the existing scrollable detail viewport. Rich text stays read-only/detail-only,
 without raw HTML or Foundry interactive enrichment. Matching module defaults
 are available through SDK3.2.0/module-api1.4.0, for Core0.18.0 adoption.

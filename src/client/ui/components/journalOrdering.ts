@@ -8,6 +8,23 @@ interface FoundryPageIdentity extends FoundrySortable {
     _id?: string;
 }
 
+/** UI affordance only; caller-bound Foundry writes remain authoritative. */
+export function canEditJournalContent(
+    user: { role?: number; _id?: string; id?: string } | null,
+    journal: { ownership?: Record<string, number> } | null,
+    page?: { ownership?: Record<string, number> },
+): boolean {
+    if (!user || !journal) return false;
+    if ((user.role ?? 0) >= 4) return true;
+    const id = user._id || user.id || '';
+    if (!id) return false;
+    const entryLevel = journal.ownership?.[id] ?? journal.ownership?.default ?? 0;
+    if (!page) return entryLevel >= 3;
+    if (entryLevel < 2) return false;
+    const pageLevel = page.ownership?.[id] ?? page.ownership?.default ?? 0;
+    return (pageLevel === -1 ? entryLevel : pageLevel) >= 3;
+}
+
 export type FoundryDirectorySortMode = 'a' | 'm';
 
 function compareAlphabetically(a: FoundrySortable, b: FoundrySortable): number {

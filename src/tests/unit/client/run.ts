@@ -54,7 +54,7 @@ export async function run() {
     await runDocumentSource();
     runSdkEventBus();
     await runCoalescedFetch();
-    runCombatHudState();
+    await runCombatHudState();
     runInitiativeRollDialog();
     runJournalOrdering();
     runGenericSheetFieldState();
