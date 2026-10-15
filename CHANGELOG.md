@@ -1,5 +1,5 @@
 # Releases
-## Unreleased
+## 0.18.0
 - Opened managed initiative prompts
 - Enabled owner turn endings
 - Preserved resolved initiative formulas
