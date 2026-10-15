@@ -51,8 +51,9 @@ async function runWhisperRestrictsVisibility() {
     assert.equal(store.canReadDocument('m-whisper', recipient, DOCUMENT_VISIBILITY.LIST_VISIBLE), true);
     // Non-listed player does not.
     assert.equal(store.canReadDocument('m-whisper', bystander, DOCUMENT_VISIBILITY.LIST_VISIBLE), false);
-    // GM sees everything.
-    assert.equal(store.canReadDocument('m-whisper', gm, DOCUMENT_VISIBILITY.LIST_VISIBLE), true);
+    // Native v13/v14 have no GM/Assistant exception for ordinary whispers.
+    assert.equal(store.canReadDocument('m-whisper', gm, DOCUMENT_VISIBILITY.LIST_VISIBLE), false);
+    assert.equal(store.canReadDocument('m-whisper', { userId: 'assistant', role: FoundryUserRole.ASSISTANT }, DOCUMENT_VISIBILITY.LIST_VISIBLE), false);
 }
 
 async function runBlindRollHidesFromOthersButAuthor() {
@@ -79,6 +80,7 @@ async function runBlindRollOverridesWhisperRecipients() {
             whisper: ['p-recipient'],
             blind: true,
             content: 'secret blind roll',
+            rolls: ['{"total":17}'],
         },
     ]);
 
@@ -96,7 +98,7 @@ async function runGmSeesEverything() {
     ]);
 
     const gmList = store.list({ subject: gm }).map(m => m._id).sort();
-    assert.deepEqual(gmList, ['m-1', 'm-2', 'm-3']);
+    assert.deepEqual(gmList, ['m-1', 'm-3']);
 
     // Author player sees their own m-1 (world), m-2 (whispered to other - they're author), m-3 (blind - they're author)
     const authorList = store.list({ subject: author }).map(m => m._id).sort();
@@ -217,6 +219,6 @@ async function runPrivateRollRefreshHints() {
     store.applyModifyDocument('ChatMessage', 'create', [{
         _id: 'private-text', author: 'p-author', whisper: ['p-author'], content: 'SECRET',
     }]);
-    assert.deepEqual(events[3].audience, { kind: 'users', userIds: ['gm-1', 'p-author'] },
+    assert.deepEqual(events[3].audience, { kind: 'users', userIds: ['p-author'] },
         'ordinary whispers still have targeted hints');
 }

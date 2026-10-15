@@ -41,7 +41,7 @@ export default function RollDialogFrame({ title, subtitle, theme, onClose, dialo
     const t = resolveRollDialogTheme(theme);
     return <div className="fixed inset-0 flex items-center justify-center p-4" style={{ zIndex: layer }}>
         <div className={t.overlay} onClick={onClose} />
-        <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby={titleId}
+        <div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby={titleId}
             className={t.container} style={{ maxHeight: '90dvh', overflowY: 'auto' }}>
             <div className={t.header + (theme?.header ? '' : ' flex justify-between items-center')}>
                 <div className="flex min-w-0 flex-col">

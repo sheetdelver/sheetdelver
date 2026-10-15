@@ -6,7 +6,8 @@ import StarterKit from '@tiptap/starter-kit';
 // import Link from '@tiptap/extension-link';
 import Image from '@tiptap/extension-image';
 import TextAlign from '@tiptap/extension-text-align';
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
+import { JournalSecret } from './journalSecretNode';
 
 export interface RichTextTheme {
     container: string;
@@ -60,9 +61,11 @@ export default function RichTextEditor({
     theme = DASHBOARD_THEME
 }: RichTextEditorProps) {
     const [isEditing, setIsEditing] = useState(false);
+    const sourceBaseline = useRef<{ source: string; parsed: string; editor: unknown } | null>(null);
 
     const extensions = useMemo(() => [
         StarterKit,
+        JournalSecret,
         // Underline, // Causing duplicate warning
         // Link.configure({ // Causing duplicate warning
         //     openOnClick: false,
@@ -89,8 +92,9 @@ export default function RichTextEditor({
 
     // Update content if prop changes externally
     useEffect(() => {
-        if (editor && content !== editor.getHTML()) {
-            editor.commands.setContent(content);
+        if (editor && (sourceBaseline.current?.source !== content || sourceBaseline.current.editor !== editor)) {
+            if (content !== editor.getHTML()) editor.commands.setContent(content);
+            sourceBaseline.current = { source: content, parsed: editor.getHTML(), editor };
         }
     }, [content, editor]);
 
@@ -106,7 +110,10 @@ export default function RichTextEditor({
     }
 
     const handleSave = () => {
-        onSave(editor.getHTML());
+        const html = editor.getHTML();
+        // A no-op edit must not replace original source with parser-normalized
+        // HTML. Actual edits preserve Secret nodes, including nested wrappers.
+        onSave(html === sourceBaseline.current?.parsed ? sourceBaseline.current.source : html);
         setIsEditing(false);
     };
 

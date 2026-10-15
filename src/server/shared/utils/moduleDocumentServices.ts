@@ -103,11 +103,7 @@ function projectDetailDocument(
 ): Record<string, unknown> {
     if (type !== 'JournalEntry') return document;
     const id = getDocumentId(document);
-    return {
-        ...document,
-        // Entry ownership does not imply visibility of every embedded page.
-        pages: id ? journalStore.visiblePages(id, subject, DOCUMENT_VISIBILITY.DETAIL_VISIBLE) : [],
-    };
+    return (id && journalStore.projectDetail(id, subject)) || projectLimitedDocument(document);
 }
 
 function defaultListVisibility(type: string): ResolvedDocumentOwnershipLevel {
@@ -277,6 +273,8 @@ export function createDocumentStore(
 
     const subjectFor = (opts?: DocumentOpOptions): DocumentAccessSubject | undefined => {
         const userId = opts?.access?.userId ?? c.userId;
+        // A retired/deleted caller is not a role-NONE reader of public documents.
+        if (!userId || !userStore.get(userId)) return undefined;
         return userStore.createAccessSubject(userId) ?? undefined;
     };
 
@@ -354,12 +352,16 @@ export function createDocumentStore(
             if (!root) return null;
 
             // Journal pages have independent ownership beneath the readable entry.
-            const subject = await requireSubject(opts);
+            await requireSubject(opts);
             const firstChild = parsed.path[0];
-            if (parsed.root.type === 'JournalEntry'
-                && firstChild?.type === 'JournalEntryPage'
-                && !journalStore.canReadPage(parsed.root.id, firstChild.id, subject, DOCUMENT_VISIBILITY.DETAIL_VISIBLE)) {
-                return null;
+            if (parsed.root.type === 'JournalEntry') {
+                if (firstChild?.type !== 'JournalEntryPage' || parsed.path.length !== 1) return null;
+                // Reproject after the await using current page ownership. Returning
+                // the raw resolver child would bypass Secret filtering.
+                const subject = subjectFor(opts);
+                if (!subject) throw new SdkError('permission_denied', 'No current journal access context');
+                const detail = journalStore.projectDetail(parsed.root.id, subject);
+                return detail?.pages?.find(page => getDocumentId(page) === firstChild.id) ?? null;
             }
             return c.fetchByUuid(parsed.raw) as Promise<Record<string, unknown> | null>;
         }

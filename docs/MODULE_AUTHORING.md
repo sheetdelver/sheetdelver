@@ -339,6 +339,10 @@ const { assetUrl } = useSDK();
 
 ### Internal navigation
 
+Keep page/tool headers in normal flow beneath the Core combat HUD. Do not
+place a competing fixed `top: 0` header, assume a HUD height or inspect Core DOM.
+Existing measured footer registration remains the bottom-navigation contract.
+
 Module UI must use the host-owned router for Sheet Delver routes. This preserves
 the application shell, SDK providers, and realtime connection across navigation:
 

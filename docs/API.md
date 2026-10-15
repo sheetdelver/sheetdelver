@@ -555,7 +555,14 @@ Creates a journal entry or folder.
 
 Auth: protected.
 
-Returns one visible journal entry.
+Returns one visible journal entry with independently authorized pages. Ordinary
+HTTP and caller-scoped SDK get/UUID reads exclude unrevealed Secret sections
+from non-owner page HTML before transmission. Revealed sections remain; nested
+unrevealed Secrets remain excluded. A non-owner receives no alternate Markdown
+editor source. Page OWNER (including explicit/inherited ownership) retains raw
+source for lossless editing; entry ownership alone does not grant page ownership.
+The source Store is never redacted or rewritten by reads. Directory lists remain
+metadata-only. Embedded page UUIDs use the same projection, not raw resolver bytes.
 
 ### `PATCH /api/journals/:id`
 
@@ -582,6 +589,9 @@ inferred to be public from a service-account receipt. A journal share can carry
 `data.pageId` and the native boolean `data.force`; its temporary display uses
 the separate read-only view below, not an ordinary journal permission grant.
 Image URLs are resolved only for the requesting client.
+Image `data.caption` is optional plain text, limited at native ingress to 4096
+characters. HTTP and realtime retain the same caption/receipt identity. Missing
+or non-string captions are omitted; captions never grant document access.
 Receipt listeners live with the authenticated Foundry session, independently of
 browser tabs. `streamId` and `sequence` order the latest receipt; HTTP and socket
 delivery carry the same values. These are presentation identifiers, not session
@@ -606,8 +616,8 @@ Observer inheritance without exposing independently restricted pages.
 Non-forced shares retain normal read thresholds. Display projections omit
 ownership maps, flags and source statistics, and exclude unrevealed Secret
 sections unless the requester already owns that page. Revealed sections remain.
-Ordinary journal list/detail/write endpoints and their permission thresholds do
-not use this lease and are unchanged.
+Ordinary journal endpoints do not use this lease. Their ownership thresholds
+remain independent; ordinary Secret projection is described above (ADR-0063).
 
 Each browser view has an independent lease; the ID alone is not authentication.
 Close attempts immediate disposal. Superseding shares or session/world
@@ -1139,6 +1149,12 @@ Disable rejects when another enabled module depends on the target.
 
 
 ## Chat Presentation and Notifications
+
+Ordinary non-roll whispers follow native v13/v14 author/recipient visibility,
+including for GM and Assistant viewers. HTTP history, scoped SDK/UUID reads and
+realtime refresh audiences share the ChatMessageStore gate. Unrelated viewers
+receive neither a message nor a whisper preview hint. Existing public roll
+placeholders and blind/self/GM-roll result handling remain separate (ADR-0063).
 
 `POST /api/chat/send` accepts `message`, optional `rollMode` and `speaker`,
 and optional `speakerActorId` for an owned Actor. When an Actor is requested,

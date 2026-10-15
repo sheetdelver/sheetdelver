@@ -120,16 +120,12 @@ export function createJournalService() {
         journalId: string
     ): Promise<JournalEntryDto | JournalErrorPayload> => {
         if (!journalStore.isReady()) throw new PrimaryDocumentCacheNotReadyError('JournalEntry');
-        const subject = userStore.createAccessSubject(client.userId);
+        const subject = client.userId && userStore.get(client.userId)
+            ? userStore.createAccessSubject(client.userId) : null;
         const doc = subject
-            ? journalStore.get(journalId, { subject, minOwnership: DOCUMENT_VISIBILITY.DETAIL_VISIBLE })
+            ? journalStore.projectDetail(journalId, subject)
             : null;
         if (!doc) return { error: 'Journal not found', status: 404 };
-
-        // Filter embedded pages to the subset the subject can read.
-        if (subject) {
-            doc.pages = journalStore.visiblePages(journalId, subject, DOCUMENT_VISIBILITY.DETAIL_VISIBLE);
-        }
 
         return toJournalDto(doc);
     };

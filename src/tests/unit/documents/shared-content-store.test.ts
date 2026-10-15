@@ -52,9 +52,17 @@ export async function run() {
     assert.equal(store.getCurrent('bob', 'world-a'), null);
     client.emit('foundry:showEntry', { uuid: 'Actor.secret', shareId: 'bad' });
     assert.equal(receipts.length, 3);
+    const caption = '<img src=x onerror="alert(1)"> Caption';
+    client.emit('foundry:shareImage', { data: { image: '/a.png', caption }, shareId: 'caption' });
+    assert.equal(store.getCurrent('alice', 'world-a')?.data?.caption, caption, 'caption remains inert text for rendering');
+    assert.equal(store.getCurrent('bob', 'world-a'), null, 'caption does not broaden the share audience');
+    client.emit('foundry:shareImage', { data: { image: '/a.png', caption: 'x'.repeat(5000) }, shareId: 'long-caption' });
+    assert.equal(store.getCurrent('alice', 'world-a')?.data?.caption?.length, 4096);
+    client.emit('foundry:shareImage', { data: { image: '/a.png', caption: { html: 'invalid' } }, shareId: 'invalid-caption' });
+    assert.equal(store.getCurrent('alice', 'world-a')?.data?.caption, undefined);
     authorized = false;
     client.emit('foundry:shareImage', { data: { image: '/retired.png' }, shareId: 'four' });
-    assert.equal(receipts.length, 3, 'retired authority cannot ingest late shares');
+    assert.equal(receipts.length, 6, 'retired authority cannot ingest late shares');
     detach();
     unsubscribe();
     assert.equal(client.listenerCount('foundry:shareImage'), 0);

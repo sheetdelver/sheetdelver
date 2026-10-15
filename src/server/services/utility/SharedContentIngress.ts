@@ -18,7 +18,9 @@ export function attachSharedContentIngress(client: FoundryClientLike, scope: {
     const image = (raw: unknown) => {
         if (!isRecord(raw) || !isRecord(raw.data) || typeof raw.data.image !== 'string' || !raw.data.image) return;
         deliver({ type: 'image', data: { url: raw.data.image,
-            title: typeof raw.data.title === 'string' ? raw.data.title : undefined }, ...identity(raw) });
+            title: typeof raw.data.title === 'string' ? raw.data.title : undefined,
+            ...(typeof raw.data.caption === 'string' ? { caption: raw.data.caption.slice(0, 4096) } : {}),
+        }, ...identity(raw) });
     };
     const journal = (raw: unknown) => {
         if (!isRecord(raw) || typeof raw.uuid !== 'string') return;

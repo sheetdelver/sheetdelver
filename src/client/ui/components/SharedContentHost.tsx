@@ -77,11 +77,12 @@ export function SharedContentHost() {
     const title = image.data?.title || 'Shared image';
     // Only the asset remounts per receipt. Keep the dialog's focus lifetime
     // intact when replacing an already-open share.
-    return <SharedImageDialog assetKey={activeShareKey} imageUrl={imageUrl} title={title} close={close} />;
+    return <SharedImageDialog assetKey={activeShareKey} imageUrl={imageUrl} title={title}
+        caption={typeof image.data?.caption === 'string' ? image.data.caption : ''} close={close} />;
 }
 
-function SharedImageDialog({ assetKey, imageUrl, title, close }: {
-    assetKey: string | null; imageUrl: string; title: string; close: () => void;
+function SharedImageDialog({ assetKey, imageUrl, title, caption, close }: {
+    assetKey: string | null; imageUrl: string; title: string; caption: string; close: () => void;
 }) {
     const dialogRef = useRef<HTMLDivElement>(null);
     useModalFocus(dialogRef, true, close);
@@ -97,7 +98,10 @@ function SharedImageDialog({ assetKey, imageUrl, title, close }: {
                     <button type="button" onClick={close} className="sd-ui-button shrink-0 rounded-lg p-2"
                         aria-label="Close shared image"><X className="h-5 w-5" /></button>
                 </div>
-                <SharedImageAsset key={assetKey} imageUrl={imageUrl} title={title} />
+                <figure className="m-0 flex min-h-0 flex-col">
+                    <SharedImageAsset key={assetKey} imageUrl={imageUrl} title={title} />
+                    {caption && <figcaption className="sd-ui-muted max-h-32 shrink-0 overflow-y-auto whitespace-pre-wrap break-words px-4 pb-3 text-center text-sm">{caption}</figcaption>}
+                </figure>
             </div>
         </div>
     );

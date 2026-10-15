@@ -3,9 +3,19 @@ import {
     resolveJournalPageSelection,
     sortDirectorySiblings,
     sortJournalPages,
+    canEditJournalContent,
 } from '@client/ui/components/journalOrdering';
 
 export function run() {
+    const reader = { _id: 'reader', role: 1 };
+    const entry = { ownership: { default: 3 } };
+    assert.equal(canEditJournalContent(reader, entry, { ownership: { default: 2 } }), false,
+        'entry owner cannot edit an explicitly observed page from redacted HTML');
+    assert.equal(canEditJournalContent(reader, entry, { ownership: { default: -1 } }), true);
+    assert.equal(canEditJournalContent(reader, { ownership: { default: 2 } }, { ownership: { reader: 3 } }), true);
+    assert.equal(canEditJournalContent({ ...reader, role: 3 }, { ownership: { default: 2 } }, { ownership: { default: 2 } }), false);
+    assert.equal(canEditJournalContent({ ...reader, role: 4 }, entry, { ownership: { default: 0 } }), true);
+    assert.equal(canEditJournalContent(reader, entry, {}), false);
     const entries = [
         { _id: 'third', name: 'C', sort: 30 },
         { _id: 'first', name: 'B', sort: 10 },

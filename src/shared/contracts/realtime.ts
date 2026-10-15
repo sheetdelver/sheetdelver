@@ -30,6 +30,7 @@ export interface RealtimeSharedContentPayload {
     data?: {
         url?: string;
         title?: string;
+        caption?: string;
         id?: string;
         uuid?: string;
         [key: string]: unknown;

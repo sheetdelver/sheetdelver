@@ -6,6 +6,7 @@ import { userStore } from '@server/core/documents/primary/users/UserStore';
 import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
 import { FoundryUserRole } from '@server/core/documents/primary/base/ownership';
 import type { ChatClientLike } from '@server/shared/types/documents';
+import { createDocumentStore } from '@server/shared/utils/moduleDocumentServices';
 
 const config = {
     app: {
@@ -29,11 +30,34 @@ export async function run() {
     await runDiceRollPaths();
     await runStoreBackedReadsProjectChatDto();
     await runPrivateRollProjection();
+    await runTextWhisperMatrix();
     await runBlindWriteResponse();
     await runNormalChatWritesThroughCreateChatMessage();
     await runRollChatWritesThroughCreateChatMessage();
     await runOwnedSheetSpeaker();
     console.log('  - ChatService: all checks passed');
+}
+
+async function runTextWhisperMatrix() {
+    await withMockUsers(async () => {
+        const source = { _id: 'text', author: 'p-author', whisper: ['other'], content: 'PRIVATE TEXT', rolls: [] };
+        await chatMessageStore.seed(async () => [source]);
+        const service = createChatService(config);
+        for (const userId of ['p-author', 'other', 'gm-1', 'assistant']) {
+            const client = createMockClient({ userId });
+            const documents = createDocumentStore(client as any, async () => {});
+            const allowed = ['p-author', 'other'].includes(userId);
+            assert.equal((await service.getChatLog(client, 100)).messages.length, allowed ? 1 : 0);
+            assert.equal(!!await documents.get('ChatMessage', 'text'), allowed);
+            assert.equal(!!await documents.fetchByUuid('ChatMessage.text'), allowed);
+        }
+        chatMessageStore.applyModifyDocument('ChatMessage', 'update', [{ _id: 'text', whisper: ['gm-1', 'assistant'] }]);
+        for (const userId of ['gm-1', 'assistant']) {
+            assert.equal((await service.getChatLog(createMockClient({ userId }), 100)).messages[0].content, 'PRIVATE TEXT',
+                'GM/Assistant recipients still receive messages addressed to them');
+        }
+        assert.deepEqual(source.whisper, ['other']);
+    });
 }
 
 async function runOwnedSheetSpeaker() {
@@ -217,7 +241,7 @@ async function runPrivateRollProjection() {
                     assert.ok(!JSON.stringify(message).includes('SECRET'));
                 }
             }
-            if (userId === 'other' || userId === 'assistant') {
+            if (userId !== 'p-author') {
                 assert.ok(!payload.messages.some(message => message._id === 'text-whisper'),
                     'ordinary private messages do not get public placeholders');
             }

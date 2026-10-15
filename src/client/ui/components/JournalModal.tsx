@@ -15,6 +15,7 @@ import {
     getJournalPageId,
     resolveJournalPageSelection,
     sortJournalPages,
+    canEditJournalContent,
 } from './journalOrdering';
 
 export default function JournalModal() {
@@ -44,9 +45,11 @@ export default function JournalModal() {
     const [imageFailed, setImageFailed] = useState(false);
     const requestedJournalIdRef = React.useRef<string | null>(null);
     const requestedShareKeyRef = React.useRef<string | null>(null);
+    const requestedViewerRef = React.useRef<string | null>(null);
     const requestRevision = React.useRef(0);
     const dialogRef = React.useRef<HTMLDivElement>(null);
     const activeJournalRevision = activeJournalId ? (journalRevisions[activeJournalId] ?? 0) : 0;
+    const viewerKey = `${currentUser?._id || currentUser?.id}:${currentUser?.role}`;
     // Foundry persists page order in each JournalEntryPage.sort value; socket
     // and REST payload array order is not itself the ordering contract.
     const orderedPages = React.useMemo(
@@ -67,10 +70,13 @@ export default function JournalModal() {
         if (activeJournalId) {
             const journalChanged = requestedJournalIdRef.current !== activeJournalId;
             const newShare = !!activeShareKey && requestedShareKeyRef.current !== activeShareKey;
+            const viewerChanged = requestedViewerRef.current !== viewerKey;
+            requestedViewerRef.current = viewerKey;
             requestedJournalIdRef.current = activeJournalId;
             requestedShareKeyRef.current = activeShareKey;
-            if (journalChanged || newShare) {
+            if (journalChanged || newShare || viewerChanged) {
                 setLoading(true);
+                setJournal(null);
                 setIsEditing(false);
                 setActivePageId(null);
                 setSharedPageUnavailable(false);
@@ -118,6 +124,7 @@ export default function JournalModal() {
         sharedJournalId,
         sharedJournalPageId,
         activeShareKey,
+        viewerKey,
     ]);
 
     useEffect(() => () => closeSharedJournal(), [activeJournalId, activeShareKey, closeSharedJournal]);
@@ -135,7 +142,7 @@ export default function JournalModal() {
     useEffect(() => { setImageFailed(false); }, [activePageId]);
 
     const handleSave = async (html: string) => {
-        if (!journal) return;
+        if (!journal || !canEdit) return;
         const request = requestRevision.current;
 
         try {
@@ -163,11 +170,10 @@ export default function JournalModal() {
     };
 
     const isGM = currentUser?.isGM || false;
-    const currentUserId = currentUser?._id || currentUser?.id || '';
     const currentPage = orderedPages[activePageIndex];
     const pageType = currentPage?.type ?? 'text';
     const canEdit = !isShared && pageType === 'text'
-        && (isGM || (journal?.ownership?.[currentUserId] || 0) >= 3);
+        && canEditJournalContent(currentUser, journal, currentPage);
     const canShare = isGM && !isShared;
 
     const rawContent = currentPage?.text?.content || (!currentPage ? journal?.content : '') || '';
@@ -236,7 +242,7 @@ export default function JournalModal() {
                         </div>
                     ) : (
                         <>
-                            {isEditing ? (
+                            {isEditing && canEdit ? (
                                 <div className="flex-1 overflow-hidden h-full">
                                     <RichTextEditor
                                         content={rawContent}

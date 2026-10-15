@@ -11,14 +11,18 @@ import { useNotifications } from '@client/ui/components/NotificationSystem';
 import type { CombatTrackerCombatantDto } from '@shared/contracts/combats';
 import type { InitiativeRollChoice, InitiativeRollModalProps } from '@shared/sdk/ui';
 import * as foundryApi from '@client/ui/api/foundryApi';
-import { resolveSelectedCombat, selectActiveCombats } from './combatHudState';
+import { resolveSelectedCombat, selectActiveCombats, ownedCombatants, ownedInitiativeCandidates, selectOwnedCombatant } from './combatHudState';
+import InitiativeChooser from './InitiativeChooser';
+import { runInitiativeSequence, type InitiativeOutcome } from './initiativeSequence';
 import { getUIModule } from '@modules/registry/client';
 import { SurfaceHost } from '@client/ui/components/SurfaceHost';
 import { logger } from '@shared/utils/logger';
 import RollDialog from '../RollDialog';
 
 type PendingAction = 'next-turn' | 'previous-turn' | 'initiative' | null;
-type RollTarget = { combatId: string; row: CombatTrackerCombatantDto; phaseGeneration?: string };
+type RollTarget = { combatId: string; row: CombatTrackerCombatantDto; phaseGeneration?: string; scope: string };
+const snapshotRollTarget = (target: RollTarget): RollTarget => ({ ...target,
+    row: { ...target.row, initiativeRoll: target.row.initiativeRoll ? { ...target.row.initiativeRoll } : null } });
 const button = 'sd-ui-button min-h-11 rounded-lg px-3 py-2 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-offset-2';
 
 function Portrait({ row }: { row: CombatTrackerCombatantDto }) {
@@ -42,12 +46,12 @@ function StatChips({ row, compact }: { row: CombatTrackerCombatantDto; compact: 
 
 export default function CombatHUDView() {
     const pathname = usePathname();
-    const { step, system, currentUser } = useFoundry();
+    const { step, system, currentUser, worldId } = useFoundry();
     const { combats, fetchCombats } = useActorCombat();
     const { token } = useSession();
     const { addNotification } = useNotifications();
     const [selectedCombatId, setSelectedCombatId] = useState<string | null>(null);
-    const [ownedId, setOwnedId] = useState<string | null>(null);
+    const [manualOwned, setManualOwned] = useState<{ context: string; id: string; actorId: string | null } | null>(null);
     const [expanded, setExpanded] = useState(false);
     const [pendingAction, setPendingAction] = useState<PendingAction>(null);
     const [rollTarget, setRollTarget] = useState<RollTarget | null>(null);
@@ -57,6 +61,15 @@ export default function CombatHUDView() {
     const [modalRetry, setModalRetry] = useState(0);
     const [announcement, setAnnouncement] = useState('');
     const lastAnnouncement = useRef('');
+    const [chooser, setChooser] = useState<RollTarget[] | null>(null);
+    const [outcomes, setOutcomes] = useState<InitiativeOutcome[]>([]);
+    const [batchStarted, setBatchStarted] = useState(false);
+    const actionRef = useRef<{ cancelled: boolean } | null>(null);
+    const mounted = useRef(true);
+    useEffect(() => { mounted.current = true; return () => {
+        mounted.current = false;
+        if (actionRef.current) actionRef.current.cancelled = true;
+    }; }, []);
 
     useEffect(() => {
         let live = true;
@@ -79,21 +92,31 @@ export default function CombatHUDView() {
     const activeCombats = selectActiveCombats(combats);
     const selection = resolveSelectedCombat(activeCombats, selectedCombatId);
     const combat = selection?.combat ?? null;
+    const viewScope = JSON.stringify([worldId, system?.id, currentUser?._id || currentUser?.id,
+        currentUser?.role, token, step, pathname === '/tools/combat', combat?.id, combat?.playerInitiative?.generation]);
+    const scopeRef = useRef(viewScope);
+    scopeRef.current = viewScope;
+    useEffect(() => {
+        setRollTarget(null); setChooser(null); setOutcomes([]); setBatchStarted(false);
+        if (actionRef.current) actionRef.current.cancelled = true;
+    }, [viewScope]);
     const rollCombat = rollTarget && activeCombats.find(item => item.id === rollTarget.combatId);
     const rollRow = rollTarget && [...(rollCombat?.combatants ?? []), ...(rollCombat?.initiativeCandidates ?? [])]
         .find(row => row.id === rollTarget.row.id);
-    const rollStillValid = !!rollRow && rollRow.canRollInitiative && rollRow.initiative === rollTarget?.row.initiative
+    const rollStillValid = rollTarget?.scope === viewScope && !!rollRow && rollRow.canRollInitiative && rollRow.initiative === rollTarget?.row.initiative
         && rollRow.actorId === rollTarget?.row.actorId
         && rollRow.initiativeRoll?.formula === rollTarget?.row.initiativeRoll?.formula
         && rollCombat?.playerInitiative?.generation === rollTarget?.phaseGeneration;
     useEffect(() => { if (rollTarget && !rollStillValid) setRollTarget(null); }, [rollTarget, rollStillValid]);
 
     const current = combat?.combatants.find(row => row.isCurrent) ?? null;
-    const candidates = combat?.initiativeCandidates ?? [];
-    const pendingInitiative = candidates.filter(row => row.canRollInitiative && row.initiativeRoll);
-    const owned = [...(combat?.combatants ?? []), ...candidates].filter(row => row.isOwned);
-    const mine = owned.find(row => row.id === ownedId) ?? pendingInitiative[0] ?? owned[0] ?? null;
-    const initiativeChoice = pendingInitiative.find(row => row.id === mine?.id) ?? pendingInitiative[0] ?? null;
+    const pendingInitiative = ownedInitiativeCandidates(combat);
+    const owned = ownedCombatants(combat);
+    const selectionContext = `${viewScope}:${combat?.round}:${combat?.currentCombatantId}`;
+    useEffect(() => { setManualOwned(null); }, [selectionContext]);
+    const manualStillOwned = !!manualOwned && owned.some(row => row.id === manualOwned.id && row.actorId === manualOwned.actorId);
+    useEffect(() => { if (manualOwned && !manualStillOwned) setManualOwned(null); }, [manualOwned, manualStillOwned]);
+    const mine = selectOwnedCombatant(combat, manualOwned?.context === selectionContext && manualStillOwned ? manualOwned.id : null);
     useEffect(() => {
         const key = combat && current?.isOwned ? `${combat.id}:${combat.round}:${current.id}` : '';
         if (key && key !== lastAnnouncement.current) setAnnouncement(`Your turn: ${current?.name || 'your character'}`);
@@ -107,15 +130,22 @@ export default function CombatHUDView() {
     const observed = { active: combat.active, started: combat.started, round: combat.round,
         currentCombatantId: combat.currentCombatantId };
     const runAction = async (action: Exclude<PendingAction, null>, request: () => Promise<unknown>) => {
-        if (pendingAction) return;
+        if (actionRef.current) return;
+        const job = { cancelled: false };
+        actionRef.current = job;
+        const scope = viewScope;
         setPendingAction(action);
         try { await request(); void fetchCombats(); }
         catch (error) {
+            if (!mounted.current || scopeRef.current !== scope) return;
             const message = error instanceof Error ? error.message : 'Request failed';
             logger.error(`CombatHUD | ${action} failed:`, error);
             addNotification(`Combat action failed: ${message}`, 'error');
             void fetchCombats();
-        } finally { setPendingAction(null); }
+        } finally {
+            if (actionRef.current === job) actionRef.current = null;
+            if (mounted.current) setPendingAction(null);
+        }
     };
     const turn = (direction: 'next' | 'previous') => void runAction(direction === 'next' ? 'next-turn' : 'previous-turn',
         () => direction === 'next' ? foundryApi.postCombatNextTurn(token, combat.id, observed)
@@ -123,12 +153,52 @@ export default function CombatHUDView() {
     const confirmRoll = (choice: InitiativeRollChoice) => {
         const target = rollTarget;
         setRollTarget(null);
-        if (!target?.row.initiativeRoll) return;
+        if (!rollStillValid || !target?.row.initiativeRoll) return;
         void runAction('initiative', () => foundryApi.postCombatRollInitiative(token, target.combatId, target.row.id, {
             observed: { initiative: target.row.initiative, formula: target.row.initiativeRoll!.formula,
                 ...(target.phaseGeneration ? { phaseGeneration: target.phaseGeneration } : {}) },
             ...(choice.kind === 'manual' ? { manualTotal: choice.total } : { advantageMode: choice.advantageMode }),
         }));
+    };
+    const openInitiative = () => {
+        if (pendingInitiative.length === 1) {
+            setRollTarget(snapshotRollTarget({ combatId: combat.id, row: pendingInitiative[0], phaseGeneration: combat.playerInitiative?.generation, scope: viewScope }));
+        } else if (pendingInitiative.length > 1) {
+            setChooser(pendingInitiative.map(row => snapshotRollTarget({ combatId: combat.id, row, phaseGeneration: combat.playerInitiative?.generation, scope: viewScope })));
+            setOutcomes([]); setBatchStarted(false);
+        }
+    };
+    const closeChooser = () => {
+        if (actionRef.current) actionRef.current.cancelled = true;
+        setChooser(null);
+    };
+    const rollAll = async () => {
+        if (actionRef.current || !chooser || batchStarted) return;
+        const job = { cancelled: false };
+        actionRef.current = job;
+        const scope = viewScope;
+        const isCurrent = () => mounted.current && !job.cancelled && scopeRef.current === scope;
+        setPendingAction('initiative'); setBatchStarted(true);
+        setOutcomes(chooser.map(target => ({ id: target.row.id, state: 'unattempted' })));
+        try {
+            await runInitiativeSequence(chooser.map(target => target.row), combat.playerInitiative?.generation, {
+                isCurrent,
+                readCombat: async () => {
+                    const snapshot = await fetchCombats();
+                    if (!snapshot) throw new Error('Tracker temporarily unavailable');
+                    return snapshot.combats.find(item => item.id === combat.id) ?? null;
+                },
+                submit: row => foundryApi.postCombatRollInitiative(token, combat.id, row.id, {
+                    observed: { initiative: row.initiative, formula: row.initiativeRoll!.formula,
+                        ...(combat.playerInitiative?.generation ? { phaseGeneration: combat.playerInitiative.generation } : {}) },
+                }),
+                report: outcome => { if (isCurrent()) setOutcomes(previous => previous.map(item => item.id === outcome.id ? outcome : item)); },
+            });
+        } finally {
+            if (actionRef.current === job) actionRef.current = null;
+            if (mounted.current) setPendingAction(null);
+            if (scopeRef.current === scope && mounted.current) void fetchCombats();
+        }
     };
     const modalProps: InitiativeRollModalProps | null = rollTarget?.row.initiativeRoll ? {
         isOpen: rollStillValid, type: 'initiative', title: 'Roll Initiative',
@@ -172,19 +242,18 @@ export default function CombatHUDView() {
                     {mine && <Portrait row={mine} />}
                     <span className="min-w-0"><span className="sd-ui-muted block text-[11px] font-semibold leading-tight">My character</span>
                         {owned.length > 1 ? <select aria-label="My combatant" className="sd-ui-control max-w-36 text-sm" value={mine?.id ?? ''}
-                            onChange={event => setOwnedId(event.target.value)}>{owned.map(row => <option key={row.id} value={row.id}>
+                            onChange={event => setManualOwned({ context: selectionContext, id: event.target.value,
+                                actorId: owned.find(row => row.id === event.target.value)?.actorId ?? null })}>{owned.map(row => <option key={row.id} value={row.id}>
                                 {row.name || 'Combatant'}{pendingInitiative.some(candidate => candidate.id === row.id) ? ' · unrolled' : ''}
                             </option>)}</select>
                             : <span className="block truncate text-sm font-semibold">{mine?.name || 'None shown'}</span>}</span>
                     {mine && <StatChips row={mine} compact />}
                     {mine?.actorId && mine.canOpenActor && <Link className="sd-ui-accent text-xs underline" href={`/actors/${encodeURIComponent(mine.actorId)}`}
                         target="_blank" rel="noopener noreferrer">{mine.statSource === 'unlinked-token' ? 'Base sheet' : 'Sheet'}</Link>}
-                {combat.playerInitiative?.open && initiativeChoice && <div className="flex min-w-0 flex-wrap items-center gap-2"
+                {pendingInitiative.length > 0 && <div className="flex min-w-0 flex-wrap items-center gap-2"
                     aria-label="Player initiative is open">
                     <button type="button" className={`${button} sd-ui-button-primary`} disabled={pendingAction !== null}
-                        onClick={() => setRollTarget({ combatId: combat.id, row: initiativeChoice,
-                            phaseGeneration: combat.playerInitiative?.generation })}>Roll initiative
-                        {initiativeChoice.id !== mine?.id && <span className="ml-1 text-xs">for {initiativeChoice.name || 'your character'}</span>}
+                        onClick={openInitiative}>Roll initiative
                     </button>
                 </div>}
                 </div>
@@ -216,12 +285,17 @@ export default function CombatHUDView() {
                     <StatChips row={row} compact={false} />
                 </div>
                 {row.canRollInitiative && <button type="button" className={`${button} sd-ui-button-primary`} disabled={pendingAction !== null}
-                    onClick={() => setRollTarget({ combatId: combat.id, row,
-                        phaseGeneration: combat.playerInitiative?.generation })}>Roll initiative</button>}
+                    onClick={() => setRollTarget(snapshotRollTarget({ combatId: combat.id, row,
+                        phaseGeneration: combat.playerInitiative?.generation, scope: viewScope }))}>Roll initiative</button>}
             </li>)}</ol>
         </div>}
         <span className="sr-only" aria-live="polite" aria-atomic="true">{announcement}</span>
     </section>
+        {chooser && !rollTarget && <InitiativeChooser rows={chooser.map(target => target.row)} currentRows={owned.filter(row => !row.hidden)}
+            outcomes={outcomes} busy={pendingAction !== null} started={batchStarted}
+            onAll={() => void rollAll()} onClose={closeChooser}
+            onIndividual={row => { setChooser(null); setRollTarget(snapshotRollTarget({ combatId: combat.id, row,
+                phaseGeneration: combat.playerInitiative?.generation, scope: viewScope })); }} />}
         {rollTarget && modalProps && (modalLoading ? <div role="status" className="sd-ui-panel-raised fixed inset-x-4 top-1/3 z-[210] mx-auto max-w-sm rounded-xl p-4">Loading initiative dialog…</div>
             : modalError ? <div role="alert" className="sd-ui-panel-raised fixed inset-x-4 top-1/3 z-[210] mx-auto max-w-sm rounded-xl p-4">
                 <p>Initiative dialog unavailable.</p><div className="mt-2 flex gap-2">

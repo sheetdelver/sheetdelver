@@ -1,4 +1,11 @@
 # Releases
+## 0.18.1
+- Coordinated sheet navigation clearance
+- Added owned initiative chooser
+- Preserved shared image captions
+- Filtered journal Secret projections
+- Restricted private text whispers
+
 ## 0.18.0
 - Opened managed initiative prompts
 - Enabled owner turn endings

@@ -4,6 +4,19 @@
 **Date:** October 13, 2026
 **Related:** ADR-0013, ADR-0038, ADR-0049, ADR-0053, ADR-0054, ADR-0057, ADR-0059
 
+## Administrative reconciliation — October 15, 2026
+
+The closeout's separate publication and C6 integration prerequisites are now
+fulfilled: Core0.17.1 and Shadowdark0.9.2/Mörk Borg0.8.1 shipped; the approved
+main/HUD reconciliation subsequently shipped in Core0.18.0 and its compatible
+module releases. The October15 operator retest reports the original presentation,
+catalog-access and Assistant fixes working. This does not expand the recorded
+native-version matrix. Ordinary-journal Secret and non-roll-whisper gaps remain
+unfixed and are explicitly carried into proposed
+[ADR-0063](0063-player-module-corrections-and-content-privacy.md).
+Conditional Next-patch maintenance stays deferred until a verified replacement.
+The historical pending lists below are not reopened implementation gates.
+
 ## Closeout — October 13, 2026
 
 The user confirmed the corrections work and authorized closing this iteration

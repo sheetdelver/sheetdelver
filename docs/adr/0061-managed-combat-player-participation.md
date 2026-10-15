@@ -1,9 +1,20 @@
 # ADR-0061: Managed Combat Player Participation
 
-**Status:** Completed — implementation and operator acceptance recorded; v13/v14 native owner writes verified; publication prerequisites remain separate
+**Status:** Completed — implementation, operator acceptance, bounded v13/v14 native verification and publication recorded
 **Date:** October 13, 2026
 **Related:** ADR-0013, ADR-0028, ADR-0038, ADR-0049, ADR-0057, ADR-0058,
 ADR-0060, ADR-0062
+
+## Administrative reconciliation — October 15, 2026
+
+The dated release prerequisites below are fulfilled: Core0.18.0 published first,
+followed by Shadowdark0.9.3, Mörk Borg0.8.2 and D&D5e0.4.1 after passing
+PR/main/release CI and release-asset validation. Companion minima were promoted
+to Core>=0.18.0/UI API>=3.1.0; approved HUD branches were squash-merged/deleted.
+The later README cleanup was documentation only. No implementation/publication
+gate remains here. New observations and multi-character initiative refinements
+are proposed in [ADR-0063](0063-player-module-corrections-and-content-privacy.md),
+not added to this completed scope. Earlier native verification limits remain.
 
 ## Context and completed baseline
 
