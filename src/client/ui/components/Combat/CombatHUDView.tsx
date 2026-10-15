@@ -48,7 +48,6 @@ export default function CombatHUDView() {
     const { addNotification } = useNotifications();
     const [selectedCombatId, setSelectedCombatId] = useState<string | null>(null);
     const [ownedId, setOwnedId] = useState<string | null>(null);
-    const [initiativeId, setInitiativeId] = useState<string | null>(null);
     const [expanded, setExpanded] = useState(false);
     const [pendingAction, setPendingAction] = useState<PendingAction>(null);
     const [rollTarget, setRollTarget] = useState<RollTarget | null>(null);
@@ -92,9 +91,9 @@ export default function CombatHUDView() {
     const current = combat?.combatants.find(row => row.isCurrent) ?? null;
     const candidates = combat?.initiativeCandidates ?? [];
     const pendingInitiative = candidates.filter(row => row.canRollInitiative && row.initiativeRoll);
-    const initiativeChoice = pendingInitiative.find(row => row.id === initiativeId) ?? pendingInitiative[0] ?? null;
     const owned = [...(combat?.combatants ?? []), ...candidates].filter(row => row.isOwned);
-    const mine = owned.find(row => row.id === ownedId) ?? owned[0] ?? null;
+    const mine = owned.find(row => row.id === ownedId) ?? pendingInitiative[0] ?? owned[0] ?? null;
+    const initiativeChoice = pendingInitiative.find(row => row.id === mine?.id) ?? pendingInitiative[0] ?? null;
     useEffect(() => {
         const key = combat && current?.isOwned ? `${combat.id}:${combat.round}:${current.id}` : '';
         if (key && key !== lastAnnouncement.current) setAnnouncement(`Your turn: ${current?.name || 'your character'}`);
@@ -141,7 +140,7 @@ export default function CombatHUDView() {
 
     return <><section data-combat-hud className="sd-ui-panel-raised sticky top-0 z-[140] w-full rounded-none border-x-0 border-t-0 pt-[env(safe-area-inset-top)]" aria-label="Combat tracker">
         <div className="mx-auto w-full max-w-7xl px-3 py-2 sm:px-4">
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            <div className="flex flex-wrap items-center gap-2">
                 <div className="flex h-10 shrink-0 items-center gap-1.5">
                     <Swords aria-hidden="true" className="sd-ui-accent h-4 w-4" />
                     <span className="whitespace-nowrap text-sm font-bold">{combat.started ? `Round ${combat.round}` : 'Forming'}</span>
@@ -153,42 +152,42 @@ export default function CombatHUDView() {
                     <button type="button" className={button} disabled={selection.index === activeCombats.length - 1} aria-label="Next encounter"
                         onClick={() => setSelectedCombatId(activeCombats[selection.index + 1].id)}><ChevronRight aria-hidden="true" className="h-4 w-4" /></button>
                 </div>}
-                {!combat.started && combat.playerInitiative?.open ? <div className="flex min-w-0 flex-[1_1_9rem] flex-wrap items-center gap-2">
+                {!combat.started && combat.playerInitiative?.open ? <div className="sd-combat-hud-region flex min-h-11 min-w-0 flex-[1_1_9rem] flex-wrap items-center gap-2 px-2">
                     <span className="sd-ui-accent text-sm font-semibold">Initiative open</span>
                 </div> : <><div data-own-turn={current?.isOwned ? 'true' : undefined}
-                    className={`flex h-10 min-w-0 flex-[1_1_9rem] items-center gap-2 rounded-lg px-2 ${current?.isOwned ? 'sd-combat-own-turn' : ''}`}
+                    className={`sd-combat-hud-region flex min-h-11 min-w-0 flex-[1_1_9rem] items-center gap-2 px-2 lg:max-w-40 ${current?.isOwned ? 'sd-combat-own-turn' : ''}`}
                     aria-label={current?.isOwned ? 'Your turn' : 'Current turn'}>
                     {current && <Portrait row={current} />}
                     <span className="min-w-0"><span className={current?.isOwned
                         ? 'sd-combat-own-turn-label block text-[11px] font-bold leading-tight uppercase tracking-wide'
-                        : 'sd-ui-muted block text-[10px] leading-tight'}>{current?.isOwned ? 'Your turn' : 'Current turn'}</span>
+                        : 'sd-ui-accent block text-[11px] font-semibold leading-tight'}>{current?.isOwned ? 'Your turn' : 'Current turn'}</span>
                         <span className="block truncate text-sm font-semibold">{current?.name || '—'}</span></span>
                 </div>
-                <div className="flex h-10 min-w-0 flex-[1_1_9rem] items-center gap-2" aria-label={gm ? 'Up next' : 'Next shown'}>
+                <div className="sd-combat-hud-region flex min-h-11 min-w-0 flex-[1_1_9rem] items-center gap-2 px-2 lg:max-w-40" aria-label={gm ? 'Up next' : 'Next shown'}>
                     {next && <Portrait row={next} />}
-                    <span className="min-w-0"><span className="sd-ui-muted block text-[10px] leading-tight">{gm ? 'Up next' : 'Next shown'}</span>
+                    <span className="min-w-0"><span className="sd-ui-muted block text-[11px] font-semibold leading-tight">{gm ? 'Up next' : 'Next shown'}</span>
                         <span className="block truncate text-sm font-semibold">{next?.name || '—'}</span></span>
                 </div></>}
-                <div className="flex min-h-10 min-w-0 flex-[2_1_15rem] flex-wrap items-center gap-x-2 gap-y-1" aria-label="My character">
-                    <span className="min-w-0"><span className="sd-ui-muted block text-[10px] leading-tight">My character</span>
+                <div className="sd-combat-hud-region flex min-h-11 min-w-0 flex-[2_1_15rem] flex-wrap items-center gap-x-2 gap-y-1 px-2 py-1" aria-label="My character">
+                    {mine && <Portrait row={mine} />}
+                    <span className="min-w-0"><span className="sd-ui-muted block text-[11px] font-semibold leading-tight">My character</span>
                         {owned.length > 1 ? <select aria-label="My combatant" className="sd-ui-control max-w-36 text-sm" value={mine?.id ?? ''}
-                            onChange={event => setOwnedId(event.target.value)}>{owned.map(row => <option key={row.id} value={row.id}>{row.name || 'Combatant'}</option>)}</select>
+                            onChange={event => setOwnedId(event.target.value)}>{owned.map(row => <option key={row.id} value={row.id}>
+                                {row.name || 'Combatant'}{pendingInitiative.some(candidate => candidate.id === row.id) ? ' · unrolled' : ''}
+                            </option>)}</select>
                             : <span className="block truncate text-sm font-semibold">{mine?.name || 'None shown'}</span>}</span>
                     {mine && <StatChips row={mine} compact />}
                     {mine?.actorId && mine.canOpenActor && <Link className="sd-ui-accent text-xs underline" href={`/actors/${encodeURIComponent(mine.actorId)}`}
                         target="_blank" rel="noopener noreferrer">{mine.statSource === 'unlinked-token' ? 'Base sheet' : 'Sheet'}</Link>}
-                </div>
                 {combat.playerInitiative?.open && initiativeChoice && <div className="flex min-w-0 flex-wrap items-center gap-2"
                     aria-label="Player initiative is open">
-                    {pendingInitiative.length > 1 ? <select className="sd-ui-control max-w-44 text-sm"
-                        aria-label="Character awaiting initiative" value={initiativeChoice.id}
-                        onChange={event => setInitiativeId(event.target.value)}>
-                        {pendingInitiative.map(row => <option key={row.id} value={row.id}>{row.name || 'Your character'}</option>)}
-                    </select> : <span className="sd-ui-muted max-w-36 truncate text-xs">{initiativeChoice.name || 'Your character'}</span>}
                     <button type="button" className={`${button} sd-ui-button-primary`} disabled={pendingAction !== null}
                         onClick={() => setRollTarget({ combatId: combat.id, row: initiativeChoice,
-                            phaseGeneration: combat.playerInitiative?.generation })}>Roll initiative</button>
+                            phaseGeneration: combat.playerInitiative?.generation })}>Roll initiative
+                        {initiativeChoice.id !== mine?.id && <span className="ml-1 text-xs">for {initiativeChoice.name || 'your character'}</span>}
+                    </button>
                 </div>}
+                </div>
                 <div className="ml-auto flex flex-wrap items-center gap-2">
                 {combat.canRewindTurn && <button type="button" className={button} disabled={pendingAction !== null}
                     onClick={() => turn('previous')}>Previous turn</button>}
@@ -210,6 +209,7 @@ export default function CombatHUDView() {
                         {row.isCurrent && <span className="sd-ui-accent text-xs font-semibold">{row.isOwned ? 'Your turn' : 'Current'}</span>}
                         {row.isOwned && !row.isCurrent && <span className="sd-ui-muted text-xs">Yours</span>}
                         {row.defeated && <span className="sd-ui-danger text-xs">Defeated</span>}
+                        {row.skip && <span className="sd-ui-muted text-xs">Skipped</span>}
                         {row.hidden && <span className="sd-ui-muted text-xs">Hidden from players</span>}
                     </div>
                     <p className="sd-ui-muted text-xs">Initiative: {row.initiative ?? '—'}</p>

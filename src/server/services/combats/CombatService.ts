@@ -29,7 +29,7 @@ import { hasCombatManagerMarker, playerActionsFor, readCombatManagerFlag } from 
 import { combatStatDisplayService, projectCombatStatFields } from './CombatStatDisplayService';
 import { effectiveInitiativeFormula } from './CombatInitiativeFormula';
 import { withEncounterLock } from './EncounterCommandGuard';
-import { isManagedTurnEligible, managedCurrentCombatantId, resolveManagedTurn } from './CombatTurnQueue';
+import { hasManagedInitiative, isManagedTurnEligible, managedCurrentCombatantId, resolveManagedTurn } from './CombatTurnQueue';
 import type {
     CombatTrackerDto,
     CombatTrackerCombatantDto,
@@ -207,7 +207,7 @@ export function createCombatService(deps: CombatServiceDeps) {
             // shared read model and all document writes map through that order.
             const dto = buildCombatTrackerDto(managerFlag ? {
                 ...prepared, currentCombatantId: managedCurrentCombatantId(prepared, managerFlag),
-                rows: isAssistantGM(subject) ? prepared.rows : prepared.rows.filter(row => isManagedTurnEligible(row)),
+                rows: isAssistantGM(subject) ? prepared.rows : prepared.rows.filter(hasManagedInitiative),
             } : prepared, subject, { ...projectionDeps, skipDefeated, managedQueue: !!managerFlag });
             const actions = managerFlag ? playerActionsFor(managerFlag) : null;
             const owner = subject.role < FoundryUserRole.ASSISTANT;
@@ -322,8 +322,8 @@ export function createCombatService(deps: CombatServiceDeps) {
         }
 
         const skipDefeated = isSkipDefeatedEnabled();
-        const managedTurn = managed ? resolveManagedTurn(prepared, managed, 'next', skipDefeated) : null;
-        if (managed && !managedTurn) return { error: 'Awaiting initiative: no eligible scored combatants', status: 409 };
+        const managedTurn = managed ? resolveManagedTurn(prepared, managed, 'next') : null;
+        if (managed && !managedTurn) return { error: 'No eligible scored, unskipped combatants', status: 409 };
         const eligible = (row: PreparedEncounter['rows'][number]): boolean =>
             !skipDefeated || !row.defeated;
         const firstEligibleIndex = (): number => {
@@ -424,8 +424,8 @@ export function createCombatService(deps: CombatServiceDeps) {
         // rewinding past round 1 turn 0 returns the encounter to its
         // unstarted round-zero state.
         const skipDefeated = isSkipDefeatedEnabled();
-        const managedTurn = managed ? resolveManagedTurn(prepared, managed, 'previous', skipDefeated) : null;
-        if (managed && !managedTurn) return { error: 'Awaiting initiative: no eligible scored combatants', status: 409 };
+        const managedTurn = managed ? resolveManagedTurn(prepared, managed, 'previous') : null;
+        if (managed && !managedTurn) return { error: 'No eligible scored, unskipped combatants', status: 409 };
         const eligible = (row: PreparedEncounter['rows'][number]): boolean =>
             !skipDefeated || !row.defeated;
         const previousEligible = (before: number): number => {
@@ -661,7 +661,7 @@ export function createCombatService(deps: CombatServiceDeps) {
                     status: 409, code: 'TURN_SYNC_UNKNOWN' };
             }
             const reordered = combatEncounterReadModel.getOrRebuild(combatId);
-            const newIndex = reordered?.rows.findIndex(row => row.id === currentId) ?? -1;
+            const newIndex = reordered?.rows.findIndex(row => row.id === currentId && (!managed || isManagedTurnEligible(row))) ?? -1;
             if (newIndex < 0) return { error: 'Initiative was applied, but turn synchronization is uncertain; refresh before continuing',
                 status: 409, code: 'TURN_SYNC_UNKNOWN' };
             if (newIndex >= 0 && combatStore.get(combatId)?.turn !== newIndex) {

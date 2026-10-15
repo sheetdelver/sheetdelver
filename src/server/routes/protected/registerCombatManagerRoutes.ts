@@ -51,7 +51,8 @@ export function registerCombatManagerRoutes(router: express.Router): void {
         catch (error) { handleError(error, res); }
     });
     router.post('/combat-manager', async (req, res) => {
-        try { res.status(201).json({ encounter: await combatManagerService.create(req.foundryClient, req.body?.label, req.body?.keepHistory) }); }
+        try { res.status(201).json({ encounter: await combatManagerService.create(req.foundryClient, req.body?.label,
+            req.body?.keepHistory, req.body?.autoSkipDefeatedEnemies) }); }
         catch (error) { handleError(error, res); }
     });
     router.get('/combat-manager/:id', async (req, res) => {
@@ -64,6 +65,10 @@ export function registerCombatManagerRoutes(router: express.Router): void {
     });
     router.patch('/combat-manager/:id/player-actions', async (req, res) => {
         try { res.json({ encounter: await combatManagerService.setPlayerActions(req.foundryClient, req.params.id, req.body) }); }
+        catch (error) { handleError(error, res); }
+    });
+    router.patch('/combat-manager/:id/turn-policy', async (req, res) => {
+        try { res.json({ encounter: await combatManagerService.setTurnPolicy(req.foundryClient, req.params.id, req.body) }); }
         catch (error) { handleError(error, res); }
     });
     router.delete('/combat-manager/:id', async (req, res) => {

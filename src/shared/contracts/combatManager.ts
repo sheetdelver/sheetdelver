@@ -1,5 +1,5 @@
 /** GM/Assistant, whitelisted Combat Manager API. Foundry source documents never cross this boundary. */
-import type { ModuleCombatStatAttribute } from '@shared/sdk';
+import type { ModuleCombatStatAttribute, ModuleCombatStatLayout } from '@shared/sdk';
 
 /** Identity used only for detecting duplicate manager encounter labels. */
 export function combatManagerNameKey(label: string): string {
@@ -7,14 +7,12 @@ export function combatManagerNameKey(label: string): string {
 }
 
 /** Core-owned GM selection; module info.json suggestions remain read-only. */
-export type CombatManagerStatKind = ModuleCombatStatAttribute['kind'] | 'textarea';
+export type CombatManagerStatKind = ModuleCombatStatAttribute['kind'];
 /** Three-column detail grid; bounded spans/viewport avoid pathological layout. */
 export const COMBAT_STAT_LAYOUT_LIMITS = { columns: 3, rows: 6, textRows: 12 } as const;
-export interface CombatManagerStatLayout { columnSpan: number; rowSpan: number; textRows: number }
+export type CombatManagerStatLayout = ModuleCombatStatLayout;
 
-export interface CombatManagerSelectedStatDto extends Omit<ModuleCombatStatAttribute, 'kind'> {
-    kind: CombatManagerStatKind;
-    layout?: CombatManagerStatLayout;
+export interface CombatManagerSelectedStatDto extends ModuleCombatStatAttribute {
     editable?: true;
     /** The one GM-selected stat used by roster health actions. */
     health?: true;
@@ -61,6 +59,8 @@ export interface CombatManagerStatDto {
     value: string | number;
     subValue?: string | number;
     multiline?: true;
+    /** Only host-sanitized HTML is sent in this presentation mode. */
+    contentFormat?: 'html';
     layout?: CombatManagerStatLayout;
     showInRoster?: true;
     health?: true;
@@ -100,6 +100,7 @@ export interface CombatManagerParticipantDto {
     defeated: boolean;
     /** Explicit Combatant flag, separate from effective Actor dead status. */
     defeatedFlag?: boolean;
+    skip: boolean;
     isCurrent: boolean;
     resource: CombatManagerResourceDto | null;
     effects: string[];
@@ -118,6 +119,8 @@ export interface CombatManagerEncounterDto {
     /** Manager-only pause/no-current state. Never a player hidden-turn marker. */
     awaitingInitiative?: boolean;
     canNavigateTurns?: boolean;
+    pausedForSkip?: true;
+    autoSkipDefeatedEnemies: boolean;
     playerActions: {
         initiativeOpen: boolean;
         endTurnEnabled: boolean;

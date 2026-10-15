@@ -15,6 +15,8 @@ export interface CombatTrackerCombatantDto {
     img: string | null;
     initiative: number | null;
     defeated: boolean;
+    /** Managed explicit queue exclusion; visibility and defeat remain separate. */
+    skip?: true;
     /** Hidden rows are pruned for players; GM viewers receive them flagged. */
     hidden: boolean;
     isCurrent: boolean;

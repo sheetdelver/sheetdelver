@@ -2,7 +2,10 @@
 
 import { COMBAT_STAT_LAYOUT_LIMITS, type CombatManagerStatKind, type CombatManagerStatLayout } from '@shared/contracts/combatManager';
 
-export interface CombatStatEditorDraft { label: string; path: string; kind: CombatManagerStatKind; layout: CombatManagerStatLayout }
+export interface CombatStatEditorDraft {
+    label: string; path: string; kind: CombatManagerStatKind; layout: CombatManagerStatLayout;
+    contentFormat?: 'plain' | 'html';
+}
 
 /** One form for Add and Edit; validation/persistence remains with the manager. */
 export function CombatStatAttributeEditor({ value, onChange, onApply, onCancel, editing, disabled,
@@ -35,6 +38,12 @@ export function CombatStatAttributeEditor({ value, onChange, onApply, onCancel, 
             {layoutChoice('columnSpan', 'Column span', COMBAT_STAT_LAYOUT_LIMITS.columns)}
             {layoutChoice('rowSpan', 'Row span', COMBAT_STAT_LAYOUT_LIMITS.rows)}
             {value.kind === 'textarea' && layoutChoice('textRows', 'Visible text rows', COMBAT_STAT_LAYOUT_LIMITS.textRows)}
+            {value.kind === 'textarea' && <label className="flex items-center gap-2">Content format
+                <select aria-label="Content format" value={value.contentFormat ?? 'plain'} disabled={disabled}
+                    onChange={event => onChange({ ...value, contentFormat: event.target.value as 'plain' | 'html' })} className={inputClass}>
+                    <option value="plain">Plain text</option><option value="html">HTML (sanitized)</option>
+                </select>
+            </label>}
         </fieldset>
         <div className="flex flex-wrap gap-2">
             <button type="button" disabled={disabled || checking || !!reason} onClick={onApply} className={buttonClass}>
@@ -42,7 +51,7 @@ export function CombatStatAttributeEditor({ value, onChange, onApply, onCancel, 
             </button>
             {editing && onCancel && <button type="button" disabled={disabled} onClick={onCancel} className={buttonClass}>Cancel editing</button>}
         </div>
-        <p id="custom-stat-help" className="sd-ui-muted text-xs">{reason || 'The path and type are checked before applying to this draft. Save persists the configuration. Textarea is read-only, scrollable plain text; narrow screens stack fields.'}</p>
+        <p id="custom-stat-help" className="sd-ui-muted text-xs">{reason || 'The path and type are checked before applying to this draft. Save persists the configuration. Textarea is read-only plain text or sanitized HTML; narrow screens stack fields.'}</p>
         {error && <p role="alert" className="sd-ui-danger break-words text-xs">{error}</p>}
     </div>;
 }

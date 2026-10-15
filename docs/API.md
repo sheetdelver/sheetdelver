@@ -232,12 +232,14 @@ other stats remain in the detail panel. See
 [ADR-0049](adr/0049-core-gm-combat-manager.md) and the Assistant amendment in
 [ADR-0062](adr/0062-observed-player-issues.md).
 
-**Managed queue and display refinements (ADR-0061 N1–N3):** null-scored rows
+**Managed queue and display refinements (ADR-0061 N1–N6):** null-scored rows
 remain after scored rows in the manager list, but never enter the executable
 queue/player turn roster. Begin/navigation require an eligible scored row;
 otherwise return 409 without advancing a round. Zero and finite fractions are
-scored values. Navigation and previews respect the configured defeated-skip
-policy and map identities to full native indexes. Late NPC Combatants default
+scored values. Managed navigation/previews require finite initiative and not
+explicitly Skip, mapping identities to full native indexes. Defeat/Hidden alone
+do not exclude a managed turn; ordinary Combat setting behavior is unchanged.
+Late NPC Combatants default
 hidden; scoring does not reveal them. Clearing the current score (including
 Reset All) first persists a pause anchor on the Combat and clears `turn`.
 `awaitingInitiative`/`canNavigateTurns` are manager-only DTO state. GM Next/
@@ -256,38 +258,49 @@ content, and cannot be editable, health or a roster pill. Invalid layout/kinds
 return 400; safe exact-path validation also accepts textarea. The same Add/Edit
 editor updates a stable selected key/order in the draft; configuration Save
 persists it in the shared world/module file. Save/reset recheck current caller/
-world/runtime after system lookup, before persistence. Module metadata keeps
-number/text/resource unchanged; no SDK version change. The row Defeated toggle
+world/runtime after system lookup, before persistence. SDK 3.2.0/module-api 1.4.0
+also supports textarea/layout/format module suggestions. The row Defeated toggle
 uses the existing Combatant PATCH and does not remove Actor dead effects.
 
-**Proposed extension, not part of the current API (ADR-0061 N5/N6):** validate
-optional textarea `contentFormat: "plain" | "html"` (absent means plain) and
-matching module suggestions/layout through one contract. HTML detail must be
-authorized and sanitized before DTO delivery and rendered only through Core's
-safe HTML boundary; it grants no Actor-text writes, HUD/pill placement or
-Foundry action execution. Exact contract versions remain a prerequisite.
+Textarea accepts optional `contentFormat: "plain" | "html"` (absent means plain).
+Module suggestions and GM selections share presentation validation. In HTML
+mode the manager's `stats` row has `multiline: true`, `contentFormat: "html"`
+and a sanitized string `value`; plain content is unchanged. Actor authorization/
+scope validation precedes server sanitization and Core's client safe-HTML
+boundary sanitizes again. This is static detail, not text-write authority,
+HUD/pill placement or Foundry enrichment/action execution. Manager list/detail
+revalidate caller/world/runtime and current documents after preference reads.
 
-Managed encounter configuration would add default-off **Skip defeated enemies
+Managed encounter configuration includes default-off **Skip defeated enemies
 automatically**, plus one durable per-Combatant **Skip** flag on existing
 manager update lanes. With the setting on, an explicit NPC Defeated update also
 checks Skip; manual Unskip stays unchecked across reads/restarts, and NPC
 Restore clears Skip. Players may be explicitly skipped by the GM/authorized
 Assistant but never automatically because defeated. Turning the setting off
-does not clear existing flags. Shared managed navigation/previews would use
+does not clear existing flags. Assignment applies only to SheetDelver Defeated
+actions, with no backfill, external Foundry observer or writes during reads.
+Shared managed navigation/previews use
 finite initiative plus not Skip, independent of the global defeated setting;
 ordinary Combats remain unchanged. Caller-bound document permissions and stale
-scope/identity guards remain mandatory. External/bulk assignment and current-row
-pause semantics must be resolved/tested as described in ADR-0061 before shipping.
-No new request/response fields are implemented by this documentation note.
+scope/identity guards remain mandatory. Manager DTOs include participant `skip`,
+encounter `autoSkipDefeatedEnemies`, and optional manager-only `pausedForSkip`.
+Skipping the current row first persists a score/id pause anchor with `reason:
+"skip"` and clears native turn; GM Next/Previous or explicit eligible Unskip/
+NPC Restore resumes. A later flag-write failure can leave it safely paused;
+refresh/recover explicitly, never auto-replay. Scored skipped rows remain in
+authorized rosters, but cannot be current/next or offer owner End turn. Actor
+reassignment/policy/scope changes across the pause await reject before updating
+the target. Malformed explicit Skip values are excluded until a GM repairs them.
 
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `GET` | `/api/combat-manager` | List marked encounters, including retained completed history. |
-| `POST` | `/api/combat-manager` | Create with `{ "label": "Ambush", "keepHistory": false }`; returns the encounter. Its Actor Folder is nested under the shared top-level `SheetDelver` Actor Folder. A normalized name already held by a marked encounter returns 409 before any create write. |
+| `POST` | `/api/combat-manager` | Create with `{ "label": "Ambush", "keepHistory": false }`, optional boolean `autoSkipDefeatedEnemies` defaults false; returns the encounter. Its Actor Folder is nested under the shared top-level `SheetDelver` Actor Folder. A normalized name already held by a marked encounter returns 409 before any create write. |
 | `GET` | `/api/combat-manager/stat-preferences?catalog=1&actorId=...` | Read shared GM selection and module suggestions. `catalog=1` additionally discovers bounded fields from prepared world Actors; optional authorized Actor ID prioritizes its fields. Catalog `observedActorTypes` is a picker hint, not a saved type restriction. |
 | `PUT` | `/api/combat-manager/stat-preferences` | Save `{ "attributes": [...] }` for this world/system module, including an intentional empty list. A selected numeric/resource `system.*` descriptor may have `"editable": true`; exactly one editable descriptor may also have `"health": true`. Module suggestions remain display-only until a GM saves those choices. |
 | `POST` | `/api/combat-manager/stat-preferences/validate-path` | GM/Assistant read-only `{ "path": "system.attributes.hp.value", "kind": "number" }` check for custom fields. Returns `{ "attribute": { "path", "kind", "observedActorTypes" } }`; 400 unsafe/type mismatch, 404 absent field, 401 retired session, 403 unauthorized role, 503 retired/unavailable world. No configuration or Foundry write. |
 | `DELETE` | `/api/combat-manager/stat-preferences` | Remove saved selection and return to module suggestions. |
+| `PATCH` | `/api/combat-manager/:id/turn-policy` | Set `{ "autoSkipDefeatedEnemies": true }` for future SheetDelver NPC Defeated actions only; no bulk/read-side updates. GM/Assistant, native-authorized caller transport. |
 | `PUT` | `/api/combat-manager/initiative-fallback` | Legacy URL retained: save a GM override such as `{ "formula": "1d20+@system.attributes.init.value" }` only if that numeric path exists on every current managed participant, or clear with `null`. Validate before persistence; 400 invalid/missing-reference/no-participant evidence, 409 unavailable Actor, 401 retired caller, 503 replaced/unavailable world. GM override takes precedence. |
 | `GET` | `/api/combat-manager/:id` | Read one marked tokenless encounter. |
 | `PATCH` | `/api/combat-manager/:id` | Rename with `{ "label": "..." }` only while active at round zero. Reject duplicate normalized labels and verify the child Actor Folder marker before renaming it. |
@@ -301,7 +314,7 @@ No new request/response fields are implemented by this documentation note.
 | `POST` | `/api/combat-manager/:id/roll-initiative` | Roll available unrolled combatants with `{ "scope": "all" }` or `{ "scope": "npc" }`; NPC means no non-GM owner. Invalid/unresolved override references remain for manual entry. Returns `rolled` and the refreshed encounter. Partial failures report the count already rolled. |
 | `POST` | `/api/combat-manager/:id/combatants/:combatantId/roll-initiative` | Roll or reroll one participant through the guarded, user-bound initiative path. Optional `advantageMode` applies only to leading d20 formulas. Returns `rolled: 1` and the refreshed encounter. |
 | `POST` | `/api/combat-manager/:id/reset-initiative` | Clear all scored participants in one embedded-document update. First pause a started current turn on the Combat. Returns `cleared` and the refreshed encounter; pending rows cannot become current. GM action resumes it. |
-| `PATCH` | `/api/combat-manager/:id/combatants/:combatantId` | Change `initiative`, `hidden` or `defeated`. Manual initiative edits may include `expectedInitiative` (number or `null`); a changed mirrored score returns 409. This is a Store preflight, not an atomic Foundry compare-and-set. |
+| `PATCH` | `/api/combat-manager/:id/combatants/:combatantId` | Change `initiative`, `hidden`, `defeated` or boolean `skip`. NPC Restore clears Skip; conflicting `defeated: false, skip: true` is rejected. Manual initiative edits may include `expectedInitiative` (number or `null`); a changed mirrored score returns 409. This is a Store preflight, not an atomic Foundry compare-and-set. |
 | `PATCH` | `/api/combat-manager/:id/combatants/:combatantId/resource` | Set a source-backed configured resource with `{ "value": 5, "expected": { "actorId": "...", "path": "system.attributes.hp.value", "value": 7 } }`. Returns 409 if the mirrored Actor, resource path or value changed since observation; refetch before retrying. This is a best-effort Store preflight, not an atomic Foundry compare-and-set. |
 | `PATCH` | `/api/combat-manager/:id/combatants/:combatantId/stats/:statKey` | Set a GM-selected editable numeric/resource stat with the same `{ "value", "expected": { "actorId", "path", "value" } }` shape. The server re-resolves the current selection and source Actor field, and rejects unselected, derived, missing, transformed or stale values. This is also a best-effort Store preflight. |
 | `POST` | `/api/combat-manager/:id/health-batch` | Apply `{ "operation": "damage", "amount": 3, "targets": [{ "combatantId", "statKey", "expected": { "actorId", "path", "value" } }] }` to 1–100 editable Default-health targets in roster order. `heal` is also accepted. A stale, invalid or duplicated target rejects the whole batch before any write; a later write failure reports `Applied N of M`. No automatic replay or clamping. |

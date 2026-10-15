@@ -16,6 +16,7 @@ import { CombatManagerError, requireCombatManagerSubject } from './CombatManager
 import { readCombatManagerFlag } from './combatManagerFlag';
 import { validateInitiativeOverride } from './CombatInitiativeFormula';
 import { getDocumentId } from '@server/core/documents/primary/base/PrimaryDocumentStore';
+import { sanitizeRichHtml, type SanitizeRichHtmlOptions } from '@shared/security/safeHtml';
 
 function readPath(actor: unknown, path: string): unknown {
     if (!isSafeCombatStatPath(path)) return null;
@@ -29,7 +30,8 @@ function readPath(actor: unknown, path: string): unknown {
 }
 
 export function projectCombatStatFields(actor: PreparedActorData | null,
-    attributes: CombatManagerSelectedStatDto[], sourceActor?: ActorDocument | null): CombatManagerStatDto[] {
+    attributes: CombatManagerSelectedStatDto[], sourceActor?: ActorDocument | null,
+    htmlOptions: SanitizeRichHtmlOptions = {}): CombatManagerStatDto[] {
     if (!actor) return [];
     const stats: CombatManagerStatDto[] = [];
     for (const attribute of attributes) {
@@ -50,8 +52,10 @@ export function projectCombatStatFields(actor: PreparedActorData | null,
             if (typeof raw !== 'number' || !Number.isFinite(raw)) continue;
             stats.push({ title: attribute.label, value: raw, ...presentation, ...roster, ...health, ...(edit ? { edit } : {}) });
         } else if (attribute.kind === 'textarea') {
-            if (typeof raw === 'string') stats.push({ title: attribute.label, value: raw,
-                multiline: true, ...presentation });
+            if (typeof raw === 'string') stats.push({ title: attribute.label,
+                value: attribute.contentFormat === 'html' ? sanitizeRichHtml(raw,
+                    { excludeUnrevealedSecrets: true, ...htmlOptions }) : raw,
+                multiline: true, ...(attribute.contentFormat === 'html' ? { contentFormat: 'html' as const } : {}), ...presentation });
         } else if (typeof raw === 'string' && raw.trim()) {
             stats.push({ title: attribute.label, value: raw.trim().slice(0, 48), ...presentation, ...roster });
         } else if (typeof raw === 'number' && Number.isFinite(raw)) {
@@ -181,7 +185,7 @@ function resolveScope(scope: { worldId: string; moduleId: string }): CombatManag
 }
 
 /** Capture once, then synchronously revalidate after the caller's system await. */
-function captureManagerScope(client: CombatClientLike) {
+export function captureManagerScope(client: CombatClientLike) {
     const userId = client.userId;
     const worldId = worldStateStore.getCurrentWorldId();
     const epoch = worldBootstrapper.getRuntimeEpoch();

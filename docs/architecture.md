@@ -312,8 +312,9 @@ initiative commands pin the Combatant-to-Actor association through rolling,
 score application and turn repair. Retired scope fails closed; an uncertain
 post-chat result is never replayed automatically. Native Foundry browser hooks, private directed roll requests and
 system turn automation remain out of scope (ADR-0060/ADR-0058). Native
-owner-write acceptance is a separate ADR-0061 integration gate, not inferred
-from Core-side tests.
+owner writes are verified separately on Foundry13.351/Shadowdark4.0.6 and
+14.367/D&D5e6.0.2 (ADR-0061), not inferred from Core-side tests or proof of all
+system browser-hook behavior.
 
 ADR-0061's October 14 N1–N3 additions distinguish managed pending participants
 from the executable queue and project an own-pending initiative cue independently
@@ -325,8 +326,8 @@ ordinary-Combat behavior change or new module transport. Late NPC hidden
 defaults use existing ownership classification. GM textarea/layout preferences
 belong in the existing shared world/module data-directory store, with plain
 read-only text, responsive validated metadata and old-record defaults. The
-existing document authorization/SDK module suggestion contract does not
-broaden merely because the editor gains another display option. Current-score
+existing document authorization does not broaden because the editor gains
+another display option. Current-score
 clearing pauses until GM action. The validated optional Combat `turnPause`
 stores the original score/id anchor; `turn: null` and that flag are persisted
 before clearing the score. Clearing the flag requires explicit `null`, since
@@ -334,18 +335,28 @@ native flags merge absent properties. Reads do not write/migrate it. No player
 projection carries that private anchor or a hidden-current pause marker. See
 the ADR for failure semantics and new operator acceptance checkpoints.
 
-The user has accepted N1/N2 and N3 flag reconciliation. ADR-0061 N4–N6 proposes
+The user has accepted N1/N2 and N3 flag reconciliation. ADR-0061 N4–N6 implements
 clearer compact summary regions, explicit sanitized rich-detail/module default
 metadata, and per-Combatant Skip with default-off encounter NPC automation.
-These are **not implemented**. Keep rich detail behind Actor authorization and
+The user accepts HUD/rich-detail/Skip behavior; module declarations retain
+automated evidence and tested-build/publication limitations remain recorded.
+Keep rich detail behind Actor authorization and
 the existing shared sanitizer/SafeHtmlContent boundary, not a module/browser
-Foundry runtime. Version the module metadata extension before adoption.
+Foundry runtime. The additive metadata contract is SDK3.2.0/module-api1.4.0;
+adopting modules require Core0.18.0 before publication. Existing modules stay valid.
 Skip is one persisted flag: NPC Defeated can assign it when configured; manual
 Unskip must survive reads, NPC Restore clears it, and player defeat cannot
 assign it. All managed queue/preview consumers must resolve the same flag policy
 and full native indexes; ordinary Combat setting behavior remains distinct.
-Do not derive/write Skip on reads or add a service-account observer. See the
-ADR for external/bulk/current-row decisions, tests and remaining release gates.
+Do not derive/write Skip on reads or add a service-account observer. Assignment
+is limited to future SheetDelver Defeated actions, with no bulk/external-event
+automation. Current Skip persists the existing durable pause anchor with a
+validated optional reason; shared queue consumers ignore world-wide defeated
+settings only for managed encounters. Manager reads revalidate caller/world/
+runtime and fresh authorized documents after awaited preference lookup; Skip
+mutation rechecks target Actor/ownership classification/policy after pause.
+See the completed ADR for failure recovery, tests, acceptance and separate
+publication prerequisites.
 
 Prepared data never writes back to Foundry automatically. Embedded Item and Active
 Effect changes update the source Actor first, then atomically replace its prepared

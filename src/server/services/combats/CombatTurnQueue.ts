@@ -2,8 +2,12 @@ import type { PreparedEncounter, PreparedEncounterRow } from '@server/core/docum
 import type { CombatManagerFlag } from './combatManagerFlag';
 
 /** Managed policy only. The shared read model retains full native indexes. */
-export function isManagedTurnEligible(row: PreparedEncounterRow, skipDefeated = false): boolean {
-    return row.initiative !== null && Number.isFinite(row.initiative) && (!skipDefeated || !row.defeated);
+export function hasManagedInitiative(row: PreparedEncounterRow): boolean {
+    return row.initiative !== null && Number.isFinite(row.initiative);
+}
+
+export function isManagedTurnEligible(row: PreparedEncounterRow): boolean {
+    return hasManagedInitiative(row) && !row.skip;
 }
 
 export function managedCurrentCombatantId(prepared: PreparedEncounter, flag: CombatManagerFlag): string | null {
@@ -18,9 +22,9 @@ function compareAnchor(row: PreparedEncounterRow, anchor: NonNullable<CombatMana
 }
 
 export function resolveManagedTurn(prepared: PreparedEncounter, flag: CombatManagerFlag,
-    direction: 'next' | 'previous', skipDefeated: boolean): { round: number; turn: number | null } | null {
+    direction: 'next' | 'previous'): { round: number; turn: number | null } | null {
     const eligible = prepared.rows.map((row, index) => ({ row, index }))
-        .filter(({ row }) => isManagedTurnEligible(row, skipDefeated));
+        .filter(({ row }) => isManagedTurnEligible(row));
     if (!eligible.length) return null;
     if (!prepared.started) return direction === 'next'
         ? { round: 1, turn: eligible[0].index } : { round: 0, turn: null };

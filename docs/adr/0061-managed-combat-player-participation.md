@@ -1,6 +1,6 @@
 # ADR-0061: Managed Combat Player Participation
 
-**Status:** Accepted — N1/N2 and N3 flag control operator-accepted; N4–N6 proposed refinements and generation/release gates open
+**Status:** Completed — implementation and operator acceptance recorded; v13/v14 native owner writes verified; publication prerequisites remain separate
 **Date:** October 13, 2026
 **Related:** ADR-0013, ADR-0028, ADR-0038, ADR-0049, ADR-0057, ADR-0058,
 ADR-0060, ADR-0062
@@ -45,7 +45,7 @@ Local Foundry v14 permission-source review indicates a feasible headless path:
 player Combat updates permit round/turn but not parent flags/activation;
 Combatant initiative uses Actor-derived OWNER permission, with Actor lookup
 by `actorId` on the server. The October 14 live checkpoint verifies tokenless
-owner writes on v14.367; v13 remains unverified. No online GM browser, GM impersonation or unsupported
+owner writes on v14.367 and the final pass verifies v13.351. No online GM browser, GM impersonation or unsupported
 Foundry server extension is proposed. Core's API policy remains stricter than
 Foundry's base rules; it cannot govern writes made outside SheetDelver.
 
@@ -232,17 +232,21 @@ merge Actor resources when merely grouping entries visually.
 
 ### Current status — October 14 hardening and live checkpoint
 
+This table includes the final v13/acceptance closeout below. Earlier dated
+checkpoints are retained as history; their pending statements are superseded
+by the final closeout, not new obligations.
+
 The unchecked parent checkpoints below combine implementation and acceptance;
 they do not mean the UI and transport still need to be built. Source review at
 the reconciled HUD checkpoint plus the hardening/native follow-up confirms this disposition:
 
 | Checkpoint | Implemented / verified evidence | Remaining gate |
 | --- | --- | --- |
-| P0 policy/native boundary | Approved local Foundry 14.367 / D&D 5e 6.0.2: native owner tokenless score and turn writes accepted with no full-GM client online; caller-bound SheetDelver actions also pass | v13 evidence or an explicit supported-generation decision; v14 is not v13 proof |
-| P1 correctness/authorization | R1/R2 and retired-user guard implemented; extended controlled-await, concurrent-owner, partial/unknown-result and route regressions pass; full Core/module offline validation passes | Automated verification complete for the bounded matrix; operator acceptance remains P3 |
-| P2 manager/player UI | Baseline and N1/N2 operator-accepted; N3 Defeated/Restore matches details | N4 compact grouping, N5 rich content/module suggestions and N6 explicit Skip proposal below |
-| P3 integration/operator | v14 native/multi-role evidence and automated race checks; user accepts baseline and the latest queue/pause/stat checks | New N4–N6 acceptance after implementation; v13 remains deferred to the final pass; no new explicit shared-owner/manual-total operator result was supplied |
-| P4 docs/release | Contracts, module-owned notes, feature-snapshot changelog and handoff updated; approved local checkpoints saved; new Core work uncommitted | Core-first release, module minima/unused versions, released-host CI/package checks and final closeout |
+| P0 policy/native boundary | Foundry14.367 / D&D5e6.0.2 and Foundry13.351 / Shadowdark4.0.6: native tokenless owner score/turn writes and caller-bound SheetDelver HTTP pass; direct native proofs run with manager sockets disconnected | Complete for these tested builds; not all system browser hooks or future releases |
+| P1 correctness/authorization | R1/R2, retired-user guard, concurrency/partial/unknown results and scope/Skip/HTML regressions pass; full Core/module offline validation passes | Complete for the bounded matrix |
+| P2 manager/player UI | Baseline/N1–N6 implemented; both-theme/narrow/desktop/keyboard/module presentation tests and user visual acceptance recorded | Complete; optional new module-default declarations have automated, not separate operator, evidence |
+| P3 integration/operator | Prior v14 browser/HTTP evidence, final v13 native/HTTP checks and explicit user acceptance of the baseline and N1–N6 | Complete; native hooks/system automation remain deferred |
+| P4 docs/release | Contracts, module notes, terse changelog, audit disposition and handoff reconciled for closeout | Implementation complete; Core0.18.0-first publication, module minima/unused versions and released-host CI/package checks remain release prerequisites |
 
 - [x] Approved participation design and baseline Core/module implementation are
   preserved on the existing branches; no new tracker or generic roll tool is needed.
@@ -250,10 +254,10 @@ the reconciled HUD checkpoint plus the hardening/native follow-up confirms this 
   mobile footer and shared-media fixes. No pending C6 branch reconciliation.
 - [x] Resolve the bounded R1/R2 findings below and extend focused offline coverage;
   the implementation follow-up records validation and remaining acceptance.
-- [ ] Complete the native and operator acceptance gates; do not reuse the
+- [x] Complete the native and operator acceptance gates; do not reuse the
   completed ADR-0060 ordinary-Combat pass as managed-owner evidence.
 
-- [ ] **P0 — approve policy and prove the write boundary.** Review the phase
+- [x] **P0 — approve policy and prove the write boundary.** Review the phase
   lifecycle, public-vs-directed roll distinction, label treatment and SDK
   choice. Agree branch/release sequencing separately. In an approved isolated
   v13/v14 world, prove owner tokenless initiative and turn writes with no GM
@@ -272,7 +276,7 @@ the reconciled HUD checkpoint plus the hardening/native follow-up confirms this 
   owner controls when started. Preserve module dialog/fallback and sheet
   theming. Verify light/dark, narrow/desktop, keyboard, dialog stale/loading
   errors, multi-encounter selection and no repeated prompts/polling.
-- [ ] **P3 — integration and operator review.** Exercise GM, assistant,
+- [x] **P3 — integration and operator review.** Exercise GM, assistant,
   owner/non-owner and shared owners through HTTP/browser; automatic/manual
   rolls, public chat, pre-Begin inactive state, Begin/Close/reopen/late joins,
   GM clear, turn ending/disable, hidden and generated-copy privacy. Inject
@@ -280,7 +284,7 @@ the reconciled HUD checkpoint plus the hardening/native follow-up confirms this 
   restart persistence, transient recovery, terminal world/session replacement
   and no replay. Compare actual module formula, dialog and executed formula
   for all three current modules. Record versions, evidence limits and cleanup.
-- [ ] **P4 — documentation and release review.** Update API DTO/action/error
+- [x] **P4 — documentation and release review.** Update API DTO/action/error
   contracts, UI role/lifecycle table, architecture orchestration and SDK/module
   authoring guides/exports/mocks as affected. Update module-owned docs only
   in their repositories. Retain ADR-0058 as Deferred with the narrow successor
@@ -1078,6 +1082,9 @@ snapshot are updated; accepted baseline checks need not be repeated by default.
 
 ## Operator confirmations and proposed N4–N6 refinements — October 14, 2026
 
+Planning snapshot; the subsequent implementation follow-up below supersedes
+its not-yet-implemented statements while preserving the confirmed decisions.
+
 **Documentation-only follow-up; no new implementation or automated/live run.**
 The user confirms checklist 1 (pending/late queue and compact Roll cue), 2
 (pause until GM acts), and 3 (stat editor/layout). Checklist 4 confirms that
@@ -1204,18 +1211,19 @@ to no Skip and automatic assignment off; no migration/read-side flag synthesis.
 ### Proposed implementation checkpoints / acceptance
 
 - [x] Record N1/N2 and flag-only N3 operator acceptance and the Skip decisions.
-- [ ] **N4:** group compact HUD regions and own target/action; test 320/375/1280,
+- [x] **N4 implemented/offline verified:** group compact HUD regions and own target/action; test 320/375/1280,
   both themes, keyboard/focus, multiple owners, pending-only and hidden rows.
-- [ ] **N5:** agree the additive SDK/module-api revision, implement validated
+- [x] **N5 implemented/offline verified:** agree the additive SDK/module-api revision, implement validated
   format/layout suggestions and sanitized detail; test old/default records,
   Reset versus saved choices, wrong-type paths, secret/XSS/unsafe URL fixtures,
   overflow, and all affected module typing/compatibility/packages.
-- [ ] **N6:** settle external/bulk assignment edges, implement one durable Skip
+- [x] **N6 implemented/offline verified:** settle external/bulk assignment edges, implement one durable Skip
   flag plus default-off encounter setting and row/detail controls. Test explicit
   player Skip, NPC automatic assignment/manual opt-out/Restore, setting changes,
   current/all skipped, zero/fraction scores, round wrap, native indexes,
   concurrent GMs, failures, restart and ordinary-Combat non-regression.
-- [ ] Re-run documented Core/module offline checks and obtain acceptance only
+- [x] Re-run documented Core/module offline checks; evidence below.
+- [ ] Obtain operator acceptance only
   for these new additions; do not repeat accepted baseline tests by default.
 - [ ] Finish deferred v13 owner-write/support decision and separately approved
   Core-first release/module promotion before ADR closeout.
@@ -1233,3 +1241,207 @@ contract, with **Core 0.18.0** required for modules adopting it. UI/roll API
 versions and application/module release versions do not change for this
 approval. Existing modules remain compatible; publication/minimum promotion,
 new commits after this checkpoint and live tests still require scoped approval.
+
+## N4–N6 implementation follow-up — October 14, 2026
+
+The accepted N1–N3 source and planning were checkpointed locally before new
+implementation. No push/branch change/application or module release bump/tag/
+publication. The subsequent Core work is **uncommitted and unstaged** for review.
+User separately confirms that NPC automatic assignment applies only to explicit
+SheetDelver Defeated actions: no existing-row backfill or external Foundry
+death/defeat observer. That bounded policy is implemented, not inferred.
+
+### N4 compact grouping
+
+Current / Next shown / My character are distinct theme-token regions. Current
+keeps Your turn emphasis; next remains secondary and player wording preserves
+hidden-queue privacy. Current/next widths are bounded on desktop so owned stats/
+Roll stay inline without returning to tall cards; narrow groups wrap. Own
+portrait, stat chips, sheet and initiative action share one region. One selector
+includes owned pending characters (`unrolled`); its default prioritizes a Roll
+candidate. If a scored character is selected while another awaits initiative,
+the Roll button explicitly names that other target. Existing stale-dialog,
+phase, capability and no-poll/replay rules remain.
+
+### N5 rich detail and module contract
+
+SDK **3.2.0** / module-api **1.4.0** provides textarea, optional validated layout
+and textarea `contentFormat: "plain" | "html"`. UI API stays3.1.0; roll API
+stays1.0.0. Root application/lock remain0.17.1. Adopting modules target released
+Core>=0.18.0/module-api>=1.4.0; unchanged module declarations remain valid and
+no current module has adopted/bumped metadata or source in this pass.
+
+One presentation parser serves module suggestions and saved GM selections.
+Old/absent format is plain; layout defaults/ranges and numeric write/health
+guards remain. Suggestions only seed an unconfigured selection or explicit
+Reset; saved GM choices, including empty choices, win. Editor Add/Edit round-trips
+format through the shared preferences. String-only HTML is sanitized by the
+existing shared helper before DTO delivery and again at SafeHtmlContent.
+GM/Assistant details authorize against current Actor source; default helper
+projection strips unrevealed secrets, and the explicitly authorized manager
+keeps those sections. The HUD still excludes textarea altogether.
+
+HTML is static formatting, not native enrichment/dice/document actions. The
+existing tag/URL/image allowlists strip scripts/unsafe attributes/schemes;
+relative assets resolve against the caller's Foundry URL helper. The read-only
+detail viewport has keyboard scroll and layout/paint containment so classes in
+Actor markup cannot cover surrounding controls. No raw insertion/new sanitizer,
+Actor text editing or general-purpose module renderer was introduced.
+
+Review found manager list/detail captured a Combat snapshot before awaited
+preferences without a world/runtime guard. They now reuse the existing
+manager scope guard and re-read current authorized documents after that await.
+Role/world retirement tests reject before stale/rich detail delivery. This is
+a bounded correction to these affected consumers, not a shared ownership change.
+
+### N6 explicit Skip and failure behavior
+
+One native flag, `flags.world.sheetDelverSkip`, stores manual Skip independently
+of Defeated/Hidden. Missing/false means included; malformed explicit values fail
+closed until a GM rewrites them. New/old encounters default automatic assignment
+off. Creation and **Turn settings** expose **Skip defeated enemies automatically**;
+the manager-only `/turn-policy` PATCH persists this on the validated Combat flag.
+Enabling/disabling does not rewrite existing Skip flags. Only SheetDelver NPC
+Defeated actions assign Skip automatically, combining defeat/Skip in one
+caller-bound Combatant write; no backfill, read writes or external observer.
+Manual Unskip while still defeated persists. NPC Restore clears Skip even when
+the setting is off; player Restore preserves explicit player Skip. A combined
+NPC Restore/Skip-true request is rejected rather than contradicting Restore.
+
+GM/authorized Assistant row quick controls and the adjacent detail checkbox
+share the existing participant update route. NPC identity uses current non-manager
+Actor ownership, not system types. Players may be manually Skipped by a manager,
+but defeat never auto-skips them. Current-row Skip first persists native turn:null
+and the original score/id anchor with optional `reason: "skip"`. It does not
+auto-advance. GM Next/Previous or eligible explicit Unskip/NPC Restore releases
+the pause; a failed/retired later write may leave a safe pause for explicit
+recovery. Actor association/classification, policy, expected score and caller/
+world/runtime are rechecked after the pause await before target updates.
+
+The shared managed queue requires finite initiative and not Skip for Begin,
+Next/Previous, owner End-turn, repair, previews and manager availability, mapped
+to full native indexes. Scored skipped rows remain in authorized rosters with
+their score/flag; hidden privacy is independent. All-unrolled/skipped produces
+409/no round write and disabled navigation. Managed turns no longer consult
+the world-wide defeated toggle, so a player/manual NPC opt-out is not silently
+overridden. Ordinary Combats retain that setting and existing native ordering.
+
+### Evidence and acceptance
+
+Full Core unit/client/integration, TypeScript and lint pass. All ten unchanged
+module tests, explicit three-module source typing, and three isolated module
+checks/package builds pass; fixture source copies compare equal to the actual
+module branches. Integration is module-lifecycle evidence, not native Foundry
+permission proof. New tests cover parser/default/format/layout rules, sanitized
+HTML and secret/URL boundaries, saved-vs-module defaults, manual NPC opt-out/
+Restore, explicit player Skip, current/all skipped, restart-safe cache rebuild,
+failed writes, native indexes, concurrency and HTTP manager authorization.
+Controlled awaits reject Actor reassignment and role/world retirement.
+
+The retained actual-component offline browser fixture passes320/375/1280 in
+both themes: compact owned target selection, old module modal/keyboard/stale
+paths, eleven-field Add/Edit/Save, plain and rich multiline overflow, sanitized
+markup/containment, and row/detail Skip/configuration. Screenshots were inspected.
+No Foundry/Core/dev service or production-connected endpoint was contacted.
+These checks do not substitute for operator acceptance or deferred v13 proof.
+
+Operator checklist (new additions only):
+
+1. Check the collapsed strip on desktop/mobile in both themes: distinguish
+   Current, Next shown and My character, preserve Your turn, select multiple
+   owned/unrolled characters and confirm the Roll target matches its label.
+2. Edit an Actor string field as Textarea, choose HTML, Apply then configuration
+   Save. Check formatted paragraphs/lists/images/table and internal scrolling;
+   switch to Plain to see literal markup. Confirm saved format/layout survives
+   reload/two-GM changes; existing numeric/health controls remain unchanged.
+3. With automatic Skip off, Defeated alone must not skip a player or NPC.
+   Enable the encounter setting, mark an NPC defeated: Skip checks. Uncheck
+   Skip while defeated, reload, then NPC Restore clears Skip. Turning the
+   setting off must not erase flags. Existing/external defeat is not auto-applied.
+4. Manually Skip a player and NPC via row/details. Next/Previous, owner End-turn
+   and next preview bypass them while scored rows remain visible when authorized.
+   Skip current: pause until GM Next/eligible Unskip/Restore. All skipped:
+   disabled navigation/no round cycling. Refresh/restart preserves flags/pause.
+5. Module textarea/layout/format suggestions can be declared using the new
+   contract; verify defaults/explicit Reset on a suitably compatible dev copy,
+   without changing published minima/versions by inference. Existing modules
+   need no source change merely to remain compatible.
+
+- [x] Local accepted-work checkpoint, approved contract revision and bounded
+  automatic-assignment policy recorded; implementation/offline checks complete.
+- [x] User explicitly verifies operator items1–4 (HUD grouping, rich detail,
+  Skip policy and turn/persistence behavior), authorizes closeout and a local
+  Core commit. Optional module-default item5 retains automated evidence only;
+  do not invent a separate operator result for it.
+- [x] Final v13 owner-write verification completed in the closeout below.
+- [ ] Core0.18.0-first publication/module minima/version/released-host checks
+  remain release prerequisites, not unfinished implementation.
+
+## Operator acceptance and publication review — October 14, 2026
+
+The user reports items1–4 verified and requests closing this implementation,
+updating documentation/handoff and committing Core for their PR/merge. New
+N4–N6 behavior is accepted alongside the previously accepted baseline/N1–N3.
+No additional native Foundry test or supported-generation certification is
+inferred from this report. The earlier v13 gate needs explicit disposition;
+the closeout follow-up records that decision separately.
+
+Release review verifies that Core `v0.18.0` has neither a remote tag nor a
+GitHub Release yet, while all three module validation/release workflows pin
+that tag. The current module versions are Shadowdark0.9.3, Mörk Borg0.8.1,
+D&D0.4.1; GitHub already contains the Mörk Borg0.8.1 release. Do not republish
+that version or publish development minimums. Module release preparation and
+Core-first sequencing need the recorded release decisions before remote work.
+These are publication prerequisites, not missing N4–N6 implementation.
+
+## Final native verification and closeout — October 14, 2026
+
+The user supplied a local v13 instance and explicitly approved creating the
+needed test users/documents. A separate, clearly marked Shadowdark test world
+was created through native setup; the existing Daggerheart world was untouched.
+The verified versions are **Foundry13.351 / Shadowdark4.0.6**. A temporary,
+loopback-only Core ran current source with an isolated data directory and a
+sanitized environment, not repository settings or production credentials.
+
+- With all GM/Assistant sockets disconnected, an ordinary Actor OWNER updated
+  a tokenless Combatant's initiative to zero, a fraction and an integer, with
+  native readback. After GM setup and disconnection, that current owner also
+  updated the Combat's round/turn. No parent policy writes, elevated retry,
+  GM browser or server extension was needed.
+- Through SheetDelver HTTP, native Assistant manager actions, inactive
+  pre-Begin owner candidates, hidden/non-owner omission, automatic module
+  initiative and manual zero/fraction totals passed. Shared-owner stale
+  submissions and a retired phase generation returned409 without replay.
+  Begin closed the phase; owner End my turn returned only minimal success,
+  skipped pending rows, and disabling it returned403.
+- The current-score clear persisted a no-current pause until GM navigation.
+  Configured NPC Defeated assigned Skip; all-ineligible navigation returned409;
+  manual Unskip while defeated and NPC Restore resumed correctly. This is a
+  native/HTTP check, not another browser layout or process-restart test.
+- Native chat readback verifies the owner, not the service account, authored
+  the successful roll messages; the automatic formula and total match the
+  projected expression/result. Stale requests produced no duplicate chat.
+  The normal Core service-account observation socket was present during HTTP
+  testing, not used as a replacement write transport.
+
+Marked test users, Actors, Combats, generated folders and chat were deleted.
+The owned test Core stopped; the user's Foundry process and existing local
+development services remained running. The installed compatible Shadowdark
+system and empty marked test world remain available for later local testing.
+An initial test-harness guest timeout was corrected to send v13's explicit
+session identifier, matching the existing application transport; no application
+code correction was required.
+
+Together with the prior v14 native/browser evidence, controlled offline
+failure/race/lifecycle checks and the user's explicit N1–N6 acceptance, this
+closes ADR-0061's implementation and acceptance gates. It is not certification
+of every v13/v14 build, all system effects, native browser hooks or deferred
+automation. New textarea module defaults retain automated compatibility/
+projection evidence rather than an invented operator result.
+
+Publication is still separate: the user handles Core PR/merge/release0.18.0.
+Dependent module CI pins require that host tag first; promote temporary Core
+minimums before publishing and choose an unused Mörk release version (0.8.1
+already shipped). No module remote operation or release is implied by this
+verification. Directed requests, Journal history, action bars, conditions,
+alternative ordering and native-client bridges remain deferred.

@@ -8,6 +8,7 @@ import { combatStatDisplayService, projectCombatStatFields } from '@server/servi
 import { combatStatPreferenceStore } from '@server/services/combats/CombatStatPreferenceStore';
 import { hasCombatManagerMarker, playerActionsFor, readCombatManagerFlag } from '@server/services/combats/combatManagerFlag';
 import { createCombatService } from '@server/services/combats/CombatService';
+import { EncounterBusyError } from '@server/services/combats/EncounterCommandGuard';
 import { combatEncounterReadModel } from '@server/core/documents/encounters/CombatEncounterReadModel';
 import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
 import { combatStore } from '@server/core/documents/primary/combats/CombatStore';
@@ -177,10 +178,10 @@ async function runManagedQueueRefinements(): Promise<void> {
     assert.equal((await combatManagerService.detail(gm, encounter.id)).currentCombatantId, activeId, 'explicit GM restoration resumes the cleared current row, including zero');
     settingStore.patch('TRACKER', { value: JSON.stringify({ skipDefeated: true }) });
     for (const row of (await combatManagerService.detail(gm, encounter.id)).participants.filter(row => row.initiative !== null)) {
-        await combatManagerService.updateParticipant(gm, encounter.id, row.id, { defeated: true });
+        await combatManagerService.updateParticipant(gm, encounter.id, row.id, { defeated: true, skip: true });
     }
-    assert.equal((await next() as any).status, 409, 'all-defeated scored rows do not fall back onto pending rows');
-    await combatManagerService.updateParticipant(gm, encounter.id, owner.id, { defeated: false });
+    assert.equal((await next() as any).status, 409, 'all-skipped scored rows do not fall back onto pending rows');
+    await combatManagerService.updateParticipant(gm, encounter.id, owner.id, { defeated: false, skip: false });
     await next();
     assert.equal((await combatManagerService.detail(gm, encounter.id)).currentCombatantId, owner.id);
     const failureClient = { ...gm, dispatchDocument: async (...args: Parameters<typeof gm.dispatchDocument>) => {
@@ -198,6 +199,167 @@ async function runManagedQueueRefinements(): Promise<void> {
     assert.deepEqual((actorStore.get('PLAYERPC') as any).effects[0].statuses, ['dead']);
     await combatManagerService.destroy(gm, encounter.id);
     console.log('  - Managed queue: pending privacy, late NPC defaults, pause/restore/native-index navigation and defeated checks passed');
+}
+
+async function runManagedSkipRefinements(): Promise<void> {
+    await seed();
+    const calls: Call[] = [];
+    const gm = mockClient('gm', calls), assistant = mockClient('assistant', calls), player = mockClient('player', calls);
+    const service = createCombatService({});
+    const encounter = await combatManagerService.create(gm, 'Explicit Skip fixture', false);
+    assert.equal(encounter.autoSkipDefeatedEnemies, false);
+    const detail = () => combatManagerService.detail(gm, encounter.id);
+    const rowFor = async (actorId: string) => (await detail()).participants.find(row => row.actorId === actorId)!;
+    const next = () => combatManagerService.turn(gm, encounter.id, () => service.advanceTurn(gm, encounter.id, true));
+    for (const [id, score] of [['WORLDNPC', 20], ['PLAYERPC', 10], ['ASSISTANTNPC', 0]] as const) {
+        await combatManagerService.addWorldActor(gm, encounter.id, id);
+        await combatManagerService.updateParticipant(gm, encounter.id, (await rowFor(id)).id, { initiative: score });
+    }
+    const npc = await rowFor('WORLDNPC'), pc = await rowFor('PLAYERPC'), ally = await rowFor('ASSISTANTNPC');
+    settingStore.patch('TRACKER', { value: JSON.stringify({ skipDefeated: true }) });
+    await combatManagerService.updateParticipant(gm, encounter.id, npc.id, { defeated: true });
+    assert.equal((await rowFor('WORLDNPC')).skip, false, 'default-off policy does not assign Skip');
+    await next();
+    assert.equal((await detail()).currentCombatantId, npc.id, 'managed defeat alone ignores world-wide setting');
+    await combatManagerService.setTurnPolicy(assistant, encounter.id, { autoSkipDefeatedEnemies: true });
+    assert.equal((await rowFor('WORLDNPC')).skip, false, 'enabling policy does not backfill existing rows');
+    const before = calls.length;
+    await combatManagerService.updateParticipant(gm, encounter.id, npc.id, { defeated: true });
+    const combined = calls.slice(before).find(call => call.type === 'Combatant' && call.action === 'update')!;
+    assert.equal(combined.operation.updates[0].defeated, true);
+    assert.equal(combined.operation.updates[0]['flags.world.sheetDelverSkip'], true,
+        'Defeated and automatic Skip use one caller-bound Combatant update');
+    assert.equal((await detail()).pausedForSkip, true);
+    assert.equal((await detail()).awaitingInitiative, false);
+    combatEncounterReadModel.clear(); combatEncounterReadModel.rebuildAll();
+    assert.equal((await detail()).pausedForSkip, true, 'Skip pause survives cache rebuild');
+    assert.equal((await service.listCombats(player)).combats.find(row => row.id === encounter.id)?.currentCombatantId, null);
+    await combatManagerService.updateParticipant(gm, encounter.id, npc.id, { skip: false });
+    assert.equal((await detail()).currentCombatantId, npc.id, 'explicit Unskip resumes the eligible anchored row');
+    assert.equal((await rowFor('WORLDNPC')).defeated, true);
+    const writes = calls.length;
+    await detail(); await detail(); await service.listCombats(player);
+    assert.equal(calls.length, writes, 'reads never assign/reassign Skip');
+    assert.equal((await rowFor('WORLDNPC')).skip, false, 'manual opt-out survives reads while defeated');
+    await combatManagerService.updateParticipant(gm, encounter.id, pc.id, { defeated: true });
+    assert.equal((await rowFor('PLAYERPC')).skip, false, 'player defeat never automatically skips');
+    await combatManagerService.updateParticipant(gm, encounter.id, npc.id, { skip: true });
+    await next();
+    assert.equal((await detail()).currentCombatantId, pc.id);
+    assert.equal((await detail()).round, 1, 'current Skip does not cause premature wrap');
+    await combatManagerService.updateParticipant(gm, encounter.id, ally.id, { skip: true });
+    let tracker = (await service.listCombats(player)).combats.find(row => row.id === encounter.id)!;
+    assert.ok(tracker.combatants.some(row => row.id === npc.id && row.skip), 'scored skipped rows remain in authorized roster');
+    assert.equal(tracker.nextShownCombatantId, pc.id, 'preview skips explicit flags, not defeated player');
+    await combatManagerService.updateParticipant(assistant, encounter.id, pc.id, { skip: true });
+    assert.equal((await detail()).canNavigateTurns, false);
+    tracker = (await service.listCombats(player)).combats.find(row => row.id === encounter.id)!;
+    assert.equal(tracker.canAdvanceTurn, false);
+    const noEligibleWrites = calls.length;
+    assert.equal((await next() as any).status, 409);
+    assert.equal(calls.length, noEligibleWrites, 'all skipped means no turn/round side effects');
+    await combatManagerService.updateParticipant(gm, encounter.id, pc.id, { defeated: false });
+    assert.equal((await rowFor('PLAYERPC')).skip, true, 'player Restore never erases explicit player Skip');
+    await combatManagerService.setTurnPolicy(gm, encounter.id, { autoSkipDefeatedEnemies: false });
+    assert.equal((await rowFor('WORLDNPC')).skip, true, 'disabling assignment does not erase Skip flags');
+    await combatManagerService.updateParticipant(gm, encounter.id, npc.id, { defeated: false });
+    assert.equal((await rowFor('WORLDNPC')).skip, false, 'NPC Restore clears the same Skip flag even with policy off');
+    await next();
+    const full = combatEncounterReadModel.getOrRebuild(encounter.id)!;
+    assert.equal(combatStore.get(encounter.id)?.turn, full.rows.findIndex(row => row.id === npc.id));
+    await combatManagerService.setTurnPolicy(gm, encounter.id, { autoSkipDefeatedEnemies: true });
+    combatStore.applyModifyDocument('Combatant', 'update', [{ _id: npc.id, defeated: true }], { parentUuid: `Combat.${encounter.id}` });
+    actorStore.patch('WORLDNPC', { effects: [{ _id: 'DEAD', disabled: false, statuses: ['dead'] }] });
+    assert.equal((await rowFor('WORLDNPC')).skip, false, 'external defeat/Actor death never triggers a privileged writer');
+    await combatManagerService.updateParticipant(gm, encounter.id, npc.id, { skip: true });
+    await combatManagerService.updateParticipant(gm, encounter.id, npc.id, { defeated: false });
+    assert.equal((await rowFor('WORLDNPC')).skip, false);
+    assert.equal((await rowFor('WORLDNPC')).defeated, true, 'NPC Restore does not remove Actor dead effects');
+    const failureClient = { ...gm, dispatchDocument: async (...args: Parameters<typeof gm.dispatchDocument>) => {
+        if (args[0] === 'Combatant' && args[1] === 'update') throw new Error('synthetic Skip write failure');
+        return gm.dispatchDocument(...args);
+    } } as CombatClientLike;
+    await assert.rejects(() => combatManagerService.updateParticipant(failureClient, encounter.id, npc.id, { skip: true }));
+    assert.equal((await detail()).pausedForSkip, true, 'failed Skip leaves a safe durable pause');
+    assert.equal((await rowFor('WORLDNPC')).skip, false);
+    await combatManagerService.updateParticipant(gm, encounter.id, npc.id, { skip: false });
+    assert.equal((await detail()).currentCombatantId, npc.id, 'explicit recovery can resume after a failed write');
+    await assert.rejects(() => combatManagerService.updateParticipant(player, encounter.id, pc.id, { skip: false }),
+        (error: unknown) => error instanceof CombatManagerError && error.status === 403);
+    await assert.rejects(() => combatManagerService.updateParticipant(gm, encounter.id, npc.id, { skip: 'yes' }),
+        (error: unknown) => error instanceof CombatManagerError && error.status === 400);
+    await assert.rejects(() => combatManagerService.setTurnPolicy(gm, encounter.id, { autoSkipDefeatedEnemies: true, unrelated: true }),
+        (error: unknown) => error instanceof CombatManagerError && error.status === 400);
+    const routes = createRouteMap(); registerCombatManagerRoutes(createRouterStub(routes) as any);
+    const policy = getLastHandler(routes, 'patch', '/combat-manager/:id/turn-policy');
+    assert.equal((await invokeHandler(policy, { params: { id: encounter.id }, foundryClient: player,
+        body: { autoSkipDefeatedEnemies: false } } as any)).statusCode, 403);
+    assert.equal((await invokeHandler(policy, { params: { id: encounter.id }, foundryClient: assistant,
+        body: { autoSkipDefeatedEnemies: false } } as any)).statusCode, 200);
+    combatStore.applyModifyDocument('Combatant', 'update', [{ _id: ally.id, 'flags.world.sheetDelverSkip': 'malformed' }],
+        { parentUuid: `Combat.${encounter.id}` });
+    assert.equal((await rowFor('ASSISTANTNPC')).skip, true, 'malformed explicit flags fail closed until repaired');
+    await combatManagerService.updateParticipant(gm, encounter.id, ally.id, { skip: false });
+    assert.equal((await rowFor('ASSISTANTNPC')).skip, false);
+    const gate = requestGate();
+    const slow = { ...gm, dispatchDocument: async (...args: Parameters<typeof gm.dispatchDocument>) => {
+        if (args[0] === 'Combatant' && args[1] === 'update') await gate.pause();
+        return gm.dispatchDocument(...args);
+    } } as CombatClientLike;
+    const first = combatManagerService.updateParticipant(slow, encounter.id, ally.id, { skip: true });
+    await gate.entered;
+    await assert.rejects(() => combatManagerService.updateParticipant(assistant, encounter.id, ally.id, { skip: false }),
+        (error: unknown) => error instanceof EncounterBusyError && error.status === 409);
+    gate.release(); await first;
+    const identityGate = requestGate();
+    const pausingClient = { ...gm, dispatchDocument: async (...args: Parameters<typeof gm.dispatchDocument>) => {
+        if (args[0] === 'Combat' && args[1] === 'update') await identityGate.pause();
+        return gm.dispatchDocument(...args);
+    } } as CombatClientLike;
+    const changesBefore = calls.filter(call => call.type === 'Combatant' && call.action === 'update').length;
+    const reassigned = combatManagerService.updateParticipant(pausingClient, encounter.id, npc.id, { skip: true });
+    const reassignedRejected = assert.rejects(reassigned, (error: unknown) => error instanceof CombatManagerError && error.status === 409);
+    await identityGate.entered;
+    combatStore.applyModifyDocument('Combatant', 'update', [{ _id: npc.id, actorId: 'PLAYERPC' }], { parentUuid: `Combat.${encounter.id}` });
+    identityGate.release(); await reassignedRejected;
+    assert.equal(calls.filter(call => call.type === 'Combatant' && call.action === 'update').length, changesBefore,
+        'a target reassigned during pause is rejected before Skip side effects');
+    combatStore.applyModifyDocument('Combatant', 'update', [{ _id: npc.id, actorId: 'WORLDNPC' }], { parentUuid: `Combat.${encounter.id}` });
+    await combatManagerService.updateParticipant(gm, encounter.id, npc.id, { skip: false });
+    const scoreGate = requestGate();
+    const clearingClient = { ...gm, dispatchDocument: async (...args: Parameters<typeof gm.dispatchDocument>) => {
+        if (args[0] === 'Combat' && args[1] === 'update') await scoreGate.pause();
+        return gm.dispatchDocument(...args);
+    } } as CombatClientLike;
+    const clear = combatManagerService.updateParticipant(clearingClient, encounter.id, npc.id, { initiative: null, expectedInitiative: 20 });
+    const staleClearRejected = assert.rejects(clear, (error: unknown) => error instanceof CombatManagerError && error.status === 409);
+    await scoreGate.entered;
+    combatStore.applyModifyDocument('Combatant', 'update', [{ _id: npc.id, initiative: 21 }], { parentUuid: `Combat.${encounter.id}` });
+    scoreGate.release(); await staleClearRejected;
+    assert.equal((await rowFor('WORLDNPC')).initiative, 21, 'score observation is rechecked after pausing before clear');
+    await combatManagerService.updateParticipant(gm, encounter.id, npc.id, { initiative: 20 });
+    const flagSnapshot = combatStore.get(encounter.id)!;
+    assert.equal(readCombatManagerFlag({ ...flagSnapshot, flags: { world: { sheetDelverCombat: {
+        ...readCombatManagerFlag(flagSnapshot), turnPause: { combatantId: npc.id, initiative: 20, reason: ['skip'] },
+    } } } } as any), null, 'pause reason requires a real validated enum string');
+    const originalResolve = combatStatDisplayService.resolve;
+    try {
+        for (const change of ['role', 'world'] as const) {
+            const readGate = requestGate();
+            combatStatDisplayService.resolve = async client => { const result = await originalResolve(client); await readGate.pause(); return result; };
+            const pendingRead = combatManagerService.detail(gm, encounter.id);
+            const rejected = assert.rejects(pendingRead, (error: unknown) => error instanceof CombatManagerError
+                && error.status === (change === 'role' ? 403 : 503));
+            await readGate.entered;
+            if (change === 'role') userStore.patch('gm', { role: 1 });
+            else worldStateStore.seed({ world: { id: 'replacement-world' }, system: { id: 'test' } });
+            readGate.release(); await rejected;
+            userStore.patch('gm', { role: 4 });
+            worldStateStore.seed({ world: { id: 'test-world' }, system: { id: 'test' } });
+        }
+    } finally { combatStatDisplayService.resolve = originalResolve; }
+    await combatManagerService.destroy(gm, encounter.id);
+    console.log('  - Explicit managed Skip: default-off NPC assignment, manual opt-out/Restore, players, pause/failure/native indexes and HTTP permissions passed');
 }
 
 /** Pause a real service await so mutations race with the request, not its setup. */
@@ -764,7 +926,7 @@ export async function run(): Promise<void> {
     assert.deepEqual(await managedTurns.advanceTurn(gm, combatId),
         { error: 'Use the GM Combat Manager to advance this encounter', status: 403 });
     assert.deepEqual(await managedTurns.advanceTurn(gm, combatId, true),
-        { error: 'Awaiting initiative: no eligible scored combatants', status: 409 });
+        { error: 'No eligible scored, unskipped combatants', status: 409 });
     await combatManagerService.updateParticipant(gm, combatId,
         (await combatManagerService.detail(gm, combatId)).participants[0].id, { initiative: 0 });
     assert.deepEqual(await combatManagerService.turn(gm, combatId,
@@ -1456,6 +1618,7 @@ export async function run(): Promise<void> {
         'ambiguous parent folders fail before creating a provisional Combat');
     folderStore.applyModifyDocument('Folder', 'delete', ['DUPROOT', 'USERROOT']);
     await runManagedQueueRefinements();
+    await runManagedSkipRefinements();
     await runParticipationHardening();
     await runInitiativeOverrideValidation();
     console.log('  - CombatManager: role, identity, resource, retention and cleanup checks passed');

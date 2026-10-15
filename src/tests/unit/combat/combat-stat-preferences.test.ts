@@ -40,11 +40,18 @@ export function run(): void {
     const notes = { key: 'notes', label: 'Notes', path: 'system.notes', kind: 'textarea' as const,
         layout: { columnSpan: 3, rowSpan: 2, textRows: 4 } };
     assert.deepEqual(parseCombatStatSelection([notes]), [notes]);
-    assert.equal(parseCombatStatAttributes([notes]), null, 'textarea does not broaden module metadata');
+    assert.deepEqual(parseCombatStatAttributes([notes]), [notes], 'SDK 3.2 module suggestions share the Core presentation parser');
+    const richNotes = { ...notes, contentFormat: 'html' as const };
+    assert.deepEqual(parseCombatStatAttributes([richNotes]), [richNotes]);
+    assert.equal(parseCombatStatAttributes([{ ...ac, contentFormat: 'html' }]), null);
+    assert.equal(parseCombatStatSelection([{ ...notes, contentFormat: 'script' }]), null);
+    assert.equal(parseCombatStatSelection([{ ...notes, contentFormat: ['html'] }]), null);
+    assert.equal(parseCombatStatAttributes([{ ...notes, kind: ['textarea'] }]), null);
     for (const layout of [{ ...notes.layout, columnSpan: 4 }, { ...notes.layout, rowSpan: 0 },
         { ...notes.layout, textRows: 13 }, { ...notes.layout, rowSpan: 1.5 },
         { ...notes.layout, css: 'position:fixed' }]) {
         assert.equal(parseCombatStatSelection([{ ...notes, layout }]), null, 'layout values/keys are validated');
+        assert.equal(parseCombatStatAttributes([{ ...notes, layout }]), null, 'module and GM layout rules are identical');
     }
     assert.equal(parseCombatStatSelection([{ ...notes, editable: true }]), null);
     assert.equal(parseCombatStatSelection([{ ...notes, health: true }]), null);
@@ -55,12 +62,32 @@ export function run(): void {
         'textarea preserves plain content/newlines instead of the old 48-character truncation');
     assert.equal(projectCombatStatFields({ type: 'npc', system: { notes: 12 }, derived: {} } as any, [notes]).length, 0);
     assert.equal(projectCombatStatFields({ type: 'npc', system: { notes: '' }, derived: {} } as any, [notes])[0]?.value, '');
+    const dangerousHtml = '<h2>History</h2><p>Hello <strong>world</strong></p><script>alert(1)</script>'
+        + '<img src="javascript:evil" onerror="evil()"><a href="javascript:evil">bad</a>'
+        + '<section class="secret">private clue</section><section class="secret revealed">revealed clue</section>';
+    const richActor = { type: 'npc', system: { notes: dangerousHtml }, derived: {} } as any;
+    const publicRich = projectCombatStatFields(richActor, [richNotes])[0];
+    assert.equal(publicRich.contentFormat, 'html');
+    assert.ok(String(publicRich.value).includes('<strong>world</strong>'));
+    assert.ok(!String(publicRich.value).includes('private clue'), 'unrevealed secrets are stripped before default DTO delivery');
+    assert.ok(String(publicRich.value).includes('revealed clue'));
+    assert.ok(!/script|javascript:|onerror|alert\(/.test(String(publicRich.value)));
+    const gmRich = projectCombatStatFields(richActor, [richNotes], null, { excludeUnrevealedSecrets: false })[0];
+    assert.ok(String(gmRich.value).includes('private clue'), 'only explicit authorized manager projection keeps secret sections');
+    assert.ok(!/script|javascript:|onerror/.test(String(gmRich.value)));
+    assert.equal(projectCombatStatFields({ ...richActor, system: { notes: '<img src="icons/hero.png">' } }, [richNotes], null,
+        { foundryBaseUrl: 'https://example.invalid/foundry/' })[0].value, '<img src="https://example.invalid/foundry/icons/hero.png" />');
 
     const manifest = { id: 'test-system', title: 'Test', manifest: { ui: 'module/ui', logic: 'module/logic' } };
     assert.equal(validateModuleInfoShape({ ...manifest, combatTracking: { attributes: [hp, ac] } }).valid, true);
+    assert.equal(validateModuleInfoShape({ ...manifest, combatTracking: { attributes: [richNotes] },
+        compatibility: { coreVersion: '>=0.18.0', apiContracts: { 'module-api': '>=1.4.0 <2.0.0' } } }).valid, true);
     assert.equal(validateModuleInfoShape({ ...manifest, combatTracking: { attributes: [{ ...ac, path: 'derived.constructor' }] } }).valid, false);
     assert.deepEqual(resolveCombatStatSelection(null, [hp]), { source: 'module', attributes: [hp] });
     assert.deepEqual(resolveCombatStatSelection([], [hp]), { source: 'saved', attributes: [] });
+    assert.deepEqual(resolveCombatStatSelection([hp], [richNotes]), { source: 'saved', attributes: [hp] },
+        'new module presentation defaults never overwrite saved GM choices');
+    assert.deepEqual(resolveCombatStatSelection(null, [richNotes]), { source: 'module', attributes: [richNotes] });
     assert.deepEqual(resolveCombatStatSelection(null, []), { source: 'none', attributes: [] });
     assert.equal(resolveCombatStatSelection(null, many.slice(0, 16) as any).attributes.length, 16,
         'defaults do not silently truncate module suggestions at eight');
@@ -159,9 +186,11 @@ export function run(): void {
         first.set('world-two', 'test-system', [ac]);
         first.set('world-one', 'other-system', []);
         first.set('textarea-world', 'test-system', [notes]);
+        first.set('rich-world', 'test-system', [richNotes]);
         first.setInitiativeFormula('world-one', 'test-system', '1d20+@system.attributes.init.value');
         const reopened = new CombatStatPreferenceStore(filePath);
         assert.deepEqual(reopened.get('textarea-world', 'test-system'), [notes], 'layout/kind persist without altering old record defaults');
+        assert.deepEqual(reopened.get('rich-world', 'test-system'), [richNotes], 'explicit rich format and layout survive reopening');
         assert.equal(reopened.getInitiativeFormula('world-one', 'test-system'), '1d20+@system.attributes.init.value');
         assert.deepEqual(reopened.get('world-one', 'test-system'), [{ ...hp, showInRoster: true, editable: true, health: true }],
             'selection and roster placement survive a new store instance');

@@ -329,7 +329,7 @@ for posting recorded rolls without changing the display-summary contract.
 | `compiledStyles` | No | Reserved packager output. Authors must not set this in source manifests. |
 
 Combat-stat descriptors have a unique key, label (up to 32 characters), path
-under `system.*` or `derived.*`, kind `number`, `text`, or `resource` (a numeric
+under `system.*` or `derived.*`, kind `number`, `text`, `textarea`, or `resource` (a numeric
 `value` with optional numeric `max`), and optional `actorTypes`. Up to 16
 suggestions may be declared. GM display selections have no fixed field-count
 cap; module metadata limits, observed-catalog discovery bounds and compact HUD
@@ -340,21 +340,32 @@ compact pill beside each combatant name; absent/false keeps the stat in detail
 only. A module adopting this new manifest field requires
 `"module-api": ">=1.3.0 <2.0.0"`; this field was introduced in SDK 2.2.0
 and remains available in SDK 3.0.0.
-Older modules without the field require no version change.
-Core's GM editor additionally supports textarea and detail-layout preferences;
-these are not part of the supported module `combatTracking.attributes` contract. No
-module API/SDK adoption or compatibility bump is implied by that editor option.
+Older modules without the field require no version change. The original
+number/text/resource suggestion contract remains backward-compatible.
 
-**Proposed, not supported yet — ADR-0061 N5:** extend these read-only suggestions
-with `kind: "textarea"`, optional `contentFormat: "plain" | "html"` (plain by
-default), and `layout: { columnSpan, rowSpan, textRows }` using Core's validated
-detail-grid ranges. HTML means host-sanitized static detail, not executable
-Foundry enrichment. Textarea stays out of HUD/roster pills and cannot be writable
-or health. Suggestions seed defaults/explicit Reset, never replace saved GM
-choices automatically. The example and acceptance plan are in ADR-0061's
-N4–N6 addendum. Record the SDK/module-api revision and minimum released Core
-before adopting these fields; current module-api 1.3.0 does not promise them.
-No module manifest/version changes have been made for this proposal.
+**SDK 3.2.0 / module-api 1.4.0 (ADR-0061 N5)** adds `kind: "textarea"`, optional
+textarea `contentFormat: "plain" | "html"` (absent means plain), and optional
+`layout: { columnSpan, rowSpan, textRows }`. When supplied, all three layout
+members must be integers: columns 1–3, grid rows 1–6, visible text rows 1–12.
+These bound Core's three-column detail grid/viewport, not GM selection counts.
+Absent layout retains one cell/four text rows; narrow screens stack spans.
+HTML means host-sanitized static detail, not executable Foundry enrichment;
+plain mode preserves literal text/newlines. Textarea requires a string, stays
+out of HUD/roster pills, and cannot grant write/health capability. Core and module
+descriptors share presentation validation. Defaults/explicit Reset never
+replace saved GM choices automatically.
+
+Modules adopting textarea, layout or format must declare
+`"module-api": ">=1.4.0 <2.0.0"` and target **Core >=0.18.0** for publication,
+after that host is released. Existing declarations need no compatibility bump.
+No local system module has adopted new fields or changed versions in this pass.
+Example (verify the real Actor string path for your system):
+
+```json
+{ "key": "description", "label": "Description", "path": "system.description",
+  "kind": "textarea", "contentFormat": "html",
+  "layout": { "columnSpan": 3, "rowSpan": 2, "textRows": 6 } }
+```
 
 `permissions` is a declaration, not an authorization bypass. Foundry ownership and
 the Sheet Delver request runtime still gate document reads and writes. Module

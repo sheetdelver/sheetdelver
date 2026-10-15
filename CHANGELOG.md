@@ -18,6 +18,9 @@
 - Paused cleared current turns
 - Added multiline stat layouts
 - Added roster defeated controls
+- Configured explicit participant skipping
+- Rendered sanitized combat detail
+- Extended module stat presentation
 
 ## 0.17.1
 - Repaired official module catalog

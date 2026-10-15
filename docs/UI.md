@@ -247,7 +247,8 @@ score; player rolls alone do not resume it. No owner End my turn while paused.
 The manager reuses one Add/Edit stat editor for Text, Value / Max, Number
 and Textarea, with editable labels, detail-grid column/row spans and a bounded
 scrollable multiline text viewport. Narrow layouts clamp/stack spans; text
-remains plain and read-only, not a new Actor-text write capability. Existing
+is read-only, not a new Actor-text write capability. Plain is the old-record
+default; explicit HTML uses Core's sanitized rich-detail boundary. Existing
 configuration Save persists the shared world/module settings. Apply changes
 updates an existing draft selection without duplicating/reordering it; Cancel
 discards that editor draft. Supported spans are 1–3 columns/1–6 rows, with
@@ -260,25 +261,32 @@ are implemented and offline verified. The user accepts queue/cue, pause, stat
 editor/layout and row/detail Defeated reconciliation; explicit Skip is new scope in
 [ADR-0061](adr/0061-managed-combat-player-participation.md#operator-acceptance-and-late-entrystat-addendum--october-14-2026).
 
-**Proposed next refinements, not implemented (ADR-0061 N4–N6):** retain the thin
-strip but visually group Current / Next shown / My character, with owned stats,
-sheet and explicitly targeted initiative controls together. Preserve Your turn,
-privacy, portraits and narrow-screen reading order. The stat editor would offer
-plain or sanitized HTML textarea content in its existing scrollable detail
-viewport; plain remains the old-record default and rich text stays read-only/
-detail-only. Reuse Core's sanitizer/rendering boundary, not raw HTML or Foundry
-interactive enrichment. Matching module defaults require a documented SDK
-manifest extension; they are not supported today.
+**Implemented and operator-accepted refinements (ADR-0061 N4–N6):** the
+thin strip groups Current / Next shown / My character, with owned portrait,
+stats, sheet and explicitly targeted initiative controls together. One own-character
+selector includes unrolled targets; default selection prioritizes an eligible
+pending character. If Roll targets someone other than the selected stats, its
+button explicitly names that target. Your turn, privacy, portraits and narrow
+reading order remain. The stat editor offers plain or sanitized HTML textarea
+in the existing scrollable detail viewport. Rich text stays read-only/detail-only,
+without raw HTML or Foundry interactive enrichment. Matching module defaults
+are available through SDK3.2.0/module-api1.4.0, for Core0.18.0 adoption.
 
-Add separate Defeated and Skip controls in participant details/quick rows.
+Separate Defeated and Skip controls are available in participant details/quick rows.
 The per-encounter **Skip defeated enemies automatically** checkbox defaults off;
 when enabled, marking an NPC defeated checks the same persisted Skip flag.
 Manual Unskip while still defeated must persist. NPC Restore clears Skip;
 player defeat never automatically skips, but explicit GM player Skip is allowed.
 No separate derived automatic-exclusion layer. Disabling the encounter setting
-does not clear existing flags. Current-row/bulk/external-change edge handling
-and final acceptance are tracked in the ADR; none of these proposed controls
-exist yet.
+does not clear existing flags. Assignment affects only new SheetDelver NPC
+Defeated actions, not existing rows or external Foundry events. A current-row
+Skip pauses until GM navigation or eligible Unskip/NPC Restore; failure after
+pause requires explicit recovery. The manager distinguishes that pause from
+Awaiting initiative and disables navigation when all rows are unrolled/skipped.
+Actor dead effects remain separate. Row/detail controls and configuration are
+offline verified and user-accepted for HUD/rich-detail/Skip behavior. Module
+default declarations retain automated evidence; generation/publication
+limitations are recorded in the ADR.
 
 | Viewer | Ordinary HUD actions | Managed HUD actions |
 | --- | --- | --- |
@@ -291,8 +299,10 @@ receive only visible rows. HUD buttons follow these projected capabilities,
 but Core reauthorizes every command and checks the observed state before a
 write. A stale ordinary command refetches on `409` rather than replaying the
 old action. Managed owner commands follow ADR-0061's phase and observed-state
-guards, never the privileged manager path; native/live acceptance remains
-pending. The broader private directed-roll workflow stays deferred in ADR-0058.
+guards, never the privileged manager path. Native/HTTP checks pass on
+Foundry13.351/Shadowdark4.0.6 and14.367/D&D5e6.0.2; user acceptance is recorded
+in the completed ADR. This does not certify all system browser hooks. The
+broader private directed-roll workflow stays deferred in ADR-0058.
 
 Module components should treat realtime as invalidation. Refetch through SDK
 hooks or host APIs instead of applying socket payloads as authoritative document

@@ -378,19 +378,25 @@ stat counts are not limited by the module's at-most-16 suggestion contract.
 Its numeric reference picker uses observed prepared fields; advanced custom
 paths are verified by Core without module-specific schema code or transports.
 Do not assume that a catalog suggestion is available on every participant.
-GM-selected textarea/detail-layout choices are Core-owned presentation options,
-not new `info.json` suggestion kinds or module text-write capability. The module
-suggestion contract remains number/text/resource; HUD initiative continues
-using the same typed dialog callback for candidates outside the turn roster.
+HUD initiative uses the same typed dialog callback for candidates outside the
+turn roster. Stat presentation is separate from source-backed write authority.
 
-ADR-0061 N5 now proposes adding textarea, plain/HTML format and validated detail
-layout to module suggestions. This is **planned**, not a supported `info.json`
-shape yet. Use the existing number/text/resource contract until its SDK/
-module-api revision and Core minimum are recorded. New declarations would only
-seed defaults or explicit Reset; GM-saved selections win. Core would authorize,
-sanitize and render static HTML using its existing shared boundary; modules must
-not add private host imports, native enrichers, transports or text-write behavior
-to obtain this presentation. Existing declarations remain valid without changes.
+SDK3.2.0/module-api1.4.0 adds optional textarea, `contentFormat` (plain/HTML)
+and validated detail `layout` to `info.json` suggestions. See the manifest guide
+for exact ranges/defaults. Adopt with module-api>=1.4.0 and target Core>=0.18.0
+before publication; existing number/text/resource declarations remain valid
+without changes. New defaults seed an unconfigured selection or explicit Reset;
+GM-saved selections win. Core authorizes, sanitizes and renders static HTML
+using its shared boundary; modules must not add private host imports, native
+enrichers, transports or text-write behavior for this presentation. Textarea is
+detail-only, not health/editable/HUD/pill data. No current module manifest or
+release version has changed to adopt these fields.
+
+For an isolated local test against this unreleased Core branch, a module may
+retain its existing temporary development Core minimum while declaring
+module-api>=1.4.0; released0.17.x still fails that contract gate. Restore the
+Core>=0.18.0 minimum before publication. Do not alter published compatibility
+merely to make a development fixture visible.
 
 Upgrade module compatibility to `coreVersion >=0.18.0` and
 `ui-extension-api >=3.0.0 <4.0.0`; publish Core before module releases.

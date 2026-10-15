@@ -11,13 +11,14 @@ import { CombatRepository } from '@server/core/documents/primary/combats/CombatR
 import { FolderRepository } from '@server/core/documents/primary/folders/FolderRepository';
 import { getDocumentId, isRecord } from '@server/core/documents/primary/base/PrimaryDocumentStore';
 import { DocumentOwnershipLevel, FoundryUserRole, getEffectiveOwnership,
-    type DocumentOwnershipMap } from '@server/core/documents/primary/base/ownership';
+    type DocumentAccessSubject, type DocumentOwnershipMap } from '@server/core/documents/primary/base/ownership';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
 import { compendiumStore } from '@server/core/compendium/CompendiumStore';
 import { preparedActorStore } from '@server/core/documents/prepared/actors/PreparedActorStore';
 import { parseCombatStatSelection } from '@shared/contracts/combatStatAttributes';
-import { combatStatDisplayService, projectCombatStatFields } from './CombatStatDisplayService';
+import { captureManagerScope, combatStatDisplayService, projectCombatStatFields } from './CombatStatDisplayService';
 import { combatManagerNameKey } from '@shared/contracts/combatManager';
+import { COMBAT_SKIP_FLAG_PATH, readCombatSkip } from '@shared/contracts/combatSkip';
 import type {
     CombatManagerActorChoiceDto,
     CombatManagerActorSearchDto,
@@ -190,8 +191,9 @@ function packReadable(client: CombatClientLike, pack: Record<string, unknown>): 
         pack.ownership, entry?.ownership);
 }
 
-function requiredEncounter(combatId: string): { combat: CombatDocument; flag: CombatManagerFlag } {
-    const combat = combatStore.get(requiredId(combatId));
+function requiredEncounter(combatId: string, subject?: DocumentAccessSubject): { combat: CombatDocument; flag: CombatManagerFlag } {
+    const id = requiredId(combatId);
+    const combat = subject ? combatStore.get(id, { subject }) : combatStore.get(id);
     const flag = readCombatManagerFlag(combat);
     if (!combat || !flag) throw new CombatManagerError('SheetDelver tokenless encounter not found', 404);
     return { combat, flag };
@@ -247,13 +249,13 @@ async function preserveCurrentTurn(client: CombatClientLike, combatId: string, c
     if (!combat || (combat.round ?? 0) < 1) return;
     if (readCombatManagerFlag(combat)?.turnPause) return;
     const prepared = combatEncounterReadModel.getOrRebuild(combatId);
-    const newIndex = prepared?.rows.findIndex(row => row.id === currentCombatantId) ?? -1;
+    const newIndex = prepared?.rows.findIndex(row => row.id === currentCombatantId && isManagedTurnEligible(row)) ?? -1;
     if (newIndex >= 0 && combat.turn !== newIndex) {
         await repositories(client).combats.update(combatId, { turn: newIndex });
     }
 }
 
-async function pauseCurrentTurn(client: CombatClientLike, combatId: string): Promise<void> {
+async function pauseCurrentTurn(client: CombatClientLike, combatId: string, reason: 'initiative' | 'skip' = 'initiative'): Promise<void> {
     const { combat, flag } = activeEncounter(combatId);
     if (flag.turnPause || (combat.round ?? 0) < 1) return;
     const prepared = combatEncounterReadModel.getOrRebuild(combatId);
@@ -263,7 +265,7 @@ async function pauseCurrentTurn(client: CombatClientLike, combatId: string): Pro
     // the encounter; the GM can restore its score or explicitly choose Next.
     await repositories(client).combats.update(combatId, { turn: null,
         'flags.world.sheetDelverCombat': { ...flag,
-            turnPause: { combatantId: current.id, initiative: current.initiative! } },
+            turnPause: { combatantId: current.id, initiative: current.initiative!, ...(reason === 'skip' ? { reason } : {}) } },
     });
 }
 
@@ -306,18 +308,18 @@ function projectEncounter(combat: CombatDocument, client: CombatClientLike,
             hidden: row.hidden,
             defeated: row.defeated,
             defeatedFlag: combat.combatants?.find(candidate => getDocumentId(candidate) === row.id)?.defeated === true,
+            skip: row.skip === true,
             isCurrent: currentId === row.id,
             resource: sourceResource(actor, resourcePath),
             effects: effectLabels(actor),
-            stats: projectCombatStatFields(actor && row.actorId ? preparedActorStore.get(row.actorId) : null, attributes, actor),
+            stats: projectCombatStatFields(actor && row.actorId ? preparedActorStore.get(row.actorId) : null, attributes, actor,
+                { foundryBaseUrl: client.resolveUrl('/'), excludeUnrevealedSecrets: false }),
             initiativeRoll: { source: initiative?.source ?? 'core', rollAvailable: initiative?.rollAvailable ?? false,
                 advantageAvailable: initiative?.advantageAvailable ?? false },
         };
     });
     const eligiblePlayerRows = participants.filter(row => !row.hidden && row.actorId && !row.isNpc);
     const actions = playerActionsFor(flag);
-    const trackerSetting = settingStore.getValueByKey('core.combatTrackerConfig');
-    const skipDefeated = isRecord(trackerSetting) && trackerSetting.skipDefeated === true;
     return {
         id,
         label: flag.label,
@@ -326,9 +328,11 @@ function projectEncounter(combat: CombatDocument, client: CombatClientLike,
         deletionRequested: flag.deletionRequested === true || flag.historyRemovalRequested === true,
         round: prepared?.round ?? combat.round ?? 0,
         currentCombatantId: currentId,
-        awaitingInitiative: prepared?.started === true && currentId === null,
+        awaitingInitiative: prepared?.started === true && currentId === null && flag.turnPause?.reason !== 'skip',
+        ...(prepared?.started && flag.turnPause?.reason === 'skip' ? { pausedForSkip: true as const } : {}),
+        autoSkipDefeatedEnemies: flag.autoSkipDefeatedEnemies === true,
         canNavigateTurns: flag.status === 'active' && !flag.deletionRequested && !flag.historyRemovalRequested
-            && (prepared?.rows.some(row => isManagedTurnEligible(row, skipDefeated)) ?? false),
+            && (prepared?.rows.some(isManagedTurnEligible) ?? false),
         playerActions: {
             initiativeOpen: actions.initiativeOpen && flag.status === 'active' && !flag.deletionRequested,
             endTurnEnabled: actions.endTurnEnabled,
@@ -344,11 +348,14 @@ export const combatManagerService = {
         const subject = roleSubject(client);
         const combats = combatStore.list({ subject });
         if (combats.length === 0) return [];
+        const verifyScope = captureManagerScope(client);
+        const moduleId = worldStateStore.getSystem()?.id?.toLowerCase() ?? '';
         const preferences = await combatStatDisplayService.resolve(client);
+        const current = verifyScope(moduleId);
         const attributes = preferences?.attributes ?? [];
         const adapter = systemService.getActiveAdapter();
         const rank = { active: 0, provisioning: 1, cleaning: 2, completed: 3 };
-        return combats.map(combat => ({ combat, row: projectEncounter(combat, client, attributes, adapter,
+        return combatStore.list({ subject: current.subject }).map(combat => ({ combat, row: projectEncounter(combat, client, attributes, adapter,
             preferences?.initiativeFormula ?? null) }))
             .filter((entry): entry is { combat: CombatDocument; row: CombatManagerEncounterDto } => entry.row !== null)
             .sort((a, b) => rank[a.row.status] - rank[b.row.status]
@@ -359,9 +366,13 @@ export const combatManagerService = {
     },
 
     async detail(client: CombatClientLike, combatId: string): Promise<CombatManagerEncounterDto> {
-        roleSubject(client);
-        const combat = requiredEncounter(combatId).combat;
+        const subject = roleSubject(client);
+        requiredEncounter(combatId, subject);
+        const verifyScope = captureManagerScope(client);
+        const moduleId = worldStateStore.getSystem()?.id?.toLowerCase() ?? '';
         const preferences = await combatStatDisplayService.resolve(client);
+        const current = verifyScope(moduleId);
+        const combat = requiredEncounter(combatId, current.subject).combat;
         const adapter = systemService.getActiveAdapter();
         const projected = projectEncounter(combat, client, preferences?.attributes ?? [], adapter,
             preferences?.initiativeFormula ?? null);
@@ -393,6 +404,20 @@ export const combatManagerService = {
                     endTurnEnabled,
                 } });
             }
+            return this.detail(client, combatId);
+        });
+    },
+
+    async setTurnPolicy(client: CombatClientLike, combatId: string, input: unknown): Promise<CombatManagerEncounterDto> {
+        roleSubject(client);
+        captureManagerScope(client)(worldStateStore.getSystem()?.id?.toLowerCase() ?? '');
+        if (!isRecord(input) || Object.keys(input).length !== 1 || typeof input.autoSkipDefeatedEnemies !== 'boolean') {
+            throw new CombatManagerError('Invalid turn policy', 400);
+        }
+        return withEncounterLock(combatId, async () => {
+            const { flag } = activeEncounter(combatId);
+            // Future explicit SheetDelver Defeated actions only. No read/bulk/external writes.
+            await updateFlag(client, combatId, { ...flag, autoSkipDefeatedEnemies: input.autoSkipDefeatedEnemies as boolean });
             return this.detail(client, combatId);
         });
     },
@@ -499,12 +524,14 @@ export const combatManagerService = {
         return { actors, sortFields };
     },
 
-    async create(client: CombatClientLike, labelInput: unknown, keepHistoryInput: unknown): Promise<CombatManagerEncounterDto> {
+    async create(client: CombatClientLike, labelInput: unknown, keepHistoryInput: unknown,
+        autoSkipDefeatedEnemiesInput: unknown = false): Promise<CombatManagerEncounterDto> {
         roleSubject(client);
         const label = typeof labelInput === 'string' ? labelInput.trim() : '';
         if (!label || label.length > 100 || typeof keepHistoryInput !== 'boolean') {
             throw new CombatManagerError('A label and Keep for history choice are required', 400);
         }
+        if (typeof autoSkipDefeatedEnemiesInput !== 'boolean') throw new CombatManagerError('Automatic Skip must be a boolean', 400);
         const nameKey = combatManagerNameKey(label);
         if (creatingNames.has(nameKey) || combatStore.list().some(combat => {
             const existing = readCombatManagerFlag(combat);
@@ -516,6 +543,7 @@ export const combatManagerService = {
             const flag: CombatManagerFlag = {
                 schemaVersion: 1, mode: 'tokenless', label, status: 'provisioning',
                 keepHistory: keepHistoryInput, folderId: null, copyIds: [],
+                autoSkipDefeatedEnemies: autoSkipDefeatedEnemiesInput,
             };
             const rootFolderId = await ensureSheetDelverActorRoot(client);
             // Foundry deactivates every other active Combat when a new active
@@ -670,13 +698,16 @@ export const combatManagerService = {
     async updateParticipant(client: CombatClientLike, combatId: string, combatantIdInput: unknown,
         body: Record<string, unknown>): Promise<CombatManagerEncounterDto> {
         roleSubject(client);
+        const verifyScope = captureManagerScope(client);
+        const moduleId = worldStateStore.getSystem()?.id?.toLowerCase() ?? '';
+        verifyScope(moduleId);
         const combatantId = requiredId(combatantIdInput);
         return withEncounterLock(combatId, async () => {
-            const { combat } = activeEncounter(combatId);
+            const { combat, flag } = activeEncounter(combatId);
             const combatant = combat.combatants?.find(row => getDocumentId(row) === combatantId);
             if (!combatant) throw new CombatManagerError('Combatant not found', 404);
             const currentId = combatEncounterReadModel.getOrRebuild(combatId)?.currentCombatantId ?? null;
-            const allowed = ['initiative', 'expectedInitiative', 'hidden', 'defeated'];
+            const allowed = ['initiative', 'expectedInitiative', 'hidden', 'defeated', 'skip'];
             if (!Object.keys(body).length || Object.keys(body).some(key => !allowed.includes(key))) throw new CombatManagerError('Unsupported participant update', 400);
             if ('initiative' in body && !(body.initiative === null || (typeof body.initiative === 'number' && Number.isFinite(body.initiative)))) {
                 throw new CombatManagerError('Initiative must be a number or null', 400);
@@ -692,9 +723,35 @@ export const combatManagerService = {
             }
             if ('hidden' in body && typeof body.hidden !== 'boolean') throw new CombatManagerError('Hidden must be a boolean', 400);
             if ('defeated' in body && typeof body.defeated !== 'boolean') throw new CombatManagerError('Defeated must be a boolean', 400);
-            const { expectedInitiative: _expectedInitiative, ...updates } = body;
+            if ('skip' in body && typeof body.skip !== 'boolean') throw new CombatManagerError('Skip must be a boolean', 400);
+            const actor = combatant.actorId ? actorStore.get(combatant.actorId, { subject: roleSubject(client) }) : null;
+            const npc = !!actor && !hasPlayerOwner(actor);
+            if (npc && body.defeated === false && body.skip === true) {
+                throw new CombatManagerError('NPC Restore clears Skip; use a separate Skip action afterward', 400);
+            }
+            const skip = typeof body.skip === 'boolean' ? body.skip : npc && body.defeated === false ? false
+                : npc && body.defeated === true && flag.autoSkipDefeatedEnemies === true ? true : undefined;
+            const { expectedInitiative: _expectedInitiative, skip: _skip, ...updates } = body;
+            if (skip !== undefined) updates[COMBAT_SKIP_FLAG_PATH] = skip;
             if (body.initiative === null && currentId === combatantId) await pauseCurrentTurn(client, combatId);
+            if (skip === true && !readCombatSkip(combatant.flags) && currentId === combatantId) {
+                await pauseCurrentTurn(client, combatId, 'skip');
+            }
+            const currentScope = verifyScope(moduleId);
+            const live = activeEncounter(combatId);
+            const liveRow = live.combat.combatants?.find(row => getDocumentId(row) === combatantId);
+            const liveActor = liveRow?.actorId ? actorStore.get(liveRow.actorId, { subject: currentScope.subject }) : null;
+            if (!liveRow || liveRow.actorId !== combatant.actorId
+                || (!!liveActor && !hasPlayerOwner(liveActor)) !== npc
+                || live.flag.autoSkipDefeatedEnemies !== flag.autoSkipDefeatedEnemies
+                || ('expectedInitiative' in body && (liveRow.initiative ?? null) !== body.expectedInitiative)) {
+                throw new CombatManagerError('Encounter or participant changed; review before retrying', 409);
+            }
             await repositories(client).combats.updateCombatant(combatId, combatantId, updates);
+            verifyScope(moduleId);
+            if (skip === false && readCombatManagerFlag(combatStore.get(combatId))?.turnPause?.reason === 'skip') {
+                await restorePausedTurn(client, combatId, combatantId);
+            }
             if ('initiative' in body) {
                 if (body.initiative !== null) await restorePausedTurn(client, combatId, combatantId);
                 await preserveCurrentTurn(client, combatId, currentId);

@@ -7,6 +7,7 @@ import {
     type DocumentAccessSubject,
 } from '@server/core/documents/primary/base/ownership';
 import type { CombatTrackerDto, CombatTrackerCombatantDto } from '@shared/contracts/combats';
+import { isManagedTurnEligible } from './CombatTurnQueue';
 
 export interface CombatTrackerProjectionDeps {
     /**
@@ -77,8 +78,8 @@ export function buildCombatTrackerDto(
     if (currentIndex >= 0 && rows.length > 1) {
         for (let offset = 1; offset <= rows.length; offset += 1) {
             const candidate = rows[(currentIndex + offset) % rows.length];
-            if (deps.managedQueue && candidate.initiative === null) continue;
-            if ((!gm && !deps.managedQueue) || !deps.skipDefeated || !candidate.defeated) {
+            if (deps.managedQueue && !isManagedTurnEligible(candidate)) continue;
+            if (deps.managedQueue || !gm || !deps.skipDefeated || !candidate.defeated) {
                 nextShownCombatantId = candidate.id;
                 break;
             }
@@ -92,6 +93,7 @@ export function buildCombatTrackerDto(
         img: row.img,
         initiative: row.initiative,
         defeated: row.defeated,
+        ...(deps.managedQueue && row.skip ? { skip: true as const } : {}),
         hidden: row.hidden,
         isCurrent: currentCombatantId !== null && row.id === currentCombatantId,
         canRollInitiative: canWriteRow(row),

@@ -189,13 +189,23 @@ export interface ModuleSettingDeclaration {
 }
 
 /** Optional, read-only combat display suggestion for Core's GM manager. */
+export interface ModuleCombatStatLayout {
+    columnSpan: number;
+    rowSpan: number;
+    textRows: number;
+}
+
 export interface ModuleCombatStatAttribute {
     key: string;
     label: string;
     path: string;
-    kind: 'number' | 'text' | 'resource';
+    kind: 'number' | 'text' | 'resource' | 'textarea';
+    /** SDK 3.2/module-api 1.4 detail hints: columns 1–3, rows 1–6, textRows 1–12. */
+    layout?: ModuleCombatStatLayout;
+    /** Textarea only. Absent means literal plain text; HTML is host-sanitized. */
+    contentFormat?: 'plain' | 'html';
     actorTypes?: string[];
-    /** Show this read-only stat as a compact pill in each combatant's roster row. */
+    /** Suggest a compact roster pill; forbidden for textarea. Never grants writes. */
     showInRoster?: boolean;
 }
 

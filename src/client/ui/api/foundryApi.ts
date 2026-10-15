@@ -140,6 +140,10 @@ export function updateManagedPlayerActions(combatId: string,
     return requestJson(`/api/combat-manager/${combatId}/player-actions`, { method: 'PATCH', body });
 }
 
+export function updateManagedTurnPolicy(combatId: string, autoSkipDefeatedEnemies: boolean): Promise<{ encounter: CombatManagerEncounterDto }> {
+    return requestJson(`/api/combat-manager/${combatId}/turn-policy`, { method: 'PATCH', body: { autoSkipDefeatedEnemies } });
+}
+
 export function fetchManagedStatPreferences(actorId?: string, includeCatalog = false): Promise<{ preferences: CombatManagerStatPreferencesDto }> {
     const params = new URLSearchParams();
     if (actorId) params.set('actorId', actorId);
@@ -164,8 +168,8 @@ export function saveManagedInitiativeFallback(formula: string | null): Promise<{
     return requestJson('/api/combat-manager/initiative-fallback', { method: 'PUT', body: { formula } });
 }
 
-export function createManagedCombat(label: string, keepHistory: boolean): Promise<{ encounter: CombatManagerEncounterDto }> {
-    return requestJson('/api/combat-manager', { method: 'POST', body: { label, keepHistory } });
+export function createManagedCombat(label: string, keepHistory: boolean, autoSkipDefeatedEnemies = false): Promise<{ encounter: CombatManagerEncounterDto }> {
+    return requestJson('/api/combat-manager', { method: 'POST', body: { label, keepHistory, autoSkipDefeatedEnemies } });
 }
 
 export function renameManagedCombat(combatId: string, label: string): Promise<{ encounter: CombatManagerEncounterDto }> {
@@ -196,7 +200,7 @@ export function addManagedPackActor(combatId: string, packId: string, actorId: s
 }
 
 export function updateManagedCombatant(combatId: string, combatantId: string,
-    body: { initiative?: number | null; expectedInitiative?: number | null; hidden?: boolean; defeated?: boolean }): Promise<{ encounter: CombatManagerEncounterDto }> {
+    body: { initiative?: number | null; expectedInitiative?: number | null; hidden?: boolean; defeated?: boolean; skip?: boolean }): Promise<{ encounter: CombatManagerEncounterDto }> {
     return requestJson(`/api/combat-manager/${combatId}/combatants/${combatantId}`, { method: 'PATCH', body });
 }
 

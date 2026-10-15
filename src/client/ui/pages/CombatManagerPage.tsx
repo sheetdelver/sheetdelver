@@ -6,6 +6,8 @@ import { Swords, UserRound } from 'lucide-react';
 import { useWorldBackground } from '@client/ui/main/hooks/useWorldBackground';
 import { useFoundry } from '@client/ui/context/FoundryContext';
 import { ConfirmationModal } from '@client/ui/components/ConfirmationModal';
+import { SafeHtmlContent } from '@client/ui/components/SafeHtmlContent';
+import { sanitizeRichHtml } from '@shared/security/safeHtml';
 import { ApiError } from '@client/ui/api/http';
 import { CombatHealthModal, type CombatHealthTarget } from './CombatHealthModal';
 import { CombatBatchHealthModal } from './CombatBatchHealthModal';
@@ -73,6 +75,7 @@ export default function CombatManagerPage() {
     const [label, setLabel] = useState('');
     const [renameDraft, setRenameDraft] = useState<{ combatId: string; label: string } | null>(null);
     const [keepHistory, setKeepHistory] = useState(false);
+    const [autoSkipDefeatedEnemies, setAutoSkipDefeatedEnemies] = useState(false);
     const [picker, setPicker] = useState<'world' | 'compendium'>('world');
     const [query, setQuery] = useState('');
     const [packQuantity, setPackQuantity] = useState('1');
@@ -105,6 +108,7 @@ export default function CombatManagerPage() {
     const [customLabel, setCustomLabel] = useState('');
     const [customKind, setCustomKind] = useState<CombatManagerStatKind>('number');
     const [customLayout, setCustomLayout] = useState<CombatManagerStatLayout>({ columnSpan: 1, rowSpan: 1, textRows: 4 });
+    const [customContentFormat, setCustomContentFormat] = useState<'plain' | 'html'>('plain');
     const [editingAttributeKey, setEditingAttributeKey] = useState<string | null>(null);
     const [attributeEditorOpen, setAttributeEditorOpen] = useState(false);
     const attributeEditor = useRef<HTMLDetailsElement>(null);
@@ -468,6 +472,7 @@ export default function CombatManagerPage() {
             return [...current, { key, label: choice.label, path: choice.path,
                 kind: choice.kind, ...(choice.actorTypes ? { actorTypes: choice.actorTypes } : {}),
                 ...(choice.layout ? { layout: choice.layout } : {}),
+                ...(choice.contentFormat ? { contentFormat: choice.contentFormat } : {}),
                 ...(choice.showInRoster === true ? { showInRoster: true } : {}) }];
         });
     };
@@ -477,6 +482,7 @@ export default function CombatManagerPage() {
         setValidatingCustomStat(false);
         setCustomStatError('');
         setEditingAttributeKey(null); setCustomLabel(''); setCustomPath('');
+        setCustomContentFormat('plain');
         return () => { customValidationVersion.current += 1; };
     }, [allowed, worldId, editingStats]);
 
@@ -496,6 +502,7 @@ export default function CombatManagerPage() {
             const existing = statDraft.find(row => row.key === editingAttributeKey);
             const draft = { ...existing, key: existing?.key ?? 'custom', label, path: customPath.trim(),
                 kind: customKind, layout: customLayout,
+                contentFormat: customKind === 'textarea' ? customContentFormat : undefined,
                 ...(customKind === 'textarea' ? { showInRoster: undefined } : {}),
                 ...(!['number', 'resource'].includes(customKind) || !customPath.trim().startsWith('system.')
                     ? { editable: undefined, health: undefined } : {}),
@@ -509,6 +516,7 @@ export default function CombatManagerPage() {
                 setEditingAttributeKey(null);
             } else addStat({ ...draft, path: attribute.path });
             setCustomLabel(''); setCustomPath('');
+            setCustomContentFormat('plain');
         } catch (cause) {
             if (version === customValidationVersion.current) setCustomStatError(errorMessage(cause));
         } finally {
@@ -520,6 +528,7 @@ export default function CombatManagerPage() {
         invalidateCustomValidation();
         setEditingAttributeKey(field.key); setCustomLabel(field.label); setCustomPath(field.path); setCustomKind(field.kind);
         setCustomLayout(field.layout ?? { columnSpan: 1, rowSpan: 1, textRows: 4 }); setAttributeEditorOpen(true);
+        setCustomContentFormat(field.contentFormat ?? 'plain');
         window.requestAnimationFrame(() => {
             attributeEditor.current?.scrollIntoView({ block: 'nearest' });
             attributeEditor.current?.querySelector<HTMLInputElement>('input')?.focus();
@@ -606,8 +615,10 @@ export default function CombatManagerPage() {
                     <input aria-label="Encounter name" value={label} maxLength={100} onChange={event => setLabel(event.target.value)}
                         placeholder="Encounter name" className={`min-w-56 ${inputClass}`} />
                     <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={keepHistory} onChange={event => setKeepHistory(event.target.checked)} style={{ accentColor: 'var(--sd-ui-accent)' }} /> Keep for history</label>
+                    <label className="flex min-h-11 items-center gap-2 text-sm"><input type="checkbox" checked={autoSkipDefeatedEnemies}
+                        onChange={event => setAutoSkipDefeatedEnemies(event.target.checked)} style={{ accentColor: 'var(--sd-ui-accent)' }} /> Skip defeated enemies automatically</label>
                     <button disabled={busy || loading || !label.trim() || nameCollision} onClick={() => void mutate(async () => {
-                        const created = await api.createManagedCombat(label, keepHistory);
+                        const created = await api.createManagedCombat(label, keepHistory, autoSkipDefeatedEnemies);
                         setSelectedId(created.encounter.id); setLabel(''); setKeepHistory(false);
                     })} className={primaryButtonClass}>Create</button>
                     {nameCollision && <span role="status" className="sd-ui-danger text-sm">A combat already exists with that name</span>}
@@ -675,9 +686,9 @@ export default function CombatManagerPage() {
                     {!loadingStatCatalog && statChoices.length === 0 && <p className="sd-ui-muted text-xs">No Actor fields are available yet. Add a world or compendium Actor, then reopen this configuration.</p>}
                     <details ref={attributeEditor} open={attributeEditorOpen} onToggle={event => setAttributeEditorOpen(event.currentTarget.open)} className="sd-ui-inset rounded-lg p-3 text-xs">
                         <summary className="cursor-pointer">{editingAttributeKey ? 'Edit attribute presentation' : 'Advanced: enter an attribute path manually'}</summary>
-                        <div className="mt-3"><CombatStatAttributeEditor value={{ label: customLabel, path: customPath, kind: customKind, layout: customLayout }}
-                            onChange={draft => { invalidateCustomValidation(); setCustomLabel(draft.label); setCustomPath(draft.path); setCustomKind(draft.kind); setCustomLayout(draft.layout); }}
-                            onApply={() => void addCustomStat()} onCancel={() => { invalidateCustomValidation(); setEditingAttributeKey(null); setCustomLabel(''); setCustomPath(''); }}
+                        <div className="mt-3"><CombatStatAttributeEditor value={{ label: customLabel, path: customPath, kind: customKind, layout: customLayout, contentFormat: customContentFormat }}
+                            onChange={draft => { invalidateCustomValidation(); setCustomLabel(draft.label); setCustomPath(draft.path); setCustomKind(draft.kind); setCustomLayout(draft.layout); setCustomContentFormat(draft.contentFormat ?? 'plain'); }}
+                            onApply={() => void addCustomStat()} onCancel={() => { invalidateCustomValidation(); setEditingAttributeKey(null); setCustomLabel(''); setCustomPath(''); setCustomContentFormat('plain'); }}
                             editing={editingAttributeKey !== null} disabled={busy} checking={validatingCustomStat} reason={customDisabledReason}
                             error={customStatError} inputClass={inputClass} buttonClass={secondaryButtonClass} /></div>
                     </details>
@@ -761,6 +772,9 @@ export default function CombatManagerPage() {
                         <h2 className="sd-ui-accent text-xl font-bold">{encounter.label}</h2>
                         <p className="sd-ui-muted text-sm">{encounter.status} · round {encounter.round} · {encounter.participants.length} participants · {encounter.keepHistory ? 'retain on completion' : 'delete on completion'}</p>
                         {encounter.awaitingInitiative && <p role="status" className="sd-ui-accent mt-2 text-sm font-semibold">Awaiting initiative · paused until the GM restores the current score or chooses Next.</p>}
+                        {encounter.pausedForSkip && <p role="status" className="sd-ui-accent mt-2 text-sm font-semibold">Turn paused · current participant skipped. Unskip, Restore or choose Next to continue.</p>}
+                        {encounter.status === 'active' && encounter.participants.length > 0 && encounter.canNavigateTurns === false
+                            && !encounter.awaitingInitiative && !encounter.pausedForSkip && <p role="status" className="sd-ui-muted mt-2 text-sm">No scored, unskipped participants. Set initiative or uncheck Skip to begin.</p>}
                         {encounter.status === 'active' && encounter.round === 0 && (renameDraft?.combatId === encounter.id
                             ? <div className="mt-2 flex flex-wrap items-center gap-2">
                                 <input aria-label="Rename encounter" value={renameDraft.label} maxLength={100}
@@ -833,6 +847,15 @@ export default function CombatManagerPage() {
                                 { endTurnEnabled: event.target.checked }))} />
                         Allow owners to end their turn
                     </label>
+                </section>}
+
+                {encounter.status === 'active' && <section className={panelClass} aria-label="Turn settings">
+                    <label className="flex min-h-11 items-center gap-2 text-sm">
+                        <input type="checkbox" checked={encounter.autoSkipDefeatedEnemies === true} disabled={busy || encounter.deletionRequested}
+                            onChange={event => void mutate(() => api.updateManagedTurnPolicy(encounter.id, event.target.checked))} />
+                        Skip defeated enemies automatically
+                    </label>
+                    <p className="sd-ui-muted text-xs">Checks Skip when you mark an NPC defeated here. Players are never skipped automatically. Existing rows and external Foundry changes are unchanged; you can uncheck Skip while defeated. NPC Restore clears Skip.</p>
                 </section>}
 
                 <div className="grid gap-5 lg:grid-cols-[minmax(17rem,1fr)_minmax(20rem,2fr)]">
@@ -995,6 +1018,7 @@ export default function CombatManagerPage() {
                                 {row.resource && <span className="text-sm">{row.resource.value}{row.resource.max !== null ? `/${row.resource.max}` : ''}</span>}
                                 {row.hidden && <span className="sd-ui-muted text-xs">hidden</span>}
                                 {row.defeated && <span className="sd-ui-danger text-xs">defeated</span>}
+                                {row.skip && <span className="sd-ui-muted text-xs">skipped</span>}
                                 {row.initiative === null && <span className="sd-ui-muted text-xs">Awaiting initiative</span>}
                                 {row.isCurrent && <span className="sd-ui-inset sd-ui-accent shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider">Current</span>}
                                 </button>
@@ -1009,6 +1033,10 @@ export default function CombatManagerPage() {
                                         onClick={() => void mutate(() => api.updateManagedCombatant(encounter.id, row.id,
                                             { defeated: !(row.defeatedFlag ?? row.defeated) }))}
                                         className="sd-ui-button px-2 py-2 text-xs font-semibold">{(row.defeatedFlag ?? row.defeated) ? 'Restore' : 'Defeated'}</button>
+                                    <button disabled={busy} aria-pressed={row.skip === true} aria-label={`${row.skip ? 'Unskip' : 'Skip'} ${row.name}`}
+                                        title="Exclude from turn navigation without changing initiative, defeat or visibility"
+                                        onClick={() => void mutate(() => api.updateManagedCombatant(encounter.id, row.id, { skip: !row.skip }))}
+                                        className="sd-ui-button px-2 py-2 text-xs font-semibold">{row.skip ? 'Unskip' : 'Skip'}</button>
                                     <button disabled={busy || !row.initiativeRoll.rollAvailable}
                                         title={row.initiativeRoll.rollAvailable ? `Uses ${row.initiativeRoll.source} initiative formula` : 'Formula unavailable; enter initiative manually'}
                                         onClick={() => void mutate(() => api.postManagedInitiativeOne(encounter.id, row.id))}
@@ -1048,8 +1076,13 @@ export default function CombatManagerPage() {
                                 {selected.stats.map((stat, index) => <div key={`${stat.title}:${index}`} className="sd-combat-stat-field sd-ui-inset flex min-w-0 flex-col rounded-lg px-3 py-2"
                                     style={{ '--sd-stat-columns': stat.layout?.columnSpan ?? 1, '--sd-stat-rows': stat.layout?.rowSpan ?? 1 } as CSSProperties}>
                                     <span className="sd-ui-muted block truncate text-[10px] font-bold uppercase tracking-wider" title={stat.title}>{stat.title}</span>
-                                    {stat.multiline ? <textarea aria-label={stat.title} readOnly value={String(stat.value)} rows={stat.layout?.textRows ?? 4}
-                                        className="sd-ui-control mt-1 min-h-0 w-full resize-none overflow-y-auto whitespace-pre-wrap break-words text-sm" />
+                                    {stat.multiline ? stat.contentFormat === 'html'
+                                        ? <div role="region" aria-label={stat.title} tabIndex={0} className="sd-combat-rich-detail sd-ui-control mt-1 min-h-0 overflow-auto text-sm"
+                                            style={{ height: `calc(${stat.layout?.textRows ?? 4} * 1.5em + 0.75rem)` }}>
+                                            <SafeHtmlContent className="rich-text-content" html={sanitizeRichHtml(String(stat.value))} />
+                                        </div>
+                                        : <textarea aria-label={stat.title} readOnly value={String(stat.value)} rows={stat.layout?.textRows ?? 4}
+                                            className="sd-ui-control mt-1 min-h-0 w-full resize-none overflow-y-auto whitespace-pre-wrap break-words text-sm" />
                                     : stat.edit && encounter.status === 'active' ? <div className="mt-1 flex flex-wrap items-center gap-1">
                                         <input type="number" aria-label={`Edit ${stat.title}`} className={`min-w-0 w-24 ${inputClass}`}
                                             value={statEdit?.combatantId === selected.id && statEdit.key === stat.edit.key
@@ -1105,6 +1138,8 @@ export default function CombatManagerPage() {
                                     onChange={event => void mutate(() => api.updateManagedCombatant(encounter.id, selected.id, { hidden: event.target.checked }))} /> Hidden</label>
                                 <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={selected.defeatedFlag ?? selected.defeated} disabled={busy || encounter.status !== 'active'} style={{ accentColor: 'var(--sd-ui-accent)' }}
                                     onChange={event => void mutate(() => api.updateManagedCombatant(encounter.id, selected.id, { defeated: event.target.checked }))} /> Defeated</label>
+                                <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={selected.skip === true} disabled={busy || encounter.status !== 'active'} style={{ accentColor: 'var(--sd-ui-accent)' }}
+                                    onChange={event => void mutate(() => api.updateManagedCombatant(encounter.id, selected.id, { skip: event.target.checked }))} /> Skip</label>
                                 {encounter.status === 'active' && selected.initiativeRoll.advantageAvailable && <span className="flex flex-wrap gap-1">
                                     <button disabled={busy} className={secondaryButtonClass}
                                         onClick={() => void mutate(() => api.postManagedInitiativeOne(encounter.id, selected.id, 'advantage'))}>Roll advantage</button>
