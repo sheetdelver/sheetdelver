@@ -5,6 +5,7 @@ import type { ActorCardsPayload, ActorDetailPayload, ActorListPayload } from '@s
 import type {
     CombatListPayload,
     CombatTurnSuccessPayload,
+    CombatTurnObservation,
     CombatInitiativeSuccessPayload,
     CombatInitiativeRequestBody,
 } from '@shared/contracts/combats';
@@ -13,7 +14,7 @@ import type { RealtimeSharedContentPayload } from '@shared/contracts/realtime';
 import type { CombatManagerActorSearchDto, CombatManagerActorSortRequest, CombatManagerEncounterDto, CombatManagerInitiativeBatchDto,
     CombatManagerInitiativeResetDto, CombatManagerHealthBatchRequest, CombatManagerHealthBatchDto,
     CombatManagerResourceUpdateRequest, CombatManagerSelectedStatDto, CombatManagerStatPreferencesDto, CombatManagerStatUpdateRequest,
-    CombatManagerInitiativeScope, CombatManagerPackDto } from '@shared/contracts/combatManager';
+    CombatManagerInitiativeScope, CombatManagerPackDto, CombatManagerStatPathValidationDto } from '@shared/contracts/combatManager';
 
 interface LoginPayload {
     success: boolean;
@@ -100,17 +101,21 @@ export function fetchCombats(token: string): Promise<CombatListPayload> {
 
 // Combat actions (ADR-0028): typed helpers via requestJson so non-2xx
 // responses throw ApiError instead of being silently treated as success.
-export function postCombatNextTurn(token: string | null, combatId: string): Promise<CombatTurnSuccessPayload> {
+export function postCombatNextTurn(token: string | null, combatId: string,
+    observed: CombatTurnObservation): Promise<CombatTurnSuccessPayload> {
     return requestJson<CombatTurnSuccessPayload>(`/api/combats/${combatId}/next-turn`, {
         method: 'POST',
         token,
+        body: { observed },
     });
 }
 
-export function postCombatPreviousTurn(token: string | null, combatId: string): Promise<CombatTurnSuccessPayload> {
+export function postCombatPreviousTurn(token: string | null, combatId: string,
+    observed: CombatTurnObservation): Promise<CombatTurnSuccessPayload> {
     return requestJson<CombatTurnSuccessPayload>(`/api/combats/${combatId}/previous-turn`, {
         method: 'POST',
         token,
+        body: { observed },
     });
 }
 
@@ -130,6 +135,15 @@ export function fetchManagedCombats(): Promise<{ encounters: CombatManagerEncoun
     return requestJson('/api/combat-manager', { cache: 'no-store' });
 }
 
+export function updateManagedPlayerActions(combatId: string,
+    body: { initiativeOpen?: boolean; endTurnEnabled?: boolean }): Promise<{ encounter: CombatManagerEncounterDto }> {
+    return requestJson(`/api/combat-manager/${combatId}/player-actions`, { method: 'PATCH', body });
+}
+
+export function updateManagedTurnPolicy(combatId: string, autoSkipDefeatedEnemies: boolean): Promise<{ encounter: CombatManagerEncounterDto }> {
+    return requestJson(`/api/combat-manager/${combatId}/turn-policy`, { method: 'PATCH', body: { autoSkipDefeatedEnemies } });
+}
+
 export function fetchManagedStatPreferences(actorId?: string, includeCatalog = false): Promise<{ preferences: CombatManagerStatPreferencesDto }> {
     const params = new URLSearchParams();
     if (actorId) params.set('actorId', actorId);
@@ -142,6 +156,10 @@ export function saveManagedStatPreferences(attributes: CombatManagerSelectedStat
     return requestJson('/api/combat-manager/stat-preferences', { method: 'PUT', body: { attributes } });
 }
 
+export function validateManagedStatPath(path: string, kind: CombatManagerStatPathValidationDto['kind']): Promise<{ attribute: CombatManagerStatPathValidationDto }> {
+    return requestJson('/api/combat-manager/stat-preferences/validate-path', { method: 'POST', body: { path, kind } });
+}
+
 export function resetManagedStatPreferences(): Promise<{ preferences: CombatManagerStatPreferencesDto }> {
     return requestJson('/api/combat-manager/stat-preferences', { method: 'DELETE' });
 }
@@ -150,8 +168,8 @@ export function saveManagedInitiativeFallback(formula: string | null): Promise<{
     return requestJson('/api/combat-manager/initiative-fallback', { method: 'PUT', body: { formula } });
 }
 
-export function createManagedCombat(label: string, keepHistory: boolean): Promise<{ encounter: CombatManagerEncounterDto }> {
-    return requestJson('/api/combat-manager', { method: 'POST', body: { label, keepHistory } });
+export function createManagedCombat(label: string, keepHistory: boolean, autoSkipDefeatedEnemies = false): Promise<{ encounter: CombatManagerEncounterDto }> {
+    return requestJson('/api/combat-manager', { method: 'POST', body: { label, keepHistory, autoSkipDefeatedEnemies } });
 }
 
 export function renameManagedCombat(combatId: string, label: string): Promise<{ encounter: CombatManagerEncounterDto }> {
@@ -182,7 +200,7 @@ export function addManagedPackActor(combatId: string, packId: string, actorId: s
 }
 
 export function updateManagedCombatant(combatId: string, combatantId: string,
-    body: { initiative?: number | null; expectedInitiative?: number | null; hidden?: boolean; defeated?: boolean }): Promise<{ encounter: CombatManagerEncounterDto }> {
+    body: { initiative?: number | null; expectedInitiative?: number | null; hidden?: boolean; defeated?: boolean; skip?: boolean }): Promise<{ encounter: CombatManagerEncounterDto }> {
     return requestJson(`/api/combat-manager/${combatId}/combatants/${combatantId}`, { method: 'PATCH', body });
 }
 

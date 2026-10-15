@@ -287,6 +287,77 @@ Actor data has three explicit layers (ADR-0038):
 2.  **Prepared**: after adapter initialization, `PreparedActorStore` synchronously runs the active adapter's `prepareActorData(actor, context)` once per source revision. Entries retain epoch, revision, system/module provenance, and bounded failure diagnostics.
 3.  **Projection**: routes authorize against source data, then shape the matching prepared revision for lists, LIMITED cards, sheets, rolls, and combat tracker/initiative consumers.
 
+The Core Combat HUD consumes a subject-specific `CombatTrackerDto`: hidden
+Combatants are absent from player payloads, owned stats are bounded read-only
+fields, and queue previews use visible order. `CombatEncounterReadModel` keeps
+the full Foundry order; `CombatTrackerProjection` and `CombatService` apply
+redaction/capabilities before transport. The manager and ordinary HUD commands
+share a Core encounter guard; ordinary writes additionally check the client's
+observed state. Stat-preference changes invalidate player tracker projections
+without granting access to GM preference routes. The player shell owns HUD
+clearance and world-unavailable overlays; modules may present initiative via
+the typed SDK `rollModal` slot, but Core resolves formulas, chooses roll
+audience, reauthorizes observed commands and executes rolls. The slot returns
+only a roll mode or manual final total; it cannot submit a formula or a Foundry
+transport command. SheetDelver-managed Combats retain GM/Assistant-only manager
+routes, while the ordinary Combat API permits bounded owner End my turn and
+GM/Assistant-opened own-Actor initiative under the shared encounter guard
+(ADR-0061, with native document policies from ADR-0062).
+The optional policy and phase generation live on the Combat flag. Reads
+project only the caller's owned visible pre-Begin rows, not manager state;
+player writes use the user's Foundry socket and never borrow manager
+authority. Tracker reads revalidate user/world/runtime scope after awaited
+dependencies and synchronously project current subject-filtered documents;
+initiative commands pin the Combatant-to-Actor association through rolling,
+score application and turn repair. Retired scope fails closed; an uncertain
+post-chat result is never replayed automatically. Native Foundry browser hooks, private directed roll requests and
+system turn automation remain out of scope (ADR-0060/ADR-0058). Native
+owner writes are verified separately on Foundry13.351/Shadowdark4.0.6 and
+14.367/D&D5e6.0.2 (ADR-0061), not inferred from Core-side tests or proof of all
+system browser-hook behavior.
+
+ADR-0061's October 14 N1–N3 additions distinguish managed pending participants
+from the executable queue and project an own-pending initiative cue independently
+of the player roster (`initiativeCandidates`).
+Keep the full native read-model order/index intact; shared managed navigation,
+score/clear synchronization and preview consumers share finite-score
+eligibility. Do not implement a client-only skip rule, second pending store,
+ordinary-Combat behavior change or new module transport. Late NPC hidden
+defaults use existing ownership classification. GM textarea/layout preferences
+belong in the existing shared world/module data-directory store, with plain
+read-only text, responsive validated metadata and old-record defaults. The
+existing document authorization does not broaden because the editor gains
+another display option. Current-score
+clearing pauses until GM action. The validated optional Combat `turnPause`
+stores the original score/id anchor; `turn: null` and that flag are persisted
+before clearing the score. Clearing the flag requires explicit `null`, since
+native flags merge absent properties. Reads do not write/migrate it. No player
+projection carries that private anchor or a hidden-current pause marker. See
+the ADR for failure semantics and new operator acceptance checkpoints.
+
+The user has accepted N1/N2 and N3 flag reconciliation. ADR-0061 N4–N6 implements
+clearer compact summary regions, explicit sanitized rich-detail/module default
+metadata, and per-Combatant Skip with default-off encounter NPC automation.
+The user accepts HUD/rich-detail/Skip behavior; module declarations retain
+automated evidence and tested-build/publication limitations remain recorded.
+Keep rich detail behind Actor authorization and
+the existing shared sanitizer/SafeHtmlContent boundary, not a module/browser
+Foundry runtime. The additive metadata contract is SDK3.2.0/module-api1.4.0;
+adopting modules require Core0.18.0 before publication. Existing modules stay valid.
+Skip is one persisted flag: NPC Defeated can assign it when configured; manual
+Unskip must survive reads, NPC Restore clears it, and player defeat cannot
+assign it. All managed queue/preview consumers must resolve the same flag policy
+and full native indexes; ordinary Combat setting behavior remains distinct.
+Do not derive/write Skip on reads or add a service-account observer. Assignment
+is limited to future SheetDelver Defeated actions, with no bulk/external-event
+automation. Current Skip persists the existing durable pause anchor with a
+validated optional reason; shared queue consumers ignore world-wide defeated
+settings only for managed encounters. Manager reads revalidate caller/world/
+runtime and fresh authorized documents after awaited preference lookup; Skip
+mutation rechecks target Actor/ownership classification/policy after pause.
+See the completed ADR for failure recovery, tests, acceptance and separate
+publication prerequisites.
+
 Prepared data never writes back to Foundry automatically. Embedded Item and Active
 Effect changes update the source Actor first, then atomically replace its prepared
 revision before `actorChanged` reaches clients. `runtime.documents` remains a
@@ -305,12 +376,23 @@ dependencies.
   encounter Actor Folder. Combat flags hold manager lifecycle/retention state,
   while Actor HP/effects stay on source Actors. Server services authorize and
   dispatch user-bound Foundry writes; the browser owns presentation only. Batch
-  initiative uses the existing adapter formula/user-bound roll path and a
+  and player initiative use explicit GM override → module formula → Core
+  fallback. Core validates override syntax/current authorized participants
+  without dice/chat effects before persistence, pins its scope across awaited
+  dependencies, and revalidates Actor values at execution. Module formula
+  references retain module authority; no system-specific rules move into Core.
+  Batch initiative uses the existing adapter formula/user-bound roll path and a
   Foundry-style non-GM ownership test for NPC selection; the universal CombatHUD
   is hidden on the manager page to avoid duplicate controls.
   Optional combat-stat suggestions come from the active module manifest, while
   Core persists authorized managers' shared world/module display selection under
-  the configured data directory's durable `config/`. Server projection reads
+  the configured data directory's durable `config/`. GM selections
+  have no fixed field-count cap; module metadata/catalog bounds and
+  compact HUD presentation are separate. Read-only exact custom path validation
+  rechecks caller/world/runtime scope and reads prepared Actors only after source
+  authorization. Numeric formula insertion reuses catalog metadata in browser
+  UI, never resolves rules there. The existing preference-file byte guard is
+  checked before replacement, not merely on a later read. Server projection reads
   only bounded prepared Actor values. A GM-selected Editable flag permits
   guarded writes to matching numeric source Actor fields, never derived or
   arbitrary fields. Client-side filesystem access and Combat-flag preference

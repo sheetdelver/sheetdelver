@@ -170,7 +170,7 @@ without disposing world state merely because `connected` briefly became false.
 
 ---
 
-## Combat Tracker (ADR-0028)
+## Combat Tracker (ADR-0028, ADR-0060)
 
 `GET /api/combats` returns typed `CombatTrackerDto` projections built from the
 backend encounter read model — never raw Combat/Combatant/Actor documents.
@@ -181,19 +181,128 @@ backend encounter read model — never raw Combat/Combatant/Actor documents.
   fallback, so unlinked NPC tokens show their token name/art; defeated state
   covers the tracker flag, linked-actor dead status, and unlinked-token
   (ActorDelta) dead status.
-- Hidden combatants are pruned for players and flagged for GMs. A hidden
-  current combatant surfaces as `hasHiddenCurrentCombatant: true` with a null
-  `currentCombatantId`.
+- Hidden combatants are absent from player projections, including hidden owned
+  Actors. No placeholder, hidden-current flag, count, queue gap or hidden-only
+  encounter reveals their presence. GMs see the full roster with a **Hidden
+  from players** label. A current row not visible to the player produces a
+  neutral current-turn area and no queue preview.
 - Action capabilities (`canAdvanceTurn`, `canRewindTurn`, per-row
   `canRollInitiative`) are server-computed; the HUD renders them without
   reconstructing ownership.
-- CombatHUD shows `active && started` encounters as the full tracker and
-  renders only during the `dashboard` connection step. Unstarted active
-  encounters appear as a compact pre-combat banner: players see only their own
-  rollable combatants (server-redacted) for initiative pre-rolls; GMs see the
-  forming roster with a Begin Encounter action.
-- `combatChanged` / `combatListInvalidated` are skinny invalidations — the
-  client refetches the projection; payloads never carry document data.
+- The compact HUD shows current turn, **Next shown** (visible-order preview),
+  and an owned-character selector with up to three read-only selected stats.
+  When the visible current combatant is owned by the player, **Your turn** gets
+  a Core-themed accent highlight in the strip and expanded roster; other or
+  unavailable current combatants do not get that cue.
+  Its expandable roster contains all authorized rows, full names, portraits,
+  initiative, current/owned/defeated labels and GM-only hidden labels. Linked
+  or tokenless owned world Actors may show selected stats; unlinked scene
+  Tokens show no base-Actor stats. The sheet shortcut opens a new tab.
+- Active forming encounters remain visible only when a viewer has projected
+  rows. During an open managed initiative phase, an inactive pre-Begin encounter
+  exposes only the player's own visible rows. Eligible owners can roll their
+  unrolled initiative and, after Begin, End my turn when enabled. GM/Assistant
+  users get an Open Combat Manager shortcut and use manager controls. Ordinary
+  encounters retain GM/Assistant navigation and current-owner End my turn.
+  Player Begin is denied even if Foundry stores round-zero `turn: 0`.
+- Initiative presentation receives a server-resolved formula: explicit GM
+  override, module formula or Core fallback, in that order. The manager's
+  override Save validates all current managed participants
+  before persistence and shows field-level errors while preserving the draft.
+  Clearing and saving restores module-first behavior. **Input Manually** means
+  a final total, not an unmodified die; future Actor changes are checked again.
+  **Insert attribute** lazily opens the existing field catalog filtered to safe
+  numeric leaves, with search and cursor/selected-text insertion. Insertion
+  changes only the draft, preserves keyboard focus and does not imply validation
+  success for every participant. Advanced custom stat fields must have a label,
+  safe path and matching current Actor value type before entering the draft;
+  inline errors explain disabled controls or rejected checks, and late checks
+  cannot add a changed/retired draft. GM configuration has no fixed stat-count
+  cap; the compact HUD's existing three-stat presentation remains independent.
+  The dialog offers only allowed roll modes or a manual final total. Core executes the action;
+  modules may theme the dialog through the versioned SDK slot.
+  A changed phase, score, formula, Actor association or lost row capability
+  retires an open initiative dialog; the player chooses a fresh action.
+  The shared initiative renderer reuses the SDK sheet roller's frame/theme,
+  without appending Core chrome over a module skin. Module overrides may reuse
+  their own sheet modal's presentation, but not its formula/recipient editors
+  or raw-die arithmetic. Formula and audience remain server-owned.
+- `combatChanged`, `combatListInvalidated` and
+  `combatTrackerPreferencesChanged` are skinny invalidations — the client
+  refetches its authorized projection; payloads never carry document data.
+
+### Managed-HUD refinements (ADR-0061 N1–N3; operator-accepted baseline)
+
+The October 14 operator review accepts the existing formulas, module rollers,
+privacy/layout, turn controls and recovery. A compact **Roll
+initiative** cue for eligible owned characters even with the roster collapsed,
+with a chooser for multiple characters is now available. Pending own initiative is separate
+from the player turn roster: unrolled/cleared rows stay at the bottom of the
+GM list and are skipped by managed turn navigation until scored. Late NPCs
+default hidden and remain so after scoring until the GM reveals them. Hidden
+or other-owner pending counts never appear in the cue. Clearing the current
+row's score pauses with **Awaiting initiative** until GM Next or a GM-restored
+score; player rolls alone do not resume it. No owner End my turn while paused.
+
+The manager reuses one Add/Edit stat editor for Text, Value / Max, Number
+and Textarea, with editable labels, detail-grid column/row spans and a bounded
+scrollable multiline text viewport. Narrow layouts clamp/stack spans; text
+is read-only, not a new Actor-text write capability. Plain is the old-record
+default; explicit HTML uses Core's sanitized rich-detail boundary. Existing
+configuration Save persists the shared world/module settings. Apply changes
+updates an existing draft selection without duplicating/reordering it; Cancel
+discards that editor draft. Supported spans are 1–3 columns/1–6 rows, with
+1–12 visible textarea rows; these bound the grid/viewport, not the stat count.
+Textarea stays detail-only. A row-level Defeated/Restore toggle reuses the
+existing participant-detail action and changes only the explicit Combatant
+flag, not Actor dead effects. Awaiting initiative is shown in the manager;
+navigation is disabled when no scored eligible rows exist. These additions
+are implemented and offline verified. The user accepts queue/cue, pause, stat
+editor/layout and row/detail Defeated reconciliation; explicit Skip is new scope in
+[ADR-0061](adr/0061-managed-combat-player-participation.md#operator-acceptance-and-late-entrystat-addendum--october-14-2026).
+
+**Implemented and operator-accepted refinements (ADR-0061 N4–N6):** the
+thin strip groups Current / Next shown / My character, with owned portrait,
+stats, sheet and explicitly targeted initiative controls together. One own-character
+selector includes unrolled targets; default selection prioritizes an eligible
+pending character. If Roll targets someone other than the selected stats, its
+button explicitly names that target. Your turn, privacy, portraits and narrow
+reading order remain. The stat editor offers plain or sanitized HTML textarea
+in the existing scrollable detail viewport. Rich text stays read-only/detail-only,
+without raw HTML or Foundry interactive enrichment. Matching module defaults
+are available through SDK3.2.0/module-api1.4.0, for Core0.18.0 adoption.
+
+Separate Defeated and Skip controls are available in participant details/quick rows.
+The per-encounter **Skip defeated enemies automatically** checkbox defaults off;
+when enabled, marking an NPC defeated checks the same persisted Skip flag.
+Manual Unskip while still defeated must persist. NPC Restore clears Skip;
+player defeat never automatically skips, but explicit GM player Skip is allowed.
+No separate derived automatic-exclusion layer. Disabling the encounter setting
+does not clear existing flags. Assignment affects only new SheetDelver NPC
+Defeated actions, not existing rows or external Foundry events. A current-row
+Skip pauses until GM navigation or eligible Unskip/NPC Restore; failure after
+pause requires explicit recovery. The manager distinguishes that pause from
+Awaiting initiative and disables navigation when all rows are unrolled/skipped.
+Actor dead effects remain separate. Row/detail controls and configuration are
+offline verified and user-accepted for HUD/rich-detail/Skip behavior. Module
+default declarations retain automated evidence; generation/publication
+limitations are recorded in the ADR.
+
+| Viewer | Ordinary HUD actions | Managed HUD actions |
+| --- | --- | --- |
+| Player | Roll initiative for eligible owned rows; End my turn only when the visible owned row is current in an active, started Combat | Own unrolled initiative during an open phase; End my turn when enabled for the current visible owned row after Begin |
+| Assistant GM | Begin/Next/Previous and eligible initiative | Open Combat Manager; manager controls respect native document permissions |
+| Role-4 GM | Begin/Next/Previous and eligible initiative | Open Combat Manager; no player-owner HUD lane |
+
+The assistant and GM receive the full roster, including hidden rows; players
+receive only visible rows. HUD buttons follow these projected capabilities,
+but Core reauthorizes every command and checks the observed state before a
+write. A stale ordinary command refetches on `409` rather than replaying the
+old action. Managed owner commands follow ADR-0061's phase and observed-state
+guards, never the privileged manager path. Native/HTTP checks pass on
+Foundry13.351/Shadowdark4.0.6 and14.367/D&D5e6.0.2; user acceptance is recorded
+in the completed ADR. This does not certify all system browser hooks. The
+broader private directed-roll workflow stays deferred in ADR-0058.
 
 Module components should treat realtime as invalidation. Refetch through SDK
 hooks or host APIs instead of applying socket payloads as authoritative document

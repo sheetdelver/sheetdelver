@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events';
+import { readCombatSkip } from '@shared/contracts/combatSkip';
 import type {
     CombatDocument,
     CombatantDocument,
@@ -28,6 +29,8 @@ export interface PreparedEncounterRow {
     initiative: number | null;
     hidden: boolean;
     defeated: boolean;
+    /** Managed policy only; does not affect ordinary Foundry order. */
+    skip?: true;
     groupId: string | null;
 }
 
@@ -290,6 +293,7 @@ export class CombatEncounterReadModel extends EventEmitter {
             img: combatant.img ?? tokenImg ?? actorImg,
             initiative: isNumericInitiative(combatant.initiative) ? combatant.initiative : null,
             hidden: combatant.hidden === true,
+            ...(readCombatSkip(combatant.flags) ? { skip: true as const } : {}),
             defeated,
             groupId: combatant.group ?? null,
         };

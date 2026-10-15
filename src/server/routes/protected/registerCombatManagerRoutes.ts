@@ -3,16 +3,16 @@ import { combatManagerService, CombatManagerError } from '@server/services/comba
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
 import { createCombatService } from '@server/services/combats/CombatService';
 import { logger } from '@shared/utils/logger';
+import { EncounterBusyError } from '@server/services/combats/EncounterCommandGuard';
+import { CombatStatPreferenceLimitError } from '@server/services/combats/CombatStatPreferenceStore';
 
 function handleError(error: unknown, res: express.Response): void {
-    res.status(error instanceof CombatManagerError ? error.status : 500).json({ error: getErrorMessage(error),
-        ...(error instanceof CombatManagerError && error.code ? { code: error.code } : {}) });
+    res.status(error instanceof CombatManagerError || error instanceof EncounterBusyError || error instanceof CombatStatPreferenceLimitError ? error.status : 500).json({ error: getErrorMessage(error),
+        ...((error instanceof CombatManagerError || error instanceof EncounterBusyError) && error.code ? { code: error.code } : {}) });
 }
 
-export function registerCombatManagerRoutes(router: express.Router, deps: {
-    normalizeActors: (actorList: any[], client: any) => Promise<any[]>;
-}): void {
-    const combatService = createCombatService(deps);
+export function registerCombatManagerRoutes(router: express.Router): void {
+    const combatService = createCombatService({});
     router.get('/combat-manager', async (req, res) => {
         try { res.json({ encounters: await combatManagerService.list(req.foundryClient) }); }
         catch (error) { handleError(error, res); }
@@ -23,6 +23,10 @@ export function registerCombatManagerRoutes(router: express.Router, deps: {
     });
     router.put('/combat-manager/stat-preferences', async (req, res) => {
         try { res.json({ preferences: await combatManagerService.saveStatPreferences(req.foundryClient, req.body?.attributes) }); }
+        catch (error) { handleError(error, res); }
+    });
+    router.post('/combat-manager/stat-preferences/validate-path', async (req, res) => {
+        try { res.json({ attribute: await combatManagerService.validateStatPath(req.foundryClient, req.body?.path, req.body?.kind) }); }
         catch (error) { handleError(error, res); }
     });
     router.delete('/combat-manager/stat-preferences', async (req, res) => {
@@ -47,7 +51,8 @@ export function registerCombatManagerRoutes(router: express.Router, deps: {
         catch (error) { handleError(error, res); }
     });
     router.post('/combat-manager', async (req, res) => {
-        try { res.status(201).json({ encounter: await combatManagerService.create(req.foundryClient, req.body?.label, req.body?.keepHistory) }); }
+        try { res.status(201).json({ encounter: await combatManagerService.create(req.foundryClient, req.body?.label,
+            req.body?.keepHistory, req.body?.autoSkipDefeatedEnemies) }); }
         catch (error) { handleError(error, res); }
     });
     router.get('/combat-manager/:id', async (req, res) => {
@@ -56,6 +61,14 @@ export function registerCombatManagerRoutes(router: express.Router, deps: {
     });
     router.patch('/combat-manager/:id', async (req, res) => {
         try { res.json({ encounter: await combatManagerService.rename(req.foundryClient, req.params.id, req.body?.label) }); }
+        catch (error) { handleError(error, res); }
+    });
+    router.patch('/combat-manager/:id/player-actions', async (req, res) => {
+        try { res.json({ encounter: await combatManagerService.setPlayerActions(req.foundryClient, req.params.id, req.body) }); }
+        catch (error) { handleError(error, res); }
+    });
+    router.patch('/combat-manager/:id/turn-policy', async (req, res) => {
+        try { res.json({ encounter: await combatManagerService.setTurnPolicy(req.foundryClient, req.params.id, req.body) }); }
         catch (error) { handleError(error, res); }
     });
     router.delete('/combat-manager/:id', async (req, res) => {

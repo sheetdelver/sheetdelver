@@ -22,6 +22,10 @@ const WORLD_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$/;
 const MAX_FILE_BYTES = 256_000;
 const MAX_ENTRIES = 500;
 
+export class CombatStatPreferenceLimitError extends Error {
+    readonly status = 413;
+}
+
 function validateScope(worldId: string, moduleId: string): void {
     if (!WORLD_ID_PATTERN.test(worldId) || !parseModuleId(moduleId)) {
         throw new Error('Invalid combat-stat preference scope');
@@ -34,6 +38,14 @@ export class CombatStatPreferenceStore {
 
     private path(): string {
         return this.filePath ?? path.join(getConfigDir(), 'gm-combat-stats.json');
+    }
+
+    private write(entries: PreferenceEntry[]): void {
+        const serialized = JSON.stringify({ schemaVersion: 1, entries });
+        if (Buffer.byteLength(serialized, 'utf8') > MAX_FILE_BYTES) {
+            throw new CombatStatPreferenceLimitError('Combat-stat preferences exceed the 256000-byte storage limit; reduce the configuration before saving');
+        }
+        writeOwnerOnlyFileAtomicSync(this.path(), serialized);
     }
 
     private load(): PreferenceFile {
@@ -98,7 +110,7 @@ export class CombatStatPreferenceStore {
         const previous = file.entries.find(row => row.worldId === worldId && row.moduleId === moduleId);
         entries.push({ worldId, moduleId, attributes: parsed,
             ...(previous?.initiativeFormula ? { initiativeFormula: previous.initiativeFormula } : {}) });
-        writeOwnerOnlyFileAtomicSync(this.path(), JSON.stringify({ schemaVersion: 1, entries }));
+        this.write(entries);
     }
 
     public reset(worldId: string, moduleId: string): void {
@@ -107,7 +119,7 @@ export class CombatStatPreferenceStore {
         if (!file.entries.some(row => row.worldId === worldId && row.moduleId === moduleId)) return;
         const entries = file.entries.flatMap(row => row.worldId !== worldId || row.moduleId !== moduleId
             ? [row] : row.initiativeFormula ? [{ worldId, moduleId, initiativeFormula: row.initiativeFormula }] : []);
-        writeOwnerOnlyFileAtomicSync(this.path(), JSON.stringify({ schemaVersion: 1, entries }));
+        this.write(entries);
     }
 
     public getInitiativeFormula(worldId: string, moduleId: string): string | null {
@@ -117,7 +129,7 @@ export class CombatStatPreferenceStore {
 
     public setInitiativeFormula(worldId: string, moduleId: string, formula: string | null): void {
         validateScope(worldId, moduleId);
-        if (formula !== null && !validInitiativeFallback(formula)) throw new Error('Invalid initiative fallback formula');
+        if (formula !== null && !validInitiativeFallback(formula)) throw new Error('Invalid initiative override formula');
         const file = this.load();
         const prior = file.entries.find(row => row.worldId === worldId && row.moduleId === moduleId);
         const entries = file.entries.filter(row => row.worldId !== worldId || row.moduleId !== moduleId);
@@ -125,7 +137,7 @@ export class CombatStatPreferenceStore {
         if (prior?.attributes || formula !== null) entries.push({ worldId, moduleId,
             ...(prior?.attributes ? { attributes: prior.attributes } : {}),
             ...(formula !== null ? { initiativeFormula: formula.trim() } : {}) });
-        writeOwnerOnlyFileAtomicSync(this.path(), JSON.stringify({ schemaVersion: 1, entries }));
+        this.write(entries);
     }
 }
 

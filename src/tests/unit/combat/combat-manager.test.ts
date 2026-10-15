@@ -5,8 +5,11 @@ import path from 'node:path';
 import { combatManagerService, CombatManagerError } from '@server/services/combats/CombatManagerService';
 import { discoverActorSortFields, parseActorPickerSort, sortActorChoices } from '@server/services/combats/CombatActorPickerSort';
 import { combatStatDisplayService, projectCombatStatFields } from '@server/services/combats/CombatStatDisplayService';
-import { readCombatManagerFlag } from '@server/services/combats/combatManagerFlag';
+import { combatStatPreferenceStore } from '@server/services/combats/CombatStatPreferenceStore';
+import { hasCombatManagerMarker, playerActionsFor, readCombatManagerFlag } from '@server/services/combats/combatManagerFlag';
 import { createCombatService } from '@server/services/combats/CombatService';
+import { EncounterBusyError } from '@server/services/combats/EncounterCommandGuard';
+import { combatEncounterReadModel } from '@server/core/documents/encounters/CombatEncounterReadModel';
 import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
 import { combatStore } from '@server/core/documents/primary/combats/CombatStore';
 import { folderStore } from '@server/core/documents/primary/folders/FolderStore';
@@ -20,10 +23,13 @@ import { __resetDataDirForTests, getDataDir } from '@server/core/paths';
 import { BaseSystemAdapter } from '@shared/sdk';
 import type { CombatClientLike } from '@server/shared/types/documents';
 import type { ActorDocument } from '@server/shared/types/actors';
+import { registerCombatRoutes } from '@server/routes/protected/registerCombatRoutes';
+import { registerCombatManagerRoutes } from '@server/routes/protected/registerCombatManagerRoutes';
+import { createRouteMap, createRouterStub, getLastHandler, invokeHandler } from '../routing/route-test-helpers';
 
 type Call = { type: string; action: string; operation: Record<string, any>; parent?: { type: string; id: string } };
 
-export function mockClient(userId: string, calls: Call[]): CombatClientLike {
+export function mockClient(userId: string, calls: Call[], rolls: string[] = []): CombatClientLike {
     let combatNumber = 0;
     let folderNumber = 0;
     let actorNumber = 0;
@@ -31,6 +37,11 @@ export function mockClient(userId: string, calls: Call[]): CombatClientLike {
     return {
         userId,
         getSystem: async () => ({ id: 'test' }),
+        getActor: async (actorId: string) => actorStore.get(actorId),
+        roll: async (formula: string) => {
+            rolls.push(formula);
+            return { rolls: [{ total: Number.isFinite(Number(formula)) ? Number(formula) : 17 }] };
+        },
         resolveUrl: (url?: string) => url || '',
         dispatchDocument: async (type: string, action: string, rawOperation?: unknown, parent?: { type: string; id: string }) => {
             const operation = (rawOperation || {}) as Record<string, any>;
@@ -65,6 +76,7 @@ export function mockClient(userId: string, calls: Call[]): CombatClientLike {
 }
 
 export async function seed(): Promise<void> {
+    worldStateStore.seed({ world: { id: 'test-world' }, system: { id: 'test' } });
     await userStore.seed(async () => [
         { _id: 'gm', role: 4, permissions: { ACTOR_CREATE: true, FILES_BROWSE: true } },
         { _id: 'assistant', role: 3, permissions: { ACTOR_CREATE: true, FILES_BROWSE: true } },
@@ -87,6 +99,706 @@ export async function seed(): Promise<void> {
     compendiumStore.clear();
     compendiumStore.setPackMetadata('test.monsters', { id: 'test.monsters', type: 'Actor', label: 'Monsters' });
     compendiumStore.setPackMetadata('test.sort-pack', { id: 'test.sort-pack', type: 'Actor', label: 'Sort pack' });
+}
+
+async function runManagedQueueRefinements(): Promise<void> {
+    await seed();
+    preparedActorStore.bind(actorStore);
+    preparedActorStore.configure(new BaseSystemAdapter(), { worldEpoch: 1, systemId: 'test' });
+    preparedActorStore.rebuildAll();
+    const calls: Call[] = [];
+    const gm = mockClient('gm', calls), player = mockClient('player', calls);
+    actorStore.patch('WORLDNPC', { 'system.notes': '' });
+    assert.equal((await combatManagerService.validateStatPath(gm, 'system.notes', 'textarea')).kind, 'textarea');
+    await assert.rejects(() => combatManagerService.validateStatPath(gm, 'system.attributes.hp.value', 'textarea'),
+        (error: unknown) => error instanceof CombatManagerError && error.status === 400);
+    const service = createCombatService({});
+    const encounter = await combatManagerService.create(gm, 'Pending queue fixture', false);
+    const rowFor = async (actorId: string) => (await combatManagerService.detail(gm, encounter.id)).participants.find(row => row.actorId === actorId)!;
+    const next = () => combatManagerService.turn(gm, encounter.id, () => service.advanceTurn(gm, encounter.id, true));
+    for (const [id, score] of [['WORLDNPC', 20], ['PLAYERPC', 10], ['ASSISTANTNPC', 0]] as const) {
+        await combatManagerService.addWorldActor(gm, encounter.id, id);
+        await combatManagerService.updateParticipant(gm, encounter.id, (await rowFor(id)).id, { initiative: score });
+    }
+    await next(); await next();
+    const owner = await rowFor('PLAYERPC');
+    assert.equal((await combatManagerService.detail(gm, encounter.id)).currentCombatantId, owner.id);
+    for (const id of ['LATEONE', 'LATETWO']) actorStore.upsert({ _id: id, name: id, type: 'arbitrary', ownership: { player: 3 } } as ActorDocument);
+    actorStore.upsert({ _id: 'LATENPC', name: 'Private late NPC', type: 'character' } as ActorDocument);
+    for (const id of ['LATEONE', 'LATETWO', 'LATENPC']) await combatManagerService.addWorldActor(gm, encounter.id, id);
+    const lateNpc = await rowFor('LATENPC');
+    assert.equal(lateNpc.hidden, true, 'late hidden default follows ownership, not Actor type');
+    await combatManagerService.setPlayerActions(gm, encounter.id, { initiativeOpen: true });
+    let view = (await service.listCombats(player)).combats.find(row => row.id === encounter.id)!;
+    assert.deepEqual(view.initiativeCandidates?.map(row => row.actorId).sort(), ['LATEONE', 'LATETWO']);
+    assert.ok(view.combatants.every(row => row.initiative !== null));
+    assert.ok(!JSON.stringify(view).includes('LATENPC'), 'hidden pending identity never escapes');
+    const phase = view.playerInitiative!.generation;
+    const late = view.initiativeCandidates![0];
+    assert.ok('success' in await service.rollInitiative(player, encounter.id, late.id,
+        { manualTotal: 25, observed: { initiative: null, formula: late.initiativeRoll!.formula, phaseGeneration: phase } }));
+    assert.equal((await combatManagerService.detail(gm, encounter.id)).currentCombatantId, owner.id, 'late score cannot steal current turn');
+    await combatManagerService.updateParticipant(gm, encounter.id, owner.id, { initiative: null });
+    let detail = await combatManagerService.detail(gm, encounter.id);
+    assert.equal(detail.currentCombatantId, null);
+    assert.equal(detail.awaitingInitiative, true);
+    assert.equal(combatStore.get(encounter.id)?.turn, null);
+    assert.equal(readCombatManagerFlag(combatStore.get(encounter.id))?.turnPause?.initiative, 10);
+    combatEncounterReadModel.clear(); combatEncounterReadModel.rebuildAll();
+    assert.equal((await combatManagerService.detail(gm, encounter.id)).awaitingInitiative, true, 'pause survives rebuilding cached runtime state');
+    view = (await service.listCombats(player)).combats.find(row => row.id === encounter.id)!;
+    assert.equal(view.canAdvanceTurn, false);
+    assert.equal(view.currentCombatantId, null);
+    const pendingOwner = view.initiativeCandidates!.find(row => row.id === owner.id)!;
+    assert.ok('success' in await service.rollInitiative(player, encounter.id, owner.id, { manualTotal: 12.5,
+        observed: { initiative: null, formula: pendingOwner.initiativeRoll!.formula, phaseGeneration: phase } }));
+    assert.equal((await combatManagerService.detail(gm, encounter.id)).awaitingInitiative, true, 'owner scoring cannot release a GM pause');
+    await combatManagerService.updateParticipant(gm, encounter.id, lateNpc.id, { initiative: 1 });
+    assert.equal((await combatManagerService.detail(gm, encounter.id)).awaitingInitiative, true, 'unrelated GM score cannot resume pause');
+    assert.equal((await rowFor('LATENPC')).hidden, true, 'scoring never reveals the late NPC');
+    await next();
+    detail = await combatManagerService.detail(gm, encounter.id);
+    assert.equal(detail.round, 1, 'regrouping cleared rows never forces a round wrap');
+    assert.equal(detail.currentCombatantId, lateNpc.id, 'GM Next resumes after the saved score anchor, including hidden NPC turns');
+    const full = combatEncounterReadModel.getOrRebuild(encounter.id)!;
+    assert.equal(combatStore.get(encounter.id)?.turn, full.rows.findIndex(row => row.id === lateNpc.id), 'write uses native full-order index');
+    await next();
+    assert.equal((await combatManagerService.detail(gm, encounter.id)).currentCombatantId, (await rowFor('ASSISTANTNPC')).id, 'zero is a scored eligible turn');
+    await next();
+    assert.equal((await combatManagerService.detail(gm, encounter.id)).round, 2, 'last scored row wraps without visiting pending rows');
+    const activeId = (await combatManagerService.detail(gm, encounter.id)).currentCombatantId!;
+    await combatManagerService.resetInitiative(gm, encounter.id);
+    assert.equal((await combatManagerService.detail(gm, encounter.id)).canNavigateTurns, false);
+    const writeCount = calls.length;
+    assert.equal((await next() as any).status, 409);
+    assert.equal(calls.length, writeCount, 'all-pending navigation performs no write');
+    await combatManagerService.updateParticipant(gm, encounter.id, owner.id, { initiative: 2 });
+    assert.equal((await combatManagerService.detail(gm, encounter.id)).awaitingInitiative, true);
+    await combatManagerService.updateParticipant(gm, encounter.id, activeId, { initiative: 0 });
+    assert.equal((await combatManagerService.detail(gm, encounter.id)).currentCombatantId, activeId, 'explicit GM restoration resumes the cleared current row, including zero');
+    settingStore.patch('TRACKER', { value: JSON.stringify({ skipDefeated: true }) });
+    for (const row of (await combatManagerService.detail(gm, encounter.id)).participants.filter(row => row.initiative !== null)) {
+        await combatManagerService.updateParticipant(gm, encounter.id, row.id, { defeated: true, skip: true });
+    }
+    assert.equal((await next() as any).status, 409, 'all-skipped scored rows do not fall back onto pending rows');
+    await combatManagerService.updateParticipant(gm, encounter.id, owner.id, { defeated: false, skip: false });
+    await next();
+    assert.equal((await combatManagerService.detail(gm, encounter.id)).currentCombatantId, owner.id);
+    const failureClient = { ...gm, dispatchDocument: async (...args: Parameters<typeof gm.dispatchDocument>) => {
+        if (args[0] === 'Combatant' && args[1] === 'update') throw new Error('synthetic clear failure');
+        return gm.dispatchDocument(...args);
+    } } as CombatClientLike;
+    await assert.rejects(() => combatManagerService.updateParticipant(failureClient, encounter.id, owner.id, { initiative: null }));
+    assert.equal((await rowFor('PLAYERPC')).initiative, 2, 'failed clear leaves old score visible');
+    assert.equal((await combatManagerService.detail(gm, encounter.id)).awaitingInitiative, true, 'failed clear does not resume or advance');
+    actorStore.patch('PLAYERPC', { effects: [{ _id: 'DEAD', disabled: false, statuses: ['dead'] }] });
+    await combatManagerService.updateParticipant(gm, encounter.id, owner.id, { defeated: false });
+    const effectiveDead = await rowFor('PLAYERPC');
+    assert.equal(effectiveDead.defeatedFlag, false);
+    assert.equal(effectiveDead.defeated, true, 'clearing the explicit flag cannot remove Actor-derived dead status');
+    assert.deepEqual((actorStore.get('PLAYERPC') as any).effects[0].statuses, ['dead']);
+    await combatManagerService.destroy(gm, encounter.id);
+    console.log('  - Managed queue: pending privacy, late NPC defaults, pause/restore/native-index navigation and defeated checks passed');
+}
+
+async function runManagedSkipRefinements(): Promise<void> {
+    await seed();
+    const calls: Call[] = [];
+    const gm = mockClient('gm', calls), assistant = mockClient('assistant', calls), player = mockClient('player', calls);
+    const service = createCombatService({});
+    const encounter = await combatManagerService.create(gm, 'Explicit Skip fixture', false);
+    assert.equal(encounter.autoSkipDefeatedEnemies, false);
+    const detail = () => combatManagerService.detail(gm, encounter.id);
+    const rowFor = async (actorId: string) => (await detail()).participants.find(row => row.actorId === actorId)!;
+    const next = () => combatManagerService.turn(gm, encounter.id, () => service.advanceTurn(gm, encounter.id, true));
+    for (const [id, score] of [['WORLDNPC', 20], ['PLAYERPC', 10], ['ASSISTANTNPC', 0]] as const) {
+        await combatManagerService.addWorldActor(gm, encounter.id, id);
+        await combatManagerService.updateParticipant(gm, encounter.id, (await rowFor(id)).id, { initiative: score });
+    }
+    const npc = await rowFor('WORLDNPC'), pc = await rowFor('PLAYERPC'), ally = await rowFor('ASSISTANTNPC');
+    settingStore.patch('TRACKER', { value: JSON.stringify({ skipDefeated: true }) });
+    await combatManagerService.updateParticipant(gm, encounter.id, npc.id, { defeated: true });
+    assert.equal((await rowFor('WORLDNPC')).skip, false, 'default-off policy does not assign Skip');
+    await next();
+    assert.equal((await detail()).currentCombatantId, npc.id, 'managed defeat alone ignores world-wide setting');
+    await combatManagerService.setTurnPolicy(assistant, encounter.id, { autoSkipDefeatedEnemies: true });
+    assert.equal((await rowFor('WORLDNPC')).skip, false, 'enabling policy does not backfill existing rows');
+    const before = calls.length;
+    await combatManagerService.updateParticipant(gm, encounter.id, npc.id, { defeated: true });
+    const combined = calls.slice(before).find(call => call.type === 'Combatant' && call.action === 'update')!;
+    assert.equal(combined.operation.updates[0].defeated, true);
+    assert.equal(combined.operation.updates[0]['flags.world.sheetDelverSkip'], true,
+        'Defeated and automatic Skip use one caller-bound Combatant update');
+    assert.equal((await detail()).pausedForSkip, true);
+    assert.equal((await detail()).awaitingInitiative, false);
+    combatEncounterReadModel.clear(); combatEncounterReadModel.rebuildAll();
+    assert.equal((await detail()).pausedForSkip, true, 'Skip pause survives cache rebuild');
+    assert.equal((await service.listCombats(player)).combats.find(row => row.id === encounter.id)?.currentCombatantId, null);
+    await combatManagerService.updateParticipant(gm, encounter.id, npc.id, { skip: false });
+    assert.equal((await detail()).currentCombatantId, npc.id, 'explicit Unskip resumes the eligible anchored row');
+    assert.equal((await rowFor('WORLDNPC')).defeated, true);
+    const writes = calls.length;
+    await detail(); await detail(); await service.listCombats(player);
+    assert.equal(calls.length, writes, 'reads never assign/reassign Skip');
+    assert.equal((await rowFor('WORLDNPC')).skip, false, 'manual opt-out survives reads while defeated');
+    await combatManagerService.updateParticipant(gm, encounter.id, pc.id, { defeated: true });
+    assert.equal((await rowFor('PLAYERPC')).skip, false, 'player defeat never automatically skips');
+    await combatManagerService.updateParticipant(gm, encounter.id, npc.id, { skip: true });
+    await next();
+    assert.equal((await detail()).currentCombatantId, pc.id);
+    assert.equal((await detail()).round, 1, 'current Skip does not cause premature wrap');
+    await combatManagerService.updateParticipant(gm, encounter.id, ally.id, { skip: true });
+    let tracker = (await service.listCombats(player)).combats.find(row => row.id === encounter.id)!;
+    assert.ok(tracker.combatants.some(row => row.id === npc.id && row.skip), 'scored skipped rows remain in authorized roster');
+    assert.equal(tracker.nextShownCombatantId, pc.id, 'preview skips explicit flags, not defeated player');
+    await combatManagerService.updateParticipant(assistant, encounter.id, pc.id, { skip: true });
+    assert.equal((await detail()).canNavigateTurns, false);
+    tracker = (await service.listCombats(player)).combats.find(row => row.id === encounter.id)!;
+    assert.equal(tracker.canAdvanceTurn, false);
+    const noEligibleWrites = calls.length;
+    assert.equal((await next() as any).status, 409);
+    assert.equal(calls.length, noEligibleWrites, 'all skipped means no turn/round side effects');
+    await combatManagerService.updateParticipant(gm, encounter.id, pc.id, { defeated: false });
+    assert.equal((await rowFor('PLAYERPC')).skip, true, 'player Restore never erases explicit player Skip');
+    await combatManagerService.setTurnPolicy(gm, encounter.id, { autoSkipDefeatedEnemies: false });
+    assert.equal((await rowFor('WORLDNPC')).skip, true, 'disabling assignment does not erase Skip flags');
+    await combatManagerService.updateParticipant(gm, encounter.id, npc.id, { defeated: false });
+    assert.equal((await rowFor('WORLDNPC')).skip, false, 'NPC Restore clears the same Skip flag even with policy off');
+    await next();
+    const full = combatEncounterReadModel.getOrRebuild(encounter.id)!;
+    assert.equal(combatStore.get(encounter.id)?.turn, full.rows.findIndex(row => row.id === npc.id));
+    await combatManagerService.setTurnPolicy(gm, encounter.id, { autoSkipDefeatedEnemies: true });
+    combatStore.applyModifyDocument('Combatant', 'update', [{ _id: npc.id, defeated: true }], { parentUuid: `Combat.${encounter.id}` });
+    actorStore.patch('WORLDNPC', { effects: [{ _id: 'DEAD', disabled: false, statuses: ['dead'] }] });
+    assert.equal((await rowFor('WORLDNPC')).skip, false, 'external defeat/Actor death never triggers a privileged writer');
+    await combatManagerService.updateParticipant(gm, encounter.id, npc.id, { skip: true });
+    await combatManagerService.updateParticipant(gm, encounter.id, npc.id, { defeated: false });
+    assert.equal((await rowFor('WORLDNPC')).skip, false);
+    assert.equal((await rowFor('WORLDNPC')).defeated, true, 'NPC Restore does not remove Actor dead effects');
+    const failureClient = { ...gm, dispatchDocument: async (...args: Parameters<typeof gm.dispatchDocument>) => {
+        if (args[0] === 'Combatant' && args[1] === 'update') throw new Error('synthetic Skip write failure');
+        return gm.dispatchDocument(...args);
+    } } as CombatClientLike;
+    await assert.rejects(() => combatManagerService.updateParticipant(failureClient, encounter.id, npc.id, { skip: true }));
+    assert.equal((await detail()).pausedForSkip, true, 'failed Skip leaves a safe durable pause');
+    assert.equal((await rowFor('WORLDNPC')).skip, false);
+    await combatManagerService.updateParticipant(gm, encounter.id, npc.id, { skip: false });
+    assert.equal((await detail()).currentCombatantId, npc.id, 'explicit recovery can resume after a failed write');
+    await assert.rejects(() => combatManagerService.updateParticipant(player, encounter.id, pc.id, { skip: false }),
+        (error: unknown) => error instanceof CombatManagerError && error.status === 403);
+    await assert.rejects(() => combatManagerService.updateParticipant(gm, encounter.id, npc.id, { skip: 'yes' }),
+        (error: unknown) => error instanceof CombatManagerError && error.status === 400);
+    await assert.rejects(() => combatManagerService.setTurnPolicy(gm, encounter.id, { autoSkipDefeatedEnemies: true, unrelated: true }),
+        (error: unknown) => error instanceof CombatManagerError && error.status === 400);
+    const routes = createRouteMap(); registerCombatManagerRoutes(createRouterStub(routes) as any);
+    const policy = getLastHandler(routes, 'patch', '/combat-manager/:id/turn-policy');
+    assert.equal((await invokeHandler(policy, { params: { id: encounter.id }, foundryClient: player,
+        body: { autoSkipDefeatedEnemies: false } } as any)).statusCode, 403);
+    assert.equal((await invokeHandler(policy, { params: { id: encounter.id }, foundryClient: assistant,
+        body: { autoSkipDefeatedEnemies: false } } as any)).statusCode, 200);
+    combatStore.applyModifyDocument('Combatant', 'update', [{ _id: ally.id, 'flags.world.sheetDelverSkip': 'malformed' }],
+        { parentUuid: `Combat.${encounter.id}` });
+    assert.equal((await rowFor('ASSISTANTNPC')).skip, true, 'malformed explicit flags fail closed until repaired');
+    await combatManagerService.updateParticipant(gm, encounter.id, ally.id, { skip: false });
+    assert.equal((await rowFor('ASSISTANTNPC')).skip, false);
+    const gate = requestGate();
+    const slow = { ...gm, dispatchDocument: async (...args: Parameters<typeof gm.dispatchDocument>) => {
+        if (args[0] === 'Combatant' && args[1] === 'update') await gate.pause();
+        return gm.dispatchDocument(...args);
+    } } as CombatClientLike;
+    const first = combatManagerService.updateParticipant(slow, encounter.id, ally.id, { skip: true });
+    await gate.entered;
+    await assert.rejects(() => combatManagerService.updateParticipant(assistant, encounter.id, ally.id, { skip: false }),
+        (error: unknown) => error instanceof EncounterBusyError && error.status === 409);
+    gate.release(); await first;
+    const identityGate = requestGate();
+    const pausingClient = { ...gm, dispatchDocument: async (...args: Parameters<typeof gm.dispatchDocument>) => {
+        if (args[0] === 'Combat' && args[1] === 'update') await identityGate.pause();
+        return gm.dispatchDocument(...args);
+    } } as CombatClientLike;
+    const changesBefore = calls.filter(call => call.type === 'Combatant' && call.action === 'update').length;
+    const reassigned = combatManagerService.updateParticipant(pausingClient, encounter.id, npc.id, { skip: true });
+    const reassignedRejected = assert.rejects(reassigned, (error: unknown) => error instanceof CombatManagerError && error.status === 409);
+    await identityGate.entered;
+    combatStore.applyModifyDocument('Combatant', 'update', [{ _id: npc.id, actorId: 'PLAYERPC' }], { parentUuid: `Combat.${encounter.id}` });
+    identityGate.release(); await reassignedRejected;
+    assert.equal(calls.filter(call => call.type === 'Combatant' && call.action === 'update').length, changesBefore,
+        'a target reassigned during pause is rejected before Skip side effects');
+    combatStore.applyModifyDocument('Combatant', 'update', [{ _id: npc.id, actorId: 'WORLDNPC' }], { parentUuid: `Combat.${encounter.id}` });
+    await combatManagerService.updateParticipant(gm, encounter.id, npc.id, { skip: false });
+    const scoreGate = requestGate();
+    const clearingClient = { ...gm, dispatchDocument: async (...args: Parameters<typeof gm.dispatchDocument>) => {
+        if (args[0] === 'Combat' && args[1] === 'update') await scoreGate.pause();
+        return gm.dispatchDocument(...args);
+    } } as CombatClientLike;
+    const clear = combatManagerService.updateParticipant(clearingClient, encounter.id, npc.id, { initiative: null, expectedInitiative: 20 });
+    const staleClearRejected = assert.rejects(clear, (error: unknown) => error instanceof CombatManagerError && error.status === 409);
+    await scoreGate.entered;
+    combatStore.applyModifyDocument('Combatant', 'update', [{ _id: npc.id, initiative: 21 }], { parentUuid: `Combat.${encounter.id}` });
+    scoreGate.release(); await staleClearRejected;
+    assert.equal((await rowFor('WORLDNPC')).initiative, 21, 'score observation is rechecked after pausing before clear');
+    await combatManagerService.updateParticipant(gm, encounter.id, npc.id, { initiative: 20 });
+    const flagSnapshot = combatStore.get(encounter.id)!;
+    assert.equal(readCombatManagerFlag({ ...flagSnapshot, flags: { world: { sheetDelverCombat: {
+        ...readCombatManagerFlag(flagSnapshot), turnPause: { combatantId: npc.id, initiative: 20, reason: ['skip'] },
+    } } } } as any), null, 'pause reason requires a real validated enum string');
+    const originalResolve = combatStatDisplayService.resolve;
+    try {
+        for (const change of ['role', 'world'] as const) {
+            const readGate = requestGate();
+            combatStatDisplayService.resolve = async client => { const result = await originalResolve(client); await readGate.pause(); return result; };
+            const pendingRead = combatManagerService.detail(gm, encounter.id);
+            const rejected = assert.rejects(pendingRead, (error: unknown) => error instanceof CombatManagerError
+                && error.status === (change === 'role' ? 403 : 503));
+            await readGate.entered;
+            if (change === 'role') userStore.patch('gm', { role: 1 });
+            else worldStateStore.seed({ world: { id: 'replacement-world' }, system: { id: 'test' } });
+            readGate.release(); await rejected;
+            userStore.patch('gm', { role: 4 });
+            worldStateStore.seed({ world: { id: 'test-world' }, system: { id: 'test' } });
+        }
+    } finally { combatStatDisplayService.resolve = originalResolve; }
+    await combatManagerService.destroy(gm, encounter.id);
+    console.log('  - Explicit managed Skip: default-off NPC assignment, manual opt-out/Restore, players, pause/failure/native indexes and HTTP permissions passed');
+}
+
+/** Pause a real service await so mutations race with the request, not its setup. */
+function requestGate() {
+    let enter!: () => void;
+    let release!: () => void;
+    const entered = new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('Service did not reach the paused await')), 5000);
+        enter = () => { clearTimeout(timeout); resolve(); };
+    });
+    const resumed = new Promise<void>(resolve => { release = resolve; });
+    return { entered, release, pause: async () => { enter(); await resumed; } };
+}
+
+export async function runParticipationHardening(): Promise<void> {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sd-participation-guards-'));
+    const previousWorld = worldStateStore.getGameDataSnapshot();
+    let previousDataDir: string | null = null;
+    try { previousDataDir = getDataDir(); } catch { /* Standalone run. */ }
+    const calls: Call[] = [];
+    const rolls: string[] = [];
+    const player = mockClient('player', calls, rolls);
+    const coowner = mockClient('coowner', calls, rolls);
+    const service = createCombatService({});
+    const policy = { initiativeOpen: true, initiativeGeneration: 'phase-one', endTurnEnabled: true };
+    const observed = { initiative: null, formula: '1d20', phaseGeneration: 'phase-one' };
+    const patchRow = (updates: Record<string, unknown>) => combatStore.applyModifyDocument('Combatant', 'update',
+        [{ _id: 'OWNERROW', ...updates }], { parentUuid: 'Combat.OWNERGUARD' });
+    const patchPolicy = (updates: Record<string, unknown>) => combatStore.patch('OWNERGUARD',
+        { 'flags.world.sheetDelverCombat.playerActions': { ...policy, ...updates } });
+    const reset = async () => {
+        await seed();
+        userStore.upsert({ _id: 'coowner', role: 1 });
+        actorStore.patch('PLAYERPC', { ownership: { player: 3, coowner: 3 } });
+        actorStore.upsert({ _id: 'ALTPC', name: 'Other owned Actor', type: 'character', ownership: { player: 3 } });
+        combatStore.upsert({ _id: 'OWNERGUARD', scene: null, active: false, round: 0, turn: null,
+            flags: { world: { sheetDelverCombat: { schemaVersion: 1, mode: 'tokenless',
+                label: 'Guard fixture', status: 'active', keepHistory: false, folderId: null,
+                copyIds: [], playerActions: { ...policy } } } },
+            combatants: [{ _id: 'OWNERROW', actorId: 'PLAYERPC', initiative: null, hidden: false },
+                { _id: 'HIDDENROW', actorId: 'WORLDNPC', initiative: 4, hidden: true }],
+        });
+        preparedActorStore.bind(actorStore);
+        preparedActorStore.configure(new BaseSystemAdapter(), { worldEpoch: 1, systemId: 'test' });
+        preparedActorStore.rebuildAll();
+        calls.length = 0;
+        rolls.length = 0;
+    };
+    const submit = (client: CombatClientLike, manualTotal?: number, advantageMode?: 'advantage' | 'disadvantage') =>
+        service.rollInitiative(client, 'OWNERGUARD', 'OWNERROW', { observed, manualTotal, advantageMode });
+    try {
+        __resetDataDirForTests(dataDir);
+        // R1: both owned and unowned replacement Actors invalidate the original target.
+        for (const stage of ['read', 'chat', 'score'] as const) {
+            for (const actorId of ['ALTPC', 'WORLDNPC']) {
+                await reset();
+                if (stage === 'score') combatStore.patch('OWNERGUARD', { active: true, round: 1, turn: 0 });
+                const gate = requestGate();
+                const client = { ...player,
+                    getActor: async (id: string) => {
+                        const actor = await player.getActor(id);
+                        if (stage === 'read') await gate.pause();
+                        return actor;
+                    },
+                    roll: async (...args: Parameters<typeof player.roll>) => {
+                        const result = await player.roll(...args);
+                        if (stage === 'chat') await gate.pause();
+                        return result;
+                    },
+                    dispatchDocument: async (...args: Parameters<typeof player.dispatchDocument>) => {
+                        const result = await player.dispatchDocument(...args);
+                        if (stage === 'score' && args[0] === 'Combatant') await gate.pause();
+                        return result;
+                    },
+                } as CombatClientLike;
+                const pending = submit(client, 12);
+                try { await gate.entered; patchRow({ actorId }); } finally { gate.release(); }
+                const result = await pending;
+                assert.ok('error' in result && result.status === 409, `${stage}: changed Actor association rejected`);
+                if ('error' in result && stage !== 'read') {
+                    assert.equal(result.code, stage === 'chat' ? 'ROLL_NOT_APPLIED' : 'TURN_SYNC_UNKNOWN');
+                }
+                assert.equal(rolls.length, stage === 'read' ? 0 : 1, 'no reroll for a changed target');
+                assert.equal(calls.filter(call => call.type === 'Combatant').length, stage === 'score' ? 1 : 0);
+                assert.equal(calls.filter(call => call.type === 'Combat').length, 0, 'no turn repair onto a changed Actor');
+            }
+        }
+
+        // R2: final projection must use current subject, rows, flags and request scope.
+        const readChanges: Array<{ name: string; userId: string; status?: number;
+            change: (client: CombatClientLike & { isConnected: boolean }) => void }> = [
+            { name: 'GM demotion', userId: 'gm', change: () => userStore.patch('gm', { role: 1 }) },
+            { name: 'Assistant demotion', userId: 'assistant', change: () => userStore.patch('assistant', { role: 1 }) },
+            { name: 'phase closure', userId: 'player', change: () => patchPolicy({ initiativeOpen: false }) },
+            { name: 'row hidden', userId: 'player', change: () => patchRow({ hidden: true }) },
+            { name: 'row removed', userId: 'player', change: () => combatStore.applyModifyDocument('Combatant', 'delete',
+                ['OWNERROW'], { parentUuid: 'Combat.OWNERGUARD' }) },
+            { name: 'Combat removed', userId: 'player', change: () => combatStore.delete('OWNERGUARD') },
+            { name: 'user removed', userId: 'gm', change: () => userStore.delete('gm'), status: 401 },
+            { name: 'user banned', userId: 'player', change: () => userStore.patch('player', { role: 0 }), status: 401 },
+            { name: 'world replaced', userId: 'player', change: () => worldStateStore.seed({
+                world: { id: 'replacement-world' }, system: { id: 'test' } }), status: 503 },
+            { name: 'world closed', userId: 'player', change: () => worldStateStore.clearRuntimeState(), status: 503 },
+            { name: 'caller replaced', userId: 'player', change: client => { client.userId = 'coowner'; }, status: 401 },
+            { name: 'transport lost', userId: 'player', change: client => { client.isConnected = false; }, status: 503 },
+        ];
+        for (const test of readChanges) {
+            await reset();
+            actorStore.patch('PLAYERPC', { ownership: { player: 3, gm: 3, assistant: 3 } });
+            const gate = requestGate();
+            const client = { ...mockClient(test.userId, calls), isConnected: true, getSystem: async () => {
+                await gate.pause(); return { id: 'test' };
+            } } as CombatClientLike & { isConnected: boolean };
+            const pending = service.listCombats(client);
+            // Attach rejection observation before mutating the paused request.
+            const outcome = pending.then(value => ({ value }), error => ({ error }));
+            try { await gate.entered; test.change(client); } finally { gate.release(); }
+            const result = await outcome;
+            if (test.status !== undefined) {
+                assert.ok('error' in result && result.error.status === test.status, test.name);
+            } else {
+                assert.ok('value' in result, test.name);
+                if ('value' in result) {
+                    const view = result.value.combats.find(row => row.id === 'OWNERGUARD');
+                    if (test.name.endsWith('demotion')) {
+                        assert.deepEqual(view?.combatants, [], 'unrolled rows stay out of the turn roster');
+                        assert.deepEqual(view?.initiativeCandidates?.map(row => row.id), ['OWNERROW'], 'old-role hidden rows never escape');
+                        assert.equal(view?.canManage, false);
+                    } else if (test.name === 'phase closure') {
+                        assert.equal(view?.playerInitiative, undefined);
+                        assert.equal(view, undefined, 'closed pending-only phase leaves no encounter slot');
+                    } else assert.equal(view, undefined, 'retired rows/Combats leave no player encounter');
+                }
+            }
+            assert.equal(calls.length, 0, 'tracker reads never dispatch document operations');
+        }
+
+        // Changes during the file-backed preference await receive the same revalidation.
+        await reset();
+        const preferenceGate = requestGate();
+        const originalResolve = combatStatDisplayService.resolve;
+        combatStatDisplayService.resolve = async client => {
+            const value = await originalResolve(client); await preferenceGate.pause(); return value;
+        };
+        try {
+            const pending = service.listCombats(player);
+            try { await preferenceGate.entered; patchPolicy({ initiativeOpen: false }); } finally { preferenceGate.release(); }
+            assert.equal((await pending).combats.find(row => row.id === 'OWNERGUARD')?.playerInitiative, undefined);
+        } finally { combatStatDisplayService.resolve = originalResolve; }
+
+        // Two owners overlap in time; only the admitted request can create chat/write.
+        await reset();
+        const chatGate = requestGate();
+        const first = submit({ ...player, roll: async (...args: Parameters<typeof player.roll>) => {
+            const result = await player.roll(...args); await chatGate.pause(); return result;
+        } } as CombatClientLike, 0);
+        try {
+            await chatGate.entered;
+            await assert.rejects(() => submit(coowner, 20), (error: any) => error.status === 409 && error.code === 'ENCOUNTER_BUSY');
+        } finally { chatGate.release(); }
+        assert.deepEqual(await first, { success: true, initiative: 0 });
+        const stale = await submit(coowner, 20);
+        assert.ok('error' in stale && stale.status === 409, 'first applied score wins, including zero');
+        assert.deepEqual(rolls, ['0']);
+        assert.equal(calls.filter(call => call.type === 'Combatant').length, 1);
+
+        // Turn requests use the same encounter guard while the caller's write awaits.
+        await reset();
+        patchRow({ initiative: 12 });
+        combatStore.patch('OWNERGUARD', { active: true, round: 1, turn: 0 });
+        const turnGate = requestGate();
+        const turnObserved = { active: true, started: true, round: 1, currentCombatantId: 'OWNERROW' };
+        const firstTurn = service.advanceTurn({ ...player, dispatchDocument: async (...args: Parameters<typeof player.dispatchDocument>) => {
+            await turnGate.pause(); return player.dispatchDocument(...args);
+        } } as CombatClientLike, 'OWNERGUARD', false, turnObserved);
+        try {
+            await turnGate.entered;
+            await assert.rejects(() => service.advanceTurn(coowner, 'OWNERGUARD', false, turnObserved),
+                (error: any) => error.status === 409 && error.code === 'ENCOUNTER_BUSY');
+        } finally { turnGate.release(); }
+        assert.ok('success' in await firstTurn);
+        assert.equal(calls.filter(call => call.type === 'Combat').length, 1);
+
+        const preflightChanges = [
+            () => actorStore.patch('PLAYERPC', { ownership: { player: 0 } }),
+            () => patchRow({ hidden: true }),
+            () => combatStore.applyModifyDocument('Combatant', 'delete', ['OWNERROW'], { parentUuid: 'Combat.OWNERGUARD' }),
+            () => patchPolicy({ initiativeOpen: false }),
+            () => patchPolicy({ initiativeGeneration: 'phase-two' }),
+            () => combatStore.patch('OWNERGUARD', { 'flags.world.sheetDelverCombat.status': 'cleaning' }),
+            () => worldStateStore.clearRuntimeState(),
+            () => userStore.delete('player'),
+        ];
+        for (const change of preflightChanges) {
+            await reset();
+            const gate = requestGate();
+            const client = { ...player, getActor: async (id: string) => {
+                const actor = await player.getActor(id); await gate.pause(); return actor;
+            } } as CombatClientLike;
+            const pending = submit(client, 12);
+            try { await gate.entered; change(); } finally { gate.release(); }
+            const result = await pending;
+            assert.ok('error' in result, 'lost authority during an await rejects the submission');
+            assert.deepEqual(rolls, []);
+            assert.equal(calls.length, 0);
+        }
+        await reset();
+        const disconnected = { ...player, isConnected: false } as CombatClientLike;
+        assert.ok('error' in await submit(disconnected, 12));
+        assert.deepEqual(rolls, []);
+
+        for (const [manual, mode, formula] of [[undefined, undefined, '1d20'],
+            [undefined, 'advantage', '2d20kh1'], [undefined, 'disadvantage', '2d20kl1'],
+            [12.5, undefined, '12.5']] as const) {
+            await reset();
+            assert.ok('success' in await submit(player, manual, mode));
+            assert.deepEqual(rolls, [formula]);
+        }
+        // Known post-chat policy loss has no score write; timeout is uncertain.
+        await reset();
+        const closedAfterChat = await submit({ ...player, roll: async (...args: Parameters<typeof player.roll>) => {
+            const result = await player.roll(...args); patchPolicy({ initiativeOpen: false }); return result;
+        } } as CombatClientLike, 8);
+        assert.ok('error' in closedAfterChat && closedAfterChat.code === 'ROLL_NOT_APPLIED');
+        assert.equal(rolls.length, 1);
+        assert.equal(calls.length, 0);
+        await reset();
+        const timeout = await submit({ ...player, roll: async (...args: Parameters<typeof player.roll>) => {
+            await player.roll(...args); throw new Error('Synthetic chat acknowledgement timeout');
+        } } as CombatClientLike, 8);
+        assert.ok('error' in timeout && timeout.code === 'ROLL_OUTCOME_UNKNOWN');
+        assert.equal(rolls.length, 1);
+        assert.equal(calls.length, 0);
+
+        // Public HTTP acknowledgements expose no positional turn information.
+        await reset();
+        patchRow({ initiative: 12 });
+        combatStore.patch('OWNERGUARD', { active: true, round: 1, turn: 0 });
+        const tracker = (await service.listCombats(player)).combats.find(row => row.id === 'OWNERGUARD')!;
+        const routes = createRouteMap();
+        registerCombatRoutes(createRouterStub(routes) as any);
+        const next = getLastHandler(routes, 'post', '/combats/:id/next-turn');
+        const response = await invokeHandler(next, { foundryClient: player, params: { id: 'OWNERGUARD' },
+            body: { observed: { active: tracker.active, started: tracker.started, round: tracker.round,
+                currentCombatantId: tracker.currentCombatantId } } } as any);
+        assert.equal(response.statusCode, 200);
+        assert.deepEqual(response.payload, { success: true });
+        const staleResponse = await invokeHandler(next, { foundryClient: player, params: { id: 'OWNERGUARD' },
+            body: { observed: { active: tracker.active, started: tracker.started, round: tracker.round,
+                currentCombatantId: tracker.currentCombatantId } } } as any);
+        assert.notEqual(staleResponse.statusCode, 200);
+        assert.equal(calls.filter(call => call.type === 'Combat').length, 1, 'stale HTTP turn is never replayed');
+        userStore.delete('player');
+        const read = await invokeHandler(getLastHandler(routes, 'get', '/combats'), { foundryClient: player } as any);
+        assert.equal(read.statusCode, 401, 'HTTP preserves retired-session status');
+        await reset();
+        worldStateStore.clearRuntimeState();
+        const unavailable = await invokeHandler(getLastHandler(routes, 'get', '/combats'), { foundryClient: player } as any);
+        assert.equal(unavailable.statusCode, 503, 'HTTP preserves retired-world status');
+        console.log('  - Managed participation: Actor continuity, fresh tracker scope, concurrent owners and partial outcomes passed');
+    } finally {
+        preparedActorStore.clear();
+        worldStateStore.clear();
+        if (previousWorld) worldStateStore.seed(previousWorld);
+        __resetDataDirForTests(previousDataDir);
+        fs.rmSync(dataDir, { recursive: true, force: true });
+    }
+}
+
+async function verifyCustomStatPaths(gm: CombatClientLike, calls: Call[], dataDir: string): Promise<void> {
+    actorStore.applyModifyDocument('Actor', 'update', [{ _id: 'WORLDNPC',
+        'system.custom': { zero: 0, negative: -2.5, text: 'Displayable', notNumber: '12',
+            resource: { value: 0, max: null }, list: [1, 2] } }]);
+    assert.deepEqual(await combatManagerService.validateStatPath(gm, 'system.custom.zero', 'number'),
+        { path: 'system.custom.zero', kind: 'number', observedActorTypes: ['npc'] });
+    assert.equal((await combatManagerService.validateStatPath(mockClient('assistant', calls),
+        'system.custom.negative', 'number')).kind, 'number');
+    assert.equal((await combatManagerService.validateStatPath(gm, 'system.custom.text', 'text')).kind, 'text');
+    assert.equal((await combatManagerService.validateStatPath(gm, 'system.custom.resource', 'resource')).kind, 'resource');
+    for (const [path, kind, status] of [
+        ['system.__proto__.value', 'number', 400], ['system.custom.missing', 'number', 404],
+        ['system.custom.notNumber', 'number', 400], ['system.custom.zero', 'resource', 400],
+        ['system.custom.list', 'number', 400], ['system.custom.zero', 'wrong', 400],
+    ] as const) {
+        await assert.rejects(() => combatManagerService.validateStatPath(gm, path, kind),
+            (error: unknown) => error instanceof CombatManagerError && error.status === status);
+    }
+    await assert.rejects(() => combatManagerService.validateStatPath(mockClient('player', calls), 'system.custom.zero', 'number'),
+        (error: unknown) => error instanceof CombatManagerError && error.status === 403);
+    // Exact custom lookup must not confuse catalog sampling with existence.
+    actorStore.applyModifyDocument('Actor', 'create', Array.from({ length: 5 }, (_, index) => ({
+        _id: `FIELD${index}`, type: 'npc', system: index === 4 ? { unsampled: 7 } : {}, ownership: { default: 0 },
+    })));
+    assert.equal((await combatManagerService.validateStatPath(gm, 'system.unsampled', 'number')).path, 'system.unsampled');
+    assert.equal((await combatManagerService.validateStatPath(mockClient('assistant', calls), 'system.unsampled', 'number')).path,
+        'system.unsampled', 'native Assistant Actor ownership applies without a service transport');
+    const managerRoutes = createRouteMap();
+    registerCombatManagerRoutes(createRouterStub(managerRoutes) as any);
+    const validate = getLastHandler(managerRoutes, 'post', '/combat-manager/stat-preferences/validate-path');
+    const result = await invokeHandler(validate, { foundryClient: gm, body: { path: 'system.custom.zero', kind: 'number' } } as any);
+    assert.equal(result.statusCode, 200);
+    assert.deepEqual(result.payload, { attribute: { path: 'system.custom.zero', kind: 'number', observedActorTypes: ['npc'] } });
+    assert.equal((await invokeHandler(validate, { foundryClient: gm,
+        body: { path: 'system.missing', kind: 'number' } } as any)).statusCode, 404);
+    assert.equal((await invokeHandler(validate, { foundryClient: mockClient('player', calls),
+        body: { path: 'system.custom.zero', kind: 'number' } } as any)).statusCode, 403);
+    assert.equal(fs.existsSync(path.join(dataDir, 'config/gm-combat-stats.json')), false,
+        'path validation does not create preference files');
+}
+
+export async function runInitiativeOverrideValidation(): Promise<void> {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sd-initiative-override-'));
+    const previousWorld = worldStateStore.getGameDataSnapshot();
+    let previousDataDir: string | null = null;
+    try { previousDataDir = getDataDir(); } catch { /* Focused standalone run. */ }
+    const calls: Call[] = [], rolls: string[] = [];
+    const gm = mockClient('gm', calls, rolls);
+    const formula = '1d20+@system.init';
+    const saved = () => combatStatPreferenceStore.getInitiativeFormula('test-world', 'test');
+    const reset = async () => {
+        await seed();
+        preparedActorStore.bind(actorStore);
+        preparedActorStore.configure(new BaseSystemAdapter(), { worldEpoch: 1, systemId: 'test' });
+        preparedActorStore.rebuildAll();
+    };
+    const addParticipants = () => {
+        actorStore.applyModifyDocument('Actor', 'update', [
+            { _id: 'WORLDNPC', 'system.init': 1.5 }, { _id: 'PLAYERPC', 'system.init': 0 },
+        ]);
+        combatStore.applyModifyDocument('Combat', 'create', ['WORLDNPC', 'PLAYERPC'].map((actorId, index) => ({
+            _id: `OVERRIDE${index}`, scene: null, active: false,
+            flags: { world: { sheetDelverCombat: { schemaVersion: 1, mode: 'tokenless',
+                label: `Override ${index}`, status: 'active', keepHistory: false, folderId: null, copyIds: [] } } },
+            combatants: [{ _id: `ROW${index}`, actorId, hidden: index === 1, initiative: index === 1 ? 10 : null }],
+        })));
+    };
+    try {
+        __resetDataDirForTests(dataDir);
+        await reset();
+        await verifyCustomStatPaths(gm, calls, dataDir);
+        assert.equal((await combatManagerService.saveInitiativeFormula(gm, '1d20+2')).initiativeFormula, '1d20+2');
+        await assert.rejects(() => combatManagerService.saveInitiativeFormula(gm, formula), /Add encounter participants/);
+        assert.equal(saved(), '1d20+2', 'no participants cannot falsely validate an attribute formula');
+        addParticipants();
+        await combatManagerService.saveInitiativeFormula(mockClient('assistant', calls), formula);
+        assert.equal(saved(), formula, 'native-authorized Assistants can save a validated override');
+        const persisted = fs.readFileSync(path.join(dataDir, 'config/gm-combat-stats.json'), 'utf8');
+        for (const invalid of ['1d20+@system.missing', '101d6', '1d20/0', '1d20+@system.__proto__.value']) {
+            await assert.rejects(() => combatManagerService.saveInitiativeFormula(gm, invalid),
+                (error: unknown) => error instanceof CombatManagerError && error.status === 400);
+            assert.equal(fs.readFileSync(path.join(dataDir, 'config/gm-combat-stats.json'), 'utf8'), persisted);
+        }
+        actorStore.applyModifyDocument('Actor', 'update', [{ _id: 'PLAYERPC', 'system.init': 'not numeric' }]);
+        await assert.rejects(() => combatManagerService.saveInitiativeFormula(gm, formula), /non-numeric/,
+            'a hidden/scored participant in another managed encounter is also validated');
+        actorStore.applyModifyDocument('Actor', 'update', [{ _id: 'PLAYERPC', 'system.init': 0 }]);
+        const changedActorClient = { ...gm, getSystem: async () => {
+            actorStore.applyModifyDocument('Actor', 'update', [{ _id: 'WORLDNPC', 'system.init': 'changed' }]);
+            return { id: 'test' };
+        } } as CombatClientLike;
+        await assert.rejects(() => combatManagerService.saveInitiativeFormula(changedActorClient, formula), /non-numeric/);
+        assert.equal(saved(), formula, 'failed save preserves the prior expression');
+        const changes = [
+            { status: 403, change: (_client: CombatClientLike) => userStore.patch('gm', { role: 1 }) },
+            { status: 401, change: (client: CombatClientLike) => { client.userId = 'assistant'; } },
+            { status: 401, change: (_client: CombatClientLike) => userStore.applyModifyDocument('User', 'delete', ['gm']) },
+            { status: 401, change: (_client: CombatClientLike) => userStore.patch('gm', { banned: true }) },
+            { status: 503, change: (_client: CombatClientLike) => worldStateStore.seed({ world: { id: 'replacement' }, system: { id: 'test' } }) },
+            { status: 503, change: (client: CombatClientLike) => { (client as any).isConnected = false; } },
+            { status: 503, change: (_client: CombatClientLike) => worldStateStore.clearRuntimeState() },
+        ];
+        for (const test of changes) {
+            await reset(); addParticipants();
+            const client = { ...gm, isConnected: true, getSystem: async () => {
+                test.change(client); return { id: 'test' };
+            } } as CombatClientLike;
+            await assert.rejects(() => combatManagerService.saveInitiativeFormula(client, '1d20+3'),
+                (error: unknown) => error instanceof CombatManagerError && error.status === test.status);
+            assert.equal(saved(), formula, 'retired scope/role cannot replace the preference');
+            await reset();
+            const pathClient = { ...gm, isConnected: true, getSystem: async () => {
+                test.change(pathClient); return { id: 'test' };
+            } } as CombatClientLike;
+            await assert.rejects(() => combatManagerService.validateStatPath(pathClient, 'system.attributes.hp.value', 'number'),
+                (error: unknown) => error instanceof CombatManagerError && error.status === test.status);
+            for (const operation of ['save', 'reset'] as const) {
+                await reset();
+                const statClient = { ...gm, isConnected: true, getSystem: async () => {
+                    test.change(statClient); return { id: 'test' };
+                } } as CombatClientLike;
+                await assert.rejects(() => operation === 'save' ? combatManagerService.saveStatPreferences(statClient, [])
+                    : combatManagerService.resetStatPreferences(statClient),
+                (error: unknown) => error instanceof CombatManagerError && error.status === test.status);
+            }
+        }
+        await reset(); addParticipants();
+        await assert.rejects(() => combatManagerService.saveInitiativeFormula(mockClient('player', calls), '1d20'),
+            (error: unknown) => error instanceof CombatManagerError && error.status === 403);
+        await assert.rejects(() => combatManagerService.saveInitiativeFormula({ ...gm,
+            getSystem: async () => ({ id: 'other' }) } as CombatClientLike, '1d20'),
+            (error: unknown) => error instanceof CombatManagerError && error.status === 503);
+        assert.equal((await combatManagerService.saveInitiativeFormula(gm, null)).initiativeFormula, null);
+        assert.equal(saved(), null, 'clear restores module-first resolution');
+        assert.equal(calls.length, 0, 'validation never dispatches Foundry writes');
+        assert.equal(rolls.length, 0, 'validation never rolls or creates chat');
+        await combatManagerService.saveInitiativeFormula(gm, formula);
+        combatStore.applyModifyDocument('Combat', 'update', [{ _id: 'OVERRIDE1',
+            'flags.world.sheetDelverCombat.playerActions': { initiativeOpen: true,
+                initiativeGeneration: 'override-phase', endTurnEnabled: true },
+            combatants: [{ _id: 'ROW1', actorId: 'PLAYERPC', hidden: false, initiative: null }],
+        }]);
+        const owner = mockClient('player', calls, rolls);
+        const service = createCombatService({});
+        const view = (await service.listCombats(owner)).combats.find(row => row.id === 'OVERRIDE1')!;
+        const observed = { initiative: null, formula: view.initiativeCandidates![0].initiativeRoll!.formula,
+            phaseGeneration: view.playerInitiative!.generation };
+        assert.equal(observed.formula, '1d20+0');
+        actorStore.applyModifyDocument('Actor', 'update', [{ _id: 'PLAYERPC', 'system.init': 'missing now' }]);
+        const invalidView = (await service.listCombats(owner)).combats.find(row => row.id === 'OVERRIDE1')!;
+        assert.equal(invalidView.initiativeCandidates![0].initiativeRoll!.rollAvailable, false);
+        assert.equal((await service.rollInitiative(owner, 'OVERRIDE1', 'ROW1', { observed }) as any).status, 409,
+            'a valid saved override cannot certify later missing Actor values');
+        actorStore.applyModifyDocument('Actor', 'update', [{ _id: 'PLAYERPC', 'system.init': 0 }]);
+        const changedDuringRead = { ...owner, getActor: async (id: string) => {
+            const source = actorStore.get(id);
+            actorStore.applyModifyDocument('Actor', 'update', [{ _id: id, 'system.init': 2 }]);
+            return source;
+        } } as CombatClientLike;
+        assert.equal((await service.rollInitiative(changedDuringRead, 'OVERRIDE1', 'ROW1', { observed }) as any).status, 409);
+        assert.equal(rolls.length, 0, 'post-save invalidation makes no chat or fallback roll');
+        assert.equal(calls.length, 0, 'post-save invalidation makes no score writes');
+        await combatManagerService.saveInitiativeFormula(gm, null);
+        console.log('  - Initiative override: all-participant validation, persistence and retired-scope checks passed');
+    } finally {
+        preparedActorStore.clear(); worldStateStore.clear();
+        if (previousWorld) worldStateStore.seed(previousWorld);
+        __resetDataDirForTests(previousDataDir);
+        fs.rmSync(dataDir, { recursive: true, force: true });
+    }
 }
 
 export async function run(): Promise<void> {
@@ -114,7 +826,8 @@ export async function run(): Promise<void> {
     const calls: Call[] = [];
     const gm = mockClient('gm', calls);
     const assistant = mockClient('assistant', calls);
-    const player = mockClient('player', calls);
+    const playerRolls: string[] = [];
+    const player = mockClient('player', calls, playerRolls);
 
     for (const restricted of [player, mockClient('trusted', calls), mockClient('banned', calls)]) {
         await assert.rejects(() => combatManagerService.list(restricted), (error: unknown) => error instanceof CombatManagerError && error.status === 403);
@@ -136,6 +849,22 @@ export async function run(): Promise<void> {
     const created = await combatManagerService.create(gm, 'Bridge ambush', false);
     assert.equal(created.status, 'active');
     assert.equal(created.keepHistory, false);
+    assert.deepEqual(created.playerActions, { initiativeOpen: false, endTurnEnabled: true, eligible: 0, scored: 0 });
+    assert.deepEqual(playerActionsFor(readCombatManagerFlag(combatStore.get(created.id))!),
+        { initiativeOpen: false, initiativeGeneration: '', endTurnEnabled: true });
+    assert.equal(hasCombatManagerMarker({ scene: null, flags: { world: { sheetDelverCombat: { mode: 'broken' } } } }), true);
+    const opened = await combatManagerService.setPlayerActions(gm, created.id, { initiativeOpen: true });
+    assert.equal(opened.playerActions.initiativeOpen, true);
+    const openGeneration = readCombatManagerFlag(combatStore.get(created.id))!.playerActions!.initiativeGeneration;
+    assert.ok(openGeneration);
+    await combatManagerService.setPlayerActions(gm, created.id, { endTurnEnabled: false });
+    assert.equal(readCombatManagerFlag(combatStore.get(created.id))!.playerActions!.initiativeGeneration, openGeneration);
+    const closed = await combatManagerService.setPlayerActions(gm, created.id, { initiativeOpen: false });
+    assert.equal(closed.playerActions.initiativeOpen, false);
+    assert.equal(closed.playerActions.endTurnEnabled, false);
+    assert.notEqual(readCombatManagerFlag(combatStore.get(created.id))!.playerActions!.initiativeGeneration, openGeneration);
+    await assert.rejects(() => combatManagerService.setPlayerActions(player, created.id, { initiativeOpen: true }),
+        (error: unknown) => error instanceof CombatManagerError && error.status === 403);
     const createsBeforeDuplicate = calls.filter(call => call.type === 'Combat' && call.action === 'create').length;
     const foldersBeforeDuplicate = calls.filter(call => call.type === 'Folder' && call.action === 'create').length;
     await assert.rejects(() => combatManagerService.create(gm, '  bridge  AMBUSH ', true),
@@ -189,13 +918,17 @@ export async function run(): Promise<void> {
         'roster uses the linked Actor portrait');
     await assert.rejects(() => combatManagerService.addWorldActor(gm, combatId, 'WORLDNPC'),
         (error: unknown) => error instanceof CombatManagerError && error.status === 409);
-    const managedTurns = createCombatService({ normalizeActors: async actors => actors });
+    const managedTurns = createCombatService({});
     assert.deepEqual(await managedTurns.rollInitiative(gm, combatId,
         (await combatManagerService.detail(gm, combatId)).participants[0].id, {}),
     { error: 'Use the GM Combat Manager to roll initiative', status: 403 },
     'legacy single-roll route cannot bypass the manager batch guard');
     assert.deepEqual(await managedTurns.advanceTurn(gm, combatId),
         { error: 'Use the GM Combat Manager to advance this encounter', status: 403 });
+    assert.deepEqual(await managedTurns.advanceTurn(gm, combatId, true),
+        { error: 'No eligible scored, unskipped combatants', status: 409 });
+    await combatManagerService.updateParticipant(gm, combatId,
+        (await combatManagerService.detail(gm, combatId)).participants[0].id, { initiative: 0 });
     assert.deepEqual(await combatManagerService.turn(gm, combatId,
         () => managedTurns.advanceTurn(gm, combatId, true)), { success: true, round: 1, turn: 0 });
     assert.equal(combatStore.get(combatId)?.active, true, 'Begin activates the Foundry Combat');
@@ -426,8 +1159,15 @@ export async function run(): Promise<void> {
     assert.equal(batchRoster.find(row => row.actorId === 'PLAYERPC')?.isNpc, false);
     assert.equal(batchRoster.find(row => row.actorId === 'ASSISTANTNPC')?.isNpc, true,
         'assistant ownership does not make an Actor player-owned');
-    await combatManagerService.turn(gm, batch.id, () => managedTurns.advanceTurn(gm, batch.id, true));
-    const currentBeforeBatch = (await combatManagerService.detail(gm, batch.id)).currentCombatantId;
+    await combatManagerService.setPlayerActions(gm, batch.id, { initiativeOpen: true });
+    const formingPlayerTracker = (await managedTurns.listCombats(player)).combats.find(combat => combat.id === batch.id)!;
+    assert.equal(formingPlayerTracker.active, false, 'player initiative does not activate Foundry Combat');
+    assert.ok(formingPlayerTracker.playerInitiative?.generation);
+    assert.deepEqual(formingPlayerTracker.combatants, [], 'pending Actors are separate from the turn roster');
+    assert.deepEqual(formingPlayerTracker.initiativeCandidates?.map(row => row.actorId), ['PLAYERPC'],
+        'forming phase prompts only the caller-owned visible Actor');
+    assert.equal(formingPlayerTracker.initiativeCandidates![0].canRollInitiative, true);
+    let currentBeforeBatch = (await combatManagerService.detail(gm, batch.id)).currentCombatantId;
     const rolledIds: string[] = [];
     const rollOne = async (rowId: string) => {
         rolledIds.push(rowId);
@@ -466,11 +1206,25 @@ export async function run(): Promise<void> {
         'batch initiative reordering preserves the active Combatant');
     assert.equal((await combatManagerService.rollInitiativeBatch(gm, batch.id, 'npc', rollOne)).rolled, 0,
         'NPC batch skips rows that already rolled');
+    await combatManagerService.turn(gm, batch.id, () => managedTurns.advanceTurn(gm, batch.id, true));
+    currentBeforeBatch = (await combatManagerService.detail(gm, batch.id)).currentCombatantId;
+    assert.equal(readCombatManagerFlag(combatStore.get(batch.id))?.playerActions?.initiativeOpen, false,
+        'Begin atomically closes the player phase');
     const allBatch = await combatManagerService.rollInitiativeBatch(gm, batch.id, 'all', rollOne);
     assert.equal(allBatch.rolled, 1);
     assert.equal(rolledIds.at(-1), batchRoster.find(row => row.actorId === 'PLAYERPC')?.id);
     assert.equal((await combatManagerService.rollInitiativeBatch(gm, batch.id, 'all', rollOne)).rolled, 0,
         'Roll All also skips rows that already rolled');
+    for (const [client, canManage] of [[gm, true], [assistant, true], [player, false]] as const) {
+        const tracker = (await managedTurns.listCombats(client)).combats.find(combat => combat.id === batch.id)!;
+        assert.ok(tracker);
+        assert.equal(tracker.canManage, canManage);
+        assert.equal(tracker.canAdvanceTurn, false);
+        assert.equal(tracker.canRewindTurn, false);
+        assert.ok(tracker.combatants.every(row => !row.canRollInitiative));
+    }
+    const playerTracker = (await managedTurns.listCombats(player)).combats.find(combat => combat.id === batch.id)!;
+    assert.equal(playerTracker.combatants.find(row => row.actorId === 'PLAYERPC')?.isOwned, true);
     const npcRowId = batchRoster.find(row => row.actorId === 'WORLDNPC')!.id;
     const playerRowId = batchRoster.find(row => row.actorId === 'PLAYERPC')!.id;
     const rollsBeforeSingle = rolledIds.length;
@@ -496,8 +1250,8 @@ export async function run(): Promise<void> {
     const reset = await combatManagerService.resetInitiative(gm, batch.id);
     assert.equal(reset.cleared, 2);
     assert.ok(reset.encounter.participants.every(row => row.initiative === null));
-    assert.equal(reset.encounter.currentCombatantId, currentBeforeBatch,
-        'Reset all preserves the active Combatant');
+    assert.equal(reset.encounter.currentCombatantId, null, 'Reset all pauses rather than selecting an unrolled Actor');
+    assert.equal(reset.encounter.awaitingInitiative, true);
     assert.equal((await combatManagerService.resetInitiative(gm, batch.id)).cleared, 0,
         'an already cleared encounter dispatches no further updates');
     assert.deepEqual(await combatManagerService.complete(gm, batch.id), { completed: true, retained: false });
@@ -505,7 +1259,6 @@ export async function run(): Promise<void> {
     const partial = await combatManagerService.create(gm, 'Partial initiative batch', false);
     await combatManagerService.addWorldActor(gm, partial.id, 'WORLDNPC');
     await combatManagerService.addWorldActor(gm, partial.id, 'ASSISTANTNPC');
-    await combatManagerService.turn(gm, partial.id, () => managedTurns.advanceTurn(gm, partial.id, true));
     const currentBeforePartial = (await combatManagerService.detail(gm, partial.id)).currentCombatantId;
     let attempted = 0;
     await assert.rejects(() => combatManagerService.rollInitiativeBatch(gm, partial.id, 'npc', async rowId => {
@@ -543,6 +1296,119 @@ export async function run(): Promise<void> {
         preparedActorStore.bind(actorStore);
         preparedActorStore.configure(new BaseSystemAdapter(), { worldEpoch: 1, systemId: 'test' });
         preparedActorStore.rebuildAll();
+        const ownerEncounter = await combatManagerService.create(gm, 'Owner participation', false);
+        await combatManagerService.addWorldActor(gm, ownerEncounter.id, 'PLAYERPC');
+        await combatManagerService.setPlayerActions(gm, ownerEncounter.id, { initiativeOpen: true });
+        const ownerService = createCombatService({});
+        const ownerView = (await ownerService.listCombats(player)).combats.find(combat => combat.id === ownerEncounter.id)!;
+        const ownerRow = ownerView.initiativeCandidates![0];
+        assert.equal(ownerView.active, false);
+        assert.equal(ownerRow.canRollInitiative, true);
+        const ownerObserved = { initiative: null, formula: ownerRow.initiativeRoll!.formula,
+            phaseGeneration: ownerView.playerInitiative!.generation };
+        const rollCount = playerRolls.length;
+        const rolled = await ownerService.rollInitiative(player, ownerEncounter.id, ownerRow.id,
+            { manualTotal: 12.5, observed: ownerObserved });
+        assert.deepEqual(rolled, { success: true, initiative: 12.5 });
+        assert.deepEqual(playerRolls.slice(rollCount), ['12.5']);
+        assert.equal((await ownerService.rollInitiative(player, ownerEncounter.id, ownerRow.id,
+            { manualTotal: 15, observed: ownerObserved }) as any).status, 409,
+        'the first applied score wins across duplicate owner attempts');
+        assert.equal(playerRolls.length, rollCount + 1, 'stale player request produces no second chat roll');
+        await combatManagerService.updateParticipant(gm, ownerEncounter.id, ownerRow.id,
+            { initiative: null, expectedInitiative: 12.5 });
+        await combatManagerService.setPlayerActions(gm, ownerEncounter.id, { initiativeOpen: false });
+        await combatManagerService.setPlayerActions(gm, ownerEncounter.id, { initiativeOpen: true });
+        assert.equal((await ownerService.rollInitiative(player, ownerEncounter.id, ownerRow.id,
+            { manualTotal: 15, observed: ownerObserved }) as any).status, 409,
+        'a reopened phase rejects an older generation');
+        const reopened = (await ownerService.listCombats(player)).combats.find(combat => combat.id === ownerEncounter.id)!;
+        const reopenedObserved = { ...ownerObserved, phaseGeneration: reopened.playerInitiative!.generation };
+        await combatManagerService.updateParticipant(gm, ownerEncounter.id, ownerRow.id, { hidden: true });
+        assert.equal((await ownerService.listCombats(player)).combats.find(combat => combat.id === ownerEncounter.id), undefined);
+        assert.deepEqual(await ownerService.rollInitiative(player, ownerEncounter.id, ownerRow.id,
+            { manualTotal: 15, observed: reopenedObserved }), { error: 'Combatant not found', status: 404 });
+        await combatManagerService.updateParticipant(gm, ownerEncounter.id, ownerRow.id, { hidden: false });
+        const writesBeforeLoss = calls.length;
+        actorStore.applyModifyDocument('Actor', 'update', [{ _id: 'PLAYERPC', ownership: { default: 0, player: 0 } }]);
+        assert.deepEqual(await ownerService.rollInitiative(player, ownerEncounter.id, ownerRow.id,
+            { manualTotal: 15, observed: reopenedObserved }), { error: 'Combatant not found', status: 404 });
+        assert.equal(calls.length, writesBeforeLoss, 'ownership loss has no remote side effect');
+        actorStore.applyModifyDocument('Actor', 'update', [{ _id: 'PLAYERPC', ownership: { player: 3 } }]);
+        const staleClient = { ...player, getActor: async (id: string) => {
+            worldStateStore.clearRuntimeState();
+            return actorStore.get(id);
+        } } as CombatClientLike;
+        assert.equal((await ownerService.rollInitiative(staleClient, ownerEncounter.id, ownerRow.id,
+            { manualTotal: 15, observed: reopenedObserved }) as any).status, 409,
+        'world replacement during a remote read stops before rolling');
+        worldStateStore.seed({ world: { id: 'stat-world' }, system: { id: 'test' } } as any);
+        const secondRoll = await ownerService.rollInitiative(player, ownerEncounter.id, ownerRow.id,
+            { manualTotal: 15, observed: reopenedObserved });
+        assert.deepEqual(secondRoll, { success: true, initiative: 15 });
+        assert.equal((await combatManagerService.detail(gm, ownerEncounter.id)).playerActions.scored, 1);
+        await combatManagerService.updateParticipant(gm, ownerEncounter.id, ownerRow.id,
+            { initiative: null, expectedInitiative: 15 });
+        const partialClient = { ...player, dispatchDocument: async (type: string, action: string,
+            operation?: unknown, parent?: { type: string; id: string }) => {
+            if (type === 'Combatant' && action === 'update') throw new Error('synthetic score-write failure');
+            return player.dispatchDocument(type, action, operation, parent);
+        } } as CombatClientLike;
+        const partialRoll = await ownerService.rollInitiative(partialClient, ownerEncounter.id, ownerRow.id,
+            { manualTotal: 18, observed: reopenedObserved });
+        assert.ok('error' in partialRoll && partialRoll.code === 'ROLL_OUTCOME_UNKNOWN',
+            'chat-created score failure reports an uncertain outcome, never a successful roll');
+        assert.equal((await combatManagerService.detail(gm, ownerEncounter.id)).participants[0].initiative, null);
+        await combatManagerService.updateParticipant(gm, ownerEncounter.id, ownerRow.id,
+            { initiative: 15, expectedInitiative: null });
+        await combatManagerService.turn(gm, ownerEncounter.id, () => ownerService.advanceTurn(gm, ownerEncounter.id, true));
+        const startedOwnerView = (await ownerService.listCombats(player)).combats.find(combat => combat.id === ownerEncounter.id)!;
+        assert.equal(startedOwnerView.playerInitiative, undefined);
+        assert.equal(startedOwnerView.canAdvanceTurn, true, 'owning player can end the managed current turn by default');
+        const turnObserved = { active: startedOwnerView.active, started: startedOwnerView.started,
+            round: startedOwnerView.round, currentCombatantId: startedOwnerView.currentCombatantId };
+        assert.deepEqual(await ownerService.advanceTurn(player, ownerEncounter.id, false, turnObserved),
+            { success: true, round: 2, turn: 0 });
+        await combatManagerService.setPlayerActions(gm, ownerEncounter.id, { endTurnEnabled: false });
+        assert.equal((await ownerService.advanceTurn(player, ownerEncounter.id, false, turnObserved) as any).status, 403);
+        await combatManagerService.updateParticipant(gm, ownerEncounter.id, ownerRow.id,
+            { initiative: null, expectedInitiative: 15 });
+        await combatManagerService.setPlayerActions(gm, ownerEncounter.id, { initiativeOpen: true });
+        const lateView = (await ownerService.listCombats(player)).combats.find(combat => combat.id === ownerEncounter.id)!;
+        const lateObserved = { initiative: null, formula: lateView.initiativeCandidates![0].initiativeRoll!.formula,
+            phaseGeneration: lateView.playerInitiative!.generation };
+        const turnWritesBeforeRace = calls.filter(call => call.type === 'Combat' && call.action === 'update'
+            && call.operation.updates?.[0]?.turn !== undefined).length;
+        const concurrentTurnClient = { ...player, dispatchDocument: async (type: string, action: string,
+            operation?: unknown, parent?: { type: string; id: string }) => {
+            const result = await player.dispatchDocument(type, action, operation, parent);
+            if (type === 'Combatant' && action === 'update') {
+                combatStore.applyModifyDocument('Combat', 'update', [{ _id: ownerEncounter.id, round: 3 }]);
+            }
+            return result;
+        } } as CombatClientLike;
+        const racedRoll = await ownerService.rollInitiative(concurrentTurnClient, ownerEncounter.id, ownerRow.id,
+            { manualTotal: 14, observed: lateObserved });
+        assert.ok('error' in racedRoll && racedRoll.code === 'TURN_SYNC_UNKNOWN',
+            'a concurrent GM turn change cannot be overwritten after the score write');
+        assert.equal(calls.filter(call => call.type === 'Combat' && call.action === 'update'
+            && call.operation.updates?.[0]?.turn !== undefined).length, turnWritesBeforeRace);
+        assert.equal((await combatManagerService.detail(gm, ownerEncounter.id)).participants[0].initiative, 14,
+            'turn-sync uncertainty does not hide the successfully applied score');
+        const withCopy = await combatManagerService.addPackActor(gm, ownerEncounter.id, 'test.monsters', 'PACK1', 1);
+        const generatedCopy = withCopy.participants.find(row => row.source === 'compendium-copy')!;
+        assert.equal(generatedCopy.name, 'World-Sized Ogre #1', 'GM retains distinct generated labels');
+        assert.equal(generatedCopy.hidden, true, 'late copied NPC starts hidden');
+        await combatManagerService.updateParticipant(gm, ownerEncounter.id, generatedCopy.id, { hidden: false, initiative: 2 });
+        const copiedPlayerView = (await ownerService.listCombats(player)).combats.find(combat => combat.id === ownerEncounter.id)!;
+        assert.equal(copiedPlayerView.combatants.find(row => row.id === generatedCopy.id)?.name, 'World-Sized Ogre',
+            'players never see a generated ordinal gap');
+        combatStore.applyModifyDocument('Combatant', 'update', [{ _id: generatedCopy.id, name: 'Authored Ogre' }],
+            { parentUuid: `Combat.${ownerEncounter.id}` });
+        const renamedPlayerView = (await ownerService.listCombats(player)).combats.find(combat => combat.id === ownerEncounter.id)!;
+        assert.equal(renamedPlayerView.combatants.find(row => row.id === generatedCopy.id)?.name, 'Authored Ogre',
+            'authored Combatant names are not stripped');
+        await combatManagerService.complete(gm, ownerEncounter.id);
         const hp = { key: 'hp', label: 'HP', path: 'system.attributes.hp', kind: 'resource' as const, showInRoster: true };
         assert.equal((await combatManagerService.saveStatPreferences(gm, [hp])).source, 'saved');
         assert.deepEqual((await combatManagerService.detail(gm, retained.id)).participants[0].stats,
@@ -705,6 +1571,8 @@ export async function run(): Promise<void> {
     const abandoned = await combatManagerService.create(gm, 'Abandoned draft', true);
     await combatManagerService.addWorldActor(gm, abandoned.id, 'WORLDNPC');
     await combatManagerService.addPackActor(gm, abandoned.id, 'test.monsters', 'PACK1');
+    await combatManagerService.updateParticipant(gm, abandoned.id,
+        (await combatManagerService.detail(gm, abandoned.id)).participants[0].id, { initiative: 0 });
     await combatManagerService.turn(gm, abandoned.id, () => managedTurns.advanceTurn(gm, abandoned.id, true));
     assert.equal(combatStore.get(abandoned.id)?.active, true);
     const abandonedCopy = (await combatManagerService.detail(gm, abandoned.id)).participants
@@ -749,6 +1617,10 @@ export async function run(): Promise<void> {
     assert.equal(calls.filter(call => call.type === 'Combat' && call.action === 'create').length, createdCombats,
         'ambiguous parent folders fail before creating a provisional Combat');
     folderStore.applyModifyDocument('Folder', 'delete', ['DUPROOT', 'USERROOT']);
+    await runManagedQueueRefinements();
+    await runManagedSkipRefinements();
+    await runParticipationHardening();
+    await runInitiativeOverrideValidation();
     console.log('  - CombatManager: role, identity, resource, retention and cleanup checks passed');
 }
 

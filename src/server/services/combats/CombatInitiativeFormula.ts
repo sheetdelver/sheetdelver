@@ -1,6 +1,7 @@
 import type { PreparedActorData, SystemAdapter } from '@shared/sdk';
 import { BaseSystemAdapter } from '@shared/sdk';
 import { isSafeCombatStatPath } from '@shared/contracts/combatStatAttributes';
+import { RollFormulaError, validateRollFormula } from '@server/core/foundry/Roll';
 
 export type InitiativeFormulaSource = 'module' | 'gm' | 'core';
 export interface EffectiveInitiativeFormula {
@@ -35,14 +36,12 @@ function preparedNumber(actor: PreparedActorData, path: string): number | null {
     return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
-function resolveReferences(formula: string, actor: PreparedActorData): string | null {
-    let missing = false;
+function resolveReferences(formula: string, actor?: PreparedActorData): string {
     const resolved = formula.replace(REFERENCE, (_token, path: string) => {
-        const number = preparedNumber(actor, path);
-        if (number === null) { missing = true; return '0'; }
+        const number = actor ? preparedNumber(actor, path) : null;
+        if (number === null) throw new RollFormulaError(`Missing or non-numeric initiative attribute: @${path}.`);
         return number < 0 ? `(${number})` : String(number);
     });
-    if (missing) return null;
     // Keep the evaluated formula in the same simple arithmetic grammar as
     // the saved expression; do not depend on Foundry accepting nested signs.
     return resolved.replace(/([+-])\s*\(-(\d+(?:\.\d+)?)\)/g,
@@ -50,17 +49,35 @@ function resolveReferences(formula: string, actor: PreparedActorData): string | 
         .replace(/^\s*\(-(\d+(?:\.\d+)?)\)/, '-$1');
 }
 
+/** GM expressions alone use Core's bounded prepared-Actor reference grammar. */
+export function validateInitiativeOverride(formula: string, actor?: PreparedActorData): string {
+    if (!validInitiativeFallback(formula)) throw new RollFormulaError('Use dice, numbers, +/− and safe numeric @system or @derived paths.');
+    const resolved = resolveReferences(formula, actor);
+    validateRollFormula(resolved);
+    return resolved;
+}
+
 export function effectiveInitiativeFormula(adapter: SystemAdapter | null, actor: PreparedActorData,
-    gmFallback: string | null): EffectiveInitiativeFormula {
+    gmOverride: string | null): EffectiveInitiativeFormula {
+    // An explicit override is authoritative, including failure. Do not run a
+    // module hook or silently fall back when a GM reference is unavailable.
+    if (gmOverride !== null) {
+        try {
+            const formula = validateInitiativeOverride(gmOverride, actor);
+            return { source: 'gm', formula, rollAvailable: true,
+                advantageAvailable: /^(?:1d20|2d20k[hl]1)(?!\d)/i.test(formula.trim()) };
+        } catch {
+            return { source: 'gm', formula: gmOverride, rollAvailable: false, advantageAvailable: false };
+        }
+    }
     const hook = adapter?.getInitiativeFormula;
     let moduleFormula = '';
     if (typeof hook === 'function' && hook !== BaseSystemAdapter.prototype.getInitiativeFormula) {
         try { moduleFormula = hook.call(adapter, actor)?.trim() || ''; }
         catch { return { source: 'module', formula: '', rollAvailable: false, advantageAvailable: false }; }
     }
-    const source: InitiativeFormulaSource = moduleFormula ? 'module' : gmFallback ? 'gm' : 'core';
-    const raw = moduleFormula || gmFallback || '1d20';
-    const formula = source === 'gm' && raw.includes('@') ? resolveReferences(raw, actor) : raw;
-    return { source, formula: formula ?? raw, rollAvailable: formula !== null,
-        advantageAvailable: formula !== null && /^(?:1d20|2d20k[hl]1)(?!\d)/i.test(formula.trim()) };
+    const source: InitiativeFormulaSource = moduleFormula ? 'module' : 'core';
+    const formula = moduleFormula || '1d20';
+    return { source, formula, rollAvailable: true,
+        advantageAvailable: /^(?:1d20|2d20k[hl]1)(?!\d)/i.test(formula.trim()) };
 }

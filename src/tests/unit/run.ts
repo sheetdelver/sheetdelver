@@ -100,6 +100,7 @@ import { run as runDocumentResolver } from './documents/document-resolver.test';
 import { run as runModifyDocumentRouter } from './routing/modify-document-router.test';
 import { run as runOwnershipHelpers } from './routing/ownership.test';
 import { run as runRouteOwnershipThresholds } from './routing/route-ownership-thresholds.test';
+import { run as runCombatRoutePreflight } from './routing/combat-route-preflight.test';
 import { run as runActorMutationOutcomes } from './routing/actor-mutation-outcomes.test';
 import { run as runDebugUtilityRoutes } from './routing/debug-utility-routes.test';
 import { run as runAdminSystemModuleRoutes } from './routing/admin-system-module-routes.test';
@@ -241,6 +242,7 @@ async function runAllUnitTests() {
     await runItemStore();
     await runOwnershipHelpers();
     await runRouteOwnershipThresholds();
+    await runCombatRoutePreflight();
     await runActorMutationOutcomes();
     await runDebugUtilityRoutes();
     await runAdminSystemModuleRoutes();

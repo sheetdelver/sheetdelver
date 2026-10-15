@@ -62,9 +62,25 @@ export async function run() {
             expected: { actorId: row.actorId, path: row.stats[0].edit!.path, value: row.stats[0].edit!.value } }));
         assert.equal((await combatManagerService.applyHealthBatch(assistant, created.id,
             { operation: 'damage', amount: 2, targets })).applied, 3);
-        const turns = createCombatService({ normalizeActors: async actors => actors });
+        const turns = createCombatService({});
+        await combatManagerService.setPlayerActions(assistant, created.id, { initiativeOpen: true });
+        const tracker = (await turns.listCombats(assistant)).combats.find(row => row.id === created.id)!;
+        assert.equal(tracker.canManage, true, 'Assistant retains the manager shortcut in the HUD');
+        assert.equal(tracker.canAdvanceTurn, false, 'Assistant uses manager commands, not the owner HUD lane');
+        assert.equal(tracker.playerInitiative, undefined, 'Assistant does not receive an owner initiative phase');
+        const deniedHudTurn = await turns.advanceTurn(assistant, created.id);
+        assert.ok('error' in deniedHudTurn && deniedHudTurn.status === 403);
+        await combatManagerService.updateParticipant(assistant, created.id,
+            encounter.participants.find(row => !row.defeated)!.id, { initiative: 0 });
         await combatManagerService.turn(assistant, created.id, () => turns.advanceTurn(assistant, created.id, true));
         assert.equal(combatStore.get(created.id)?.round, 1);
+        assert.equal(readCombatManagerFlag(combatStore.get(created.id))!.playerActions!.initiativeOpen, false,
+            'Assistant Begin closes the owner initiative phase');
+        await combatManagerService.turn(assistant, created.id, () => turns.previousTurn(assistant, created.id, true));
+        assert.equal(combatStore.get(created.id)?.round, 0);
+        assert.equal((await combatManagerService.rollInitiativeOne(assistant, created.id, copied.id,
+            rowId => turns.rollInitiative(assistant, created.id, rowId, {}, true))).rolled, 1,
+            'Assistant manager rolls through the caller-bound initiative service');
         await combatManagerService.resetInitiative(assistant, created.id);
         assert.equal((await combatManagerService.rollInitiativeBatch(assistant, created.id, 'npc', async rowId => {
             combatStore.applyModifyDocument('Combatant', 'update', [{ _id: rowId, initiative: 12 }], { parentUuid: `Combat.${created.id}` });

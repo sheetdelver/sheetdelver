@@ -317,7 +317,7 @@ async function runManifestTests() {
             },
         },
         sheet: () => Promise.resolve({ default: {} }),
-        rollModal: () => Promise.resolve({ default: {} }),
+        rollModal: () => Promise.resolve({ default: () => null }),
         actorPage: () => Promise.resolve({ default: {} }),
         tools: {
             'generator': () => Promise.resolve({ default: {} }),
@@ -342,7 +342,8 @@ async function runManifestTests() {
 function runUIPropTests() {
     // These just need to compile — verifies the types are exported correctly
     const _loadingProps: LoadingModalProps = { message: 'Loading...' };
-    const _rollProps: RollDialogProps = { onRoll: () => {}, onClose: () => {} };
+    const _rollProps: RollDialogProps = { isOpen: true, title: 'Roll', type: 'ability',
+        onConfirm: () => {}, onClose: () => {} };
     const _confirmProps: ConfirmationModalProps = {
         title: 'Confirm',
         message: 'Are you sure?',
@@ -411,9 +412,9 @@ function runClientSdkTests() {
 // ---------------------------------------------------------------------------
 
 function runVersionTests() {
-    assert.equal(SDK_VERSION, '2.3.0');
-    assert.equal(API_CONTRACT_VERSIONS['module-api'], '1.3.0');
-    assert.equal(API_CONTRACT_VERSIONS['ui-extension-api'], '2.2.0');
+    assert.equal(SDK_VERSION, '3.2.0');
+    assert.equal(API_CONTRACT_VERSIONS['module-api'], '1.4.0');
+    assert.equal(API_CONTRACT_VERSIONS['ui-extension-api'], '3.1.0');
     assert.equal(API_CONTRACT_VERSIONS['roll-engine-api'], '1.0.0');
 
     // Capability detection (decision 23)

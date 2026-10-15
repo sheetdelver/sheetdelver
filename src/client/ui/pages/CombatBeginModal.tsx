@@ -40,6 +40,7 @@ export function CombatBeginModal({ prompt, busy, onChoose, onCancel }: Props) {
             className="sd-ui-modal sd-ui-panel-raised relative z-10 w-full max-w-lg rounded-2xl p-6 shadow-2xl backdrop-blur-xl">
             <h3 id="combat-begin-title" className="sd-ui-accent text-xl font-bold">Begin encounter</h3>
             <p className="mt-3 text-sm">Unrolled: {prompt.unrolledPlayers} player-owned, {prompt.unrolledNpcs} NPCs.</p>
+            <p className="sd-ui-muted mt-2 text-sm">Unrolled participants wait outside the turn queue until they receive initiative.</p>
             {unavailable > 0 && <p className="sd-ui-danger mt-2 text-sm">{unavailable} cannot roll with the current formula and will remain unrolled. Enter their initiative manually if needed.</p>}
             {prompt.activeOtherCount > 0 && <p className="sd-ui-danger mt-2 text-sm">
                 {prompt.activeOtherCount} other {prompt.activeOtherCount === 1 ? 'Combat is' : 'Combats are'} active in Foundry.

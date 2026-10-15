@@ -6,6 +6,23 @@ implementation
 **Related:** ADR-0013, ADR-0028, ADR-0039, ADR-0040, ADR-0049, ADR-0052,
 ADR-0057
 
+## Successor scope note — October 13, 2026
+
+ADR-0049 has shipped, and ADR-0060 completed the typed module initiative
+presentation contract: Core now supplies the resolved formula to an override
+or shared fallback. The modal-recomputation limitation in the original
+context below is historical, not a reason to introduce a competing roller.
+
+[ADR-0061](0061-managed-combat-player-participation.md) implements a narrower
+first step: GM-opened player initiative and owner End my turn for managed
+encounters. The user selected an open initiative phase rather than individual
+directed requests, and default-enabled owner End my turn with a GM disable
+switch. That ADR supersedes this document's dependency on a full
+request queue before managed participation. This ADR remains **Deferred** for
+the reusable Request Roll tool, targeted private GM/player cards, durable
+pending/answered/cancelled requests and standalone carrier design. It does
+not authorize those additional features or their implementation.
+
 ## Context
 
 The GM Combat Manager needs to ask selected players to roll initiative,

@@ -42,6 +42,7 @@ export type {
     ModuleInfo,
     ModuleSettingDeclaration,
     ModuleCombatStatAttribute,
+    ModuleCombatStatLayout,
     ModuleManifestPaths,
     ModulePackageDeclaration,
     ModulePermissionDeclaration,

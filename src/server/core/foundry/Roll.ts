@@ -99,6 +99,12 @@ function parse(formula: string): ParsedFormula {
     return { tokens, specs, pools };
 }
 
+/** Check the execution grammar/limits without evaluating dice or consuming RNG. */
+export function validateRollFormula(formula: string): void {
+    try { parse(formula); }
+    catch (error) { throw error instanceof RollFormulaError ? error : new RollFormulaError(); }
+}
+
 function notation(tokens: Token[], specs: WeakMap<Dice.StandardDice, NumericDieSpec>, pools: WeakMap<RollGroup, PoolSpec>): string {
     return tokens.map(token => token instanceof Dice.StandardDice ? specs.get(token)?.formula ?? token.notation
         : token instanceof RollGroup ? `{${token.expressions.map(expression => notation(expression, specs, pools)).join(',')}}${pools.get(token)?.rules.map(rule => rule.notation).join('') ?? ''}`

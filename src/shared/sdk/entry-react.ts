@@ -55,6 +55,9 @@ export type {
 export type {
     LoadingModalProps,
     RollDialogProps,
+    InitiativeRollModalProps,
+    InitiativeRollChoice,
+    SheetRollDialogProps,
     ConfirmationModalProps,
     SharedContentModalProps,
     RichTextEditorProps,

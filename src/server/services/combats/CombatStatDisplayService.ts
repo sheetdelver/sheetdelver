@@ -1,14 +1,22 @@
 import type { PreparedActorData, ModuleCombatStatAttribute } from '@shared/sdk';
 import type { CombatClientLike } from '@server/shared/types/documents';
-import type { CombatManagerAvailableStatDto, CombatManagerSelectedStatDto, CombatManagerStatDto, CombatManagerStatPreferencesDto } from '@shared/contracts/combatManager';
+import type { CombatManagerAvailableStatDto, CombatManagerSelectedStatDto, CombatManagerStatDto, CombatManagerStatPreferencesDto, CombatManagerStatPathValidationDto, CombatManagerStatKind } from '@shared/contracts/combatManager';
 import { isSafeCombatStatPath, parseCombatStatAttributes, parseCombatStatSelection } from '@shared/contracts/combatStatAttributes';
 import type { ActorDocument } from '@server/shared/types/actors';
 import { preparedActorStore } from '@server/core/documents/prepared/actors/PreparedActorStore';
+import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
+import { combatStore } from '@server/core/documents/primary/combats/CombatStore';
+import { userStore } from '@server/core/documents/primary/users/UserStore';
 import { worldStateStore } from '@server/core/world/WorldStateStore';
+import { worldBootstrapper } from '@server/services/world';
 import { listModules } from '@modules/registry/server';
 import { combatStatPreferenceStore } from './CombatStatPreferenceStore';
 import { combatManagerPreferenceEvents } from './CombatManagerPreferenceEvents';
-import { requireCombatManagerSubject } from './CombatManagerAccess';
+import { CombatManagerError, requireCombatManagerSubject } from './CombatManagerAccess';
+import { readCombatManagerFlag } from './combatManagerFlag';
+import { validateInitiativeOverride } from './CombatInitiativeFormula';
+import { getDocumentId } from '@server/core/documents/primary/base/PrimaryDocumentStore';
+import { sanitizeRichHtml, type SanitizeRichHtmlOptions } from '@shared/security/safeHtml';
 
 function readPath(actor: unknown, path: string): unknown {
     if (!isSafeCombatStatPath(path)) return null;
@@ -22,12 +30,14 @@ function readPath(actor: unknown, path: string): unknown {
 }
 
 export function projectCombatStatFields(actor: PreparedActorData | null,
-    attributes: CombatManagerSelectedStatDto[], sourceActor?: ActorDocument | null): CombatManagerStatDto[] {
+    attributes: CombatManagerSelectedStatDto[], sourceActor?: ActorDocument | null,
+    htmlOptions: SanitizeRichHtmlOptions = {}): CombatManagerStatDto[] {
     if (!actor) return [];
     const stats: CombatManagerStatDto[] = [];
     for (const attribute of attributes) {
         if (attribute.actorTypes?.length && !attribute.actorTypes.includes(actor.type)) continue;
         const raw = readPath(actor, attribute.path);
+        const presentation = attribute.layout ? { layout: { ...attribute.layout } } : {};
         const roster = attribute.showInRoster === true ? { showInRoster: true as const } : {};
         const health = attribute.health === true ? { health: true as const } : {};
         const edit = editableSourceStat(sourceActor ?? null, attribute, raw);
@@ -36,15 +46,20 @@ export function projectCombatStatFields(actor: PreparedActorData | null,
             const value = (raw as Record<string, unknown>).value;
             const max = (raw as Record<string, unknown>).max;
             if (typeof value !== 'number' || !Number.isFinite(value)) continue;
-            stats.push({ title: attribute.label, value, ...roster, ...health, ...(edit ? { edit } : {}),
+            stats.push({ title: attribute.label, value, ...presentation, ...roster, ...health, ...(edit ? { edit } : {}),
                 ...(typeof max === 'number' && Number.isFinite(max) ? { subValue: `/ ${max}` } : {}) });
         } else if (attribute.kind === 'number') {
             if (typeof raw !== 'number' || !Number.isFinite(raw)) continue;
-            stats.push({ title: attribute.label, value: raw, ...roster, ...health, ...(edit ? { edit } : {}) });
+            stats.push({ title: attribute.label, value: raw, ...presentation, ...roster, ...health, ...(edit ? { edit } : {}) });
+        } else if (attribute.kind === 'textarea') {
+            if (typeof raw === 'string') stats.push({ title: attribute.label,
+                value: attribute.contentFormat === 'html' ? sanitizeRichHtml(raw,
+                    { excludeUnrevealedSecrets: true, ...htmlOptions }) : raw,
+                multiline: true, ...(attribute.contentFormat === 'html' ? { contentFormat: 'html' as const } : {}), ...presentation });
         } else if (typeof raw === 'string' && raw.trim()) {
-            stats.push({ title: attribute.label, value: raw.trim().slice(0, 48), ...roster });
+            stats.push({ title: attribute.label, value: raw.trim().slice(0, 48), ...presentation, ...roster });
         } else if (typeof raw === 'number' && Number.isFinite(raw)) {
-            stats.push({ title: attribute.label, value: raw, ...roster });
+            stats.push({ title: attribute.label, value: raw, ...presentation, ...roster });
         }
     }
     return stats;
@@ -72,14 +87,14 @@ function fieldLabel(name: string): string {
         .join(' ');
 }
 
-function contextualFieldLabel(path: string, kind: ModuleCombatStatAttribute['kind']): string {
+function contextualFieldLabel(path: string, kind: CombatManagerStatKind): string {
     const parts = path.split('.').slice(1);
     const shown = kind === 'resource' ? parts.slice(-1) : parts.slice(-2);
     return shown.map(fieldLabel).join(' · ').slice(0, 32);
 }
 
-function actorFields(actor: PreparedActorData): ModuleCombatStatAttribute[] {
-    const fields: ModuleCombatStatAttribute[] = [];
+function actorFields(actor: PreparedActorData): CombatManagerSelectedStatDto[] {
+    const fields: CombatManagerSelectedStatDto[] = [];
     const visit = (value: unknown, prefix: string, depth: number): void => {
         if (fields.length >= 100 || depth > 6 || !value || typeof value !== 'object' || Array.isArray(value)) return;
         for (const [name, child] of Object.entries(value)) {
@@ -88,14 +103,18 @@ function actorFields(actor: PreparedActorData): ModuleCombatStatAttribute[] {
             if (!isSafeCombatStatPath(fieldPath)) continue;
             if (typeof child === 'number' && Number.isFinite(child)) {
                 fields.push({ key: `field${fields.length}`, label: contextualFieldLabel(fieldPath, 'number'), path: fieldPath, kind: 'number' });
-            } else if (typeof child === 'string' && child.trim() && child.length <= 48) {
-                fields.push({ key: `field${fields.length}`, label: contextualFieldLabel(fieldPath, 'text'), path: fieldPath, kind: 'text' });
+            } else if (typeof child === 'string' && child.trim()) {
+                const kind = child.length > 48 || child.includes('\n') ? 'textarea' : 'text';
+                fields.push({ key: `field${fields.length}`, label: contextualFieldLabel(fieldPath, kind), path: fieldPath, kind });
             } else if (child && typeof child === 'object' && !Array.isArray(child)) {
                 const record = child as Record<string, unknown>;
                 if (typeof record.value === 'number' && Number.isFinite(record.value)
                     && (record.max === undefined || typeof record.max === 'number' && Number.isFinite(record.max))) {
                     fields.push({ key: `field${fields.length}`, label: contextualFieldLabel(fieldPath, 'resource'), path: fieldPath, kind: 'resource' });
-                } else visit(child, fieldPath, depth + 1);
+                }
+                // Keep the resource aggregate for stat display, but also
+                // discover its real numeric leaves for formula references.
+                visit(child, fieldPath, depth + 1);
             }
         }
     };
@@ -141,7 +160,7 @@ export function discoverCombatStatFields(actors: PreparedActorData[]): CombatMan
 export function resolveCombatStatSelection(saved: CombatManagerSelectedStatDto[] | null,
     suggestions: ModuleCombatStatAttribute[]): Pick<CombatManagerStatPreferencesDto, 'source' | 'attributes'> {
     if (saved !== null) return { source: 'saved', attributes: saved };
-    if (suggestions.length) return { source: 'module', attributes: suggestions.slice(0, 8) };
+    if (suggestions.length) return { source: 'module', attributes: suggestions };
     return { source: 'none', attributes: [] };
 }
 
@@ -154,6 +173,10 @@ async function activeScope(client: CombatClientLike): Promise<{ worldId: string;
 async function resolve(client: CombatClientLike): Promise<CombatManagerStatPreferencesDto | null> {
     const scope = await activeScope(client);
     if (!scope) return null;
+    return resolveScope(scope);
+}
+
+function resolveScope(scope: { worldId: string; moduleId: string }): CombatManagerStatPreferencesDto {
     const info = listModules({ includeExperimental: true }).find(row => row.info.id === scope.moduleId)?.info;
     const suggestions = parseCombatStatAttributes(info?.combatTracking?.attributes, 16) ?? [];
     const saved = combatStatPreferenceStore.get(scope.worldId, scope.moduleId);
@@ -161,8 +184,65 @@ async function resolve(client: CombatClientLike): Promise<CombatManagerStatPrefe
         initiativeFormula: combatStatPreferenceStore.getInitiativeFormula(scope.worldId, scope.moduleId) };
 }
 
+/** Capture once, then synchronously revalidate after the caller's system await. */
+export function captureManagerScope(client: CombatClientLike) {
+    const userId = client.userId;
+    const worldId = worldStateStore.getCurrentWorldId();
+    const epoch = worldBootstrapper.getRuntimeEpoch();
+    requireCombatManagerSubject(userId);
+    return (moduleId: string) => {
+        if (client.userId !== userId || !userId || !userStore.get(userId) || userStore.get(userId)?.banned) {
+            throw new CombatManagerError('Player session is no longer valid', 401);
+        }
+        const subject = requireCombatManagerSubject(userId);
+        if (!worldId || !worldStateStore.isReady() || !combatStore.isReady() || !actorStore.isReady()
+            || worldStateStore.getCurrentWorldId() !== worldId || worldBootstrapper.getRuntimeEpoch() !== epoch
+            || worldStateStore.getSystem()?.id?.toLowerCase() !== moduleId
+            || (client as CombatClientLike & { isConnected?: boolean }).isConnected === false) {
+            throw new CombatManagerError('World changed or is unavailable; retry after reconnecting', 503);
+        }
+        return { worldId, moduleId, subject };
+    };
+}
+
+function matchesStatKind(value: unknown, kind: CombatManagerStatKind): boolean {
+    const number = (candidate: unknown) => typeof candidate === 'number' && Number.isFinite(candidate);
+    if (kind === 'number') return number(value);
+    if (kind === 'text') return (typeof value === 'string' && !!value.trim()) || number(value);
+    if (kind === 'textarea') return typeof value === 'string';
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+    const resource = value as Record<string, unknown>;
+    return number(resource.value) && (resource.max == null || number(resource.max));
+}
+
 export const combatStatDisplayService = {
     resolve,
+    async validateStatPath(client: CombatClientLike, pathInput: unknown, kindInput: unknown): Promise<CombatManagerStatPathValidationDto> {
+        const currentScope = captureManagerScope(client);
+        const { subject } = currentScope((await client.getSystem()).id.toLowerCase());
+        const path = typeof pathInput === 'string' ? pathInput.trim() : '';
+        if (!isSafeCombatStatPath(path)) throw new CombatManagerError('Use a safe system.* or derived.* attribute path', 400);
+        if (typeof kindInput !== 'string' || !['number', 'text', 'resource', 'textarea'].includes(kindInput)) throw new CombatManagerError('Invalid stat kind', 400);
+        const kind = kindInput as CombatManagerStatKind;
+        const actorTypes = new Set<string>();
+        let exists = false, matched = false;
+        // Exact reads bypass catalog sampling limits, but never source authorization.
+        for (const source of actorStore.list({ subject })) {
+            const id = getDocumentId(source);
+            const prepared = id ? preparedActorStore.get(id) : null;
+            if (!prepared) continue;
+            const value = readPath(prepared, path);
+            if (value === undefined || value === null) continue;
+            exists = true;
+            if (!matchesStatKind(value, kind)) continue;
+            matched = true;
+            if (typeof prepared.type === 'string') actorTypes.add(prepared.type);
+        }
+        if (!matched) throw new CombatManagerError(exists
+            ? `Attribute does not contain ${kind === 'resource' ? 'a numeric value/max resource' : kind === 'number' ? 'a finite number' : kind === 'textarea' ? 'a string' : 'displayable text'} on current Actors`
+            : 'Attribute not found on current prepared world Actors', exists ? 400 : 404);
+        return { path, kind, observedActorTypes: [...actorTypes].sort() };
+    },
     async detail(client: CombatClientLike, actorId?: string, includeCatalog = false): Promise<CombatManagerStatPreferencesDto | null> {
         const selection = await resolve(client);
         if (!selection) return null;
@@ -172,29 +252,56 @@ export const combatStatDisplayService = {
         return { ...selection, available: discoverCombatStatFields(actors) };
     },
     async save(client: CombatClientLike, attributes: unknown): Promise<CombatManagerStatPreferencesDto | null> {
-        const scope = await activeScope(client);
-        if (!scope) return null;
-        requireCombatManagerSubject(client.userId);
+        const currentScope = captureManagerScope(client);
+        const scope = currentScope((await client.getSystem()).id.toLowerCase());
         const parsed = parseCombatStatSelection(attributes);
-        if (!parsed) throw new Error('Invalid combat-stat selection');
+        if (!parsed) throw new CombatManagerError('Invalid combat-stat selection', 400);
         combatStatPreferenceStore.set(scope.worldId, scope.moduleId, parsed);
         combatManagerPreferenceEvents.changed();
-        return resolve(client);
+        return resolveScope(scope);
     },
     async reset(client: CombatClientLike): Promise<CombatManagerStatPreferencesDto | null> {
-        const scope = await activeScope(client);
-        if (!scope) return null;
-        requireCombatManagerSubject(client.userId);
+        const currentScope = captureManagerScope(client);
+        const scope = currentScope((await client.getSystem()).id.toLowerCase());
         combatStatPreferenceStore.reset(scope.worldId, scope.moduleId);
         combatManagerPreferenceEvents.changed();
-        return resolve(client);
+        return resolveScope(scope);
     },
     async saveInitiativeFormula(client: CombatClientLike, formula: string | null): Promise<CombatManagerStatPreferencesDto | null> {
-        const scope = await activeScope(client);
-        if (!scope) return null;
-        requireCombatManagerSubject(client.userId);
+        const currentScope = captureManagerScope(client);
+        const { worldId, moduleId, subject } = currentScope((await client.getSystem()).id.toLowerCase());
+        const scope = { worldId, moduleId };
+        if (formula !== null) {
+            // All current managed participants, including hidden/scored rows,
+            // share this preference. Never sample or scan unrelated world Actors.
+            const actorIds = new Set<string>();
+            for (const combat of combatStore.list({ subject })) {
+                const flag = readCombatManagerFlag(combat);
+                if (!flag || flag.status !== 'active' || flag.deletionRequested || flag.historyRemovalRequested) continue;
+                for (const row of combat.combatants ?? []) if (row.actorId) actorIds.add(row.actorId);
+            }
+            if (!actorIds.size && formula.includes('@')) {
+                throw new CombatManagerError('Add encounter participants before validating attribute references', 400);
+            }
+            try {
+                if (!actorIds.size) validateInitiativeOverride(formula);
+                for (const actorId of actorIds) {
+                    const source = actorStore.get(actorId, { subject });
+                    const prepared = source ? preparedActorStore.get(actorId) : null;
+                    if (!prepared) throw new CombatManagerError('A participant Actor is unavailable; refresh before saving', 409);
+                    try { validateInitiativeOverride(formula, prepared); }
+                    catch (error) {
+                        throw new CombatManagerError(`${source?.name || 'Participant'}: ${(error as Error).message}`, 400);
+                    }
+                }
+            } catch (error) {
+                if (error instanceof CombatManagerError) throw error;
+                throw new CombatManagerError((error as Error).message, 400);
+            }
+        }
+        // No await between the current scope/participant check and persistence.
         combatStatPreferenceStore.setInitiativeFormula(scope.worldId, scope.moduleId, formula);
         combatManagerPreferenceEvents.changed();
-        return resolve(client);
+        return resolveScope(scope);
     },
 };

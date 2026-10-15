@@ -129,7 +129,7 @@ Do not import from Sheet Delver internals such as `@shared/*`, `@client/*`, `@se
   "compatibility": {
     "apiContracts": {
       "module-api": ">=1.1.0 <2.0.0",
-      "ui-extension-api": ">=2.0.0 <3.0.0",
+      "ui-extension-api": ">=3.0.0 <4.0.0",
       "roll-engine-api": ">=1.0.0 <2.0.0"
     }
   },
@@ -353,8 +353,75 @@ Targets must be root-relative paths on the current Sheet Delver origin. Use a
 normal anchor for an external destination. Do not assign `window.location.href`
 or call `window.location.assign()` / `replace()` for internal routes;
 `module:check` rejects those hard-navigation forms. Navigation first appeared
-in UI contract 1.1.0; modules targeting the current host declare
-`ui-extension-api: ">=2.1.0 <3.0.0"` in `info.json`.
+in UI contract 1.1.0; modules targeting the next host release declare
+`ui-extension-api: ">=3.0.0 <4.0.0"` in `info.json` for Core 0.18.0.
+
+### Combat-HUD initiative presentation (SDK 3.0.0)
+
+The optional UI-manifest `rollModal` is now a typed initiative presentation
+slot. Its `InitiativeRollModalProps` include Core's resolved formula/source,
+allowed roll and advantage modes, manual-final-total availability, effective
+audience, display name, open/close state and a bounded `onConfirm` choice.
+Resolution is explicit saved GM override → module `getInitiativeFormula` →
+Core `1d20`. Clearing the override restores module-first behavior. Core
+validates GM expressions before saving and before execution; it does not
+reinterpret a module's formula references or invoke the module hook when an
+explicit override exists. Module hooks must use their prepared Actor model and
+return an executable formula; the modal must display that supplied formula.
+Modules must not recalculate or submit a formula, set recipients, or call a
+Foundry transport from this modal. Use the injected SDK `RollDialog` with
+`type="initiative"` to retain a module theme, or omit `rollModal` for Core's
+generic fallback. Sheet-oriented `RollDialog` modes remain available.
+
+The Combat Manager separately owns GM stat/formula configuration: selected
+stat counts are not limited by the module's at-most-16 suggestion contract.
+Its numeric reference picker uses observed prepared fields; advanced custom
+paths are verified by Core without module-specific schema code or transports.
+Do not assume that a catalog suggestion is available on every participant.
+HUD initiative uses the same typed dialog callback for candidates outside the
+turn roster. Stat presentation is separate from source-backed write authority.
+
+SDK3.2.0/module-api1.4.0 adds optional textarea, `contentFormat` (plain/HTML)
+and validated detail `layout` to `info.json` suggestions. See the manifest guide
+for exact ranges/defaults. Adopt with module-api>=1.4.0 and target Core>=0.18.0
+before publication; existing number/text/resource declarations remain valid
+without changes. New defaults seed an unconfigured selection or explicit Reset;
+GM-saved selections win. Core authorizes, sanitizes and renders static HTML
+using its shared boundary; modules must not add private host imports, native
+enrichers, transports or text-write behavior for this presentation. Textarea is
+detail-only, not health/editable/HUD/pill data. No current module manifest or
+release version has changed to adopt these fields.
+
+For an isolated local test against this unreleased Core branch, a module may
+retain its existing temporary development Core minimum while declaring
+module-api>=1.4.0; released0.17.x still fails that contract gate. Restore the
+Core>=0.18.0 minimum before publication. Do not alter published compatibility
+merely to make a development fixture visible.
+
+Upgrade module compatibility to `coreVersion >=0.18.0` and
+`ui-extension-api >=3.0.0 <4.0.0`; publish Core before module releases.
+For local development against the unreleased Core branch, a temporary
+`coreVersion >=0.17.0` minimum can keep the module visible; the 3.x UI API
+gate still rejects released Core 0.17.x. Preserve any higher existing minimum
+(Mörk Borg's footer requires `>=0.17.1`). Restore the Core 0.18.0 minimum
+after that host release and before publishing the module. SDK 3.1.0 /
+`ui-extension-api` 3.1.0 makes `InitiativeRollChoice`'s `advantageMode`
+optional for `kind: "roll"`. Omit it for the default button: Core executes
+the displayed resolved formula unchanged, including module-provided
+keep-highest/lowest terms. Explicit `normal`, `advantage` and `disadvantage`
+remain bounded leading-d20 overrides. Existing 3.x-compatible modules need
+no new minimum range merely for this additive choice; wrappers using the
+injected Core `RollDialog` inherit the corrected behavior. The HUD uses the
+same slot for an eligible owned row during a GM-opened managed initiative
+phase (ADR-0061); authorization and transport remain Core-owned.
+Reuse the existing sheet roller's presentation: injected `RollDialog` shares
+its frame/theme between sheet and initiative modes. A module with its own
+sheet modal can register a typed `rollModal` adapter around reusable module
+frame/field/button components (Mörk Borg and D&D do this). Do not reuse sheet
+rule execution, bonus/formula editing, recipient selection or raw-die manual
+math in that adapter: `kind: "manual"` is already the final total. Theme
+classes own their surfaces; Core must not add a conflicting skin. No additional
+SDK surface is needed for this presentation reuse.
 
 ### Player-world lifecycle
 
@@ -377,7 +444,7 @@ startup or replacement. A same-world socket blip is not world teardown. See
 ### Optional bottom navigation
 
 SDK 2.3.0 / `ui-extension-api` 2.2.0 adds an opt-in clearance contract for a
-module-owned fixed footer. Import only the public hook and register the bar
+module-owned fixed footer, retained in SDK/UI 3.1. Import only the public hook and register the bar
 element, not a measured number or a private Core selector:
 
 ```tsx
@@ -406,7 +473,9 @@ The imperative `useSDK().registerBottomNavigation(element)` returns an
 idempotent disposer; custom consumers must call it on cleanup. Mock SDK hosts
 provide an inert registration. Adopting modules require
 `"ui-extension-api": ">=2.2.0 <3.0.0"` and a released Core supporting it
-(target Core 0.17.1 in ADR-0062). Modules not using the addition need no minimum
+(Core 0.17.1 in ADR-0062). HUD modules use the combined UI 3.x contract
+(`>=3.0.0 <4.0.0`) and the Core 0.18.0 publication gate above; do not revert
+them to UI 2.x merely to retain footer support. Modules not using the addition need no minimum
 bump. Before publication, pin CI/packaging to that available release tag and
 align the application minimum; never ship a local-development staging minimum
 as a substitute for release validation.
@@ -586,7 +655,7 @@ async function exportCharacter() {
 ```
 
 Notification lifecycle first appeared in UI contract 1.2.0. Modules targeting
-the current host declare `"ui-extension-api": ">=2.0.0 <3.0.0"`.
+the next host release declare `"ui-extension-api": ">=3.0.0 <4.0.0"`.
 Notification IDs are ephemeral;
 updates return false after expiry, dismissal or session cleanup. Do not recreate
 a notice after a late update fails. Incomplete progress pauses expiry; completion

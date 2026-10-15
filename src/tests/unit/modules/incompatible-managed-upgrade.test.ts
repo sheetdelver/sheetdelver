@@ -66,7 +66,7 @@ export async function run(): Promise<void> {
 
         const source = path.join(root, 'replacement');
         const archivePath = path.join(root, 'replacement.tgz');
-        writePackage(source, '1.1.0', '>=2.1.0 <3.0.0');
+        writePackage(source, '1.1.0', '>=3.0.0 <4.0.0');
         tar.create({ cwd: source, file: archivePath, gzip: true, portable: true, sync: true }, fs.readdirSync(source));
         const input = { archivePath, expectedModuleId: moduleId };
         const installPreview = await dryRunLocalModuleArchive('install', input);
@@ -98,7 +98,7 @@ export async function run(): Promise<void> {
         assert.equal(listModuleInventory().find((entry) => entry.info.id === disabledId)?.lifecycle.managedEnabled, false);
         const disabledReplacement = path.join(root, 'disabled-replacement');
         const disabledArchive = path.join(root, 'disabled-replacement.tgz');
-        writePackage(disabledReplacement, '1.1.0', '>=2.1.0 <3.0.0', disabledId);
+        writePackage(disabledReplacement, '1.1.0', '>=3.0.0 <4.0.0', disabledId);
         tar.create({ cwd: disabledReplacement, file: disabledArchive, gzip: true, portable: true, sync: true }, fs.readdirSync(disabledReplacement));
         const disabledUpgrade = await applyLocalModuleArchive('upgrade', {
             archivePath: disabledArchive, expectedModuleId: disabledId,
@@ -119,7 +119,7 @@ export async function run(): Promise<void> {
             moduleId: orphanId, version: '1.0.0', source: 'local://fixture', installedAt: 1,
         };
         fs.writeFileSync(artifactPath, JSON.stringify(artifactStore));
-        writePackage(path.join(modulesDir, directoryOnlyId), '1.0.0', '>=2.1.0 <3.0.0', directoryOnlyId);
+        writePackage(path.join(modulesDir, directoryOnlyId), '1.0.0', '>=3.0.0 <4.0.0', directoryOnlyId);
         refreshRegistry();
         const orphan = listModuleInventory().find((entry) => entry.info.id === orphanId);
         assert.equal(orphan?.managed, true);
@@ -127,7 +127,7 @@ export async function run(): Promise<void> {
         for (const [id, missing] of [[orphanId, 'managed package directory'], [directoryOnlyId, 'artifact record']]) {
             const packageDir = path.join(root, `${id}-replacement`);
             const packageArchive = path.join(root, `${id}-replacement.tgz`);
-            writePackage(packageDir, '1.1.0', '>=2.1.0 <3.0.0', id);
+            writePackage(packageDir, '1.1.0', '>=3.0.0 <4.0.0', id);
             tar.create({ cwd: packageDir, file: packageArchive, gzip: true, portable: true, sync: true }, fs.readdirSync(packageDir));
             for (const operation of ['install', 'upgrade'] as const) {
                 const preview = await dryRunLocalModuleArchive(operation, {
@@ -147,8 +147,8 @@ export async function run(): Promise<void> {
         // records. Scanning B before A makes a wrong-ID overwrite observable.
         const targetId = 'aa-identity-target';
         const sourceId = 'zz-identity-source';
-        writePackage(path.join(modulesDir, targetId), '1.0.0', '>=2.1.0 <3.0.0', targetId);
-        writePackage(path.join(modulesDir, sourceId), '1.0.0', '>=2.1.0 <3.0.0', targetId);
+        writePackage(path.join(modulesDir, targetId), '1.0.0', '>=3.0.0 <4.0.0', targetId);
+        writePackage(path.join(modulesDir, sourceId), '1.0.0', '>=3.0.0 <4.0.0', targetId);
         refreshRegistry();
         const target = listModuleInventory().find((entry) => entry.info.id === targetId);
         const mismatch = listModuleInventory().find((entry) => entry.info.id === sourceId);
@@ -165,7 +165,7 @@ export async function run(): Promise<void> {
         const mixedManaged = path.join(modulesDir, mixedId);
         const mixedLocal = path.join(getLocalModulesDataDir(), mixedId);
         writePackage(mixedManaged, '1.0.0', '<2.0.0', mixedId);
-        writePackage(mixedLocal, '1.1.0', '>=2.1.0 <3.0.0', mixedId);
+        writePackage(mixedLocal, '1.1.0', '>=3.0.0 <4.0.0', mixedId);
         const mixedState = JSON.parse(fs.readFileSync(statePath, 'utf8'));
         mixedState.modules[mixedId] = {
             moduleId: mixedId, title: mixedId, directory: mixedLocal,
@@ -185,7 +185,7 @@ export async function run(): Promise<void> {
         assert.equal(localActive?.lifecycle.sourceStates?.managed?.status, 'incompatible');
         assert.equal(localActive?.lifecycle.localDirectory, mixedLocal);
         assert.equal(localActive?.lifecycle.managedEnabled, false);
-        writePackage(mixedManaged, '1.2.0', '>=2.1.0 <3.0.0', mixedId);
+        writePackage(mixedManaged, '1.2.0', '>=3.0.0 <4.0.0', mixedId);
         writePackage(mixedLocal, '1.0.0', '<2.0.0', mixedId);
         refreshRegistry();
         const managedActive = listModuleInventory().find((entry) => entry.info.id === mixedId);

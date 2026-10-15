@@ -182,6 +182,10 @@ interface CombatTrackerCombatantDto {
 
 The final contract can differ, but it must be explicit. The route must not spread full raw Combat, Combatant, Actor, Token, or Group documents into the client payload.
 
+**Successor note (ADR-0060):** the historical `hasHiddenCurrentCombatant`
+example and explicit hidden-current marker policy below were superseded for
+player viewers. The current tracker omits hidden-presence metadata entirely.
+
 ### 6. Combat Commands Need a Foundry Encounter Boundary
 
 Document events are results, not commands. They are the correct way to update backend state after Foundry changes a document, but they are not a substitute for invoking Combat Encounter workflows.

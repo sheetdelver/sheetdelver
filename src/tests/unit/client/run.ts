@@ -22,6 +22,7 @@ import { run as runDocumentSource } from './document-source.test';
 import { run as runSdkEventBus } from './sdk-event-bus.test';
 import { run as runCoalescedFetch } from './coalesced-fetch.test';
 import { run as runCombatHudState } from './combat-hud-state.test';
+import { run as runInitiativeRollDialog } from './initiative-roll-dialog.test';
 import { run as runJournalOrdering } from './journal-ordering.test';
 import { run as runGenericSheetFieldState } from './generic-sheet-field-state.test';
 import { run as runGenericSheet } from './generic-sheet.test';
@@ -54,6 +55,7 @@ export async function run() {
     runSdkEventBus();
     await runCoalescedFetch();
     runCombatHudState();
+    runInitiativeRollDialog();
     runJournalOrdering();
     runGenericSheetFieldState();
     runGenericSheet();

@@ -19,11 +19,11 @@ export default function PlayerLayout({
       <VideoPlaysinlineFix />
       <PlayerWorldBoundary>
       <div className="relative min-h-screen">
+          <CombatHUD />
         {children}
           <GlobalChat />
           <PlayerList />
           <FloatingHUD />
-          <CombatHUD />
           <JournalBrowser />
           <JournalModal />
           <SharedContentHost />

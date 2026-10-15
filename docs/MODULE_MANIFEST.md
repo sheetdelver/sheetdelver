@@ -15,9 +15,10 @@ described below.
 The UI manifest can export optional `theme` and `componentStyles` with SDK
 1.5.0 / `ui-extension-api` 1.3.0. These are client presentation objects, including
 style callbacks; they are not serialized manifest JSON or server configuration.
-Core scopes shared chat, previews and dice trays to the selected module. Declare
-an appropriate 2.x UI contract range for modules using SDK 2.0.0 dashboard
-actions; a 1.x-only range is incompatible with the current host. See
+Core scopes shared chat, previews and dice trays to the selected module. Modules
+targeting the next host release declare a 3.x UI contract range for the HUD
+initiative presentation contract; earlier 2.x dashboard action ranges describe
+historical releases and are incompatible with that host. See
 [Shared UI Themes](MODULE_AUTHORING.md#shared-ui-themes) and
 [ADR-0044](adr/0044-client-owned-module-presentation.md).
 
@@ -247,7 +248,7 @@ is compiled by `module:package` into the reserved artifact
     "coreVersion": ">=1.0.0",
     "apiContracts": {
       "module-api": ">=1.3.0 <2.0.0",
-      "ui-extension-api": ">=2.0.0 <3.0.0",
+      "ui-extension-api": ">=3.0.0 <4.0.0",
       "roll-engine-api": ">=1.0.0 <2.0.0"
     }
   },
@@ -328,15 +329,43 @@ for posting recorded rolls without changing the display-summary contract.
 | `compiledStyles` | No | Reserved packager output. Authors must not set this in source manifests. |
 
 Combat-stat descriptors have a unique key, label (up to 32 characters), path
-under `system.*` or `derived.*`, kind `number`, `text`, or `resource` (a numeric
+under `system.*` or `derived.*`, kind `number`, `text`, `textarea`, or `resource` (a numeric
 `value` with optional numeric `max`), and optional `actorTypes`. Up to 16
-suggestions may be declared; the manager displays at most eight selected
-stats. These are read-only presentation hints, not writable Foundry resource
+suggestions may be declared. GM display selections have no fixed field-count
+cap; module metadata limits, observed-catalog discovery bounds and compact HUD
+presentation are separate. Ordinary request/preference-file byte safeguards
+still apply. These are read-only presentation hints, not writable Foundry resource
 paths or dashboard Actor-card blocks. Optional `showInRoster: true` suggests a
 compact pill beside each combatant name; absent/false keeps the stat in detail
 only. A module adopting this new manifest field requires
-`"module-api": ">=1.3.0 <2.0.0"`; the merged host advertises SDK 2.2.0.
-Older modules without the field require no version change.
+`"module-api": ">=1.3.0 <2.0.0"`; this field was introduced in SDK 2.2.0
+and remains available in SDK 3.0.0.
+Older modules without the field require no version change. The original
+number/text/resource suggestion contract remains backward-compatible.
+
+**SDK 3.2.0 / module-api 1.4.0 (ADR-0061 N5)** adds `kind: "textarea"`, optional
+textarea `contentFormat: "plain" | "html"` (absent means plain), and optional
+`layout: { columnSpan, rowSpan, textRows }`. When supplied, all three layout
+members must be integers: columns 1–3, grid rows 1–6, visible text rows 1–12.
+These bound Core's three-column detail grid/viewport, not GM selection counts.
+Absent layout retains one cell/four text rows; narrow screens stack spans.
+HTML means host-sanitized static detail, not executable Foundry enrichment;
+plain mode preserves literal text/newlines. Textarea requires a string, stays
+out of HUD/roster pills, and cannot grant write/health capability. Core and module
+descriptors share presentation validation. Defaults/explicit Reset never
+replace saved GM choices automatically.
+
+Modules adopting textarea, layout or format must declare
+`"module-api": ">=1.4.0 <2.0.0"` and target **Core >=0.18.0** for publication,
+after that host is released. Existing declarations need no compatibility bump.
+No local system module has adopted new fields or changed versions in this pass.
+Example (verify the real Actor string path for your system):
+
+```json
+{ "key": "description", "label": "Description", "path": "system.description",
+  "kind": "textarea", "contentFormat": "html",
+  "layout": { "columnSpan": 3, "rowSpan": 2, "textRows": 6 } }
+```
 
 `permissions` is a declaration, not an authorization bypass. Foundry ownership and
 the Sheet Delver request runtime still gate document reads and writes. Module
@@ -471,6 +500,26 @@ Component entries are lazy `() => import(...)` thunks. Each imported module must
 default-export a React component. `stylesheet` is optional and must point at CSS
 under `assets/`. The packager-managed Tailwind artifact is loaded separately via
 `compiledStyles`; do not add it to source `info.json`.
+
+### Combat-HUD `rollModal` (SDK 3.0.0 / UI contract 3.0.0)
+
+This optional lazy component receives `InitiativeRollModalProps` from
+`@sheet-delver/sdk/react`. Core supplies the resolved `formula` and `source`,
+`rollAvailable`, `advantageAvailable`, `manualAvailable`, `audience`,
+`combatantName`, `isOpen`, `onClose` and `onConfirm`. The callback accepts only
+`{ kind: 'roll', advantageMode }` or `{ kind: 'manual', total }`, with a finite
+numeric final total. Core owns authorization, chat, dice and Combat writes;
+the module owns presentation only. The injected SDK `RollDialog` supports
+`type="initiative"` and explicit `theme` without changing sheet-roll modes.
+If `rollModal` is absent, Core shows that shared dialog. Modules adopting
+this breaking slot declare `coreVersion >=0.18.0` and
+`ui-extension-api >=3.0.0 <4.0.0`. Publish Core 0.18.0 first.
+The override is used only where the HUD projects an eligible ordinary Combat
+initiative action; it does not grant a module or player a managed-Combat
+command. Core may decline or reject an action when ownership, visibility or
+the observed initiative changed after the dialog opened. Module UI should
+call `onConfirm(choice)` and let Core handle the result, notification and refetch;
+it must not retry a stale choice itself.
 
 ### Dashboard actions (SDK 2.0.0)
 
@@ -864,4 +913,4 @@ works.
 10. Run `npm run module:check <systemId>` before packaging.
 11. Use `useSDK().navigate()` / `replace()` for internal application routes;
     these methods originated in UI contract 1.1.0; modules targeting the
-    current host declare `ui-extension-api: ">=2.0.0 <3.0.0"`.
+    next host release declare `ui-extension-api: ">=3.0.0 <4.0.0"`.

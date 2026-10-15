@@ -11,5 +11,5 @@ class CombatManagerPreferenceEvents extends EventEmitter {
     }
 }
 
-/** Empty invalidation only; clients re-read the GM-protected preference route. */
+/** Empty invalidation only; tracker clients refetch their authorized projection. */
 export const combatManagerPreferenceEvents = new CombatManagerPreferenceEvents();

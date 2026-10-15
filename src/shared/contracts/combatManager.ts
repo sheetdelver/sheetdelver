@@ -1,5 +1,5 @@
-/** GM-only, whitelisted Combat Manager API. Foundry source documents never cross this boundary. */
-import type { ModuleCombatStatAttribute } from '@shared/sdk';
+/** GM/Assistant, whitelisted Combat Manager API. Foundry source documents never cross this boundary. */
+import type { ModuleCombatStatAttribute, ModuleCombatStatLayout } from '@shared/sdk';
 
 /** Identity used only for detecting duplicate manager encounter labels. */
 export function combatManagerNameKey(label: string): string {
@@ -7,14 +7,27 @@ export function combatManagerNameKey(label: string): string {
 }
 
 /** Core-owned GM selection; module info.json suggestions remain read-only. */
+export type CombatManagerStatKind = ModuleCombatStatAttribute['kind'];
+/** Three-column detail grid; bounded spans/viewport avoid pathological layout. */
+export const COMBAT_STAT_LAYOUT_LIMITS = { columns: 3, rows: 6, textRows: 12 } as const;
+export type CombatManagerStatLayout = ModuleCombatStatLayout;
+
 export interface CombatManagerSelectedStatDto extends ModuleCombatStatAttribute {
     editable?: true;
     /** The one GM-selected stat used by roster health actions. */
     health?: true;
 }
 
-export interface CombatManagerAvailableStatDto extends ModuleCombatStatAttribute {
+export interface CombatManagerAvailableStatDto extends Omit<ModuleCombatStatAttribute, 'kind'> {
+    kind: CombatManagerStatKind;
     /** Actor types where the field was observed; not a saved display restriction. */
+    observedActorTypes: string[];
+}
+
+/** Read-only path/type verification. No Actor IDs or values are returned. */
+export interface CombatManagerStatPathValidationDto {
+    path: string;
+    kind: CombatManagerStatKind;
     observedActorTypes: string[];
 }
 
@@ -23,6 +36,7 @@ export interface CombatManagerStatPreferencesDto {
     attributes: CombatManagerSelectedStatDto[];
     suggestions: ModuleCombatStatAttribute[];
     available: CombatManagerAvailableStatDto[];
+    /** Explicit GM override; null restores module formula, then Core fallback. */
     initiativeFormula: string | null;
     initiativePreview?: { source: 'module' | 'gm' | 'core'; formula: string; rollAvailable: boolean; advantageAvailable: boolean };
 }
@@ -44,6 +58,10 @@ export interface CombatManagerStatDto {
     title: string;
     value: string | number;
     subValue?: string | number;
+    multiline?: true;
+    /** Only host-sanitized HTML is sent in this presentation mode. */
+    contentFormat?: 'html';
+    layout?: CombatManagerStatLayout;
     showInRoster?: true;
     health?: true;
     edit?: { key: string; path: string; value: number; max?: number };
@@ -80,6 +98,9 @@ export interface CombatManagerParticipantDto {
     initiative: number | null;
     hidden: boolean;
     defeated: boolean;
+    /** Explicit Combatant flag, separate from effective Actor dead status. */
+    defeatedFlag?: boolean;
+    skip: boolean;
     isCurrent: boolean;
     resource: CombatManagerResourceDto | null;
     effects: string[];
@@ -95,6 +116,17 @@ export interface CombatManagerEncounterDto {
     deletionRequested: boolean;
     round: number;
     currentCombatantId: string | null;
+    /** Manager-only pause/no-current state. Never a player hidden-turn marker. */
+    awaitingInitiative?: boolean;
+    canNavigateTurns?: boolean;
+    pausedForSkip?: true;
+    autoSkipDefeatedEnemies: boolean;
+    playerActions: {
+        initiativeOpen: boolean;
+        endTurnEnabled: boolean;
+        eligible: number;
+        scored: number;
+    };
     participants: CombatManagerParticipantDto[];
 }
 
