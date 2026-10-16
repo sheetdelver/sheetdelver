@@ -2,22 +2,28 @@
 
 Unreleased Core implementation of [ADR-0064](adr/0064-module-world-context-and-data-migrations.md).
 The aggregate SDK additions are 3.3.0, module-api 1.5.0 and UI API 3.2.0. They are
-not present in released Core 0.18.1. Module adoption and disposable-world native
-acceptance remain separate gates. Application/module release numbers are unchanged.
+not present in released Core 0.18.1. Module adoption remains separate from the
+completed disposable-world native Core gate. Application/module release numbers
+are unchanged.
 
 **Review status:** the independent review of `5013e86` found five Core defects
 despite passing automated suites. Their corrective implementation and evidence are in
 [ADR-0064 CR64-01–05](adr/0064-module-world-context-and-data-migrations.md#independent-core-review--october-16-2026).
 Tracked regressions now cover preview consistency, reference-dependent resume,
 managed repair digests, first-upgrade browser reload and failed-context recovery.
-Isolated rendered/replacement checks are distinct from pending native acceptance
+Isolated rendered/replacement checks are distinct from native acceptance
 and module adoption. The [corrective independent review](adr/0064-module-world-context-and-data-migrations.md#corrective-independent-review--october-16-2026)
 identified CR64-06 (observed pack-content fencing) and CR64-07 (player theme
 acceptance). Both are now corrected with failing-before/passing-after evidence in
 the [follow-up](adr/0064-module-world-context-and-data-migrations.md#cr64-0607-corrective-implementation--october-16-2026),
 with [independent confirmation](adr/0064-module-world-context-and-data-migrations.md#cr64-0607-independent-confirmation--october-16-2026) of the original reproductions and current suites.
-Native acceptance, realistic inventory measurement and G8 remain pending. Do not
-treat this guide as a migration-release approval.
+The [native v14 pass](adr/0064-module-world-context-and-data-migrations.md#native-v14-acceptance-and-cr64-08--october-16-2026)
+verifies actual14.367 writes, setting refresh, role enforcement, supervised
+activation and admin recovery, with measured test-world inventory costs. It also
+corrects CR64-08's null-delta enumeration. The [native v13 pass and G8 handoff](adr/0064-module-world-context-and-data-migrations.md#native-v13-acceptance-and-g8-handoff--october-16-2026)
+verify13.351 with the same native system4.0.6. G8 module adoption and user review
+remain pending; the measured small worlds do not establish large-world capacity.
+Do not treat generic Core fixtures as module compliance or migration-release approval.
 
 ## Rule inputs
 
@@ -230,8 +236,14 @@ retains its old mutation header until reload; it cannot adopt replacement author
 Restricted targets include world Actors/Items/effects, explicit unlinked ActorDelta
 data and unlocked world-owned Actor/Item packs. Shared bases are enumerated once;
 tombstones remain tombstones and no full synthetic Actor is written into a delta.
+Native unlinked tokens can store `delta: null`: with a valid base Actor, there are
+no persisted overrides to migrate. Core skips that empty delta without creating
+one. Tokens with no Actor association are also skipped; broken Actor references
+and malformed stored deltas still block required enumeration.
 System/package packs are not unlocked or migrated. Pack receipts remain outside
-primary world Stores. Actual native v13/v14 target acceptance is still pending.
+primary world Stores. Native13.351 and14.367 target/readback acceptance passes
+for the controlled scope recorded in the ADR; module-specific hooks still require
+their own acceptance.
 
 ## Caller reads and identity
 

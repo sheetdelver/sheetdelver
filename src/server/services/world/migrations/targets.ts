@@ -83,11 +83,15 @@ export async function enumerateMigrationTargets(transport: MigrationTransport, k
     for (const item of view?.items ?? itemStore.list()) targets.push(...expandMigrationTargets(`Item.${id(item)}`, 'Item', item));
     if (kinds.has('ActorDelta')) {
         for (const scene of view?.scenes ?? sceneStore.list()) for (const token of rows(scene.tokens)) {
-            if (token.actorLink === true) continue;
-            if (!isRecord(token.delta) || typeof token.actorId !== 'string' || !actors.some(actor => id(actor) === token.actorId)) {
+            if (token.actorLink === true || token.actorId === null) continue;
+            if (typeof token.actorId !== 'string' || !actors.some(actor => id(actor) === token.actorId)
+                || token.delta !== null && !isRecord(token.delta)) {
                 if (required.has('ActorDelta')) throw new Error('Required unlinked-token delta/base Actor is unavailable');
                 options.exclusions?.push(`Scene.${id(scene)}.Token.${id(token)}: advisory delta/base source unavailable`); continue;
             }
+            // Native ActorDeltaField materializes a null delta lazily. Its base
+            // Actor is already enumerated; no persisted overrides exist here.
+            if (token.delta === null) continue;
             targets.push(...expandMigrationTargets(`Scene.${id(scene)}.Token.${id(token)}.ActorDelta.${id(token.delta)}`, 'ActorDelta', token.delta)
                 .map(row => ({ ...row, baseActorUuid: `Actor.${token.actorId}` })));
         }

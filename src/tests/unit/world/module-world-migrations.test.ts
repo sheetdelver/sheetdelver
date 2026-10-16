@@ -11,7 +11,7 @@ import { ModuleUpgradeCoordinator, type UpgradeCoordinatorDeps, type UpgradeCand
 import { UpgradeJournal } from '@server/services/world/migrations/UpgradeJournal';
 import { planWorldMigrations, applyMigrationPatch, validateMigrationPatch, hookInput } from '@server/services/world/migrations/planner';
 import { runMigrationHook } from '@server/services/world/migrations/hooks';
-import { expandMigrationTargets } from '@server/services/world/migrations/targets';
+import { enumerateMigrationTargets, expandMigrationTargets, type MigrationSourceView } from '@server/services/world/migrations/targets';
 import type { ModuleWorldSnapshot, WorldSettingDeclaration } from '@shared/sdk/world';
 import type { MigrationTarget } from '@shared/sdk/migrations';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
@@ -250,6 +250,25 @@ export async function run(): Promise<void> {
             { _id: 'deleted', _tombstone: true }, { _id: 'own', effects: [{ _id: 'e', changes: [] }] }] });
         assert.equal(children.length, 3); assert.equal(children.some(row => row.uuid.includes('deleted')), false);
         assert.equal(children[2].uuid, 'Scene.s.Token.t.ActorDelta.d.Item.own.ActiveEffect.e');
+        const nativeDeltaView: MigrationSourceView = {
+            actors: [{ _id: 'base', items: [{ _id: 'base-item' }] }], items: [], packs: [], configuration: {},
+            subject: { userId: 'service', role: 4 }, generation: 14,
+            scenes: [{ _id: 'scene', tokens: [
+                { _id: 'lazy', actorId: 'base', actorLink: false, delta: null },
+                { _id: 'decorative', actorId: null, actorLink: false, delta: null },
+                { _id: 'owned', actorId: 'base', actorLink: false, delta: { _id: 'delta', items: [{ _id: 'own' }] } },
+            ] }],
+        };
+        const noTransport = { dispatchDocumentSocket: async () => { throw new Error('Unexpected native read'); } };
+        const nativeTargets = await enumerateMigrationTargets(noTransport, new Set(['Actor', 'Item', 'ActorDelta']), [], { view: nativeDeltaView });
+        assert.deepEqual(nativeTargets.map(target => target.uuid), ['Actor.base', 'Actor.base.Item.base-item',
+            'Scene.scene.Token.owned.ActorDelta.delta', 'Scene.scene.Token.owned.ActorDelta.delta.Item.own'],
+        'native lazy null deltas have no owned overrides; enumerate base once without materializing a synthetic delta');
+        const missingBase = structuredClone(nativeDeltaView); missingBase.actors = [];
+        await assert.rejects(enumerateMigrationTargets(noTransport, new Set(['ActorDelta']), [], { view: missingBase }), /delta\/base Actor is unavailable/);
+        const malformedDelta = structuredClone(nativeDeltaView);
+        (malformedDelta.scenes[0].tokens as Record<string, unknown>[])[0].delta = 'invalid';
+        await assert.rejects(enumerateMigrationTargets(noTransport, new Set(['ActorDelta']), [], { view: malformedDelta }), /delta\/base Actor is unavailable/);
         fs.writeFileSync(path.join(candidate.root, 'migrations/1.0.0/check.cjs'), 'module.exports=()=>({status:globalThis.Date.now()})');
         const impure = discoverMigrations(candidate.root, candidate.info)!;
         assert.throws(() => runMigrationHook(candidate.root, impure.steps[0], 'check', { world, target: targets[0], references: [], parameters: {} }), /undefined|now/, 'global Date cannot bypass the pure hook clock restriction');

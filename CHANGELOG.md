@@ -7,6 +7,7 @@
 - Added isolated reviewed maintenance
 - Fenced upgrades, dependencies and recovery
 - Preserved canonical Actor references
+- Handled native lazy deltas
 
 ## 0.18.1
 - Recovered pre-bumped release tagging

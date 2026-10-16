@@ -1,6 +1,6 @@
 # Core ADR-0064: Module World Context and Data Migrations
 
-**Status:** Accepted/open — CR64-01–07 corrected and offline/isolated checks pass; native acceptance, realistic inventory measurement, G8 and user acceptance remain pending
+**Status:** Accepted/open — CR64-01–08 corrected; native v13/v14 acceptance passes; G8 module adoption and user review remain pending
 **Date:** October 16, 2026
 **Related:** Core ADR-0021, ADR-0027, ADR-0028, ADR-0038, ADR-0056, ADR-0057, ADR-0063; Shadowdark module ADR-0001
 
@@ -9,6 +9,13 @@ The [independent Core review](#independent-core-review--october-16-2026) of
 At review, existing suites passed but five probes reproduced defects. The
 [corrective evidence](#corrective-verification-results--october-16-2026) below
 records their initial corrective results. The [corrective independent review](#corrective-independent-review--october-16-2026) found two further defects; the [CR64-06/07 follow-up](#cr64-0607-corrective-implementation--october-16-2026) records their corrections and evidence. The [independent confirmation](#cr64-0607-independent-confirmation--october-16-2026) verifies those corrections against the original reproductions and current tests. The earlier G0–G7/Core G9 table is not native acceptance.
+
+The subsequent [native v14 acceptance](#native-v14-acceptance-and-cr64-08--october-16-2026)
+records actual Foundry writes, settings ingress, recovery and the admin UI. It
+supersedes earlier statements that no native testing was authorized or performed.
+The [native v13 acceptance](#native-v13-acceptance-and-g8-handoff--october-16-2026)
+completes the selected two-generation Core acceptance gate. G8 remains module-owned
+work; neither native run establishes compliance of an adopting system module.
 
 ## Problem and reviewed baseline
 
@@ -648,6 +655,12 @@ outside these gates.
 
 ## Required test and acceptance matrix
 
+This is the original design inventory. The implementation/corrective evidence and
+native addenda below record its cumulative disposition; native testing does not
+by itself check every scenario in the aggregate rows or establish module adoption.
+The final native group is now verified on13.351 and14.367. Reconcile the remaining
+aggregate rows against their Core and module evidence at final ADR closeout.
+
 - [ ] Setting Store not ready vs absent vs invalid; decode JSON primitives/objects;
       preserve false/zero/null; exact namespaced grants and versioned defaults.
 - [ ] V14 world/user key collision; client scope unavailable; no server-only value
@@ -702,7 +715,7 @@ outside these gates.
 - [ ] SDK integrity, release/manifest/permission compatibility, lifecycle/recovery,
       module checks/typing, isolated packaging and real-host browser maintenance
       flow across restart, slow progress, failure, admin re-login and stale assets.
-- [ ] Separately approved disposable-world native run: setting changes and admin
+- [x] Separately approved disposable-world native run: setting changes and admin
       dry-run/apply/migration with no player/GM browser trigger. Verify actual source,
       authority, counts, service reconnect, unchanged unrelated documents and the
       supported resume/external-restore detection. No native lockout acceptance gate.
@@ -1492,7 +1505,7 @@ SHA-256 `83ffd41ca775b9f71dae9e5d46c93fa0b52a4511f75bd64daaf5360f8b77fee9`.
 The tracked cases and reproduction descriptions above remain the durable evidence;
 local artifact paths are recorded in the handoff rather than required by this ADR.
 
-**Next work:** no additional CR64-01–07 source correction is indicated by this
+**Next work at that review (superseded by the native pass below):** no additional CR64-01–07 source correction is indicated by this
 review. The next offline task can measure realistic synthetic inventories through
 production snapshot/planner/journal paths, separately timing no-op, write-bearing
 and partial-resume plans. State fixture assumptions, document/embedded/pack counts,
@@ -1507,3 +1520,196 @@ scoped module work; ordinary user rights and caller-safe projection requirements
 remain unchanged. User acceptance and any checkpoint/release require their own
 scope. The ADR and active audit stay open for these named gates; do not reopen
 historical corrected findings or move the audit to completed yet.
+
+### Native v14 acceptance and CR64-08 — October 16, 2026
+
+The user selected native testing first, v14 followed by v13, with G8 adoption
+afterward. They launched `shadowdark-test` on loopback port30000 and supplied
+the passwordless GM account. Runtime identity was **Foundry14.367 / Shadowdark4.0.6**;
+the account resolved to `Gamemaster`, role4. Testing used a copied Core workspace,
+generated isolated configuration and a Core-owned fixture module. No SheetDelver
+system-module repository, root production settings, version or remote was changed.
+This is Core contract acceptance, not Shadowdark G8 compliance.
+
+#### CR64-08: native null ActorDelta sources
+
+The initial real bootstrap and admin preview failed before writes with
+`Required unlinked-token delta/base Actor is unavailable`. Six existing unlinked
+tokens had a valid base Actor and native `delta: null`. Installed v14
+`common/documents/token.mjs`, `ActorDeltaField.initialize`, confirms that a delta
+can materialize lazily; a null source contains no persisted overrides. Treating
+every null as an unavailable migration target prevented valid worlds from using
+required ActorDelta migrations.
+
+`targets.ts` now enumerates each base Actor once, skips null deltas with a valid
+base, and skips tokens with no Actor association. It does not invent a delta ID,
+materialize synthetic data or copy inherited items into stored overrides. Broken
+non-null Actor references and malformed non-null deltas still block required
+enumeration. Stored deltas and their own children remain canonical targets.
+
+The added regression in `src/tests/unit/world/module-world-migrations.test.ts`
+failed against the previous enumerator with the native error, then passed after
+the correction. It checks lazy/decorative tokens, base-once enumeration, owned
+delta children and rejection of missing bases/malformed deltas. The native
+workflow then advanced through the same real scenes without altering their
+existing tokens or inherited-child tombstone. This is a Core compatibility fix;
+modules must not add a workaround or synthesize deltas.
+
+#### Native results
+
+| Boundary | Observed result |
+| --- | --- |
+| Full-GM connection | Real service login/bootstrap succeeds as role4. Temporary Assistant and missing account are rejected. Demoting the temporary active service account to3 blocks player access503 and preview409; restoring4 plus the admin retry restores readiness. Existing human roles were untouched. |
+| Read-only preview | Actual source preview checks106 targets and proposes11 fixture-only updates; no blockers after CR64-08. Native Actor readback is unchanged by preview, and the candidate adapter has not been constructed while compatibility is blocked. |
+| Target dispatch/readback | Eleven confirmed updates: world Actor, embedded Item and its effect, Actor effect, world Item and its effect, unlinked ActorDelta and its own Item, world Actor pack document and its embedded Item, world Item pack document. All use canonical native parent/pack envelopes. The existing tombstone remains unchanged; package packs are excluded. |
+| Pack policy | Locking a dedicated world pack makes the required preview return409. Restoring its unlocked setting allows a zero-write preview. No package pack was unlocked or written. |
+| Durable activation | Actual Core/Next supervised replacement resumes the approved native job. During held adapter preparation, admin remains200 and player access503. Completion activates the job token; a stale mutation returns409. The11-write journal is14,941 bytes. |
+| Settings and preparation | Native `shadowdark.usePulpMode` update false→true refreshes the adapter context and prepared Actor, while its retained initial snapshot stays false. Restore returns preparation to false. Create/update/delete events, user-scoped same-key collision and registered-default fallback pass through real ingress and the authenticated context endpoint; context revisions advance1→5 in the lifecycle run. |
+| Scalar decoding | Dedicated native test Setting rows containing JSON false,0 and null round-trip through SettingStore without falsy fallback. These rows are fixture values, not invented Shadowdark registered defaults. |
+| Caller authority | A temporary player's Actor write is rejected by Foundry before ownership, succeeds as owner, and is rejected after revocation. `/system/data` returns403 for the fixture adapter without `getSystemDataForUser`, as intended for pending G8. |
+| Restored source | Reverting only an acceptance Actor's version flag while preserving the completed Core journal makes reconciliation block readiness without repairing it. Fresh preview/approval completes exactly one repair through another supervised replacement. This simulates restored document content; it is not an actual Foundry backup restore. |
+| Uncertain receipt | A controlled exception after a real native dispatch records an uncertain outcome and stops maintenance. Resume reads back the applied result, performs the other write and completes with two distinct sends total. Repeating completed resume sends nothing. Receipt loss is injected; the writes/readback are native. |
+| Partial conflict and admin UI | A deliberate edit to the remaining fixture Item stops the partial job, initially at the source revision fence. Retrying the old approval then rejects a dependency conflict. The actual `/admin/modules` page shows106 checked/one remaining write, requires the backup-limit acknowledgement, and completes that revised plan. Prior outcomes remain in the journal. |
+
+The real admin recovery Drawer was rendered and visually inspected at390 and1440
+pixels: readable wrapped identities/paths, bounded layout, disabled approval until
+acknowledgement and no page errors. The revised plan was approved using its actual
+button. Earlier eight-case player/theme acceptance remains separate evidence;
+this native pass did not repeat the entire appearance matrix.
+
+#### Inventory observations and limits
+
+The supplied world had9 Actors with71 embedded Items and14 Item effects,2 Scenes
+with7 tokens (six null deltas and one stored delta containing a tombstone),32
+Settings,4 Users and no world Items/packs. Its21 package packs exposed1,091 index
+rows; package document contents were not hydrated for migration. Primary source
+reads measured approximately0.89s, including94,358 Actor bytes and15,600 Scene
+bytes. Dedicated acceptance data added the target domains needed for the test.
+
+The native11-write preview checked106 targets in429ms and produced8,884 bytes;
+the zero-write preview took276ms and produced1,279 bytes. A two-operation
+lost-receipt/resume cycle took1.74s, including70 fresh native GETs /1,384,850 response
+bytes; its journal was3,524 bytes. Test-process RSS rose from279,171,072 to465,408,000
+bytes during that cycle. These are observed small-world costs, not peak-memory,
+leak or large-world capacity guarantees. Repeated fresh snapshots and hook VM
+allocation deserve measurement against the adopting modules' real inventories;
+do not raise limits or approve incomplete inventories to make a test pass.
+
+#### Cleanup, verification and next checkpoint
+
+All four native jobs finished. Dedicated Actors, Items, Scene, packs, users and
+test settings were removed; Pulp Mode and compendium configuration were restored.
+Final membership and document content match the captured Actor/Item/Scene/Setting/
+User baseline after excluding native `_stats` metadata. Original Actor and Scene
+byte counts are unchanged. Isolated services/browser were stopped; the user's
+Foundry PID398540 remained running on30000. No native browser/runtime dependency
+was introduced.
+
+Core unit/client/integration suites, including18 prior corrective integration
+cases, TypeScript and lint pass with CR64-08. No commit, release or push was made
+in this native slice. Before editing this ADR, its exact113,413 bytes were saved
+and verified with SHA-256
+`b901c586b9ea78a5a6a1528fe270704d13946c6df7d376b60d42b9993be7e40f`.
+
+**Next:** the user switches the local instance to v13 and launches the disposable
+test world; verify its runtime identity and repeat native acceptance before G8.
+Do not infer v13 behavior from this pass or restart/manage the user's Foundry
+process. G8 remains separate module work with proven settings, lossless hooks,
+refresh and caller-safe projections. ADR/audit remain open for v13, G8 and user
+review. Native CAS/lockout, backup/undo and broader capacity claims remain outside
+the established evidence.
+
+### Native v13 acceptance and G8 handoff — October 16, 2026
+
+After the user switched the local instance and confirmed readiness, runtime
+identity was **Foundry13.351 / Shadowdark4.0.6**, world `sd-adr61-v13`, port30000.
+The passwordless `Gamemaster` account was verified as full GM. The world initially
+contained no Actors, Items, Scenes or world packs, four Settings and one User.
+Fresh acceptance data and a separate copied Core workspace/configuration were
+used. The v14 evidence and private baseline were preserved separately.
+
+**Result: the selected native Core acceptance gate now passes on both generations.**
+V13 required no additional Core source change. CR64-08's correction was exercised
+against native v13 null deltas, including linked and actorless tokens. This does
+not certify Shadowdark module rules, native browser preparation or G8 adoption.
+
+| V13 acceptance | Result |
+| --- | --- |
+| Native target coverage | Eleven checked targets and11 confirmed writes: world Actor, embedded Item/effect, Actor effect, world Item/effect, unlinked ActorDelta/owned Item, world Actor pack/embedded Item and world Item pack. Preview leaves native Actor source unchanged and does not construct the candidate adapter. |
+| Delta preservation | One stored delta contains both an inherited-child tombstone and an owned Item. Its own fields/Item migrate; the tombstone retains the base Item ID and has no invented flags. The base Item is targeted once. Three other token sources retain null deltas: inherited-only, linked and actorless. |
+| Upgrade/activation | Actual supervised Core processes1242717→1243015→1243268 cover initial readiness, approved migration and same-version repair. During held preparation admin remains200/player503; completion activates the job token and stale mutation returns409. |
+| Settings | Native Pulp Mode create/update/delete, world/user same-key collision, registered-default fallback and false→true→false preparation refresh pass. Context revisions advance1→5 through the authenticated endpoint; retained old snapshots stay unchanged. Separate native fixture rows preserve false,0 and null through SettingStore. Installed4.0.6 source proves the Pulp default; no default was guessed. |
+| Authority | Full-GM service succeeds; Assistant/missing service accounts are rejected. Temporary service demotion to3 blocks player access503 and preview409; restore4/admin retry recovers. Native player writes fail before ownership, succeed with owner permission, and fail after revocation. A module without caller-safe projection returns403 for player `/system/data`. |
+| Packs | Required locked world pack makes preview return409. Unlock restores a zero-write plan. System/package packs remain excluded. |
+| Restore detection | Resetting only a fixture Actor's version flag with the completed journal intact blocks preparation without an automatic repair. Fresh reviewed approval performs one native repair. This is restored-source simulation, not a Foundry backup/restore exercise. |
+| Lost receipt | An injected exception after a real native write leaves an uncertain outcome. Native readback on resume confirms it; the remaining operation runs. Two distinct sends total, no replay on completed resume. |
+| Partial conflict | Editing the remaining fixture Item stops the first run at the source revision fence. Old approval rejects the changed dependency, with one native write confirmed. The actual admin page reviews11 targets/one remaining write, requires acknowledgement and completes the revised plan; prior approval/outcomes remain journaled. |
+| Rendered recovery | Actual `/admin/modules` Drawer inspected at390 and1440 pixels: paths and identities wrap, no horizontal overflow or page errors, approval disabled before acknowledgement. Its actual button completed the native repair. |
+
+All four native jobs completed. The partial-conflict harness intentionally stopped
+with a recoverable job for the subsequent UI run; both harness processes passed.
+No retry of old approval silently accepted the changed Item.
+
+#### Measurements and cleanup
+
+The empty-world primary inventory read took423ms. With fixtures, the11-write
+preview took111ms and produced8,880 bytes; its final journal was14,937 bytes.
+The zero-write preview took76ms and produced1,275 bytes. Two-operation uncertain
+recovery took702ms, including70 native GETs /213,060 response bytes; the journal
+was3,520 bytes and test-process RSS168,353,792→200,658,944 bytes. The stopped
+partial-conflict check took432ms /56 GETs /170,536 response bytes before UI review.
+The supplied world's21 package indices contained1,091 rows; their document
+contents were not migrated. These are small fixture costs. Use the populated v14
+world measurements separately; neither establishes large-world capacity.
+
+Cleanup removed every test Actor/Item/Scene, world pack, temporary user and setting.
+Because this world originally had no Pulp Mode row, cleanup restored that absence
+instead of leaving a persisted default. Original Actor/Item/Scene/Setting/User
+membership and content match the captured baseline excluding native `_stats`.
+The result is zero Actors/Items/Scenes, four Settings and one User, with no world
+packs. Task services/browser are stopped. User Foundry PID1241960 remains running
+on30000; its process was not managed by the acceptance harness.
+
+No additional application source, release version, module repository or Git history
+change was needed in the v13 slice. Existing full unit/client/integration18,
+TypeScript and lint evidence for the unchanged CR64-08 source remains applicable;
+it was not misrepresented as a fresh full-suite rerun. Fresh v13 workflow, access,
+delta, recovery, rendered and cleanup checks all passed. Before this addendum,
+the exact122,177-byte ADR was saved and verified with SHA-256
+`88a96ea21727bc6435da592dfb329a4c54b2463d51ace616a6be9a77da707ba3`.
+
+#### Next implementation checkpoint: G8
+
+The next work belongs to the adopting module, beginning with its own guidance,
+handoff, ADR-0001 and active audit. Core's native acceptance is no longer a reason
+to defer that work. Preserve unrelated module changes and obtain any required
+branch/Git authorization for that separate task. No module was inspected here.
+
+1. Declare proven native world settings (including `usePulpMode` and
+   `autoConsumeAmmunition` where consumed), exact version ranges, default provenance
+   and exposure. Use the host context throughout preparation/actions; distinguish
+   unavailable, registered default and stored false/zero/null.
+2. Supply the separate migration catalog, versioned definitions and packaged
+   pure check/plan/verify hooks. Preserve custom/unknown data and historical hook
+   identities; use real4.0.6 source shapes. Test lossless changes, no-op/repeated
+   runs, unresolved shapes and required bootstrap blocking before removing any
+   prototype repair. Do not manufacture damage, effect fields or token deltas.
+3. Refresh module caches and prepared projections through the bounded context
+   lifecycle. Prove live Pulp/ammunition changes reach all affected consumers;
+   stale dialogs/actions must refresh or reject using context provenance.
+4. Implement caller-safe `getSystemDataForUser` and use caller-bound document/pack
+   access. Test player/Assistant/GM views and revoked access with warm caches;
+   preserve canonical UUIDs and private/identified content boundaries.
+5. Remove caller/UI migration execution once the Core-owned approved migration
+   path is proven. Owner permission, adapter initialization and sheet rendering
+   must not become substitutes for admin approval or privileged migration access.
+6. Validate the module's own outstanding audit corrections, types, tests and
+   isolated package against these actual Core contracts. Record a real module
+   upgrade/settings/projection acceptance before marking G8 complete. SDK3.3 /
+   module-api1.5 / UI3.2 remain unreleased; Core0.18.1 does not provide them. Do not
+   invent a published host minimum, pre-bump releases or claim these generic
+   fixtures establish module compliance.
+
+ADR-0064 and the active audit remain open for G8 and user/closeout review. Native
+v13/v14 acceptance is complete for the recorded scope. Native CAS/lockout,
+world backup/undo and broad capacity certification remain outside that result.
