@@ -66,7 +66,7 @@ and firewall policy.
 | `foundry.protocol` | Required | Foundry `http` or `https` scheme. Override with `FOUNDRY_PROTOCOL`. |
 | `foundry.url` | Optional | Explicit endpoint retained for compatibility. `FOUNDRY_URL` has highest endpoint priority. Prefer host, port, and protocol for ordinary configuration. |
 | `foundry.connector` | Recommended value `socket` | Selects the supported headless Socket.IO connection path. |
-| `foundry.username` | Operationally required | Foundry service-account name used by Core. Accepts inline, `{ env }`, or `{ file }`; `FOUNDRY_USERNAME` directly overrides it. |
+| `foundry.username` | Operationally required | Foundry service-account name used by Core; configure this user as full **Gamemaster** in each world (see role policy below). Accepts inline, `{ env }`, or `{ file }`; `FOUNDRY_USERNAME` directly overrides it. |
 | `foundry.password` | Conditional | Service-account password. Omit only when that Foundry user has no password. Accepts inline, `{ env }`, or `{ file }`; `FOUNDRY_PASSWORD` directly overrides it. |
 | `foundry.userId` | Optional compatibility field | Normally omit. Core resolves the service-account document ID from the configured username. |
 | `foundry.foundryDataDirectory` | Optional | Local Foundry data path used by administrative import tooling when both applications can access the same filesystem. |
@@ -76,6 +76,31 @@ and firewall policy.
 individual settings. `FOUNDRY_URL` overrides the final connection endpoint,
 but host, port, and protocol must still be valid because other configuration
 and diagnostics use them.
+
+### Service-account role and recovery
+
+The configured Foundry service account **must be a full Gamemaster** in every
+world SheetDelver serves. Assistant Gamemaster is insufficient. This requirement
+applies to all Core world connections, not only module migration jobs. Set the
+role on the actual Foundry user; neither `security.service-token`, SheetDelver
+admin login nor a local configuration field grants Foundry permissions.
+
+**Enforcement status:** the connection/reconnect/demotion gate is a confirmed
+requirement in [ADR-0064](adr/0064-module-world-context-and-data-migrations.md#full-gm-service-account-connection-and-recovery-prerequisite),
+with implementation pending. Core 0.18.1 resolves the configured account but does
+not yet reject an Assistant at connection. Configure the full role now; do not
+interpret successful login in that version as proof of full-GM validation.
+
+The planned behavior blocks bootstrap/world access for a missing, lower-role or
+unverifiable service identity, while keeping administration available. Admin sees
+that the configured account requires **Gamemaster**, with its observed role and
+action to retry; players see only world unavailable. To recover, an administrator
+changes the user's role in Foundry and retries the Core connection. Core verifies
+fresh identity/role before publishing readiness, including after reconnect or a
+world switch. It also blocks access if the account is demoted/deleted while active.
+Core does not promote accounts automatically or retry indefinitely against the
+same known role failure. This requirement does not change ordinary player or
+Assistant user permissions, which remain caller-bound.
 
 ## Debug Settings
 

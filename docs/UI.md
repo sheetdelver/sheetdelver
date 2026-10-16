@@ -32,6 +32,15 @@ redirect on world lifecycle. They still own local resource loading, errors,
 and module-specific styling. A temporary Actor read failure is not proof that
 the Actor was deleted; only a confirmed 404 should show that state.
 
+**Planned service-account role block (ADR-0064):** Core's configured Foundry account
+must be full Gamemaster. A lower/unknown role or active demotion makes the world
+unavailable through this shared boundary, without exposing account details to
+players. The admin backend shows the configured account's observed/required role
+and directs the administrator to change it in Foundry and retry. Keep admin login,
+status and recovery usable; no module-specific error modal or native user lockout.
+This enforcement is pending, not existing Core 0.18.1 behavior. See
+[configuration recovery](CONFIGURATION.md#service-account-role-and-recovery).
+
 The persistent layout mounts one shared-content host outside page-filtered
 panels. Image shares use a viewport-bounded dialog; journal shares open the
 authorized entry/page in `JournalModal`. Dismissal is scoped to user, world and

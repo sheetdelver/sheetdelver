@@ -72,6 +72,15 @@ During startup, `isAuthenticated: false` on this status response is not proof
 that a persisted player session was revoked. Player session authority is
 checked through the protected session read below.
 
+**Planned prerequisite (ADR-0064):** Core's configured Foundry service account must
+be full Gamemaster for every world connection. The pending connection/reconnect/
+demotion gate will hold readiness and world-backed routes unavailable when that
+role cannot be verified. The admin status/recovery projection will explain the
+required role and correction in Foundry; public/player status must omit the account
+identity and role error detail. This does not change ordinary Assistant/player
+request permissions. See [configuration recovery](CONFIGURATION.md#service-account-role-and-recovery).
+Core 0.18.1 does not yet implement this gate or a new role-error payload.
+
 ```json
 {
   "connected": true,
@@ -1178,3 +1187,35 @@ preview does not delete its source ChatMessage. No new transport or API version
 is introduced by ADR-0040. ADR-0043 exposes client-only add/update/remove methods
 through `useSDK()` in SDK 1.4.0 / `ui-extension-api` 1.2.0; no REST endpoint or
 server contract changes. See [Notifications and Chat](NOTIFICATIONS.md).
+
+## Proposed module world-context and maintenance APIs
+
+[Core ADR-0064](adr/0064-module-world-context-and-data-migrations.md) describes
+future authorized context projections and an **admin-owned upgrade job**. No new
+endpoint or SDK method exists from this proposal yet. Existing request writes
+remain caller-bound; modules receive no privileged migration execution API.
+
+Extend the existing admin preview/apply flow to report package checks separately
+from world migration checks. A required stopped/wrong/unavailable world blocks
+apply before file promotion; an admin may use the existing launch flow and rerun
+preview. Apply must bind an expiring plan ID to the exact artifact/world/revisions,
+use an idempotency key and return an accepted job identity, not premature upgrade
+completion. Add authenticated job status and scoped resume/cancel/recovery actions
+under existing network/origin/admin-session/CSRF policy. Endpoint names/payloads
+are finalized at ADR G0, not introduced by this documentation.
+
+World-backed HTTP and realtime paths need a consistent maintenance response/gate,
+including delayed dispatch and stale clients; ordinary status and admin recovery
+remain available across restart. Public/player status exposes only a bounded
+phase/message; document-level migration details remain admin-only. Raw Setting/
+Scene documents remain outside the general module surface. Implementers must
+specify revision/conflict/expiry errors, projections and lifecycle invalidation
+alongside the world-setting hook and upgrade coordinator.
+
+The proposed migration catalog is a module-owned `migration.json` plus versioned
+definitions/hooks, not new migration fields in `info.json` or a privileged SDK API.
+Bootstrap/recovery must check fresh data even when the durable ledger says complete;
+failed/unknown required compatibility holds world readiness with an unavailable
+client message and admin-only maintenance reason. Job apply includes acknowledgement
+that SheetDelver provides no world backup/restore or migration undo and recommends
+backing up through Foundry first. Native-user lockout is outside this contract.

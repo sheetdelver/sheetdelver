@@ -682,3 +682,39 @@ responses and errors retain feedback.
 See [Notifications and Chat](NOTIFICATIONS.md) for timing, sanitization and
 lifecycle details, and [ADR-0043](adr/0043-sdk-notification-lifecycle.md) for the
 contract decision. Notification calls are client-only, never server runtime APIs.
+
+## Planned native world settings and data maintenance
+
+[Core ADR-0064](adr/0064-module-world-context-and-data-migrations.md) is pending
+implementation. `useModuleSettings` does not expose native world settings, and
+adapter initialization cannot write documents. A registered default is not proof
+of an unreadable world's value. The proposed world context updates to a new
+immutable revision when a GM changes a declared Foundry setting.
+
+For migrations, authors will maintain a separate root `migration.json` catalog,
+version directories with `definition.json`, and pure check/plan/verify hooks such
+as `actor-migrations.ts`. Keys denote native game-system versions, not SheetDelver
+module or Foundry platform versions. Definitions constrain affected targets/paths
+and dependencies; hooks handle edge cases and return operations for Core execution.
+The packager compiles referenced logic and validates all entries. Do not put the
+migration catalog or logic paths in `info.json` or duplicate it in release metadata.
+
+Core's admin workflow reviews the selected running world's current data, records
+an exact plan and backup-warning acknowledgement, then handles maintenance,
+transport, progress, restart recovery and activation. Every bootstrap/reconciliation
+checks required postconditions against fresh source; an externally restored world
+can require admin repair even when the local journal says completed. Modules get
+no privileged write runtime, sheet repair fallback or native user lockout control.
+SheetDelver supplies no world backup/restore or migration undo in this scope.
+
+Keep historical steps needed for supported skipped-version upgrades and test
+restored/mixed/custom data. First install, source switch and later world activation
+also require checks. Ordinary startup cannot authorize new repairs. The settings/
+reference refresh contract remains necessary for same-world recovery, which does
+not rerun adapter initialization. These contracts are not implemented yet.
+
+Core's configured Foundry service account must be full **Gamemaster** in each world.
+ADR-0064 G0a requires connection/reconnect/demotion checks before module readiness;
+that enforcement is pending implementation. Modules must not handle this with
+privileged fallbacks or apply the service-account rule to human Assistant users.
+See [operator configuration](CONFIGURATION.md#service-account-role-and-recovery).

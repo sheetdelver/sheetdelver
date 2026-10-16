@@ -95,6 +95,13 @@ The main configuration file lives at `<DATA_DIR>/config/settings.yaml`.
 See the [configuration reference](docs/CONFIGURATION.md) for every setting,
 environment override, default, and required/optional distinction.
 
+Configure a dedicated Foundry service account with the **Gamemaster** role in
+every world SheetDelver serves. Assistant Gamemaster does not satisfy Core's
+service-account requirement. The connection/reconnect role gate and admin error
+are planned under ADR-0064, not implemented in Core 0.18.1; see
+[service-account role and recovery](docs/CONFIGURATION.md#service-account-role-and-recovery)
+for the required setup and enforcement status.
+
 ```yaml
 # settings.yaml
 app:
@@ -111,7 +118,7 @@ foundry:
     port: 30000               # Port of your Foundry VTT instance
     protocol: http            # Protocol (http/https)
     connector: socket         # 'socket' (Headless Sockets)
-    username: { env: FOUNDRY_USERNAME } # Required Core service-account name
+    username: { env: FOUNDRY_USERNAME } # Required full-Gamemaster Core service-account name
     password: { env: FOUNDRY_PASSWORD } # Required only when that account has a password
     # Optional diagnostic escape hatch. Keep false for normal module/SDK reads:
     # compendium UUIDs should resolve from declared hydrated compendium pack rows.
