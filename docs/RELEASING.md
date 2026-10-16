@@ -341,6 +341,10 @@ service-account requirement**, independent of whether a module declares migratio
 Administrators using Assistant service accounts must change them to Gamemaster in
 Foundry before upgrading; release notes must link the
 [configuration/retry procedure](CONFIGURATION.md#service-account-role-and-recovery).
-The implementation and offline tests are unreleased; the enforcing application
-version is not assigned here. Do not claim it shipped in Core 0.18.1 or change
-human Assistant permissions. Application metadata still belongs to release:tag.
+The changelog targets Core **0.19.0**, including SDK **3.3.0**, module-api **1.5.0**
+and ui-extension-api **3.2.0**; roll-engine-api remains **1.0.0**. Publication is
+pending. The selected native v13/v14 Core acceptance is complete; adopting modules
+still need their own verification and supporting release/toolchain pins. Do not
+claim these additions shipped in Core 0.18.1 or change human Assistant permissions.
+Application metadata still belongs to release:tag; a changelog heading does not
+perform release preparation. See [module adoption requirements](MODULE_MIGRATIONS.md#compatibility-and-adoption).

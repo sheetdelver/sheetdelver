@@ -918,7 +918,8 @@ works.
 ## World context and migration discovery (unreleased)
 
 [Core ADR-0064](adr/0064-module-world-context-and-data-migrations.md) implements
-`worldSettings` and immutable runtime world context in SDK 3.3/module-api 1.5.
+`worldSettings` and immutable runtime world context in SDK 3.3.0/module-api 1.5.0;
+the client setting/context APIs use ui-extension-api 3.2.0.
 See [schemas and complete examples](MODULE_MIGRATIONS.md). Existing `settings` remain browser preferences;
 adapter initialization remains read-only.
 
@@ -931,9 +932,12 @@ for layout, source-vs-packaged paths and version distinctions.
 
 `info.json` keeps module identity/version and general compatibility minima. Release
 metadata may contain a derived catalog-presence/hash summary; it must not duplicate
-the catalog as a second authority. Implement catalog/definition validation, confined
-entry packaging, artifact health, release-summary checks and SDK compatibility
-together. Older hosts must reject migration-bearing packages they cannot enforce.
+the catalog as a second authority. Core validates catalog/definitions, confined
+entry packaging, artifact health, release summaries and SDK compatibility together.
+Migration packages must declare `module-api: ">=1.5.0 <2.0.0"` (or a stricter
+compatible range) so older hosts reject requirements they cannot enforce. Declare
+`ui-extension-api: ">=3.2.0 <4.0.0"` when adopting its new client APIs; there is
+no separate `sdkVersion` manifest field. See [compatibility and release adoption](MODULE_MIGRATIONS.md#compatibility-and-adoption).
 Bootstrap must check actual source even after a completed journal entry; it cannot
 initiate writes. This contract remains unreleased; dependent modules must wait
 for a supporting published host before declaring its minimum.

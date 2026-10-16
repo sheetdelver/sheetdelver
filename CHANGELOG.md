@@ -1,7 +1,10 @@
 # Releases
 
-## Unreleased
+## 0.19.0
 
+- Advanced SDK to 3.3.0
+- Advanced module API to 1.5.0
+- Advanced UI API to 3.2.0
 - Required full-GM service identity
 - Added versioned world context
 - Added isolated reviewed maintenance

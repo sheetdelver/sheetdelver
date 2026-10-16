@@ -687,13 +687,29 @@ contract decision. Notification calls are client-only, never server runtime APIs
 
 [Core ADR-0064](adr/0064-module-world-context-and-data-migrations.md) is implemented
 in the development tree; [the authoring contract](MODULE_MIGRATIONS.md) defines
-SDK 3.3/module-api 1.5, catalog examples and adoption gates.
+SDK 3.3.0, module-api 1.5.0 and ui-extension-api 3.2.0, catalog examples and
+adoption gates. See its [compatibility requirements](MODULE_MIGRATIONS.md#compatibility-and-adoption)
+for API floors and both CI/release toolchain pins. Core 0.19.0 is planned;
+published Core 0.18.1 does not supply these additions.
 `useModuleSettings` does not expose native world settings, and
 adapter initialization cannot write documents. A registered default is not proof
-of an unreadable world's value. The proposed world context updates to a new
+of an unreadable world's value. The world context updates to a new
 immutable revision when a GM changes a declared Foundry setting.
 
-For migrations, authors will maintain a separate root `migration.json` catalog,
+Declare `info.json.worldSettings` with exact native keys, schemas, versioned default
+provenance and exposure. Preparation consumes `context.world`; request handlers
+use `runtime.world`; UI uses authorized prepared data or `useWorldSetting` from
+`@sheet-delver/sdk/react`. Refresh dependencies through `onWorldContextChanged`
+before prepared rebuilds, and fence setting-dependent actions with their context
+revision. Keep unavailable results distinct from stored and registered defaults.
+
+Implement `getSystemDataForUser` using its supplied caller-bound runtime. Non-full-GM
+`/api/system/data` returns 403 without it. Apply effective pack capabilities to
+all collections, indexes and resource routes; do not publish privileged warmed
+caches or infer access from pack hydration. Preserve canonical UUIDs and use
+authorized `referenceLabels` only for display.
+
+For migrations, authors maintain a separate root `migration.json` catalog,
 version directories with `definition.json`, and pure check/plan/verify hooks such
 as `actor-migrations.ts`. Keys denote native game-system versions, not SheetDelver
 module or Foundry platform versions. Definitions constrain affected targets/paths

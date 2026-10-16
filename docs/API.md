@@ -1194,6 +1194,8 @@ server contract changes. See [Notifications and Chat](NOTIFICATIONS.md).
 authorized context projections and an **admin-owned upgrade job**. See
 [the complete contract](MODULE_MIGRATIONS.md). Existing request writes remain
 caller-bound; modules receive no privileged migration execution API.
+The SDK surface is 3.3.0, module-api 1.5.0 and ui-extension-api 3.2.0; see
+[compatibility and adoption](MODULE_MIGRATIONS.md#compatibility-and-adoption).
 
 | Surface | Contract |
 | --- | --- |
@@ -1257,7 +1259,7 @@ Scene documents remain outside the general module surface. Implementers must
 specify revision/conflict/expiry errors, projections and lifecycle invalidation
 alongside the world-setting hook and upgrade coordinator.
 
-The proposed migration catalog is a module-owned `migration.json` plus versioned
+The migration catalog is a module-owned `migration.json` plus versioned
 definitions/hooks, not new migration fields in `info.json` or a privileged SDK API.
 Bootstrap/recovery must check fresh data even when the durable ledger says complete;
 failed/unknown required compatibility holds world readiness with an unavailable

@@ -6,6 +6,34 @@ not present in released Core 0.18.1. Module adoption remains separate from the
 completed disposable-world native Core gate. Application/module release numbers
 are unchanged.
 
+## Compatibility and adoption
+
+The planned Core release is **0.19.0**, as recorded in the changelog; its release
+preparation/publication is still pending. The application package remains 0.18.1
+until the release helper updates it. After publication, modules adopting these
+contracts should require the tested supporting Core release and pin both their
+validation and release workflows to it. Do not publish a dependent module against
+an unavailable host release or use the development package version as proof of
+released compatibility.
+
+| Surface | Provided version | Module compatibility requirement when adopted |
+| --- | --- | --- |
+| Aggregate SDK | 3.3.0 | Informational; no separate `sdkVersion` manifest property. |
+| `module-api` | 1.5.0 | `>=1.5.0 <2.0.0`; mandatory for migration-bearing packages. |
+| `ui-extension-api` | 3.2.0 | `>=3.2.0 <4.0.0` when using the new UI setting/context APIs. |
+| `roll-engine-api` | 1.0.0 | Unchanged; retain the module's existing compatible range. |
+
+Versions come from `src/shared/sdk/contractVersions.ts`; modules access public
+exports through `@sheet-delver/sdk`, never private host imports. Declare API
+requirements under `info.json.compatibility.apiContracts`, separately from
+`compatibility.coreVersion` and the module's own release version.
+
+Adoption includes authoritative settings, bounded dependency refresh, packaged
+pure migration hooks and caller-safe projections. Non-full-GM `/api/system/data`
+requests require `getSystemDataForUser`; the host returns 403 when it is absent.
+Test the Core/module pair's player flows before deployment. Existing bootstrap
+caches and a GM-only test run cannot establish caller-safe compatibility.
+
 **Review status:** the independent review of `5013e86` found five Core defects
 despite passing automated suites. Their corrective implementation and evidence are in
 [ADR-0064 CR64-01–05](adr/0064-module-world-context-and-data-migrations.md#independent-core-review--october-16-2026).

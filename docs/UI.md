@@ -41,6 +41,17 @@ status and recovery usable; no module-specific error modal or native user lockou
 This enforcement is not shipped Core 0.18.1 behavior. See
 [configuration recovery](CONFIGURATION.md#service-account-role-and-recovery).
 
+**Native world settings (SDK 3.3.0 / UI API 3.2.0, unreleased):** module UI can
+read declared, authorized settings with `useWorldSetting(key)` from
+`@sheet-delver/sdk/react`. It returns `{ result, revision }`; distinguish stored,
+registered-default and unavailable results. `useModuleSettings` remains a separate
+browser-preference API. Filtered `world:contextChanged` events invalidate context
+without broadcasting setting values. The host hook retires stale requests across
+world/session/module changes; modules must also refresh or reject dialogs/actions
+opened under obsolete rule inputs, using `X-SheetDelver-Context-Revision` where
+appropriate. See the [world context contract](MODULE_MIGRATIONS.md#rule-inputs)
+and [compatibility requirements](MODULE_MIGRATIONS.md#compatibility-and-adoption).
+
 The persistent layout mounts one shared-content host outside page-filtered
 panels. Image shares use a viewport-bounded dialog; journal shares open the
 authorized entry/page in `JournalModal`. Dismissal is scoped to user, world and
