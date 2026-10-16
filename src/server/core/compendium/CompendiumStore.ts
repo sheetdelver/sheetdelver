@@ -177,6 +177,9 @@ function getPackId(pack: CompendiumPackMetadata, systemId?: string | null): stri
  */
 export class CompendiumStore {
     private packs = new Map<string, StoredPack>();
+    private contentRevision = 0;
+    private contentResetRevision = 0;
+    private contentRevisions = new Map<string, number>();
 
     public constructor(private readonly cache: CompendiumPackCache = persistentCache) { }
 
@@ -193,6 +196,15 @@ export class CompendiumStore {
      */
     public clear(_reason?: string): void {
         this.packs.clear();
+        this.contentResetRevision = ++this.contentRevision;
+        this.contentRevisions.clear();
+    }
+
+    /** Core observation fence, independent of metadata, hydration or an adapter.
+     * Reads/cache population do not advance it; clear cannot revive old stamps.
+     */
+    public getPackContentRevision(packId: string): number {
+        return this.contentRevisions.get(packId.trim()) ?? this.contentResetRevision;
     }
 
     public isReady(): boolean {
@@ -339,6 +351,10 @@ export class CompendiumStore {
         const normalizedPackId = String(packId || '').trim();
         if (!normalizedPackId) return;
 
+        // Every accepted document/batch/autosave/catalog mutation enters here.
+        // Retire readers synchronously, even if persistent invalidation later
+        // blocks or fails, or maintenance has not constructed an adapter yet.
+        this.contentRevisions.set(normalizedPackId, ++this.contentRevision);
         this.packs.get(normalizedPackId)?.variants.clear();
         if (!systemId) return;
 

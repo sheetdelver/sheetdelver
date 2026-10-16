@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { adminFetch, type CatalogDryRunResult } from '../lib/adminApi';
 import { useAdminRuntimeRestart } from '../context/AdminRuntimeRestartContext';
 import Button from './ui/Button';
+import MigrationPlanDetails from './MigrationPlanDetails';
 
 type Preview = NonNullable<CatalogDryRunResult['migration']> & { plan: { blockers: string[] } };
 /** Same-version repair and source selection use the same Core-owned approval, not a module tool. */
@@ -27,6 +28,7 @@ export default function SourceMigrationReview({ moduleId, source, onSessionExpir
     };
     const apply = async () => {
         if (!preview || acknowledged !== preview.id || preview.plan.blockers.length) return;
+        if (preview.expiresAt <= Date.now()) { setPreview(null); setAcknowledged(null); setError('Preview expired. Run world checks again.'); return; }
         setBusy(true);
         const result = await adminFetch<{ restartScheduled: boolean }>('/module-upgrades/source/apply', {
             method: 'POST', body: JSON.stringify({ planId: preview.id, backupAcknowledged: true }),
@@ -42,8 +44,7 @@ export default function SourceMigrationReview({ moduleId, source, onSessionExpir
         <Button disabled={busy} onClick={() => void inspect()}>Preview world maintenance</Button>
         {error && <p role="alert" className="mt-2 text-[var(--admin-warning-text)]">{error}</p>}
         {preview && <div className="mt-3 space-y-2">
-            <p>World {preview.plan.world.identity.worldId}: {preview.plan.checked} checks, {preview.plan.operations.length} proposed writes.</p>
-            <p className="break-all text-xs">Artifact {preview.artifactDigest}</p>
+            <MigrationPlanDetails preview={preview} />
             {preview.plan.blockers.map((reason, index) => <p key={index} role="alert">{reason}</p>)}
             <p>SheetDelver cannot back up or restore the world or undo migration writes. Interrupted changes may be partly applied. Back up through Foundry before continuing; external restore may lose later changes.</p>
             <label className="flex items-start gap-2"><input type="checkbox" checked={acknowledged === preview.id}

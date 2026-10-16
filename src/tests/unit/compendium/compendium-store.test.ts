@@ -40,7 +40,46 @@ export async function run() {
     await runLegacyPackKeyCompatibility();
     await runClearPreservesPersistentShards();
     await runPackContentInvalidation();
+    await runPackContentRevisions();
     console.log('  - CompendiumStore: all checks passed');
+}
+
+async function runPackContentRevisions() {
+    class DelayedCache extends MemoryPackCache {
+        pending: Promise<void> | null = null;
+        fail = false;
+        override async get<T>(namespace: string, key: string): Promise<T | null> {
+            if (this.pending) await this.pending;
+            if (this.fail) throw new Error('controlled cache failure');
+            return super.get<T>(namespace, key);
+        }
+    }
+    const cache = new DelayedCache(); const store = new CompendiumStore(cache);
+    const pack = 'synthetic.references';
+    store.setPackIndex(pack, createMetadata({ id: pack }), createIndex());
+    const initial = store.getPackContentRevision(pack);
+    store.getPackMetadata(pack); store.listPackMetadata(); store.getPackIndex(pack);
+    await store.setPackRows('synthetic', pack, itemRows());
+    await store.getPackRows('synthetic', pack);
+    assert.equal(store.getPackContentRevision(pack), initial, 'read/cache population is not observed content mutation');
+    let release!: () => void;
+    cache.pending = new Promise<void>(resolve => { release = resolve; });
+    const invalidating = store.invalidatePackContent('synthetic', pack);
+    const observed = store.getPackContentRevision(pack);
+    assert.ok(observed > initial, 'revision advances before awaited persistent invalidation');
+    assert.equal(store.getPackContentRevision('unrelated.pack'), initial, 'unrelated pack contents have a separate fence');
+    store.setPackIndex(pack, createMetadata({ id: pack }), createIndex());
+    release(); await invalidating;
+    assert.equal(store.getPackContentRevision(pack), observed, 'late completion/population cannot revive an old stamp');
+    cache.fail = true;
+    await assert.rejects(store.invalidatePackContent('synthetic', pack), /controlled cache failure/);
+    assert.ok(store.getPackContentRevision(pack) > observed, 'cache failure cannot suppress an accepted observation');
+    const failed = store.getPackContentRevision(pack);
+    await store.invalidatePackContent(null, pack);
+    assert.ok(store.getPackContentRevision(pack) > failed, 'no active system/adapter is required');
+    const beforeClear = store.getPackContentRevision(pack);
+    store.clear(); store.setPackMetadata(pack, createMetadata({ id: pack }));
+    assert.ok(store.getPackContentRevision(pack) > beforeClear, 'reset and metadata reuse cannot revive a captured scope');
 }
 
 async function runPackContentInvalidation() {

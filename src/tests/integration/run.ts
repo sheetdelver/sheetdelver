@@ -3,6 +3,7 @@ import path from 'node:path';
 import { initDataDir, resolveDataDir } from '@server/core/paths';
 import { run as runModuleLifecycleDependencies } from './module-lifecycle-dependencies.test';
 import { run as runModuleUpgradeBoundaries } from './module-upgrade-boundaries.test';
+import { run as runAdr0064Corrections } from './adr0064-corrections.test';
 
 function initializeIntegrationDataDir() {
     const testDataDir = path.join(process.cwd(), 'temp', 'integration-test-data');
@@ -16,6 +17,7 @@ export async function run() {
     initializeIntegrationDataDir();
     await runModuleLifecycleDependencies();
     await runModuleUpgradeBoundaries();
+    await runAdr0064Corrections();
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

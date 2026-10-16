@@ -7,6 +7,12 @@ import { serviceAccountAuthority } from '@server/core/world/ServiceAccountAuthor
 import { userStore } from '@server/core/documents/primary/users/UserStore';
 import { worldWorkGate, withMaintenanceDispatch } from '@server/core/world/WorldWorkGate';
 import { primaryDocumentCacheCoordinator } from '@server/core/documents/primary/PrimaryDocumentCacheCoordinator';
+import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
+import { itemStore } from '@server/core/documents/primary/items/ItemStore';
+import { sceneStore } from '@server/core/documents/primary/scenes/SceneStore';
+import { settingStore, SettingStore } from '@server/core/documents/primary/settings/SettingStore';
+import { compendiumStore } from '@server/core/compendium/CompendiumStore';
+import { isRecord } from '@server/core/documents/primary/base/PrimaryDocumentStore';
 import { moduleWorldContext, ModuleWorldContextService } from '../ModuleWorldContextService';
 import { freezeWorldValue } from '@shared/sdk/world';
 import { applicableMigrationSteps, discoverMigrations, migrationDirectoryDigest, type ResolvedMigrationCatalog } from '@modules/registry/migrations/catalog';
@@ -53,24 +59,70 @@ export async function freshMigrationSnapshot(catalog: ResolvedMigrationCatalog) 
     assertMigrationAuthority();
     const generation = transport.connectionEpoch;
     const worldId = worldStateStore.getCurrentWorldId();
-    // Refresh sources under the existing seeding/race reconciliation rules. No adapter needed.
-    await primaryDocumentCacheCoordinator.reconcileAll(transport);
-    if (!transport.isConnected || generation !== transport.connectionEpoch || worldId !== worldStateStore.getCurrentWorldId()) throw new Error('Migration world connection changed');
-    assertMigrationAuthority();
-    moduleWorldContext.refresh();
     const active = moduleWorldContext.snapshot();
-    const candidateContext = new ModuleWorldContextService();
+    const applicable = applicableMigrationSteps(catalog, active.identity.systemVersion, active.identity.foundryGeneration);
+    const kinds = new Set(applicable.flatMap(step => [...step.targets, ...(step.reads?.targets ?? [])]));
+    const needsActors = kinds.has('Actor') || kinds.has('Item') || kinds.has('ActiveEffect') || kinds.has('ActorDelta');
+    const needsItems = kinds.has('Item') || kinds.has('ActiveEffect');
+    const needsPacks = kinds.has('WorldPack') || applicable.some(step => step.reads?.packs?.length);
+    const readPacks = applicable.flatMap(step => step.reads?.packs ?? []);
+    const packContentStamp = () => {
+        const writableScope = kinds.has('WorldPack') ? compendiumStore.listPackMetadata().filter(pack => {
+            const type = pack.type ?? pack.documentName ?? pack.entity;
+            return pack.id?.startsWith('world.') && (type === 'Actor' || type === 'Item');
+        }).map(pack => String(pack.id)) : [];
+        return [...new Set([...readPacks, ...writableScope])].sort().map(id => [id, compendiumStore.getPackContentRevision(id)]);
+    };
+    const stores = [settingStore, userStore, ...(needsActors ? [actorStore] : []), ...(needsItems ? [itemStore] : []), ...(kinds.has('ActorDelta') ? [sceneStore] : [])];
+    const stamp = () => JSON.stringify([transport.connectionEpoch, worldStateStore.getCurrentWorldId(), moduleWorldContext.snapshot().identity,
+        stores.map(store => store.getMutationRevision()), needsPacks ? compendiumStore.listPackMetadata() : [], packContentStamp()]);
+    const before = stamp();
+    // These GETs deliberately do not enter FoundryEventIngress. A read-only
+    // preview must not replace serving sources, consume context changes or
+    // initialize an adapter. Only declared source domains are fetched.
+    const read = async (type: string, operation: Record<string, unknown> = {}) => {
+        const response = await transport.readDocumentSources(type, { query: {}, ...operation });
+        const result = isRecord(response) ? response.result : response;
+        if (!Array.isArray(result) || result.some(row => !isRecord(row))) throw new Error(`Migration ${type} source read unavailable`);
+        return result as Record<string, unknown>[];
+    };
+    const actors = needsActors ? await read('Actor') : [];
+    const items = needsItems ? await read('Item') : [];
+    const scenes = kinds.has('ActorDelta') ? await read('Scene') : [];
+    const settings = new SettingStore();
+    await settings.seed(async () => await read('Setting') as never);
+    const users = await read('User');
+    const userId = serviceAccountAuthority.getUserId()!;
+    if (!serviceAccountAuthority.checkCurrent(users.find(row => (row._id ?? row.id) === userId) ?? null)) throw new Error('Full-GM service account required');
+    const candidateContext = new ModuleWorldContextService(settings);
     candidateContext.configure(getConfig().foundry.url, active.identity, catalog.worldSettings);
     const world = freezeWorldValue({ identity: { ...active.identity }, settings: candidateContext.snapshot().settings });
     const exclusions: string[] = [];
-    const applicable = applicableMigrationSteps(catalog, world.identity.systemVersion, world.identity.foundryGeneration);
     const requiredSteps = applicable.filter(step => step.required);
-    const targets = await enumerateMigrationTargets(transport, new Set(applicable.flatMap(step => [...step.targets, ...(step.reads?.targets ?? [])])), applicable.flatMap(step => step.reads?.packs ?? []), {
+    const targets = await enumerateMigrationTargets({ dispatchDocumentSocket: (type, action, operation) => {
+        if (action !== 'get') throw new Error('Migration snapshot is read-only');
+        return read(type, operation);
+    } }, kinds, readPacks, {
         exclusions, requiredKinds: new Set(requiredSteps.flatMap(step => [...step.targets, ...(step.reads?.targets ?? [])])), requiredReadPacks: new Set(requiredSteps.flatMap(step => step.reads?.packs ?? [])),
+        view: { actors, items, scenes, packs: compendiumStore.listPackMetadata(), configuration: settings.getValueByKey('core.compendiumConfiguration'),
+            subject: userStore.createAccessSubject(userId)!, generation: world.identity.foundryGeneration },
     });
     assertMigrationAuthority();
-    if (generation !== transport.connectionEpoch || world.identity.contextRevision !== moduleWorldContext.snapshot().identity.contextRevision) throw new Error('Migration source scope changed');
-    return { world, targets, exclusions };
+    const assertCurrent = () => {
+        assertMigrationAuthority();
+        if (!transport.isConnected || generation !== transport.connectionEpoch || worldId !== worldStateStore.getCurrentWorldId() || before !== stamp()) throw new Error('Migration source scope changed; rerun snapshot');
+    };
+    assertCurrent();
+    return { world, targets, exclusions, assertCurrent };
+}
+
+/** Only the gated preparation lifecycle may replace the serving read model. */
+export async function reconcileMigrationPreparation(): Promise<() => void> {
+    if (!worldWorkGate.hasBlock('module-upgrade') && !worldWorkGate.hasBlock('migration-compatibility')) throw new Error('Migration preparation requires maintenance');
+    const { systemService } = await import('../SystemService');
+    const publish = await primaryDocumentCacheCoordinator.reconcileAll(systemService.getSystemClient());
+    moduleWorldContext.refresh();
+    return publish;
 }
 export function createHostUpgradeCoordinator(overrides: Partial<UpgradeCoordinatorDeps> = {}): ModuleUpgradeCoordinator {
     const unavailable = async () => { throw new Error('Use the archive/source preparation operation for promotion'); };

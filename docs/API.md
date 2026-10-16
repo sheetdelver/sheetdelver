@@ -1198,15 +1198,22 @@ caller-bound; modules receive no privileged migration execution API.
 | Surface | Contract |
 | --- | --- |
 | `GET /api/module-world-context` | Authenticated, initialized, role-filtered immutable context; no raw Settings. |
-| `GET /admin/api/world/service-account` | Admin-only observed/required role and remediation. |
-| `GET /admin/api/module-upgrades[/:id]` | Owner-only durable job/target outcomes and compatibility diagnostics; no-store. |
-| `POST /admin/api/module-upgrades/source/:moduleId/preview` | `{source: "local" or "managed"}`; read-only world plan. |
-| `POST /admin/api/module-upgrades/source/apply` | Exact `planId`, `backupAcknowledged`; current admin principal; 202 accepted. |
-| `POST /admin/api/module-upgrades/:id/resume` | Readback/reconcile the persisted approval, not a fresh repair authorization. |
-| `POST /admin/api/module-upgrades/:id/cancel` | Pre-write package recovery or post-write scheduling stop, never world undo. |
-| `POST /admin/api/module-upgrades/:id/review` | Fresh expiring preview for a stopped job with changed/restored source. |
-| `POST /admin/api/module-upgrades/:id/reapprove` | Exact revised `planId`, `backupAcknowledged`; retains prior approvals/outcomes. |
-| `POST /admin/api/module-upgrades/:id/cleanup` | Completed jobs only; confined retained staging/package cleanup, not world data. |
+| `GET /admin/world/service-account` | Admin-only observed/required role and remediation. |
+| `GET /admin/module-upgrades[/:id]` | Owner-only durable job/target outcomes and bounded compatibility/context diagnostics; no-store. |
+| `POST /admin/module-upgrades/source/:moduleId/preview` | `{source: "local" or "managed"}`; isolated, read-only world plan; no serving Store/context mutation. |
+| `POST /admin/module-upgrades/source/apply` | Exact `planId`, `backupAcknowledged`; current admin principal; 202 accepted. |
+| `POST /admin/module-upgrades/retry-context` | Retry compatibility/preparation after dependency failure; 409 on failure; no new repair authorization. |
+| `POST /admin/module-upgrades/:id/resume` | Readback/reconcile the persisted approval, not a fresh repair authorization. |
+| `POST /admin/module-upgrades/:id/cancel` | Pre-write package recovery or post-write scheduling stop, never world undo. |
+| `POST /admin/module-upgrades/:id/review` | Fresh expiring preview for a stopped job with changed/restored source. |
+| `POST /admin/module-upgrades/:id/reapprove` | Exact revised `planId`, `backupAcknowledged`; retains prior approvals/outcomes. |
+| `POST /admin/module-upgrades/:id/cleanup` | Completed jobs only; confined retained staging/package cleanup, not world data. |
+
+These are direct Core routes. The browser uses the existing `/api/admin/...`
+same-origin proxy (not `/admin/api/...`). Diagnostics name the failed phase and
+admin remediation, including discovery/read/preparation exceptions; public clients
+receive only generic maintenance. Source/catalog/recovery reviews show exact world,
+artifact, expiry, target paths and exclusions, without exposing those details publicly.
 
 All mutations retain existing network/origin/admin-auth/CSRF/audit controls.
 Archive/catalog dry-run results include `migration`; apply carries `planId`,
@@ -1215,7 +1222,17 @@ parameters (the request body remains archive bytes). Conflicts/stale approval re
 409; world maintenance/readiness returns 503. Backup acknowledgement is mandatory.
 `X-SheetDelver-Context-Revision` rejects stale rule-dependent dialogs; after an
 upgrade `X-SheetDelver-Runtime` is required for mutation by the current client build.
+An observed runtime change, including null-to-first token, requests one browser
+reload and does not replace old assets' pinned mutation token. A stale header is 409.
 Public `maintenance` contains phase/message only; `runtimeToken` is non-secret.
+
+Migration snapshots additionally fence observed content revisions of writable
+world packs and declared read packs, independently of metadata or adapter readiness.
+Ingress during reads or before dispatch rejects the stale snapshot. Before intent
+this sends nothing; after durable intent the job retains conservative uncertain/
+possible-write evidence. Changed dependencies require fresh recovery review and
+approval, not automatic replanning or replay. These revisions are Core-internal,
+not a new client approval token or a native compare-and-swap guarantee.
 
 `GET /api/system/data` uses `getSystemDataForUser` and a caller-bound read runtime
 for non-GMs. Opaque legacy bootstrap caches are full-GM-only, never inferred safe

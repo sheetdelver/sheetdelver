@@ -27,8 +27,14 @@ export function registerAdminUpgradeRoutes(router: express.Router, account: expr
     });
     router.get('/module-upgrades', account, requireAdminAuth, (_req, res) => {
         res.setHeader('Cache-Control', 'no-store');
-        try { res.json({ jobs: getUpgradeJournal().jobs(), serviceAccountDiagnostic: serviceAccountAuthority.getDiagnostic(), compatibilityDiagnostic: getMigrationCompatibilityDiagnostic() }); }
+        try { res.json({ jobs: getUpgradeJournal().jobs(), serviceAccountDiagnostic: serviceAccountAuthority.getDiagnostic(), compatibilityDiagnostic: getMigrationCompatibilityDiagnostic(), contextDiagnostic: worldBootstrapper.getContextRefreshDiagnostic() }); }
         catch { res.status(503).json({ error: 'Upgrade journal is unreadable. Preserve config/module-upgrades and inspect its owner-only records before restarting.', code: 'upgrade-journal-unreadable' }); }
+    });
+    router.post('/module-upgrades/retry-context', account, requireAdminAuth, requireAdminCsrf, auditAdminAction, async (_req, res) => {
+        try {
+            await worldBootstrapper.recover(systemService.getSystemClient());
+            res.json({ accepted: true });
+        } catch { res.status(409).json({ error: 'World preparation could not recover. Inspect the admin diagnostics and Core logs; no new migration approval was granted.' }); }
     });
     router.get('/module-upgrades/:id', account, requireAdminAuth, (req, res) => {
         try { res.setHeader('Cache-Control', 'no-store'); res.json(getUpgradeJournal().job(String(req.params.id))); }

@@ -4,8 +4,8 @@
 
 - Required full-GM service identity
 - Added versioned world context
-- Added reviewed module maintenance
-- Fenced upgrades and recovery
+- Added isolated reviewed maintenance
+- Fenced upgrades, dependencies and recovery
 - Preserved canonical Actor references
 
 ## 0.18.1

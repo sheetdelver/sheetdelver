@@ -5,6 +5,20 @@ The aggregate SDK additions are 3.3.0, module-api 1.5.0 and UI API 3.2.0. They a
 not present in released Core 0.18.1. Module adoption and disposable-world native
 acceptance remain separate gates. Application/module release numbers are unchanged.
 
+**Review status:** the independent review of `5013e86` found five Core defects
+despite passing automated suites. Their corrective implementation and evidence are in
+[ADR-0064 CR64-01–05](adr/0064-module-world-context-and-data-migrations.md#independent-core-review--october-16-2026).
+Tracked regressions now cover preview consistency, reference-dependent resume,
+managed repair digests, first-upgrade browser reload and failed-context recovery.
+Isolated rendered/replacement checks are distinct from pending native acceptance
+and module adoption. The [corrective independent review](adr/0064-module-world-context-and-data-migrations.md#corrective-independent-review--october-16-2026)
+identified CR64-06 (observed pack-content fencing) and CR64-07 (player theme
+acceptance). Both are now corrected with failing-before/passing-after evidence in
+the [follow-up](adr/0064-module-world-context-and-data-migrations.md#cr64-0607-corrective-implementation--october-16-2026),
+with [independent confirmation](adr/0064-module-world-context-and-data-migrations.md#cr64-0607-independent-confirmation--october-16-2026) of the original reproductions and current suites.
+Native acceptance, realistic inventory measurement and G8 remain pending. Do not
+treat this guide as a migration-release approval.
+
 ## Rule inputs
 
 `info.json.worldSettings` is separate from browser-local `settings`. Declare exact
@@ -43,6 +57,11 @@ Keep it bounded, read-only and revision-aware. Source ingress continues during t
 refresh; preparation uses the latest source after the asynchronous barrier. Failed
 refresh holds world work unavailable instead of publishing old values as current.
 Recovery refreshes context without normal adapter reinitialization.
+After failure, an admin can **Retry world preparation** in World maintenance.
+The retry reruns source compatibility and preparation; it does not authorize repairs
+or release unrelated gates. A hook timeout cannot cancel module JavaScript: Core
+prevents overlapping preparation, including across world teardown, until that hook
+settles. The admin diagnosis recommends a Core restart if it never settles.
 
 The React `useWorldSetting(key)` hook reads the authorized host projection, not
 localStorage or native Setting documents. It returns `{result, revision}` and
@@ -127,6 +146,11 @@ separate world plan. Source selection and same-version repair use the installed
 module detail's world-maintenance review. Candidate hooks are compiled into Core-
 owned staging for local sources; author directories remain untouched. Preview does
 not initialize a candidate adapter, register its routes or write native data.
+Preview reads are isolated from serving Stores and prepared/context publication.
+Only declared source domains are read; live scope/revision changes invalidate the
+snapshot. Managed repair copies packaged hooks byte-for-byte rather than compiling
+them again, preserving historical integrity. Gated preparation, not preview, owns
+serving reconciliation and rebuild.
 
 The selected world must be running, match the candidate system and have fresh
 source/setting/pack inputs and a qualified service identity. Setup, stopped/wrong
@@ -143,6 +167,27 @@ the backup-warning acknowledgement: SheetDelver cannot back up/restore the world
 undo migration changes; interrupted writes may be partial. Back up through Foundry
 first; an external restore may discard changes since that backup. No backup existence
 is claimed or verified.
+Each operation records its exact reference membership/content and approved
+simulation effects. Resume checks dependencies before native intent/send, including
+earlier approved transformations. An uncertain write is reconciled only against
+approved readback; changing dependencies requires a new reviewed plan. This is not
+native atomic compare-and-swap or a lock against external Foundry clients.
+
+Pack content has a separate, Core-owned observation revision: accepted document
+mutations, batch entries, autosaves and catalog mutations advance it synchronously
+before asynchronous cache invalidation. Snapshots capture the applicable writable
+world packs and exact declared read packs, even when no adapter is ready. A change
+observed during multi-pack reads or before the final dispatch retires that source
+snapshot; pack metadata alone is not a content fence. Ordinary reads/cache
+population do not advance this revision, and cache failure or late completion
+cannot restore an old stamp. Module `compendiumPacks` declarations and context
+refresh are not prerequisites for migration fencing.
+
+Retirement before native intent sends nothing. Retirement after durable intent
+retains possible-write/uncertain evidence, even if the final send was blocked.
+Resume still requires exact dependency/source readback; changed inputs need a new
+review and backup acknowledgement, retaining prior approval/outcome history. This
+does not detect edits Core has not observed after dispatch and is not native CAS.
 
 The durable sequence is inspect → approve/quiesce → retain/promote → restart in
 maintenance → migrate/read back → verify/prepare → activate/complete. Files installed,
@@ -179,6 +224,8 @@ ordinary operations and keeps native ingress/admin inspection available. The sha
 player boundary shows a non-dismissible maintenance state. Admin progress/recovery
 remains reachable without waiting for player readiness. Successful activation rotates
 a non-secret runtime token; stale clients must reload before new mutations.
+Even null-to-first activation retires an already-observed browser. Its old code
+retains its old mutation header until reload; it cannot adopt replacement authority.
 
 Restricted targets include world Actors/Items/effects, explicit unlinked ActorDelta
 data and unlocked world-owned Actor/Item packs. Shared bases are enumerated once;
@@ -207,11 +254,26 @@ LIMITED and owner-editor projections retain their existing distinct boundaries.
 
 ## Verification and adoption
 
-Tracked regressions: `src/tests/unit/world/module-world-migrations.test.ts` and
-`src/tests/integration/module-upgrade-boundaries.test.ts`. The integration fixture
+Tracked regressions include `src/tests/unit/world/module-world-migrations.test.ts`,
+`src/tests/integration/module-upgrade-boundaries.test.ts` and
+`src/tests/integration/adr0064-corrections.test.ts`. The earlier integration fixture
 uses actual bootstrap, archive renames, Core dispatch/ingress and Stores with an
 offline wire and injected restart. It is not a native permission or actual process-
-replacement acceptance result. The ADR records remaining matrix/gate evidence.
+replacement acceptance result. The corrective suite separately exercises production
+host snapshot/coordinator/source/installed compatibility/admin-route composition.
+Explicit isolated operator checks (not part of default service startup):
+
+```sh
+npx tsx src/tests/acceptance/adr0064-supervised.test.ts --run-isolated
+SD_PLAYWRIGHT_MODULE=/absolute/isolated/playwright/index.mjs node src/tests/acceptance/adr0064-rendered.mjs
+SD_PLAYWRIGHT_MODULE=/absolute/isolated/playwright/index.mjs node src/tests/acceptance/adr0064-player-rendered.mjs
+```
+
+The browser checks use existing external tooling, never runtime dependencies.
+The supervised check copies only Core source/configuration into a temporary
+workspace, uses generated data and a fake loopback upstream, and replaces the real
+manager's Core/Next children. It does not connect to native Foundry. Inspect
+listeners first; the ADR records evidence and remaining native/adoption gates.
 
 G8 module adoption is separate: declare native settings with versioned provenance;
 create lossless source-derived catalog/hooks and tests; implement dependency refresh;

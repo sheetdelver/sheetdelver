@@ -35,15 +35,6 @@ import { logger } from '@shared/utils/logger';
 import type { CompendiumPackConfig } from '@shared/sdk';
 import type { ModuleRuntime } from '@shared/sdk/runtime';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
-async function refreshAdapterContext(adapter: SystemAdapter | null, ...args: Parameters<NonNullable<SystemAdapter['onWorldContextChanged']>>): Promise<void> {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    try {
-        await Promise.race([
-            adapter?.onWorldContextChanged?.(...args),
-            new Promise<never>((_resolve, reject) => { timer = setTimeout(() => reject(new Error('World dependency refresh timed out')), 5000); }),
-        ]);
-    } finally { if (timer) clearTimeout(timer); }
-}
 import type { UserDocument } from '@server/shared/types/users';
 import {
     assertFoundryVersionSupported,
@@ -135,6 +126,9 @@ export class WorldBootstrapper {
     private activeTransport: WorldBootstrapTransport | null = null;
     private pendingContextRefreshes = 0;
     private contextRefreshFailed = false;
+    private contextFailureRevision: number | null = null;
+    private contextHookPending: Promise<void> | null = null;
+    private contextRequestSerial = 0;
     private contextChangedKeys = new Set<string>();
     private publishPreparedContext: (() => void) | null = null;
     private readonly loadAdapter: (systemId: string) => Promise<SystemAdapter | null>;
@@ -280,6 +274,7 @@ export class WorldBootstrapper {
     }
 
     public bootstrap(transport: WorldBootstrapTransport, options: WorldBootstrapOptions = {}): Promise<WorldBootstrapResult> {
+        if (this.ready && worldWorkGate.hasBlock('context-refresh')) return this.recover(transport, options);
         if (this.ready && !worldWorkGate.hasBlock('module-upgrade') && !worldWorkGate.hasBlock('migration-compatibility')) {
             return Promise.resolve({
                 ready: true,
@@ -338,6 +333,30 @@ export class WorldBootstrapper {
         return tracked;
     }
 
+    /** Admin-only bounded diagnosis; public status exposes only the world gate. */
+    public getContextRefreshDiagnostic() {
+        return this.contextRefreshFailed ? { code: 'world-context-refresh-failed', pendingHook: this.contextHookPending !== null,
+            revision: this.contextFailureRevision,
+            remediation: this.contextHookPending ? 'A timed-out dependency hook is still running. Wait for it to settle before retrying; restart Core if it does not settle.'
+                : 'Retry world context preparation. If it fails again, inspect the module dependency hook and Core logs.' } : null;
+    }
+
+    private async refreshAdapterContext(...args: Parameters<NonNullable<SystemAdapter['onWorldContextChanged']>>): Promise<void> {
+        if (this.contextHookPending) throw new Error('Previous world dependency hook is still running');
+        // Timeout does not cancel module code. Retain the real promise and never
+        // run a newer refresh/preparation against that adapter until it settles.
+        const hook = Promise.resolve().then(() => this.activeAdapter?.onWorldContextChanged?.(...args));
+        this.contextHookPending = hook;
+        void hook.then(() => { if (this.contextHookPending === hook) this.contextHookPending = null; },
+            () => { if (this.contextHookPending === hook) this.contextHookPending = null; });
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+            await Promise.race([hook, new Promise<never>((_resolve, reject) => {
+                timer = setTimeout(() => reject(new Error('World dependency refresh timed out')), 5000);
+            })]);
+        } finally { if (timer) clearTimeout(timer); }
+    }
+
     public getFoundryCompatibility(): FoundryVersionCompatibilityDiagnostic | null {
         return this.lastCompatibility ? { ...this.lastCompatibility } : null;
     }
@@ -358,7 +377,11 @@ export class WorldBootstrapper {
         this.recoveryBaseline = null;
         this.activeTransport = null;
         this.pendingContextRefreshes = 0;
-        this.contextRefreshFailed = false;
+        this.contextRefreshFailed = this.contextHookPending !== null;
+        if (!this.contextHookPending) this.contextFailureRevision = null;
+        this.contextRequestSerial += 1;
+        // Registry adapters can be cached across worlds. A timeout is not
+        // cancellation: preserve its settlement barrier even across teardown.
         this.contextChangedKeys.clear();
         this.publishPreparedContext = null;
         this.contextRefresh = Promise.resolve();
@@ -376,7 +399,10 @@ export class WorldBootstrapper {
     ): Promise<WorldBootstrapResult> {
         logger.info('WorldBootstrapper | Reconciling recovered world...');
         const connectionEpoch = transport.connectionEpoch;
+        worldWorkGate.block('context-refresh', { phase: 'refreshing', message: 'Refreshing world rules' });
         try {
+            await this.contextRefresh.catch(() => undefined);
+            if (this.contextHookPending) throw new Error('Previous world dependency hook is still running');
             const previousWorldId = this.getCurrentWorldId();
             const previousSystemId = this.activeSystemId;
             const previousSystemVersion = this.getSystem()?.version ?? null;
@@ -421,13 +447,28 @@ export class WorldBootstrapper {
             const publishChanges = await this.reconcileDocuments(transport, this.recoveryBaseline ?? undefined);
             this.assertCurrentConnection(transport, epoch, connectionEpoch);
             this.configureWorldContext(snapshot, moduleInfo, epoch);
+            let revision = moduleWorldContext.snapshot().identity.contextRevision;
+            const serial = this.contextRequestSerial;
+            let publishPrepared: (() => void) | undefined;
             await this.checkDataCompatibility(nextSystemId, async () => {
-                await refreshAdapterContext(this.activeAdapter, moduleWorldContext.snapshot(), { keys: [], recovery: true });
+                revision = moduleWorldContext.snapshot().identity.contextRevision;
+                await this.refreshAdapterContext(moduleWorldContext.snapshot(), { keys: [], recovery: true });
                 this.assertCurrentConnection(transport, epoch, connectionEpoch);
-                if (this.activeAdapter && preparedActorStore.isReady()) preparedActorStore.refreshContext(moduleWorldContext.snapshot());
+                if (this.activeAdapter && preparedActorStore.isReady()) publishPrepared = preparedActorStore.refreshContext(moduleWorldContext.snapshot());
                 this.rebuildPreparedActors();
             });
             this.assertCurrentConnection(transport, epoch, connectionEpoch);
+            // A source notification while recovery awaited a hook must be
+            // reconciled by another attempt, not erased by this older success.
+            if (serial !== this.contextRequestSerial || revision !== moduleWorldContext.snapshot().identity.contextRevision) throw new Error('World dependencies changed during recovery; retry');
+            this.contextRefreshFailed = false;
+            this.contextFailureRevision = null;
+            this.publishPreparedContext = null;
+            worldWorkGate.release('context-refresh');
+            syncTokenService.invalidatePreparedActors();
+            publishPrepared?.();
+            moduleWorldContext.publish([...new Set([...this.contextChangedKeys, ...Object.keys(moduleWorldContext.snapshot().settings)])]);
+            this.contextChangedKeys.clear();
             this.markLifecycleActive(nextSystemId);
             await options.onReady?.({ systemId: nextSystemId });
             this.assertCurrentConnection(transport, epoch, connectionEpoch);
@@ -436,6 +477,11 @@ export class WorldBootstrapper {
             logger.info('WorldBootstrapper | Same-world reconciliation complete.');
             return { ready: true, systemId: nextSystemId };
         } catch (error) {
+            if (epoch === this.runtimeEpoch) {
+                this.contextRefreshFailed = true;
+                this.contextFailureRevision = moduleWorldContext.snapshot().identity.contextRevision;
+                worldWorkGate.block('context-refresh', { phase: 'recovery-required', message: 'World unavailable — maintenance required' });
+            }
             if (worldWorkGate.hasBlock('module-upgrade') || worldWorkGate.hasBlock('migration-compatibility')) this.ready = false;
             if (error instanceof StaleWorldBootstrapError) {
                 logger.debug('WorldBootstrapper | Discarded stale recovery after runtime teardown.');
@@ -461,6 +507,10 @@ export class WorldBootstrapper {
         const connectionEpoch = transport.connectionEpoch;
 
         try {
+            if (this.contextHookPending) {
+                worldWorkGate.block('context-refresh', { phase: 'recovery-required', message: 'World unavailable — maintenance required' });
+                throw new Error('Previous world dependency hook is still running');
+            }
             const snapshot = await this.getBootstrapSnapshot(transport);
             this.assertCurrentConnection(transport, epoch, connectionEpoch);
             if (snapshot) {
@@ -551,6 +601,9 @@ export class WorldBootstrapper {
 
                 this.assertCurrentConnection(transport, epoch, connectionEpoch);
                 this.ready = true;
+                this.contextRefreshFailed = false;
+                this.contextFailureRevision = null;
+                worldWorkGate.release('context-refresh');
                 worldWorkGate.release('runtime-retired');
                 this.markLifecycleActive(sysInfo.id);
                 await options.onReady?.({ systemId: sysInfo.id });
@@ -627,6 +680,9 @@ export class WorldBootstrapper {
         const config = this.getRegisteredModules().find(row => row.id === this.activeSystemId)?.compendiumPacks
             ?? (hasCompendiumPackConfig(this.activeAdapter) ? this.activeAdapter.getCompendiumPackConfig() : undefined);
         if (packId && !config?.packs.some(row => row.id === packId)) return Promise.resolve();
+        this.contextRequestSerial += 1;
+        if (this.recoveryPromise) return Promise.resolve(); // recovery fences this notification before publication
+        if (this.contextRefreshFailed) return Promise.reject(new Error('World context recovery required'));
         const observed = moduleWorldContext.refresh();
         if (!packId && !observed.changedKeys.length) return Promise.resolve();
         observed.changedKeys.forEach(key => this.contextChangedKeys.add(key));
@@ -635,6 +691,7 @@ export class WorldBootstrapper {
         const epoch = this.runtimeEpoch;
         this.contextRefresh = this.contextRefresh.catch(() => undefined).then(async () => {
             this.assertCurrentEpoch(epoch);
+            if (this.contextRefreshFailed) throw new Error('World context recovery required');
             if (packId) {
                 if (!config || !this.activeTransport) throw new Error('Pack dependency transport unavailable');
                 await this.hydrateCompendiumPacks(this.activeSystemId!, config, this.createCompendiumService(this.activeTransport));
@@ -643,7 +700,7 @@ export class WorldBootstrapper {
             }
             const snapshot = moduleWorldContext.snapshot();
             if (observed.changedKeys.length || packId) {
-                await refreshAdapterContext(this.activeAdapter, snapshot, { keys: observed.changedKeys, recovery: false, packs: packId ? [packId] : [] });
+                await this.refreshAdapterContext(snapshot, { keys: observed.changedKeys, recovery: false, packs: packId ? [packId] : [] });
                 this.assertCurrentEpoch(epoch);
                 // Source ingress continued while the hook waited; rebuild from the
                 // latest Store, then publish only after this synchronous boundary.
@@ -656,6 +713,7 @@ export class WorldBootstrapper {
             if (epoch === this.runtimeEpoch) {
                 this.contextRefreshFailed = true;
                 moduleWorldContext.markUnavailable();
+                this.contextFailureRevision = moduleWorldContext.snapshot().identity.contextRevision;
                 worldWorkGate.block('context-refresh', { phase: 'recovery-required', message: 'World unavailable — maintenance required' });
             }
             throw error;

@@ -561,7 +561,12 @@ export class CoreSocket extends SocketBase {
         });
     }
 
-    public async dispatchDocumentSocket(type: string, action: string, operation: any = {}, parent?: { type: string, id: string }, failHard: boolean = true): Promise<any> {
+    /** Read source rows without publishing an acknowledgement into serving Stores. */
+    public readDocumentSources(type: string, operation: Record<string, unknown> = {}): Promise<unknown> {
+        return this.dispatchDocumentSocket(type, 'get', { ...operation, broadcast: false }, undefined, true, false);
+    }
+
+    public async dispatchDocumentSocket(type: string, action: string, operation: any = {}, parent?: { type: string, id: string }, failHard: boolean = true, ingestRead = true): Promise<any> {
         if (!this.socket?.connected) throw new Error('Socket not connected');
 
         // Normalize data and updates to arrays if provided
@@ -586,7 +591,7 @@ export class CoreSocket extends SocketBase {
             const result: any = action === 'get' ? await send() : await this.guardOperation(send);
             this.consecutiveFailures = 0;
 
-            if (result) {
+            if (result && (action !== 'get' || ingestRead)) {
                 // Ingress owns single/batch normalization and pack scope for
                 // both acknowledgements and broadcasts. Supplying the request
                 // fallback preserves terse v13 acknowledgement compatibility.

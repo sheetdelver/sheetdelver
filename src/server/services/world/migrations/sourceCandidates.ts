@@ -22,7 +22,22 @@ export async function prepareSourceCandidate(directory: string, info: SystemModu
     const staging = getDistArchivesDir(); fs.mkdirSync(staging, { recursive: true });
     const root = fs.mkdtempSync(path.join(staging, '.source-upgrade-'));
     try {
-        await packageMigrations(directory, root, info);
+        if (category === 'local') await packageMigrations(directory, root, info);
+        else {
+            // Packaged hooks are immutable historical artifacts, not compiler
+            // inputs. Rebundling changes their bytes even at the same version.
+            fs.copyFileSync(path.join(directory, 'migration.json'), path.join(root, 'migration.json'));
+            for (const entry of catalog.definitions) {
+                fs.mkdirSync(path.join(root, entry.directory), { recursive: true });
+                fs.copyFileSync(path.join(directory, entry.directory, 'definition.json'), path.join(root, entry.directory, 'definition.json'));
+                for (const step of entry.definition.steps) for (const file of Object.values(step.hooks)) {
+                    const relative = path.join(entry.directory, file);
+                    fs.mkdirSync(path.dirname(path.join(root, relative)), { recursive: true });
+                    fs.copyFileSync(path.join(directory, relative), path.join(root, relative));
+                }
+            }
+            if (discoverMigrations(root, info)?.digest !== catalog.digest) throw new Error('Packaged migration snapshot changed');
+        }
         fs.writeFileSync(path.join(root, 'info.json'), JSON.stringify(info));
         if (migrationDirectoryDigest(directory) !== sourceDigest) throw new Error('Source changed while compiling migration snapshot');
         return { moduleId: info.id, version: info.version ?? '', info, root,
@@ -35,9 +50,14 @@ export async function previewModuleSource(moduleId: string, category: 'local' | 
     if (!directory) throw new Error('Selected source is unavailable');
     const info = JSON.parse(fs.readFileSync(path.join(directory, 'info.json'), 'utf8')) as SystemModuleInfo;
     const candidate = await prepareSourceCandidate(directory, info, category);
-    const preview = await createHostUpgradeCoordinator().preview(candidate);
-    getUpgradeJournal().saveSourceCandidate(preview.id, candidate);
-    return preview;
+    try {
+        const preview = await createHostUpgradeCoordinator().preview(candidate);
+        getUpgradeJournal().saveSourceCandidate(preview.id, candidate);
+        return preview;
+    } catch (error) {
+        fs.rmSync(candidate.root, { recursive: true, force: true });
+        throw error;
+    }
 }
 export async function applyModuleSource(planId: string, administrator: string, backupAcknowledged: boolean) {
     const candidate = getUpgradeJournal().sourceCandidate(planId);

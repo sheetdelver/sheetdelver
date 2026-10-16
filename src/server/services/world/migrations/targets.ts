@@ -8,6 +8,20 @@ import { worldStateStore } from '@server/core/world/WorldStateStore';
 import { isRecord } from '@server/core/documents/primary/base/PrimaryDocumentStore';
 import { serviceAccountAuthority } from '@server/core/world/ServiceAccountAuthority';
 import { canReadNativePack } from '@server/core/documents/primary/base/nativePackPermissions';
+import { canReadCombatActorPack } from '@server/core/documents/primary/base/nativeCombatPermissions';
+import type { CompendiumPackMetadata } from '@server/core/compendium/types';
+import type { DocumentAccessSubject } from '@server/core/documents/primary/base/ownership';
+
+/** A Core-owned read view. Isolated previews reuse the same enumeration/policy. */
+export interface MigrationSourceView {
+    actors: Record<string, unknown>[];
+    items: Record<string, unknown>[];
+    scenes: Record<string, unknown>[];
+    packs: CompendiumPackMetadata[];
+    configuration: unknown;
+    subject: DocumentAccessSubject;
+    generation: number;
+}
 
 export interface MigrationTransport {
     dispatchDocumentSocket(type: string, action: string, operation?: Record<string, unknown>): Promise<unknown>;
@@ -31,10 +45,10 @@ export function expandMigrationTargets(uuid: string, kind: MigrationTarget['kind
     }
     return targets;
 }
-export function packIsWritableWorld(packId: string): boolean {
-    const metadata = compendiumStore.getPackMetadata(packId);
+export function packIsWritableWorld(packId: string, view?: MigrationSourceView): boolean {
+    const metadata = view ? view.packs.find(row => row.id === packId) : compendiumStore.getPackMetadata(packId);
     if (!metadata || !packId.startsWith('world.') || metadata.packageType && metadata.packageType !== 'world') return false;
-    const configuration = settingStore.getValueByKey('core.compendiumConfiguration');
+    const configuration = view ? view.configuration : settingStore.getValueByKey('core.compendiumConfiguration');
     const config = isRecord(configuration) && isRecord(configuration[packId]) ? configuration[packId] : null;
     // Native packs are locked by default. Never infer unlock from a read cache.
     return (config?.locked ?? metadata.locked ?? true) === false;
@@ -57,18 +71,20 @@ export function migrationEnvelope(target: MigrationTarget, updates: Record<strin
 
 /** Source enumeration uses existing Core Stores plus explicitly world-owned pack reads. */
 export async function enumerateMigrationTargets(transport: MigrationTransport, kinds: Set<MigrationTargetKind>, readPacks: readonly string[] = [],
-    options: { requiredKinds?: Set<MigrationTargetKind>; requiredReadPacks?: Set<string>; exclusions?: string[] } = {}): Promise<MigrationTarget[]> {
+    options: { requiredKinds?: Set<MigrationTargetKind>; requiredReadPacks?: Set<string>; exclusions?: string[]; view?: MigrationSourceView } = {}): Promise<MigrationTarget[]> {
     const required = options.requiredKinds ?? kinds;
-    if (!actorStore.isReady() || !itemStore.isReady() || !sceneStore.isReady() || !settingStore.isReady()) throw new Error('Fresh migration source Stores are required');
-    const generation = worldStateStore.getRelease()?.generation;
+    const view = options.view;
+    if (!view && (!actorStore.isReady() || !itemStore.isReady() || !sceneStore.isReady() || !settingStore.isReady())) throw new Error('Fresh migration source Stores are required');
+    const generation = view?.generation ?? worldStateStore.getRelease()?.generation;
     if (generation !== 13 && generation !== 14) throw new Error('Unsupported Foundry migration generation');
     const targets: MigrationTarget[] = [];
-    for (const actor of actorStore.list()) targets.push(...expandMigrationTargets(`Actor.${id(actor)}`, 'Actor', actor));
-    for (const item of itemStore.list()) targets.push(...expandMigrationTargets(`Item.${id(item)}`, 'Item', item));
+    const actors = view?.actors ?? actorStore.list();
+    for (const actor of actors) targets.push(...expandMigrationTargets(`Actor.${id(actor)}`, 'Actor', actor));
+    for (const item of view?.items ?? itemStore.list()) targets.push(...expandMigrationTargets(`Item.${id(item)}`, 'Item', item));
     if (kinds.has('ActorDelta')) {
-        for (const scene of sceneStore.list()) for (const token of rows(scene.tokens)) {
+        for (const scene of view?.scenes ?? sceneStore.list()) for (const token of rows(scene.tokens)) {
             if (token.actorLink === true) continue;
-            if (!isRecord(token.delta) || typeof token.actorId !== 'string' || !actorStore.get(token.actorId)) {
+            if (!isRecord(token.delta) || typeof token.actorId !== 'string' || !actors.some(actor => id(actor) === token.actorId)) {
                 if (required.has('ActorDelta')) throw new Error('Required unlinked-token delta/base Actor is unavailable');
                 options.exclusions?.push(`Scene.${id(scene)}.Token.${id(token)}: advisory delta/base source unavailable`); continue;
             }
@@ -77,13 +93,13 @@ export async function enumerateMigrationTargets(transport: MigrationTransport, k
         }
     }
     if (kinds.has('WorldPack')) {
-        for (const pack of compendiumStore.listPackMetadata()) {
+        for (const pack of view?.packs ?? compendiumStore.listPackMetadata()) {
             const packId = String(pack.id ?? '');
             if (!packId.startsWith('world.')) continue; // Intentional package-pack exclusion.
             const type = pack.type ?? pack.documentName ?? pack.entity;
             if (type !== 'Actor' && type !== 'Item') continue;
             const userId = serviceAccountAuthority.getUserId();
-            if (!userId || !canReadNativePack(userId, packId) || !packIsWritableWorld(packId)) {
+            if (!userId || !canRead(packId) || !packIsWritableWorld(packId, view)) {
                 if (required.has('WorldPack')) throw new Error('Required world pack is locked or unreadable');
                 options.exclusions?.push(`${packId}: advisory world pack locked/unreadable`); continue;
             }
@@ -95,10 +111,10 @@ export async function enumerateMigrationTargets(transport: MigrationTransport, k
     }
     for (const packId of new Set(readPacks)) {
         if (targets.some(target => target.pack === packId)) continue;
-        const metadata = compendiumStore.getPackMetadata(packId);
+        const metadata = view ? view.packs.find(row => row.id === packId) : compendiumStore.getPackMetadata(packId);
         const type = metadata?.type ?? metadata?.documentName ?? metadata?.entity;
         const userId = serviceAccountAuthority.getUserId();
-        if (!userId || !canReadNativePack(userId, packId) || type !== 'Actor' && type !== 'Item') {
+        if (!userId || !canRead(packId) || type !== 'Actor' && type !== 'Item') {
             if (options.requiredReadPacks === undefined || options.requiredReadPacks.has(packId)) throw new Error('Required declared pack reference unavailable');
             options.exclusions?.push(`${packId}: advisory pack reference unavailable`); continue;
         }
@@ -108,4 +124,11 @@ export async function enumerateMigrationTargets(transport: MigrationTransport, k
         for (const document of rows(documents)) targets.push(...expandMigrationTargets(`Compendium.${packId}.${type}.${id(document)}`, type, document, packId).map(row => ({ ...row, readOnly: true })));
     }
     return targets.filter(target => target.readOnly || (target.pack ? kinds.has('WorldPack') : kinds.has(target.kind)));
+
+    function canRead(packId: string): boolean {
+        if (!view) return canReadNativePack(serviceAccountAuthority.getUserId()!, packId);
+        const metadata = view.packs.find(row => row.id === packId);
+        const config = isRecord(view.configuration) && isRecord(view.configuration[packId]) ? view.configuration[packId] : null;
+        return !!metadata && canReadCombatActorPack(view.subject, generation, metadata.ownership, config?.ownership);
+    }
 }

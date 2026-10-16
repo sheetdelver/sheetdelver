@@ -700,6 +700,15 @@ module or Foundry platform versions. Definitions constrain affected targets/path
 and dependencies; hooks handle edge cases and return operations for Core execution.
 The packager compiles referenced logic and validates all entries. Do not put the
 migration catalog or logic paths in `info.json` or duplicate it in release metadata.
+Already-packaged managed hooks are copied, not recompiled for same-version repair.
+Core binds reference membership/content as well as target source to the approval;
+declare every dependency rather than relying on undeclared caches. Declared read
+packs are content-fenced by Core as soon as accepted ingress arrives, including
+before adapter initialization; listing them in ordinary `compendiumPacks` is not
+required for this migration fence. A retired snapshot cannot authorize obsolete
+writes, and changed dependencies require fresh admin review. Dependency hooks
+must settle after errors/timeouts: the host cannot cancel their JavaScript and will
+hold subsequent preparation until settlement or a Core restart.
 
 Core's admin workflow reviews the selected running world's current data, records
 an exact plan and backup-warning acknowledgement, then handles maintenance,

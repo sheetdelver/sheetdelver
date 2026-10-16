@@ -10,6 +10,10 @@ export interface PlannedMigrationTarget {
     stepDigest: string;
     uuid: string;
     sourceHash: string;
+    /** Exact pre-write read set, including membership and reference identities. */
+    dependencies: Record<string, string>;
+    /** Approved simulation changes, including embedded ancestors. */
+    effects: Record<string, string>;
     updates: Record<string, unknown>;
 }
 export interface MigrationWorldPlan {
@@ -79,6 +83,14 @@ export function hookInput(world: Readonly<ModuleWorldSnapshot>, target: Migratio
     return { world: { identity: world.identity, settings }, target,
         references: references.filter(row => row.pack ? step.reads?.packs?.includes(row.pack) : step.reads?.targets?.includes(row.kind)), parameters: step.parameters ?? {} };
 }
+export function migrationInputHashes(world: Readonly<ModuleWorldSnapshot>, target: MigrationTarget, sources: MigrationTarget[], step: ResolvedMigrationStep): Record<string, string> {
+    const input = hookInput(world, target, sources, step);
+    return Object.fromEntries([target, ...input.references].map(row => [row.uuid, migrationTargetHash(row)]));
+}
+export function migrationTargetHash(target: MigrationTarget): string {
+    return sourceHash({ kind: target.kind, pack: target.pack ?? null, baseActorUuid: target.baseActorUuid ?? null,
+        readOnly: target.readOnly ?? false, source: targetSourceHash(target.source) });
+}
 export function planWorldMigrations(root: string, catalog: ResolvedMigrationCatalog, world: Readonly<ModuleWorldSnapshot>, sources: MigrationTarget[], checkOnly = false, scopeExclusions: string[] = []): MigrationWorldPlan {
     const steps = applicableMigrationSteps(catalog, world.identity.systemVersion, world.identity.foundryGeneration);
     const operations: PlannedMigrationTarget[] = [];
@@ -108,12 +120,16 @@ export function planWorldMigrations(root: string, catalog: ResolvedMigrationCata
             const plan = runMigrationHook<MigrationPlanResult>(root, step, 'plan', hookInput(world, target, simulated, step));
             if (plan.status !== 'patch') throw new Error('Required plan unresolved');
             validateMigrationPatch(step, plan.updates);
+            const dependencies = migrationInputHashes(world, target, simulated, step);
+            const beforeHashes = new Map(simulated.map(row => [row.uuid, migrationTargetHash(row)]));
             previousSource = target.source;
             target.source = applyMigrationPatch(target.source, plan.updates);
             syncSimulatedAncestors(target, simulated);
             const verification = runMigrationHook<{ valid: boolean }>(root, step, 'verify', hookInput(world, target, simulated, step));
             if (verification.valid !== true) throw new Error('Planned postcondition failed');
-            operations.push({ stepId: step.id, stepDigest: step.digest, uuid: target.uuid, sourceHash: targetSourceHash(previousSource), updates: plan.updates });
+            const effects = Object.fromEntries(simulated.filter(row => beforeHashes.get(row.uuid) !== migrationTargetHash(row))
+                .map(row => [row.uuid, migrationTargetHash(row)]));
+            operations.push({ stepId: step.id, stepDigest: step.digest, uuid: target.uuid, sourceHash: targetSourceHash(previousSource), updates: plan.updates, dependencies, effects });
         } catch {
             if (previousSource) { target.source = previousSource; syncSimulatedAncestors(target, simulated); }
             (step.required ? blockers : exclusions).push(`${step.id}: ${target.uuid}: source check/plan unavailable`);

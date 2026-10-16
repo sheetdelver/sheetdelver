@@ -5,14 +5,14 @@ import type { ModuleWorldSnapshot } from '@shared/sdk/world';
 import type { MigrationTarget } from '@shared/sdk/migrations';
 import { WorldWorkGate } from '@server/core/world/WorldWorkGate';
 import { UpgradeJournal, type UpgradeJob, type UpgradePreview, type UpgradePhase } from './UpgradeJournal';
-import { applyMigrationPatch, hookInput, planWorldMigrations, sourceHash, targetSourceHash } from './planner';
+import { applyMigrationPatch, hookInput, migrationInputHashes, migrationTargetHash, planWorldMigrations, sourceHash, targetSourceHash } from './planner';
 import { runMigrationHook } from './hooks';
 
 export interface UpgradeCandidate {
     moduleId: string; version: string; artifactDigest: string; root: string; info: SystemModuleInfo;
     sourceDirectory?: string; sourceDigest?: string; sourceCategory?: 'local' | 'managed';
 }
-export interface UpgradeSourceSnapshot { world: Readonly<ModuleWorldSnapshot>; targets: MigrationTarget[]; exclusions?: string[] }
+export interface UpgradeSourceSnapshot { world: Readonly<ModuleWorldSnapshot>; targets: MigrationTarget[]; exclusions?: string[]; assertCurrent?: () => void }
 export interface UpgradeCoordinatorDeps {
     journal: UpgradeJournal;
     gate: WorldWorkGate;
@@ -93,6 +93,7 @@ export class ModuleUpgradeCoordinator {
             this.fence(job);
             const current = planWorldMigrations(candidate.root, catalog, source.world, source.targets, false, source.exclusions);
             if (current.digest !== preview.plan.digest) throw new Error('World plan changed; rerun preview');
+            source.assertCurrent?.();
             this.phase(job, 'installing');
             await this.deps.promote(job);
             job.installedVersion = job.candidateVersion;
@@ -139,23 +140,49 @@ export class ModuleUpgradeCoordinator {
                 const target = source.targets.find(row => row.uuid === operation.uuid);
                 if (!target) throw new Error('Approved migration target removed');
                 const outcome = job.outcomes[key];
+                if (!operation.dependencies || !operation.effects) throw new Error('Approval lacks dependency evidence; new preview required');
+                const currentInputs = migrationInputHashes(source.world, target, source.targets, step);
+                const expectedInputs = { ...operation.dependencies };
+                // A restarted job sees the already-applied approved prefix, not
+                // the original inventory. Overlay only recorded approved effects;
+                // never excuse arbitrary changes or new/deleted reference rows.
+                if (outcome) for (let later = index; later < job.plan.operations.length; later++) {
+                    const applied = job.plan.operations[later];
+                    const appliedOutcome = job.outcomes[`${later}:${applied.stepId}:${applied.uuid}`];
+                    if (!appliedOutcome) continue;
+                    if (later !== index && appliedOutcome.state !== 'confirmed') {
+                        // A later send may have landed before its acknowledgement
+                        // was lost. Accept only its exact approved readback here;
+                        // its own dependency/verify boundary still runs below.
+                        if (!Object.entries(applied.effects ?? {}).every(([uuid, hash]) => {
+                            const actual = source.targets.find(row => row.uuid === uuid);
+                            return actual && migrationTargetHash(actual) === hash;
+                        })) continue;
+                    }
+                    for (const [uuid, hash] of Object.entries(applied.effects ?? {})) if (uuid in expectedInputs) expectedInputs[uuid] = hash;
+                }
                 if (outcome) {
                     const verify = runMigrationHook<{ valid: boolean }>(candidate.root, step, 'verify', hookInput(source.world, target, source.targets, step));
-                    if (verify.valid === true) {
+                    const superseded = job.plan.operations.slice(index + 1).some((later, offset) => later.uuid === operation.uuid
+                        && job.outcomes[`${index + 1 + offset}:${later.stepId}:${later.uuid}`]?.state === 'confirmed');
+                    if ((verify.valid === true || outcome.state === 'confirmed' && superseded)
+                        && sourceHash(currentInputs) === sourceHash(expectedInputs)) {
                         job.outcomes[key] = { state: 'confirmed', before: outcome.before, post: sourceHash(target.source) };
                         this.deps.journal.save(job); continue;
                     }
                     if (outcome.state === 'confirmed') throw new Error('Verified source regressed; external restore requires new admin preview');
                 }
+                if (sourceHash(currentInputs) !== sourceHash(operation.dependencies)) throw new Error('Migration reference dependency conflict; new preview required');
                 if (targetSourceHash(target.source) !== operation.sourceHash) throw new Error('Migration source conflict; new preview required');
                 const expected = applyMigrationPatch(target.source, operation.updates);
+                source.assertCurrent?.();
                 // The original patch remains exact. A hook/code change cannot replan under old approval.
                 job.outcomes[key] = { state: 'intent', before: operation.sourceHash, post: sourceHash(expected) };
                 job.possibleWrite = true;
                 this.deps.journal.save(job);
                 this.fence(job);
                 try {
-                    await this.deps.write(target, operation.updates, () => this.fence(job));
+                    await this.deps.write(target, operation.updates, () => { this.fence(job); source.assertCurrent?.(); });
                 } catch {
                     const latest = this.deps.journal.job(jobId);
                     if (latest.outcomes[key]) latest.outcomes[key].state = 'uncertain';

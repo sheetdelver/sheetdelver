@@ -1,8 +1,14 @@
 # Core ADR-0064: Module World Context and Data Migrations
 
-**Status:** Accepted — Core implementation supplied for review; module adoption and native/operator acceptance pending
+**Status:** Accepted/open — CR64-01–07 corrected and offline/isolated checks pass; native acceptance, realistic inventory measurement, G8 and user acceptance remain pending
 **Date:** October 16, 2026
 **Related:** Core ADR-0021, ADR-0027, ADR-0028, ADR-0038, ADR-0056, ADR-0057, ADR-0063; Shadowdark module ADR-0001
+
+The [independent Core review](#independent-core-review--october-16-2026) of
+`5013e86` supersedes the implementation checkpoint's completion implications.
+At review, existing suites passed but five probes reproduced defects. The
+[corrective evidence](#corrective-verification-results--october-16-2026) below
+records their initial corrective results. The [corrective independent review](#corrective-independent-review--october-16-2026) found two further defects; the [CR64-06/07 follow-up](#cr64-0607-corrective-implementation--october-16-2026) records their corrections and evidence. The [independent confirmation](#cr64-0607-independent-confirmation--october-16-2026) verifies those corrections against the original reproductions and current tests. The earlier G0–G7/Core G9 table is not native acceptance.
 
 ## Problem and reviewed baseline
 
@@ -718,7 +724,12 @@ ui-extension-api. The roll-engine contract need not change for settings/migratio
 Release schema/generator/packager compatibility must also prevent an older host
 from installing a migration-required release while ignoring its declarations.
 Select exact next versions when implementing, not in this documentation pass.
-Existing modules without these optional capabilities retain their runtime behavior.
+Migration-free modules retain the catalog-free installation path. This does not
+promise unchanged access to every legacy endpoint: the implemented G6 privacy
+boundary makes `/system/data` full-GM-only unless the adapter implements
+`getSystemDataForUser`, and legacy Scene inspection is full-GM-only. Inventory and
+communicate those behavioral changes before release; G8 adoption must cover affected
+player/Assistant consumers without restoring privileged-cache exposure.
 Adopting modules raise only the minima they actually need; update CI pins to an
 available tested host release rather than claiming current v0.18.0 implements them.
 
@@ -842,3 +853,657 @@ filesystem. The default is installation-local and therefore supports a single
 installation only. Leases have no time-based steal. Same-host restart recovery
 requires the prior PID to be absent; cross-host orphan recovery requires explicit
 operator reconciliation. No native-client/global database lock is claimed.
+
+## Independent Core review — October 16, 2026
+
+**Reviewed:** `5013e86` on `feat/adr-0064-world-context-and-migrations`, relative to
+documentation baseline `f9011cd`. The worktree was clean on review entry: the pasted
+implementation summary's "uncommitted" status was stale. This review changes only
+documentation/local evidence. No module repository was inspected, no application
+source was changed, and no live Core/Foundry service, native world, owning-repository
+Git mutation or remote operation was used. The pre-review ADR was saved byte-for-byte
+before these annotations.
+
+The architecture is substantially implemented, but **Core is not ready for closeout**.
+Five independently reproduced defects remain. The following records are
+self-contained so a clean checkout does not need the ignored probe files.
+
+### Independently verified evidence and limits
+
+Existing offline checks all passed again, using installed executables:
+
+- `node_modules/.bin/tsx src/tests/unit/run.ts`
+- `node_modules/.bin/tsx src/tests/unit/client/run.ts`
+- `node_modules/.bin/tsx src/tests/integration/run.ts`
+- `node_modules/.bin/tsc --noEmit --incremental false`
+- `node_modules/.bin/eslint`
+
+The integration suite uses real Core components with controlled wire/restart and
+injected compatibility/snapshot callbacks. It does not call production
+`freshMigrationSnapshot`, `createHostUpgradeCoordinator`,
+`checkInstalledWorldCompatibility` or the admin upgrade router. Its fixture
+packaging test compiles once. The client suite does not render the new maintenance
+controls. Passing results therefore do not establish those composition boundaries.
+This is a coverage finding, not a reason to discard the useful existing tests.
+
+Independent probes used temporary catalogs/journals, fake read/write transports and
+Core-owned fixtures. All five reproduced the behavior described below, including
+the real production snapshot service against isolated Stores. No native write was
+sent. Current readiness assessments are:
+
+| Gate | Review disposition |
+| --- | --- |
+| G0/G0a, G1 | Mechanisms and existing offline role/settings checks verified; native identity/reconnect acceptance remains pending. |
+| G2 | Correction required: CR64-01 and CR64-05. |
+| G3 | Correction required: CR64-01 and CR64-03; test actual preview/source wiring. |
+| G4 | Correction required: CR64-02–04; actual process-replacement acceptance still pending. |
+| G5 | Restricted target/envelope implementation and offline fixtures present; native v13/v14 semantics remain unproven. |
+| G6/G7 | Shared caller checks/canonical identity and offline regressions present; adoption/role/privacy acceptance remains pending. The `/system/data` behavior change is intentional, not optional backward compatibility. |
+| G8 | Separately authorized module work; not reviewed or implemented in this pass. |
+| Core G9 | Existing checks pass; new regressions, production wiring and rendered acceptance remain open. |
+
+### CR64-01 — P1: preview silently replaces live sources without rebuilding prepared data
+
+**Anchors:** `src/server/services/world/migrations/ModuleUpgradeService.ts:50`
+(`freshMigrationSnapshot`) and
+`src/server/core/documents/primary/PrimaryDocumentCacheCoordinator.ts`
+(`reconcileAll`). Preview invokes the production snapshot service while the world
+may still serve users. It reseeds shared Stores, discards the returned publication
+callback and calls `moduleWorldContext.refresh()` outside the adapter/preparation
+barrier. This can also consume a settings change before the ordinary refresh path
+observes it.
+
+**Reproduction:** seed an Actor with `system.hp=1` and a declared boolean setting
+false; configure/rebuild the real PreparedActorStore. Have the fake read transport
+return hp=2/setting=true, then call `freshMigrationSnapshot` with an Actor catalog.
+Observed live source hp=2 and context=true, prepared hp=1/context=false, zero Actor
+or context publications, and an open world-work gate.
+
+**Correction/checkpoint:** collect read-only preview inputs separately from serving
+Stores, or route every serving-source replacement through the existing gated,
+revisioned refresh/rebuild/publication lifecycle. Preserve source/permission
+freshness and failed-preview usability; simply publishing the discarded callback
+before preparation is not sufficient. Add a production snapshot/preview test with
+interleaved reads and a concurrent source/setting change. Pass only when users
+cannot observe mixed source, context and prepared revisions, and no native writes
+or candidate initialization occur. Include preview failure and unchanged-source
+cases, plus bounded read scope rather than unnecessary full-world sweeps per target.
+
+### CR64-02 — P1: resumed operations do not validate changed reference inputs before writing
+
+**Anchors:** `ModuleUpgradeCoordinator.ts:126–168` and `planner.ts` in
+`src/server/services/world/migrations/`. A plan hashes the inventory at approval,
+but resume checks only world/settings and each write target's source hash. A
+declared cross-document/pack input may change during restart or between writes
+without invalidating the exact pending patch. Hook verification is then too late.
+
+**Reproduction:** an Actor-A step declares `reads.targets=["Actor"]`, plans
+`A.system.value = B.system.value`, and verifies equality. Approve with A=0/B=10;
+change only B to20 before resume. Observed A written to10, then post-write
+verification failure. Expected zero writes under that obsolete approval.
+
+**Correction/checkpoint:** persist and validate the relevant read dependencies and
+source eligibility for every pending operation, accounting for prior approved
+steps' expected transformations. Reconcile confirmed/uncertain outcomes without
+blind replay. Reject known stale dependencies before intent/send and require a
+fresh exact review if the remaining plan changes. A whole-original-inventory hash
+comparison after every legitimate write is not sufficient either. Cover changed,
+deleted and newly eligible references, pack dependencies, restart and between-write
+changes, and valid multi-step plans. This narrows known stale input; it does not
+promise native CAS, prevent all external edits or introduce native-client lockout.
+
+### CR64-03 — P1: managed same-version repair changes historical hook identities
+
+**Anchors:** `sourceCandidates.ts:17–29`,
+`src/modules/registry/migrations/compile.ts:9`, and
+`ModuleUpgradeCoordinator.ts:43–46`. Source candidate preparation calls the
+compiler for both local source and already packaged managed hooks. Rebundling the
+packaged CommonJS changes hook bytes and step digests, which the historical-step
+immutability check correctly rejects.
+
+**Reproduction:** compile a fixture, complete a write-bearing upgrade with that
+artifact, then restore its Actor to the legacy value without changing the package.
+Previewing the original package succeeds with one repair. Compiling that package
+again, as managed source preview does, changes the step digest and fails with
+`Historical migration step removed or changed; use a new stable step ID`.
+
+**Correction/checkpoint:** preserve verified packaged definitions and hook bytes
+when snapshotting a managed candidate. Keep local source compilation explicit and
+stable; do not remove the historical integrity guard, mint new IDs for unchanged
+steps or discard job history. Test actual source preview/apply after a completed
+archive upgrade and external restore, repeated same-version repair and genuine
+historical hook changes. Unchanged managed steps must keep their original digest;
+changed steps must still be rejected.
+
+### CR64-04 — P2: first upgrade can authorize stale browser code without a reload
+
+**Anchors:** `src/client/ui/api/worldRuntime.ts:1–9` and
+`src/client/ui/context/RealtimeContext.tsx:153–159`. Null represents both an
+unobserved runtime and a previously observed runtime with no completed upgrade.
+The first non-null token does not report a change, but is immediately attached to
+future mutation requests.
+
+**Reproduction:** a tab observes null, is disconnected during the first upgrade
+and misses `serverRestarting`, then receives the new job token. The helper returns
+false (no reload) and `worldRuntimeHeaders()` supplies the new token to old code.
+The normal announced-restart path does not cover a tab which missed that event.
+
+**Correction/checkpoint:** distinguish first observation from a change to an already
+observed runtime, and do not grant replacement-runtime mutation authority to stale
+assets before reload. Cover initial cold load, null→first token, token→new token,
+missed restart/reconnect, guest/auth transitions and prevention of reload loops.
+Add a rendered reconnect case; checking only the server header rejection is not
+enough because the old client currently adopts the accepted token.
+
+### CR64-05 — P2: successful same-world recovery leaves a failed refresh latched
+
+**Anchors:** `WorldBootstrapper.ts:421–437,655–670` and
+`src/server/routes/admin/registerAdminWorldRoutes.ts:57–66`. A failed dependency
+hook sets `contextRefreshFailed` and blocks `context-refresh`. Successful same-world
+recovery rebuilds and reports ready without clearing that failure/gate or publishing
+the recovered context. Ordinary bootstrap may return early because its ready check
+does not include this blocker. The existing admin retry route only accepts the
+closed lifecycle, while this failure leaves the lifecycle active.
+
+**Reproduction:** bootstrap a fixture, change a declared setting, make its refresh
+hook fail once, then allow the hook to succeed and call real `recover()`. Observed
+`ready:true` with `worldWorkGate.hasBlock('context-refresh') === true`. The existing
+integration fixture verifies fail-closed behavior but resets for cleanup rather
+than testing successful recovery.
+
+**Correction/checkpoint:** define an explicit admin recovery path for this failure;
+clear only the current failed revision after successful refresh, compatibility and
+preparation, then publish the recovered context/invalidation. Never clear unrelated
+upgrade/authority gates or let an older timed-out hook overwrite current caches.
+Test failure→retry, failure→transport recovery, concurrent queued refresh, late
+hook completion and another blocker remaining active. Provide a bounded admin
+reason/retry action while public clients remain generically unavailable.
+
+### Remaining work and acceptance checkpoints
+
+1. **Core corrections, offline:** promote the five reproductions into tracked
+   regressions, observe each fail against `5013e86`, fix through the shared owners
+   and record passing evidence per CR64 ID. Exercise the real host coordinator,
+   source candidate, compatibility and admin-route composition with isolated data
+   and controlled native transport. Keep existing guard/integrity tests. Do not
+   replace production services with callbacks that bypass the condition under test.
+2. **Admin diagnostics and review completeness:** verify every non-job bootstrap
+   failure has an admin-visible reason and recovery path. Currently
+   `installedWorldCompatibility.ts:29–47` assigns diagnostics only for returned
+   plan blockers; discovery, source-read, unsupported-version and preparation
+   exceptions can leave it null. This source-level concern still needs a route
+   reproduction. Render source-repair and recovery previews with the exact world,
+   artifact, target/path scope and exclusions; those two controls currently show
+   counts rather than the detailed operation view provided by the catalog preview.
+   Confirm auth expiry, progress after reload, cancellation and cleanup behavior.
+3. **Rendered acceptance, isolated:** test the actual Core admin/player components
+   with controlled services, including narrow/desktop, both themes, keyboard/focus,
+   non-dismissible player gating and CR64-04 reconnect. This can proceed without
+   live Foundry authority; it is not established by the current client unit suite.
+4. **Real supervised replacement, isolated:** use a separate data/config directory,
+   inspect listeners/process ownership, then exercise the actual manager restart
+   path with a controlled upstream. Record old/new PIDs, persisted job/lease/phase,
+   startup admission before adapter loading, admin reachability, player gating and
+   final activation. Killing an isolated lease worker or injecting a restart
+   callback is not this result. Start/stop only task-owned processes; never use the
+   root production-connected configuration.
+5. **Native v13/v14, separately authorized:** obtain explicit disposable-world and
+   write scope before connecting. Test full-GM/Assistant/missing/demotion/retry;
+   setting create/change/delete and user/world collisions; Actor/world Item/embedded
+   effect/unlinked delta/world-pack envelope and readback; tombstones/base identity;
+   locked/package packs; lost acknowledgement, conflict, partial resume and external
+   restore with an unchanged ledger/package. Assert zero unrelated changes. Record
+   exact builds, fixture counts, inputs/outputs and remaining uncertainty. Measure
+   planning/read cost at realistic inventory sizes without silently truncating.
+6. **G8/release handoff:** keep module repositories untouched in this Core task.
+   Provide the eventual adopter tested schemas, hook/digest rules, context refresh,
+   caller projection contract and exact available host/SDK minima. Explicitly call
+   out non-GM `/system/data` rejection without `getSystemDataForUser`; inventory
+   affected consumers in the separately authorized module task. Do not weaken the
+   caller boundary or claim all old modules retain every workflow. Core release
+   approval, module adoption/publication and application version bumps are separate.
+
+CR64-01–05 are **open**. Core corrections and independently runnable acceptance
+come before any request for native test authorization. The ADR stays open until
+the applicable corrective and acceptance evidence is recorded, with G8's separate
+status explicit. No native lockout, broad Scene SDK, backup/restore/undo engine or
+parked D&D experiment is added by this review.
+
+### Corrective implementation checkpoint — October 16, 2026 (uncommitted)
+
+The user authorized CR64-01–05 implementation on the existing branch. The review
+above is retained as historical evidence, not overwritten by the corrections.
+Five tracked correct-behavior cases in
+`src/tests/integration/adr0064-corrections.test.ts` were added before source edits;
+each failed against `5013e86` at its intended assertion: live Actor hp2 versus hp1
+(01), one obsolete write versus zero (02), changed packaged digest (03), missing
+first-token reload (04), and a retained failed-refresh latch (05). The ignored
+review probes are not used as correctness tests.
+
+Implemented, with focused offline checks passing:
+
+| Finding | Correction / evidence |
+| --- | --- |
+| CR64-01 | Isolated, declared-domain source GETs suppress acknowledgement ingestion. Local Setting/context snapshots do not replace serving Stores or consume context notifications. Runtime/Store/pack/context fences reject interleaved ingress. Serving reconciliation is restricted to gated preparation, followed by the real adapter/prepared lifecycle. |
+| CR64-02 | Approved operations retain exact reference membership/content hashes plus approved simulation effects. Resume checks these before native intent; already-applied approved effects reconcile unknown acknowledgements without granting new repair authority. Matrix covers changed/removed/new references, package references, between-write changes, sequential writes and uncertain readback. |
+| CR64-03 | Managed snapshots copy verified catalog/definition/hook bytes; only local author sources compile. Historical step immutability remains enforced. Real source preview/apply plus installed compatibility detects an external restore and completes same-version repair with unchanged digests. |
+| CR64-04 | Browser state distinguishes an initial observation from an observed null. A changed runtime retires the browser once and never replaces its pinned mutation header before reload. Cold/null/token/repeated observations covered. |
+| CR64-05 | Recovery serializes outstanding refresh work, refuses overlap with a still-running timed-out hook, and releases only its context gate after current preparation succeeds. Admin receives a bounded diagnosis/retry; unrelated gates remain. Further queued/late-hook and rendered checks are in progress. |
+
+The production-composition case controls only the upstream wire: actual CoreSocket
+dispatch/ingress, host snapshots, source candidates, installed compatibility,
+coordinator/journal, registry adapter loading/preparation and authenticated admin
+routes are exercised. Discovery failures now have admin diagnostics, not just plan
+blockers. Source/catalog/recovery controls share exact plan details; cleanup has an
+explicit confirmation. Rendered and actual supervised-replacement acceptance are
+still being completed. Native v13/v14 and separately authorized G8 remain pending;
+this is not ADR closeout or release approval.
+
+### Corrective verification results — October 16, 2026
+
+**Implementation report at this checkpoint:** CR64-01–05 were reported resolved
+for Core implementation and independently runnable verification. The subsequent
+[corrective independent review](#corrective-independent-review--october-16-2026) confirms the original regressions pass but finds an additional pack-content
+fence gap and qualifies player theme acceptance. Earlier “open” labels
+in the independent-review section describe the reviewed baseline, not the current
+tree. Required native evidence, G8 and user acceptance are still open.
+
+- **CR64-01:** production snapshot regression now preserves live Actor/prepared/
+  context values and the open gate, rejects failed/interleaved reads, and avoids
+  unrelated document domains. The host-composition case changes a native setting
+  without ingress: preview leaves the serving context alone, then real gated
+  preparation produces the migrated Actor with the approved setting revision.
+- **CR64-02:** changed, removed, newly eligible and declared pack references reject
+  before intent. Approved sequential/cumulative transformations and first/later
+  uncertain acknowledgements reconcile without duplicate writes. The later-unknown
+  case initially failed during this corrective pass (a confirmed prefix was compared
+  with an applied later result); the regression now passes with only exact approved
+  effects overlaid. A production scope fence also runs at final dispatch. Native
+  editing between observation and receipt remains possible: no atomic CAS is claimed.
+- **CR64-03:** actual managed source preview/apply → installed compatibility → host
+  coordinator completes, detects external restore, then completes same-version
+  repair without changed catalog/step digests. Genuine packaged hook mutation is
+  still rejected as historical change. Failed source previews clean only their
+  newly created candidate snapshot, retaining journal/history evidence.
+- **CR64-04:** cold, observed-null, existing-token, repeated and retired browser
+  cases pass. The actual RealtimeProvider rendered check misses `serverRestarting`,
+  reconnects with the first token and performs exactly one real browser reload.
+  Replacement assets remain stable. The real HTTP stale-mutation fence is 409.
+- **CR64-05:** failure→retry/transport recovery, a still-running timed-out hook,
+  queued notification, late completion and teardown/replacement all pass. The real
+  promise barrier survives teardown because registry adapters may be cached; new
+  preparation cannot overlap the old hook. Successful current recovery publishes
+  authorized recovered context keys and releases only its context gate. An unrelated
+  blocker is preserved. Never-settling module code requires an operator Core restart,
+  not an unbounded retry or claimed JavaScript cancellation.
+
+Production-composition coverage controls only the upstream wire and unrelated
+status/broadcast inputs. It uses real CoreSocket acknowledgement handling,
+FoundryEventIngress, Stores, host snapshots, source candidates, registry loading,
+installed compatibility, coordinator/journal and the complete admin router with
+network/origin/account/auth/CSRF/audit middleware. Discovery, unsupported source,
+read and preparation exceptions produce bounded admin phase/remediation; ordinary
+clients remain generic. Source/catalog/recovery share exact world/artifact/expiry/
+target/path/exclusion details; stale approval, stop and completed-file cleanup retain
+their existing authorization boundaries. Admin drawers use native modal focus/Escape
+behavior and restore the asynchronous review trigger.
+
+Verification (all exit0):
+
+| Check | Result |
+| --- | --- |
+| `npm run test:unit` | Full Core unit suite passed. |
+| `npm run test:client` | Full client unit suite passed. |
+| `npm run test:integration` | Existing integration plus nine isolated corrective cases passed, including production composition. |
+| `npx tsc --noEmit --incremental false` | Passed; no application/module version changes. |
+| `npm run lint` | Passed, zero reported errors/warnings. |
+| Documentation | `git diff --check` and 42 local link targets in the affected public guides/ADR passed. |
+| `adr0064-rendered.mjs` | Actual admin components, 320/390/820/1440, light/dark; exact details, acknowledgement, focus/Escape/return, auth expiry, progress after reload, stop and confirmed cleanup passed. |
+| `adr0064-player-rendered.mjs` | Actual boundary/realtime with controlled transport/context inputs; eight viewport/theme cases, nondismissible maintenance, inert actions and missed-first-upgrade reload passed. |
+| `adr0064-supervised.test.ts --run-isolated` | Actual manager/Core/Next replacement against fake loopback upstream, separate data and copied Core workspace passed. |
+
+Supervised evidence: actual Core PID **1074170 → 1074453**; manager child wrapper
+PIDs **1074098/1074099 → 1074400/1074401**. Job
+`bd06905b-377c-46da-b6cd-b9599d0101ca` persisted restarting → verifying → completed
+with a valid resumed lease and exactly one controlled Actor write. No adapter was
+constructed before compatibility passed; during held preparation admin returned200
+and player work503; activation rejected an old mutation header409. Task processes
+were stopped; the user's port30000 listener was not contacted or changed.
+These are controlled upstream results, **not native Foundry permission/envelope proof**.
+
+### Remaining acceptance and G8 handoff
+
+1. User review/acceptance of this uncommitted corrective tree and the updated
+   maintenance/recovery presentation. No Git or release operation is authorized here.
+2. Fresh, scoped authorization for disposable v13/v14 worlds and intended writes.
+   Record exact builds; exercise the native matrix in the independent-review
+   acceptance checkpoint (service roles/demotion, settings collisions/deletion,
+   Actor/Item/effect/delta/pack writes and restrictions, uncertain/partial recovery,
+   external restore and zero unrelated changes). Measure realistic inventory cost.
+   The isolated upstream does not establish either native generation's behavior.
+3. Separately authorized **G8**: adopt the generic contract without modifying Core
+   to accommodate a system. Declare version-proven settings/defaults/exposure;
+   provide lossless catalog/check/plan/verify hooks, immutable historical IDs and
+   explicit references; implement bounded dependency refresh and caller-safe
+   `getSystemDataForUser` using the request runtime. Inventory all non-GM consumers:
+   absent caller-safe projection remains full-GM-only, not a privileged fallback.
+   Validate with Core-owned examples, explicit module typing/packaging and the
+   eventual released host/toolchain. Development SDK3.3/module-api1.5/UI3.2 are
+   unchanged; released Core0.18.1 does not promise these additions. Select host/module
+   release minima with the user; no version/adoption/publication is implied here.
+
+No module repository was inspected or modified. ADR-0064 remains open.
+
+
+### Corrective independent review — October 16, 2026
+
+**Disposition:** the five original reproductions are corrected, and all existing
+checks pass independently. Two further findings remain open: **CR64-06 (P1)** and
+**CR64-07 (P2, acceptance evidence)**. CR64-06 extends the snapshot/reference
+boundary reviewed in CR64-01/02; passing their existing cases does not establish
+all declared pack dependencies are fenced. CR64-07 does not establish a production
+theme defect. Native acceptance, realistic inventory measurement and separate G8
+adoption remain pending. This review changes documentation and ignored probes only.
+
+Reviewed the uncommitted corrective tree over `5013e86` on the existing
+`feat/adr-0064-world-context-and-migrations` branch. No module repository was
+inspected, no application source/version changed, no Git write or remote operation
+performed, and no existing Foundry service contacted. A byte-identical ADR snapshot
+was saved before this addendum (90,417 bytes; SHA-256
+`09ce8f40a84b6657278b29c3f8efa39f43e130c53fe68f7e2571e443d31efb6a`).
+This tracked record contains the reproduction and checkpoints without depending on
+that ignored snapshot or machine-local evidence.
+
+#### CR64-06 — P1 / corrected below: observed pack-content changes do not retire migration snapshots
+
+**Source anchors:**
+[`freshMigrationSnapshot`](../../src/server/services/world/migrations/ModuleUpgradeService.ts),
+[`CompendiumStore.invalidatePackContent`](../../src/server/core/compendium/CompendiumStore.ts),
+[`FoundryEventIngress.invalidatePackEntry`](../../src/server/services/world/FoundryEventIngress.ts),
+[`WorldBootstrapper.refreshWorldContext`](../../src/server/services/world/WorldBootstrapper.ts)
+and [`ModuleUpgradeCoordinator.resume`](../../src/server/services/world/migrations/ModuleUpgradeCoordinator.ts).
+
+The snapshot stamp contains primary Store mutation revisions, context/runtime
+identity and `listPackMetadata()`. Pack document ingress clears content/index
+caches while preserving that metadata and does not advance a revision captured by
+this stamp. Context refresh is not a substitute: it returns early without a ready
+adapter, and ignores packs absent from the adapter's ordinary compendium declaration.
+A migration's `reads.packs` can declare such a pack. This matters during maintenance
+before adapter construction as well as during ordinary serving.
+
+**Independent reproduction, controlled wire only:**
+
+1. Use the real host fixture, service-role verification, Stores, CoreSocket and
+   FoundryEventIngress. Declare an Actor migration reading `system.references`
+   followed by a second empty pack, `system.barrier`. Put reference value10 in the pack and an Actor requiring repair in the world;
+   the exact approved patch copies that reference into `system.fixed` (a fixture
+   field, not a proposed system schema).
+2. During the real pre-operation snapshot, return reference10 from the first pack
+   GET. While the second pack GET is pending, change the first reference to20 and
+   deliver its valid pack-scoped `foundry:modifyDocument` update through real
+   ingress. Await invalidation before returning the second GET. The first pack
+   index is now null, proving Core observed the change; metadata is unchanged.
+3. `snapshot.assertCurrent()` still succeeds. The real host coordinator/maintenance
+   dispatch writes Actor value10, persists `possibleWrite:true`, then its fresh
+   post-write read fails verification against20. Observed result: reference20,
+   Actor10, one write (`Actor.a`). A correct-behavior assertion requiring zero
+   writes fails (`1 !== 0`). A separate snapshot-only assertion requiring retirement
+   after this observed ingress also fails (missing expected exception).
+
+The probe controls only generated wire responses, ingress while a second pack
+read awaits, and unrelated promotion/restart/preparation callbacks;
+its snapshot, ingress, coordinator, intent journal and final host write path are
+production code. This is an already-observed mutation escaping the dispatch fence,
+not the explicitly excluded race with an unobserved native edit after dispatch.
+The existing `CR64-02-matrix` pack case changes a synthetic snapshot between calls;
+it does not exercise this production invalidation gap.
+
+**Implementation checkpoints:**
+
+1. Add a tracked correct-behavior regression through the real host/ingress path;
+   observe failure on this corrective tree before fixing it. Preserve the existing
+   CR64-01–05 cases. Assert zero intent and zero sends when ingress precedes the
+   pre-intent fence, plus rejection at final send when ingress occurs after intent.
+   A persisted possible-write marker remains conservative; do not erase it to make
+   a test pass.
+2. Give pack-content observations a Core-owned monotonic revision/fence that
+   advances synchronously when accepted ingress arrives, before async cache work.
+   Capture/check the applicable writable and declared read-pack scope in snapshots.
+   Cover update/create/delete, batches and compendium autosave through their shared
+   owners. Keep catalog/membership, world/runtime and authority checks intact.
+   Do not rely on an initialized adapter, successful cache hydration or module
+   `compendiumPacks` declarations to retire migration dependencies.
+3. Prove ordinary source reads do not advance mutation revisions, previews remain
+   isolated, and late invalidation completion cannot revive a retired snapshot.
+   Exercise a migration-only pack, an adapter-declared pack, a writable world pack,
+   absent/preparing adapter, unchanged pack, and mutation during multi-pack reads.
+   Preserve fresh reapproval, sequential/partial/uncertain recovery and no replay.
+4. Rerun focused/full Core checks and the isolated replacement path, then update
+   this finding, guide and handoff with evidence. Do not weaken exact approval or
+   introduce native lockout, package-pack writes or module-specific repair code.
+
+#### CR64-07 — P2 / corrected below: player theme acceptance does not activate player themes
+
+**Source anchors:**
+[`adr0064-player-rendered.mjs`](../../src/tests/acceptance/adr0064-player-rendered.mjs),
+[`PlayerAppearanceContext`](../../src/client/ui/context/PlayerAppearanceContext.tsx)
+and [`globals.css`](../../src/app/globals.css).
+
+The player harness labels eight runs light/dark but sets `body[data-theme]`.
+Core's player styles use `data-sd-appearance` on the body or `.sd-player-root`;
+this harness mounts no appearance provider or matching scope. Its Foundry context
+stub supplies no replacement component theme. As a result, the claimed dark
+screenshot shows an unthemed light surface, and a direct computed-style assertion
+finds `--sd-ui-surface-raised` empty. That assertion fails on the first labeled
+light run as well. Screenshot names and loop iterations alone do not prove themes.
+The separate admin harness correctly uses `data-admin-theme`; its theme evidence
+stands.
+
+**Implementation checkpoints:** render through the real player appearance owner,
+or reproduce its actual scoped attributes using Core-owned fixtures. Assert the
+selected scope and nonempty expected computed panel/text/backdrop tokens, and
+prove light/dark resolved styles differ. Rerun 320/390/820/1440 in both appearances,
+visually inspect representative captures, and retain nondismissible/inert gating,
+keyboard behavior and the missed-first-upgrade reload checks. No module checkout
+or runtime browser dependency is needed. Correct the acceptance record only after
+those checks pass; change product styling only if a real defect is then observed.
+
+#### Independently rerun evidence and remaining sequence
+
+| Verification | Independent result / limit |
+| --- | --- |
+| Unit, client, integration runners | All exit0, including nine existing corrective cases. These do not cover CR64-06. |
+| TypeScript and ESLint | Both exit0; no incremental output requested. |
+| Documentation | Whitespace check and 56 local link targets/heading references passed; module paths excluded. |
+| Admin rendered harness | Exit0 at four widths × two actual admin themes; narrow dark and desktop light screenshots inspected. |
+| Player rendered harness | Exit0 for gating and actual missed-first-token reload; appearance claims withdrawn pending CR64-07. |
+| Actual supervised replacement | Exit0 in copied workspace/generated data with fake loopback upstream; no native Foundry evidence. |
+| New pack snapshot/send probes | Correct-behavior assertions fail as described in CR64-06; they are defect evidence, not passing regressions. |
+| New player appearance probe | Computed token assertion fails as described in CR64-07. |
+
+Independent replacement recorded actual Core PID **1092163 → 1093344**, supervisor
+child wrappers **1092085/1092086 → 1093294/1093295**, and job
+`733f6d9a-c0af-4d05-853b-846600aea2e7`. The durable lease survived replacement;
+exactly one controlled Actor write occurred. Adapter construction remained blocked
+until compatibility passed; held preparation returned admin200/player503; activation
+rejected the stale mutation409. The harness stopped its services. These results
+confirm the prior supervisor report and do not excuse the separate ingress gap.
+
+Complete CR64-06/07 before treating corrective implementation/isolated acceptance
+as complete. Then obtain scoped disposable v13/v14 authorization for the existing
+native matrix. Record exact builds, world/target scope, allowed writes and backup
+acknowledgement; never infer permission from an existing listener. Measure read
+count/bytes, planning time, journal size, memory and UI responsiveness with realistic
+Actor/Item/effect/delta/pack counts. Include no-op, write-bearing and partial-resume
+plans: per-operation snapshots/read sets can multiply cost. The five-second planner
+budget must fail clearly without approving a partial inventory. Synthetic sizing
+can precede native testing, but cannot establish native latency or envelope safety.
+
+G8 remains a separately scoped module task after proven Core contracts: version-
+proven settings/defaults/exposure, lossless hooks and stable historical identities,
+bounded context refresh, and caller-safe `getSystemDataForUser`. Non-GM rejection
+without that projection remains intentional. Select release minima with the user;
+no module inspection/adoption, release bump, commit, push or ADR closeout is implied.
+
+### CR64-06/07 corrective implementation — October 16, 2026
+
+**Disposition:** CR64-06 and CR64-07 are corrected in the uncommitted Core tree
+over `5013e86`. The review above remains the historical reproduction, not the
+current defect status. All existing CR64-01–05 changes and review material were
+preserved. Before editing this ADR, saved an exact 101,204-byte snapshot, SHA-256
+`71f9add1c2dfaaafdafa7ec965122e1ecbff5d29cb9eddc2ba0ba70bffe5796c`.
+No application/contract versions, module repositories or native Foundry services
+were changed; no staging/commit, branch or remote operation was performed.
+
+#### CR64-06 evidence and boundary
+
+Tracked cases in
+[`adr0064-corrections.test.ts`](../../src/tests/integration/adr0064-corrections.test.ts)
+were added before the fix. The snapshot case failed with a missing expected
+exception; the pre-intent and final-send cases each failed because an obsolete
+Actor write occurred when zero was required. They use the real host snapshot,
+ingress, coordinator, journal and maintenance dispatch; only upstream wire replies
+and unrelated promotion/restart/preparation callbacks are controlled. A second
+pack read holds the real snapshot open while the first pack's mutation arrives.
+The final-send case changes the reference after durable intent, then invokes the
+production dispatch guard rather than bypassing it.
+
+The final tracked fixtures were also rerun in a copied Core workspace with only
+the pack-content stamp removed from the snapshot fence: all three fail at those
+same assertions (exit1). With the fence present all pass. These are correct-behavior
+regressions, not the earlier ignored probes that assert a defect exists.
+
+CompendiumStore now owns monotonic per-pack content revisions. The existing shared
+invalidation owner advances them synchronously, before any awaited persistent
+cache work, for accepted document mutations, batches, autosave and catalog changes.
+Snapshots capture exact declared read packs and applicable Actor/Item world packs
+alongside existing metadata, Store, authority, context and runtime fences. Reads
+and cache population do not advance content revisions. Clear/reset, asynchronous
+failure and late completion cannot restore a captured stamp. No initialized adapter
+or ordinary module compendium declaration is required.
+
+| Required boundary | Tracked passing evidence |
+| --- | --- |
+| Content change with identical metadata | `CR64-06-snapshot`: immediate snapshot rejection after real ingress; index invalidated, metadata unchanged. |
+| Mutation during multi-pack read, before intent | `CR64-06-before-intent`: zero wire sends, `possibleWrite:false`, no outcomes. |
+| Mutation after intent, before final send | `CR64-06-final-send`: zero sends, preserved `possibleWrite:true` and uncertain outcome; old approval rejected. Fresh review approves20 rather than10, preserves prior evidence and writes once. |
+| Shared ingress owners | `CR64-06-ingress-matrix`: create/update/delete, batch, autosave and confirmed dispatch acknowledgement advance synchronously during maintenance without an adapter. GET, failed responses and unrelated-pack contents do not retire the unchanged scope. |
+| Writable pack and membership | `CR64-06-world-pack`: canonical writable world Actor target fenced without `reads.packs`; catalog create/delete use the same revision owner. Existing Item/permissions/target regressions remain passing. |
+| Module-declared and preparing adapter | `CR64-06-adapter-lifecycle`: real registry/bootstrap with Core-owned fixture, held initialize, then ready adapter; both retire snapshots before context hydration/refresh. Migration-only packs are covered separately. |
+| Cache timing/failure/reset | CompendiumStore unit tests: delayed and rejected invalidation, no active system, reads/population and reset do not revive an old revision. |
+| Partial/uncertain recovery | Three real-host recovery cases: stop after one write; unchanged dependencies reconcile a lost receipt without replay; changed pack inputs reject old approval and require a fresh exact plan, preserving prior outcomes. Completed jobs do not replay. Existing sequential/cumulative reference cases still pass. |
+| Preview isolation | Existing CR64-01 assertions retain serving source, prepared and context snapshots across successful/failed previews; new content tests send no preview writes. |
+
+Retiring before intent creates no possible-write marker. After intent, even a
+blocked final send retains conservative uncertain evidence. Exact source/reference
+readback and explicit reapproval remain authoritative; the revision is not an
+approval substitute, native lock or atomic compare-and-swap. Unobserved native edits
+after dispatch remain outside this guarantee. No package-pack write grant was added.
+
+#### CR64-07 evidence and rendered acceptance
+
+The tracked player harness first gained a nonempty computed-token assertion while
+retaining its old `data-theme` setup. It failed at320/light because
+`--sd-ui-surface-raised` was empty (exit1). It now mounts the actual
+PlayerAppearanceProvider and chooses its appearance through the provider's existing
+preference key. No product CSS change or replacement module theme was necessary.
+
+All eight cases (320/390/820/1440 × light/dark) assert the actual root/body/html
+`data-sd-appearance` scope and nonempty panel/text/backdrop tokens. They assert
+resolved panel/text/backdrop colors and distinct light/dark results, not just file
+names. Light resolves to `rgba(250,253,255,0.98)` / `rgb(23,40,60)` /
+`rgba(14,29,47,0.55)`; dark to `rgba(28,48,72,0.97)` / `rgb(241,245,251)` /
+`rgba(3,12,24,0.72)`. All eight captures were visually inspected: readable centered
+panels, bounded narrow wrapping, no horizontal overflow and visibly distinct themes.
+Escape, pointer and keyboard cannot dismiss maintenance or reach inert Actor
+actions. The actual missed-first-upgrade reload remains exactly once; appearance
+is reapplied after reload. No browser dependency was added to application runtime.
+
+#### Verification and remaining gates
+
+- `npm run test:unit`, `npm run test:client`, `npm run test:integration`,
+  `npx tsc --noEmit --incremental false`, `npm run lint` and `git diff --check`:
+  exit0. Corrective integration now has18 isolated cases, including the original
+  nine. Root tests do not substitute for native Foundry permissions.
+- Both tracked rendered harnesses pass at four widths × two actual themes.
+  Admin keyboard/focus, authorization expiry, exact plan, stop and cleanup checks
+  remain passing; player assertions above replace the withdrawn appearance claim.
+- Actual isolated supervised replacement rerun: Core PID1151569→1151799;
+  supervisor wrappers1151460/1151461→1151743/1151744; job
+  `7cb39cba-b4c0-4516-96f8-0fa02ecd76b0`. Its lease survives restart, no adapter is
+  constructed before compatibility, exactly one controlled Actor write occurs,
+  held preparation gives admin200/player503, and stale mutation gives409 after
+  activation. Task services stop in harness cleanup. This is controlled upstream
+  evidence, not native target/envelope verification.
+- Public migration, architecture, API and authoring guides now describe the
+  content fence and its limits. Existing terse changelog feature snapshots cover
+  these corrections without a second transcript of unreleased work. The active
+  audit and stable handoff record commands, artifacts and pending scope.
+
+**Still pending, not deferred or implicitly accepted:** scoped disposable v13/v14
+native target/write acceptance with backup acknowledgement; realistic inventory
+cost measurement (counts/bytes/planning/journal/memory/UI for no-op, write and
+partial-resume); separately authorized G8 adoption; user review/acceptance. No
+existing listener was reused. ADR-0064 stays Accepted/open; no release or publication
+approval is implied.
+
+
+### CR64-06/07 independent confirmation — October 16, 2026
+
+**Review result:** CR64-06 and CR64-07 are resolved for the reviewed Core
+implementation and isolated acceptance. No new confirmed corrective blocker was
+found. This confirms the preceding implementation report; it does not close the
+ADR or establish native Foundry behavior, realistic capacity or G8 adoption.
+Reviewed the uncommitted tree on `feat/adr-0064-world-context-and-migrations` over
+`5013e86`; this pass edited documentation only and preserved all source/test changes.
+
+- **CR64-06:** reviewed the shared synchronous revision owner, reset behavior,
+  declared/writable pack scope, and pre-intent/final-dispatch checks. Independently
+  reran the original snapshot and multi-pack send probes from the prior review,
+  unchanged. Both now pass. The latter observes reference20 while retaining the
+  original Actor value, with `writes:[]` and `possibleWrite:false`; the obsolete10
+  write no longer occurs. The 18 tracked corrective cases also pass, including
+  no adapter, lifecycle transitions, post-intent rejection, explicit changed-source
+  reapproval and partial/uncertain recovery without replay. Store unit tests cover
+  delayed/failed invalidation and reset behavior.
+- **CR64-07:** reviewed actual PlayerAppearanceProvider composition and computed
+  panel/text/backdrop assertions, then reran the player harness. All eight captures
+  (320/390/820/1440 × light/dark) were independently inspected. Themes are visibly
+  distinct, text wraps within the panels and no horizontal overflow was found.
+  Inert keyboard/pointer protection, nondismissible maintenance and the actual
+  missed-first-upgrade reload pass. No production styling fix was needed.
+- **Regression checks:** complete Core unit/client/integration runners, TypeScript
+  without incremental output, ESLint, both rendered harnesses and real isolated
+  supervised replacement all exit0. The admin harness retains its theme/focus/
+  expiry/stop/cleanup assertions. Whitespace and 61 local document target/heading
+  checks pass, excluding module/ignored paths. These are controlled upstream results.
+
+Independent supervised evidence: actual Core PID **1164269 → 1165049**, child
+wrappers **1164095/1164096 → 1164985/1164986**, job
+`29b7bfc9-df32-4d08-a041-439b09829a92`. The lease/job survives replacement, one
+controlled Actor write occurs, adapter construction waits for compatibility,
+held preparation returns admin200/player503, and the stale mutation returns409
+after activation. The harness stopped its services; no existing Foundry listener
+was contacted. No module repository, version, Git index/history or remote state
+was changed.
+
+Before this documentation revision, saved and verified the exact 109,108-byte ADR,
+SHA-256 `83ffd41ca775b9f71dae9e5d46c93fa0b52a4511f75bd64daaf5360f8b77fee9`.
+The tracked cases and reproduction descriptions above remain the durable evidence;
+local artifact paths are recorded in the handoff rather than required by this ADR.
+
+**Next work:** no additional CR64-01–07 source correction is indicated by this
+review. The next offline task can measure realistic synthetic inventories through
+production snapshot/planner/journal paths, separately timing no-op, write-bearing
+and partial-resume plans. State fixture assumptions, document/embedded/pack counts,
+bytes, reads, wall time, memory and journal size. Include bounded failure at the
+existing computation budget; do not approve truncated plans or increase limits to
+make a measurement pass. Identify measured problems before proposing optimizations.
+Synthetic timings do not establish native latency or envelope/permission behavior.
+
+Native v13/v14 acceptance still requires explicit disposable-world/build/target/
+write authorization and the selected backup acknowledgement. G8 remains separately
+scoped module work; ordinary user rights and caller-safe projection requirements
+remain unchanged. User acceptance and any checkpoint/release require their own
+scope. The ADR and active audit stay open for these named gates; do not reopen
+historical corrected findings or move the audit to completed yet.

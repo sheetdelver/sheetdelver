@@ -454,3 +454,26 @@ native ingress and admin recovery available while blocking player operations;
 native user lockout is out of scope. Admin acknowledges that SheetDelver cannot
 back up/restore the world or undo migration writes; native Foundry backup is
 recommended. See the ADR's G0–G9 gates for details.
+
+Migration previews use isolated declared-domain source reads (no acknowledgement
+ingress or serving-context refresh). Only gated preparation reconciles serving
+Stores and rebuilds the adapter's read model. Plans bind reference membership and
+content; durable approved simulation effects distinguish partial readback from
+external changes. Managed repair preserves packaged hook bytes and historical
+digests. Browsers pin one observed runtime until reload, including first activation.
+Context-hook failures have an admin-only retry/diagnosis. Timeouts retain the real
+hook settlement barrier across teardown; successful current preparation releases
+only its context gate, never unrelated authority/upgrade gates.
+
+
+CompendiumStore owns monotonic per-pack content observations separately from
+catalog metadata. Accepted document/batch/autosave/catalog ingress advances that
+fence before asynchronous invalidation, including during maintenance without an
+adapter. Migration snapshots capture writable-world-pack and declared read-pack
+revisions and recheck them before intent and final dispatch. Reads/cache population
+do not advance the fence; cache failure, late completion and resets cannot revive
+an old scope. Possible-write evidence and exact recovery approval remain intact.
+The [CR64-06/07 follow-up](adr/0064-module-world-context-and-data-migrations.md#cr64-0607-corrective-implementation--october-16-2026)
+records real host/ingress/dispatch regressions, actual player appearance-provider
+rendering and isolated supervised replacement. Native acceptance, realistic
+inventory measurement and separate G8 adoption are still pending.

@@ -1,4 +1,5 @@
 'use client';
+import MigrationPlanDetails from './MigrationPlanDetails';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CircleAlert, Download, RefreshCw, Search, ShieldCheck } from 'lucide-react';
@@ -608,14 +609,7 @@ function CatalogDryRunPreview({ preview }: { preview: CatalogDryRunResult }) {
         <div className="space-y-3">
             {preview.migration && (
                 <DetailSection title="World migration checks">
-                    <p className="text-sm">World: {preview.migration.plan.world.identity.worldId}; native system {preview.migration.plan.world.identity.systemVersion}.</p>
-                    <p className="text-sm">Checked {preview.migration.plan.checked} targets; proposed {preview.migration.plan.operations.length} updates. SheetDelver downtime is required.</p>
-                    <p className="break-all text-xs">Artifact: {preview.migration.artifactDigest}</p>
-                    <p className="text-xs">Checks passed only at this revision. Apply revalidates the exact plan; external Foundry clients are not locked out.</p>
-                    {preview.migration.plan.exclusions.map((text, index) => <p key={index} className="text-xs">Excluded/advisory: {text}</p>)}
-                    <details className="mt-2 text-xs"><summary>Proposed source paths</summary>
-                        {preview.migration.plan.operations.map((operation, index) => <p key={index} className="break-all">{operation.stepId}: {operation.uuid}: {Object.keys(operation.updates).join(', ')}</p>)}
-                    </details>
+                    <MigrationPlanDetails preview={preview.migration} />
                 </DetailSection>
             )}
             <div className={`rounded-md border p-3 text-sm font-semibold ${preview.wouldProceed
