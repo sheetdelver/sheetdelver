@@ -7,6 +7,7 @@ import {
 } from './compatibilityResolver';
 import { isSafeModuleRelativePath, parseModuleId } from '@shared/security/moduleId';
 import { parseCombatStatAttributes } from '@shared/contracts/combatStatAttributes';
+import { validateWorldSettings } from '@shared/sdk/world';
 
 export interface ModuleValidationResult {
     valid: boolean;
@@ -49,6 +50,8 @@ export function validateModuleInfoShape(info: unknown): ModuleValidationResult {
     }
 
     const candidate = info as Partial<SystemModuleInfo>;
+    errors.push(...validateWorldSettings(candidate.worldSettings, [candidate.id ?? '', ...(candidate.aliases ?? [])]));
+    if ('migrations' in candidate || 'migration' in candidate) errors.push('Migration maps/entries belong in migration.json, not info.json');
 
     if (!parseModuleId(candidate.id)) {
         errors.push('Manifest field "id" must be a valid module ID');

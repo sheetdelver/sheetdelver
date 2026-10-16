@@ -105,6 +105,23 @@ Generations below 13 fail bootstrap. Generations 13 and 14 are supported.
 Generation 15 and later currently warn as `newer-untested` and proceed under
 the compatibility policy rather than being claimed as supported.
 
+### Core service-account role prerequisite (planned enforcement)
+
+The configured Core account must be full **Gamemaster** in every served world.
+[ADR-0064](adr/0064-module-world-context-and-data-migrations.md#full-gm-service-account-connection-and-recovery-prerequisite)
+requires current authenticated identity/role verification before bootstrap readiness
+on initial connection, restored service session, reconnect and world switch, plus
+active demotion/removal handling. Native `isGM` includes Assistant and cannot be the
+full-GM check. Socket code supplies identity facts; WorldTransportController/
+bootstrap orchestration owns the block and admin recovery policy. Do not add this
+restriction to shared ClientSocket/player login negotiation.
+
+Core 0.18.1 does not implement this role gate yet. The planned failure state stops
+world work and repeated login attempts for the known blocked world, keeps passive
+lifecycle discovery/admin access, and tells the administrator to set the configured
+account to Gamemaster in Foundry and retry. Players receive generic unavailability.
+See [configuration recovery](CONFIGURATION.md#service-account-role-and-recovery).
+
 ## Socket Operations & Dispatch Model
 
 SheetDelver uses the same Foundry wire operations through two identity-bound
@@ -203,10 +220,11 @@ messages are tracing evidence, not alerts.
 
 While the current socket implementation is functional, there are several areas of concern and potential improvements for the future:
 
-1.  **Service-account scope**: The configured service account must exist in each
-    active world and needs enough permission for platform bootstrap, metadata,
-    and configured system operations. This authority is not borrowed for a
-    player's failed request.
+1.  **Service-account scope**: The configured account must exist as a full
+    **Gamemaster** in each active world. Assistant is insufficient for Core's
+    service-account policy; ADR-0064's connection-wide enforcement is implemented
+    but unreleased. Its authority is never borrowed for a player's failed
+    request. Native document validation still applies to platform operations.
 2.  **Newer Foundry generations**: Generation 15 and later are allowed under a
     warning so operators can diagnose shape drift, but they are not currently
     in the supported range.

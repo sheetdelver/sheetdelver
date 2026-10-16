@@ -47,6 +47,7 @@ export class SyncTokenService {
     public getCurrentToken(): string | undefined {
         return this.tokenValue == null ? undefined : String(this.tokenValue);
     }
+    public invalidatePreparedActors(): void { this.handleDocumentChanged({ type: 'Actor' } as DocumentChangedEvent); }
 
     public dispose(): void {
         for (const { source, listener } of this.subscriptions) {

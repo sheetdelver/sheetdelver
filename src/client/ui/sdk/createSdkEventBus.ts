@@ -113,6 +113,9 @@ export function createSdkEventBus(): SdkEventBus {
                 action: (payload.action as DocumentChangeAction) ?? 'update',
             }));
         }
+        bind('worldContextChanged', payload => emit('world:contextChanged', {
+            revision: Number(payload.revision), keys: Array.isArray(payload.keys) ? payload.keys.filter((key): key is string => typeof key === 'string') : [],
+        }));
         for (const [event, type] of Object.entries(LIST_INVALIDATED_EVENTS)) {
             bind(event, (payload) => emit('document:listInvalidated', {
                 type,

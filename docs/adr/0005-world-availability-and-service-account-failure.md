@@ -7,6 +7,12 @@
 
 ---
 
+**October 16, 2026 policy follow-up:** [ADR-0064](0064-module-world-context-and-data-migrations.md#full-gm-service-account-connection-and-recovery-prerequisite)
+extends the account prerequisite to full Gamemaster for every Core world connection,
+with lower/unknown-role and active-demotion blocking plus admin remediation/retry.
+That extension is pending implementation; this ADR's completed missing-account
+handling remains the historical baseline and is not reopened.
+
 ## Context
 
 Previously, if the configured service account was missing from the active Foundry world, the backend would repeatedly attempt to connect, leaving the application in an indefinite "initializing" state. End users would see a stuck or ambiguous startup screen, and only logs would indicate the underlying issue. This approach exposed technical details to users and did not provide a clear operational recovery path for administrators.

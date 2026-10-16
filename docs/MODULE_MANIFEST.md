@@ -914,3 +914,26 @@ works.
 11. Use `useSDK().navigate()` / `replace()` for internal application routes;
     these methods originated in UI contract 1.1.0; modules targeting the
     next host release declare `ui-extension-api: ">=3.0.0 <4.0.0"`.
+
+## World context and migration discovery (unreleased)
+
+[Core ADR-0064](adr/0064-module-world-context-and-data-migrations.md) implements
+`worldSettings` and immutable runtime world context in SDK 3.3/module-api 1.5.
+See [schemas and complete examples](MODULE_MIGRATIONS.md). Existing `settings` remain browser preferences;
+adapter initialization remains read-only.
+
+Migration maps and logic paths belong outside `info.json`. The conventional
+root `migration.json` maps native game-system version milestones to directories
+containing `definition.json` and separate check/plan/verify logic. Core discovers
+that file without activating the module. Definitions express scope/dependencies;
+compiled hooks handle conditional and custom data transformations. See the ADR
+for layout, source-vs-packaged paths and version distinctions.
+
+`info.json` keeps module identity/version and general compatibility minima. Release
+metadata may contain a derived catalog-presence/hash summary; it must not duplicate
+the catalog as a second authority. Implement catalog/definition validation, confined
+entry packaging, artifact health, release-summary checks and SDK compatibility
+together. Older hosts must reject migration-bearing packages they cannot enforce.
+Bootstrap must check actual source even after a completed journal entry; it cannot
+initiate writes. This contract remains unreleased; dependent modules must wait
+for a supporting published host before declaring its minimum.

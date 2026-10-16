@@ -8,6 +8,8 @@ import { foundryEventIngress } from './FoundryEventIngress';
 import { WorldTransportController } from './WorldTransportController';
 import { worldStateStore } from '@server/core/world/WorldStateStore';
 import { worldLifecycleStore } from '@server/core/world/WorldLifecycleStore';
+import { serviceAccountAuthority } from '@server/core/world/ServiceAccountAuthority';
+import { worldWorkGate, dispatchCoreMutation } from '@server/core/world/WorldWorkGate';
 import { SetupManager } from '@server/core/world/SetupManager';
 import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
 import { preparedActorStore, type PreparedActorChangedEvent } from '@server/core/documents/prepared/actors/PreparedActorStore';
@@ -36,7 +38,15 @@ export interface SystemServiceDeps {
 }
 
 const defaultSystemServiceDeps: SystemServiceDeps = {
-    createSystemClient: (config) => new CoreSocket(config),
+    createSystemClient: (config) => {
+        const transport = new CoreSocket(config);
+        transport.setOperationGuard(send => {
+            if (!transport.isConnected || transport.userId !== serviceAccountAuthority.getUserId()
+                || !serviceAccountAuthority.checkCurrent(userStore.get(transport.userId ?? ''))) throw new Error('Service authority unavailable');
+            return dispatchCoreMutation(send);
+        });
+        return transport;
+    },
     attachFoundryEventIngress: (transport, options) => foundryEventIngress.attach(transport, options),
     createWorldTransportController: (deps) => new WorldTransportController(deps),
     loadSetupCache: () => SetupManager.loadCache(),
@@ -108,6 +118,10 @@ export class SystemService extends EventEmitter {
         // a systemStatus refresh because the dashboard and login dropdown derive
         // their roster view from the full status payload.
         userStore.on('documentChanged', (event: DocumentChangedEvent) => {
+            if (event.id === serviceAccountAuthority.getUserId()
+                && !serviceAccountAuthority.checkCurrent(userStore.get(event.id))) {
+                this.blockServiceAccount();
+            }
             this.systemClient?.emit('userChanged', {
                 userId: event.id, action: event.action, audience: event.audience,
             });
@@ -262,6 +276,9 @@ export class SystemService extends EventEmitter {
         // SettingStore resolves that type-level policy into the server-only
         // audience carried by each invalidation hint.
         settingStore.on('documentChanged', (event: DocumentChangedEvent) => {
+            void worldBootstrapper.refreshWorldContext().catch(() => {
+                logger.error('SystemService | World rule refresh failed; world work remains gated.');
+            });
             this.systemClient?.emit('settingChanged', {
                 settingId: event.id, action: event.action, audience: event.audience,
             });
@@ -279,6 +296,7 @@ export class SystemService extends EventEmitter {
         worldLifecycleStore.on('transition', () => {
             this.emit('system:status-update');
         });
+        worldWorkGate.on('changed', () => this.emit('system:status-update'));
     }
 
     public static getInstance(): SystemService {
@@ -341,12 +359,20 @@ export class SystemService extends EventEmitter {
         if (state === 'startup' || (state === 'active' && !this.isReady())) {
             this.recoverOrBootstrap().catch(err => {
                 logger.error(`SystemService | World readiness failed: ${err.message}`);
-                this.worldTransportController?.retryAfterRecoveryFailure();
+                if (serviceAccountAuthority.getDiagnostic()) this.blockServiceAccount();
+                else if (!worldWorkGate.isOpen()) {
+                    // Compatibility/approved jobs retain native ingress and admin
+                    // inspection. Do not turn maintenance into a reconnect storm.
+                    this.worldTransportController?.startHeartbeat();
+                    this.emit('system:status-update');
+                }
+                else this.worldTransportController?.retryAfterRecoveryFailure();
             });
         }
     }
 
     private handleDisconnect() {
+        serviceAccountAuthority.retire();
         logger.info('SystemService | System Client disconnected.');
         worldBootstrapper.captureRecoveryBaseline();
         this.emit('world:disconnected');
@@ -399,7 +425,15 @@ export class SystemService extends EventEmitter {
     }
 
     public isReady(): boolean {
-        return worldLifecycleStore.isState('active') && worldBootstrapper.isReady();
+        return worldWorkGate.isOpen() && worldLifecycleStore.isState('active') && worldBootstrapper.isReady();
+    }
+
+    private blockServiceAccount(): void {
+        worldLifecycleStore.setState('closed', 'service-account-gm-required');
+        worldBootstrapper.reset('service-account-gm-required');
+        this.worldTransportController?.disconnect();
+        this.worldTransportController?.startHeartbeat();
+        this.emit('system:status-update');
     }
 
     public getActiveAdapter(): SystemAdapter | null {

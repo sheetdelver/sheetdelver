@@ -26,6 +26,7 @@ export {
     useDocumentMutation,
     useActorSheet,
     useModuleSettings,
+    useWorldSetting,
     createActorPage,
 } from './client-hooks';
 

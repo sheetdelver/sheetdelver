@@ -211,6 +211,8 @@ export interface CompendiumPackReader {
  * when the mounted services are wired in (ADR-0027 Phase 1 heavy slice).
  */
 export interface ModuleRuntime {
+    /** Host-backed immutable native world settings; old epoch handles fail closed. */
+    world?: import('./world').ModuleWorldContext;
     /** The unique identifier of the module. */
     moduleId: string;
     /** Namespaced logger for the module. */
@@ -231,6 +233,10 @@ export interface ModuleRuntime {
  * document ops default their acting identity to the calling user (`req.userSession`).
  */
 export interface ModuleRequestRuntime extends ModuleRuntime {
+    access?: {
+        canReadPack(packId: string): boolean;
+        packs(): Array<{ id: string; label: string; type: string }>;
+    };
     /** Full read + write document surface (CRUD + commit + effects + items), user-bound. */
     documents: DocumentStore;
     /** Dice evaluation primitive. */

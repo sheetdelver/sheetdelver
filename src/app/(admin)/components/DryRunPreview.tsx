@@ -38,7 +38,7 @@ export default function DryRunPreview({ preview, onApproveEscalation, escalation
                     ? '⛔ Operation blocked by policy'
                     : preview.permissions?.escalationRequired
                         ? '⚠️ Requires declared-access change acknowledgement'
-                        : '✓ Operation is safe to proceed'}
+                        : '✓ Package checks passed at this revision'}
             </div>
 
             {/* Trust Policy */}

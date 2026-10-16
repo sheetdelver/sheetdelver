@@ -10,6 +10,8 @@ import { registerAdminModuleRoutes } from '@server/routes/admin/registerAdminMod
 import { createModuleRouter } from '@server/routes/modules/createModuleRouter';
 import { createEnsureInitialized } from '@server/middleware/ensureInitialized';
 import { worldStateStore } from '@server/core/world/WorldStateStore';
+import { userStore } from '@server/core/documents/primary/users/UserStore';
+import { sceneStore } from '@server/core/documents/primary/scenes/SceneStore';
 import {
     getDataDir,
     getLocalModulesDataDir,
@@ -87,20 +89,27 @@ async function runSystemRouteSmokeTests() {
     assert.equal(routeMap.get.has('/system/scenes'), true);
 
     seedSystemState();
+    await userStore.seed(async () => [{ _id: 'route-gm', name: 'GM', role: 4 }, { _id: 'route-player', name: 'Player', role: 1 }]);
+    await sceneStore.seed(async () => [{ _id: 'scene-1', name: 'Scene One' }]);
+    const gmRequest = { userSession: { userId: 'route-gm', client: {} } } as any;
 
     const systemRes = await invokeHandler(getLastHandler(routeMap, 'get', '/system'), {});
     assert.deepEqual(systemRes.payload, { id: 'synthetic', title: 'Synthetic System', version: '1.0.0' });
 
-    const dataRes = await invokeHandler(getLastHandler(routeMap, 'get', '/system/data'), {});
+    const denied = await invokeHandler(getLastHandler(routeMap, 'get', '/system/data'), { userSession: { userId: 'route-player', client: {} } } as any);
+    assert.equal(denied.statusCode, 403, 'privileged adapter cache is never a caller projection');
+    const dataRes = await invokeHandler(getLastHandler(routeMap, 'get', '/system/data'), gmRequest);
     assert.deepEqual(dataRes.payload, { adapter: 'synthetic' });
 
-    const scenesRes = await invokeHandler(getLastHandler(routeMap, 'get', '/system/scenes'), {});
+    const scenesRes = await invokeHandler(getLastHandler(routeMap, 'get', '/system/scenes'), gmRequest);
     assert.deepEqual(scenesRes.payload, { 'scene-1': { _id: 'scene-1', name: 'Scene One' } });
 
     worldStateStore.clear('admin-system-module-routes-test');
-    const missingScenesRes = await invokeHandler(getLastHandler(routeMap, 'get', '/system/scenes'), {});
+    sceneStore.clear('admin-system-module-routes-test');
+    const missingScenesRes = await invokeHandler(getLastHandler(routeMap, 'get', '/system/scenes'), gmRequest);
     assert.equal(missingScenesRes.statusCode, 404);
     assert.deepEqual(missingScenesRes.payload, { error: 'Scene data not available' });
+    userStore.clear('admin-system-module-routes-test');
 }
 
 async function runAdminStatusRouteSmokeTests() {

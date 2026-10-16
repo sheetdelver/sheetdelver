@@ -71,6 +71,7 @@ function manifestEntry(repository: URL, tag: string, manifest: ModuleReleaseMani
     return {
         version: manifest.module.version,
         manifest: `${base}/releases/download/${encodeURIComponent(tag)}/sheet-delver-manifest.json`,
+        ...(manifest.migrations ? { migrations: manifest.migrations } : {}),
         ...(manifest.module.compatibility
             ? { compatibility: manifest.module.compatibility }
             : {}),

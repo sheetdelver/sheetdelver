@@ -11,16 +11,18 @@
  */
 import { SdkError } from '@shared/sdk';
 import { systemService } from '@server/services/world';
+import { worldWorkGate } from '@server/core/world/WorldWorkGate';
 
 const DEFAULT_READY_TIMEOUT_MS = 10_000;
 
 export async function awaitWorldReady(timeoutMs = DEFAULT_READY_TIMEOUT_MS): Promise<void> {
+    worldWorkGate.assertOpen();
     if (systemService.isReady()) return;
 
     await new Promise<void>((resolve, reject) => {
         const onReady = () => {
             clearTimeout(timer);
-            resolve();
+            try { worldWorkGate.assertOpen(); resolve(); } catch (error) { reject(error); }
         };
         const timer = setTimeout(() => {
             systemService.off('world:ready', onReady);

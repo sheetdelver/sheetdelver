@@ -1,4 +1,6 @@
 import express from 'express';
+import { worldWorkGate, withWorldWorkScope } from '@server/core/world/WorldWorkGate';
+import { moduleWorldContext } from '@server/services/world/ModuleWorldContextService';
 import fs from 'node:fs';
 import { createModuleProxyService } from '@server/services/modules/ModuleProxyService';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
@@ -57,6 +59,21 @@ export function createModuleRouter(deps: ModuleRouterDeps) {
     // --- Module Router (Permissive Auth) ---
     // Mounted before the global auth middleware to allow module-specific permissive routes
     const moduleRouter = express.Router();
+    moduleRouter.use((req, res, next) => {
+        if (!worldWorkGate.isOpen()) return res.status(503).json({ status: 'maintenance', message: 'World unavailable' });
+        if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && worldWorkGate.getServingToken()
+            && req.get('X-SheetDelver-Runtime') !== worldWorkGate.getServingToken()) return res.status(409).json({ error: 'Module runtime changed; reload before trying again', code: 'runtime-changed' });
+        const contextRevision = req.get('X-SheetDelver-Context-Revision');
+        if (contextRevision !== undefined && Number(contextRevision) !== moduleWorldContext.snapshot().identity.contextRevision) return res.status(409).json({ error: 'World rules changed; refresh this action', code: 'world-context-changed' });
+        const revision = worldWorkGate.capture();
+        const send = res.json.bind(res);
+        res.json = (body: unknown) => {
+            try { worldWorkGate.assertOpen(revision); }
+            catch { res.status(503); return send({ status: 'maintenance', message: 'World unavailable' }); }
+            return send(body);
+        };
+        withWorldWorkScope(next);
+    });
     const uiHealthLimiter = new ModuleUiHealthRateLimiter();
     const getModuleAssetSource = deps.getModuleAssetSource ?? getEnabledModuleAssetSource;
     moduleRouter.use(deps.tryAuthenticateSession);

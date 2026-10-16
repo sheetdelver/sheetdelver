@@ -25,6 +25,9 @@ import {
  */
 export class SettingStore extends PrimaryDocumentStore<SettingDocument> {
     public readonly documentType: PrimaryDocumentType = 'Setting';
+    public hasWorldKey(key: string): boolean {
+        return Array.from(this.documents.values()).some(row => row.key === key && row.user == null);
+    }
 
     protected resolveOwnership(
         _setting: SettingDocument,

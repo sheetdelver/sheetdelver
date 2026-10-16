@@ -10,6 +10,7 @@
 
 export type SdkSignal =
     | 'world:ready'
+    | 'world:contextChanged'
     | 'world:teardown'
     | 'connection:changed'
     | 'module:initialized'
@@ -23,6 +24,7 @@ export type DocumentChangeAction = 'create' | 'update' | 'delete';
 /** Payload shape per signal. */
 export interface SdkSignalPayloads {
     'world:ready': { worldId: string | null };
+    'world:contextChanged': { revision: number; keys: string[] };
     'world:teardown': { worldId: string | null };
     'connection:changed': { connected: boolean; worldId: string | null };
     'module:initialized': { moduleId: string };

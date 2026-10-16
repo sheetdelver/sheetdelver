@@ -6,6 +6,22 @@ All paths are relative to the configured `<DATA_DIR>` unless stated otherwise.
 For setting purpose, defaults, and required/optional status, see
 [`CONFIGURATION.md`](CONFIGURATION.md).
 
+## Core service-account role
+
+Use a dedicated **full Gamemaster** Foundry account for Core in each world.
+Assistant Gamemaster is not sufficient for the service account. Keep its credentials
+server-side using the references below; human users retain separate caller-bound
+connections. A SheetDelver administrator session is not a Foundry role grant.
+
+[ADR-0064](adr/0064-module-world-context-and-data-migrations.md#full-gm-service-account-connection-and-recovery-prerequisite)
+requires Core to block world connection/readiness on lower or unknown roles and
+on active demotion, with an actionable admin error and fresh-role retry after
+manual correction in Foundry. **Role enforcement is implemented but unreleased**;
+published Core 0.18.1 does not enforce it. See the
+[configuration recovery procedure](CONFIGURATION.md#service-account-role-and-recovery).
+Never work around a blocked service account by borrowing a human GM session,
+changing player ownership or automatically promoting the account.
+
 ## External Secrets
 
 The Foundry service-account username and secret-bearing settings accept

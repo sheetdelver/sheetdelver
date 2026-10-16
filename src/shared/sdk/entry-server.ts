@@ -39,3 +39,5 @@ export type {
     ChatRuntime,
     ChatPostOptions,
 } from './runtime';
+export type { ModuleWorldSnapshot, ModuleWorldContext, WorldSettingResult, WorldSettingDeclaration } from './world';
+export type { MigrationHookInput, MigrationTarget, MigrationCheckHook, MigrationPlanHook, MigrationVerifyHook } from './migrations';

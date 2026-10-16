@@ -48,7 +48,11 @@ Manual probes may prompt for input, write debug output under `temp/`, or depend 
 
 1. **Environment Variable**: Set `FOUNDRY_PASSWORD` in your environment or `.env` file
 2. **Foundry Server**: Ensure your target Foundry VTT server is running (configured in `settings.yaml`)
-3. **Test User**: A valid user (e.g. Gamemaster or Assistant) must exist in the world
+3. **Core Service Account**: Configure a full **Gamemaster** in the approved test
+   world. Assistant is insufficient for Core's connection policy. Separate caller
+   fixtures may still exercise Assistant/player/owner permissions. ADR-0064's
+   connection/reconnect/demotion gate is implemented but unreleased; see
+   [configuration recovery](../../../docs/CONFIGURATION.md#service-account-role-and-recovery).
 4. **Safety Check Disabled**: Tests will temporarily disable the safety check in `SocketClient.connect()`
 
 Note: `security.service-token` / `APP_SERVICE_TOKEN` is for internal privileged API bearer flow and is not a replacement for Foundry user login credentials used by these socket tests.
@@ -97,7 +101,7 @@ Example:
 ### Connection Fails
 - Verify Foundry server is running
 - Check `FOUNDRY_PASSWORD` environment variable
-- Ensure a valid user exists (as configured in settings.yaml)
+- Ensure the configured Core service account exists as full Gamemaster in that world; keep non-GM caller fixtures separate.
 
 ### Server Crashes
 - Re-enable the safety check in `SocketClient.ts`

@@ -9,6 +9,7 @@ import { COOKIE_SESSION_MARKER } from '@client/ui/context/SessionContext';
 import * as foundryApi from '@client/ui/api/foundryApi';
 import { ApiError, UnauthorizedApiError } from '@client/ui/api/http';
 import { isRuntimeRestartReady } from '@shared/runtime/fullStackRestart';
+import { observeWorldRuntime } from '@client/ui/api/worldRuntime';
 import type { RealtimeStatusPayload } from '@shared/contracts/status';
 import type {
     RealtimeServerRestartingPayload,
@@ -16,6 +17,7 @@ import type {
 } from '@shared/contracts/realtime';
 
 interface RealtimeContextType {
+    maintenance?: { phase: string; message: string } | null;
     appSocket: Socket | null;
     linkState: 'connecting' | 'checking' | 'ready' | 'guest' | 'disconnected' | 'unavailable';
 }
@@ -27,6 +29,7 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
     const [appSocket, setAppSocket] = useState<Socket | null>(null);
     const [linkState, setLinkState] = useState<RealtimeContextType['linkState']>('connecting');
     const [serverRestarting, setServerRestarting] = useState(false);
+    const [maintenance, setMaintenance] = useState<RealtimeContextType['maintenance']>(null);
     const currentUserIdRef = useRef(currentUserId);
     useEffect(() => { currentUserIdRef.current = currentUserId; }, [currentUserId]);
 
@@ -149,6 +152,11 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
 
         socket.on('systemStatus', (status: RealtimeStatusPayload) => {
             if (unavailable || disposed) return;
+            setMaintenance(status.maintenance ?? null);
+            if (observeWorldRuntime(status.runtimeToken ?? null)) {
+                window.location.reload();
+                return;
+            }
             audience = Object.prototype.hasOwnProperty.call(status, 'worldId')
                 ? 'authenticated' : 'public';
             worldReady = status.connected && status.initialized
@@ -238,7 +246,7 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
         };
     }, [invalidateLocalSession, isExplicitLogoutPending, setCurrentUserId, setToken, token]);
 
-    const value = useMemo(() => ({ appSocket, linkState }), [appSocket, linkState]);
+    const value = useMemo(() => ({ appSocket, linkState, maintenance }), [appSocket, linkState, maintenance]);
 
     return (
         <RealtimeContext.Provider value={value}>

@@ -304,6 +304,9 @@ export class FoundryEventIngress {
             packId,
             `${origin}:${entry.action}`,
         ).then(() => {
+            void worldBootstrapper.refreshWorldContext(packId).catch(() => {
+                logger.error('FoundryEventIngress | Declared pack refresh failed; world remains gated.');
+            });
             // Successful completion is logged without document content so a
             // live pack mutation can be audited without exposing pack data.
             logger.debug('FoundryEventIngress | Invalidated compendium pack content', {
@@ -340,7 +343,7 @@ export class FoundryEventIngress {
                 this.getActiveSystemId(),
                 parsed.packId,
                 'pm.autosave',
-            ).catch(error => {
+            ).then(() => worldBootstrapper.refreshWorldContext(parsed.packId)).catch(error => {
                 logger.error('FoundryEventIngress | Failed to invalidate autosaved compendium pack', {
                     packId: parsed.packId,
                     error: error instanceof Error ? error.message : String(error),
@@ -575,6 +578,7 @@ export class FoundryEventIngress {
             });
             void this.packStore.invalidatePackContent(systemId, packId, 'manageCompendium:create')
                 .then(() => {
+                    void worldBootstrapper.refreshWorldContext(packId).catch(() => undefined);
                     // Catalog telemetry records identifiers and outcomes only;
                     // compendium metadata and rows are intentionally omitted.
                     logger.debug('FoundryEventIngress | Applied compendium catalog change', {
@@ -605,6 +609,7 @@ export class FoundryEventIngress {
 
             void this.packStore.removePack(systemId, packId, 'manageCompendium:delete')
                 .then(() => {
+                    void worldBootstrapper.refreshWorldContext(packId).catch(() => undefined);
                     logger.debug('FoundryEventIngress | Applied compendium catalog change', {
                         action,
                         packId,

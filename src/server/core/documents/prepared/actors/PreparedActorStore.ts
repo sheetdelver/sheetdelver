@@ -18,6 +18,8 @@ import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
 import { logger } from '@shared/utils/logger';
 
 export interface PreparedActorStoreContext {
+    world?: Readonly<import('@shared/sdk/world').ModuleWorldSnapshot>;
+    contextRevision?: number;
     worldEpoch: number;
     systemId: string;
     systemVersion?: string;
@@ -31,6 +33,7 @@ export interface PreparedActorDiagnostic {
 }
 
 interface PreparedActorEntryBase {
+    contextRevision?: number;
     actorId: string;
     worldEpoch: number;
     sourceRevision: number;
@@ -159,6 +162,27 @@ export class PreparedActorStore extends EventEmitter {
         return this.prepareOne(actorId, sourceRevision);
     }
 
+    /** Settings do not change source revisions. Rebuild synchronously after the async refresh barrier. */
+    public refreshContext(world: Readonly<import('@shared/sdk/world').ModuleWorldSnapshot>): () => void {
+        const context = this.assertConfigured();
+        this.context = Object.freeze({ ...context, world, contextRevision: world.identity.contextRevision });
+        let failed = false;
+        for (const actor of this.sourceStore?.list() ?? []) {
+            const id = getActorId(actor);
+            if (!id) continue;
+            const entry = this.prepareSource(actor, this.sourceRevisions.get(id) ?? 1);
+            this.entries.set(id, entry);
+            failed ||= entry.status !== 'ready';
+        }
+        if (failed) throw new Error('Actor preparation failed under refreshed world context');
+        return () => {
+            for (const [id, entry] of this.entries) {
+                this.emitChanged({ id, type: 'Actor', action: 'update', audience: this.sourceStore!.getDocumentAudience(id) },
+                    entry.sourceRevision, entry.status);
+            }
+        };
+    }
+
     public clear(_reason?: string): void {
         this.entries.clear();
         this.sourceRevisions.clear();
@@ -212,6 +236,7 @@ export class PreparedActorStore extends EventEmitter {
         const actorId = getActorId(actor);
         if (!actorId) throw new Error('Cannot prepare an Actor without an id');
         const metadata: PreparedActorEntryBase = {
+            contextRevision: context.contextRevision,
             actorId,
             worldEpoch: context.worldEpoch,
             sourceRevision,

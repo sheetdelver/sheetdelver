@@ -15,16 +15,19 @@ import type { FoundryUserConnectionLike } from '@server/shared/types/foundry';
 import type { RouteFoundryClient } from '@server/shared/types/requestContext';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
 import { FoundryUserRole } from '@server/core/documents/primary/base/ownership';
+import { moduleWorldContext } from '@server/services/world/ModuleWorldContextService';
 
 // Base runtime is module-scoped (logger/dataStore/compendium/foundryUrl + read-only
 // documents) — memoize per module so per-request work is just binding the user-bound
 // services onto req.runtime (ADR-0027 decision 5).
 const baseRuntimeCache = new Map<string, Promise<ModuleRuntime>>();
 function getBaseRuntime(moduleId: string): Promise<ModuleRuntime> {
-    let base = baseRuntimeCache.get(moduleId);
+    const key = `${moduleId}:${moduleWorldContext.snapshot().identity.runtimeEpoch}:${moduleWorldContext.snapshot().identity.worldId}`;
+    let base = baseRuntimeCache.get(key);
     if (!base) {
+        baseRuntimeCache.clear();
         base = createModuleRuntime(moduleId);
-        baseRuntimeCache.set(moduleId, base);
+        baseRuntimeCache.set(key, base);
     }
     return base;
 }

@@ -312,3 +312,35 @@ non-prerelease releases, allowing compatible historical versions to be selected
 without querying GitHub at application runtime. Releases made before adopting
 this workflow join history only when they contain `sheet-delver-manifest.json`.
 A release workflow refuses to overwrite an existing GitHub Release.
+
+## Migration-bearing module releases (unreleased contract)
+
+[Core ADR-0064](adr/0064-module-world-context-and-data-migrations.md) implements a
+conventional root `migration.json` catalog, native-version directories containing
+`definition.json`, and separately compiled check/plan/verify hooks. Migration maps
+and logic paths do not belong in `info.json`; it retains ordinary module version/
+compatibility metadata. Release tooling may generate a catalog-presence/hash
+summary, verified against the archive, but cannot create a second migration list.
+
+Development tooling now compiles hooks, checks catalog/definition and archive
+health, and derives release-schema-v2 summaries. See [the contract guide](MODULE_MIGRATIONS.md).
+Do not publish dependent modules before the supporting Core host/toolchain.
+Retain steps needed for skipped upgrades and declare
+supported data-read compatibility; an old host must not silently ignore migrations.
+
+Publication distributes requirements/code, not world-write authority. The local
+admin reviews a live-world dry-run and acknowledges that SheetDelver cannot create
+or restore a world backup or undo migration changes. Native Foundry backup is
+recommended. Core runs the approved job; native-user lockout and world rollback
+are out of scope. Actual source checks at bootstrap detect restored legacy data
+despite completed journal records. Download/replacement/restart is not completed
+migration. Version changes and publication remain separately authorized operations.
+
+The enforcing Core release must also announce ADR-0064's **connection-wide full-GM
+service-account requirement**, independent of whether a module declares migrations.
+Administrators using Assistant service accounts must change them to Gamemaster in
+Foundry before upgrading; release notes must link the
+[configuration/retry procedure](CONFIGURATION.md#service-account-role-and-recovery).
+The implementation and offline tests are unreleased; the enforcing application
+version is not assigned here. Do not claim it shipped in Core 0.18.1 or change
+human Assistant permissions. Application metadata still belongs to release:tag.

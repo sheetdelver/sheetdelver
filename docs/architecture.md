@@ -68,6 +68,10 @@ graph TD
 - **World Transport Controller (`src/server/services/world/WorldTransportController.ts`)**:
     - Owns service-account lifecycle policy: retry/backoff, heartbeat, browser engagement wakeups, world launch/shutdown, and lifecycle Store updates.
     - Commands `CoreSocket` as a transport; it does not live in `core/`.
+    - ADR-0064's unreleased role gate requires the configured service account to be
+      full Gamemaster on connect/reconnect and while active. This lifecycle policy
+      blocks world access and gives admin recovery guidance; it does not change
+      ordinary user/Assistant permissions.
     - A socket interruption gates world APIs but retains the last ready runtime. Affirmative, corroborated setup or explicit shutdown retires it; the controller alone reconnects the service-account socket.
 - **Foundry Event Ingress (`src/server/services/world/FoundryEventIngress.ts`)**:
     - Subscribes to neutral Foundry socket events and applies application semantics such as document routing, user presence, and runtime teardown. `SharedContentIngress` receives selected media through each authenticated user session; `AppSocketGateway` forwards the matching Store projection.
@@ -421,3 +425,55 @@ dependencies.
 - **Frontend**: 3000
 - **Backend (API)**: 3001
 - **Foundry**: Configurable via `<DATA_DIR>/config/settings.yaml`
+
+## Module world context and maintenance (unreleased)
+
+[Core ADR-0064](adr/0064-module-world-context-and-data-migrations.md) implements
+live, immutable snapshots of declared native world settings and dependency
+revisions for prepared data, shared pack-permission policy and canonical Actor
+response references. See [the contract guide](MODULE_MIGRATIONS.md) for schemas,
+ownership, endpoint payloads, recovery limits and module-adoption requirements.
+
+Migration execution belongs to the Core admin upgrade coordinator. A module
+keeps requirements in a root `migration.json` catalog and native-version directories
+with definitions and pure check/plan/verify hooks; `info.json` keeps normal metadata.
+Core verifies the candidate, previews changes against the running world,
+records admin approval, gates SheetDelver world access, promotes files without
+activation and resumes the same durable job across the existing supervised restart.
+Only verified migration, adapter initialization and prepared-data rebuild permit
+activation. File rollback cannot restore Foundry data; world restoration remains
+an external administrator operation.
+
+Adapter initialization remains read-only and ordinary SDK writes remain caller-
+bound. Every bootstrap checks actual data readiness despite completed journal
+entries;
+an external restore can block the world for admin maintenance. Startup can resume
+an approved job, but cannot initiate new repairs. SettingStore, SceneStore,
+CoreSocket and prepared Stores remain the authoritative building blocks. Maintenance must keep
+native ingress and admin recovery available while blocking player operations;
+native user lockout is out of scope. Admin acknowledges that SheetDelver cannot
+back up/restore the world or undo migration writes; native Foundry backup is
+recommended. See the ADR's G0–G9 gates for details.
+
+Migration previews use isolated declared-domain source reads (no acknowledgement
+ingress or serving-context refresh). Only gated preparation reconciles serving
+Stores and rebuilds the adapter's read model. Plans bind reference membership and
+content; durable approved simulation effects distinguish partial readback from
+external changes. Managed repair preserves packaged hook bytes and historical
+digests. Browsers pin one observed runtime until reload, including first activation.
+Context-hook failures have an admin-only retry/diagnosis. Timeouts retain the real
+hook settlement barrier across teardown; successful current preparation releases
+only its context gate, never unrelated authority/upgrade gates.
+
+
+CompendiumStore owns monotonic per-pack content observations separately from
+catalog metadata. Accepted document/batch/autosave/catalog ingress advances that
+fence before asynchronous invalidation, including during maintenance without an
+adapter. Migration snapshots capture writable-world-pack and declared read-pack
+revisions and recheck them before intent and final dispatch. Reads/cache population
+do not advance the fence; cache failure, late completion and resets cannot revive
+an old scope. Possible-write evidence and exact recovery approval remain intact.
+The [CR64-06/07 follow-up](adr/0064-module-world-context-and-data-migrations.md#cr64-0607-corrective-implementation--october-16-2026)
+records real host/ingress/dispatch regressions, actual player appearance-provider
+rendering and isolated supervised replacement. Native acceptance, realistic
+inventory measurement and separate G8 adoption are still pending.

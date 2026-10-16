@@ -1,6 +1,7 @@
 import { ModuleRuntime } from './runtime';
 import type { ComponentType } from 'react';
 import type { InitiativeRollModalProps } from './ui';
+import type { ModuleWorldSnapshot, WorldSettingDeclaration } from './world';
 
 // ---------------------------------------------------------------------------
 // Foundry document primitives
@@ -73,6 +74,8 @@ export interface ActorSheetData {
  * (ADR-0038). Preparation must remain deterministic and user-invariant.
  */
 export interface ActorPreparationContext {
+    world?: Readonly<ModuleWorldSnapshot>;
+    contextRevision?: number;
     worldEpoch: number;
     sourceRevision: number;
     systemId: string;
@@ -225,6 +228,7 @@ export interface ModuleInfo {
     compendiumPacks?: CompendiumPackConfig;
     /** Declared client settings schema (decision 21). */
     settings?: ModuleSettingDeclaration[];
+    worldSettings?: WorldSettingDeclaration[];
     /** Suggested GM combat stats; GMs may override these for their world. */
     combatTracking?: { attributes: ModuleCombatStatAttribute[] };
     package?: ModulePackageDeclaration;
@@ -393,6 +397,7 @@ export interface SystemAdapter {
 
     // --- Optional: core calls if present (all verified by runtime grep) ---
     initialize?(runtime: ModuleRuntime): Promise<void>;
+    onWorldContextChanged?(next: Readonly<ModuleWorldSnapshot>, change: { keys: readonly string[]; recovery: boolean; packs?: readonly string[] }): Promise<void>;
     /**
      * Optional courtesy teardown on a world state transition (return-to-setup / shutdown,
      * ADR-0027 decision 22) — for state-saving, not a per-operation resource contract.
@@ -401,6 +406,8 @@ export interface SystemAdapter {
     dispose?(runtime: ModuleRuntime): void | Promise<void>;
     /** Read-only system data the adapter produces for the /system/data route; sources from its runtime. */
     getSystemData?(options?: { minimal?: boolean }): Promise<unknown>;
+    /** Caller-safe replacement for publishing bootstrap caches to non-GMs. Never use privileged cached rows here. */
+    getSystemDataForUser?(context: Pick<import('./runtime').ModuleRequestRuntime, 'compendium' | 'access' | 'world'> & { documents: import('./runtime').ReadonlyDocumentStore }): Promise<unknown>;
     getCompendiumPackConfig?(): CompendiumPackConfig;
     /** Build a dashboard projection from the current prepared Actor revision. */
     getActorCardData?(actor: PreparedActorData): ActorCardData;

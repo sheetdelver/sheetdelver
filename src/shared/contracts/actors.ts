@@ -26,6 +26,8 @@ export interface ActorListPayload {
 export type ActorCardsPayload = Record<string, ActorCardData>;
 
 export interface ActorDetailPayload extends ActorDto {
+    referenceLabels?: Record<string, string>;
+    worldContextRevision?: number;
     foundryUrl?: string;
     systemId?: string;
     debugLevel?: number;

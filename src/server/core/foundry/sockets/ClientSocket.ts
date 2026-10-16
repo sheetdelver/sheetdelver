@@ -145,7 +145,7 @@ export class ClientSocket extends SocketBase {
     public async emitSocketEvent<T>(event: string, payload: any, timeoutMs: number = 5000): Promise<T> {
         if (!this.socket || !this.isConnected) throw new Error(`Not connected to Foundry`);
 
-        return new Promise((resolve, reject) => {
+        return this.guardOperation(() => new Promise<T>((resolve, reject) => {
             this.socket!.emit(event, payload, (response: any) => {
                 if (response?.error) {
                     reject(new Error(typeof response.error === 'string' ? response.error : JSON.stringify(response.error)));
@@ -154,7 +154,7 @@ export class ClientSocket extends SocketBase {
                 }
             });
             setTimeout(() => reject(new Error(`Timeout waiting for event: ${event}`)), timeoutMs);
-        });
+        }));
     }
 
     public async dispatchDocument(type: string, action: string, operation: any = {}, parent?: { type: string, id: string }): Promise<any> {

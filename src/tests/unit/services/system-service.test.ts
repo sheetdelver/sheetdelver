@@ -32,6 +32,7 @@ function createFakeController(state: { connectCalls: number; disposeCalls: numbe
 async function runInitializeWiringTest() {
     worldLifecycleStore.reset('system-service-test');
     worldStateStore.clear('system-service-test');
+    worldWorkGate.release('service-identity');
 
     const fakeTransport = createFakeTransport();
     const controllerState = { connectCalls: 0, disposeCalls: 0 };
@@ -126,6 +127,7 @@ async function runInitializeWiringTest() {
 
 export async function run() {
     await runInitializeWiringTest();
+    worldWorkGate.release('service-identity');
     console.log('  - SystemService: all checks passed');
 }
 
@@ -137,3 +139,4 @@ if (import.meta.url === `file://${process.argv[1]}`) {
             process.exit(1);
         });
 }
+import { worldWorkGate } from '@server/core/world/WorldWorkGate';

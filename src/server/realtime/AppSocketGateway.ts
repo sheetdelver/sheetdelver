@@ -1,4 +1,5 @@
 import type { Server, Socket } from 'socket.io';
+import { moduleWorldContext } from '@server/services/world/ModuleWorldContextService';
 import { systemService } from '@server/services/world';
 import { logger } from '@shared/utils/logger';
 import { engagementService } from '@server/services/world';
@@ -244,6 +245,13 @@ export function registerAppSocketGateway({
                 if (subject && isAssistantGM(subject)) emitWorldBackedEvent('combatManagerPreferencesChanged', null);
                 if (subject) emitWorldBackedEvent('combatTrackerPreferencesChanged', null);
             };
+            const handleWorldContextChanged = (change: { revision: number; keys: Array<{ key: string; exposure: string }> }) => {
+                const subject = userStore.createAccessSubject(getSessionUserId());
+                if (!subject) return;
+                const keys = change.keys.filter(row => row.exposure === 'authenticated' || row.exposure === 'gm' && subject.role >= 3).map(row => row.key);
+                emitWorldBackedEvent('worldContextChanged', { revision: change.revision, keys });
+            };
+            moduleWorldContext.on('changed', handleWorldContextChanged);
 
             // Store events are bridged through the system client, not per-user
             // sockets. Each Store emits from one canonical source; the gateway
@@ -286,6 +294,7 @@ export function registerAppSocketGateway({
                 systemClient.off('chatMessageChanged', handleChatMessageChanged);
                 systemClient.off('chatMessageListInvalidated', handleChatMessageListInvalidated);
                 systemClient.off('userChanged', handleUserChanged);
+                moduleWorldContext.off('changed', handleWorldContextChanged);
                 systemClient.off('userListInvalidated', handleUserListInvalidated);
                 systemClient.off('folderChanged', handleFolderChanged);
                 systemClient.off('folderListInvalidated', handleFolderListInvalidated);

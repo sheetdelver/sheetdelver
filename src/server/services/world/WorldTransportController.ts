@@ -11,6 +11,7 @@ import { worldStateStore } from '@server/core/world/WorldStateStore';
 import { logger } from '@shared/utils/logger';
 import { engagementService, type EngagementService } from './EngagementService';
 import { worldBootstrapper } from './WorldBootstrapper';
+import { serviceAccountAuthority } from '@server/core/world/ServiceAccountAuthority';
 
 export interface WorldTransportControllerDeps {
     transport: CoreSocket;
@@ -141,6 +142,13 @@ export class WorldTransportController {
         this.onTransport('foundry:worldDiscovered', (event) => this.handleWorldDiscovered(event as FoundryWorldDiscoveredEvent));
         this.onTransport('foundry:worldMissing', () => this.handleWorldMissing());
         this.onTransport('foundry:serviceAccountMissing', (event) => this.handleServiceAccountMissing(event as FoundryServiceAccountMissingEvent));
+        this.onTransport('foundry:serviceAccountRoleRejected', event => {
+            const fact = event as { username: string; userId: string; role: unknown };
+            serviceAccountAuthority.rejectDiscovery(fact.username, fact.userId, typeof fact.role === 'number' ? fact.role : null);
+            this.clearRetryTimer();
+            worldLifecycleStore.setState('closed', 'service-account-gm-required');
+            this.startHeartbeat();
+        });
         this.onTransport('foundry:worldInactive', () => this.handleWorldInactive());
         this.onTransport('foundry:worldActive', () => this.handleWorldActive());
         this.onTransport('foundry:transportDisconnected', (event) => this.handleTransportDisconnected(event as FoundryTransportDisconnectedEvent));
@@ -217,6 +225,7 @@ export class WorldTransportController {
     }
 
     private handleServiceAccountMissing(event: FoundryServiceAccountMissingEvent): void {
+        serviceAccountAuthority.rejectDiscovery(event.username, null, null);
         this.clearRetryTimer();
         worldLifecycleStore.setState('closed', 'service-account-missing');
         logger.error(`WorldTransportController | Service account "${event.username}" not found in world "${event.worldTitle || 'unknown'}". Available users: [${event.availableUsers.join(', ') || 'none'}].`);
@@ -242,6 +251,7 @@ export class WorldTransportController {
     }
 
     private handleTransportDisconnected(event: FoundryTransportDisconnectedEvent): void {
+        serviceAccountAuthority.retire();
         logger.debug('WorldTransportController | Socket transport disconnected.');
         this.stopHeartbeat();
         this.resetRetryBackoff();

@@ -3,6 +3,7 @@ import { ClientSocket } from '@server/core/foundry/sockets/ClientSocket';
 import type { FoundryConfig } from '@server/core/foundry/types';
 import { worldStateStore } from '@server/core/world/WorldStateStore';
 import { worldLifecycleStore } from '@server/core/world/WorldLifecycleStore';
+import { dispatchWorldWork } from '@server/core/world/WorldWorkGate';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
 import { FoundryUserRole } from '@server/core/documents/primary/base/ownership';
 import { logger } from '@shared/utils/logger';
@@ -100,6 +101,7 @@ export class FoundryUserConnectionService {
         }
 
         const client = new ClientSocket({ ...this.config, username, password });
+        client.setOperationGuard(dispatchWorldWork);
 
         try {
             const discoveryProbe = new FoundryUserDiscoveryProbe(this.config);
@@ -507,6 +509,7 @@ export class FoundryUserConnectionService {
                 ...this.config,
                 username: foundryUsername,
             });
+            client.setOperationGuard(dispatchWorldWork);
 
             // Reconcile after registration if a role update overlaps transport
             // restoration and therefore could not target this connection yet.

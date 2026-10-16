@@ -13,6 +13,7 @@ import type {
     CompendiumPackReader,
 } from '@shared/sdk/runtime';
 import { requireModuleId } from '@shared/security/moduleId';
+import { moduleWorldContext } from '@server/services/world/ModuleWorldContextService';
 
 /**
  * Sub-namespace under the module's cache dir for DataStore-owned data, kept separate
@@ -187,6 +188,7 @@ export async function createModuleRuntime(moduleId: string): Promise<ModuleRunti
 
     return {
         moduleId: canonicalId,
+        world: moduleWorldContext.handle(),
         logger: createModuleLogger(moduleId),
         foundryUrl,
         dataStore,

@@ -322,6 +322,8 @@ export abstract class PrimaryDocumentStore<TDocument extends DocumentLike> exten
     protected ready = false;
     protected staleDocumentIds = new Set<string>();
     private mutationRevision = 0;
+    /** Core snapshot fences; not a document capability or SDK revision. */
+    public getMutationRevision(): number { return this.mutationRevision; }
     private audienceSubjectsProvider: () => DocumentAccessSubject[] = () => [];
 
     /**
@@ -366,6 +368,8 @@ export abstract class PrimaryDocumentStore<TDocument extends DocumentLike> exten
     protected audienceForDocumentId(documentId: string): DocumentAudience {
         return this.audienceForDocument(this.documents.get(documentId));
     }
+    /** Core derived Stores reuse this document's existing visibility policy. */
+    public getDocumentAudience(documentId: string): DocumentAudience { return this.audienceForDocumentId(documentId); }
 
     /**
      * Subclass hook for embedded-document mutations. Called when

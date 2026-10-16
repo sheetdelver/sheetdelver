@@ -14,6 +14,10 @@ export const FOUNDRY_STATUS_TIMEOUT_MS = 10_000;
 export const FOUNDRY_LOGIN_TIMEOUT_MS = 10_000;
 
 export abstract class SocketBase extends EventEmitter {
+    private operationGuard: <T>(send: () => Promise<T>) => Promise<T> = send => send();
+    /** Services inject admission/fencing; transports retain no application policy imports. */
+    public setOperationGuard(guard: <T>(send: () => Promise<T>) => Promise<T>): void { this.operationGuard = guard; }
+    protected guardOperation<T>(send: () => Promise<T>): Promise<T> { return this.operationGuard(send); }
     protected socket: Socket | null = null;
     protected cookieMap = new Map<string, string>();
     protected sessionCookie: string | null = null;

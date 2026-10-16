@@ -19,6 +19,7 @@ import { registerAdminAuthRoutes } from './registerAdminAuthRoutes';
 import { registerAdminStatusRoutes } from './registerAdminStatusRoutes';
 import { registerAdminWorldRoutes } from './registerAdminWorldRoutes';
 import { registerAdminModuleRoutes } from './registerAdminModuleRoutes';
+import { registerAdminUpgradeRoutes } from './registerAdminUpgradeRoutes';
 import { adminSessionManager } from '@server/security/adminSessionService';
 import { worldBootstrapper } from '@server/services/world';
 import { requestFullStackRestart } from '@shared/runtime/fullStackRestart';
@@ -97,6 +98,7 @@ export function createAdminRouter(deps: AdminRouterDeps) {
         requireAdminAccountExists,
     });
 
+    registerAdminUpgradeRoutes(adminRouter, requireAdminAccountExists, requestServerRestart);
     registerAdminModuleRoutes({
         adminRouter,
         requireAdminAccountExists,

@@ -127,7 +127,7 @@ function markActiveSourceBlocked(record: ModuleLifecycleRecord, block: SourceBlo
  * Only valid when both localDirectory and a managed directory exist.
  * Evicts the adapter cache and re-runs the registry scan so the new source takes effect immediately.
  */
-export function switchModuleSource(moduleId: string, source: ModuleSourceCategory): { success: boolean; error?: string } {
+export function switchModuleSource(moduleId: string, source: ModuleSourceCategory, validateApprovedMigration?: () => void): { success: boolean; error?: string } {
     if (!isInitialized()) initializeRegistry();
     const id = parseModuleId(moduleId);
     if (!id) return { success: false, error: 'Invalid module ID' };
@@ -151,6 +151,14 @@ export function switchModuleSource(moduleId: string, source: ModuleSourceCategor
     }
 
     const moduleWasEnabled = record.enabled;
+    const directory = source === ModuleSourceCategory.Local ? record.localDirectory : path.join(getModulesDataDir(), id);
+    if (directory) {
+        const info = JSON.parse(fs.readFileSync(path.join(directory, 'info.json'), 'utf8'));
+        if (discoverMigrations(directory, info, source === ModuleSourceCategory.Local)) {
+            if (!validateApprovedMigration) return { success: false, error: 'Migration-bearing source selection requires an admin world dry-run and exact approval' };
+            validateApprovedMigration();
+        }
+    }
 
     if (source === ModuleSourceCategory.Local) {
         const localDirectory = record.localDirectory;
@@ -301,3 +309,4 @@ export function getModuleActiveSources(): Record<string, ModuleSourceCategory> {
     }
     return result;
 }
+import { discoverMigrations } from '../migrations/catalog';

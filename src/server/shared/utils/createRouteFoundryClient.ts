@@ -33,6 +33,8 @@ import { worldStateStore } from '@server/core/world/WorldStateStore';
 import { CompendiumService, type CompendiumTransport } from '@server/services/compendium';
 import { DocumentResolver } from '@server/services/documents';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
+import { canReadNativePack } from '@server/core/documents/primary/base/nativePackPermissions';
+import { parseDocumentUuid } from '@server/services/documents/DocumentResolver';
 import { resolveFoundryUrl } from '@server/shared/utils/foundryUrl';
 
 function createCompendiumTransport(
@@ -155,14 +157,14 @@ function createBaseRouteFoundryClient(
     const getActors = async () => {
         ensureActorStoreReady();
         const subject = getSubject();
-        if (!subject) return actorStore.list();
+        if (!subject) return options.useSystemCompendiumTransport ? [] : actorStore.list();
         return actorStore.listActors({ subject, minOwnership: DOCUMENT_VISIBILITY.LIST_VISIBLE });
     };
 
     const getActor = async (actorId: string) => {
         ensureActorStoreReady();
         const subject = getSubject();
-        if (!subject) return actorStore.get(actorId);
+        if (!subject) return options.useSystemCompendiumTransport ? null : actorStore.get(actorId);
         return actorStore.getActor(actorId, { subject, minOwnership: DOCUMENT_VISIBILITY.DETAIL_VISIBLE });
     };
 
@@ -171,7 +173,7 @@ function createBaseRouteFoundryClient(
         // this separate prevents detail/roll callers from receiving the full Actor.
         ensureActorStoreReady();
         const subject = getSubject();
-        if (!subject) return actorStore.get(actorId);
+        if (!subject) return options.useSystemCompendiumTransport ? null : actorStore.get(actorId);
         return actorStore.getActor(actorId, { subject, minOwnership: DOCUMENT_VISIBILITY.CARD_VISIBLE });
     };
 
@@ -376,7 +378,15 @@ function createBaseRouteFoundryClient(
         deleteActorItem: (actorId: string, itemId: string) => actorRepository.deleteActorItem(actorId, itemId),
         resolveUrl: (url?: string) => resolveFoundryUrl(url || '', client.url),
         createChatMessage: (data: Record<string, unknown>) => chatMessageRepository.send(data),
-        fetchByUuid: (uuid: string) => getDocumentResolver().fetchByUuid(uuid),
+        fetchByUuid: async (uuid: string) => {
+            const parsed = parseDocumentUuid(uuid);
+            if (options.useSystemCompendiumTransport && parsed?.kind === 'compendium'
+                && (!client.userId || !canReadNativePack(client.userId, parsed.packId))) throw new Error('Pack read denied');
+            const result = await getDocumentResolver().fetchByUuid(uuid);
+            if (options.useSystemCompendiumTransport && parsed?.kind === 'compendium'
+                && (!client.userId || !canReadNativePack(client.userId, parsed.packId))) throw new Error('Pack access changed');
+            return result;
+        },
     };
 }
 

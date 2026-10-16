@@ -1,4 +1,5 @@
 import { createChatCardMessage } from '@shared/sdk/chatCard';
+import { canReadNativePack } from '@server/core/documents/primary/base/nativePackPermissions';
 /**
  * Server-side backing for `ModuleRuntime.documents` (ADR-0027 decisions 5/6).
  *
@@ -44,6 +45,7 @@ import { playlistStore } from '@server/core/documents/primary/playlists/Playlist
 import { cardsStore } from '@server/core/documents/primary/cards/CardsStore';
 import { folderStore } from '@server/core/documents/primary/folders/FolderStore';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
+import { compendiumStore } from '@server/core/compendium/CompendiumStore';
 import { chatMessageStore } from '@server/core/documents/primary/chat-messages/ChatMessageStore';
 
 /** Minimal shape every primary store exposes for read access (subject-scoped). */
@@ -273,6 +275,7 @@ export function createDocumentStore(
 
     const subjectFor = (opts?: DocumentOpOptions): DocumentAccessSubject | undefined => {
         const userId = opts?.access?.userId ?? c.userId;
+        if (userId !== c.userId && userStore.getRole(c.userId) !== 4) return undefined;
         // A retired/deleted caller is not a role-NONE reader of public documents.
         if (!userId || !userStore.get(userId)) return undefined;
         return userStore.createAccessSubject(userId) ?? undefined;
@@ -368,8 +371,13 @@ export function createDocumentStore(
 
         // Compendium UUIDs are read-only and resolver-backed; still require a caller
         // context on route runtime so reads fail closed when no subject can resolve.
-        await requireSubject(opts);
-        return c.fetchByUuid(parsed.raw) as Promise<Record<string, unknown> | null>;
+        const subject = await requireSubject(opts);
+        if (!canReadNativePack(subject.userId, parsed.packId)) throw new SdkError('permission_denied', 'Pack read denied');
+        const result = await c.fetchByUuid(parsed.raw) as Record<string, unknown> | null;
+        await ensureReady();
+        const current = subjectFor(opts);
+        if (!current || !canReadNativePack(current.userId, parsed.packId)) throw new SdkError('permission_denied', 'Pack access changed');
+        return result;
     };
 
     return {
@@ -553,12 +561,37 @@ export function createModuleRequestRuntime(
     client: RouteFoundryClient,
     ensureReady: () => Promise<void> = awaitWorldReady,
 ): ModuleRequestRuntime {
-    const documents = createDocumentStore(client, ensureReady);
+    const revision = base.world?.snapshot().identity.contextRevision;
+    const ensureScope = async () => { await ensureReady(); if (revision !== undefined) base.world?.assertRevision(revision); };
+    const documents = createDocumentStore(client, ensureScope);
+    const allowed = (packId: string) => Boolean(client.userId && canReadNativePack(client.userId, packId));
+    const filter = async (rows: Record<string, unknown>[]) => {
+        await ensureScope();
+        return rows.filter(row => {
+            const parsed = typeof row.uuid === 'string' ? parseDocumentUuid(row.uuid) : null;
+            return parsed?.kind === 'compendium' && allowed(parsed.packId);
+        });
+    };
     return {
         ...base,
+        access: {
+            canReadPack: allowed,
+            packs: () => compendiumStore.listPackMetadata().filter(pack => allowed(String(pack.id))).map(pack => ({
+                id: String(pack.id), label: String(pack.label ?? pack.id), type: String(pack.type ?? pack.documentName ?? '') })),
+        },
+        compendium: {
+            findAll: async (type, query) => filter(await base.compendium.findAll(type, query)),
+            findOne: async (type, query) => (await filter(await base.compendium.findAll(type, query)))[0] ?? null,
+            getById: async (type, id) => {
+                const parsed = parseDocumentUuid(id);
+                if (parsed?.kind === 'compendium' && !allowed(parsed.packId)) throw new SdkError('permission_denied', 'Pack read denied');
+                const result = await base.compendium.getById(type, id);
+                return result ? (await filter([result]))[0] ?? null : null;
+            },
+        },
         documents,
-        rolls: createRollRuntime(client, ensureReady),
-        tables: createTableRuntime(documents, ensureReady),
-        chat: createChatRuntime(client, ensureReady),
+        rolls: createRollRuntime(client, ensureScope),
+        tables: createTableRuntime(documents, ensureScope),
+        chat: createChatRuntime(client, ensureScope),
     };
 }

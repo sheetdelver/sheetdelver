@@ -29,6 +29,7 @@ import { parseModuleId } from '@shared/security/moduleId';
 import { DEFAULT_MODULE_ARCHIVE_LIMITS } from '@modules/registry/distribution/archiveTransaction';
 import { isDistributionHostAllowed } from '@modules/registry/distribution/publicDistributionClient';
 import { getConfig } from '@server/core/config';
+import { worldWorkGate } from '@server/core/world/WorldWorkGate';
 
 export interface RegisterAdminModuleRoutesOptions {
     adminRouter: express.Router;
@@ -38,13 +39,22 @@ export interface RegisterAdminModuleRoutesOptions {
 
 export function registerAdminModuleRoutes(opts: RegisterAdminModuleRoutesOptions): void {
     const { adminRouter, requireAdminAccountExists } = opts;
+    // A different admin tab cannot mutate package/source state underneath the
+    // approved installation transaction. Recovery/status use /module-upgrades.
+    adminRouter.use('/modules', (req, res, next) => {
+        if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && worldWorkGate.hasBlock('module-upgrade')) return res.status(409).json({ error: 'An approved module upgrade owns installation state; use its recovery controls' });
+        next();
+    });
     function respondWithRuntimeRestart(
         res: express.Response,
         payload: object,
         moduleId: string,
         operation: string,
     ): void {
-        res.json({ ...payload, restartScheduled: true });
+        if ('restartRequired' in payload && payload.restartRequired === false) {
+            res.status(202).json({ ...payload, restartScheduled: false }); return;
+        }
+        res.status('accepted' in payload && payload.accepted ? 202 : 200).json({ ...payload, restartScheduled: true });
         opts.requestServerRestart(`module-${operation}:${moduleId}`, { moduleId, operation });
     }
 
@@ -416,6 +426,10 @@ export function registerAdminModuleRoutes(opts: RegisterAdminModuleRoutesOptions
                         sourceTrustTier: readArchiveTrustTier(req),
                         approveTrustOverride: readBooleanQuery(req, 'approveTrustOverride'),
                         approvePermissionEscalation: readBooleanQuery(req, 'approvePermissionEscalation'),
+                        planId: typeof req.query.planId === 'string' ? req.query.planId : undefined,
+                        idempotencyKey: typeof req.query.idempotencyKey === 'string' ? req.query.idempotencyKey : undefined,
+                        backupAcknowledged: readBooleanQuery(req, 'backupAcknowledged'),
+                        administrator: req.adminSession?.adminId,
                     };
                     const { applyLocalModuleArchive, dryRunLocalModuleArchive } = await import('@modules/registry/server');
 
@@ -513,6 +527,10 @@ export function registerAdminModuleRoutes(opts: RegisterAdminModuleRoutesOptions
                         approveTrustOverride: readBooleanBody(req, 'approveTrustOverride'),
                         approvePermissionEscalation: readBooleanBody(req, 'approvePermissionEscalation'),
                         approveDowngrade: readBooleanBody(req, 'approveDowngrade'),
+                        planId: typeof req.body?.planId === 'string' ? req.body.planId : undefined,
+                        idempotencyKey: typeof req.body?.idempotencyKey === 'string' ? req.body.idempotencyKey : undefined,
+                        backupAcknowledged: req.body?.backupAcknowledged === true,
+                        administrator: req.adminSession?.adminId,
                     };
 
                     if (dryRun) {
