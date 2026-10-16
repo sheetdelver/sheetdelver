@@ -72,14 +72,14 @@ During startup, `isAuthenticated: false` on this status response is not proof
 that a persisted player session was revoked. Player session authority is
 checked through the protected session read below.
 
-**Planned prerequisite (ADR-0064):** Core's configured Foundry service account must
-be full Gamemaster for every world connection. The pending connection/reconnect/
-demotion gate will hold readiness and world-backed routes unavailable when that
-role cannot be verified. The admin status/recovery projection will explain the
+**Unreleased prerequisite (ADR-0064):** Core's configured Foundry service account must
+be full Gamemaster for every world connection. The connection/reconnect/
+demotion gate holds readiness and world-backed routes unavailable when that
+role cannot be verified. The admin status/recovery projection explains the
 required role and correction in Foundry; public/player status must omit the account
 identity and role error detail. This does not change ordinary Assistant/player
 request permissions. See [configuration recovery](CONFIGURATION.md#service-account-role-and-recovery).
-Core 0.18.1 does not yet implement this gate or a new role-error payload.
+Published Core 0.18.1 does not implement this gate.
 
 ```json
 {
@@ -1188,12 +1188,40 @@ is introduced by ADR-0040. ADR-0043 exposes client-only add/update/remove method
 through `useSDK()` in SDK 1.4.0 / `ui-extension-api` 1.2.0; no REST endpoint or
 server contract changes. See [Notifications and Chat](NOTIFICATIONS.md).
 
-## Proposed module world-context and maintenance APIs
+## Module world-context and maintenance APIs (unreleased)
 
-[Core ADR-0064](adr/0064-module-world-context-and-data-migrations.md) describes
-future authorized context projections and an **admin-owned upgrade job**. No new
-endpoint or SDK method exists from this proposal yet. Existing request writes
-remain caller-bound; modules receive no privileged migration execution API.
+[Core ADR-0064](adr/0064-module-world-context-and-data-migrations.md) implements
+authorized context projections and an **admin-owned upgrade job**. See
+[the complete contract](MODULE_MIGRATIONS.md). Existing request writes remain
+caller-bound; modules receive no privileged migration execution API.
+
+| Surface | Contract |
+| --- | --- |
+| `GET /api/module-world-context` | Authenticated, initialized, role-filtered immutable context; no raw Settings. |
+| `GET /admin/api/world/service-account` | Admin-only observed/required role and remediation. |
+| `GET /admin/api/module-upgrades[/:id]` | Owner-only durable job/target outcomes and compatibility diagnostics; no-store. |
+| `POST /admin/api/module-upgrades/source/:moduleId/preview` | `{source: "local" or "managed"}`; read-only world plan. |
+| `POST /admin/api/module-upgrades/source/apply` | Exact `planId`, `backupAcknowledged`; current admin principal; 202 accepted. |
+| `POST /admin/api/module-upgrades/:id/resume` | Readback/reconcile the persisted approval, not a fresh repair authorization. |
+| `POST /admin/api/module-upgrades/:id/cancel` | Pre-write package recovery or post-write scheduling stop, never world undo. |
+| `POST /admin/api/module-upgrades/:id/review` | Fresh expiring preview for a stopped job with changed/restored source. |
+| `POST /admin/api/module-upgrades/:id/reapprove` | Exact revised `planId`, `backupAcknowledged`; retains prior approvals/outcomes. |
+| `POST /admin/api/module-upgrades/:id/cleanup` | Completed jobs only; confined retained staging/package cleanup, not world data. |
+
+All mutations retain existing network/origin/admin-auth/CSRF/audit controls.
+Archive/catalog dry-run results include `migration`; apply carries `planId`,
+`idempotencyKey` and `backupAcknowledged`. Uploaded archives carry these in query
+parameters (the request body remains archive bytes). Conflicts/stale approval return
+409; world maintenance/readiness returns 503. Backup acknowledgement is mandatory.
+`X-SheetDelver-Context-Revision` rejects stale rule-dependent dialogs; after an
+upgrade `X-SheetDelver-Runtime` is required for mutation by the current client build.
+Public `maintenance` contains phase/message only; `runtimeToken` is non-secret.
+
+`GET /api/system/data` uses `getSystemDataForUser` and a caller-bound read runtime
+for non-GMs. Opaque legacy bootstrap caches are full-GM-only, never inferred safe
+from cache presence. Legacy `/api/system/scenes` inspection is also full-GM-only;
+this does not introduce a player Scene/canvas SDK. Actor detail preserves source
+UUID strings and returns a separate authorized `referenceLabels` map.
 
 Extend the existing admin preview/apply flow to report package checks separately
 from world migration checks. A required stopped/wrong/unavailable world blocks
@@ -1202,7 +1230,7 @@ preview. Apply must bind an expiring plan ID to the exact artifact/world/revisio
 use an idempotency key and return an accepted job identity, not premature upgrade
 completion. Add authenticated job status and scoped resume/cancel/recovery actions
 under existing network/origin/admin-session/CSRF policy. Endpoint names/payloads
-are finalized at ADR G0, not introduced by this documentation.
+are listed above.
 
 World-backed HTTP and realtime paths need a consistent maintenance response/gate,
 including delayed dispatch and stale clients; ordinary status and admin recovery

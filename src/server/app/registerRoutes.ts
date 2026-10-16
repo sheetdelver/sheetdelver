@@ -24,6 +24,8 @@ import { readRequestSessionCredential } from '@server/security/playerSessionCook
 import { logger } from '@shared/utils/logger';
 import { SystemStatusPayload } from '@/shared/contracts/status';
 import { projectPublicStatus } from '@server/services/status/StatusService';
+import { moduleWorldContext } from '@server/services/world/ModuleWorldContextService';
+import { userStore } from '@server/core/documents/primary/users/UserStore';
 import type { FoundryUserConnectionServiceLike } from '@server/shared/types/foundry';
 
 type GetSystemStatusPayload = () => Promise<SystemStatusPayload>;
@@ -115,6 +117,12 @@ export function registerRoutes(deps: RegisterRoutesDeps): void {
     const { normalizeActors } = actorNormalizationService;
 
     appRouter.use(authenticateSession);
+    appRouter.get('/module-world-context', (req, res) => {
+        const session = (req as express.Request & { userSession?: { userId?: string } }).userSession;
+        if (!session?.userId || !userStore.get(session.userId)) return res.status(401).json({ error: 'Session retired' });
+        res.setHeader('Cache-Control', 'no-store');
+        return res.json(moduleWorldContext.project(userStore.getRole(session.userId)));
+    });
 
     registerSystemRoutes(appRouter, {
         getSystemClient: () => systemService.getSystemClient(),

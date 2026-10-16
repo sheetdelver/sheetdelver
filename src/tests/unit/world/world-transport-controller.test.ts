@@ -378,6 +378,7 @@ export async function run() {
     await runHeartbeatLifetimeTests();
     await runProgressReconnectTests();
     await runClosedWorldMonitoringTests();
+    worldWorkGate.release('service-identity');
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
@@ -388,3 +389,4 @@ if (import.meta.url === `file://${process.argv[1]}`) {
             process.exit(1);
         });
 }
+import { worldWorkGate } from '@server/core/world/WorldWorkGate';

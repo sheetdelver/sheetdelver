@@ -19,6 +19,8 @@ import {
     getActorOperationOwnership,
 } from '@server/core/documents/primary/base/ownership';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
+import { canReadNativePack } from '@server/core/documents/primary/base/nativePackPermissions';
+import { parseDocumentUuid } from '@server/services/documents/DocumentResolver';
 
 import {
     preparedActorStore,
@@ -238,30 +240,35 @@ export function createActorService(deps: ActorServiceDeps) {
         // pack rows held in CompendiumStore. UUIDs whose pack is undeclared,
         // not pre-filed, or not yet hydrated stay unresolved (no live
         // fallback to Foundry).
-        const resolveUUIDs = (obj: unknown): unknown => {
+        const referenceLabels: Record<string, string> = {};
+        const collectLabels = (obj: unknown): void => {
             if (typeof obj === 'string') {
                 if (obj.startsWith('Compendium.')) {
+                    const parsed = parseDocumentUuid(obj);
                     const lookup = compendiumStore.findIndexEntry(obj);
-                    return lookup?.entry.name || obj;
+                    if (parsed?.kind === 'compendium' && client.userId
+                        && canReadNativePack(client.userId, parsed.packId) && typeof lookup?.entry.name === 'string') {
+                        referenceLabels[obj] = lookup.entry.name;
+                    }
                 }
-                return obj;
+                return;
             }
-            if (Array.isArray(obj)) return obj.map(item => resolveUUIDs(item));
+            if (Array.isArray(obj)) { obj.forEach(collectLabels); return; }
             if (isRecord(obj)) {
-                const newObj: Record<string, unknown> = {};
-                for (const key of Object.keys(obj)) newObj[key] = resolveUUIDs(obj[key]);
-                return newObj;
+                Object.values(obj).forEach(collectLabels);
             }
-            return obj;
         };
-
-        const resolvedActor = resolveUUIDs(preparedActor) as ActorProjection;
+        let resolvedActor = { ...preparedActor, referenceLabels } as ActorProjection;
 
         const systemInfo = await client.getSystem();
         const adapter = await getAdapter(systemInfo.id.toLowerCase())
             ?? await getMatchingAdapter(resolvedActor as ActorDocument);
 
         if (!adapter) throw new Error(`Adapter for ${systemInfo.id} not found`);
+        const currentActor = await client.getActor(actorId);
+        if (!currentActor || currentActor.error) return { error: 'Actor access changed', status: 403 };
+        resolvedActor = { ...getPreparedActor(actorId), referenceLabels } as ActorProjection;
+        collectLabels(resolvedActor);
 
         if (resolvedActor.img) {
             resolvedActor.img = client.resolveUrl(resolvedActor.img);
@@ -272,6 +279,7 @@ export function createActorService(deps: ActorServiceDeps) {
 
         return {
             ...resolvedActor,
+            worldContextRevision: preparedActorStore.getEntry(actorId)?.contextRevision,
             foundryUrl: client.url,
             systemId: adapter.systemId,
             // The Foundry system ID is always the real game system regardless of

@@ -331,6 +331,7 @@ function CatalogOperationPanel({
     const [trustApproved, setTrustApproved] = useState(false);
     const [permissionsApproved, setPermissionsApproved] = useState(false);
     const [downgradeApproved, setDowngradeApproved] = useState(false);
+    const [acknowledgedPlan, setAcknowledgedPlan] = useState<string | null>(null);
     const [previewApprovals, setPreviewApprovals] = useState<{ trust: boolean; permissions: boolean } | null>(null);
     const [error, setError] = useState<string | null>(null);
 
@@ -412,6 +413,7 @@ function CatalogOperationPanel({
 
     const apply = async () => {
         if (!preview?.wouldProceed) return;
+        if (preview.migration && acknowledgedPlan !== preview.migration.id) return;
         setApplying(true);
         setError(null);
         const result = await postCatalogOperation(sourceId, row.moduleId, operation, {
@@ -419,6 +421,9 @@ function CatalogOperationPanel({
             approvePermissionEscalation: permissionsApproved,
             approveDowngrade: downgradeApproved,
             version: selectedVersion,
+            planId: preview.migration?.id,
+            idempotencyKey: preview.migration?.id,
+            backupAcknowledged: Boolean(preview.migration && acknowledgedPlan === preview.migration.id),
         });
         if (result.sessionExpired) {
             onSessionExpired();
@@ -571,14 +576,23 @@ function CatalogOperationPanel({
                 {currentRelease && (
                     <p className="w-full text-sm text-[var(--admin-text-muted)]">The current release is already installed.</p>
                 )}
-                <Button onClick={() => void runPreview()} disabled={releaseLoading || !release || previewLoading || currentRelease}>
+                {preview?.migration && (
+                    <div className="w-full rounded-md border border-[var(--admin-warning-border)] bg-[var(--admin-warning-bg)] p-3 text-sm">
+                        <p>SheetDelver cannot back up or restore your Foundry world. Migration changes cannot be undone from SheetDelver and may be only partly applied if interrupted. Back up the world using Foundry’s backup tools before continuing. Recovery may require restoring that backup and losing later changes.</p>
+                        <label className="mt-3 flex items-start gap-2"><input type="checkbox" checked={acknowledgedPlan === preview.migration.id}
+                            onChange={event => setAcknowledgedPlan(event.target.checked ? preview.migration!.id : null)} />
+                            I acknowledge these backup and recovery limits for this exact plan.</label>
+                    </div>
+                )}
+                <Button onClick={() => void runPreview()} disabled={releaseLoading || !release || previewLoading}>
                     <ShieldCheck className="mr-2 h-4 w-4" />
                     {previewLoading ? 'Checking...' : preview && !previewIsCurrent ? 'Re-run checks' : 'Run dry-run'}
                 </Button>
                 <Button
                     variant="primary"
                     onClick={() => void apply()}
-                    disabled={!preview?.wouldProceed || !previewIsCurrent || applying || currentRelease || (isDowngrade && !downgradeApproved)}
+                    disabled={!preview?.wouldProceed || !previewIsCurrent || applying || (currentRelease && !preview?.migration)
+                        || Boolean(preview?.migration && acknowledgedPlan !== preview.migration.id) || (isDowngrade && !downgradeApproved)}
                 >
                     <Download className="mr-2 h-4 w-4" />
                     {applying ? 'Applying...' : actionLabel}
@@ -592,6 +606,18 @@ function CatalogDryRunPreview({ preview }: { preview: CatalogDryRunResult }) {
     const governance = preview.governance;
     return (
         <div className="space-y-3">
+            {preview.migration && (
+                <DetailSection title="World migration checks">
+                    <p className="text-sm">World: {preview.migration.plan.world.identity.worldId}; native system {preview.migration.plan.world.identity.systemVersion}.</p>
+                    <p className="text-sm">Checked {preview.migration.plan.checked} targets; proposed {preview.migration.plan.operations.length} updates. SheetDelver downtime is required.</p>
+                    <p className="break-all text-xs">Artifact: {preview.migration.artifactDigest}</p>
+                    <p className="text-xs">Checks passed only at this revision. Apply revalidates the exact plan; external Foundry clients are not locked out.</p>
+                    {preview.migration.plan.exclusions.map((text, index) => <p key={index} className="text-xs">Excluded/advisory: {text}</p>)}
+                    <details className="mt-2 text-xs"><summary>Proposed source paths</summary>
+                        {preview.migration.plan.operations.map((operation, index) => <p key={index} className="break-all">{operation.stepId}: {operation.uuid}: {Object.keys(operation.updates).join(', ')}</p>)}
+                    </details>
+                </DetailSection>
+            )}
             <div className={`rounded-md border p-3 text-sm font-semibold ${preview.wouldProceed
                 ? 'border-[var(--admin-success-border)] bg-[var(--admin-success-bg)] text-[var(--admin-success)]'
                 : 'border-[var(--admin-danger-border)] bg-[var(--admin-danger-bg)] text-[var(--admin-danger-text)]'}`}

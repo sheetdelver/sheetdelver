@@ -2,6 +2,7 @@ import { parseModuleId } from '@shared/security/moduleId';
 import type { SystemModuleInfo } from '../core/types';
 import { validateModuleInfoShape } from '../lifecycle/validation';
 import { isValidModuleReleaseVersion } from './releaseManifest';
+import type { MigrationSummary } from '../migrations/catalog';
 
 export const MODULE_RELEASE_HISTORY_SCHEMA_VERSION = 'sheet-delver-release-history.v1';
 export const MAX_MODULE_RELEASE_HISTORY_ENTRIES = 100;
@@ -10,6 +11,7 @@ export interface ModuleReleaseHistoryEntry {
     version: string;
     manifest: string;
     compatibility?: SystemModuleInfo['compatibility'];
+    migrations?: MigrationSummary;
 }
 
 export interface ModuleReleaseHistoryDocument {
@@ -96,6 +98,9 @@ export function validateModuleReleaseHistory(
                 errors.push(`Release history field "releases.${index}.compatibility": ${error}`);
             }
         }
+        if (release.migrations !== undefined && (release.migrations.schemaVersion !== 'sheet-delver-migrations.v1'
+            || !/^sha256:[a-f0-9]{64}$/.test(release.migrations.catalogDigest)
+            || !Number.isSafeInteger(release.migrations.steps) || release.migrations.steps < 0)) errors.push(`Invalid derived migration summary at releases.${index}`);
     });
 
     return { valid: errors.length === 0, errors };

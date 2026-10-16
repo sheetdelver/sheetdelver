@@ -98,6 +98,7 @@ export interface ModuleLifecycleResponse {
 
 /** Admin status response (superset of public status) */
 export interface AdminStatusResponse {
+    maintenance?: { phase: string; message: string } | null;
     connected: boolean;
     initialized: boolean;
     isConfigured: boolean;
@@ -314,6 +315,14 @@ export interface CatalogReleaseResponse {
 }
 
 export interface CatalogDryRunResult {
+    migration?: {
+        id: string;
+        expiresAt: number;
+        artifactDigest: string;
+        candidateVersion: string;
+        plan: { checked: number; operations: Array<{ stepId: string; uuid: string; updates: Record<string, unknown> }>;
+            exclusions: string[]; world: { identity: { worldId: string; systemVersion: string } } };
+    };
     success: true;
     operation: 'dry-run-install' | 'dry-run-upgrade';
     wouldProceed: boolean;

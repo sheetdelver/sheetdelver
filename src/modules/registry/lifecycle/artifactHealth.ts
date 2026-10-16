@@ -4,6 +4,7 @@ import path from 'node:path';
 import type { SystemModuleInfo } from '../core/types';
 import type { ModuleArtifactHealthDiagnostic } from './lifecycle';
 import { resolveConfinedModuleEntry } from '@server/security/modulePath';
+import { discoverMigrations } from '../migrations/catalog';
 
 /**
  * Result of the installed-artifact audit. `hasErrors` is the only blocking bit;
@@ -230,6 +231,8 @@ export function validatePackagedModuleArtifact(
     info: SystemModuleInfo,
 ): ModuleArtifactHealthResult {
     const diagnostics: ModuleArtifactHealthDiagnostic[] = [];
+    try { discoverMigrations(modulePath, info); }
+    catch (error) { add(diagnostics, 'error', 'artifact.migration.invalid', error instanceof Error ? error.message : 'Invalid migration catalog'); }
 
     // Missing required entries are the primary "totally breaking" packaged state.
     const logicPath = checkRequiredEntry(diagnostics, modulePath, 'logic', info.manifest.logic);

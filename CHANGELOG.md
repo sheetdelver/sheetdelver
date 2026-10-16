@@ -1,4 +1,13 @@
 # Releases
+
+## Unreleased
+
+- Required full-GM service identity
+- Added versioned world context
+- Added reviewed module maintenance
+- Fenced upgrades and recovery
+- Preserved canonical Actor references
+
 ## 0.18.1
 - Recovered pre-bumped release tagging
 - Coordinated sheet navigation clearance

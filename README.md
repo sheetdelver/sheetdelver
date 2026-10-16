@@ -97,8 +97,8 @@ environment override, default, and required/optional distinction.
 
 Configure a dedicated Foundry service account with the **Gamemaster** role in
 every world SheetDelver serves. Assistant Gamemaster does not satisfy Core's
-service-account requirement. The connection/reconnect role gate and admin error
-are planned under ADR-0064, not implemented in Core 0.18.1; see
+service-account requirement. The unreleased ADR-0064 implementation adds the
+connection/reconnect role gate and admin diagnostic (not shipped in 0.18.1); see
 [service-account role and recovery](docs/CONFIGURATION.md#service-account-role-and-recovery)
 for the required setup and enforcement status.
 

@@ -13,6 +13,7 @@ import { adminFetch } from '../lib/adminApi';
 import type { ModuleLifecycleInfo } from '../lib/adminApi';
 import ManagerActionBar from './ManagerActionBar';
 import ModuleUpdatePolicyControl from './ModuleUpdatePolicyControl';
+import SourceMigrationReview from './SourceMigrationReview';
 
 interface ModuleDetailPanelProps {
     entry: {
@@ -65,6 +66,8 @@ export default function ModuleDetailPanel({ entry, onOperationComplete, onSessio
 
     return (
         <div className="mt-3 space-y-4 border-t border-[var(--admin-border)] pt-4">
+            <SourceMigrationReview key={`${module.moduleId}:${cardSource ?? module.activeSource}`} moduleId={module.moduleId}
+                source={cardSource ?? module.activeSource ?? 'managed'} onSessionExpired={onSessionExpired} />
 
             {/* ── Local Dev card detail ──────────────────────────────────── */}
             {isLocalCard && (

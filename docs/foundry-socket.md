@@ -222,8 +222,8 @@ While the current socket implementation is functional, there are several areas o
 
 1.  **Service-account scope**: The configured account must exist as a full
     **Gamemaster** in each active world. Assistant is insufficient for Core's
-    service-account policy; the connection-wide enforcement above is pending
-    ADR-0064 implementation. Its authority is never borrowed for a player's failed
+    service-account policy; ADR-0064's connection-wide enforcement is implemented
+    but unreleased. Its authority is never borrowed for a player's failed
     request. Native document validation still applies to platform operations.
 2.  **Newer Foundry generations**: Generation 15 and later are allowed under a
     warning so operators can diagnose shape drift, but they are not currently

@@ -15,6 +15,7 @@ import { worldLifecycleStore } from '@server/core/world/WorldLifecycleStore';
 import type { WorldLifecycleTransition } from '@server/core/world/WorldLifecycleStore';
 import { configureServerFileLogging } from '@server/observability/ServerFileLogger';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
+import { restoreUpgradeMaintenance } from '@server/services/world/migrations/ModuleUpgradeService';
 import {
     createFoundrySessionStoreFromEnvironment,
     getDefaultFoundrySessionKeyPath,
@@ -50,6 +51,8 @@ async function startServer() {
     // Initialize Admin Session Manager
     adminSessionManager.initialize();
 
+    // Durable gate loads before registry/candidate adapter imports or player routing.
+    restoreUpgradeMaintenance();
     // Boot-Time System Discovery
     initializeRegistry();
 

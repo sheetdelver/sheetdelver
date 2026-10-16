@@ -26,7 +26,7 @@ interface RequestJsonOptions {
 }
 
 export async function requestJson<T>(path: string, options: RequestJsonOptions = {}): Promise<T> {
-    const headers: Record<string, string> = {};
+    const headers: Record<string, string> = worldRuntimeHeaders();
     // `token` remains a temporary caller-compatibility argument. Authentication
     // is carried only by the same-origin HttpOnly player-session cookie.
     void options.token;
@@ -58,3 +58,4 @@ export async function requestJson<T>(path: string, options: RequestJsonOptions =
 
     return payload;
 }
+import { worldRuntimeHeaders } from './worldRuntime';

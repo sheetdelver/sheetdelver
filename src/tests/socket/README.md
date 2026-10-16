@@ -51,7 +51,7 @@ Manual probes may prompt for input, write debug output under `temp/`, or depend 
 3. **Core Service Account**: Configure a full **Gamemaster** in the approved test
    world. Assistant is insufficient for Core's connection policy. Separate caller
    fixtures may still exercise Assistant/player/owner permissions. ADR-0064's
-   connection/reconnect/demotion gate is pending implementation; see
+   connection/reconnect/demotion gate is implemented but unreleased; see
    [configuration recovery](../../../docs/CONFIGURATION.md#service-account-role-and-recovery).
 4. **Safety Check Disabled**: Tests will temporarily disable the safety check in `SocketClient.connect()`
 

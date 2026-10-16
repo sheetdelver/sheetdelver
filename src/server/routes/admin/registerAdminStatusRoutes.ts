@@ -7,6 +7,7 @@ import { logger } from '@shared/utils/logger';
 import { requireAdminAuth } from '@server/middleware/requireAdminAuth';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
 import type { AdminServiceResult } from '@server/shared/types/admin';
+import { serviceAccountAuthority } from '@server/core/world/ServiceAccountAuthority';
 
 export interface RegisterAdminStatusRoutesOptions {
     adminRouter: express.Router;
@@ -16,6 +17,10 @@ export interface RegisterAdminStatusRoutesOptions {
 
 export function registerAdminStatusRoutes(opts: RegisterAdminStatusRoutesOptions): void {
     const { adminRouter, adminService, requireAdminAccountExists } = opts;
+    adminRouter.get('/world/service-account', requireAdminAccountExists, requireAdminAuth, (_req, res) => {
+        res.setHeader('Cache-Control', 'no-store');
+        res.json({ diagnostic: serviceAccountAuthority.getDiagnostic() });
+    });
 
     adminRouter.get('/status', async (req, res) => {
         const payload = await adminService.getStatus();

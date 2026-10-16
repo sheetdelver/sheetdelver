@@ -22,6 +22,7 @@ import { createSdkEventBus } from '@client/ui/sdk/createSdkEventBus';
 import type { SdkEvents } from '@shared/sdk/events';
 import { buildModuleAssetUrl, setModuleLogSink } from '@shared/sdk';
 import { logger as platformLogger } from '@shared/utils/logger';
+import { worldRuntimeHeaders } from '@client/ui/api/worldRuntime';
 
 /** Keep module navigation inside the current Sheet Delver origin. */
 function resolveInternalNavigationTarget(target: string): string | null {
@@ -60,7 +61,9 @@ export function SDKProvider({ children, moduleId }: { children: React.ReactNode;
     ): Promise<Response> => {
         // Module UI receives the same cookie-authenticated fetch boundary as the
         // host; the compatibility token is never converted into a bearer value.
-        return fetch(input, { ...init, credentials: 'same-origin' });
+        const headers = new Headers(init?.headers);
+        for (const [key, value] of Object.entries(worldRuntimeHeaders())) headers.set(key, value);
+        return fetch(input, { ...init, headers, credentials: 'same-origin' });
     }, []);
 
     // Host-owned realtime signal bus (ADR-0027 decision 20). Created once (pure — no socket

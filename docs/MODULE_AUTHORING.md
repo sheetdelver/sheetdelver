@@ -683,10 +683,12 @@ See [Notifications and Chat](NOTIFICATIONS.md) for timing, sanitization and
 lifecycle details, and [ADR-0043](adr/0043-sdk-notification-lifecycle.md) for the
 contract decision. Notification calls are client-only, never server runtime APIs.
 
-## Planned native world settings and data maintenance
+## Native world settings and data maintenance (unreleased)
 
-[Core ADR-0064](adr/0064-module-world-context-and-data-migrations.md) is pending
-implementation. `useModuleSettings` does not expose native world settings, and
+[Core ADR-0064](adr/0064-module-world-context-and-data-migrations.md) is implemented
+in the development tree; [the authoring contract](MODULE_MIGRATIONS.md) defines
+SDK 3.3/module-api 1.5, catalog examples and adoption gates.
+`useModuleSettings` does not expose native world settings, and
 adapter initialization cannot write documents. A registered default is not proof
 of an unreadable world's value. The proposed world context updates to a new
 immutable revision when a GM changes a declared Foundry setting.
@@ -710,11 +712,11 @@ SheetDelver supplies no world backup/restore or migration undo in this scope.
 Keep historical steps needed for supported skipped-version upgrades and test
 restored/mixed/custom data. First install, source switch and later world activation
 also require checks. Ordinary startup cannot authorize new repairs. The settings/
-reference refresh contract remains necessary for same-world recovery, which does
-not rerun adapter initialization. These contracts are not implemented yet.
+reference refresh contract is required for same-world recovery, which does
+not rerun adapter initialization. Module adoption is separately authorized G8.
 
 Core's configured Foundry service account must be full **Gamemaster** in each world.
 ADR-0064 G0a requires connection/reconnect/demotion checks before module readiness;
-that enforcement is pending implementation. Modules must not handle this with
+that enforcement is implemented but unreleased. Modules must not handle this with
 privileged fallbacks or apply the service-account rule to human Assistant users.
 See [operator configuration](CONFIGURATION.md#service-account-role-and-recovery).

@@ -64,6 +64,9 @@ export function getUpdatePolicyBlockReason(
  * Result returned from any manager operation.
  */
 export interface ManagerOperationResult {
+    jobId?: string;
+    accepted?: boolean;
+    restartRequired?: boolean;
     success: boolean;
     moduleId: string;
     operation: ManagerOperation;

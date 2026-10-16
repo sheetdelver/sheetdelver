@@ -11,6 +11,7 @@ export class CoreSocket extends SocketBase {
     // Service-account identity is still a transport concern: the socket needs
     // it for login/session restoration. World snapshots live in WorldStateStore.
     public userId: string | null = null;
+    public get serviceAccountName(): string { return this.config.username ?? ''; }
 
     // Core Socket maintains the singular connection
     private consecutiveFailures = 0;
@@ -152,9 +153,8 @@ export class CoreSocket extends SocketBase {
         if (!gameData) return null;
 
         const sceneData = await this.fetchSceneData(gameData);
-        if (gameData.userId) {
-            this.userId = gameData.userId;
-        }
+        // Do not overwrite the selected login identity with a restored session's
+        // identity. Bootstrap must compare those independently (ADR-0064 G0a).
 
         if (sceneData) {
             logger.info('CoreSocket | Scene Data fetched for bootstrap');
@@ -237,6 +237,10 @@ export class CoreSocket extends SocketBase {
                 const user = probeUsers!.find((u: any) => u.name === this.config.username);
                 if (user) {
                     this.userId = user._id || user.id;
+                    if (user.role !== undefined && user.role !== 4) {
+                        this.emit('foundry:serviceAccountRoleRejected', { username: this.config.username, userId: this.userId, role: user.role });
+                        return;
+                    }
                     logger.info(`CoreSocket | Resolved Service Account ID: ${this.userId} (Username: ${this.config.username})`);
                 } else {
                     const availableUsers = probeUsers!.map((u: any) => `${u.name} (role: ${u.role})`);
@@ -358,6 +362,12 @@ export class CoreSocket extends SocketBase {
                 });
 
                 socket.on('session', (data: any) => {
+                    if (generation !== this.connectionGeneration || this.socket !== socket) return;
+                    if (data?.userId && this.userId && data.userId !== this.userId) {
+                        this.emit('foundry:serviceAccountRoleRejected', { username: this.config.username, userId: this.userId, role: null });
+                        this.disconnect();
+                        return;
+                    }
                     if (data && data.userId && !this.userId) {
                         logger.info(`CoreSocket | Acquired User ID from session event: ${data.userId}`);
                         this.userId = data.userId;
@@ -572,7 +582,8 @@ export class CoreSocket extends SocketBase {
         }
 
         try {
-            const result: any = await this.emitSocketEvent('modifyDocument', { type, action, operation }, 5000);
+            const send = () => this.emitSocketEvent('modifyDocument', { type, action, operation }, 5000);
+            const result: any = action === 'get' ? await send() : await this.guardOperation(send);
             this.consecutiveFailures = 0;
 
             if (result) {

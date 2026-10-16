@@ -282,6 +282,7 @@ async function packageModule() {
         // Build archive from staging — source directory is read-only throughout
         // -----------------------------------------------------------------------
 
+        await packageMigrations(modulePath, stagingDir, info as SystemModuleInfo);
         const outDir = getDistModulesDir();
         fs.mkdirSync(outDir, { recursive: true });
         const outFile = path.join(outDir, `${moduleId}-${version}.tgz`);
@@ -309,6 +310,7 @@ async function packageModule() {
             {
                 repository,
                 changelog,
+                migrations: migrationSummary(discoverMigrations(stagingDir, artifactInfo as SystemModuleInfo)),
             },
         );
         const releaseManifestFile = path.join(outDir, `${moduleId}-${version}.manifest.json`);
@@ -333,3 +335,5 @@ async function packageModule() {
 }
 
 packageModule();
+import { packageMigrations } from '@modules/registry/migrations/compile';
+import { discoverMigrations, migrationSummary } from '@modules/registry/migrations/catalog';

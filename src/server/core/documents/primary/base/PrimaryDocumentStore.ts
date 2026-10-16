@@ -366,6 +366,8 @@ export abstract class PrimaryDocumentStore<TDocument extends DocumentLike> exten
     protected audienceForDocumentId(documentId: string): DocumentAudience {
         return this.audienceForDocument(this.documents.get(documentId));
     }
+    /** Core derived Stores reuse this document's existing visibility policy. */
+    public getDocumentAudience(documentId: string): DocumentAudience { return this.audienceForDocumentId(documentId); }
 
     /**
      * Subclass hook for embedded-document mutations. Called when

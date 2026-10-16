@@ -91,9 +91,9 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
   distinct. A prepared host value is not proof of native Foundry browser data.
   Core owns lifecycle/cache/authorization; modules own system rules (ADR-0038).
 - The configured Core Foundry service account must be full Gamemaster in every
-  served world; Assistant is insufficient. ADR-0064 owns the pending connection/
-  reconnect/demotion gate and admin retry guidance. Do not claim that enforcement
-  exists before implementation, promote a live account implicitly, or apply this
+  served world; Assistant is insufficient. ADR-0064 implements the unreleased
+  connection/reconnect/demotion gate and admin retry guidance. Do not describe it
+  as shipped in 0.18.1, promote a live account implicitly, or apply this
   service-account restriction to ordinary Assistant/player request permissions.
 - Shared chat, notifications and dice presentation belong in Core UI/SDK, not
   duplicated in each module. Preserve visibility, lifecycle and realtime rules.

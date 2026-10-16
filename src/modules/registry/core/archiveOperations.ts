@@ -25,11 +25,20 @@ import {
     getArtifactStateFilePathOverride,
     getCoreVersion,
     getLifecycleRecord,
+    getLifecycleStateFilePathOverride,
 } from './internals';
+import { getDefaultLifecycleStateFilePath } from '../lifecycle/lifecycle';
+import { getDefaultArtifactStoreFilePath } from '../distribution/artifactStore';
+import { discoverMigrations } from '../migrations/catalog';
+import type { UpgradePreview, UpgradeJob } from '@server/services/world/migrations/UpgradeJournal';
 
 export type ModuleArchiveOperation = 'install' | 'upgrade';
 
 export interface LocalModuleArchiveInput {
+    planId?: string;
+    idempotencyKey?: string;
+    backupAcknowledged?: boolean;
+    administrator?: string;
     archivePath: string;
     expectedModuleId?: string;
     releaseManifest?: ModuleReleaseManifest;
@@ -56,6 +65,7 @@ export interface ModuleArchiveSummary {
 }
 
 export interface DryRunLocalModuleArchiveResult {
+    migration?: UpgradePreview;
     success: true;
     operation: 'dry-run-install' | 'dry-run-upgrade';
     wouldProceed: boolean;
@@ -200,7 +210,17 @@ export async function dryRunLocalModuleArchive(
         preparedOperation = await prepareOperation(operation, input);
         const governance = await runGovernancePreview(operation, input, preparedOperation);
         const blockingReasons = [...preparedOperation.blockers, ...governance.blockingReasons];
+        let migration: UpgradePreview | undefined;
+        const { assertMigrationReplacement, createHostUpgradeCoordinator } = await import('@server/services/world/migrations/ModuleUpgradeService');
+        assertMigrationReplacement(preparedOperation.prepared.moduleDirectory, preparedOperation.prepared.info);
+        if (blockingReasons.length === 0 && discoverMigrations(preparedOperation.prepared.moduleDirectory, preparedOperation.prepared.info)) {
+            migration = await createHostUpgradeCoordinator().preview({ moduleId: preparedOperation.archive.moduleId,
+                version: preparedOperation.archive.version, artifactDigest: preparedOperation.archive.integrity,
+                root: preparedOperation.prepared.moduleDirectory, info: preparedOperation.prepared.info });
+            blockingReasons.push(...migration.plan.blockers);
+        }
         return {
+            ...(migration ? { migration } : {}),
             success: true,
             operation: operation === 'install' ? 'dry-run-install' : 'dry-run-upgrade',
             wouldProceed: blockingReasons.length === 0,
@@ -264,6 +284,42 @@ export async function applyLocalModuleArchive(
             );
         }
 
+        const { assertMigrationReplacement, createHostUpgradeCoordinator, getUpgradeJournal } = await import('@server/services/world/migrations/ModuleUpgradeService');
+        assertMigrationReplacement(preparedOperation.prepared.moduleDirectory, preparedOperation.prepared.info);
+        if (discoverMigrations(preparedOperation.prepared.moduleDirectory, preparedOperation.prepared.info)) {
+            if (preparedOperation.archive.activeSource === 'local') throw new Error('Candidate managed package is inactive beside a local source; select the managed source explicitly before its world upgrade');
+            if (!input.planId || !input.idempotencyKey || !input.administrator) throw new Error('Admin-reviewed migration plan required before file promotion');
+            const coordinator = createHostUpgradeCoordinator({
+                promote: async (job: UpgradeJob) => {
+                    promotionAttempted = true;
+                    job.transactionDirectory = preparedOperation.prepared.transactionDirectory;
+                    job.registryBackups = [getLifecycleStateFilePathOverride() ?? getDefaultLifecycleStateFilePath(),
+                        getArtifactStateFilePathOverride() ?? getDefaultArtifactStoreFilePath()].map(file => ({ path: file,
+                        contents: fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null }));
+                    getUpgradeJournal().save(job);
+                    promotePreparedModuleArchive(preparedOperation.prepared, getModulesDataDir(), (phase, paths) => {
+                        job.fileTransition = phase;
+                        job.targetDirectory = paths.targetDirectory;
+                        job.previousDirectory = paths.previousDirectory;
+                        getUpgradeJournal().save(job);
+                    });
+                    const result = await registerArchive(operation, input, preparedOperation);
+                    if (!result.success) throw new Error(result.error || 'Candidate registry transition failed');
+                    job.fileTransition = 'registered';
+                    job.candidateRoot = job.targetDirectory!;
+                    getUpgradeJournal().save(job);
+                    // Previous files remain durable. Only successful verified activation
+                    // may finalize them; never call the old promotion.commit() here.
+                },
+                restart: () => { /* HTTP caller schedules the existing supervised restart after flushing 202. */ },
+            });
+            const job = await coordinator.approve({ moduleId, version: preparedOperation.archive.version,
+                artifactDigest: preparedOperation.archive.integrity, root: preparedOperation.prepared.moduleDirectory,
+                info: preparedOperation.prepared.info }, { planId: input.planId, idempotencyKey: input.idempotencyKey,
+                administrator: input.administrator, backupAcknowledged: input.backupAcknowledged === true });
+            return { success: true, moduleId, operation, jobId: job.jobId, accepted: true, restartRequired: job.phase === 'restarting' };
+        }
+
         promotionAttempted = true;
         const promotion = promotePreparedModuleArchive(preparedOperation.prepared);
         const governedInfo = {
@@ -319,7 +375,7 @@ export async function applyLocalModuleArchive(
         return operationFailure(
             moduleId,
             operation,
-            `Archive transaction failed and was rolled back: ${error instanceof Error ? error.message : String(error)}`,
+            `Archive transaction failed; inspect the retained upgrade/recovery state: ${error instanceof Error ? error.message : String(error)}`,
             undefined,
             'rollback-applied',
         );
@@ -329,4 +385,16 @@ export async function applyLocalModuleArchive(
             discardPreparedModuleArchive(preparedOperation.prepared);
         }
     }
+}
+
+async function registerArchive(operation: ModuleArchiveOperation, input: LocalModuleArchiveInput, prepared: PreparedOperation): Promise<ManagerOperationResult> {
+    const common = {
+        moduleId: prepared.archive.moduleId, source: prepared.source, integrity: prepared.archive.integrity,
+        permissions: prepared.prepared.info.permissions, moduleInfo: { ...prepared.prepared.info, trust: { tier: prepared.sourceTrustTier } },
+        sourceTrustTier: prepared.sourceTrustTier, approveTrustOverride: input.approveTrustOverride,
+        approvePermissionEscalation: input.approvePermissionEscalation, artifactSource: input.artifactSource,
+        sourceProfileId: input.sourceProfileId, preverifiedArtifact: input.preverifiedArtifact,
+    };
+    return operation === 'install' ? installManagedModule({ ...common, version: prepared.archive.version })
+        : upgradeManagedModule({ ...common, targetVersion: prepared.archive.version });
 }

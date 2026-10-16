@@ -16,8 +16,8 @@ connections. A SheetDelver administrator session is not a Foundry role grant.
 [ADR-0064](adr/0064-module-world-context-and-data-migrations.md#full-gm-service-account-connection-and-recovery-prerequisite)
 requires Core to block world connection/readiness on lower or unknown roles and
 on active demotion, with an actionable admin error and fresh-role retry after
-manual correction in Foundry. **Role enforcement is pending implementation**;
-Core 0.18.1 must not be described as already enforcing it. See the
+manual correction in Foundry. **Role enforcement is implemented but unreleased**;
+published Core 0.18.1 does not enforce it. See the
 [configuration recovery procedure](CONFIGURATION.md#service-account-role-and-recovery).
 Never work around a blocked service account by borrowing a human GM session,
 changing player ownership or automatically promoting the account.

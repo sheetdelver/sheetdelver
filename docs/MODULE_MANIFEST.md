@@ -915,14 +915,14 @@ works.
     these methods originated in UI contract 1.1.0; modules targeting the
     next host release declare `ui-extension-api: ">=3.0.0 <4.0.0"`.
 
-## Proposed world context and migration discovery
+## World context and migration discovery (unreleased)
 
-[Core ADR-0064](adr/0064-module-world-context-and-data-migrations.md) proposes
-`worldSettings` and immutable runtime world context. These are **not current
-manifest/SDK capabilities**. Existing `settings` remain browser preferences;
+[Core ADR-0064](adr/0064-module-world-context-and-data-migrations.md) implements
+`worldSettings` and immutable runtime world context in SDK 3.3/module-api 1.5.
+See [schemas and complete examples](MODULE_MIGRATIONS.md). Existing `settings` remain browser preferences;
 adapter initialization remains read-only.
 
-Migration maps and logic paths belong outside `info.json`. The proposed conventional
+Migration maps and logic paths belong outside `info.json`. The conventional
 root `migration.json` maps native game-system version milestones to directories
 containing `definition.json` and separate check/plan/verify logic. Core discovers
 that file without activating the module. Definitions express scope/dependencies;
@@ -935,4 +935,5 @@ the catalog as a second authority. Implement catalog/definition validation, conf
 entry packaging, artifact health, release-summary checks and SDK compatibility
 together. Older hosts must reject migration-bearing packages they cannot enforce.
 Bootstrap must check actual source even after a completed journal entry; it cannot
-initiate writes. No proposed migration contract is usable yet.
+initiate writes. This contract remains unreleased; dependent modules must wait
+for a supporting published host before declaring its minimum.

@@ -1,6 +1,7 @@
 import type { SystemModuleInfo } from '../core/types';
 import { validateModuleInfoShape } from '../lifecycle/validation';
 import { parseModuleId } from '@shared/security/moduleId';
+import type { MigrationSummary } from '../migrations/catalog';
 
 export const MODULE_RELEASE_MANIFEST_SCHEMA_VERSION = 'sheet-delver-release.v1';
 export const SHA256_INTEGRITY_PATTERN = /^sha256:[a-f0-9]{64}$/;
@@ -13,6 +14,7 @@ export interface ModuleReleaseMetadata {
     permissions?: SystemModuleInfo['permissions'];
     dependencies?: string[];
     conflicts?: string[];
+    worldSettings?: SystemModuleInfo['worldSettings'];
 }
 
 export interface ModuleReleaseArtifact {
@@ -22,7 +24,8 @@ export interface ModuleReleaseArtifact {
 }
 
 export interface ModuleReleaseManifest {
-    schemaVersion: typeof MODULE_RELEASE_MANIFEST_SCHEMA_VERSION;
+    schemaVersion: typeof MODULE_RELEASE_MANIFEST_SCHEMA_VERSION | 'sheet-delver-release.v2';
+    migrations?: MigrationSummary;
     publishedAt: number;
     module: ModuleReleaseMetadata;
     artifact: ModuleReleaseArtifact;
@@ -36,6 +39,7 @@ export interface ModuleReleaseManifestValidationResult {
 }
 
 export interface CreateModuleReleaseManifestOptions {
+    migrations?: MigrationSummary;
     publishedAt?: number;
     repository?: string;
     changelog?: string;
@@ -93,6 +97,7 @@ function validateReleaseMetadata(value: unknown): string[] {
         permissions: candidate.permissions,
         dependencies: candidate.dependencies,
         conflicts: candidate.conflicts,
+        worldSettings: candidate.worldSettings,
         manifest: {
             ui: 'dist/ui.js',
             logic: 'dist/logic.js',
@@ -111,9 +116,15 @@ export function validateModuleReleaseManifest(value: unknown): ModuleReleaseMani
     }
 
     const candidate = value as Partial<ModuleReleaseManifest> & { trust?: unknown; trustTier?: unknown };
-    if (candidate.schemaVersion !== MODULE_RELEASE_MANIFEST_SCHEMA_VERSION) {
+    if (candidate.schemaVersion !== MODULE_RELEASE_MANIFEST_SCHEMA_VERSION && candidate.schemaVersion !== 'sheet-delver-release.v2') {
         errors.push(`Release manifest field "schemaVersion" must equal "${MODULE_RELEASE_MANIFEST_SCHEMA_VERSION}"`);
     }
+    if (candidate.migrations !== undefined && (candidate.schemaVersion !== 'sheet-delver-release.v2'
+        || candidate.migrations.schemaVersion !== 'sheet-delver-migrations.v1'
+        || !SHA256_INTEGRITY_PATTERN.test(candidate.migrations.catalogDigest) || !Number.isSafeInteger(candidate.migrations.steps))) {
+        errors.push('Invalid derived migration summary');
+    }
+    if (candidate.schemaVersion === 'sheet-delver-release.v2' && candidate.migrations === undefined) errors.push('Release v2 requires a derived migration summary');
     if (!Number.isSafeInteger(candidate.publishedAt) || Number(candidate.publishedAt) < 0) {
         errors.push('Release manifest field "publishedAt" must be a non-negative integer timestamp');
     }
@@ -160,7 +171,8 @@ export function createModuleReleaseManifest(
     }
 
     const manifest: ModuleReleaseManifest = {
-        schemaVersion: MODULE_RELEASE_MANIFEST_SCHEMA_VERSION,
+        schemaVersion: options.migrations ? 'sheet-delver-release.v2' : MODULE_RELEASE_MANIFEST_SCHEMA_VERSION,
+        ...(options.migrations ? { migrations: options.migrations } : {}),
         publishedAt: options.publishedAt ?? Date.now(),
         module: {
             id: moduleId,
@@ -170,6 +182,7 @@ export function createModuleReleaseManifest(
             ...(info.permissions ? { permissions: info.permissions } : {}),
             ...(info.dependencies ? { dependencies: info.dependencies } : {}),
             ...(info.conflicts ? { conflicts: info.conflicts } : {}),
+            ...(info.worldSettings ? { worldSettings: info.worldSettings } : {}),
         },
         artifact,
         ...(options.repository ? { repository: options.repository } : {}),

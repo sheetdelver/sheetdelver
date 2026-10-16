@@ -1,13 +1,28 @@
 import { strict as assert } from 'node:assert';
 import {
     UnsupportedFoundryVersionError,
-    WorldBootstrapper,
+    WorldBootstrapper as HostWorldBootstrapper,
 } from '@server/services/world';
 import type { SystemAdapter } from '@modules/registry/types';
 import type { ModuleRuntime } from '@shared/sdk/runtime';
 import { logger } from '@shared/utils/logger';
 import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
 import { userPresence } from '@server/core/documents/primary/users/UserPresence';
+import { moduleWorldContext } from '@server/services/world/ModuleWorldContextService';
+import type { WorldBootstrapperDeps } from '@server/services/world/WorldBootstrapper';
+
+// These pre-existing tests isolate bootstrap ordering. Role/catalog policy has
+// separate production-boundary regressions; do not infer native authority here.
+class WorldBootstrapper extends HostWorldBootstrapper {
+    constructor(deps: WorldBootstrapperDeps = {}) {
+        super({ verifyServiceAccount: () => {}, checkDataCompatibility: async (_id, prepare) => prepare(),
+            getBootstrapSnapshot: async transport => transport.getBootstrapSnapshot ? transport.getBootstrapSnapshot() : createBootstrapSnapshot(),
+            configureWorldContext: (snapshot, _info, epoch) => moduleWorldContext.configure('http://offline.invalid', {
+                worldId: snapshot.gameData.world?.id ?? 'fixture', systemId: snapshot.gameData.system?.id?.toLowerCase() ?? 'fixture',
+                systemVersion: snapshot.gameData.system?.version ?? '1.0.0', foundryGeneration: 14, foundryBuild: '367', runtimeEpoch: epoch,
+            }), ...deps });
+    }
+}
 
 function adapter(id: string): SystemAdapter {
     return {
@@ -192,6 +207,8 @@ async function runBootstrapOrderingAndReadyCallback() {
         prepareActors: (activeAdapter, context) => {
             assert.equal(activeAdapter, initializingAdapter);
             assert.deepEqual(context, {
+                world: moduleWorldContext.snapshot(),
+                contextRevision: moduleWorldContext.snapshot().identity.contextRevision,
                 worldEpoch: 0,
                 systemId: 'syntheticsystem',
                 systemVersion: '5.2.0',
@@ -212,9 +229,9 @@ async function runBootstrapOrderingAndReadyCallback() {
 
     assert.deepEqual(order, [
         'seed-metadata',
-        'load-adapter:syntheticsystem',
         'sync:syntheticsystem',
         'seed',
+        'load-adapter:syntheticsystem',
         'context:syntheticsystem',
         'adapter-initialize',
         'prepare-actors',
@@ -280,8 +297,8 @@ async function runBootstrapAcceptsSnapshotBeforeServiceWork() {
         'seed-world:SyntheticSystem',
         'seed-users:1',
         'seed-metadata',
-        'load-adapter:syntheticsystem',
         'seed-docs',
+        'load-adapter:syntheticsystem',
         'active:SyntheticSystem',
         'ready:SyntheticSystem',
     ]);
@@ -322,8 +339,8 @@ async function runBootstrapRejectsUnsupportedGenerationBeforeStoreSeeding() {
         'seed-world:SyntheticSystem',
         'seed-users:1',
         'seed-metadata',
-        'load-adapter:syntheticsystem',
         'seed-docs',
+        'load-adapter:syntheticsystem',
         'active:SyntheticSystem',
     ]);
     assert.equal(bootstrapper.isReady(), true);

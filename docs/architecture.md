@@ -68,7 +68,7 @@ graph TD
 - **World Transport Controller (`src/server/services/world/WorldTransportController.ts`)**:
     - Owns service-account lifecycle policy: retry/backoff, heartbeat, browser engagement wakeups, world launch/shutdown, and lifecycle Store updates.
     - Commands `CoreSocket` as a transport; it does not live in `core/`.
-    - ADR-0064's pending role gate requires the configured service account to be
+    - ADR-0064's unreleased role gate requires the configured service account to be
       full Gamemaster on connect/reconnect and while active. This lifecycle policy
       blocks world access and gives admin recovery guidance; it does not change
       ordinary user/Assistant permissions.
@@ -426,12 +426,13 @@ dependencies.
 - **Backend (API)**: 3001
 - **Foundry**: Configurable via `<DATA_DIR>/config/settings.yaml`
 
-## Planned module world context and maintenance
+## Module world context and maintenance (unreleased)
 
-[Core ADR-0064](adr/0064-module-world-context-and-data-migrations.md) proposes
+[Core ADR-0064](adr/0064-module-world-context-and-data-migrations.md) implements
 live, immutable snapshots of declared native world settings and dependency
-revisions for prepared data. It also plans shared pack-permission policy and
-canonical Actor response references. These capabilities are **not implemented**.
+revisions for prepared data, shared pack-permission policy and canonical Actor
+response references. See [the contract guide](MODULE_MIGRATIONS.md) for schemas,
+ownership, endpoint payloads, recovery limits and module-adoption requirements.
 
 Migration execution belongs to the Core admin upgrade coordinator. A module
 keeps requirements in a root `migration.json` catalog and native-version directories

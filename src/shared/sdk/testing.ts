@@ -22,11 +22,13 @@ import { SDKContext, SDKComponentsContext } from './react';
 import type { SDKContextValue, SDKComponentsValue } from './react';
 import type { ClientDocumentSource, DocumentSnapshot } from './client-documents';
 import type { SdkEvents, SdkSignal, SdkSignalHandler, SdkSignalPayloads } from './events';
+import { freezeWorldValue, type ModuleWorldSnapshot } from './world';
 
 type Doc = Record<string, unknown>;
 type DocSeed = Record<string, Record<string, Doc>>; // type -> id -> document
 
 export interface MockRuntimeOptions {
+    world?: ModuleWorldSnapshot;
     moduleId?: string;
     foundryUrl?: string;
     /** Seed documents: `{ Actor: { a1: {...} } }`. */
@@ -51,6 +53,9 @@ export function createMockModuleRuntime(opts: MockRuntimeOptions = {}): ModuleRe
     const data = new Map<string, unknown>(Object.entries(opts.dataStore ?? {}));
     const rollTotal = opts.roll ?? ((formula: string) =>
         (formula.match(/\d+/g) ?? []).reduce((sum, n) => sum + Number(n), 0));
+    const world = freezeWorldValue(structuredClone(opts.world ?? { identity: { instanceId: 'mock', worldId: 'mock',
+        systemId: opts.moduleId ?? 'mock', systemVersion: '1.0.0', foundryGeneration: 14, foundryBuild: '367', runtimeEpoch: 1,
+        contextRevision: 1 }, settings: {} }));
 
     const bucket = (type: string): Record<string, Doc> => (store[type] ??= {});
     let idCounter = 0;
@@ -114,6 +119,8 @@ export function createMockModuleRuntime(opts: MockRuntimeOptions = {}): ModuleRe
 
     return {
         moduleId: opts.moduleId ?? 'mock',
+        world: { snapshot: () => world, settings: { get: key => world.settings[key] ?? { status: 'unavailable', reason: 'undeclared' } },
+            assertRevision: revision => { if (revision !== world.identity.contextRevision) throw new Error('World context changed'); } },
         foundryUrl: opts.foundryUrl ?? 'http://localhost:30000',
         logger: { debug() {}, info() {}, warn() {}, error() {} },
         dataStore: {

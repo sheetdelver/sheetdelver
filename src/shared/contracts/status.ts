@@ -38,6 +38,8 @@ export interface FoundryCompatibilityStatusPayload {
 }
 
 export interface SystemStatusPayload {
+    runtimeToken?: string | null;
+    maintenance?: { phase: string; message: string } | null;
     connected: boolean;
     worldId: string | null;
     initialized: boolean;
@@ -74,6 +76,8 @@ export interface SystemStatusPayload {
  * the wire while keeping client-side narrowing straightforward.
  */
 export interface PublicStatusPayload {
+    runtimeToken?: string | null;
+    maintenance?: { phase: string; message: string } | null;
     connected: boolean;
     initialized: boolean;
     isConfigured: boolean;

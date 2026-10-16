@@ -117,6 +117,7 @@ import { run as runWorldLifecycleStore } from './world/world-lifecycle-store.tes
 import { run as runFoundryVersionCompatibility } from './world/foundry-version-compatibility.test';
 import { run as runWorldBootstrapper } from './world/world-bootstrapper.test';
 import { run as runWorldTransportController } from './world/world-transport-controller.test';
+import { run as runModuleWorldMigrations } from './world/module-world-migrations.test';
 
 // ── admin ─────────────────────────────────────────────────────────────────────
 import { run as runAdminCredentialStore } from './admin/admin-credential-store.test';
@@ -258,6 +259,7 @@ async function runAllUnitTests() {
     runFoundryVersionCompatibility();
     await runWorldBootstrapper();
     await runWorldTransportController();
+    await runModuleWorldMigrations();
     await runSharedContentStore();
     await runSharedJournalView();
     await runDocumentResolver();

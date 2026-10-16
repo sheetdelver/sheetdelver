@@ -17,7 +17,7 @@ import { decidePlayerBoundary } from './playerWorldBoundaryPolicy';
 export function PlayerWorldBoundary({ children }: { children: ReactNode }) {
     const { step, users, system, worldId, appVersion, handleLogin } = useFoundry();
     const { token, currentUserId, sessionEpoch } = useSession();
-    const { linkState } = useRealtime();
+    const { linkState, maintenance } = useRealtime();
     const { resetUI } = useUI();
     const bgStyle = useWorldBackground();
     const [mountedScope, setMountedScope] = useState<string | null>(null);
@@ -106,8 +106,9 @@ export function PlayerWorldBoundary({ children }: { children: ReactNode }) {
                 ) : (
                     <div ref={overlayRef} tabIndex={-1} className="fixed inset-0 z-[240]" role="status" aria-live="polite">
                         <LoadingModal
-                            message={prolonged ? 'World unavailable' : 'Reconnecting to world...'}
-                            submessage={prolonged ? 'Please check back later.' : 'Waiting for SheetDelver and Foundry to be ready.'}
+                            message={maintenance?.message ?? (prolonged ? 'World unavailable' : 'Reconnecting to world...')}
+                            submessage={maintenance ? 'SheetDelver access is paused. An administrator can review progress and recovery.'
+                                : prolonged ? 'Please check back later.' : 'Waiting for SheetDelver and Foundry to be ready.'}
                             theme={system?.componentStyles?.loadingModal}
                         />
                     </div>

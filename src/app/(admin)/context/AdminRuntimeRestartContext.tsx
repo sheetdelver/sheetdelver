@@ -31,7 +31,9 @@ export function AdminRuntimeRestartProvider({ children }: { children: React.Reac
         const poll = async () => {
             try {
                 const status = await fetchAdminStatus();
-                if (active && status.ok && status.data && isRuntimeRestartReady(status.data)) {
+                // Admin must be usable while an approved job holds player readiness.
+                // Reloading the isolated admin shell is not world activation.
+                if (active && status.ok && status.data && (isRuntimeRestartReady(status.data) || status.data.maintenance)) {
                     window.location.reload();
                     return;
                 }
@@ -64,7 +66,7 @@ export function AdminRuntimeRestartProvider({ children }: { children: React.Reac
                         <Loader2 className="h-10 w-10 animate-spin text-amber-400" aria-hidden="true" />
                         <h2 className="text-2xl font-bold">Applying module changes</h2>
                         <p className="text-sm text-neutral-300">
-                            The administration panel will resume when the world runtime is ready.
+                            The administration panel will resume when Core is reachable. World access may remain paused for maintenance.
                         </p>
                     </div>
                 </div>

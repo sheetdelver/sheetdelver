@@ -20,6 +20,7 @@ import type {
 } from '@server/shared/types/foundry';
 import type { UserWithPresence } from '@server/shared/types/users';
 import { resolveFoundryUrl } from '@server/shared/utils/foundryUrl';
+import { worldWorkGate } from '@server/core/world/WorldWorkGate';
 
 interface StatusServiceDeps {
     config: StatusServiceConfigLike;
@@ -51,6 +52,8 @@ export function projectPublicStatus(payload: SystemStatusPayload): PublicStatusP
         initialized: payload.initialized,
         isConfigured: payload.isConfigured,
         foundryCompatibility: payload.foundryCompatibility,
+        maintenance: payload.maintenance,
+        runtimeToken: payload.runtimeToken,
         users: payload.users
             .filter((user): user is typeof user & { name: string } => typeof user.name === 'string' && user.name.length > 0)
             .map((user) => ({
@@ -154,7 +157,7 @@ export function createStatusService(deps: StatusServiceDeps) {
                 system.appVersion = deps.config.app.version;
             }
 
-            if (system.id) {
+            if (system.id && worldWorkGate.isOpen()) {
                 const sid = String(system.id).toLowerCase();
                 const adapter = await getAdapter(sid);
                 const configurableAdapter = adapter as unknown as { getConfig?: () => unknown };
@@ -175,7 +178,9 @@ export function createStatusService(deps: StatusServiceDeps) {
         return {
             connected: systemClient.isConnected,
             worldId: worldStateStore.getCurrentWorldId(),
-            initialized: deps.foundryUserConnections.isCacheReady(),
+            initialized: worldWorkGate.isOpen() && deps.foundryUserConnections.isCacheReady(),
+            maintenance: worldWorkGate.status(),
+            runtimeToken: worldWorkGate.getServingToken(),
             // During setup/offline states, SetupManager's disk cache may be the
             // only known configured-world source, so keep the Store/disk fallback.
             isConfigured: !!(worldStateStore.getCachedWorldData() || (await SetupManager.loadCache()).currentWorldId),

@@ -1,6 +1,6 @@
 # Core ADR-0064: Module World Context and Data Migrations
 
-**Status:** Proposed — documentation and architecture review only; no implementation or world mutation authorized by this record
+**Status:** Accepted — Core implementation supplied for review; module adoption and native/operator acceptance pending
 **Date:** October 16, 2026
 **Related:** Core ADR-0021, ADR-0027, ADR-0028, ADR-0038, ADR-0056, ADR-0057, ADR-0063; Shadowdark module ADR-0001
 
@@ -33,7 +33,7 @@ undo in this scope; admin acknowledges that limit before applying writes.
 **Confirmed service-account policy:** the user requires a full Foundry Gamemaster
 for Core's connection in every world, not only during migrations. Assistant is
 insufficient for the configured service account. Role enforcement and actionable
-admin diagnostics are pending implementation under G0a; operator setup guidance
+admin diagnostics are implemented but unreleased under G0a; operator setup guidance
 now states the required role. Native lockout remains excluded and the backup/undo
 warning policy is confirmed.
 
@@ -221,8 +221,8 @@ Do not inspect production credentials or silently promote a configured account.
 
 ### Full-GM service account: connection and recovery prerequisite
 
-This is a **confirmed design requirement, not implemented role enforcement in
-Core 0.18.1**. Configure the dedicated Foundry account named by `foundry.username`
+This is **implemented but unreleased; published Core 0.18.1 does not enforce it**.
+Configure the dedicated Foundry account named by `foundry.username`
 as **Gamemaster** in every world SheetDelver serves. Assistant Gamemaster (role 3),
 Trusted, Player, banned, missing or unknown roles do not satisfy it. Verify the
 actual supported native GAMEMASTER role (4); native `isGM` is insufficient because
@@ -270,7 +270,7 @@ individual writes even with a qualified service account. Publish the behavior
 change in release notes when implemented: installations using an Assistant service
 account must promote it before upgrading to the enforcing Core release. Configuration,
 README, contributor/security/socket guides, API/status/UI docs and test prerequisites
-must distinguish the required configuration from the pending enforcement.
+must distinguish this unreleased enforcement from published behavior.
 
 ### Module-owned catalog, version directories and migration hooks
 
@@ -282,7 +282,7 @@ Foundry's native system package manifest. A missing catalog means no declared
 migrations for an existing migration-free package; a malformed catalog or missing
 referenced definition/entry is an error, never silently treated as absence.
 
-Illustrative source layout and catalog (proposed contract, not implemented):
+Illustrative source layout and catalog (unreleased contract):
 
 ```text
 migration.json
@@ -591,7 +591,7 @@ deferred (DW-13).
 
 ## Implementation checkpoints and gates
 
-All boxes are pending. Each gate records source anchors, changed paths, failing/
+The implementation checkpoint below records verified progress. Each gate records source anchors, changed paths, failing/
 passing tests, supported versions, unresolved cases and operator evidence.
 
 | Gate | Work and concrete deliverable | Completion requirement |
@@ -607,28 +607,29 @@ passing tests, supported versions, unresolved cases and operator evidence.
 | G8 | Adopt implemented contracts in a separately authorized Shadowdark task: world settings, separate migration catalog and tested hooks, registry refresh and caller permissions. Remove caller/UI migration execution. | RV-01–07 and ADR-0001 regressions pass; actual Pulp/ammunition settings reach consumers; planner/serializer native semantics tested; admin upgrade replaces the prototype with no owner fallback. |
 | G9 | Update SDK exports/mocks, API/architecture/module-authoring/manifest/release docs, changelog and compatibility gates; run approved native acceptance. | Old migration-free modules remain compatible; required migrations cannot be ignored by an old host; install/restart/recovery and player/admin UI verified. No release or world execution inferred from doc approval. |
 
-The connection prerequisite and G3/G4 need explicit sub-checkpoints before
-implementation can be called complete:
+The checkmarks below record Core implementation/offline verification, **not**
+native/operator acceptance. The separate acceptance matrix remains open where
+evidence is absent. No application release version is assigned by this work.
 
-- [ ] G0a: require a full-GM service account before world readiness on every connect/
+- [x] G0a: require a full-GM service account before world readiness on every connect/
       reconnect/world switch; block missing/unknown/Assistant roles and demotion,
       fence pending writes, show an actionable admin-only reason and recover by
       fresh admin retry. Preserve ordinary user/Assistant permissions. Update all
       operator/configuration documentation and release notes with the enforcement
       version; current documentation must not claim it is already implemented.
 
-- [ ] G3a: root migration.json and per-version definition schemas, confined relative
+- [x] G3a: root migration.json and per-version definition schemas, confined relative
       entries compiled/packaged and health checked; derived release summary parity,
       compatible old-host behavior and cumulative migration chain.
-- [ ] G3b: separate candidate planner loading and world-required preview; exact
+- [x] G3b: separate candidate planner loading and world-required preview; exact
       plan identity, expiry, access review and no-mutation proofs.
-- [ ] G4a: durable job/lease/file-transition model and admin status/recovery API;
+- [x] G4a: durable job/lease/file-transition model and admin status/recovery API;
       distinguish installed, serving and world-data versions.
-- [ ] G4b: HTTP/socket/dispatch admission and in-flight drain/fence; shared player
+- [x] G4b: HTTP/socket/dispatch admission and in-flight drain/fence; shared player
       maintenance modal and safe public/admin projections; no native-client lockout.
-- [ ] G4c: retain prior package, promote without activation, restart into the same
+- [x] G4c: retain prior package, promote without activation, restart into the same
       job, seed source without candidate initialization, migrate/read back/prepare.
-- [ ] G4d: crash/partial/cancel/downgrade/restore recovery, postcondition verification,
+- [x] G4d: crash/partial/cancel/downgrade/restore recovery, postcondition verification,
       mandatory bootstrap/reconnect source checks despite completed journal, warning
       acknowledgement, final activation, stale-client refresh and retained-package
       cleanup. No world backup, inverse migration or undo implementation.
@@ -743,3 +744,101 @@ available tested host release rather than claiming current v0.18.0 implements th
   wrong rules in configured worlds.
 - A second module settings store, permissions engine or Foundry browser/runtime:
   duplicates capabilities Core already owns.
+
+## Core implementation checkpoint — October 16, 2026
+
+Work continues on `feat/adr-0064-world-context-and-migrations`, based on the
+documentation checkpoint. Core-only implementation; no module repositories,
+release metadata, remote operations or live services are part of this pass.
+G8 remains separately authorized adoption, not an implicit module task.
+
+Implemented boundaries under verification:
+
+- `WorldWorkGate` supplies admission, generation fencing and dispatch drain;
+  `ServiceAccountAuthority` compares the selected and authenticated user IDs
+  against a fresh role-4 User, separately from ordinary Assistant permissions.
+- `ModuleWorldContextService` resolves declared world rows/default provenance,
+  excludes user rows, freezes snapshots, tracks context revisions and retires
+  old-world handles. Bootstrap source checks precede adapter loading.
+- The conventional catalog/definition reader validates paths, dependency order,
+  compiled hook digests and old-host exclusion. Hooks are synchronous pure JSON
+  computations, separately bundled as `.cjs`; the VM has no supplied transport,
+  filesystem, network or clock. This is not an OS sandbox.
+- The admin coordinator persists exact previews, backup-warning approval,
+  world leases and per-target intent/readback. Archive promotion retains prior
+  files rather than finalizing before migration; startup restores the gate before
+  registry discovery. Bootstrap checks actual sources despite completed jobs.
+- Caller pack reads use the existing native pack policy; Actor detail responses
+  retain canonical references with a separate `referenceLabels` map.
+
+Core implementation is supplied for G0–G7 and Core G9. Native acceptance, the
+full operator/browser matrix and G8 remain open. The evidence below is offline,
+not a claim that a production world was migrated or a release was published.
+
+| Gate | Implementation anchors | Concrete offline evidence |
+| --- | --- | --- |
+| G0/G0a | ServiceAccountAuthority, injected socket guards, SystemService/controller, bootstrap/recovery, admin diagnostic/retry | Role 0–3/unknown/missing/mismatched session rejected; role 4 accepted; role loss fences dispatch. Human Assistant policy remains separate. |
+| G1 | ModuleWorldContextService, SettingStore, sdk/world, manifest validation | Not-ready/absent/default/stored false/zero/null, user-row exclusion, immutable snapshots, filtered projection and retired handles. |
+| G2 | Bootstrapper refresh, PreparedActorStore, request runtime, React hook/event | Actual host waits for refresh, incorporates racing Actor source, rebuilds under new rules without reinitialization; failed hook keeps gate. |
+| G3/G3a/G3b | Catalog/compiler, planner/VM, archive/public/source previews | Paths/schema/dependencies/parameters/digests, old-host floor, actual esbuild/archive validation; preview never loads adapter/writes; stale plans rejected. |
+| G4a/G4b | Journal/coordinator, WorldWorkGate, admin progress/Drawer, player boundary | Durable records, two-tab exclusion, generation fence/drain and delayed rejection; installed/activated/data state separated. |
+| G4c/G4d | Retained promotion, startup gate, approved resume/readback, compatibility/recovery/cleanup | Three file-transition interruption points; real exited-process lease takeover; partial/uncertain readback without blind replay; restored partial job requires renewed approval; late preparation conflict blocks activation. |
+| G5 | Restricted targets and existing Scene/Actor/pack Stores/ingress | v13/v14-shaped parent/pack envelopes, base-once/tombstone/delta-only handling, lock refusal and actual pack-ack isolation. Native target acceptance pending. |
+| G6 | Shared nativePackPermissions, SDK/facade guards, system projection route | Player/Assistant/GM generation rules; controlled-await/cache-before-denial tests and attempted GM-subject borrowing across generic UUID/query consumers. |
+| G7 | ActorService canonical detail/referenceLabels | Same-name/cross-pack UUIDs preserved; unauthorized cached labels excluded; source round-trip unchanged and no-detail request denied. |
+| Core G9 | Central SDK3.3/module-api1.5/UI API3.2, exports/mocks/guides/changelog | Core unit/client/integration, type/lint/diff checks; generic fixture compilation/packaging, not module adoption. |
+
+Tracked evidence: `src/tests/unit/world/module-world-migrations.test.ts` and
+`src/tests/integration/module-upgrade-boundaries.test.ts`, plus existing bootstrap,
+SDK, ownership, archive/release/history, admin isolation and client suites.
+Commands pass: `npm run test:unit`, `npm run test:client`, `npm run test:integration`,
+`npx tsc --noEmit --incremental false`, `npm run lint`, `git diff --check`.
+Application and module release versions remain unchanged.
+
+### Implemented recovery and resource limits
+
+- `reads.targets/packs/settings` declares reference dependencies. Step parameters
+  require `parameterSchema`. Package references may be read-only inputs, never
+  write targets. Failed simulated verification cannot schedule an advisory patch.
+- Entire inventories are visited (0/1/100/101/201 fixtures). Per-hook1s, plan5s
+  and byte/tree bounds fail closed without approving a truncated plan. Large-world
+  budget refinement requires evidence; no silent first-page limit is introduced.
+- Busy guards span per-request coordinators as well as durable leases. A losing
+  approval leaves no extra job; late acknowledgements cannot undo cancellation.
+- Interrupted pre-write file/registry transitions require explicit cancellation
+  and new review, not guessed forward promotion. After possible writes there is
+  no deployment/world undo. Fresh recovery approval retains earlier plans/outcomes.
+- Completed artifacts have no automatic expiry; admin cleanup is explicit and
+  confined. Corrupt journals gate world work without preventing admin startup.
+  Empty/cross-host orphan locks require operator reconciliation, never TTL stealing.
+- Adapter refresh has a five-second bound, but cannot cancel trusted module code
+  already executing. Adoption must keep caches revision-aware and side-effect-free.
+- Opaque legacy system caches are full-GM-only unless the adapter supplies
+  `getSystemDataForUser` using caller-bound capabilities. Legacy Scene inspection
+  is full-GM-only; no player Scene/canvas SDK is introduced.
+
+### Remaining acceptance and module handoff
+
+G8 is separately authorized. Module adoption must declare source-verified native
+settings/defaults; supply lossless catalog/hooks with explicit dependencies; refresh
+preparation/caches by context revision; use current caller document/pack permissions
+and caller-safe system-data output; remove UI/caller repair routes; and resolve its
+own review findings. Validate against a supporting **released** Core toolchain
+before changing minima or publishing. No module was inspected or changed here.
+
+Separately authorize a disposable v13/v14 world and isolated Core stack for service
+identity/reconnect/demotion/retry, settings/privacy, dry-run/backup acknowledgement/
+apply, real supervised restart, delta/world-pack writes/readback, partial/uncertain
+recovery and external restore with an unchanged completed ledger. Verify blocked
+players, admin re-login/recovery, stale assets/dialogs and retained native ingress;
+new and existing clients may become ready only after source/preparation success.
+Include narrow/desktop, both themes and keyboard/focus in the rendered flow.
+Controlled wire/restart fixtures are not that acceptance. No native lockout, world
+backup/restore, inverse migration or undo is introduced. Keep the ADR open.
+
+Coordination policy: processes serving the same Foundry instance must share one
+durable migration lock directory (`SHEET_DELVER_MIGRATION_LOCK_DIR`) on a shared
+filesystem. The default is installation-local and therefore supports a single
+installation only. Leases have no time-based steal. Same-host restart recovery
+requires the prior PID to be absent; cross-host orphan recovery requires explicit
+operator reconciliation. No native-client/global database lock is claimed.

@@ -85,13 +85,11 @@ applies to all Core world connections, not only module migration jobs. Set the
 role on the actual Foundry user; neither `security.service-token`, SheetDelver
 admin login nor a local configuration field grants Foundry permissions.
 
-**Enforcement status:** the connection/reconnect/demotion gate is a confirmed
-requirement in [ADR-0064](adr/0064-module-world-context-and-data-migrations.md#full-gm-service-account-connection-and-recovery-prerequisite),
-with implementation pending. Core 0.18.1 resolves the configured account but does
-not yet reject an Assistant at connection. Configure the full role now; do not
-interpret successful login in that version as proof of full-GM validation.
+**Enforcement status:** [ADR-0064](adr/0064-module-world-context-and-data-migrations.md#full-gm-service-account-connection-and-recovery-prerequisite)
+implements connection/reconnect/demotion checks in the unreleased development
+tree, not published Core 0.18.1. Configure the full role before adopting it.
 
-The planned behavior blocks bootstrap/world access for a missing, lower-role or
+The implementation blocks bootstrap/world access for a missing, lower-role or
 unverifiable service identity, while keeping administration available. Admin sees
 that the configured account requires **Gamemaster**, with its observed role and
 action to retry; players see only world unavailable. To recover, an administrator

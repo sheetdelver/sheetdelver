@@ -5,6 +5,7 @@ import { isDeepStrictEqual } from 'node:util';
 import * as tar from 'tar';
 import { getDistArchivesDir, getModulesDataDir } from '@core/paths';
 import { parseModuleId } from '@shared/security/moduleId';
+import { discoverMigrations, migrationSummary } from '../migrations/catalog';
 import type { SystemModuleInfo } from '../core/types';
 import { validatePackagedModuleArtifact, type ModuleArtifactHealthResult } from '../lifecycle/artifactHealth';
 import { evaluateModuleCompatibility, type ModuleCompatibilityResult, validateModuleInfoShape } from '../lifecycle/validation';
@@ -70,6 +71,7 @@ export interface ModuleArchivePromotion {
     moduleId: string;
     targetDirectory: string;
     replacedExisting: boolean;
+    previousDirectory: string;
     commit(): void;
     rollback(): void;
 }
@@ -241,6 +243,7 @@ function assertReleaseManifestMatches(
         ['permissions', expected.permissions, info.permissions],
         ['dependencies', expected.dependencies, info.dependencies],
         ['conflicts', expected.conflicts, info.conflicts],
+        ['worldSettings', expected.worldSettings, info.worldSettings],
     ];
     for (const [field, expectedValue, actualValue] of comparisons) {
         if (!isDeepStrictEqual(expectedValue, actualValue)) {
@@ -293,6 +296,9 @@ export async function prepareModuleArchive(options: PrepareModuleArchiveOptions)
         }
         if (options.releaseManifest) {
             assertReleaseManifestMatches(options.releaseManifest, info, archiveSize, integrity);
+            if (!isDeepStrictEqual(options.releaseManifest.migrations, migrationSummary(discoverMigrations(moduleDirectory, info)))) {
+                throw new Error('Release migration summary does not match packaged catalog');
+            }
         }
 
         const artifactHealth = validatePackagedModuleArtifact(moduleDirectory, info);
@@ -325,9 +331,29 @@ export function discardPreparedModuleArchive(prepared: PreparedModuleArchive): v
     fs.rmSync(prepared.transactionDirectory, { recursive: true, force: true });
 }
 
+function syncPromotionDirectory(directory: string): void {
+    if (process.platform === 'win32') return;
+    const descriptor = fs.openSync(directory, 'r');
+    try { fs.fsyncSync(descriptor); } finally { fs.closeSync(descriptor); }
+}
+function syncPromotionTree(directory: string): void {
+    if (process.platform === 'win32') return;
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+        const file = path.join(directory, entry.name);
+        if (entry.isSymbolicLink()) throw new Error('Unexpected promotion symlink');
+        if (entry.isDirectory()) syncPromotionTree(file);
+        else {
+            const descriptor = fs.openSync(file, 'r');
+            try { fs.fsyncSync(descriptor); } finally { fs.closeSync(descriptor); }
+        }
+    }
+    syncPromotionDirectory(directory);
+}
+
 export function promotePreparedModuleArchive(
     prepared: PreparedModuleArchive,
     modulesRoot = getModulesDataDir(),
+    onTransition?: (phase: 'intent' | 'previous-retained' | 'promoted', paths: { targetDirectory: string; previousDirectory: string }) => void,
 ): ModuleArchivePromotion {
     const moduleId = parseModuleId(prepared.info.id);
     if (!moduleId) throw new Error('Prepared archive has an invalid module id');
@@ -342,16 +368,22 @@ export function promotePreparedModuleArchive(
     const targetDirectory = path.join(path.resolve(modulesRoot), moduleId);
     const backupDirectory = path.join(prepared.transactionDirectory, 'previous');
     const targetExists = fs.existsSync(targetDirectory);
+    if (onTransition) syncPromotionTree(prepared.moduleDirectory);
+    onTransition?.('intent', { targetDirectory, previousDirectory: backupDirectory });
     if (targetExists) {
         const targetStat = fs.lstatSync(targetDirectory);
         if (!targetStat.isDirectory() || targetStat.isSymbolicLink()) {
             throw new Error(`Managed module target is not a physical directory: ${targetDirectory}`);
         }
         fs.renameSync(targetDirectory, backupDirectory);
+        if (onTransition) { syncPromotionDirectory(modulesRoot); syncPromotionDirectory(prepared.transactionDirectory); }
     }
+    onTransition?.('previous-retained', { targetDirectory, previousDirectory: backupDirectory });
 
     try {
         fs.renameSync(prepared.moduleDirectory, targetDirectory);
+        if (onTransition) { syncPromotionDirectory(modulesRoot); syncPromotionDirectory(prepared.transactionDirectory); }
+        onTransition?.('promoted', { targetDirectory, previousDirectory: backupDirectory });
     } catch (error) {
         if (targetExists && fs.existsSync(backupDirectory)) {
             fs.renameSync(backupDirectory, targetDirectory);
@@ -364,6 +396,7 @@ export function promotePreparedModuleArchive(
         moduleId,
         targetDirectory,
         replacedExisting: targetExists,
+        previousDirectory: backupDirectory,
         commit() {
             if (closed) return;
             fs.rmSync(prepared.transactionDirectory, { recursive: true, force: true });

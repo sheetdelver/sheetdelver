@@ -1,4 +1,34 @@
-import { createElement, Fragment, useCallback, useEffect, useMemo, useSyncExternalStore } from 'react';
+import { createElement, Fragment, useCallback, useEffect, useMemo, useSyncExternalStore, useState } from 'react';
+import type { ModuleWorldSnapshot, WorldSettingResult } from './world';
+
+/** Authorized host snapshot; no localStorage defaults or native Setting documents. */
+export function useWorldSetting(key: string): { result: WorldSettingResult; revision: number | null } {
+    const { events, fetchWithAuth, worldId, moduleId, currentUser, isConnected } = useSDK();
+    const scope = JSON.stringify([worldId, moduleId, currentUser?.id, currentUser?.role, isConnected, key]);
+    const [state, setState] = useState<{ scope: string; result: WorldSettingResult; revision: number } | null>(null);
+    useEffect(() => {
+        let retired = false;
+        let generation = 0;
+        const refresh = async () => {
+            const request = ++generation;
+            try {
+                if (!worldId || !currentUser || !isConnected) return;
+                const response = await fetchWithAuth('/api/module-world-context', { cache: 'no-store' });
+                if (!response.ok) throw new Error('World context unavailable');
+                const snapshot = await response.json() as ModuleWorldSnapshot;
+                if (retired || request !== generation || snapshot.identity.worldId !== worldId) return;
+                setState({ scope, result: snapshot.settings[key] ?? { status: 'unavailable', reason: 'undeclared' }, revision: snapshot.identity.contextRevision });
+            } catch {
+                if (!retired && request === generation) setState(null);
+            }
+        };
+        void refresh();
+        const dispose = events.on('world:contextChanged', () => { void refresh(); });
+        return () => { retired = true; generation += 1; dispose(); };
+    }, [scope, events, fetchWithAuth, worldId, currentUser, isConnected, key]);
+    return state?.scope === scope ? { result: state.result, revision: state.revision }
+        : { result: { status: 'unavailable', reason: 'not-ready' }, revision: null };
+}
 import type { ComponentType } from 'react';
 import { useSDK, useSDKComponents } from './react';
 import { isPostedChatMessage } from '@shared/utils/postedChatMessage';
@@ -110,7 +140,8 @@ export function useActorSheet<TActor = PreparedActorData>(
         try {
             const res = await fetchWithAuth(`/api/actors/${actor.id}/roll`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', ...(typeof actor.worldContextRevision === 'number'
+                    ? { 'X-SheetDelver-Context-Revision': String(actor.worldContextRevision) } : {}) },
                 body: JSON.stringify({ type, key, options: rollOptions }),
             });
             const data = await res.json();

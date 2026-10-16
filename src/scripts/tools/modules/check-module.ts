@@ -20,6 +20,7 @@ import {
 } from './build-config';
 import { compileModuleTailwind, probeTailwindUtilityCount } from './tailwind-compile';
 import { requireModuleId } from '../../../shared/security/moduleId';
+import { discoverMigrations } from '../../../modules/registry/migrations/catalog';
 
 // Build configuration is shared with package-module.ts via ./build-config so
 // validation and packaging can never drift (ADR-0027 decision 29).
@@ -805,6 +806,8 @@ function loadModuleContext(moduleId: string, options: ModuleCheckOptions = {}): 
     const shape = validateModuleInfoShape(rawInfo);
     if (shape.valid) {
         pass(ctx, 'info.json shape valid');
+        try { if (discoverMigrations(modulePath, ctx.info, true)) pass(ctx, 'migration catalog and source hooks valid'); }
+        catch (error) { fail(ctx, 'manifest', `Migration catalog invalid: ${error instanceof Error ? error.message : String(error)}`); }
     } else {
         for (const error of shape.errors) fail(ctx, 'manifest', error);
     }

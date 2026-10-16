@@ -37,6 +37,10 @@ import {
 } from './releaseHistory';
 
 export interface PublicModuleReleaseInput {
+    planId?: string;
+    idempotencyKey?: string;
+    backupAcknowledged?: boolean;
+    administrator?: string;
     manifestUrl: string;
     expectedModuleId: string;
     expectedVersion?: string;
@@ -49,6 +53,7 @@ export interface PublicModuleReleaseInput {
 }
 
 export interface PublicModuleReleaseSummary {
+    migrations?: ModuleReleaseManifest['migrations'];
     moduleId: string;
     version: string;
     manifestUrl: string;
@@ -59,6 +64,7 @@ export interface PublicModuleReleaseSummary {
 }
 
 export interface DryRunPublicModuleReleaseResult {
+    migration?: DryRunLocalModuleArchiveResult['migration'];
     success: true;
     operation: 'dry-run-install' | 'dry-run-upgrade';
     wouldProceed: boolean;
@@ -231,6 +237,7 @@ async function acquirePublicRelease(
         archivePath,
         manifest,
         summary: {
+            ...(manifest.migrations ? { migrations: manifest.migrations } : {}),
             ...summary,
             artifactUrl: artifactResponse.finalUrl,
             archiveSize: artifactResponse.body.length,
@@ -274,6 +281,7 @@ export async function inspectPublicModuleRelease(
         manifest,
         summary: {
             moduleId: expectedModuleId,
+            ...(manifest.migrations ? { migrations: manifest.migrations } : {}),
             version: manifest.module.version,
             manifestUrl,
             artifactUrl,
@@ -388,6 +396,8 @@ export function resolvePublicModuleReleaseTarget(
 
 function archiveInput(input: PublicModuleReleaseInput, acquired: AcquiredPublicRelease) {
     return {
+        planId: input.planId, idempotencyKey: input.idempotencyKey,
+        backupAcknowledged: input.backupAcknowledged, administrator: input.administrator,
         archivePath: acquired.archivePath,
         expectedModuleId: acquired.summary.moduleId,
         releaseManifest: acquired.manifest,
@@ -424,6 +434,7 @@ export async function dryRunPublicModuleRelease(
             release: acquired.summary,
             archive: preview.archive,
             governance: preview.governance,
+            migration: preview.migration,
         };
     } catch (error) {
         return {

@@ -1,0 +1,62 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { getDistArchivesDir, getModulesDataDir } from '@core/paths';
+import { discoverMigrations, migrationDirectoryDigest } from '@modules/registry/migrations/catalog';
+import { packageMigrations } from '@modules/registry/migrations/compile';
+import type { SystemModuleInfo } from '@modules/registry/core/types';
+import type { UpgradeCandidate } from './ModuleUpgradeCoordinator';
+import { ModuleSourceCategory } from '@shared/types/modules';
+import { getModuleLifecycleState, switchModuleSource } from '@modules/registry/server';
+import { createHostUpgradeCoordinator, getUpgradeJournal } from './ModuleUpgradeService';
+import { getDefaultLifecycleStateFilePath } from '@modules/registry/lifecycle/lifecycle';
+import { getDefaultArtifactStoreFilePath } from '@modules/registry/distribution/artifactStore';
+import { validateModuleInfoShape, evaluateModuleCompatibility } from '@modules/registry/lifecycle/validation';
+import { getCoreVersion } from '@modules/registry/core/internals';
+
+/** Core-owned compiled snapshot. Author source directories are never rewritten. */
+export async function prepareSourceCandidate(directory: string, info: SystemModuleInfo, category: 'local' | 'managed'): Promise<UpgradeCandidate> {
+    if (!validateModuleInfoShape(info).valid || !evaluateModuleCompatibility(info, getCoreVersion()).compatible) throw new Error('Source manifest/host compatibility checks failed');
+    const catalog = discoverMigrations(directory, info, category === 'local');
+    if (!catalog) throw new Error('Source has no declared migration catalog');
+    const sourceDigest = migrationDirectoryDigest(directory);
+    const staging = getDistArchivesDir(); fs.mkdirSync(staging, { recursive: true });
+    const root = fs.mkdtempSync(path.join(staging, '.source-upgrade-'));
+    try {
+        await packageMigrations(directory, root, info);
+        fs.writeFileSync(path.join(root, 'info.json'), JSON.stringify(info));
+        if (migrationDirectoryDigest(directory) !== sourceDigest) throw new Error('Source changed while compiling migration snapshot');
+        return { moduleId: info.id, version: info.version ?? '', info, root,
+            artifactDigest: migrationDirectoryDigest(root), sourceDirectory: directory, sourceDigest, sourceCategory: category };
+    } catch (error) { fs.rmSync(root, { recursive: true, force: true }); throw error; }
+}
+export async function previewModuleSource(moduleId: string, category: 'local' | 'managed') {
+    const record = getModuleLifecycleState().find(row => row.moduleId === moduleId);
+    const directory = category === 'local' ? record?.localDirectory : record ? path.join(getModulesDataDir(), moduleId) : undefined;
+    if (!directory) throw new Error('Selected source is unavailable');
+    const info = JSON.parse(fs.readFileSync(path.join(directory, 'info.json'), 'utf8')) as SystemModuleInfo;
+    const candidate = await prepareSourceCandidate(directory, info, category);
+    const preview = await createHostUpgradeCoordinator().preview(candidate);
+    getUpgradeJournal().saveSourceCandidate(preview.id, candidate);
+    return preview;
+}
+export async function applyModuleSource(planId: string, administrator: string, backupAcknowledged: boolean) {
+    const candidate = getUpgradeJournal().sourceCandidate(planId);
+    if (!candidate.sourceDirectory || migrationDirectoryDigest(candidate.sourceDirectory) !== candidate.sourceDigest) throw new Error('Source changed; rerun preview');
+    const journal = getUpgradeJournal();
+    return createHostUpgradeCoordinator({
+        promote: async job => {
+            job.registryBackups = [getDefaultLifecycleStateFilePath(), getDefaultArtifactStoreFilePath()]
+                .map(file => ({ path: file, contents: fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null }));
+            job.targetDirectory = candidate.sourceDirectory;
+            job.fileTransition = 'intent'; journal.save(job);
+            const category = candidate.sourceCategory === 'local' ? ModuleSourceCategory.Local : ModuleSourceCategory.Managed;
+            const result = switchModuleSource(candidate.moduleId, category, () => {
+                journal.assertLease(job);
+                if (migrationDirectoryDigest(candidate.sourceDirectory!) !== candidate.sourceDigest) throw new Error('Approved source changed');
+            });
+            if (!result.success) throw new Error(result.error);
+            job.fileTransition = 'registered'; journal.save(job);
+        },
+        restart: () => {},
+    }).approve(candidate, { planId, idempotencyKey: planId, administrator, backupAcknowledged });
+}

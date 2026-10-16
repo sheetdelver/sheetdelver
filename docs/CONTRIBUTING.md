@@ -10,8 +10,8 @@ Welcome to **SheetDelver**! We appreciate your interest in contributing to this 
 - A dedicated Foundry service account with the full **Gamemaster** role in each
   target world; Assistant Gamemaster is insufficient for Core.
 
-The connection-wide role gate is planned in ADR-0064, not implemented in Core
-0.18.1. See [configuration and recovery](CONFIGURATION.md#service-account-role-and-recovery).
+The connection-wide role gate is implemented in the unreleased ADR-0064 work,
+not published Core 0.18.1. See [configuration and recovery](CONFIGURATION.md#service-account-role-and-recovery).
 Player/Assistant test subjects remain separate accounts; their permissions are
 not raised to match Core's service account.
 
