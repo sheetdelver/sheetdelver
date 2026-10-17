@@ -38,6 +38,19 @@ not raised to match Core's service account.
     ```
     Open [http://localhost:3000](http://localhost:3000) in your browser.
 
+### Clean-checkout configuration generation
+
+The ignored `.managed/` directory contains generated TypeScript aliases, the
+module UI registry and PostCSS configuration. Run `npm run managed:generate`
+before standalone type checks or tests in a clean checkout; CI does this after
+installing dependencies. `npm run build` also generates these files.
+
+These two commands must not import runtime maintenance recovery before aliases
+exist, restore pending migration jobs or start services. Recovery is loaded only
+by runtime startup, before Core/Next launch. The managed-bootstrap regression
+executes the real generator in a temporary workspace without `.managed/` and
+verifies that an existing migration journal remains untouched.
+
 ### Next development synchronization correction
 
 For pinned Next 16.3.8, `npm run dev` prepares the dependency before starting

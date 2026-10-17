@@ -7,6 +7,7 @@ import { run as runFoundryUrl } from './utils/foundry-url.test';
 // ── runtime ──────────────────────────────────────────────────────────────────
 import { run as runFullStackRestart } from './runtime/full-stack-restart.test';
 import { run as runNextDevHmr } from './runtime/next-dev-hmr.test';
+import { run as runManagedBootstrap } from './runtime/managed-bootstrap.test';
 import { run as runServerFileLogger } from './observability/server-file-logger.test';
 
 // ── documentation ─────────────────────────────────────────────────────────────
@@ -184,6 +185,7 @@ async function runAllUnitTests() {
     runFoundryUrl();
     runFullStackRestart();
     runNextDevHmr();
+    runManagedBootstrap();
     runServerFileLogger();
     runAdrMetadata();
     await runSensitiveFilePermissions();

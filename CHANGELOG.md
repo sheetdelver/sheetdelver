@@ -8,6 +8,7 @@
 - Recovered durable approval interruptions
 - Corrected pack access and indexing
 - Surfaced source-bound migration attention
+- Fixed clean bootstrap generation
 
 ## 0.19.0
 
