@@ -458,9 +458,15 @@ terminated before activation. [Maintenance runtime](MAINTENANCE_RUNTIME.md)
 defines the producer/owner map, exclusive leases, shell, journal upgrade and
 workflow. SDK 3.4.0/module-api 1.6.0 add bounded relation declarations; application
 release metadata remains 0.19.0. C64-A–H/native/user review are not closed.
-The [independent review](adr/0064-module-world-context-and-data-migrations.md#independent-complete-maintenance-review--october-17-2026) requires CR64-14–17 before native
-acceptance: consistent exact readback, drain-state enforcement on cancellation,
-scalable durable legacy plans and a fresh final bootstrap revision fence.
+The [independent review](adr/0064-module-world-context-and-data-migrations.md#independent-complete-maintenance-review--october-17-2026) identified CR64-14–17. The corrective
+tree now uses shared exact single/batch readback and fresh receipts, durable drain
+enforcement on all maintenance exits, content-addressed paged plan/dependency
+storage and final post-worker bootstrap revision/authority fencing. Admin retry
+uses SystemService's recovery/readiness event path. Public review omits internal
+dependency proofs but preserves every target/patch and exact logical digest.
+Existing inline journals import losslessly; originals, receipts and historical
+approvals remain retained. These are Core changes, not module workarounds or a
+release-version bump. Native/user gates and the module hold remain open.
 
 Migration execution belongs to the Core admin upgrade coordinator. A module
 keeps requirements in a root `migration.json` catalog and native-version directories

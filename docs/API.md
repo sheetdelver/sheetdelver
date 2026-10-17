@@ -1198,9 +1198,9 @@ Released 0.19.0 supplies SDK 3.3.0/module-api 1.5.0/UI 3.2.0. The corrective
 tree supplies SDK 3.4.0/module-api 1.6.0 for bounded migration relations; UI is
 unchanged. No supporting application release is assigned yet. See
 [compatibility and adoption](MODULE_MIGRATIONS.md#compatibility-and-adoption).
-The [independent review](adr/0064-module-world-context-and-data-migrations.md#independent-complete-maintenance-review--october-17-2026) records open CR64-14–17;
-maintenance cancellation, large legacy-plan review and final readiness require
-correction before these unreleased workflows are accepted.
+The [independent review](adr/0064-module-world-context-and-data-migrations.md#independent-complete-maintenance-review--october-17-2026) identified CR64-14–17. Corrective
+implementation and isolated acceptance cover cancellation drain proof, complete
+large legacy-plan review and fresh final readiness; native/user gates remain open.
 
 | Surface | Contract |
 | --- | --- |
@@ -1221,6 +1221,15 @@ correction before these unreleased workflows are accepted.
 | `POST /admin/module-maintenance/approve` | Exact authoritative `{planId,backupAcknowledged:true}` and authenticated administrator; process-owned job returns 202. |
 | `POST /admin/module-maintenance/resume` | Continue persisted unchanged approval after source/readback/lease checks, without expiring an executing job. |
 | `POST /admin/module-maintenance/cancel` | Stop scheduling; before writes restore validated prior files, after possible writes retain maintenance/recovery; no undo. |
+
+Review projections include every planned target/path/patch and the exact logical
+approval digest; server-internal `operations[].dependencies`/`effects` proofs are
+not transmitted. Durable storage layout is private, not a module contract.
+Cancellation does not bypass an unknown ordinary-send outcome: durable
+`drained:true` is required even before native reconnect/planning. Rejected async
+cancellation retains the lease and recovery diagnostic;202 is acceptance of work,
+not completion. Admin preparation retry uses the normal lifecycle readiness event
+and may finish a freshly verified activation, never authorize a new repair.
 
 During maintenance, legacy mutation endpoints above return 503 rather than
 bypassing composition isolation. Use the controller routes. Ordinary player,

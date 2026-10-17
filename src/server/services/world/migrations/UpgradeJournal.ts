@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { ensureOwnerOnlyDirectorySync, writeOwnerOnlyFileAtomicSync } from '@core/paths';
 import { sourceHash, type MigrationWorldPlan } from './planner';
 import type { UpgradeCandidate } from './ModuleUpgradeCoordinator';
+import { MigrationPlanStorage, readLegacyMigrationJson } from './MigrationPlanStorage';
 
 export type UpgradePhase = 'planned' | 'quiescing' | 'installing' | 'restarting' | 'migrating' | 'verifying'
     | 'recovery-required' | 'completed' | 'cancelled';
@@ -50,10 +51,12 @@ export interface UpgradeJob extends UpgradePreview {
 
 /** Owner-only, fsync-before-send records outside evictable/module caches. */
 export class UpgradeJournal {
+    private readonly plans: MigrationPlanStorage;
     private cached = new Map<string, { stamp: string; base: UpgradeJob; outcomes: UpgradeJob['outcomes']; offset: number; metadata: string }>();
     constructor(readonly root: string, readonly lockRoot = path.join(root, 'leases')) {
         ensureOwnerOnlyDirectorySync(root);
         ensureOwnerOnlyDirectorySync(lockRoot);
+        this.plans = new MigrationPlanStorage(path.join(root, 'plan-content'));
     }
     private file(kind: 'plans' | 'jobs', id: string): string {
         if (!/^[a-zA-Z0-9-]{1,128}$/.test(id)) throw new Error('Invalid upgrade record identity');
@@ -79,12 +82,26 @@ export class UpgradeJournal {
         const descriptor = fs.openSync(this.lockRoot, 'r');
         try { fs.fsyncSync(descriptor); } finally { fs.closeSync(descriptor); }
     }
-    savePreview(preview: UpgradePreview): void { this.durableWrite(this.file('plans', preview.id), preview); }
-    private read(file: string): unknown {
+    savePreview(preview: UpgradePreview): void { this.durableWrite(this.file('plans', preview.id), { ...preview, plan: this.plans.save(preview.plan) }); }
+    private read(file: string, migration = false): unknown {
         const stat = fs.lstatSync(file);
-        if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 32 * 1024 * 1024) throw new Error('Invalid or oversized upgrade journal record');
-        const value: unknown = JSON.parse(fs.readFileSync(file, 'utf8'));
+        if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 32 * 1024 * 1024 && !migration) throw new Error('Invalid or oversized upgrade journal record');
+        const legacyOversized = stat.size > 32 * 1024 * 1024;
+        const value = legacyOversized ? readLegacyMigrationJson(file) : JSON.parse(fs.readFileSync(file, 'utf8'));
         if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid upgrade record');
+        if (migration) {
+            if (legacyOversized) {
+                this.validatePreview(value);
+                const reference = this.plans.save(value.plan);
+                this.plans.load(reference); // verify the complete logical approval before conversion
+                const backup = `${file}.legacy-inline`;
+                if (!fs.existsSync(backup)) { fs.copyFileSync(file, backup, fs.constants.COPYFILE_EXCL); fs.chmodSync(backup, 0o600);
+                    const fd = fs.openSync(backup, 'r'); try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); } }
+                this.durableWrite(file, { ...value, plan: reference });
+                value.plan = reference;
+            }
+            value.plan = this.plans.load(value.plan);
+        }
         return value;
     }
     private validatePreview(value: UpgradePreview): UpgradePreview {
@@ -94,7 +111,7 @@ export class UpgradeJournal {
             || !value.stepDigests || ![value.artifactDigest, value.treeDigest, value.catalogDigest, value.plan.digest].every(digest => /^sha256:[a-f0-9]{64}$/.test(digest))) throw new Error('Invalid upgrade preview schema');
         return value;
     }
-    preview(id: string): UpgradePreview { return this.validatePreview(this.read(this.file('plans', id)) as UpgradePreview); }
+    preview(id: string): UpgradePreview { return this.validatePreview(this.read(this.file('plans', id), true) as UpgradePreview); }
     saveSourceCandidate(id: string, candidate: UpgradeCandidate): void { this.durableWrite(this.file('plans', `${id}-source`), candidate); }
     sourceCandidate(id: string): UpgradeCandidate {
         const value = this.read(this.file('plans', `${id}-source`)) as UpgradeCandidate;
@@ -125,7 +142,7 @@ export class UpgradeJournal {
         // approval IDs namespace receipts, so reapproval never erases history.
         const metadata = this.metadata(job);
         if (!cached || inlineLegacy || cached.metadata !== metadata) {
-            this.durableWrite(file, { ...job, outcomes: {}, receiptSchema: 1 });
+            this.durableWrite(file, { ...job, plan: this.plans.save(job.plan), outcomes: {}, receiptSchema: 1 });
             this.cached.delete(job.jobId);
         }
         // Read the fsynced receipt tail once. Subsequent checks reuse immutable
@@ -137,7 +154,7 @@ export class UpgradeJournal {
         const stamp = `${stat.ino}:${stat.mtimeMs}:${stat.size}`;
         let cached = this.cached.get(id);
         if (!cached || cached.stamp !== stamp) {
-            const base = this.validatePreview(this.read(file) as UpgradeJob) as UpgradeJob;
+            const base = this.validatePreview(this.read(file, true) as UpgradeJob) as UpgradeJob;
             const freeze = (value: unknown): void => { if (!value || typeof value !== 'object') return; Object.values(value).forEach(freeze); Object.freeze(value); };
             freeze(base.plan);
             cached = { stamp, base, outcomes: structuredClone(base.outcomes), offset: 0,

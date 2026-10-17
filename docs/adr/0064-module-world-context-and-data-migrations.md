@@ -1,10 +1,10 @@
 # Core ADR-0064: Module World Context and Data Migrations
 
-**Status:** Accepted/open — CR64-09–13 implementation has substantial isolated evidence; independent review confirms open Core corrections CR64-14–17. Correct those before fresh complete-maintenance native v13/v14 acceptance. All module work remains held until C64-A–H pass and are reviewed. Core 0.19.0 and earlier native results remain historical evidence within their scope.
+**Status:** Accepted/open — CR64-09–17 have Core implementation and isolated acceptance evidence; independent review confirms CR64-14–17 corrected with no new confirmed Core blocker in the reviewed scope. Fresh complete-maintenance native v13/v14 acceptance and user/release review remain pending. All module work remains held until C64-A–H pass and are reviewed. Core 0.19.0 and earlier native results remain historical evidence within their scope.
 **Date:** October 16, 2026
 **Related:** Core ADR-0021, ADR-0027, ADR-0028, ADR-0038, ADR-0056, ADR-0057, ADR-0063; Shadowdark module ADR-0001
 
-Current disposition: [independent complete-maintenance review](#independent-complete-maintenance-review--october-17-2026), following the [implementation checkpoint](#complete-maintenance-implementation-and-isolated-acceptance--october-17-2026).
+Current disposition: [CR64-14–17 independent confirmation](#cr64-1417-independent-confirmation--october-17-2026), following the [corrective implementation](#cr64-1417-corrective-implementation--october-17-2026), the [independent complete-maintenance review](#independent-complete-maintenance-review--october-17-2026) and [implementation checkpoint](#complete-maintenance-implementation-and-isolated-acceptance--october-17-2026).
 
 The [independent Core review](#independent-core-review--october-16-2026) of
 `5013e86` supersedes the implementation checkpoint's completion implications.
@@ -2561,3 +2561,252 @@ No application/module release bump, Git write, remote operation or new native
 write is authorized by this review. Once Core corrections pass review, obtain the
 previously specified fresh disposable-world scope and backup acknowledgement for
 native v13/v14. All module work remains held until the existing release gate is met.
+
+## CR64-14–17 corrective implementation — October 17, 2026
+
+This follow-up qualifies, rather than erases, the independent review above. The
+existing implementation/tests/review annotations and original documentation were
+checkpointed with explicit user approval before corrections. The then-current ADR
+was saved byte-for-byte (199847 bytes, SHA256
+`a14547356e59179923536305552075d4fba4928eb6cea867e2d68614b7cfc2c4`);
+the local handoff records its snapshot location and checkpoint SHA. Subsequent
+corrections remain uncommitted. Application/lock version stays0.19.0; the existing
+SDK3.4/module-api1.6 development changes are preserved. No module checkout or
+native Foundry instance was inspected/modified for this pass.
+
+### Implemented corrections and tracked regressions
+
+| Finding | Correction | Failing-before → passing-after evidence |
+| --- | --- | --- |
+| CR64-14 | Single and native-batch readback share an exact approved-source comparison; only existing native `_stats` normalization is ignored. Snapshot/authority/lease freshness precedes receipt confirmation. Mismatch retains intent and recovery, never automatic undo/replay. | `complete-maintenance.test.ts`: single unrelated flag mutation formerly completed; now rejects with no activation/false receipt. Covers51-target batch tail, stale readback, permitted metadata and successful single/batch writes. |
+| CR64-15 | Durable drain proof guards cancellation, planning, approval, resume and activating/serving persistence. Unsafe historical exit records select restricted composition. Diagnostic text is not authority; unknown outcomes retain lease/recovery. Legacy restoration is service-owned and only uses historically persisted post-drain evidence, not process exit. | Same suite: cold cancellation without/with changed failure text formerly restarted normal serving; now refuses all variants and retains lease. Proven cancellation succeeds. Direct unsafe exit persistence and cold composition are checked. |
+| CR64-16 | Immutable SHA-256 content blocks, paged lists and dependency deltas replace repeated inline plan storage. Exact complete logical digest and membership remain unchanged. Review projections omit internal dependency/effect proofs, not targets/patches. | Same suite:360-operation/39167783-byte logical preview formerly saved then failed its own read; now saves/reloads completely. Oversized old inline preview **and job** import losslessly with retained originals/outcomes; restarted readers reject tampered blocks. |
+| CR64-17 | Final installed/bootstrap worker results are followed by snapshot and authority assertions before readiness/publication. Admin preparation retry uses the existing SystemService recovery facade/readiness event. | `adr0064-corrections.test.ts`: deterministic async-worker interleaving formerly released the gate after a source revision changed; now rejects at post-preparation-source-check and a fresh retry succeeds. Public acceptance also caught/fixed retry failing to finish activation despite valid preparation. |
+
+The four correctness regressions were first run against the authorized checkpoint
+and failed with their documented expected-behavior assertions (missing rejection
+for14/15/17; oversized saved record for16). Scratch probes are not counted as
+corrected-behavior coverage. Existing artifact/history checks, caller-bound
+dispatch, intent fsync, dependency conflicts and uncertain-write reconciliation
+remain in force. No logical approval, catalog or module input was relaxed.
+
+### Complete isolated host verification
+
+Tracked runner: `src/tests/acceptance/adr0064-supervised.test.ts --run-isolated`.
+It copies Core into task-owned configuration/data, uses controlled loopback
+upstreams, actual manager/Core/Next replacement, public admin HTTP, packaged hooks
+and an independent source oracle. It never uses root production settings or a
+native endpoint. Add these flags for the affected cases:
+
+- No extra flags: successful one-operation migration through verified serving.
+- `--complete-matrix --inventory=51,0`:166 writes, including the first Actor
+  group's50+1 batch tail, complete source comparison and stale-client rejection.
+- `--unexpected-readback`: native fixture changes a flag outside the sole patch;
+  recovery retains intent, ordinary access stays503, resume does not replay and
+  there is no undo. Only explicit changed-source review and new backup-acknowledged
+  approval completes the already-current source without another write.
+- `--complete-matrix --inventory=2,1 --unknown-drain`: an ordinary player's native
+  send remains outstanding; kill only its task-owned normal watcher group, hold
+  upstream unavailable, then cancel through public HTTP before reconnect/planning.
+  All three diagnostic variants retain recovery, both leases and closed admission;
+  no normal shell is restarted and no migration write is sent. This correctly
+  stopped scenario is **not** counted as a completed migration.
+- `--complete-matrix --inventory=2,1 --cancel-review`: proven pre-write cancellation
+  completes normal fresh serving with zero writes and the independent source match.
+- `--readiness-race`: an acceptance-only async-worker observer signals the
+  external fixture to send native Actor observations during final computation.
+  It replaces no host callback. Final activation and reconnect both block stale
+  readiness/publication, expose post-preparation diagnostics, then complete fresh
+  public admin retry without new repair approval.
+- Add `--readiness-bootstrap` to the small proven-cancellation case: the same
+  observation/fresh recovery is verified on initially current cold bootstrap.
+- `--complete-matrix --legacy-writes --inventory=36,30 --recover-writes`: complete
+  legacy broad-read effect catalog, not a relations rewrite. Review/approval,
+  lost receipt after write7, public resume, forced Core termination after a
+  confirmed prefix, automatic same-approval continuation, read-only preparation,
+  final verification and fresh normal serving complete without duplicate writes.
+  It covers360 Actor/Item effects plus3 loose/delta effects; pack sources, source
+  identities, unknown fields, null deltas and tombstones remain unchanged.
+
+The first complete legacy run recorded363writes,3894source reads,843130324wire
+bytes,242856ms elapsed,39615948logical plan bytes,150291review bytes and843419
+journal bytes. Sampled status maximum90ms; peak Core RSS2815212KiB (2.68GiB).
+At100CPU ticks/second the last samples per Core incarnation totaled257.96CPU
+seconds; sampled read/write character totals were905325729/8289170bytes. These
+are sampled process counters, not physical disk traffic or a hardware guarantee.
+Existing inline imports retain their large original backup in addition to compact
+blocks; the compact new-job measurement does not imply those backups disappear.
+Full logical plan materialization/hook inputs still incur memory/CPU cost with
+broad read sets. Do not infer small-host capacity from durable compression.
+
+The final-tree repeat completed the same363writes/source oracle with the same
+logical/review/journal sizes and3894reads/843130324wire bytes:271406ms elapsed,
+peak2883000KiB Core RSS (2.75GiB),sampled status maximum150ms,264.04sampled
+CPU seconds,909773439read characters and8277045write characters. Timing reflects
+concurrent validation load; counters cover task-owned Core incarnations, not
+the manager/Next/browser or unsampled process startup/exit work.
+
+The original30/900/300 complete source matrix was rerun:1243writes,192265ms,
+837049logical plan bytes,372727review bytes,2045164journal bytes,peak1382608KiB
+Core RSS. Its eight320/390/820/1440 light/dark maintenance captures were visually
+inspected: readable wrapping, bounded scrolling review, distinct backgrounds,
+no horizontal viewport overflow or button overlap. Browser checks retained
+keyboard/Escape, backup-disabled approval, actual browser approval and first-token
+mutation fencing. Wall time includes browser work and concurrent offline checks;
+the old earlier isolated measurements remain valid historical evidence.
+
+The final larger60/2400/720 run also completes:3193unique writes,4900reads,
+248524222wire bytes,389533ms elapsed,2134869logical plan bytes,946637review
+bytes,5228942journal bytes,peak2786180KiB Core RSS and135.24sampled CPU seconds.
+The sampled status maximum is2778ms under concurrent validation load, not a
+subsecond responsiveness promise. Original/larger tests both compare complete
+expected source/UUID inventories and verify ordinary503 access during preparation,
+admin continuity, closed native user transports and stale mutation409 afterward.
+
+### Final verification and cleanup
+
+All required commands exit0 on the corrective tree:
+
+- `npm run test:unit` (includes SDK/catalog/packaging contracts, existing native
+  pack policy, legacy import UTF-8/escapes, malformed encoding/JSON/depth and
+  prototype-key safety).
+- `npm run test:client`.
+- `npm run test:integration` (existing lifecycle/host boundaries,19 corrective
+  cases and15 complete-maintenance cases, including all four new findings).
+- `npx tsc --noEmit --incremental false`.
+- `npm run lint`.
+- `git diff --check`.
+
+Public/supervisor runs above exit0; complete source comparisons are independent
+of migration hooks. They supplement, not replace, tracked correctness regressions.
+All test services are stopped. An orphan dev watcher from the incomplete first
+unknown-drain trial was identified by its exact task-owned process group/workspace
+and stopped; the final listener/process inspection finds no retained acceptance
+service. Pre-existing Foundry30000/PID1274293 was not contacted or stopped.
+Ignored evidence remains local; the implementation, tests and self-contained
+contract/documentation changes remain uncommitted for user review.
+
+### Current gate disposition
+
+| Gate | Current disposition |
+| --- | --- |
+| C64-A | Lifecycle/contract inventory retained; drain and final-readiness invariants implemented. |
+| C64-B | Actual normal-worker isolation retained; unknown-drain exit refused and proven cancellation completes. |
+| C64-C | Complete source/relations coverage retained; exact single/batch confirmation corrected. |
+| C64-D | Complete write-bearing legacy plan now survives durable review/restart/execution beyond32MiB; memory costs explicitly recorded. |
+| C64-E | Intent, uncertain acknowledgement, changed-source approval and no-replay recovery verified through completion. |
+| C64-F | Public HTTP/rendered/permission evidence retained; this pass adds actual exit/readiness races, not native generation proof. |
+| C64-G | **Pending:** fresh disposable native v13/v14 complete-maintenance acceptance. |
+| C64-H | **Pending:** user review, native evidence and supporting-release/hold-release decision. |
+
+The ADR stays open. All module work (including G8, catalog activation, RV-08 and
+dependent publication) stays held. Native acceptance requires separately identified
+disposable v13/v14 endpoints/world IDs and scoped account/Actor/Item/effect/delta/
+world-pack writes, backup-warning acknowledgement and recorded-ID cleanup.
+Historical permission/results and the existing port30000 listener are not fresh
+authorization. No world backup/undo, native lockout or published supporting release
+is implied. Public API, architecture, migration, authoring and runtime guides
+describe the corrective contract independently of ignored reports.
+
+
+## CR64-14–17 independent confirmation — October 17, 2026
+
+**Disposition:** CR64-14–17 are independently confirmed corrected on the current
+uncommitted tree above checkpoint `6a2f1b3bd8af49fc8e9321a10ed374b5ae9aa696`, on
+`fix/adr-0064-complete-maintenance`. No new confirmed Core blocker was identified
+in the reviewed changes. C64-A–F retain their qualified isolated evidence; the
+next substantive acceptance work is native v14 and v13 under C64-G. C64-H, release
+approval and the module-work hold remain open. This is not native sign-off or a
+guarantee against external interruption/resource exhaustion.
+
+Before these annotations, the complete current ADR was saved and byte-compared:
+`temp/adr-snapshots/0064-before-cr64-14-17-independent-confirmation-20261017.md`,
+211316 bytes, SHA-256
+`a5d1a6d564561b7c361135f3bf34daff8c1b1155315f1d8521e5010014401f80`.
+The reviewer changed documentation and ignored review resources only. Implementation,
+module repositories, release versions and Git history/index were not changed by
+this review. No native Foundry service was contacted.
+
+### Independently verified corrections
+
+| Finding | Review and fresh verification |
+| --- | --- |
+| CR64-14 | Single/batch paths share exact normalized expected-source comparison and revalidate before confirmation. Repeating the original unexpected-flag probe now retains intent/recovery, performs no activation and does not undo the changed source. Tracked one-operation-tail, freshness and native-metadata cases pass. |
+| CR64-15 | Durable drain proof is enforced independently of diagnostic wording, including persisted exits and cold composition selection. Repeating the original cancel-before-reconnect probe requests zero normal restarts, retains its lease and records recovery. Tracked message variants and proven cancellation pass. |
+| CR64-16 | The original36/1080/360 legacy write-bearing plan saves and reloads through a new journal instance. A deep comparison confirms every logical field, operation and dependency is unchanged, not merely the operation count/digest. The39,167,891-byte logical preview uses a698-byte preview reference; referenced content blocks are additional disk storage. Full legacy import, old outcomes, malformed encoding and tampered-content regressions pass. |
+| CR64-17 | The original source-regression/observation probe now rejects after the final worker, keeps the gate closed and exposes the post-preparation diagnostic. The deterministic tracked case permits a fresh valid retry. Fresh real-supervisor acceptance also verifies normal activation and reconnect both block stale results and recover through the public admin retry. |
+
+The reviewer inspected the recorded failing-before assertions: missing expected
+rejection for14/15/17 and oversized-journal rejection for16, consistent with the
+original independent reproductions. The full unit, client and integration suites
+were then independently rerun and passed, including19 corrective and15
+complete-maintenance cases. TypeScript (`--noEmit --incremental false`), ESLint
+and whitespace checks also passed. Logs and the rerun original reproductions are
+in `temp/adr0064-correction-review/`; the durable findings and acceptance criteria
+remain in this ADR, not only in ignored scripts.
+
+Fresh isolated supervisor command:
+
+```sh
+node --import tsx src/tests/acceptance/adr0064-supervised.test.ts --run-isolated --readiness-race
+```
+
+It passed with actual manager/Core/Next replacement, one completed migration
+write, two externally observed final-computation races (activation and reconnect),
+blocked stale readiness followed by successful public retry, admin200/player503
+during preparation and stale-client mutation409 after activation. It ran in a
+copied workspace with a fake loopback upstream; evidence explicitly records
+`native: false`. Evidence root: `/tmp/sd-cr64-supervised-jI0IQD` (18.578seconds).
+All task-owned services exited, and process inspection found no retained review
+service. The pre-existing Foundry listener was untouched.
+
+### Retained whole-host evidence and qualifications
+
+The reviewer inspected the current implementation's retained whole-host evidence
+and compared changed production source files with the copied workspaces. The final
+legacy run `9ti9WQ`, large run `TWe9yE`, original matrix `VYnIsI`, unexpected-readback
+`XSdsUE`, unknown-drain `YbrJYG`, batch-tail `wTtA6u`, readiness `5BvxGE` and cold
+bootstrap/cancellation `xgXn3B` match the reviewed production changes. Some test
+files changed afterward; these runs are retained implementation evidence rather
+than new executions by this reviewer. Earlier single/cancellation runs used
+intermediate source revisions, so the later matching runs and fresh supervisor
+run supply the relevant final-path evidence.
+
+The final legacy metrics recompute from the evidence:363 unique writes with the
+independent source oracle,39,615,948 logical plan bytes,150,291 review bytes,
+843,419 journal bytes,271.406seconds,2.749GiB peak Core RSS and264.04sampled CPU
+seconds. Sampled read/write characters are909,773,439/8,277,045bytes. The larger
+matrix records3,193 unique writes and2.657GiB peak Core RSS. These values agree
+with the implementation report within rounding. This review did not rerun those
+large supervisor scenarios; the fresh original legacy plan and full suite runs
+provide separate current-tree verification.
+
+Two retained rendered captures were visually sampled (320px light and1440px dark):
+wrapping, bounded scroll area and controls remain visible. This is not a claim
+that the reviewer repeated all eight rendered/operator checks. The shell exposes
+technical JSON review; final operator acceptance must establish that the actual
+world/target/patch review is understandable in use, in addition to layout checks.
+No new UI defect or additional implementation gate is declared by this observation.
+
+### Remaining work and next-step guidance
+
+Proceed to the existing native C64-G matrix, not another generic offline edge-case
+pass. Obtain the identified disposable v14 world/endpoint/build and scoped fixture,
+account/pack/delta writes and cleanup approval plus backup acknowledgement; then
+repeat for v13. Use the Core-owned generic fixture and independent source baseline,
+real public upgrade/recovery workflow, native permissions/pack/delta behavior,
+representative inventory and recorded-ID cleanup already specified above.
+
+Record memory and timing on the actual test host. Paged durable storage reduces
+journal/review size, while the complete plan and broad-reference hook inputs still
+consume substantial memory/CPU. A measured2.75GiB Core peak excludes other service
+processes and does not establish operation on a2GiB host. This is a resource
+qualification for native/release planning, not a reason to reintroduce inventory
+caps, whole-job deadlines or module-side workarounds.
+
+Keep ADR-0064 open and all module work held pending native evidence and user review.
+No new application release version is assigned: package/lock remains0.19.0 and
+SDK3.4/module-api1.6 remain development contracts. Preserve the journal-format
+rollback warning; unmodified0.19.0 cannot resume the new format. The authorized
+checkpoint is already committed; subsequent fixes and this review remain
+uncommitted for the user's next checkpoint/release decision.

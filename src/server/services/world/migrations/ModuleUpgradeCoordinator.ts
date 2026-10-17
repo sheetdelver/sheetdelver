@@ -198,15 +198,17 @@ export class ModuleUpgradeCoordinator {
                         throw new Error(`Migration batch acknowledgement uncertain: ${step.id}: native-send: ${batch[0].uuid} through ${batch.at(-1)!.uuid} (${batch.length} targets): ${migrationReason(error)}; inspect source before resuming`);
                     }
                     const after = await this.deps.snapshot(catalog, source, combined); this.assertWorld(job, after.world);
+                    const confirmed: UpgradeJob['outcomes'] = {};
                     for (let offset = 0; offset < batch.length; offset++) {
                         const row = batch[offset]; const actual = after.targets.find(target => target.uuid === row.uuid);
                         const expected = simulated.find(target => target.uuid === row.uuid)!;
-                        if (!actual || targetSourceHash(actual.source) !== targetSourceHash(expected.source)) throw new Error(`${step.id}: ${row.uuid}: batch readback differs from exact approved source`);
+                        this.assertExactReadback(step.id, row.uuid, actual, expected.source);
                         const verify = runHook<{ valid: boolean; reason?: string }>(step, 'verify', hookInput(after.world, actual, after.targets, step));
                         if (verify.valid !== true) throw new Error(`${step.id}: ${row.uuid}: verify: ${migrationReason(verify.reason || 'Post-write verification failed')}`);
-                        job.outcomes[`${index + offset}:${row.stepId}:${row.uuid}`] = { state: 'confirmed', before: row.sourceHash, post: sourceHash(actual.source) };
+                        confirmed[`${index + offset}:${row.stepId}:${row.uuid}`] = { state: 'confirmed', before: row.sourceHash, post: sourceHash(actual.source) };
                     }
-                    after.assertCurrent?.(); this.deps.journal.save(job); source = after;
+                    after.assertCurrent?.(); this.fence(job);
+                    Object.assign(job.outcomes, confirmed); this.deps.journal.save(job); source = after;
                     index += batch.length - 1;
                     this.deps.progress?.({ checked: index + 1, total: job.plan.operations.length, planned: job.plan.operations.length,
                         stepId: step.id, phase: 'migrating', confirmed: Object.values(job.outcomes).filter(row => row.state === 'confirmed').length,
@@ -245,6 +247,7 @@ export class ModuleUpgradeCoordinator {
                         && job.outcomes[`${index + 1 + offset}:${later.stepId}:${later.uuid}`]?.state === 'confirmed');
                     if ((verify.valid === true || outcome.state === 'confirmed' && superseded)
                         && sourceHash(currentInputs) === sourceHash(expectedInputs)) {
+                        source.assertCurrent?.(); this.fence(job);
                         job.outcomes[key] = { state: 'confirmed', before: outcome.before, post: sourceHash(target.source) };
                         this.deps.journal.save(job); continue;
                     }
@@ -270,9 +273,10 @@ export class ModuleUpgradeCoordinator {
                 const after = await this.deps.snapshot(catalog, source, operation);
                 this.assertWorld(job, after.world);
                 const actual = after.targets.find(row => row.uuid === target.uuid);
-                if (!actual) throw new Error(`${step.id}: ${target.uuid}: readback target unavailable`);
+                this.assertExactReadback(step.id, target.uuid, actual, expected);
                 const verified = runMigrationHook<{ valid: boolean; reason?: string }>(candidate.root, step, 'verify', hookInput(after.world, actual, after.targets, step));
                 if (verified.valid !== true) throw new Error(`${step.id}: ${target.uuid}: verify: ${migrationReason(verified.reason || 'Migration post-write verification failed')}`);
+                after.assertCurrent?.(); this.fence(job);
                 source = after;
                 job.outcomes[key] = { state: 'confirmed', before: operation.sourceHash, post: sourceHash(actual.source) };
                 this.deps.journal.save(job);
@@ -357,6 +361,11 @@ export class ModuleUpgradeCoordinator {
         const stable = (snapshot: Readonly<ModuleWorldSnapshot>) => ({ ...snapshot.identity, runtimeEpoch: 0, contextRevision: 0 });
         if (canonicalJson(stable(previous)) !== canonicalJson(stable(current)) || canonicalJson(previous.settings) !== canonicalJson(current.settings)) throw new Error('Approved world or rule inputs changed');
         this.fence(job);
+    }
+    private assertExactReadback(stepId: string, uuid: string, actual: MigrationTarget | undefined, expected: Record<string, unknown>): asserts actual is MigrationTarget {
+        if (!actual || targetSourceHash(actual.source) !== targetSourceHash(expected)) {
+            throw new Error(`${stepId}: ${uuid}: readback differs from exact approved source; preserve intent and review recovery`);
+        }
     }
     private fence(job: UpgradeJob): void {
         this.deps.journal.assertLease(job);

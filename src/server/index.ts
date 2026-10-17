@@ -16,7 +16,8 @@ import type { WorldLifecycleTransition } from '@server/core/world/WorldLifecycle
 import { configureServerFileLogging } from '@server/observability/ServerFileLogger';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
 import { restoreUpgradeMaintenance } from '@server/services/world/migrations/ModuleUpgradeService';
-import { acquireCoreRuntimeLease, enforceMaintenanceComposition, readMaintenanceMode, saveMaintenanceMode, maintenanceOnly, restoreLegacyMaintenanceMode } from '@server/core/world/MaintenanceMode';
+import { acquireCoreRuntimeLease, enforceMaintenanceComposition, readMaintenanceMode, saveMaintenanceMode, maintenanceOnly } from '@server/core/world/MaintenanceMode';
+import { restoreLegacyMaintenanceMode } from '@server/services/world/migrations/restoreMaintenanceMode';
 import { setNormalMaintenanceShutdown, enterMaintenance, drainNormalRuntime } from '@server/services/world/migrations/MaintenanceController';
 import { setCompatibilityMaintenanceHandler } from '@server/services/world/migrations/installedWorldCompatibility';
 import { requestFullStackRestart } from '@shared/runtime/fullStackRestart';

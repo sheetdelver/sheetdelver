@@ -35,6 +35,7 @@ import { createAdminAccount } from '@server/security/adminCredentialStore';
 import { adminSessionManager, createAdminSessionClaims } from '@server/security/adminSessionService';
 import { dispatchCoreMutation } from '@server/core/world/WorldWorkGate';
 import express from 'express';
+import { createHook } from 'node:async_hooks';
 import type { MigrationTarget } from '@shared/sdk/migrations';
 import type { WorldSettingDeclaration } from '@shared/sdk/world';
 import { fixture, world } from '../unit/world/module-world-migrations.test';
@@ -82,6 +83,26 @@ async function host(root: string) {
     moduleWorldContext.configure('http://offline.invalid:30000', world.identity, declarations);
     return { source, transport, data };
 }
+
+cases['CR64-17-final-readiness'] = async root => {
+    const { source } = await host(root); const authored = fixture(path.join(root, 'authored'));
+    const directory = path.join(root, 'modules/fixture'); fs.mkdirSync(directory, { recursive: true });
+    await packageMigrations(authored.root, directory, authored.info);
+    fs.writeFileSync(path.join(directory, 'info.json'), JSON.stringify({ ...authored.info, worldSettings: declarations }));
+    fs.writeFileSync(path.join(directory, 'logic.js'), 'export class Adapter {systemId="fixture";match(){return true}}');
+    fs.writeFileSync(path.join(directory, 'ui.js'), 'export default {}'); refreshRegistry(); enableModule('fixture');
+    let prepared = false; let armed = false; let changed = false;
+    source.onRead = type => { if (prepared && type === 'Actor') armed = true; };
+    const observer = createHook({ init(_id, type) {
+        if (armed && !changed && type === 'WORKER') { changed = true; queueMicrotask(() => { source.fixed = false; actorStore.observeMutation(); }); }
+    } }).enable();
+    try { await assert.rejects(checkInstalledWorldCompatibility('fixture', async () => { prepared = true; }), /scope changed|retired|stale/); }
+    finally { observer.disable(); }
+    assert.equal(changed, true); assert.equal(worldWorkGate.hasBlock('migration-compatibility'), true);
+    assert.equal(getMigrationCompatibilityDiagnostic()?.phase, 'post-preparation-source-check');
+    source.onRead = undefined; source.fixed = true; actorStore.observeMutation();
+    await checkInstalledWorldCompatibility('fixture'); assert.equal(worldWorkGate.hasBlock('migration-compatibility'), false, 'fresh validation can recover');
+};
 
 cases['CR64-01'] = async root => {
     const { source } = await host(root);

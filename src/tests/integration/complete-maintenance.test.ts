@@ -25,6 +25,104 @@ import { acquireCoreRuntimeLease, readMaintenanceMode, saveMaintenanceMode, main
 import { MaintenanceController } from '@server/services/world/migrations/MaintenanceController';
 
 const cases: Record<string, (root: string) => Promise<void>> = {};
+async function exactReadback(root: string, count: number, stale = false, metadataOnly = false) {
+    const candidate = fixture(path.join(root, 'candidate'));
+    let rows = Array.from({ length: count }, (_, i) => ({ uuid: `Actor.a${i}`, kind: 'Actor' as const,
+        source: { _id: `a${i}`, system: { fixed: false }, flags: { untouched: 'preserve-me' } } }));
+    const journal = new UpgradeJournal(path.join(root, 'journal')); let activated = false; let sent = 0;
+    const update = (target: typeof rows[number], updates: Record<string, unknown>, corrupt: boolean) => {
+        sent++; const source = applyMigrationPatch(target.source, updates);
+        if (corrupt && !metadataOnly) source.flags = { untouched: 'UNAPPROVED' };
+        source._stats = { modifiedTime: sent }; rows = rows.map(row => row.uuid === target.uuid ? { ...row, source: source as typeof row.source } : row);
+    };
+    const coordinator = new ModuleUpgradeCoordinator({ journal, gate: new WorldWorkGate(), assertAuthority() {},
+        snapshot: async () => ({ world, targets: structuredClone(rows), assertCurrent() { if (stale && sent === count) throw new Error('controlled stale readback snapshot'); } }),
+        write: async (target, updates, fence) => { fence(); update(target as typeof rows[number], updates, !stale); },
+        writeBatch: async (entries, fence) => { fence(); for (const { target, updates } of entries) update(target as typeof rows[number], updates, false); },
+        promote: async () => {}, restart() {}, prepare: async () => {}, activate: async () => { activated = true; }, rollbackFiles: async () => {},
+    });
+    const preview = await coordinator.preview(candidate);
+    const job = await coordinator.approve(candidate, { planId: preview.id, idempotencyKey: 'exact-readback-approval', backupAcknowledged: true, administrator: 'test' });
+    if (metadataOnly) { assert.equal((await coordinator.resume(job.jobId, candidate)).phase, 'completed'); assert.equal(activated, true); }
+    else {
+        await assert.rejects(coordinator.resume(job.jobId, candidate), /readback|approved source/);
+        const failed = journal.job(job.jobId); assert.equal(failed.phase, 'recovery-required'); assert.equal(activated, false);
+        assert.equal(Object.values(failed.outcomes).filter(row => row.state === 'confirmed').length, count - 1, 'mismatched/stale readback cannot confirm its intent');
+        const sendsBefore = sent; await assert.rejects(coordinator.resume(job.jobId, candidate)); assert.equal(sent, sendsBefore, 'unexpected source cannot cause blind replay');
+    }
+}
+cases['CR64-14-single'] = root => exactReadback(root, 1);
+cases['CR64-14-tail'] = root => exactReadback(root, 51);
+cases['CR64-14-freshness'] = root => exactReadback(root, 1, true);
+cases['CR64-14-native-metadata'] = root => exactReadback(root, 1, false, true);
+cases['CR64-15-cancel'] = async root => {
+    initDataDir(root); const candidate = fixture(path.join(root, 'candidate'));
+    const { getUpgradeJournal } = await import('@server/services/world/migrations/ModuleUpgradeService');
+    const journal = getUpgradeJournal();
+    const plan = planWorldMigrations(candidate.root, discoverMigrations(candidate.root, candidate.info)!, world, expandMigrationTargets('Actor.a', 'Actor', { _id: 'a', system: { fixed: false } }));
+    const preview = { id: 'drain-preview', moduleId: candidate.moduleId, candidateVersion: candidate.version, artifactDigest: candidate.artifactDigest,
+        treeDigest: candidate.artifactDigest, catalogDigest: plan.catalogDigest, stepDigests: {}, expiresAt: Date.now() + 60_000, plan };
+    journal.savePreview(preview); journal.saveSourceCandidate(preview.id, candidate);
+    const leaseToken = journal.acquire({ jobId: 'drain-review', moduleId: candidate.moduleId, plan }); let restarts = 0;
+    const controller = new MaintenanceController({} as never, () => restarts++);
+    for (const failure of [undefined, 'Network unavailable', 'Different translated message']) {
+        saveMaintenanceMode({ schemaVersion: 1, id: 'drain-review', moduleId: candidate.moduleId, candidateId: preview.id,
+            stage: 'isolated', drained: false, world: world.identity, leaseToken, failure, updatedAt: Date.now() });
+        await assert.rejects(controller.cancel(), /drain|ordinary.*outcome/i);
+        assert.equal(restarts, 0); assert.equal(readMaintenanceMode()?.stage, 'recovery-required');
+        journal.assertLease({ jobId: 'drain-review', moduleId: candidate.moduleId, plan, leaseToken });
+    }
+    for (const stage of ['activating', 'serving'] as const) {
+        assert.throws(() => saveMaintenanceMode({ ...readMaintenanceMode()!, stage }), /proven drain/);
+        fs.writeFileSync(path.join(root, 'config/module-upgrades/maintenance.json'), JSON.stringify({ ...readMaintenanceMode()!, stage }));
+        assert.equal(maintenanceOnly(), true, 'an unsafe historical exit record cannot select normal composition');
+    }
+    saveMaintenanceMode({ ...readMaintenanceMode()!, stage: 'isolated', drained: true }); await controller.cancel();
+    assert.equal(restarts, 1); assert.equal(readMaintenanceMode()?.stage, 'activating');
+};
+cases['CR64-16-legacy-writes'] = async root => {
+    const candidate = createMaintenanceCandidate(path.join(root, 'candidate'));
+    const directory = path.join(candidate.root, 'migrations/1.0.0'); const file = path.join(directory, 'definition.json');
+    const definition = JSON.parse(fs.readFileSync(file, 'utf8')); definition.steps = [definition.steps[1]];
+    Object.assign(definition.steps[0], { dependencies: [], targets: ['ActiveEffect'], reads: { targets: ['Actor', 'Item', 'ActorDelta'] } });
+    fs.writeFileSync(file, JSON.stringify(definition));
+    fs.writeFileSync(path.join(directory, 'effect.check.cjs'), "module.exports=({target})=>({status:target.source.changes.some(row=>row.key==='system.legacy')?'migration-needed':'current'})");
+    const inventory = maintenanceInventory(36, 30, false);
+    const targets = inventory.actors.flatMap(row => expandMigrationTargets(`Actor.${row._id}`, 'Actor', row));
+    const plan = await computeWorldMigrations(candidate.root, discoverMigrations(candidate.root, candidate.info)!, world, targets);
+    assert.equal(plan.operations.length, 360); assert.deepEqual(plan.blockers, []);
+    const journal = new UpgradeJournal(path.join(root, 'journal'));
+    const preview = { id: 'legacy-preview', moduleId: candidate.moduleId, candidateVersion: candidate.version, artifactDigest: candidate.artifactDigest,
+        treeDigest: candidate.artifactDigest, catalogDigest: plan.catalogDigest, stepDigests: {}, expiresAt: Date.now() + 60_000, plan };
+    journal.savePreview(preview);
+    assert.equal(journal.preview(preview.id).plan.digest, plan.digest, 'every saved complete plan must remain readable');
+    assert.equal(journal.preview(preview.id).plan.operations.length, 360);
+    // Existing oversized inline approvals are imported losslessly on restart,
+    // retaining original bytes rather than requiring reapproval or new catalogs.
+    const inline = { ...preview, id: 'legacy-inline' };
+    const inlineFile = path.join(journal.root, 'plans/legacy-inline.json');
+    const original = JSON.stringify(inline);
+    fs.writeFileSync(inlineFile, original);
+    assert.equal(new UpgradeJournal(journal.root).preview(inline.id).plan.digest, plan.digest);
+    assert.equal(fs.readFileSync(`${inlineFile}.legacy-inline`, 'utf8'), original);
+    assert.ok(fs.statSync(inlineFile).size < 4096);
+    const legacyJob: UpgradeJob = { ...preview, id: 'legacy-job-approval', jobId: 'legacy-job', phase: 'recovery-required',
+        administrator: 'prior-admin', backupAcknowledged: true, backupWarningRevision: 1, idempotencyKey: 'legacy-operation',
+        candidateRoot: candidate.root, leaseToken: 'legacy-lease', possibleWrite: true,
+        outcomes: { '0:effect-key:Actor.a0.ActiveEffect.e0x0': { state: 'uncertain', before: plan.operations[0].sourceHash } } };
+    fs.mkdirSync(path.join(journal.root, 'jobs'), { recursive: true });
+    const jobFile = path.join(journal.root, 'jobs/legacy-job.json'); fs.writeFileSync(jobFile, JSON.stringify(legacyJob));
+    const importedJournal = new UpgradeJournal(journal.root); const imported = importedJournal.job(legacyJob.jobId);
+    assert.deepEqual(imported.outcomes, legacyJob.outcomes); assert.equal(imported.plan.digest, plan.digest);
+    importedJournal.save(imported);
+    assert.deepEqual(new UpgradeJournal(journal.root).job(legacyJob.jobId).outcomes, legacyJob.outcomes);
+    assert.ok(fs.existsSync(`${jobFile}.legacy-inline`)); assert.ok(fs.statSync(jobFile).size < 4096);
+    const record = JSON.parse(fs.readFileSync(inlineFile, 'utf8'));
+    const manifestFile = path.join(journal.root, 'plan-content', `${record.plan.root.slice(7)}.json`);
+    fs.appendFileSync(manifestFile, ' ');
+    assert.throws(() => new UpgradeJournal(journal.root).preview(inline.id), /digest mismatch/, 'restart cannot accept tampered approved content');
+    console.log(JSON.stringify({ legacyWritePlan: 360, logicalBytes: Buffer.byteLength(JSON.stringify(preview)) }));
+};
 async function batchCase(root: string, partial = false) {
     const candidate = fixture(path.join(root, 'candidate'));
     let rows = Array.from({ length: 70 }, (_, i) => ({ uuid: `Actor.a${i}`, kind: 'Actor' as const, source: { _id: `a${i}`, system: { fixed: false } } }));
@@ -60,7 +158,7 @@ cases['persistent-exclusive-mode'] = async root => {
     saveMaintenanceMode({ schemaVersion: 1, id: 'test', moduleId: 'fixture', stage: 'review', updatedAt: Date.now() });
     assert.equal(maintenanceOnly(), true);
     const controller = new MaintenanceController({} as never, () => { throw new Error('must not activate'); });
-    await assert.rejects(controller.plan(), /Normal native sends did not settle/);
+    await assert.rejects(controller.plan(), /ordinary native write outcomes remain unknown/i);
     assert.equal(readMaintenanceMode()?.stage, 'recovery-required');
     const file = path.join(root, 'config/module-upgrades/maintenance.json');
     fs.writeFileSync(file, '{broken');

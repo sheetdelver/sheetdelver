@@ -699,6 +699,11 @@ held** until C64-A–H/native evidence and user review. Do not activate catalogs
 implement module workarounds while that hold is active. The
 [independent Core review](adr/0064-module-world-context-and-data-migrations.md#independent-complete-maintenance-review--october-17-2026) adds CR64-14–17; fixing host
 readback, cancellation, durable-plan capacity and readiness remains Core-owned.
+Those corrective guards and journal encoding are Core-owned implementations:
+legacy1.5 catalogs do not need rewriting for large write-bearing plans. Public
+review retains all target patches/digests while internal dependency proofs stay
+server-side. Isolated verification does not release the module-adoption hold or
+establish a published host version for the new contract.
 `useModuleSettings` does not expose native world settings, and
 adapter initialization cannot write documents. A registered default is not proof
 of an unreadable world's value. The world context updates to a new

@@ -9,6 +9,7 @@ import { parseModuleId } from '@shared/security/moduleId';
 import { previewModuleSource, applyModuleSource } from '@server/services/world/migrations/sourceCandidates';
 import { getMigrationCompatibilityDiagnostic } from '@server/services/world/migrations/installedWorldCompatibility';
 import { maintenanceOnly } from '@server/core/world/MaintenanceMode';
+import { upgradeReview } from '@server/services/world/migrations/upgradeReview';
 
 export function registerAdminUpgradeRoutes(router: express.Router, account: express.RequestHandler,
     restart: (reason: string, detail?: Record<string, unknown>) => void): void {
@@ -20,7 +21,7 @@ export function registerAdminUpgradeRoutes(router: express.Router, account: expr
         const id = parseModuleId(req.params.moduleId);
         const source = req.body?.source;
         if (!id || source !== 'local' && source !== 'managed') return res.status(400).json({ error: 'Canonical module and local/managed source required' });
-        try { return res.json(await previewModuleSource(id, source)); }
+        try { return res.json(upgradeReview(await previewModuleSource(id, source))); }
         catch (error) { return res.status(409).json({ error: error instanceof Error ? error.message : 'Source preview unavailable' }); }
     });
     router.post('/module-upgrades/source/apply', account, requireAdminAuth, requireAdminCsrf, auditAdminAction, async (req, res) => {
@@ -32,17 +33,17 @@ export function registerAdminUpgradeRoutes(router: express.Router, account: expr
     });
     router.get('/module-upgrades', account, requireAdminAuth, (_req, res) => {
         res.setHeader('Cache-Control', 'no-store');
-        try { res.json({ jobs: getUpgradeJournal().jobs(), serviceAccountDiagnostic: serviceAccountAuthority.getDiagnostic(), compatibilityDiagnostic: getMigrationCompatibilityDiagnostic(), contextDiagnostic: worldBootstrapper.getContextRefreshDiagnostic() }); }
+        try { res.json({ jobs: getUpgradeJournal().jobs().map(upgradeReview), serviceAccountDiagnostic: serviceAccountAuthority.getDiagnostic(), compatibilityDiagnostic: getMigrationCompatibilityDiagnostic(), contextDiagnostic: worldBootstrapper.getContextRefreshDiagnostic() }); }
         catch { res.status(503).json({ error: 'Upgrade journal is unreadable. Preserve config/module-upgrades and inspect its owner-only records before restarting.', code: 'upgrade-journal-unreadable' }); }
     });
     router.post('/module-upgrades/retry-context', account, requireAdminAuth, requireAdminCsrf, auditAdminAction, async (_req, res) => {
         try {
-            await worldBootstrapper.recover(systemService.getSystemClient());
+            await systemService.recoverOrBootstrap();
             res.json({ accepted: true });
         } catch { res.status(409).json({ error: 'World preparation could not recover. Inspect the admin diagnostics and Core logs; no new migration approval was granted.' }); }
     });
     router.get('/module-upgrades/:id', account, requireAdminAuth, (req, res) => {
-        try { res.setHeader('Cache-Control', 'no-store'); res.json(getUpgradeJournal().job(String(req.params.id))); }
+        try { res.setHeader('Cache-Control', 'no-store'); res.json(upgradeReview(getUpgradeJournal().job(String(req.params.id)))); }
         catch { res.status(404).json({ error: 'Upgrade job unavailable' }); }
     });
     router.post('/module-upgrades/:id/resume', account, requireAdminAuth, requireAdminCsrf, auditAdminAction, async (req, res) => {
@@ -59,13 +60,13 @@ export function registerAdminUpgradeRoutes(router: express.Router, account: expr
         } catch (error) { res.status(409).json({ error: error instanceof Error ? error.message : 'Upgrade cannot resume' }); }
     });
     router.post('/module-upgrades/:id/cancel', account, requireAdminAuth, requireAdminCsrf, auditAdminAction, async (req, res) => {
-        try { res.json(await createHostUpgradeCoordinator().cancel(String(req.params.id))); }
+        try { res.json(upgradeReview(await createHostUpgradeCoordinator().cancel(String(req.params.id)))); }
         catch (error) { res.status(409).json({ error: error instanceof Error ? error.message : 'Cancellation requires recovery' }); }
     });
     router.post('/module-upgrades/:id/review', account, requireAdminAuth, requireAdminCsrf, auditAdminAction, async (req, res) => {
         try {
             const job = getUpgradeJournal().job(String(req.params.id));
-            res.json(await createHostUpgradeCoordinator().reviewRecovery(job.jobId, installedUpgradeCandidate(job)));
+            res.json(upgradeReview(await createHostUpgradeCoordinator().reviewRecovery(job.jobId, installedUpgradeCandidate(job))));
         } catch (error) { res.status(409).json({ error: error instanceof Error ? error.message : 'Fresh recovery review unavailable' }); }
     });
     router.post('/module-upgrades/:id/reapprove', account, requireAdminAuth, requireAdminCsrf, auditAdminAction, async (req, res) => {

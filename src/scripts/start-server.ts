@@ -8,7 +8,8 @@ import { resolveDataDir, initDataDir, getConfigFilePath, getCacheDir, getDataDir
 import { configureServerFileLogging } from '../server/observability/ServerFileLogger';
 import { resolveAdminOrigin } from '../shared/security/adminOrigin';
 import { prepareNextDev } from './tools/development/prepare-next-dev';
-import { readMaintenanceMode, maintenanceOnly, saveMaintenanceMode, acquireCoreRuntimeLease, restoreLegacyMaintenanceMode } from '../server/core/world/MaintenanceMode';
+import { readMaintenanceMode, maintenanceOnly, saveMaintenanceMode, acquireCoreRuntimeLease } from '../server/core/world/MaintenanceMode';
+import { restoreLegacyMaintenanceMode } from '../server/services/world/migrations/restoreMaintenanceMode';
 import {
     FULL_STACK_RESTART_EXIT_CODE,
     FULL_STACK_RESTART_SIGNAL,

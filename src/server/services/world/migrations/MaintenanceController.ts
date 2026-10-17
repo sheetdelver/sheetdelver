@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { readMaintenanceMode, saveMaintenanceMode, maintenanceOnly, setMaintenanceComputationSignal, type MaintenanceMode } from '@server/core/world/MaintenanceMode';
+import { readMaintenanceMode, saveMaintenanceMode, maintenanceOnly, assertMaintenanceDrained, setMaintenanceComputationSignal, type MaintenanceMode } from '@server/core/world/MaintenanceMode';
 import { worldWorkGate } from '@server/core/world/WorldWorkGate';
 import { getUpgradeJournal, createHostUpgradeCoordinator, installedUpgradeCandidate } from './ModuleUpgradeService';
 import { migrationDirectoryDigest } from '@modules/registry/migrations/catalog';
@@ -9,6 +9,7 @@ import type { UpgradeCandidate } from './ModuleUpgradeCoordinator';
 import type { CoreSocket } from '@server/core/foundry/sockets/CoreSocket';
 import { refreshRegistry } from '@modules/registry/server';
 import { prepareIsolated } from './prepareIsolated';
+import { upgradeReview } from './upgradeReview';
 
 let shutdownNormal: (() => Promise<void>) | undefined;
 export function setNormalMaintenanceShutdown(stop: () => Promise<void>): void { shutdownNormal = stop; }
@@ -49,12 +50,12 @@ export class MaintenanceController {
     status() {
         const mode = readMaintenanceMode();
         let preview;
-        if (mode?.previewId && ['review', 'recovery-required'].includes(mode.stage)) preview = getUpgradeJournal().preview(mode.previewId);
+        if (mode?.previewId && ['review', 'recovery-required'].includes(mode.stage)) preview = upgradeReview(getUpgradeJournal().preview(mode.previewId));
         return { mode, preview, busy: this.busy };
     }
     async plan(): Promise<void> {
         return this.work(async mode => {
-            if (!mode.jobId && !mode.drained) throw new Error('Normal native sends did not settle before isolation. Reconcile their outcomes before restoring a validated drained maintenance record; no writes are authorized.');
+            assertMaintenanceDrained(mode);
             const candidate = this.candidate();
             if (mode.jobId && getUpgradeJournal().job(mode.jobId).phase !== 'recovery-required') throw new Error('Approved job must resume, not silently replan');
             mode.stage = 'planning'; delete mode.failure; saveMaintenanceMode(mode);
@@ -66,7 +67,7 @@ export class MaintenanceController {
     }
     async approve(planId: string, administrator: string, backupAcknowledged: boolean): Promise<void> {
         return this.work(async mode => {
-            if (!mode.jobId && !mode.drained) throw new Error('Outstanding normal native outcomes must be reconciled before write approval');
+            assertMaintenanceDrained(mode);
             if (mode.stage !== 'review' || mode.previewId !== planId) throw new Error('Exact authoritative maintenance plan required');
             mode.stage = 'executing'; delete mode.failure; saveMaintenanceMode(mode);
             if (mode.jobId) {
@@ -85,6 +86,7 @@ export class MaintenanceController {
     }
     async resume(): Promise<void> {
         return this.work(async mode => {
+            assertMaintenanceDrained(mode);
             if (!mode.jobId) throw new Error('No approved job exists; complete authoritative planning and review first');
             const job = getUpgradeJournal().job(mode.jobId);
             if (job.phase === 'recovery-required') { job.phase = 'restarting'; delete job.failure; getUpgradeJournal().save(job); }
@@ -93,14 +95,20 @@ export class MaintenanceController {
         });
     }
     async cancel(): Promise<void> {
+        // Check before cancelling jobs, releasing leases or scheduling startup.
+        // A diagnostic string is never proof that ordinary sends settled.
+        const current = readMaintenanceMode();
+        if (!current) throw new Error('Persistent maintenance operation required');
+        try { assertMaintenanceDrained(current); }
+        catch (error) { current.stage = 'recovery-required'; current.failure = migrationReason(error); saveMaintenanceMode(current); throw error; }
         this.abort?.abort(new Error('Maintenance scheduling stopped by administrator'));
         await this.pending?.catch(() => undefined);
         const mode = readMaintenanceMode()!;
+        assertMaintenanceDrained(mode);
         if (mode.jobId) {
             const stopped = await createHostUpgradeCoordinator().cancel(mode.jobId);
             if (stopped.possibleWrite) { mode.stage = 'recovery-required'; mode.failure = 'Scheduling stopped. Possible writes require readback and reviewed recovery; no world undo was performed.'; saveMaintenanceMode(mode); return; }
         } else {
-            if (!mode.drained && mode.failure?.includes('drain')) throw new Error('Outstanding native outcomes must be reconciled before restoring service');
             const preview = getUpgradeJournal().preview(mode.candidateId!);
             getUpgradeJournal().release({ jobId: mode.id, moduleId: mode.moduleId, plan: preview.plan, leaseToken: mode.leaseToken! });
         }

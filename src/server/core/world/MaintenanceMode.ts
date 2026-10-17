@@ -39,41 +39,25 @@ export function readMaintenanceMode(): MaintenanceMode | null {
     }
 }
 export function saveMaintenanceMode(mode: MaintenanceMode): void {
+    if (['activating', 'serving'].includes(mode.stage)) assertMaintenanceDrained(mode);
     const file = maintenanceFile(); ensureOwnerOnlyDirectorySync(path.dirname(file));
     if (mode.diagnosticOnly && fs.existsSync(file)) throw new Error('Diagnostic-only maintenance cannot overwrite the existing record');
     mode.updatedAt = Date.now();
     writeOwnerOnlyFileAtomicSync(file, JSON.stringify(mode));
     if (process.platform !== 'win32') { const fd = fs.openSync(path.dirname(file), 'r'); try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); } }
 }
-export function maintenanceOnly(mode = readMaintenanceMode()): boolean { return !!mode && !['activating', 'serving'].includes(mode.stage); }
+export function assertMaintenanceDrained(mode: MaintenanceMode): void {
+    if (mode.diagnosticOnly || mode.drained !== true) throw new Error('Ordinary native write outcomes remain unknown: a proven drain is required before leaving maintenance. Preserve the lease and reconcile outcomes.');
+}
+export function maintenanceOnly(mode = readMaintenanceMode()): boolean {
+    return !!mode && (!['activating', 'serving'].includes(mode.stage) || mode.drained !== true);
+}
 let enforced = false;
 export function enforceMaintenanceComposition(): void { enforced = true; }
 export function maintenanceCompositionEnforced(): boolean { return enforced; }
 let computationSignal: AbortSignal | undefined;
 export function setMaintenanceComputationSignal(signal?: AbortSignal): void { computationSignal = signal; }
 export function getMaintenanceComputationSignal(): AbortSignal | undefined { return computationSignal; }
-
-/** Existing approved 0.19 jobs keep their approval, but enter the new composition. */
-export function restoreLegacyMaintenanceMode(): void {
-    if (readMaintenanceMode()) return;
-    const jobs = path.join(getDataDir(), 'config/module-upgrades/jobs');
-    if (!fs.existsSync(jobs)) return;
-    for (const file of fs.readdirSync(jobs).filter(name => /^[a-zA-Z0-9-]+\.json$/.test(name))) {
-        try {
-        const job = JSON.parse(fs.readFileSync(path.join(jobs, file), 'utf8'));
-        if (['completed', 'cancelled'].includes(job.phase)) continue;
-        if (!job.jobId || !job.moduleId || !job.plan?.world?.identity) throw new Error('Invalid legacy pending job; normal composition blocked');
-        saveMaintenanceMode({ schemaVersion: 1, id: job.jobId, jobId: job.jobId, moduleId: job.moduleId,
-            stage: job.phase === 'recovery-required' ? 'recovery-required' : 'executing',
-            world: job.plan.world.identity, leaseToken: job.leaseToken, updatedAt: Date.now() });
-        return;
-        } catch {
-            saveMaintenanceMode({ schemaVersion: 1, id: 'unreadable-journal', moduleId: 'unknown', stage: 'recovery-required', diagnosticOnly: true,
-                failure: 'Upgrade journal is unreadable. Preserve config/module-upgrades, restore validated records and restart. Ordinary runtime and writes remain stopped.', updatedAt: Date.now() });
-            return;
-        }
-    }
-}
 
 /** One Core composition per data directory. No TTL or cross-host lock stealing. */
 export function acquireCoreRuntimeLease(scope: 'core' | 'manager' = 'core'): () => void {

@@ -9,11 +9,16 @@ defects in 0.19.0. The later [complete-maintenance decision](adr/0064-module-wor
 adds runtime isolation (CR64-13) and holds all module work until Core's reconciled
 C64-A–H acceptance gates pass and are reviewed. The corrective branch now
 implements these changes; isolated whole-host acceptance is recorded in the ADR.
-The [independent review](adr/0064-module-world-context-and-data-migrations.md#independent-complete-maintenance-review--october-17-2026) confirms four further Core gaps
-(CR64-14–17); those corrections precede fresh native v13/v14 acceptance and user
-review. Passing isolated scenarios do not close the remaining paths. Original native
+The [independent review](adr/0064-module-world-context-and-data-migrations.md#independent-complete-maintenance-review--october-17-2026) identified four further Core gaps
+(CR64-14–17); their corrective implementation and isolated acceptance now precede
+fresh native v13/v14 acceptance and user review. Passing isolated scenarios do not
+close those remaining gates. Original native
 fixtures are not full adoption proof. See [maintenance runtime](MAINTENANCE_RUNTIME.md)
 for lifecycle owners, operator workflow and durable-format compatibility.
+
+The [independent confirmation](adr/0064-module-world-context-and-data-migrations.md#cr64-1417-independent-confirmation--october-17-2026) confirms CR64-14–17
+corrected on the current tree. Fresh native v13/v14 and user acceptance remain
+pending; this does not release the module-work hold.
 
 ## Compatibility and adoption
 
@@ -311,6 +316,26 @@ approval → retain/promote → migrate/read back → verify/prepare → activat
 Entering maintenance does not itself authorize writes. An approved unchanged job
 does not need another approval per batch, elapsed interval or ordinary resume.
 The pre-approval preview expiry must not expire an executing approved job.
+
+The corrective journal stores complete logical plans in digest-verified paged
+`plan-content/` blocks (`core-migration-plan.v2` references), with exact dependency
+deltas rather than repeated whole-world maps in metadata. Individual records
+retain32MiB bounds; total inventory is not truncated. Preview/job HTTP reviews
+retain all targets, patches and logical approval digest, omitting private
+dependency/effect maps. Catalogs/hooks and the module SDK input do not change.
+Legacy inline approvals remain readable; oversized inline records are imported
+with their exact digest and retained original `.legacy-inline` bytes. Prior
+approvals and receipt streams remain durable. Preserve the entire directory
+during recovery; no block pruning or downgrade-to-0.19.0 recovery is supported.
+
+Single and batched native readback must match the exact approved resulting source
+(apart from supported `_stats` normalization) and still-current snapshot before
+confirmation. Unrelated changes retain intent/recovery; they do not authorize
+replay or undo. Every exit from isolation requires a proven durable ordinary-send
+drain, regardless of diagnostic text or process restart. Final asynchronous
+bootstrap validation rechecks freshness before readiness/publication. Admin
+preparation retry shares normal lifecycle readiness events and authorizes no new
+repair. See [the runtime guide](MAINTENANCE_RUNTIME.md) for operator recovery rules.
 
 Owner-only jobs/plans live under `<DATA_DIR>/config/module-upgrades`, outside
 evictable/module caches. File intent and per-target native intent are durable before

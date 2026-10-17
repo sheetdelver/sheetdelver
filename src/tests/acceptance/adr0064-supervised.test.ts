@@ -18,7 +18,12 @@ if (!process.argv.includes('--run-isolated')) throw new Error('Explicit --run-is
 const repository = process.cwd();
 const complete = process.argv.includes('--complete-matrix');
 const recovery = process.argv.includes('--recover-writes');
-const onlineEntry = process.argv.includes('--online-entry');
+const unexpectedReadback = process.argv.includes('--unexpected-readback');
+const legacyWrites = process.argv.includes('--legacy-writes');
+const unknownDrain = process.argv.includes('--unknown-drain');
+const readinessRace = process.argv.includes('--readiness-race');
+const readinessBootstrap = process.argv.includes('--readiness-bootstrap');
+const onlineEntry = process.argv.includes('--online-entry') || unknownDrain;
 const archiveOperation = process.argv.find(arg => arg.startsWith('--archive-op='))?.split('=')[1] as 'install' | 'upgrade' | undefined;
 const localSwitch = process.argv.includes('--local-switch');
 const cancelReview = process.argv.includes('--cancel-review');
@@ -30,6 +35,18 @@ const manualEntry = onlineEntry || !!archiveOperation || localSwitch || noOp;
 const counts = (process.argv.find(arg => arg.startsWith('--inventory='))?.slice(12) ?? '30,30').split(',').map(Number);
 const inventory = maintenanceInventory(counts[0], counts[1], manualEntry);
 const expected = expectedMaintenanceSource(inventory);
+const expectedUuids = () => maintenanceUuidOracle(expected).filter(uuid => !legacyWrites || !uuid.startsWith('Compendium.') && uuid.includes('.ActiveEffect.'));
+if (legacyWrites) {
+    // Independent legacy oracle: only effect keys in world sources are selected;
+    // Actor/Item system fields and all pack sources must remain unchanged.
+    Object.assign(expected, structuredClone(inventory));
+    const visit = (row: FixtureDocument) => {
+        if (Array.isArray(row.changes)) row.changes = row.changes.map((change: FixtureDocument) => ({ ...change, key: change.key === 'system.legacy' ? 'system.current' : change.key }));
+        for (const child of [...row.items ?? [], ...row.effects ?? [], ...row.tokens ?? []]) visit(child);
+        if (row.delta) visit(row.delta);
+    };
+    [...expected.actors, ...expected.items, ...expected.scenes].forEach(visit);
+}
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sd-cr64-supervised-'));
 const startedAt = Date.now(); const samples: Array<Record<string, unknown>> = [];
 let maxStatusMs = 0;
@@ -42,21 +59,40 @@ fs.symlinkSync(path.join(repository, 'node_modules'), path.join(workspace, 'node
 // Generate only Core-owned aliases before invoking the real packaging CLI.
 fs.mkdirSync(path.join(workspace, '.managed'));
 fs.copyFileSync(path.join(repository, '.managed/tsconfig.paths.json'), path.join(workspace, '.managed/tsconfig.paths.json'));
-const env: NodeJS.ProcessEnv = { ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^(APP_|FOUNDRY_|SHEET_DELVER_)/.test(key))), NODE_ENV: 'development' };
+const env: NodeJS.ProcessEnv = { ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^(APP_|FOUNDRY_|SHEET_DELVER_|DATA_DIR$|USER_DATA$)/.test(key))), NODE_ENV: 'development' };
+let readinessObserved = 0;
+const readinessWatcher = readinessRace || readinessBootstrap ? fs.watch(root, (_event, name) => {
+    if (name !== 'readiness-signal.json') return;
+    const signal = path.join(root, 'readiness-signal.json');
+    if (!fs.existsSync(signal)) return;
+    try { JSON.parse(fs.readFileSync(signal, 'utf8')); } catch { return; }
+    fs.unlinkSync(signal); readinessObserved++;
+    const source = complete ? inventory.actors[0] : actor;
+    source.flags = { ...source.flags, externalObservation: readinessObserved };
+    if (complete) expected.actors[0].flags = structuredClone(source.flags);
+    sockets.emit('modifyDocument', { type: 'Actor', action: 'update', operation: { updates: [{ _id: source._id, flags: source.flags }] }, result: [source] });
+}) : undefined;
+if (readinessWatcher) {
+    env.SD_READINESS_PROBE = root;
+    env.NODE_OPTIONS = `${env.NODE_OPTIONS ?? ''} --import=${path.join(workspace, 'src/tests/fixtures/maintenanceReadinessProbe.mjs')}`;
+    fs.writeFileSync(path.join(root, 'readiness-arm.json'), JSON.stringify({ count: 2, activating: !readinessBootstrap }));
+}
 env.NPM_CONFIG_OFFLINE = 'true'; env.NEXT_TELEMETRY_DISABLED = '1';
 const upstream = express(); upstream.use(express.json());
 const wire = http.createServer(upstream); const sockets = new Server(wire);
 const users = [{ _id: 'service', name: 'service', role: 4 }, ...onlineEntry ? [{ _id: 'player', name: 'Player', role: 1 }, { _id: 'human', name: 'Human GM', role: 4 }] : []];
-const actor = { _id: 'a', name: 'Controlled Actor', type: 'character', system: { fixed: false }, items: [], effects: [], ownership: { default: 0 } };
+const actor: FixtureDocument = { _id: 'a', name: 'Controlled Actor', type: 'character', system: { fixed: false }, items: [], effects: [], ownership: { default: 0 } };
+if (unexpectedReadback) actor.flags = { untouched: 'preserve-me' };
 const game = { world: { id: 'w1', title: 'Controlled world' }, system: { id: 'fixture', version: process.argv.includes('--cumulative') ? '2.0.0' : '1.0.0' },
     release: { generation: Number(process.argv.find(arg => arg.startsWith('--generation='))?.split('=')[1] ?? 14), build: '367' }, userId: 'service', users,
     scenes: complete ? inventory.scenes : [], packs: complete ? inventory.metadata : [], activeUsers: [] };
 let writes = 0;
 let nativeReads = 0; let wireBytes = 0;
 let pendingUserAck: (() => void) | undefined; let userWrites = 0;
+let upstreamUnavailable = false;
 const browserSockets: ReturnType<typeof connectBrowserSocket>[] = [];
 const written: string[] = [];
-upstream.get('/api/status', (_req, res) => res.json({ active: true, world: 'w1', system: 'fixture', version: '14.367' }));
+upstream.get('/api/status', (_req, res) => upstreamUnavailable ? res.status(503).end() : res.json({ active: true, world: 'w1', system: 'fixture', version: '14.367' }));
 upstream.post('/join', (req, res) => { const id = req.body?.userId ?? req.body?.userid ?? users.find(row => row.name === req.body?.username)?._id ?? 'service';
     res.cookie('session', id); res.json({ success: true }); });
 sockets.on('connection', socket => {
@@ -103,6 +139,7 @@ sockets.on('connection', socket => {
         if (action === 'update') {
             assert.equal(type, 'Actor'); assert.deepEqual(operation.updates, [{ _id: 'a', 'system.fixed': true }]);
             writes++; actor.system.fixed = true;
+            if (unexpectedReadback) actor.flags.untouched = 'UNAPPROVED';
         } else assert.equal(action, 'get');
         ack({ type, action, operation, result: type === 'Actor' ? [actor] : type === 'User' ? users : [] });
     });
@@ -120,6 +157,14 @@ fs.mkdirSync(path.join(data, 'cache/core'), { recursive: true });
 fs.writeFileSync(path.join(data, 'cache/core/worlds.json'), JSON.stringify({ worlds: {}, currentWorldId: null }));
 initDataDir(data); await createAdminAccount('isolated-acceptance-password');
 const source = complete ? createMaintenanceCandidate(path.join(root, 'author-source'), process.argv.includes('--cumulative')) : fixture(path.join(root, 'author-source')); const installed = path.join(data, 'modules/fixture');
+if (legacyWrites) {
+    assert.equal(complete, true); assert.equal(manualEntry, false);
+    const directory = path.join(source.root, 'migrations/1.0.0'); const file = path.join(directory, 'definition.json');
+    const definition = JSON.parse(fs.readFileSync(file, 'utf8')); definition.steps = [definition.steps[1]];
+    Object.assign(definition.steps[0], { dependencies: [], targets: ['ActiveEffect'], reads: { targets: ['Actor', 'Item', 'ActorDelta'] } });
+    fs.writeFileSync(file, JSON.stringify(definition));
+    fs.writeFileSync(path.join(directory, 'effect.check.cjs'), "module.exports=({target})=>({status:target.source.changes.some(row=>row.key==='system.legacy')?'migration-needed':'current'})");
+}
 if (onlineEntry) Object.assign(source.info, { compendiumPacks: { packs: [{ id: 'world.unusualItems', type: 'Item', hydrate: true }] } });
 fs.mkdirSync(installed, { recursive: true }); await packageMigrations(source.root, installed, source.info);
 fs.writeFileSync(path.join(installed, 'info.json'), JSON.stringify(source.info)); fs.writeFileSync(path.join(installed, 'ui.js'), 'export default {}');
@@ -175,7 +220,7 @@ async function request(url: string, body?: unknown) {
         headers: { Origin: origin, 'Content-Type': 'application/json', Cookie: cookie, 'X-Admin-Csrf-Token': csrf },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
 }
-async function until<T>(label: string, operation: () => Promise<T | false>, timeout = complete ? 300_000 : 90_000): Promise<T> {
+async function until<T>(label: string, operation: () => Promise<T | false>, timeout = legacyWrites ? 900_000 : complete ? 300_000 : 90_000): Promise<T> {
     const end = Date.now() + timeout;
     while (Date.now() < end) { try { const result = await operation(); if (result !== false) return result; } catch { /* startup/replacement expected */ }
         if (manager.exitCode !== null) throw new Error(`Manager exited: ${manager.exitCode}`);
@@ -186,6 +231,19 @@ async function acceptance() { try {
     await until('Core admin ready', async () => (await request('/admin/auth/status')).ok || false);
     const login = await request('/admin/auth/login', { password: 'isolated-acceptance-password' }); assert.equal(login.status, 200);
     cookie = login.headers.getSetCookie()[0].split(';')[0]; csrf = (await login.json()).csrfToken;
+    const verifyReadinessFence = async (expectedObservations: number) => {
+        await until('external observation during final compute', async () => readinessObserved === expectedObservations || false);
+        const blocked = await until('final source revision blocked readiness', async () => {
+            const status = await (await request('/admin/module-upgrades')).json();
+            return status.compatibilityDiagnostic?.phase === 'post-preparation-source-check' ? status : false;
+        });
+        assert.match(blocked.compatibilityDiagnostic.blockers.join(' '), /scope changed/);
+        assert.equal((await (await request('/api/status')).json()).initialized, false);
+        assert.equal((await request('/api/actors')).status, 503, 'stale prepared data cannot be published');
+        assert.equal((await request('/admin/module-upgrades/retry-context', {})).status, 200, 'fresh authorized recovery succeeds without a repair approval');
+        await until('fresh normal readiness', async () => (await (await request('/api/status')).json()).initialized === true || false);
+    };
+    if (readinessBootstrap) await verifyReadinessFence(1);
     if (manualEntry && !onlineEntry) {
         await until('normal serving before explicit maintenance', async () => (await (await request('/api/status')).json()).initialized === true || false);
         if (!noOp) { Object.assign(inventory, maintenanceInventory(counts[0], counts[1], false)); game.scenes = inventory.scenes;
@@ -231,6 +289,38 @@ async function acceptance() { try {
         assert.equal((await request('/admin/module-maintenance/enter', { planId: preview.id })).status, 202);
         const persisted = JSON.parse(fs.readFileSync(path.join(data, 'config/module-upgrades/maintenance.json'), 'utf8'));
         assert.equal(persisted.stage, 'entering'); assert.equal(userWrites, 1); assert.equal(writes, 0);
+        if (unknownDrain) {
+            assert.equal(persisted.drained, false, 'the ordinary native receipt is still outstanding');
+            upstreamUnavailable = true;
+            const cores = [...fs.readFileSync(logFile, 'utf8').matchAll(/Core Service \| Started \(pid=(\d+)/g)].map(row => Number(row[1]));
+            // Kill only the normal Core whose outstanding write was just observed.
+            const retired = pending.catch(() => undefined);
+            const child = [...fs.readFileSync(logFile, 'utf8').matchAll(/Core Service spawned \(pid=(\d+)/g)].map(row => Number(row[1])).at(-1)!;
+            assert.ok(cores.length > 0);
+            process.kill(-child, 'SIGKILL'); // task-owned normal watcher group, not only its inner application
+            await until('cold restricted replacement without native reconnect', async () => [...fs.readFileSync(logFile, 'utf8').matchAll(/Maintenance \| Restricted Core pid=/g)].length > 0 || false);
+            await until('replacement admin reachable', async () => (await request('/admin/auth/status')).ok || false);
+            const login = await request('/admin/auth/login', { password: 'isolated-acceptance-password' }); assert.equal(login.status, 200);
+            cookie = login.headers.getSetCookie()[0].split(';')[0]; csrf = (await login.json()).csrfToken;
+            const modeFile = path.join(data, 'config/module-upgrades/maintenance.json');
+            const leaseDirectory = path.join(data, 'config/module-upgrades/leases');
+            const leases = fs.readdirSync(leaseDirectory).sort(); assert.equal(leases.length, 2);
+            for (const failure of [undefined, 'Upstream unavailable', 'Translated diagnostic']) {
+                const mode = JSON.parse(fs.readFileSync(modeFile, 'utf8')); mode.failure = failure;
+                fs.writeFileSync(modeFile, JSON.stringify(mode)); // controlled persisted crash fixture, no safety flag changes
+                assert.equal((await request('/admin/module-maintenance/cancel', {})).status, 202);
+                const rejected = await until('cancel retains unknown-drain recovery', async () => { const value = await (await request('/admin/module-maintenance')).json(); return /ordinary native write outcomes remain unknown/i.test(value.mode?.failure) ? value : false; });
+                assert.equal(rejected.mode.stage, 'recovery-required'); assert.equal(rejected.mode.drained, false);
+                assert.deepEqual(fs.readdirSync(leaseDirectory).sort(), leases);
+                assert.equal((await request('/api/actors')).status, 503);
+            }
+            assert.equal(writes, 0);
+            assert.equal([...fs.readFileSync(logFile, 'utf8').matchAll(/Application Shell spawned/g)].length, 1, 'unsafe cancellation never requests a normal shell');
+            pendingUserAck!(); await retired;
+            fs.writeFileSync(path.join(root, 'evidence.json'), JSON.stringify({ native: false, unknownDrain: true, cancelRejected: 3, recoveryRetained: true, leasesRetained: leases.length, writes, userWrites }, null, 2));
+            console.log(`PASS: public cancellation after interrupted drain, offline cold replacement retains recovery/lease. Evidence: ${root}`);
+            return;
+        }
         pendingUserAck!(); assert.equal((await pending).status, 503, 'native receipt drains, but stale ordinary response remains fenced');
     }
     const maintained = await until('isolated authoritative review', async () => {
@@ -281,11 +371,21 @@ async function acceptance() { try {
         const status = await until('pre-write cancellation restored verified serving', async () => { const status = await (await request('/api/status')).json(); return status.initialized ? status : false; });
         assert.equal(status.runtimeToken, maintained.mode.id); assert.equal(writes, 0); assert.deepEqual(inventory, expected);
         assert.equal(fs.existsSync(path.join(data, 'config/module-upgrades/jobs', `${maintained.mode.id}.json`)), false);
-        fs.writeFileSync(path.join(root, 'evidence.json'), JSON.stringify({ native: false, cancelReview: true, completed: true, writes, sourceOracle: true, runtimeToken: status.runtimeToken }, null, 2));
+        fs.writeFileSync(path.join(root, 'evidence.json'), JSON.stringify({ native: false, cancelReview: true, completed: true, writes, sourceOracle: true, readinessObserved, runtimeToken: status.runtimeToken }, null, 2));
         console.log(`PASS: public pre-write cancellation, no write authority, validated normal serving. Evidence: ${root}`);
         return;
     }
     const preview = maintained.preview;
+    const reviewBytes = Buffer.byteLength(JSON.stringify(maintained));
+    const { UpgradeJournal } = await import('@server/services/world/migrations/UpgradeJournal');
+    const storedPlan = new UpgradeJournal(path.join(data, 'config/module-upgrades')).preview(preview.id).plan;
+    const logicalPlanBytes = Buffer.byteLength(JSON.stringify(storedPlan));
+    assert.equal(storedPlan.digest, preview.plan.digest);
+    if (legacyWrites) {
+        assert.ok(logicalPlanBytes > 32 * 1024 * 1024, 'write-bearing legacy inventory crosses the defective boundary');
+        assert.ok(reviewBytes < logicalPlanBytes / 10, 'review exposes every patch, not repeated internal dependencies');
+        assert.equal(preview.plan.operations.length, expectedUuids().length);
+    }
     let approvedInBrowser = false;
     if (process.env.SD_PLAYWRIGHT_MODULE) {
         const { chromium } = await import(process.env.SD_PLAYWRIGHT_MODULE);
@@ -319,6 +419,22 @@ async function acceptance() { try {
     if (!approvedInBrowser) assert.equal((await request('/admin/module-maintenance/approve', { planId: preview.id, backupAcknowledged: true })).status, 202);
     const jobId = maintained.mode.id;
     const jobFile = path.join(data, 'config/module-upgrades/jobs', `${jobId}.json`);
+    if (unexpectedReadback) {
+        assert.equal(complete, false);
+        await until('unexpected source retained in recovery', async () => (await (await request('/admin/module-maintenance')).json()).mode?.stage === 'recovery-required' || false);
+        const stopped = await (await request(`/admin/module-upgrades/${jobId}`)).json();
+        assert.match(stopped.failure, /exact approved source/); assert.equal(writes, 1);
+        assert.equal(Object.values(stopped.outcomes).some((row: any) => row.state === 'confirmed'), false);
+        assert.equal((await request('/api/actors')).status, 503); assert.equal(fs.existsSync(trace), false);
+        assert.equal((await request('/admin/module-maintenance/resume', {})).status, 202);
+        await until('unchanged approval refuses the unexpected source', async () => (await (await request('/admin/module-maintenance')).json()).mode?.stage === 'recovery-required' || false);
+        assert.equal(writes, 1, 'mismatched readback cannot blindly replay');
+        assert.equal(actor.flags.untouched, 'UNAPPROVED', 'no automatic undo');
+        assert.equal((await request('/admin/module-maintenance/plan', {})).status, 202);
+        const reviewed = await until('fresh exact source review', async () => { const value = await (await request('/admin/module-maintenance')).json(); return value.mode?.stage === 'review' ? value : false; });
+        assert.notEqual(reviewed.preview.id, preview.id); assert.equal(reviewed.preview.plan.operations.length, 0);
+        assert.equal((await request('/admin/module-maintenance/approve', { planId: reviewed.preview.id, backupAcknowledged: true })).status, 202);
+    }
     if (recovery) {
         await until('lost receipt stops in recoverable maintenance', async () => {
             const state = await (await request('/admin/module-maintenance')).json(); return state.mode?.stage === 'recovery-required' ? state : false;
@@ -354,15 +470,24 @@ async function acceptance() { try {
         });
         assert.equal(writes, priorWrites, 'preparation restart does not repeat confirmed native writes');
     }
-    assert.equal(writes, noOp ? 0 : complete ? maintenanceUuidOracle(expected).length : 1); assert.equal((await request('/admin/module-upgrades')).status, 200, 'admin session survives supervised restart');
+    assert.equal(writes, noOp ? 0 : complete ? expectedUuids().length : 1); assert.equal((await request('/admin/module-upgrades')).status, 200, 'admin session survives supervised restart');
     assert.equal((await request('/api/actors')).status, 503, 'replacement does not serve before adapter preparation');
     const pending = JSON.parse(fs.readFileSync(jobFile, 'utf8')); assert.ok(pending.leaseToken); assert.equal(pending.possibleWrite, !noOp);
     fs.unlinkSync(hold);
     await until('completed activation', async () => JSON.parse(fs.readFileSync(jobFile, 'utf8')).phase === 'completed' || false);
+    if (readinessRace) await verifyReadinessFence(1);
     const publicStatus = await until('normal serving restored', async () => {
         const status = await (await request('/api/status')).json(); return status.initialized === true ? status : false;
     });
     assert.equal(publicStatus.runtimeToken, jobId);
+    if (readinessRace) {
+        const cores = [...fs.readFileSync(logFile, 'utf8').matchAll(/Core Service \| Started \(pid=(\d+)/g)].map(row => Number(row[1]));
+        const pid = cores.at(-1)!;
+        const { count } = JSON.parse(fs.readFileSync(path.join(root, `workers-${pid}.json`), 'utf8'));
+        fs.writeFileSync(path.join(root, 'readiness-arm.json'), JSON.stringify({ pid, count: count + 2 }));
+        for (const socket of sockets.sockets.sockets.values()) socket.disconnect(true);
+        await verifyReadinessFence(2);
+    }
     assert.equal((await request('/api/actors', {})).status, 409, 'old browser without first runtime token cannot mutate');
     const after = fs.readFileSync(logFile, 'utf8');
     const replacedPids = [...after.matchAll(/(?:Core Service spawned|Application Shell spawned) \(pid=(\d+)\)/g)].map(row => Number(row[1]));
@@ -374,7 +499,7 @@ async function acceptance() { try {
     if (complete) {
         assert.deepEqual(inventory, expected, 'independent source oracle includes unknowns, null deltas, tombstones, pack identities and all changes');
         assert.equal(new Set(written).size, written.length, 'no duplicate confirmed writes');
-        assert.deepEqual(preview.plan.operations.map((row: { uuid: string }) => row.uuid).sort(), noOp ? [] : maintenanceUuidOracle(expected));
+        assert.deepEqual(preview.plan.operations.map((row: { uuid: string }) => row.uuid).sort(), noOp ? [] : expectedUuids());
     }
     let restoredEvidence;
     if (restoreLegacy) {
@@ -403,14 +528,15 @@ async function acceptance() { try {
     fs.writeFileSync(path.join(root, 'evidence.json'), JSON.stringify({ manager: manager.pid, initialPids, replacementPids: replacedPids.slice(2), actualCorePids, appPort, apiPort,
         upstreamPort, jobId, phases: ['restarting', 'verifying', 'completed'], pendingLeaseObserved: true, admissionBeforeConstruction: true,
         adminDuringPreparation: 200, playerDuringPreparation: 503, staleMutationAfterActivation: 409,
-        writes, userWrites, onlineEntry, archiveOperation, localSwitch, noOp, restartPreparation, restartReview, restoredEvidence, cumulative: process.argv.includes('--cumulative'), nativeReads, wireBytes, elapsedMs: Date.now() - startedAt, maxStatusMs, journalBytes: bytes(path.join(data, 'config/module-upgrades')),
-        resourceSamples: samples, fullSourceOracle: complete, approvedInBrowser, generation: game.release.generation,
+        writes, userWrites, onlineEntry, archiveOperation, localSwitch, noOp, restartPreparation, restartReview, restoredEvidence, legacyWrites, reviewBytes, logicalPlanBytes, cumulative: process.argv.includes('--cumulative'), nativeReads, wireBytes, elapsedMs: Date.now() - startedAt, maxStatusMs, journalBytes: bytes(path.join(data, 'config/module-upgrades')),
+        resourceSamples: samples, fullSourceOracle: complete, approvedInBrowser, readinessObserved, unexpectedReadback, generation: game.release.generation,
         inventory: complete ? { actors: counts[0], embeddedItems: counts[0] * counts[1], actorAndItemEffects: counts[0] * (2 + Math.ceil(counts[1] / 4)),
-            expectedWrites: maintenanceUuidOracle(expected).length, checked: preview.plan.checked } : undefined,
+            expectedWrites: expectedUuids().length, checked: preview.plan.checked } : undefined,
         adapter: fs.readFileSync(trace, 'utf8'), native: false }, null, 2));
     console.log(`PASS: actual manager/Core/Next replacement, durable lease/job, pre-adapter admission, admin continuity and first-token fence. Evidence: ${root}`);
 } finally {
     browserSockets.forEach(socket => socket.disconnect());
+    readinessWatcher?.close();
     clearInterval(sampling);
     if (manager.exitCode === null) manager.kill('SIGTERM');
     await Promise.race([new Promise(resolve => manager.once('close', resolve)), new Promise(resolve => setTimeout(resolve, 15_000))]);

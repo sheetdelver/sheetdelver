@@ -392,7 +392,8 @@ export class SystemService extends EventEmitter {
         });
     }
 
-    private async recoverOrBootstrap(): Promise<void> {
+    /** Recovery uses the same readiness event/heartbeat boundary as bootstrap. */
+    public async recoverOrBootstrap(): Promise<void> {
         if (!this.systemClient) throw new Error('SystemService not initialized');
         await worldBootstrapper.recover(this.systemClient, {
             onReady: ({ systemId }) => {

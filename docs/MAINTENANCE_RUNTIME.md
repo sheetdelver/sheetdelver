@@ -3,10 +3,14 @@
 ADR-0064's complete-maintenance correction is implemented on the corrective
 branch and undergoing whole-host acceptance. This is not a released Core version
 or permission to resume module adoption. The [independent review](adr/0064-module-world-context-and-data-migrations.md#independent-complete-maintenance-review--october-17-2026)
-confirms open CR64-14–17 corrections in exact single-write verification,
-unproven-drain cancellation, legacy plan storage and final bootstrap fencing.
-Correct these before native acceptance; the lifecycle below is the required
-contract, not a claim that those paths are complete. Application/module release
+identified CR64-14–17 in exact single-write verification, unproven-drain
+cancellation, legacy plan storage and final bootstrap fencing. The corrective
+tree implements those guards and verifies them with tracked regressions and
+isolated public/supervisor workflows. Native and user acceptance remain open;
+the ADR records the evidence and qualifications. A subsequent
+[independent confirmation](adr/0064-module-world-context-and-data-migrations.md#cr64-1417-independent-confirmation--october-17-2026) reran the original failure cases
+and actual supervisor readiness/recovery flow, finding no new confirmed blocker
+in the reviewed changes. Native v13/v14 remains the next acceptance step. Application/module release
 metadata is unchanged.
 
 ## Lifecycle owners
@@ -41,7 +45,13 @@ jobs are routed into this composition without fabricating a new approval.
 Disruption records whether ordinary native sends had settled. A failed/unproven
 drain blocks new planning/approval; restarting is not evidence that an unknown
 ordinary native outcome settled. Preserve the record and reconcile those outcomes
-before operator recovery. Diagnostic-only corrupt mode/journals expose admin
+before operator recovery. Cancellation, planning, approval, resume and transitions
+to activating/serving require the durable `drained: true` proof, independently of
+failure text. A process exit, missing approval or successful source check is not
+that proof. Cold activating/serving records without proof stay restricted. An
+unknown-drain cancellation retains recovery, lease and actionable diagnostics,
+even before the native transport reconnects. A 202 accepts the request, not its
+successful outcome; inspect durable status. Diagnostic-only corrupt mode/journals expose admin
 recovery without connecting a native writer or overwriting the damaged record.
 
 1. Online source/archive inspection is advisory. Its candidate is retained by
@@ -89,7 +99,12 @@ reads. Compatible consecutive operations use native batches of at most 50 update
 and 512 KiB per envelope; these are automatic send bounds, not inventory caps or
 additional approval/chunk boundaries. All per-target intents are fsynced before
 send. Validate the approved sequential simulation first, then read back every
-exact resulting target and run its verify hook. Partial/lost acknowledgements
+exact resulting target and run its verify hook. Single writes (including a
+one-operation batch tail) use the same exact-source comparison as batches.
+Only native `_stats` metadata normalization is ignored; an unrelated content
+change retains intent/recovery, never confirmation, activation, replay or undo.
+Recheck snapshot freshness and authority before confirming receipts.
+Partial/lost acknowledgements
 retain all affected intents for readback, never blind batch replay.
 Legacy whole-kind/pack dependencies retain full reads rather than silently
 weakening their approval. Observation revisions still fence read/send windows;
@@ -101,6 +116,29 @@ new saves preserve them before using the stream. Reapproval retains historical
 approvals/receipts rather than clearing evidence. An incomplete record stops in
 diagnosable recovery. Do not downgrade to 0.19.0 to resume the new journal format;
 use a tested supporting Core release. No world backup/restore/undo is provided.
+
+Complete plans use internal `core-migration-plan.v2` references in preview/job
+metadata and content-addressed `plan-content/` blocks. Paged lists and exact
+dependency deltas avoid repeating whole-world maps in every durable operation;
+each block remains bounded to32MiB and SHA-256 verified. The complete logical
+plan/digest, dependency membership, patches and approval identity are unchanged.
+This is not an inventory cap or a module/catalog rewrite. Review HTTP returns
+every target/patch and logical digest, without internal dependency/effect maps.
+Existing inline plans remain readable; oversized legacy inline records are
+stream-imported, validated against their logical digest and retained verbatim as
+`.legacy-inline` before compact replacement. Receipts, prior approvals and old
+catalogs are preserved. Missing, incomplete or corrupted blocks stop recovery;
+do not prune blocks/backups or downgrade to a release that cannot read them.
+Logical plans are still materialized for execution and hashing, so memory/CPU
+costs grow with the declared read sets; compression is not a small-host guarantee.
+
+After final asynchronous compatibility computation, normal bootstrap/reconnect
+revalidates source, connection, authority and context before releasing the gate or
+publishing prepared data. Final maintenance-to-normal startup uses that same
+boundary. A stale final snapshot retains maintenance diagnostics. Admin
+`retry-context` uses the existing SystemService recovery facade, including its
+readiness event; a successful fresh retry can finish activation but grants no
+new repair authority and does not clear unrelated gates.
 
 Isolated actual supervisor/API acceptance now covers complete no-op, install,
 upgrade, same-version repair, local-to-managed switch, cumulative versions,

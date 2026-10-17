@@ -68,6 +68,8 @@ export async function checkInstalledWorldCompatibility(systemId: string, prepare
     const after = await freshMigrationSnapshot(catalog);
     if (sourceHash(source.targets) !== sourceHash(after.targets) || sourceHash(source.world.settings) !== sourceHash(after.world.settings)
         || (await computeWorldMigrations(root, catalog, after.world, after.targets, true)).blockers.length) throw new Error('Source compatibility changed during preparation');
+    after.assertCurrent();
+    assertMigrationAuthority();
     worldWorkGate.release('migration-compatibility');
     publish?.();
     } catch (error) {
