@@ -4,11 +4,12 @@ import { requireAdminCsrf } from '@server/middleware/requireAdminCsrf';
 import { readMaintenanceMode, maintenanceOnly } from '@server/core/world/MaintenanceMode';
 import { drainNormalRuntime, enterMaintenance, getMaintenanceController } from '@server/services/world/migrations/MaintenanceController';
 import { migrationReason } from '@server/services/world/migrations/planner';
+import { maintenanceMigrationStatus } from '@server/services/world/migrations/migrationAttention';
 
 export function registerAdminMaintenanceRoutes(router: express.Router, account: express.RequestHandler, restart: (reason: string) => void): void {
     router.get('/module-maintenance', account, requireAdminAuth, (_req, res) => {
         res.setHeader('Cache-Control', 'no-store');
-        try { res.json(maintenanceOnly() ? getMaintenanceController().status() : { mode: readMaintenanceMode() }); }
+        try { res.json({ ...(maintenanceOnly() ? getMaintenanceController().status() : { mode: readMaintenanceMode() }), migration: maintenanceMigrationStatus() }); }
         catch (error) { res.json({ mode: readMaintenanceMode(), failure: migrationReason(error) }); }
     });
     router.post('/module-maintenance/enter', account, requireAdminAuth, requireAdminCsrf, auditAdminAction, async (req, res) => {

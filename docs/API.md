@@ -1207,16 +1207,20 @@ unchanged. No supporting application release is assigned yet. See
 The [independent review](adr/0064-module-world-context-and-data-migrations.md#independent-complete-maintenance-review--october-17-2026) identified CR64-14–17. Corrective
 implementation and isolated acceptance cover cancellation drain proof, complete
 large legacy-plan review and fresh final readiness. Subsequent CR64-18–21
-corrections and selected native v13/v14 acceptance pass; C64-H user/release review
-and module hold-release remain open. See the
-[current acceptance](adr/0064-module-world-context-and-data-migrations.md#fresh-complete-maintenance-native-v13-acceptance--october-17-2026).
+corrections and selected native v13/v14 acceptance pass. CR64-22/R1 administrator
+visibility and navigation acceptance complete C64-H and the Core implementation
+scope. Merge, supporting-release publication and separately authorized G8 module
+adoption remain pending. See the
+[final Core disposition](adr/0064-module-world-context-and-data-migrations.md#cr64-22-r1-correction-and-core-closeout--october-17-2026).
 
 | Surface | Contract |
 | --- | --- |
 | `GET /api/module-world-context` | Authenticated, initialized, role-filtered immutable context; no raw Settings. |
 | `GET /admin/world/service-account` | Admin-only observed/required role and remediation. |
+| `GET /admin/module-migrations` | Admin-only, no-store current source/world status projection; metadata/evidence only, no hooks or full inventory scans. Available in restricted maintenance too. |
 | `GET /admin/module-upgrades[/:id]` | Owner-only durable job/target outcomes and bounded compatibility/context diagnostics; no-store. |
-| `POST /admin/module-upgrades/source/:moduleId/preview` | `{source: "local" or "managed"}`; isolated, read-only world plan; no serving Store/context mutation. |
+| `POST /admin/module-upgrades/source/:moduleId/preview` | `{source: "local" or "managed",scopeKey?}`; isolated, read-only world plan; optional exact diagnostic scope checked before/after computation. No serving Store/context mutation. |
+| `GET /admin/module-upgrades/source/:moduleId/review?source=...&scopeKey=...` | Load the exact fresh cached advisory; no scan or source selection. Stale/missing/expired evidence returns409. |
 | `POST /admin/module-upgrades/source/apply` | Exact `planId`, `backupAcknowledged`; current admin principal; 202 accepted. |
 | `POST /admin/module-upgrades/retry-context` | Retry compatibility/preparation after dependency failure; 409 on failure; no new repair authorization. |
 | `POST /admin/module-upgrades/:id/resume` | Readback/reconcile the persisted approval, not a fresh repair authorization. |
@@ -1224,7 +1228,7 @@ and module hold-release remain open. See the
 | `POST /admin/module-upgrades/:id/review` | Fresh expiring preview for a stopped job with changed/restored source. |
 | `POST /admin/module-upgrades/:id/reapprove` | Exact revised `planId`, `backupAcknowledged`; retains prior approvals/outcomes. |
 | `POST /admin/module-upgrades/:id/cleanup` | Completed jobs only; confined retained staging/package cleanup, not world data. |
-| `GET /admin/module-maintenance` | Admin-only durable composition, progress, failure and exact review plan when available; no-store. |
+| `GET /admin/module-maintenance` | Admin-only durable composition, progress, failure, plain-language `migration` projection and exact review plan when available; no-store. |
 | `POST /admin/module-maintenance/enter` | Advisory `{planId}`; persists disruption consent, closes admission/drains/stops normal runtime; **no write approval**. |
 | `POST /admin/module-maintenance/plan` | Builds the complete authoritative review after isolation; approved jobs use reviewed recovery, never silent replanning. |
 | `POST /admin/module-maintenance/approve` | Exact authoritative `{planId,backupAcknowledged:true}` and authenticated administrator; process-owned job returns 202. |
@@ -1234,6 +1238,14 @@ and module hold-release remain open. See the
 Review projections include every planned target/path/patch and the exact logical
 approval digest; server-internal `operations[].dependencies`/`effects` proofs are
 not transmitted. Durable storage layout is private, not a module contract.
+The internal `module-migrations` response contains `sources`, `active`,
+`maintenance`, `revision` and `generatedAt`. Per-source entries name the module,
+local/managed copy, version, actual world and opaque `scopeKey`, with explicit
+state/reason/action and known freshness/counts/digests. Recovery/in-progress state
+supersedes prior passing evidence. Restricted composition omits normal source
+inventory. This diagnostic key is not approval authority, and the endpoint does
+not expose this information through public/player status. A GET cannot authorize
+writes or switch sources. No SDK/API contract-version change is required.
 Cancellation does not bypass an unknown ordinary-send outcome: durable
 `drained:true` is required even before native reconnect/planning. Rejected async
 cancellation retains the lease and recovery diagnostic;202 is acceptance of work,

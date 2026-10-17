@@ -69,7 +69,7 @@ export function createAdminRouter(deps: AdminRouterDeps) {
     adminRouter.use(requireAdminNetwork);
     adminRouter.use(requireAdminOrigin);
     adminRouter.use((req, res, next) => {
-        if (maintenanceOnly() && !(req.method === 'GET' && req.path === '/status') && !/^\/(?:auth(?:\/|$)|module-maintenance(?:\/|$)|module-upgrades(?:\/|$))/.test(req.path)) {
+        if (maintenanceOnly() && !(req.method === 'GET' && ['/status', '/module-migrations'].includes(req.path)) && !/^\/(?:auth(?:\/|$)|module-maintenance(?:\/|$)|module-upgrades(?:\/|$))/.test(req.path)) {
             return res.status(503).json({ error: 'Only maintenance authentication, status and reviewed recovery are available' });
         }
         next();

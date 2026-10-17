@@ -1,10 +1,15 @@
 # Core ADR-0064: Module World Context and Data Migrations
 
-**Status:** Accepted/open — CR64-09–17 are checkpointed at `140f838`; CR64-18–21 are corrected with offline and native verification. Fresh complete-maintenance native v13 and retained v14 acceptance pass, including focused first-publication recovery on both generations. Cleanup and tested source identity are verified. User review identified CR64-22: admin migration status and required action are insufficiently visible; this Core UI follow-up is documented, not implemented. C64-H, supporting release and explicit module hold-release remain open; module work stays held.
+**Status:** Completed — Core implementation scope, including C64-A–H and CR64-22-R1, closed under the user's conditional closeout instruction on October 17, 2026. Qualified offline/native evidence and the final navigation regression are recorded below. G8 module adoption and supporting-release operations remain separately pending; this is not module compliance or publication approval.
 **Date:** October 16, 2026
 **Related:** Core ADR-0021, ADR-0027, ADR-0028, ADR-0038, ADR-0056, ADR-0057, ADR-0063; Shadowdark module ADR-0001
 
-Current disposition: [CR64-22 admin migration visibility](#cr64-22-admin-migration-visibility--october-17-2026), following [fresh complete-maintenance native v13 acceptance](#fresh-complete-maintenance-native-v13-acceptance--october-17-2026), [independent CR64-21 verification](#independent-cr64-21-verification--october-17-2026), [CR64-21 recovery correction and focused native verification](#cr64-21-first-approval-recovery-correction--october-17-2026), [CR64-18–20 corrections and native v14 repeat](#cr64-1820-correction-and-native-v14-repeat--october-17-2026) and [complete-maintenance implementation](#complete-maintenance-implementation-and-isolated-acceptance--october-17-2026). Earlier pending-native statements below retain their historical scope.
+Latest disposition: [CR64-22-R1 correction and Core closeout](#cr64-22-r1-correction-and-core-closeout--october-17-2026), following the
+[independent CR64-22 review](#independent-cr64-22-review-and-deliverable-reconciliation--october-17-2026).
+Earlier open findings and pending acceptance statements below are dated history,
+not new obligations; valid evidence and its limitations remain preserved.
+
+Preceding implementation evidence: [CR64-22 admin migration visibility](#cr64-22-admin-migration-visibility--october-17-2026), following [fresh complete-maintenance native v13 acceptance](#fresh-complete-maintenance-native-v13-acceptance--october-17-2026), [independent CR64-21 verification](#independent-cr64-21-verification--october-17-2026), [CR64-21 recovery correction and focused native verification](#cr64-21-first-approval-recovery-correction--october-17-2026), [CR64-18–20 corrections and native v14 repeat](#cr64-1820-correction-and-native-v14-repeat--october-17-2026) and [complete-maintenance implementation](#complete-maintenance-implementation-and-isolated-acceptance--october-17-2026). Earlier pending-native statements below retain their historical scope.
 
 The [independent Core review](#independent-core-review--october-16-2026) of
 `5013e86` supersedes the implementation checkpoint's completion implications.
@@ -3595,9 +3600,18 @@ module, local/managed source, artifact and relevant context/source revisions.
 | Blocked or recovery required | Explain the actual blocker or uncertain outcome and offer the applicable existing recovery/review action. A failed check is not proof that a migration is required. |
 | In progress or completed | Show authoritative phase and confirmed progress; successful completion remains distinct from final activation/readiness. |
 
-Surface required attention on the active module card and in a persistent admin
-notice visible from the overview and Installed page. Give the module title,
-source, version when known, world and direct next action. Keep lifecycle status
+Surface required attention on the active module card. Overview and unrelated
+admin pages show only a compact notice for required, blocked, in-progress or
+recovery-required states, with the module/world/source/version and direct next
+action. Detailed status in all states belongs on Installed and source cards,
+not global chrome; Installed suppresses the shared notice to avoid duplication.
+Routine unknown/checking/unavailable, current and no-catalog results do not create
+global notices. Installed/source migration cards start collapsed for routine states
+and expand for attention, with manual pointer/keyboard control. Stable polls retain
+the user's choice; changed status or world/source scope restores the appropriate
+default. Explicit review drawers and the restricted shell retain full explanation.
+Keep migration job history under Audit, separate from Installed's current readiness
+and actionable preparation diagnostics. Keep lifecycle status
 separate from migration readiness. Job history may retain an empty state, but it
 must not stand in for world health. A new release may separately say “Includes
 migrations”; only checks against the relevant world establish required changes.
@@ -3652,3 +3666,393 @@ preceding “review/checkpoint and release preparation” next-step statement un
 this UI work is implemented and reviewed. Module work remains held. This addendum
 changes documentation only; no source, versions, Git state or live services were
 changed, and no native or module inspection was needed.
+
+### CR64-22 implementation and isolated acceptance — October 17, 2026
+
+The preceding CR64-22 paragraphs record the planning baseline. Its six checkpoints
+are now implemented on `fix/adr-0064-complete-maintenance`, based on `b5574cb`;
+changes remain uncommitted for review. The ADR was saved byte-for-byte first:
+288,185 bytes, SHA-256
+`2b85e9731c965d64ff986ed85473f5926cab0c469dd1a128618233e76798af45`.
+
+**Authoritative diagnostic evidence.** `migrationAttention.ts` projects current
+status from existing catalog metadata, compatibility checks, explicit source
+previews and durable controller/journal evidence. `migrationEvidence.ts` observes
+the existing checks; it neither replaces their decisions nor grants approval.
+Evidence binds module/source directory/category/version and source-file revisions
+to world identity/context, service authority, connection generation and primary/
+pack revisions. Known artifact/catalog digests and counts are retained. Passive
+unref'ed filesystem watchers belong to normal Core and exit with it; watcher
+failure cannot establish passing evidence. Old previews expire, reconnects and
+observed changes retire evidence, and process replacement starts unknown until
+fresh checks finish. This is observed-revision diagnostic freshness, not immunity
+to unobserved external edits or a replacement for execution-time exact checks.
+
+`GET /admin/module-migrations` reads metadata/evidence, never hook execution or a
+world inventory. It distinguishes no catalog, unknown, checking, unavailable,
+freshly up to date, required, blocked, in progress and recovery required. A failed
+check is not labeled required. Empty history, Enabled, catalog presence and old
+completed jobs cannot produce green status. Active/recovery durable work takes
+precedence. Restricted composition returns only maintenance evidence, without
+normal source discovery or adapter initialization. It warms durable diagnostic
+candidate/job/review identity once via the existing storage worker independently
+of native reconnect, without altering approval, leases or write scheduling. A
+tracked cold-process/offline case proves source/version/world/count recovery.
+Native world identity must also align with prepared context; the transition
+between observing a new world and priming its context cannot reuse old success.
+
+**Actual admin integration.** One authenticated provider supplies compact,
+attention-only global notices (including Overview), the detailed Installed panel,
+both source cards and the review drawer. Installed does not duplicate the global
+notice. It refreshes
+evidence every5s while visible, retires responses across sessions/runtime changes,
+and clears failed/overdue data instead of retaining success. The notice names
+the actual world/module, local/managed source and known version. Inactive copies
+are explicit and keep independent results. Exact-source links carry an opaque
+world/source scope; a stale/missing target requires reopening the current review,
+never silently selecting another copy. Cached review GET rechecks identity after
+storage reads and revalidates administrator authentication before transmission.
+**Check world data** deliberately runs the existing advisory. Opening a notice or
+cached plan performs no scan, source switch, maintenance entry or write approval.
+Migration job history is under Audit; Installed retains actionable preparation
+diagnostics and a history link. Narrow header/URL overflow and card-content
+compression found during actual320px review were corrected, not hidden by clipping.
+
+**Restricted shell.** The dependency-free shell now presents a plain-language
+reason, known module/world/source/version, progress and next step ahead of the
+complete technical plan/recovery disclosure. Proposed updates remain available,
+not just path names. Authentication failure clears private details; plan/artifact
+changes clear backup acknowledgement. Existing exact approval, backup warning,
+durable drain, recovery and cancellation semantics are unchanged. No ordinary
+runtime or new privileged transport is introduced.
+
+| Evidence | Result / scope |
+| --- | --- |
+| `src/tests/integration/migration-attention.test.ts` |9 real-host/HTTP cases: required with empty history; active/inactive local and managed in both directions; checking/current/blocked/no catalog; zero-write candidate; context/Actor/User/pack/source revisions; offline/reconnect/world replacement; expired/late evidence; historical completion versus current source; durable recovery precedence; admin-only routes, cached review without scans, stale source409 and revoked admin401 including during awaited storage. No fixture writes. |
+| `src/tests/acceptance/adr0064-supervised.test.ts --run-isolated --complete-matrix --inventory=2,2 --migration-attention --restart-review` | Actual manager/Core/Next and public HTTP/browser workflow, Core-owned packaged hooks and controlled loopback upstream only. Overview→exact managed review→Installed at320/390/820/1440 in light/dark; inactive local zero-write result remains separate. Navigation emits no POST or inventory read. Unapproved review survives a real isolated Core exit/replacement with zero writes. Authoritative maintenance review, exact backup approval,25 unique writes/32checks, independent complete source oracle, activation and stale-client409 pass. |
+| Restricted shell in that workflow | Four widths ×both themes; known identity/reason/next step, full technical patches, disabled unacknowledged approval, keyboard stop dialog/focus, private data absent when unauthenticated and status401. Distinct computed themes; no horizontal overflow. |
+| `src/tests/acceptance/adr0064-rendered.mjs` | Eight actual-component recovery captures, failed-refresh retirement, expired session, exact plan detail, focus confinement/return, stop and retained-file cleanup controls. Controlled browser responses are component evidence, not native evidence. |
+| Core suites | Full unit, client and integration suites, TypeScript without incremental cache, lint and whitespace checks pass. Existing24 corrective and27complete-maintenance integration cases preserve CR64-18–21 coverage. |
+
+Rendered captures were visually inspected, including the corrected mobile cards
+and review identity. Initial harness attempts exposed fixture source selection,
+compiled hook filenames and obsolete selectors/expectations; those attempts are
+not passed acceptance. The actual320px overflow/compression failures were corrected
+and the complete rendered/public workflow rerun. Browser tools remain external
+to application dependencies; no production settings, module repositories or
+native Foundry endpoints were used.
+
+This is a visibility/read-only diagnostic correction. No migration executor,
+lease/publication/storage durability, native authorization, approval identity or
+source-selection behavior changed; existing native v13/v14 evidence remains
+retained rather than repeated. Internal admin DTO/routes require no SDK/API or
+application-version bump. Existing journals/catalogs remain compatible; diagnostic
+caches need no migration and are deliberately not restored as passing evidence.
+
+**Still open:** C64-H user acceptance of discoverability, wording and source
+clarity; supporting Core release and explicit module hold-release. Suggested user
+check: find attention on Overview, follow it to the intended source, compare an
+inactive copy, check a named world deliberately, and review the maintenance reason/
+next action before exact approval. No module adoption or release is authorized by
+these results. ADR-0064 stays open.
+
+### CR64-22 placement refinement — user review, October 17, 2026
+
+The user rejected the full status panel on every admin page. The approved
+refinement is implemented: Overview/unrelated pages show only compact required,
+blocked, in-progress or recovery attention with exact-source navigation. Routine
+states and polling errors stay in Installed's detailed panel; failed reads remove
+old shared attention rather than inventing a migration requirement. Installed
+suppresses duplicate global chrome and retains complete freshness/reason/counts,
+refresh/check controls, and source-specific cards/reviews. The restricted shell
+is unchanged. This supersedes the initial all-page/full-panel presentation, not
+the authoritative status, freshness, authorization or approval contracts.
+
+The ADR was saved byte-for-byte before this refinement:295,515 bytes, SHA-256
+`bc9bf5244d1f39195100b0da0c2f1481c2de7e45821f7b9fc447b76bc74d85a9`.
+Focused rendering covers all nine status states and failed refreshes; actual
+isolated admin routes cover healthy Overview/Cache without notices, attention-only
+Overview/Cache and detailed Installed without duplicate chrome at all four widths
+in both themes. Earlier complete backend/native evidence remains retained; no
+backend, module, contract/version or approval behavior changes in this refinement.
+User acceptance of the final presentation remains pending.
+
+Fresh refinement checks pass: client suite, TypeScript without incremental cache,
+lint and whitespace; the component harness exercises all nine visibility states,
+failed refresh, authentication retirement and recovery controls. The actual
+isolated supervisor/Core/Next run includes16 quiet Overview/Cache captures and32
+attention Overview/Cache/Installed/review captures, plus review-identity/shell
+coverage, at320/390/820/1440 in both themes. Installed has one detailed panel and
+no duplicate notice. Keyboard exact-source navigation and no-scan inspection pass;
+the retained small public workflow also completes25unique controlled-upstream
+writes/32checks, Core review restart, independent source comparison and activation.
+Captures were visually inspected; narrow notices use the full text width and put
+their action below it. This is isolated/browser evidence, not a renewed native run.
+
+### CR64-22 collapsed information and Audit history — user review, October 17, 2026
+
+The user refined routine migration information to occupy less space and moved
+migration job history into Audit. Installed's current-world panel and per-source
+migration cards now use native keyboard-accessible disclosures. Non-attention
+states start collapsed with status/source identity retained in the summary;
+required, blocked, in-progress and recovery states start expanded. Manual toggles
+survive stable polls. Changed semantic state or world/source scope resets the
+default, so new attention opens and resolved attention collapses. Explicit source
+reviews remain expanded because the user already requested those details. Opening
+a disclosure performs no scan, source switch, maintenance entry or write.
+
+**Audit → Migration job history** owns job records, receipts and the existing
+review/recovery/retained-file controls. Installed shows no historical jobs or empty
+history panel. Current service-account, compatibility and world-context diagnostics
+and **Retry world preparation** remain on Installed when actionable; a healthy
+diagnostic view renders nothing. The expanded current-status panel links directly
+to Audit's history anchor. Existing authenticated routes, exact approval, backup
+acknowledgement, recovery and restricted-shell behavior are unchanged.
+
+Before this refinement the ADR was saved byte-for-byte:298,215 bytes, SHA-256
+`821d6e070311d6fe737e40738ed660705009b6b95a6743a1bbfdbc6bbc5cb7d4`.
+Focused component checks cover all nine defaults, new/resolved attention,
+keyboard toggles, stable-refresh preservation, failed reads/auth retirement and
+the retained recovery controls. Actual isolated admin-route acceptance covers
+collapsed healthy Installed/source cards, manually expanded details, automatic
+attention expansion, and job history on Audit rather than Installed at all four
+widths in both themes. Full backend/native evidence remains retained; no backend,
+SDK/API/version, module, approval or source-selection change is implied. ADR-0064
+and C64-H remain open for user acceptance.
+
+Fresh checks pass: client suite, TypeScript without incremental cache, lint and
+whitespace; actual-component tests exercise all nine disclosure defaults, manual
+keyboard toggles across stable refreshes, automatic reopening/collapse on state
+changes, failed reads, and actionable diagnostics remaining separate from history.
+The actual isolated supervisor/Core/Next workflow verifies healthy collapsed
+Installed/source cards, attention expansion and Audit history at320/390/820/1440
+in both themes, plus keyboard navigation and no-scan disclosure/review inspection.
+It completes25unique controlled-upstream writes/32checks and independent source
+comparison/activation, then renders the completed job and25confirmed receipts on
+Audit with no current migration notice. No new native run was required. Captures
+were visually inspected; all task services exited. Existing user dev services and
+module repositories were left untouched. Changes remain uncommitted for review.
+
+## Independent CR64-22 review and deliverable reconciliation — October 17, 2026
+
+The user requested review of the final collapsed-card/Audit refinement and
+conditional ADR closeout before release and module resumption. Reviewed the
+uncommitted tree on `fix/adr-0064-complete-maintenance`, checkpoint `b5574cb`.
+The previous ADR was saved byte-for-byte before annotation: 301,764 bytes,
+SHA-256 `767ef4913c9a5b3a1324130e8978ac91085c7aa5b660b66c7dda3a8eef2c5f68`.
+Production source was not edited during this review.
+
+### Verified final behavior
+
+Independent full unit/client and integration suites pass, including the existing
+24 corrective, 27 complete-maintenance and 9 migration-attention cases. Fresh
+TypeScript, lint and the actual-component browser checks pass. The final UI has
+routine disclosures collapsed, attention expanded, manual toggles preserved on
+stable refresh, compact attention-only global chrome, and one Installed status
+panel with actionable preparation diagnostics. Job history and completed receipts
+are under Audit. Failed/session-retired evidence is removed; source checks remain
+deliberate. No SDK/API/application versions changed.
+
+A fresh isolated actual supervisor/Core/Next run exercised the final UI at
+320/390/820/1440 widths in both themes, including quiet and attention pages,
+source reviews, the restricted shell and completed Audit history. Normal exact
+source navigation, cached review without scans, keyboard controls, backup gating
+and stale-link rejection pass. The public workflow survives unapproved review
+replacement, completes **25 unique controlled-upstream writes / 32 checks**, and
+matches an independent complete source oracle. Admin remains available at 200
+during preparation, player work returns 503, and stale post-activation mutations
+return 409. All owned services stopped. This is isolated host evidence, not a
+new Foundry run; previous native v13/v14 results remain retained.
+
+### CR64-22-R1 — unavailable navigation target retains the prior drawer
+
+**Resolved, P2; correction and failing-before/passing-after evidence below.** At review, in
+`src/app/(admin)/components/ModuleLifecycleControl.tsx`, the query-selection effect
+sets `selectedKey` only when it finds the requested card. An unavailable target
+leaves the previous selection intact. The separately rendered missing-target
+alert is behind the still-open modal; `expectedMigrationScope` becomes undefined
+for that old selection, leaving its Check world data control enabled.
+
+Reproduced against the actual final Next interface using its supported same-page
+history navigation:
+
+1. Open `/admin/modules?module=fixture&source=managed&migration=<current-scope>`
+   and confirm the managed fixture drawer opens.
+2. Change the URL in the same mounted page to
+   `/admin/modules?module=removed-fixture&source=managed&migration=retired-target`.
+3. The page reports that the requested source is unavailable, but the prior
+   fixture's drawer remains visible with Check world data enabled. Independent
+   evidence records one visible prior drawer and an enabled prior check.
+
+This contradicts the required exact-target navigation experience. The probe did
+not click that control, switch the selected runtime source, enter maintenance or
+authorize an unintended write. The backend's exact-plan authority remains intact;
+this finding does not invalidate native migration/recovery acceptance.
+
+Required correction: reconcile the drawer with explicit navigation intent. An
+unavailable or invalid requested target must retire the prior drawer/preview and
+leave an accessible explanation, without silently displaying another card.
+Preserve manual Details interaction and disclosure choices during stable polls.
+Add a regression that starts with a drawer already open and then exercises a
+missing module, unavailable source and malformed source through same-page
+navigation/history; verify valid links still open the exact target and ordinary
+manual drawers remain usable. A fresh full-page load with no previous selection
+does not cover this defect. Keep this correction within Core UI and existing
+identity contracts; no new migration engine or native inventory run is needed.
+
+### Proposed deliverables reconciled
+
+The original aggregate checklist is historical design inventory. This table maps
+its Core-owned obligations to cumulative evidence and separates module adoption
+and release operations. It does not turn generic fixture results into validation
+of a module's native formulas, hooks or UI.
+
+| Deliverable / gates | Current coverage and disposition |
+| --- | --- |
+| Full-GM identity and caller separation — G0/G0a | Implemented; initial/reconnect/demotion/retry and ordinary caller distinctions have unit, actual-host and retained v13/v14 evidence. No automatic account promotion. |
+| Declared settings and immutable refresh — G1/G2 | Implemented; Store availability/default provenance, false/zero/null, user-key exclusion, filtered projection, retired handles and preparation races are covered by `module-world-migrations.test.ts` and corrective integration. Native setting create/update/delete and recovery supplement them. Module-specific consumption belongs to G8. |
+| Separate catalogs, compilation, release metadata and previews — G3, C64-A/C | Implemented; schema/path/dependency/digest/history validation, v2 packaging, old-host gates, skipped steps, isolated read-only previews and artifact/world fencing have unit/integration and public workflow evidence. Migration-free compatibility is retained. |
+| Maintenance ownership and lifecycle — G4, C64-B | Implemented; supervised normal Core/Next shutdown, ordinary-session/callback drain, restricted admission, durable leases and restart composition have isolated and native evidence. No module/player write authority is added. |
+| Complete planning/execution and targets — G4/G5, C64-C/D | Implemented; independent UUID/source oracles cover world/embedded/delta/arbitrary world-pack locations and bounded parent/base relations. Original and larger native inventories complete, including 3,194 unique writes on each generation. Legacy 39.6 MB plan evidence is retained. Recorded memory peaks and brief replacement listener interruptions remain qualifications, not hidden capacity guarantees. |
+| Approval, file transitions, readback and recovery — G4, C64-E | Implemented through CR64-21; file/publish/intent/receipt crashes, partial or uncertain outcomes, cancellation drain, source restore/conflict and final preparation have independent corrective plus native evidence. No blind replay, world undo or native-user lockout is promised. |
+| Caller/pack permissions and canonical identity — G6/G7, C64-F | Implemented; shared generation-aware policy, revocation with warm caches, safe 403, canonical UUID preservation and permitted labels are covered by unit/integration and retained native access tests. Non-GM `/system/data` requires the module's caller-safe projection. |
+| Whole-host and native acceptance — Core G9, C64-G | Selected v13.351/v14.367 matrices, full independent source/receipt accounting, operator/player layouts and cleanup are evidenced. Latest isolated final-UI run passes its normal workflow. No further native execution blocker was found. |
+| Admin visibility and exact source review — CR64-22, C64-H | Final placement/disclosure/history behavior independently verified. CR64-22-R1 is corrected and verified by the mounted-page regression below; no known Core blocker remains. |
+| Documentation, compatibility and release — Core G9, C64-H | Contracts/guides and evidence are present; this review corrects the completion claim and records the final narrow action. Application remains 0.19.0; current tree SDK 3.4.0/module-api 1.6.0/UI 3.2.0/roll 1.0.0. Published 0.19.0 supplies SDK 3.3/module-api 1.5 and does not contain these complete-maintenance corrections. Supporting release identification/publication remains separate. |
+| Module adoption — G8 | Still module-owned and not established by Core fixtures. Resume after the Core correction/review and selected release sequence; preserve exact historical migration hooks, adopt actual available SDK/Core/toolchain floors, and perform module-owned native acceptance. No module repository was inspected in this review. |
+
+### Closeout and release sequence
+
+At independent review, the user's conditional closeout request was **not yet met
+because CR64-22-R1 was confirmed**. The ADR and active audit therefore stayed open.
+Correct that one UI selection path, prove the regression fails before/passes after,
+then rerun the affected component/navigation checks and normal type/lint checks.
+Retain the passed broad and native evidence unless the correction changes those
+behaviors. No generic repeat of the entire migration/native matrix is requested.
+
+Once that correction is independently verified, reconcile C64-H and close the
+Core implementation scope under the user's conditional instruction. Checkpoint/
+merge and release remain separately scoped operations; use `docs/RELEASING.md`
+and the release helper after merge, with an actual chosen application version.
+Do not pre-bump metadata or invent a dependent module's release floor. Then hand
+G8 back to the module agent using the published supporting Core/SDK/toolchain;
+bounded relations require module-api 1.6.0, while historical 1.5 catalogs retain
+their semantics. This review adds no module task beyond the already selected G8
+adoption and does not authorize remote writes or publication.
+
+## CR64-22-R1 correction and Core closeout — October 17, 2026
+
+**Resolved. Core implementation closed under the user's conditional instruction.**
+The ADR was saved byte-for-byte before this revision: 311,519 bytes, SHA-256
+`8a81bc7873ac516ecf7a754bb15969485a8cdc6cd3f118dc83fda400b258b68f`.
+The existing uncommitted CR64-22 implementation and original documentation were
+preserved on `fix/adr-0064-complete-maintenance`, checkpoint `b5574cb`.
+
+### Bounded correction
+
+`ModuleLifecycleControl` now binds manual selection/close state to the relevant
+module/source/revision navigation intent. A changed intent cannot render the
+previous selection while an effect catches up. Only an exact installed match
+opens automatically; missing modules, unavailable sources and malformed links
+retire the drawer and child review, with an accessible alert. Duplicate target
+parameters, missing source and explicitly empty revisions are rejected rather
+than silently discarding a scope check. Back/Forward resolves each target anew.
+Unmounting the existing review retires its pending response sequence and loaded
+preview. Valid source/revision changes remount it; old controls cannot survive.
+
+Manual Details and close choices remain usable and survive stable refreshes.
+Manually opening the exact source named by a stale link still retains that
+link's revision check. Unrelated query changes do not reset selection. Existing
+card/disclosure defaults and manual toggles are preserved. No backend migration,
+source activation, authority, approval, journal or native execution changed.
+
+### Regression and acceptance evidence
+
+The tracked actual-interface test is
+`src/tests/acceptance/migrationAttentionBrowser.ts`, exercised by
+`src/tests/acceptance/adr0064-supervised.test.ts`. Its isolated managed-only fixture
+distinguishes an unavailable source from a missing module. It starts with an open
+drawer and loaded plan, then navigates within the mounted Next page (not a fresh
+load) to six invalid targets: missing module, unavailable source, invalid source,
+missing source, duplicated source and empty revision. It asserts no drawer,
+review or old maintenance control, visible explanation, Back/Forward retirement,
+fresh exact local/managed links, retained stale-scope denial, ordinary manual
+Details, manual close across refresh and stable disclosure toggles.
+
+Before the correction this regression **failed** on the missing-module case:
+one previous drawer and source review remained (`1 !== 0`). After correction the
+six-case matrix passes at 320/390/820/1440 in both themes. The same actual
+supervisor/Core/Next workflow passes quiet/attention pages, Audit history,
+read-only cached reviews without POSTs or source scans, unapproved review
+replacement, restricted-shell gating, **25 unique controlled-upstream writes /
+32 checks**, complete independent source comparison and activation. Admin200,
+player503 and stale-client409 boundaries remain intact. These are isolated host
+results, not new native acceptance. The original v13.351/v14.367 evidence and
+3,194-write comparisons remain valid, with their recorded capacity limitations.
+
+Fresh `npm run test:client`, `npx tsc --noEmit --incremental false`, `npm run lint`,
+`git diff --check` and the actual-component rendered harness pass. The latter
+retains nine-state disclosures, stable toggles, failure/auth retirement,
+diagnostics/history separation, keyboard/focus and recovery controls across both
+themes/four widths. Selected missing/malformed-target captures were visually
+inspected: warnings are unobscured, with no prior modal. The earlier independent
+full unit/integration checks remain retained; no broad/native rerun was needed
+for this client-only correction. A first post-fix browser attempt passed all six
+retirement cases but stopped on an incorrect fixture link selector; that test
+selector was corrected to read the existing public status projection. It is not
+represented as a successful full run.
+
+### Final Core disposition and explicit remaining work
+
+| Scope | Disposition |
+| --- | --- |
+| C64-A–G, Core G0–G7/G9, CR64-01–22 including R1 | Implemented and verified with the cumulative qualified evidence above; no confirmed Core gap remains. |
+| C64-H | Core readiness/documentation reconciled; conditional Core closeout satisfied after the R1 regression passes. Release execution and module work are not implied. |
+| G8 | Separately authorized module adoption remains pending. Generic Core fixtures do not establish any module's hook/rule/UI compliance. No module repository was inspected or changed. |
+| Supporting release | Independent review passed; checkpoint authorized. Merge and an actual selected release remain pending through `docs/RELEASING.md`. Package/lock remain0.19.0; no supporting application version is assigned here. Published0.19.0 has SDK3.3/module-api1.5 and lacks the complete-maintenance corrections. The current tree has SDK3.4/module-api1.6/UI3.2/roll1.0; those contracts are not yet a published host/toolchain. |
+
+Archive the completed Core audit; retain G8/release sequencing in the stable
+handoff and DW-16 ledger. After the user's review and explicit module resumption,
+the module agent must use its own guidance/handoff, preserve historical catalog
+semantics, resolve its module-owned findings, adopt actual available Core/SDK/
+toolchain floors (bounded relations require module-api1.6), and perform its own
+native acceptance before dependent publication. No module release floor,
+version bump or publication is authorized by Core closeout. Only isolated task
+services were used and stopped; no native Foundry or root production configuration
+was contacted.
+
+
+### Independent R1 verification and checkpoint review — October 17, 2026
+
+The final correction was independently reviewed before the user-authorized
+checkpoint. Relative to the preceding independent source review, only
+`ModuleLifecycleControl.tsx` and its two tracked acceptance files changed;
+previously reviewed backend behavior is unchanged. The ADR was saved before
+this annotation: 317,226 bytes, SHA-256
+`cd2c7bbb9cadc0b8f60a24670af94bc7b87348be09bc445b4e355f1651eb3add`.
+
+A fresh isolated real supervisor/Core/Next run of
+`adr0064-supervised.test.ts --run-isolated --complete-matrix --inventory=2,2 --migration-attention --restart-review`
+passes all **48 invalid-navigation cases** across four widths and both themes,
+including mounted history, exact-source transitions, stale-scope guards and
+manual controls. Captured cases have zero retained drawers, reviews or stale
+maintenance actions. Desktop dark and narrow light warnings were visually
+inspected. The same public workflow completes **25 unique writes / 32 checks**,
+with an independent full-source oracle, unapproved-review restart, activation,
+admin HTTP 200, player maintenance 503 and stale-client rejection 409. This
+83.612-second controlled-upstream run is not new native or capacity evidence.
+
+Fresh client tests, TypeScript, lint, documentation links and whitespace checks
+pass. The prior full unit/integration and native v13/v14 evidence remains valid
+within its recorded scope; this client-only correction does not warrant repeating
+native inventories. All owned processes and listeners were verified stopped.
+API, architecture and runtime guides were reconciled to remove stale open-Core
+wording while preserving operating limits and the separate module hold.
+
+No confirmed Core implementation blocker remains; Core/C64-H closeout stands.
+The user authorized this local checkpoint and will perform push, PR/merge and
+release separately. Application/lock versions remain 0.19.0; no supporting
+release number is invented. Published 0.19.0 still lacks these corrections and
+SDK 3.4/module-api 1.6. G8 adoption requires explicit resumption and the published
+supporting host/toolchain before dependent module publication. No module
+repository, live Foundry instance or production configuration was accessed.

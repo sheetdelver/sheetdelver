@@ -29,6 +29,7 @@ export class AsyncUpgradeJournal implements UpgradeJournalAccess {
     private references = new WeakMap<MigrationWorldPlan, StoredMigrationPlan>();
     private jobSnapshots = new Map<string, UpgradeJob>();
     private previews = new Map<string, ReturnType<typeof upgradeReview>>();
+    private sourceCandidates = new Map<string, UpgradeCandidate>();
     constructor(readonly root: string, readonly lockRoot: string) { this.leases = new UpgradeJournal(root, lockRoot); }
     leaseKey: UpgradeJournal['leaseKey'] = job => this.leases.leaseKey(job);
     acquire: UpgradeJournal['acquire'] = job => this.leases.acquire(job);
@@ -37,8 +38,9 @@ export class AsyncUpgradeJournal implements UpgradeJournalAccess {
     assertActive: UpgradeJournal['assertActive'] = job => this.leases.assertActive(job);
     async savePreview(value: UpgradePreview): Promise<void> { await this.call('savePreview', [value]); this.previews.set(value.id, upgradeReview(value)); }
     async preview(id: string): Promise<UpgradePreview> { const value = await this.call<UpgradePreview>('preview', [id]); this.previews.set(id, upgradeReview(value)); return value; }
-    saveSourceCandidate(id: string, value: UpgradeCandidate): Promise<void> { return this.call('saveSourceCandidate', [id, value]); }
-    sourceCandidate(id: string): Promise<UpgradeCandidate> { return this.call('sourceCandidate', [id]); }
+    async saveSourceCandidate(id: string, value: UpgradeCandidate): Promise<void> { await this.call('saveSourceCandidate', [id, value]); this.sourceCandidates.set(id, value); }
+    async sourceCandidate(id: string): Promise<UpgradeCandidate> { const value = await this.call<UpgradeCandidate>('sourceCandidate', [id]); this.sourceCandidates.set(id, value); return value; }
+    peekSourceCandidate(id: string) { return this.sourceCandidates.get(id); }
     async save(value: UpgradeJob): Promise<void> { await this.call('save', [value]); this.jobSnapshots.set(value.jobId, value); }
     async job(id: string): Promise<UpgradeJob> { const value = await this.call<UpgradeJob>('job', [id]); this.jobSnapshots.set(id, value); return value; }
     async jobs(): Promise<UpgradeJob[]> { const values = await this.call<UpgradeJob[]>('jobs', []); values.forEach(value => this.jobSnapshots.set(value.jobId, value)); return values; }
@@ -50,6 +52,7 @@ export class AsyncUpgradeJournal implements UpgradeJournalAccess {
         return value;
     }
     peekJob(id: string) { return this.jobSnapshots.get(id); }
+    peekJobs() { return [...this.jobSnapshots.values()]; }
     peekPreview(id: string) { return this.previews.get(id); }
     async drain(): Promise<void> { await this.tail; }
     async close(): Promise<void> { this.retired = true; await this.tail.catch(() => {}); await this.worker?.terminate(); this.worker = undefined; }

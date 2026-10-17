@@ -12,6 +12,8 @@ import { getDefaultLifecycleStateFilePath } from '@modules/registry/lifecycle/li
 import { getDefaultArtifactStoreFilePath } from '@modules/registry/distribution/artifactStore';
 import { validateModuleInfoShape, evaluateModuleCompatibility } from '@modules/registry/lifecycle/validation';
 import { getCoreVersion } from '@modules/registry/core/internals';
+import { beginMigrationEvidence } from './migrationEvidence';
+import { migrationAttentionFrame, assertMigrationAttentionFrame } from './migrationAttention';
 
 /** Core-owned compiled snapshot. Author source directories are never rewritten. */
 export async function prepareSourceCandidate(directory: string, info: SystemModuleInfo, category: 'local' | 'managed'): Promise<UpgradeCandidate> {
@@ -49,13 +51,25 @@ export async function previewModuleSource(moduleId: string, category: 'local' | 
     const directory = category === 'local' ? record?.localDirectory : record ? path.join(getModulesDataDir(), moduleId) : undefined;
     if (!directory) throw new Error('Selected source is unavailable');
     const info = JSON.parse(fs.readFileSync(path.join(directory, 'info.json'), 'utf8')) as SystemModuleInfo;
-    const candidate = await prepareSourceCandidate(directory, info, category);
+    const frame = migrationAttentionFrame();
+    const observation = frame.world ? beginMigrationEvidence({ moduleId, source: category, directory, version: info.version }, frame.world,
+        () => assertMigrationAttentionFrame(frame.revision)) : null;
+    let candidate: UpgradeCandidate | undefined;
     try {
+        candidate = await prepareSourceCandidate(directory, info, category);
         const preview = await createHostUpgradeCoordinator().preview(candidate);
         await getUpgradeJournal().saveSourceCandidate(preview.id, candidate);
+        observation?.finish({ state: preview.plan.blockers.length ? 'blocked' : preview.plan.operations.length ? 'required' : 'up-to-date',
+            reason: preview.plan.blockers[0] || (preview.plan.operations.length ? 'Fresh checks propose world-data changes. Review before entering maintenance.' : 'Fresh advisory checks propose no world-data changes for this source.'),
+            checked: preview.plan.checked, proposedWrites: preview.plan.operations.length, previewId: preview.id,
+            artifactDigest: candidate.artifactDigest, catalogDigest: preview.catalogDigest }, () => {
+            assertMigrationAttentionFrame(frame.revision);
+            if (Date.now() > preview.expiresAt) throw new Error('Advisory evidence expired');
+        });
         return preview;
     } catch (error) {
-        fs.rmSync(candidate.root, { recursive: true, force: true });
+        observation?.finish({ state: 'blocked', reason: error instanceof Error ? error.message : 'Source checks unavailable' });
+        if (candidate) fs.rmSync(candidate.root, { recursive: true, force: true });
         throw error;
     }
 }

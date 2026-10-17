@@ -139,7 +139,8 @@ Keep it bounded, read-only and revision-aware. Source ingress continues during t
 refresh; preparation uses the latest source after the asynchronous barrier. Failed
 refresh holds world work unavailable instead of publishing old values as current.
 Recovery refreshes context without normal adapter reinitialization.
-After failure, an admin can **Retry world preparation** in World maintenance.
+After failure, an admin can **Retry world preparation** from Installed's
+**World preparation requires attention** diagnostics.
 The retry reruns source compatibility and preparation; it does not authorize repairs
 or release unrelated gates. A hook timeout cannot cancel module JavaScript: Core
 prevents overlapping preparation, including across world teardown, until that hook
@@ -437,7 +438,7 @@ The browser checks use existing external tooling, never runtime dependencies.
 The supervised check copies only Core source/configuration into a temporary
 workspace, uses generated data and a fake loopback upstream, and replaces the real
 manager's Core/Next children. It does not connect to native Foundry. Inspect
-listeners first; the ADR records evidence and remaining native/adoption gates.
+listeners first; the ADR records qualified native evidence and pending release/adoption work.
 
 G8 module adoption is separate: declare native settings with versioned provenance;
 create lossless source-derived catalog/hooks and tests; implement dependency refresh;
@@ -452,19 +453,59 @@ The unreleased SDK 3.4 / module-api 1.6 implementation now has passing selected
 native v13/v14 coverage: complete representative and 3,194-write inventories,
 independent source/receipt comparisons, public install/upgrade/source-switch,
 recovery, settings/permissions and rendered maintenance. Focused CR64-21 first
-publication cancellation/crash/retry also passes on both generations. C64-H user
-review, a supporting Core release and explicit module hold-release remain open.
+publication cancellation/crash/retry also passes on both generations. Core
+implementation closeout is recorded under the user's conditional instruction;
+supporting-release publication and separately authorized module adoption remain.
 The current evidence and measured operating costs are in
 [ADR-0064](adr/0064-module-world-context-and-data-migrations.md#fresh-complete-maintenance-native-v13-acceptance--october-17-2026).
 
 User review identified an additional Core admin UI follow-up:
 [CR64-22](adr/0064-module-world-context-and-data-migrations.md#cr64-22-admin-migration-visibility--october-17-2026).
-Currently, “No recorded module upgrade jobs” describes history, not current world
-readiness. Manual world-data preview in module Details checks the selected local
-or managed source; an inactive managed copy does not describe the active local
-copy. Explicit active-source migration status, a prominent review action and a
-clearer maintenance explanation are planned, not implemented. A catalog's presence
-alone does not establish that a particular world needs migration.
+Independent review confirms the final placement, disclosures and Audit history.
+[CR64-22-R1](adr/0064-module-world-context-and-data-migrations.md#cr64-22-r1-correction-and-core-closeout--october-17-2026)
+corrects mounted-page navigation: unavailable or malformed targets retire prior
+source drawers, previews and controls with an accessible explanation. History
+navigation resolves the exact source anew; stale revision checks remain in force.
+Manual Details/close choices and disclosures survive stable refreshes. The
+backend and retained native migration evidence are unchanged.
+The corrective branch provides one Core-owned migration-status projection.
+Overview and unrelated admin pages show a compact notice only for required,
+blocked, in-progress or recovery states. Installed owns the full status panel
+(including unknown, unavailable, checking and passing results), without a duplicate
+global notice. Module cards/reviews retain source-specific detail; the restricted
+maintenance shell keeps its full reason/progress/next action.
+Installed status and source migration cards default collapsed unless they need
+attention. Click/keyboard expands them; new attention opens automatically, routine
+results collapse, and stable polling does not undo manual toggles. The explicitly
+opened source-review drawer stays detailed. **Audit → Migration job history** owns
+past jobs, receipts and retained-file/recovery controls. Installed shows only
+current status and actionable preparation diagnostics, with a link to history.
+“Migration job history” remains separate: empty history, Enabled status, catalog
+presence and old completion do not establish current readiness. Each source says
+no catalog, unknown/checking/unavailable, freshly up to date, required, blocked,
+in progress or recovery required. Known counts are shown; unknown counts are not
+invented. A catalog's presence alone does not establish required world changes.
+
+An attention notice identifies the module, actual world, local/managed source and known
+version. **Review migration** opens that exact source/world revision on Installed;
+**Review migration plan** loads its existing fresh advisory without scanning.
+**Check world data** deliberately runs the existing read-only advisory check. A
+stale link is rejected rather than redirected to another copy. Inactive copies
+are explicitly labeled and cannot inherit the selected source's result. Opening
+either action does not switch sources, enter maintenance or authorize writes.
+
+Fresh evidence comes from existing bootstrap checks or explicit source previews,
+not page renders. Core retires it on observed world/context/document/pack,
+connection/authority or source-file changes. Normal browser status polls are
+metadata-only; failed/overdue responses clear the display. A process restart
+requires fresh evidence rather than reviving a historical green result. These
+are observed-revision diagnostics, not a substitute for execution-time checks.
+
+The standalone shell presents a plain-language reason, exact known identity,
+progress and next action before the full technical plan/recovery details. Its
+admin-only explanation does not load Next or module code. Required backup
+acknowledgement and exact authoritative approval remain separate from advisory
+inspection. No migration approval, source-selection or execution contract changed.
 
 CR64-18–21 storage responsiveness, pack metadata, permission-error classification
 and first-job publication are Core responsibilities. Module work remains held;

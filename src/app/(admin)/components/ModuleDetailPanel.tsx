@@ -14,6 +14,7 @@ import type { ModuleLifecycleInfo } from '../lib/adminApi';
 import ManagerActionBar from './ManagerActionBar';
 import ModuleUpdatePolicyControl from './ModuleUpdatePolicyControl';
 import SourceMigrationReview from './SourceMigrationReview';
+import type { AdminMigrationStatus } from '@shared/types/adminMigration';
 
 interface ModuleDetailPanelProps {
     entry: {
@@ -23,7 +24,9 @@ interface ModuleDetailPanelProps {
         reason?: string;
         health?: { errorCount: number; lastError: string; lastErrorAt: number };
         validation?: ModuleLifecycleInfo['validation'];
+        migration?: AdminMigrationStatus;
     };
+    expectedMigrationScope?: string;
     /** Callback after a manager operation completes — parent should refresh. */
     onOperationComplete: () => void;
     /** Callback when session expires — parent should redirect to login. */
@@ -36,7 +39,7 @@ function formatTimestamp(ts?: number): string {
     return new Date(ts).toLocaleString();
 }
 
-export default function ModuleDetailPanel({ entry, onOperationComplete, onSessionExpired }: ModuleDetailPanelProps) {
+export default function ModuleDetailPanel({ entry, expectedMigrationScope, onOperationComplete, onSessionExpired }: ModuleDetailPanelProps) {
     const { mod: module, cardSource, status, reason, health, validation } = entry;
     const { artifact } = module;
     const [verifying, setVerifying] = useState(false);
@@ -67,7 +70,7 @@ export default function ModuleDetailPanel({ entry, onOperationComplete, onSessio
     return (
         <div className="mt-3 space-y-4 border-t border-[var(--admin-border)] pt-4">
             <SourceMigrationReview key={`${module.moduleId}:${cardSource ?? module.activeSource}`} moduleId={module.moduleId}
-                source={cardSource ?? module.activeSource ?? 'managed'} onSessionExpired={onSessionExpired} />
+                source={cardSource ?? module.activeSource ?? 'managed'} expectedScope={expectedMigrationScope} status={entry.migration} onSessionExpired={onSessionExpired} />
 
             {/* ── Local Dev card detail ──────────────────────────────────── */}
             {isLocalCard && (

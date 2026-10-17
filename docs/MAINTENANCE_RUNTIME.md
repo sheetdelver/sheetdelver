@@ -6,7 +6,9 @@ not a released Core version or permission to resume module adoption. CR64-14–2
 corrections have tracked failing-before/passing-after evidence and public/native
 recovery results. The [latest acceptance](adr/0064-module-world-context-and-data-migrations.md#fresh-complete-maintenance-native-v13-acceptance--october-17-2026)
 records exact source/write/receipt comparisons, cleanup and measured costs.
-C64-H user review, supporting release and explicit hold-release remain open.
+Core implementation/C64-H closeout, including final navigation retirement, is
+recorded in the [final disposition](adr/0064-module-world-context-and-data-migrations.md#cr64-22-r1-correction-and-core-closeout--october-17-2026).
+Supporting release and separately authorized G8 adoption remain pending.
 Application/module release metadata is unchanged.
 
 ## Lifecycle owners
@@ -18,12 +20,19 @@ Application/module release metadata is unchanged.
 | User login, cached restore/retries, authorization refresh, shared-content listeners / FoundryUserConnectionService | Suspend and retire authority epoch; detach/disconnect live transports without erasing encrypted credentials; process exit retires late promises | No user connection service is instantiated |
 | Gameplay sockets, presence, preference and document listeners / AppSocketGateway | Disconnect sockets; terminate owning Core | Public maintenance status only; no credential restoration/action handlers |
 | Status polling/lifecycle broadcasts / registerSockets | Dispose/exit the normal Core | One bounded public maintenance broadcaster |
+| Admin migration evidence / migrationEvidence | Passive unref'ed source-file observers exit with normal Core; no hooks, timers or world scans | Durable controller/journal projection only; no source discovery or normal module imports |
 | Service retry, heartbeat, engagement wakeups and launch/shutdown / WorldTransportController, SystemService, EngagementService | Dispose controller and transport after outstanding native sends settle | One maintenance CoreSocket with sequential retry/identity priming; no normal lifecycle controller |
 | Adapter initialization, context hooks, preparation caches, module-created timers / WorldBootstrapper and module registry | No candidate adapter before complete compatibility; normal process/descendants exit | Final fresh preparation in a read-only owned worker over the parent's transport; terminate/await it before replacement |
 | Native document/batch/autosave/catalog ingress and queued repairs / FoundryEventIngress | Stop serving repairs, preparation and gameplay publications | Observation-only ingress advances existing Store/pack revisions; User authority updates remain active |
 | Pending native writes / WorldWorkGate | Close admission, settle counted sends before supervisor replacement; failed drain persists recovery | Exact approved controller dispatch only; intent and readback remain durable |
 | Admin auth/session cleanup, logging / existing security and logging services | Retain restart handoff; credentials remain owner-only | Same admin network/origin/session/CSRF/audit policy and logging |
 | Normal manager/Core and their owned descendants / start-server | Exclusive data-directory leases and confirmed process-group exit | Manager supervises maintenance Core only, including crash replacement |
+
+Restricted startup warms its durable diagnostic identity/review once through the
+existing storage worker, independently of Foundry reconnect. A stopped/unavailable
+world therefore need not hide a known candidate source/version. This is read-only:
+it does not bind approval, acquire/release leases, execute hooks or restore normal
+workers. Status polling consumes the resulting read models, not repeated plan loads.
 
 No Foundry or unrelated process is stopped. Process groups are confined to the
 manager's own children. On Linux, descendant confirmation excludes dead zombies,
@@ -185,8 +194,9 @@ upgrade, same-version repair, local-to-managed switch, cumulative versions,
 restored source despite a completed ledger, uncertain/partial writes, forced
 Core termination and preparation replacement. Original 30/900/300 and larger
 60/2400/720 inventories complete with independent source oracles. These controlled
-upstreams are not native v13/v14 acceptance. Resource costs, limitations and open
-native/user gates are recorded in ADR-0064; module work remains held.
+upstreams are distinct from the subsequent native v13/v14 acceptance below.
+Resource costs, limitations and final Core closeout are recorded in ADR-0064;
+supporting release and module adoption remain pending.
 
 
 ## Native acceptance limitations (unreleased)
@@ -195,7 +205,8 @@ Fresh Foundry 14.367 acceptance at checkpoint `140f838`, then its uncommitted
 CR64-18–20 correction/repeat, confirms real
 1,244- and 3,194-write migrations, lossless source comparison, lost-receipt/crash recovery,
 maintenance isolation, activation and fresh approval for externally restored
-source. This does not close the full native/operator gate or release module work.
+source. That v14 run alone did not close the combined native/operator gate;
+subsequent v13 and final UI acceptance complete Core closeout. Module work remains held.
 See [ADR-0064 final correction/repeat](adr/0064-module-world-context-and-data-migrations.md#cr64-1820-correction-and-native-v14-repeat--october-17-2026).
 
 The CR64-18 reproduction used synchronous plan encoding,
@@ -231,5 +242,5 @@ above preserves the earlier successful v14 evidence. Focused cancellation and
 crashes on both sides of first publication, then one unique confirmed write and
 baseline cleanup, now pass on both v13 and v14. Current review/release disposition
 is recorded in
-[ADR-0064](adr/0064-module-world-context-and-data-migrations.md#fresh-complete-maintenance-native-v13-acceptance--october-17-2026).
+[ADR-0064's final Core disposition](adr/0064-module-world-context-and-data-migrations.md#cr64-22-r1-correction-and-core-closeout--october-17-2026).
 All module work remains held; no public SDK or release-version change is needed.

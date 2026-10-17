@@ -7,6 +7,7 @@
 - Completed responsive durable migrations
 - Recovered durable approval interruptions
 - Corrected pack access and indexing
+- Surfaced source-bound migration attention
 
 ## 0.19.0
 

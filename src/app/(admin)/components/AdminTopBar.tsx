@@ -91,7 +91,7 @@ export default function AdminTopBar() {
                 </span>
 
                 {/* Right cluster */}
-                <div className="ml-auto flex items-center gap-3">
+                <div className="ml-auto flex items-center gap-1 sm:gap-3">
                     {adminId && (
                         <span className="hidden font-mono text-xs text-[var(--admin-text-muted)] sm:inline" title="Signed-in admin">
                             {adminId}

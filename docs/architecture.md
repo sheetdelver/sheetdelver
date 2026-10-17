@@ -453,6 +453,36 @@ dependencies.
 
 ## Module world context and maintenance
 
+### Administrator migration evidence
+
+CR64-22 adds an internal, admin-only status projection (`migrationAttention`),
+separate from lifecycle Enabled status and upgrade history. Existing compatibility
+checks and deliberate source previews publish diagnostic evidence into
+`migrationEvidence`; render/status requests never run hooks or inventory scans.
+Evidence binds source category/directory/version and observed file revisions to
+world/context, transport generation, full-GM authority and primary/pack revisions.
+Normal Core owns passive unref'ed filesystem observers; replacement closes them.
+Failed observations cannot establish passing evidence. Restarted Core starts with
+unknown readiness until fresh checks complete.
+
+Durable maintenance/recovery takes precedence, using existing controller/journal
+read models. Restricted composition reads no normal registry/module graph for this
+projection. Once on restricted startup, the existing owned storage worker warms
+durable candidate/job/review metadata even if native reconnect is unavailable;
+status polling never initiates those loads. One admin provider refreshes status, clears retired/failed/overdue data,
+and carries exact source/world scope in review links. Compact shared chrome shows
+only required/blocked/in-progress/recovery attention, including on Overview;
+Installed makes full status available and suppresses duplicate chrome. Its panel
+and source migration cards default collapsed for routine states and expanded for
+attention; native disclosures retain manual toggles across stable polls and reset
+for changed status/scope. Explicit review drawers remain detailed. Migration job
+history lives in Audit; Installed retains actionable preparation diagnostics only.
+Module cards/reviews remain source-specific. These are presentation rules over the same
+authoritative status, not another migration decision engine. Cached plan inspection is
+read-only; original authoritative approval and write-time checks remain decisive.
+See [operator behavior](MODULE_MIGRATIONS.md#current-native-acceptance-and-adoption-hold)
+and [admin endpoints](API.md#module-world-context-and-maintenance-apis-unreleased).
+
 [Core ADR-0064](adr/0064-module-world-context-and-data-migrations.md), released in Core 0.19.0, implements
 live, immutable snapshots of declared native world settings and dependency
 revisions for prepared data, shared pack-permission policy and canonical Actor
@@ -483,7 +513,9 @@ terminated before activation. [Maintenance runtime](MAINTENANCE_RUNTIME.md)
 defines the producer/owner map, exclusive leases, shell, journal upgrade and
 workflow. SDK 3.4.0/module-api 1.6.0 add bounded relation declarations; application
 release metadata remains 0.19.0. Selected C64-G native v13/v14 acceptance now
-passes; C64-H user/release review and explicit module hold-release remain open.
+passes; CR64-22/R1 completes C64-H and closes the Core implementation scope.
+Merge, supporting-release publication and separately authorized G8 adoption remain
+pending. See the [final Core disposition](adr/0064-module-world-context-and-data-migrations.md#cr64-22-r1-correction-and-core-closeout--october-17-2026).
 See the [current native evidence](adr/0064-module-world-context-and-data-migrations.md#fresh-complete-maintenance-native-v13-acceptance--october-17-2026)
 for source comparisons, cleanup, memory/latency costs and qualifications.
 The [independent review](adr/0064-module-world-context-and-data-migrations.md#independent-complete-maintenance-review--october-17-2026) identified CR64-14–17. The corrective
@@ -494,7 +526,8 @@ uses SystemService's recovery/readiness event path. Public review omits internal
 dependency proofs but preserves every target/patch and exact logical digest.
 Existing inline journals import losslessly; originals, receipts and historical
 approvals remain retained. These are Core changes, not module workarounds or a
-release-version bump. Native/user gates and the module hold remain open.
+release-version bump. Qualified native acceptance is complete; release publication
+and the module hold remain separate from Core closeout.
 
 Migration execution belongs to the Core admin upgrade coordinator. A module
 keeps requirements in a root `migration.json` catalog and native-version directories
@@ -538,5 +571,7 @@ an old scope. Possible-write evidence and exact recovery approval remain intact.
 The [CR64-06/07 follow-up](adr/0064-module-world-context-and-data-migrations.md#cr64-0607-corrective-implementation--october-16-2026)
 records real host/ingress/dispatch regressions, actual player appearance-provider
 rendering and isolated supervised replacement. Later native v13/v14 fixtures
-passed within their recorded scope. The new full-workflow/isolation/capacity
-acceptance remains open, and all module work is held by the user's decision.
+passed within their recorded scope. Subsequent complete-maintenance workflows,
+isolation and representative/larger native inventories also pass with the recorded
+memory and replacement-interruption limitations. Module work remains held pending
+the supporting release and explicit resumption.

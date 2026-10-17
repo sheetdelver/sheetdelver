@@ -6,6 +6,7 @@ import { AdminThemeProvider, useAdminTheme } from '../context/AdminThemeContext'
 import { NotificationProvider } from '@client/ui/components/NotificationSystem';
 import { AdminNotificationProvider } from '../context/AdminNotificationContext';
 import { AdminRuntimeRestartProvider } from '../context/AdminRuntimeRestartContext';
+import { AdminMigrationProvider } from '../context/AdminMigrationContext';
 
 export default function AdminProviders({ children }: { children: React.ReactNode }) {
   return (
@@ -13,9 +14,11 @@ export default function AdminProviders({ children }: { children: React.ReactNode
       <AdminShell>
         <AdminAuthProvider>
           <AdminRuntimeRestartProvider>
-            <NotificationProvider placement="admin">
-              <AdminNotificationProvider>{children}</AdminNotificationProvider>
-            </NotificationProvider>
+            <AdminMigrationProvider>
+              <NotificationProvider placement="admin">
+                <AdminNotificationProvider>{children}</AdminNotificationProvider>
+              </NotificationProvider>
+            </AdminMigrationProvider>
           </AdminRuntimeRestartProvider>
         </AdminAuthProvider>
       </AdminShell>

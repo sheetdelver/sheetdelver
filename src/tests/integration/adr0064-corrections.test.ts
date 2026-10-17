@@ -83,7 +83,7 @@ cases['CR64-18-cold-journal-http'] = async root => {
     } finally { fs.fsyncSync = original; clearInterval(timer); await (journal as any).close?.(); await new Promise<void>(resolve => server.close(() => resolve())); }
 };
 
-async function host(root: string) {
+export async function host(root: string) {
     for (const key of Object.keys(process.env)) if (/^(FOUNDRY_|APP_)/.test(key)) delete process.env[key];
     initDataDir(resolveDataDir(['--data-dir', root]));
     fs.mkdirSync(path.join(root, 'config'), { recursive: true });

@@ -9,6 +9,8 @@ import { prepareSourceCandidate } from './sourceCandidates';
 import fs from 'node:fs';
 import { freshMigrationSnapshot } from './ModuleUpgradeService';
 import { sourceHash } from './planner';
+import { beginMigrationEvidence } from './migrationEvidence';
+import { migrationAttentionFrame, assertMigrationAttentionFrame } from './migrationAttention';
 
 let diagnostic: { moduleId: string; worldId?: string; phase: string; blockers: string[]; counts?: unknown; remediation: string } | null = null;
 let requestMaintenance: ((moduleId: string, directory: string, local: boolean) => Promise<void>) | undefined;
@@ -21,7 +23,13 @@ export async function checkInstalledWorldCompatibility(systemId: string, prepare
     if (!entry) { await prepare(); return; }
     let root = entry.directory;
     const local = entry.lifecycle.activeSource === 'local';
+    const initialFrame = migrationAttentionFrame();
+    const observation = initialFrame.world ? beginMigrationEvidence({ moduleId: entry.info.id,
+        source: local ? 'local' : 'managed', directory: entry.directory, version: entry.info.version },
+    initialFrame.world, () => assertMigrationAttentionFrame(initialFrame.revision)) : null;
     let phase = 'discovery';
+    let classified = false;
+    let artifactDigest = entry.artifact?.integrity;
     let publish: (() => void) | undefined;
     const prepareServing = async () => {
         phase = 'preparation';
@@ -48,7 +56,7 @@ export async function checkInstalledWorldCompatibility(systemId: string, prepare
     }
     const declared = discoverMigrations(root, entry.info, local);
     if (!declared) await assertMigrationReplacement(root, entry.info);
-    if (declared && local) root = (await prepareSourceCandidate(root, entry.info, 'local')).root;
+    if (declared && local) { const candidate = await prepareSourceCandidate(root, entry.info, 'local'); root = candidate.root; artifactDigest = candidate.artifactDigest; }
     const catalog = discoverMigrations(root, entry.info);
     if (!catalog) { phase = 'preparation'; await prepare(); worldWorkGate.release('migration-compatibility'); return; }
     worldWorkGate.block('migration-compatibility', { phase: 'blocked', message: 'World unavailable — maintenance required' });
@@ -57,6 +65,8 @@ export async function checkInstalledWorldCompatibility(systemId: string, prepare
     const source = await freshMigrationSnapshot(catalog);
     const plan = await computeWorldMigrations(root, catalog, source.world, source.targets, true);
     source.assertCurrent();
+    if (plan.blockers.length) { classified = true; observation?.finish({ state: plan.diagnostics?.some(row => catalog.steps.find(step => step.id === row.stepId)?.required) ? 'blocked' : 'required',
+        reason: plan.blockers[0], checked: plan.checked, artifactDigest, catalogDigest: catalog.digest }, source.assertCurrent); }
     diagnostic = plan.blockers.length ? { moduleId: entry.info.id, worldId: source.world.identity.worldId, phase, blockers: plan.blockers,
         remediation: 'Preview and approve maintenance for this exact running world in the module source or catalog controls.', counts: { checked: plan.checked, blocked: plan.blockers.length } } : null;
     if (plan.blockers.length) {
@@ -72,7 +82,11 @@ export async function checkInstalledWorldCompatibility(systemId: string, prepare
     assertMigrationAuthority();
     worldWorkGate.release('migration-compatibility');
     publish?.();
+    const readyFrame = migrationAttentionFrame();
+    observation?.finish({ state: 'up-to-date', reason: 'Current source compatibility passed fresh checks and preparation.',
+        checked: plan.checked, artifactDigest, catalogDigest: catalog.digest }, () => { after.assertCurrent(); assertMigrationAttentionFrame(readyFrame.revision); });
     } catch (error) {
+        if (!classified) observation?.finish({ state: 'blocked', reason: migrationReason(error) });
         diagnostic ??= { moduleId: entry.info.id, phase, blockers: [migrationReason(error)],
             remediation: 'Inspect the Core error log and module migration files, confirm the selected world is running, then retry world preparation. No repair is authorized by retrying.' };
         throw error;

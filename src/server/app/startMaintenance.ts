@@ -21,6 +21,7 @@ import { reconcileMaintenanceApproval } from '@server/services/world/migrations/
 import { requestFullStackRestart } from '@shared/runtime/fullStackRestart';
 import { adminSessionManager } from '@server/security/adminSessionService';
 import { migrationReason } from '@server/services/world/migrations/planner';
+import { warmMaintenanceMigrationStatus } from '@server/services/world/migrations/migrationAttention';
 import { logger } from '@shared/utils/logger';
 import { registerHttpErrorHandlers } from '@server/security/httpRequestSecurity';
 
@@ -58,6 +59,7 @@ export async function startMaintenance(config: AppConfig, corePort: number): Pro
     const shellServer = createServer(app); io.attach(shellServer);
     await new Promise<void>(resolve => shellServer.listen(config.app.port, config.app.host, resolve));
     logger.info(`Maintenance | Restricted Core pid=${process.pid}; shell=${config.app.port}; API=${corePort}. No Next/player/session/module workers.`);
+    void warmMaintenanceMigrationStatus().catch(error => logger.debug(`Maintenance | Diagnostic read models unavailable: ${migrationReason(error)}`));
     let stopped = false; let epoch = -1; let retried = false;
     const stop = () => { stopped = true; clearInterval(publish); detach(); client.disconnect(); io.close(); shellServer.close(); httpServer.close(); };
     process.once('SIGINT', () => { stop(); process.exit(0); });

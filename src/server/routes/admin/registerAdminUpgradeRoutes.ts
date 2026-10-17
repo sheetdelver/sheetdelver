@@ -10,9 +10,15 @@ import { previewModuleSource, applyModuleSource } from '@server/services/world/m
 import { getMigrationCompatibilityDiagnostic } from '@server/services/world/migrations/installedWorldCompatibility';
 import { maintenanceOnly } from '@server/core/world/MaintenanceMode';
 import { upgradeReview } from '@server/services/world/migrations/upgradeReview';
+import { readAdminMigrationOverview, exactMigrationStatus } from '@server/services/world/migrations/migrationAttention';
 
 export function registerAdminUpgradeRoutes(router: express.Router, account: express.RequestHandler,
     restart: (reason: string, detail?: Record<string, unknown>) => void): void {
+    router.get('/module-migrations', account, requireAdminAuth, (_req, res) => {
+        res.setHeader('Cache-Control', 'no-store');
+        try { res.json(readAdminMigrationOverview()); }
+        catch { res.status(503).json({ error: 'Migration visibility unavailable. Inspect Core diagnostics; no readiness is established.' }); }
+    });
     router.use('/module-upgrades', (req, res, next) => {
         if (maintenanceOnly() && req.method !== 'GET') return res.status(503).json({ error: 'Use the isolated maintenance controller for planning, approval and recovery' });
         next();
@@ -21,8 +27,26 @@ export function registerAdminUpgradeRoutes(router: express.Router, account: expr
         const id = parseModuleId(req.params.moduleId);
         const source = req.body?.source;
         if (!id || source !== 'local' && source !== 'managed') return res.status(400).json({ error: 'Canonical module and local/managed source required' });
-        try { return res.json(upgradeReview(await previewModuleSource(id, source))); }
+        try {
+            if (req.body?.scopeKey) exactMigrationStatus(id, source, String(req.body.scopeKey));
+            const preview = await previewModuleSource(id, source);
+            if (req.body?.scopeKey) exactMigrationStatus(id, source, String(req.body.scopeKey));
+            return requireAdminAuth(req, res, () => { res.json(upgradeReview(preview)); });
+        }
         catch (error) { return res.status(409).json({ error: error instanceof Error ? error.message : 'Source preview unavailable' }); }
+    });
+    router.get('/module-upgrades/source/:moduleId/review', account, requireAdminAuth, async (req, res) => {
+        res.setHeader('Cache-Control', 'no-store');
+        const id = parseModuleId(req.params.moduleId), source = req.query.source;
+        if (!id || source !== 'local' && source !== 'managed' || !req.query.scopeKey) return res.status(400).json({ error: 'Exact source/world scope required' });
+        try {
+            const current = exactMigrationStatus(id, source, String(req.query.scopeKey));
+            if (!current.previewId) throw new Error('No fresh review available. Check this source/world again.');
+            const preview = await getUpgradeJournal().preview(current.previewId);
+            exactMigrationStatus(id, source, String(req.query.scopeKey));
+            if (preview.expiresAt <= Date.now()) throw new Error('Review expired. Check world data again.');
+            return requireAdminAuth(req, res, () => { res.json(upgradeReview(preview)); });
+        } catch (error) { return res.status(409).json({ error: error instanceof Error ? error.message : 'Review unavailable' }); }
     });
     router.post('/module-upgrades/source/apply', account, requireAdminAuth, requireAdminCsrf, auditAdminAction, async (req, res) => {
         try {

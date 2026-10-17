@@ -13,6 +13,7 @@ import { fixture } from '../unit/world/module-world-migrations.test';
 import { packageMigrations } from '@modules/registry/migrations/compile';
 import { io as connectBrowserSocket } from 'socket.io-client';
 import { createMaintenanceCandidate, maintenanceInventory, expectedMaintenanceSource, maintenanceUuidOracle, type FixtureDocument } from '../fixtures/maintenanceInventory';
+import { inspectMigrationAttention, inspectCompletedMigrationHistory } from './migrationAttentionBrowser';
 
 if (!process.argv.includes('--run-isolated')) throw new Error('Explicit --run-isolated required; never uses an existing Foundry/Core instance');
 const repository = process.cwd();
@@ -26,12 +27,13 @@ const readinessBootstrap = process.argv.includes('--readiness-bootstrap');
 const onlineEntry = process.argv.includes('--online-entry') || unknownDrain;
 const archiveOperation = process.argv.find(arg => arg.startsWith('--archive-op='))?.split('=')[1] as 'install' | 'upgrade' | undefined;
 const localSwitch = process.argv.includes('--local-switch');
+const migrationAttention = process.argv.includes('--migration-attention');
 const cancelReview = process.argv.includes('--cancel-review');
 const noOp = process.argv.includes('--no-op') || cancelReview;
 const restartReview = process.argv.includes('--restart-review');
 const restoreLegacy = process.argv.includes('--restore-legacy');
 const restartPreparation = process.argv.includes('--restart-preparation');
-const manualEntry = onlineEntry || !!archiveOperation || localSwitch || noOp;
+const manualEntry = onlineEntry || !!archiveOperation || localSwitch || noOp || migrationAttention;
 const counts = (process.argv.find(arg => arg.startsWith('--inventory='))?.slice(12) ?? '30,30').split(',').map(Number);
 const inventory = maintenanceInventory(counts[0], counts[1], manualEntry);
 const expected = expectedMaintenanceSource(inventory);
@@ -178,6 +180,23 @@ export class Adapter { systemId='fixture'; match(){return true}
  while(fs.existsSync(${JSON.stringify(hold)})) await new Promise(resolve=>setTimeout(resolve,50));
  if(${onlineEntry})setInterval(()=>fs.appendFileSync(${JSON.stringify(ticks)},process.pid+'\\n'),50).unref();}
  normalizeActorData(actor){return {...actor,id:actor._id,img:'',derived:{fixed:actor.system.fixed}}} }`);
+if (migrationAttention) {
+    // A genuinely single-source, inactive module distinguishes an unavailable
+    // source from a missing module in mounted navigation acceptance.
+    const managedOnly = path.join(data, 'modules/managed-only');
+    fs.mkdirSync(managedOnly, { recursive: true });
+    fs.writeFileSync(path.join(managedOnly, 'info.json'), JSON.stringify({ ...source.info, id: 'managed-only', title: 'Managed-only fixture' }));
+    fs.copyFileSync(path.join(installed, 'logic.js'), path.join(managedOnly, 'logic.js'));
+    fs.copyFileSync(path.join(installed, 'ui.js'), path.join(managedOnly, 'ui.js'));
+    const inactive = path.join(data, 'local/modules/fixture');
+    fs.cpSync(installed, inactive, { recursive: true });
+    fs.writeFileSync(path.join(inactive, 'info.json'), JSON.stringify({ ...source.info, version: '1.0.1' }));
+    const definition = JSON.parse(fs.readFileSync(path.join(inactive, 'migrations/1.0.0/definition.json'), 'utf8'));
+    for (const step of definition.steps) {
+        fs.writeFileSync(path.join(inactive, 'migrations/1.0.0', step.hooks.check), 'module.exports=()=>({status:"current"})');
+        fs.writeFileSync(path.join(inactive, 'migrations/1.0.0', step.hooks.verify), 'module.exports=()=>({valid:true})');
+    }
+}
 let archive: string | undefined;
 if (archiveOperation) {
     const authorData = path.join(root, 'package-author'); const authorModule = path.join(authorData, 'local/modules/fixture');
@@ -215,6 +234,7 @@ const sampling = setInterval(() => {
 }, 500);
 const origin = `http://127.0.0.1:${appPort}`; const api = `http://127.0.0.1:${apiPort}`;
 let cookie = ''; let csrf = '';
+let migrationAttentionEvidence: unknown;
 async function request(url: string, body?: unknown) {
     return fetch(`${api}${url}`, { method: body === undefined ? 'GET' : 'POST', signal: AbortSignal.timeout(3000),
         headers: { Origin: origin, 'Content-Type': 'application/json', Cookie: cookie, 'X-Admin-Csrf-Token': csrf },
@@ -246,6 +266,7 @@ async function acceptance() { try {
     if (readinessBootstrap) await verifyReadinessFence(1);
     if (manualEntry && !onlineEntry) {
         await until('normal serving before explicit maintenance', async () => (await (await request('/api/status')).json()).initialized === true || false);
+        if (migrationAttention) await inspectMigrationAttention(origin, cookie, root, true);
         if (!noOp) { Object.assign(inventory, maintenanceInventory(counts[0], counts[1], false)); game.scenes = inventory.scenes;
             Object.assign(expected, expectedMaintenanceSource(inventory)); }
         fs.writeFileSync(hold, 'controlled preparation pause');
@@ -257,6 +278,16 @@ async function acceptance() { try {
             assert.equal(result.wouldProceed, true, JSON.stringify(result.blockingReasons)); advisory = result.migration;
         } else {
             const response = await request('/admin/module-upgrades/source/fixture/preview', { source: 'managed' }); assert.equal(response.status, 200); advisory = await response.json();
+        }
+        if (migrationAttention) {
+            const inactive = await request('/admin/module-upgrades/source/fixture/preview', { source: 'local' }); assert.equal(inactive.status, 200);
+            assert.equal((await inactive.json()).plan.operations.length, 0);
+            const visibility = await (await request('/admin/module-migrations')).json();
+            assert.equal(visibility.active.source, 'managed'); assert.equal(visibility.active.state, 'required');
+            assert.equal(visibility.sources.find((row: any) => row.source === 'local').state, 'up-to-date');
+            const before = { writes, reads: nativeReads };
+            migrationAttentionEvidence = await inspectMigrationAttention(origin, cookie, root);
+            assert.equal(writes, before.writes); assert.equal(nativeReads, before.reads, 'render/poll/review never reruns source inventory');
         }
         assert.ok(advisory?.id); assert.equal((await request('/admin/module-maintenance/enter', { planId: advisory.id })).status, 202);
     }
@@ -327,7 +358,7 @@ async function acceptance() { try {
         const state = await (await request('/admin/module-maintenance')).json();
         return state.mode?.stage === 'review' ? state : false;
     });
-    assert.equal(fs.existsSync(trace), onlineEntry || localSwitch || noOp, 'no candidate adapter constructed before source compatibility; only prior current serving adapter may exist');
+    assert.equal(fs.existsSync(trace), onlineEntry || localSwitch || noOp || migrationAttention, 'no candidate adapter constructed before source compatibility; only prior current serving adapter may exist');
     if (onlineEntry) {
         const before = fs.readFileSync(ticks, 'utf8'); await new Promise(resolve => setTimeout(resolve, 300));
         assert.equal(fs.readFileSync(ticks, 'utf8'), before, 'ordinary adapter timers cannot survive the normal-process barrier');
@@ -392,6 +423,14 @@ async function acceptance() { try {
         const browser = await chromium.launch({ executablePath: '/usr/bin/google-chrome', headless: true, args: ['--no-sandbox', '--disable-background-networking'] });
         const styles: Record<string, string> = {};
         try {
+            if (migrationAttention) {
+                const publicPage = await browser.newPage(); await publicPage.goto(`${origin}/admin`);
+                await publicPage.getByRole('button', { name: 'Sign in', exact: true }).waitFor();
+                assert.equal(await publicPage.locator('#identity').textContent(), '');
+                assert.equal(await publicPage.locator('#admin').isVisible(), false);
+                assert.equal((await fetch(`${api}/admin/module-migrations`)).status, 401);
+                await publicPage.close();
+            }
             for (const width of [320, 390, 820, 1440]) for (const colorScheme of ['light', 'dark'] as const) {
                 const context = await browser.newContext({ viewport: { width, height: 900 }, colorScheme });
                 const [name, ...value] = cookie.split('=');
@@ -400,6 +439,18 @@ async function acceptance() { try {
                 await page.goto(`${origin}/admin/modules`);
                 await page.locator('#admin:not([hidden])').waitFor();
                 await page.waitForFunction(() => document.getElementById('phase')?.textContent?.includes('review'));
+                if (migrationAttention) {
+                    assert.equal(await page.locator('#attention-title').textContent(), 'Maintenance in progress');
+                    assert.match(await page.locator('#identity').textContent() || '', /managed/);
+                    assert.match(await page.locator('#identity').textContent() || '', /w1/);
+                    assert.match(await page.locator('#next-step').textContent() || '', /acknowledge the backup warning/);
+                    await page.getByText('Technical plan and recovery details', { exact: true }).click();
+                    assert.match(await page.locator('#detail').textContent() || '', /"updates"/);
+                    await page.locator('#cancel').click(); await page.getByRole('dialog').waitFor();
+                    for (let i = 0; i < 4; i++) await page.keyboard.press('Tab');
+                    assert.ok(await page.evaluate(() => document.querySelector('dialog[open]')?.contains(document.activeElement)));
+                    await page.keyboard.press('Escape'); assert.equal(await page.getByRole('dialog').isVisible(), false);
+                }
                 assert.equal(await page.locator('#approve').isDisabled(), true);
                 assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
                 styles[colorScheme] = await page.locator('section').first().evaluate((element: Element) => getComputedStyle(element).backgroundColor);
@@ -480,6 +531,7 @@ async function acceptance() { try {
         const status = await (await request('/api/status')).json(); return status.initialized === true ? status : false;
     });
     assert.equal(publicStatus.runtimeToken, jobId);
+    if (migrationAttention) await inspectCompletedMigrationHistory(origin, cookie, root, writes);
     if (readinessRace) {
         const cores = [...fs.readFileSync(logFile, 'utf8').matchAll(/Core Service \| Started \(pid=(\d+)/g)].map(row => Number(row[1]));
         const pid = cores.at(-1)!;
@@ -529,7 +581,7 @@ async function acceptance() { try {
         upstreamPort, jobId, phases: ['restarting', 'verifying', 'completed'], pendingLeaseObserved: true, admissionBeforeConstruction: true,
         adminDuringPreparation: 200, playerDuringPreparation: 503, staleMutationAfterActivation: 409,
         writes, userWrites, onlineEntry, archiveOperation, localSwitch, noOp, restartPreparation, restartReview, restoredEvidence, legacyWrites, reviewBytes, logicalPlanBytes, cumulative: process.argv.includes('--cumulative'), nativeReads, wireBytes, elapsedMs: Date.now() - startedAt, maxStatusMs, journalBytes: bytes(path.join(data, 'config/module-upgrades')),
-        resourceSamples: samples, fullSourceOracle: complete, approvedInBrowser, readinessObserved, unexpectedReadback, generation: game.release.generation,
+        resourceSamples: samples, fullSourceOracle: complete, approvedInBrowser, readinessObserved, unexpectedReadback, generation: game.release.generation, migrationAttentionEvidence,
         inventory: complete ? { actors: counts[0], embeddedItems: counts[0] * counts[1], actorAndItemEffects: counts[0] * (2 + Math.ceil(counts[1] / 4)),
             expectedWrites: expectedUuids().length, checked: preview.plan.checked } : undefined,
         adapter: fs.readFileSync(trace, 'utf8'), native: false }, null, 2));
