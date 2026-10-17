@@ -56,9 +56,8 @@ try {
         await page.getByText('Proposed source paths', { exact: true }).click();
         await page.getByText('fix: Actor.a: system.fixed', { exact: true }).waitFor();
         assert.ok(await page.getByText('Excluded/advisory: Package packs excluded').isVisible());
-        assert.equal(await page.getByRole('button', { name: 'Approve maintenance and restart' }).isEnabled(), false);
-        await page.getByRole('checkbox').check();
-        assert.equal(await page.getByRole('button', { name: 'Approve maintenance and restart' }).isEnabled(), true);
+        assert.equal(await page.getByRole('button', { name: 'Enter maintenance', exact: true }).isEnabled(), true);
+        assert.ok(await page.getByText(/Entering maintenance stops normal services but authorizes no writes/).isVisible());
         await page.getByRole('button', { name: 'Review changed source' }).click();
         const dialog = page.getByRole('dialog', { name: 'Fresh recovery approval' }); await dialog.waitFor();
         assert.ok(await dialog.getByText('World: controlled-world; native system 1.0.0.').isVisible());

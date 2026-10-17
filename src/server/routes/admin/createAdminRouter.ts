@@ -23,8 +23,12 @@ import { registerAdminUpgradeRoutes } from './registerAdminUpgradeRoutes';
 import { adminSessionManager } from '@server/security/adminSessionService';
 import { worldBootstrapper } from '@server/services/world';
 import { requestFullStackRestart } from '@shared/runtime/fullStackRestart';
+import { registerAdminMaintenanceRoutes } from './registerAdminMaintenanceRoutes';
+import { maintenanceOnly } from '@server/core/world/MaintenanceMode';
+import { requireAdminAuth } from '@server/middleware/requireAdminAuth';
 
 interface AdminRouterDeps {
+    maintenance?: boolean;
     getSystemStatusPayload: () => Promise<any>;
     /**
      * Emits a socket.io event to every connected browser client.
@@ -64,6 +68,12 @@ export function createAdminRouter(deps: AdminRouterDeps) {
     // Verify local request
     adminRouter.use(requireAdminNetwork);
     adminRouter.use(requireAdminOrigin);
+    adminRouter.use((req, res, next) => {
+        if (maintenanceOnly() && !(req.method === 'GET' && req.path === '/status') && !/^\/(?:auth(?:\/|$)|module-maintenance(?:\/|$)|module-upgrades(?:\/|$))/.test(req.path)) {
+            return res.status(503).json({ error: 'Only maintenance authentication, status and reviewed recovery are available' });
+        }
+        next();
+    });
 
     const requireAdminAccountExists: express.RequestHandler = async (req, res, next) => {
         try {
@@ -85,6 +95,12 @@ export function createAdminRouter(deps: AdminRouterDeps) {
         adminLoginLimiter,
         requireAdminAccountExists,
     });
+    registerAdminMaintenanceRoutes(adminRouter, requireAdminAccountExists, requestServerRestart);
+    registerAdminUpgradeRoutes(adminRouter, requireAdminAccountExists, requestServerRestart);
+    if (deps.maintenance) {
+        adminRouter.get('/status', requireAdminAccountExists, requireAdminAuth, async (_req, res) => res.json(await deps.getSystemStatusPayload()));
+        return adminRouter;
+    }
 
     registerAdminStatusRoutes({
         adminRouter,
@@ -98,7 +114,6 @@ export function createAdminRouter(deps: AdminRouterDeps) {
         requireAdminAccountExists,
     });
 
-    registerAdminUpgradeRoutes(adminRouter, requireAdminAccountExists, requestServerRestart);
     registerAdminModuleRoutes({
         adminRouter,
         requireAdminAccountExists,

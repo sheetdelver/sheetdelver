@@ -16,9 +16,11 @@ import { isRecord } from '@server/core/documents/primary/base/PrimaryDocumentSto
 import { moduleWorldContext, ModuleWorldContextService } from '../ModuleWorldContextService';
 import { freezeWorldValue } from '@shared/sdk/world';
 import { applicableMigrationSteps, discoverMigrations, migrationDirectoryDigest, type ResolvedMigrationCatalog } from '@modules/registry/migrations/catalog';
-import { ModuleUpgradeCoordinator, type UpgradeCoordinatorDeps, type UpgradeCandidate } from './ModuleUpgradeCoordinator';
+import { ModuleUpgradeCoordinator, type UpgradeCoordinatorDeps, type UpgradeCandidate, type UpgradeSourceSnapshot } from './ModuleUpgradeCoordinator';
+import type { PlannedMigrationTarget } from './planner';
 import { UpgradeJournal, type UpgradeJob } from './UpgradeJournal';
 import { enumerateMigrationTargets, migrationEnvelope } from './targets';
+import { readMaintenanceMode, saveMaintenanceMode, maintenanceOnly, maintenanceCompositionEnforced, getMaintenanceComputationSignal } from '@server/core/world/MaintenanceMode';
 
 let journal: UpgradeJournal | null = null;
 let journalRoot: string | null = null;
@@ -48,12 +50,17 @@ export function restoreUpgradeMaintenance(): void {
     }
 }
 export function assertMigrationAuthority(): void {
+    getMaintenanceComputationSignal()?.throwIfAborted();
     const id = serviceAccountAuthority.getUserId();
     if (!id || !serviceAccountAuthority.checkCurrent(userStore.get(id))) throw new Error('Full-GM service account required');
     const worldId = worldStateStore.getCurrentWorldId();
     if (!worldId || !worldStateStore.isReady()) throw new Error('Selected running world required; launch it and rerun dry-run');
 }
-export async function freshMigrationSnapshot(catalog: ResolvedMigrationCatalog) {
+export function migrationSourceRoot(uuid: string): string {
+    const parts = uuid.split('.');
+    return parts.slice(0, parts[0] === 'Compendium' ? 5 : 2).join('.');
+}
+export async function freshMigrationSnapshot(catalog: ResolvedMigrationCatalog, previous?: UpgradeSourceSnapshot, operation?: PlannedMigrationTarget) {
     const { systemService } = await import('../SystemService');
     const transport = systemService.getSystemClient();
     assertMigrationAuthority();
@@ -61,7 +68,13 @@ export async function freshMigrationSnapshot(catalog: ResolvedMigrationCatalog) 
     const worldId = worldStateStore.getCurrentWorldId();
     const active = moduleWorldContext.snapshot();
     const applicable = applicableMigrationSteps(catalog, active.identity.systemVersion, active.identity.foundryGeneration);
+    // Legacy whole-kind/pack declarations retain complete native reads. Bounded
+    // relation plans can refresh just their declared roots, then verify the full
+    // inventory at the end. No source read is replaced by a privileged cache.
+    const selected = previous && operation && !applicable.some(step => step.reads?.targets?.length || step.reads?.packs?.length)
+        ? new Set([operation.uuid, ...Object.keys(operation.dependencies), ...previous.targets.filter(row => row.uuid === operation.uuid).flatMap(row => row.baseActorUuid ? [row.baseActorUuid] : [])].map(migrationSourceRoot)) : null;
     const kinds = new Set(applicable.flatMap(step => [...step.targets, ...(step.reads?.targets ?? [])]));
+    const includeRelations = applicable.some(step => step.reads?.relations?.length);
     const needsActors = kinds.has('Actor') || kinds.has('Item') || kinds.has('ActiveEffect') || kinds.has('ActorDelta');
     const needsItems = kinds.has('Item') || kinds.has('ActiveEffect');
     const needsPacks = kinds.has('WorldPack') || applicable.some(step => step.reads?.packs?.length);
@@ -81,7 +94,10 @@ export async function freshMigrationSnapshot(catalog: ResolvedMigrationCatalog) 
     // preview must not replace serving sources, consume context changes or
     // initialize an adapter. Only declared source domains are fetched.
     const read = async (type: string, operation: Record<string, unknown> = {}) => {
-        const response = await transport.readDocumentSources(type, { query: {}, ...operation });
+        const roots = selected ? [...selected].filter(uuid => operation.pack ? uuid.startsWith(`Compendium.${operation.pack}.${type}.`) : uuid.startsWith(`${type}.`)) : null;
+        if (roots && !roots.length && !['Setting', 'User'].includes(type)) return [];
+        const response = await transport.readDocumentSources(type, { query: {}, ...operation,
+            ...(roots?.length ? { query: { _id__in: roots.map(uuid => uuid.split('.').at(-1)!) } } : {}) });
         const result = isRecord(response) ? response.result : response;
         if (!Array.isArray(result) || result.some(row => !isRecord(row))) throw new Error(`Migration ${type} source read unavailable`);
         return result as Record<string, unknown>[];
@@ -99,14 +115,17 @@ export async function freshMigrationSnapshot(catalog: ResolvedMigrationCatalog) 
     const world = freezeWorldValue({ identity: { ...active.identity }, settings: candidateContext.snapshot().settings });
     const exclusions: string[] = [];
     const requiredSteps = applicable.filter(step => step.required);
-    const targets = await enumerateMigrationTargets({ dispatchDocumentSocket: (type, action, operation) => {
+    let targets = await enumerateMigrationTargets({ dispatchDocumentSocket: (type, action, operation) => {
         if (action !== 'get') throw new Error('Migration snapshot is read-only');
         return read(type, operation);
     } }, kinds, readPacks, {
-        exclusions, requiredKinds: new Set(requiredSteps.flatMap(step => [...step.targets, ...(step.reads?.targets ?? [])])), requiredReadPacks: new Set(requiredSteps.flatMap(step => step.reads?.packs ?? [])),
-        view: { actors, items, scenes, packs: compendiumStore.listPackMetadata(), configuration: settings.getValueByKey('core.compendiumConfiguration'),
+        exclusions, includeRelations, requiredKinds: new Set(requiredSteps.flatMap(step => [...step.targets, ...(step.reads?.targets ?? [])])), requiredReadPacks: new Set(requiredSteps.flatMap(step => step.reads?.packs ?? [])),
+        view: { actors, ...(selected ? { baseActorIds: new Set(previous!.targets.filter(row => row.kind === 'Actor' && row.uuid.split('.').length === 2).map(row => String(row.source._id))) } : {}),
+            items, scenes, packs: compendiumStore.listPackMetadata().filter(pack => !selected || [...selected].some(uuid => uuid.startsWith(`Compendium.${pack.id}.`))), configuration: settings.getValueByKey('core.compendiumConfiguration'),
             subject: userStore.createAccessSubject(userId)!, generation: world.identity.foundryGeneration },
     });
+    if (selected) targets = [...previous!.targets.filter(row => !selected.has(migrationSourceRoot(row.uuid))),
+        ...targets.filter(row => selected.has(migrationSourceRoot(row.uuid)))];
     assertMigrationAuthority();
     const assertCurrent = () => {
         assertMigrationAuthority();
@@ -128,6 +147,28 @@ export function createHostUpgradeCoordinator(overrides: Partial<UpgradeCoordinat
     const unavailable = async () => { throw new Error('Use the archive/source preparation operation for promotion'); };
     const deps: UpgradeCoordinatorDeps = {
         journal: getUpgradeJournal(), gate: worldWorkGate, snapshot: freshMigrationSnapshot, assertAuthority: assertMigrationAuthority,
+        assertApproval: preview => {
+            if (!maintenanceCompositionEnforced()) return;
+            const mode = readMaintenanceMode();
+            if (!maintenanceOnly(mode) || mode?.previewId !== preview.id || mode.stage !== 'executing') throw new Error('Authoritative write approval requires isolated maintenance review');
+        },
+        jobIdentity: () => maintenanceCompositionEnforced() && maintenanceOnly() ? readMaintenanceMode()!.id : crypto.randomUUID(),
+        acquireLease: job => {
+            const mode = maintenanceCompositionEnforced() ? readMaintenanceMode() : null;
+            if (!mode || mode.id !== job.jobId) return getUpgradeJournal().acquire(job);
+            try { getUpgradeJournal().assertLease({ ...job, leaseToken: mode.leaseToken ?? '' }); }
+            catch { mode.leaseToken = getUpgradeJournal().acquire(job); }
+            mode.jobId = job.jobId; saveMaintenanceMode(mode);
+            return mode.leaseToken!;
+        },
+        progress: progress => {
+            const mode = readMaintenanceMode();
+            if (!maintenanceOnly(mode)) return;
+            const job = mode!.jobId ? getUpgradeJournal().job(mode!.jobId) : null;
+            mode!.progress = { ...progress, ...(job ? { planned: job.plan.operations.length,
+                confirmed: Object.values(job.outcomes).filter(row => row.state === 'confirmed').length,
+                uncertain: Object.values(job.outcomes).filter(row => row.state === 'uncertain').length } : {}), updatedAt: Date.now() }; saveMaintenanceMode(mode!);
+        },
         write: async (target, updates, fence) => {
             const { systemService } = await import('../SystemService');
             const transport = systemService.getSystemClient();
@@ -137,6 +178,19 @@ export function createHostUpgradeCoordinator(overrides: Partial<UpgradeCoordinat
                 fence(); assertMigrationAuthority();
                 if (!transport.isConnected || transport.connectionEpoch !== epoch) throw new Error('Migration transport retired');
             }, async () => { await transport.dispatchDocumentSocket(envelope.type, 'update', envelope.operation); });
+        },
+        writeBatch: async (entries, fence) => {
+            const { systemService } = await import('../SystemService');
+            const transport = systemService.getSystemClient(); const epoch = transport.connectionEpoch;
+            const envelopes = entries.map(({ target, updates }) => migrationEnvelope(target, updates));
+            const first = envelopes[0];
+            if (!first || envelopes.some(row => row.type !== first.type || row.operation.pack !== first.operation.pack
+                || row.operation.parentUuid !== first.operation.parentUuid)) throw new Error('Invalid native batch envelope');
+            await withMaintenanceDispatch(() => {
+                fence(); assertMigrationAuthority();
+                if (!transport.isConnected || transport.connectionEpoch !== epoch) throw new Error('Migration transport retired');
+            }, async () => { await transport.dispatchDocumentSocket(first.type, 'update', { ...first.operation,
+                updates: envelopes.flatMap(row => row.operation.updates as Record<string, unknown>[]) }); });
         },
         promote: unavailable, restart: () => { throw new Error('Restart handler required'); }, prepare: unavailable,
         activate: async (job) => { worldWorkGate.activateServingToken(job.jobId); worldWorkGate.release('migration-compatibility'); },

@@ -324,6 +324,8 @@ export abstract class PrimaryDocumentStore<TDocument extends DocumentLike> exten
     private mutationRevision = 0;
     /** Core snapshot fences; not a document capability or SDK revision. */
     public getMutationRevision(): number { return this.mutationRevision; }
+    /** Maintenance observes changes without rebuilding or publishing serving data. */
+    public observeMutation(): void { this.mutationRevision += 1; }
     private audienceSubjectsProvider: () => DocumentAccessSubject[] = () => [];
 
     /**

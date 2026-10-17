@@ -426,13 +426,41 @@ dependencies.
 - **Backend (API)**: 3001
 - **Foundry**: Configurable via `<DATA_DIR>/config/settings.yaml`
 
-## Module world context and maintenance (unreleased)
+## Module world context and maintenance
 
-[Core ADR-0064](adr/0064-module-world-context-and-data-migrations.md) implements
+[Core ADR-0064](adr/0064-module-world-context-and-data-migrations.md), released in Core 0.19.0, implements
 live, immutable snapshots of declared native world settings and dependency
 revisions for prepared data, shared pack-permission policy and canonical Actor
 response references. See [the contract guide](MODULE_MIGRATIONS.md) for schemas,
 ownership, endpoint payloads, recovery limits and module-adoption requirements.
+
+**Unreleased corrective implementation:** the
+[complete-maintenance addendum](adr/0064-module-world-context-and-data-migrations.md#complete-maintenance-and-migration-acceptance--october-16-2026)
+requires a supervised maintenance-only runtime and complete migration coverage
+before any more module work. The gate/drain remains the final native-send
+boundary; it is now paired with persistent composition selection and supervised
+normal-worker shutdown. Earlier successful small native fixtures do not replace
+fresh complete-maintenance native acceptance.
+
+The corrective architecture persists maintenance before stopping normal Core/
+Next workers and confirms their exit. The supervisor then starts only admin/
+status/recovery, the job controller and necessary full-GM transport/observation
+services. Ordinary user transports, routes, realtime delivery, module work and
+background producers remain stopped. Authoritative planning and write approval
+occur under that isolation; a normal-service dry-run is advisory. A fresh verified
+serving generation activates only after complete migration/readback/preparation.
+Maintain minimal native identity, authority, acknowledgement and revision
+observations; suppress ordinary cache/preparation/publication work. Foundry keeps
+running. Reuse existing infrastructure rather than adding a module-owned transport
+or another public world cache. Final adapter preparation runs in an owned,
+read-only worker over the single parent transport; its timers/callbacks are
+terminated before activation. [Maintenance runtime](MAINTENANCE_RUNTIME.md)
+defines the producer/owner map, exclusive leases, shell, journal upgrade and
+workflow. SDK 3.4.0/module-api 1.6.0 add bounded relation declarations; application
+release metadata remains 0.19.0. C64-A–H/native/user review are not closed.
+The [independent review](adr/0064-module-world-context-and-data-migrations.md#independent-complete-maintenance-review--october-17-2026) requires CR64-14–17 before native
+acceptance: consistent exact readback, drain-state enforcement on cancellation,
+scalable durable legacy plans and a fresh final bootstrap revision fence.
 
 Migration execution belongs to the Core admin upgrade coordinator. A module
 keeps requirements in a root `migration.json` catalog and native-version directories
@@ -475,5 +503,6 @@ do not advance the fence; cache failure, late completion and resets cannot reviv
 an old scope. Possible-write evidence and exact recovery approval remain intact.
 The [CR64-06/07 follow-up](adr/0064-module-world-context-and-data-migrations.md#cr64-0607-corrective-implementation--october-16-2026)
 records real host/ingress/dispatch regressions, actual player appearance-provider
-rendering and isolated supervised replacement. Native acceptance, realistic
-inventory measurement and separate G8 adoption are still pending.
+rendering and isolated supervised replacement. Later native v13/v14 fixtures
+passed within their recorded scope. The new full-workflow/isolation/capacity
+acceptance remains open, and all module work is held by the user's decision.

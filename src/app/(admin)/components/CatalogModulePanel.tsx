@@ -6,6 +6,7 @@ import { CircleAlert, Download, RefreshCw, Search, ShieldCheck } from 'lucide-re
 import { useAdminAuth } from '../context/AdminAuthContext';
 import { useAdminNotifications } from '../context/AdminNotificationContext';
 import {
+    adminFetch,
     fetchCatalog,
     fetchCatalogRelease,
     fetchModuleLifecycle,
@@ -414,7 +415,17 @@ function CatalogOperationPanel({
 
     const apply = async () => {
         if (!preview?.wouldProceed) return;
+        const writeApproval = { planId: preview.migration?.id, idempotencyKey: preview.migration?.id,
+            backupAcknowledged: Boolean(preview.migration && acknowledgedPlan === preview.migration.id) };
         if (preview.migration && acknowledgedPlan !== preview.migration.id) return;
+        if (preview.migration) {
+            setApplying(true);
+            const entered = await adminFetch<{ accepted: boolean }>('/module-maintenance/enter', { method: 'POST', body: JSON.stringify({ planId: preview.migration.id }) });
+            if (entered.sessionExpired) onSessionExpired();
+            else if (!entered.ok) setError(entered.error || 'Maintenance entry failed');
+            else beginRuntimeRestart();
+            setApplying(false); return;
+        }
         setApplying(true);
         setError(null);
         const result = await postCatalogOperation(sourceId, row.moduleId, operation, {
@@ -422,9 +433,7 @@ function CatalogOperationPanel({
             approvePermissionEscalation: permissionsApproved,
             approveDowngrade: downgradeApproved,
             version: selectedVersion,
-            planId: preview.migration?.id,
-            idempotencyKey: preview.migration?.id,
-            backupAcknowledged: Boolean(preview.migration && acknowledgedPlan === preview.migration.id),
+            ...writeApproval,
         });
         if (result.sessionExpired) {
             onSessionExpired();

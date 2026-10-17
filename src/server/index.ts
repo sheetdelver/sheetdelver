@@ -16,6 +16,11 @@ import type { WorldLifecycleTransition } from '@server/core/world/WorldLifecycle
 import { configureServerFileLogging } from '@server/observability/ServerFileLogger';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
 import { restoreUpgradeMaintenance } from '@server/services/world/migrations/ModuleUpgradeService';
+import { acquireCoreRuntimeLease, enforceMaintenanceComposition, readMaintenanceMode, saveMaintenanceMode, maintenanceOnly, restoreLegacyMaintenanceMode } from '@server/core/world/MaintenanceMode';
+import { setNormalMaintenanceShutdown, enterMaintenance, drainNormalRuntime } from '@server/services/world/migrations/MaintenanceController';
+import { setCompatibilityMaintenanceHandler } from '@server/services/world/migrations/installedWorldCompatibility';
+import { requestFullStackRestart } from '@shared/runtime/fullStackRestart';
+import { worldWorkGate } from '@server/core/world/WorldWorkGate';
 import {
     createFoundrySessionStoreFromEnvironment,
     getDefaultFoundrySessionKeyPath,
@@ -39,6 +44,8 @@ async function startServer() {
         logger.error('Core Service | Could not load configuration. Exiting.');
         process.exit(1);
     }
+    const releaseRuntime = acquireCoreRuntimeLease(); process.once('exit', releaseRuntime);
+    enforceMaintenanceComposition();
 
     // Initialize Universal Logger with configured level
     logger.setLevel(config.debug.level);
@@ -53,6 +60,18 @@ async function startServer() {
 
     // Durable gate loads before registry/candidate adapter imports or player routing.
     restoreUpgradeMaintenance();
+    restoreLegacyMaintenanceMode();
+    const persistentMode = readMaintenanceMode();
+    const selectedCorePort = Number(process.env.PORT || process.env.API_PORT || config.app.apiPort);
+    if (maintenanceOnly(persistentMode)) {
+        const { startMaintenance } = await import('./app/startMaintenance');
+        await startMaintenance(config, selectedCorePort);
+        return;
+    }
+    if (persistentMode?.stage === 'activating') {
+        worldWorkGate.block('persistent-maintenance', { phase: 'activating', message: 'Module upgrade in progress' });
+        worldWorkGate.activateServingToken(persistentMode.jobId ?? persistentMode.id);
+    }
     // Boot-Time System Discovery
     initializeRegistry();
 
@@ -92,6 +111,28 @@ async function startServer() {
             }),
         },
     );
+    setNormalMaintenanceShutdown(async () => {
+        foundryUserConnections.suspendForMaintenance();
+        systemService.stopNormalTransport();
+        io.disconnectSockets(true);
+    });
+    setCompatibilityMaintenanceHandler(async (moduleId, _directory, local) => {
+        if (maintenanceOnly()) return;
+        const { previewModuleSource } = await import('@server/services/world/migrations/sourceCandidates');
+        const preview = await previewModuleSource(moduleId, local ? 'local' : 'managed');
+        await enterMaintenance(preview.id);
+        void drainNormalRuntime().finally(() => {
+            adminSessionManager.prepareSupervisedRestartHandoff(); requestFullStackRestart();
+        }).catch(() => undefined);
+    });
+    app.use((req, res, next) => {
+        if (maintenanceOnly() && !req.path.startsWith('/admin/') && req.path !== '/api/status') return res.status(503).json({ error: 'World unavailable — maintenance required' });
+        next();
+    });
+    systemService.on('world:ready', () => {
+        const mode = readMaintenanceMode();
+        if (mode?.stage === 'activating') { mode.stage = 'serving'; saveMaintenanceMode(mode); worldWorkGate.release('persistent-maintenance'); }
+    });
 
     // User deletion retires authority entirely. A role update instead rebinds
     // matching Foundry sockets so elevations and downgrades take effect without

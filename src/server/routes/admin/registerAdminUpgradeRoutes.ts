@@ -8,9 +8,14 @@ import { serviceAccountAuthority } from '@server/core/world/ServiceAccountAuthor
 import { parseModuleId } from '@shared/security/moduleId';
 import { previewModuleSource, applyModuleSource } from '@server/services/world/migrations/sourceCandidates';
 import { getMigrationCompatibilityDiagnostic } from '@server/services/world/migrations/installedWorldCompatibility';
+import { maintenanceOnly } from '@server/core/world/MaintenanceMode';
 
 export function registerAdminUpgradeRoutes(router: express.Router, account: express.RequestHandler,
     restart: (reason: string, detail?: Record<string, unknown>) => void): void {
+    router.use('/module-upgrades', (req, res, next) => {
+        if (maintenanceOnly() && req.method !== 'GET') return res.status(503).json({ error: 'Use the isolated maintenance controller for planning, approval and recovery' });
+        next();
+    });
     router.post('/module-upgrades/source/:moduleId/preview', account, requireAdminAuth, requireAdminCsrf, auditAdminAction, async (req, res) => {
         const id = parseModuleId(req.params.moduleId);
         const source = req.body?.source;

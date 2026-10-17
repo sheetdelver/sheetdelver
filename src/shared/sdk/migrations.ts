@@ -8,6 +8,13 @@ export interface MigrationCatalog {
     systemVersions: Record<string, string>;
 }
 export type MigrationTargetKind = 'Actor' | 'Item' | 'ActiveEffect' | 'ActorDelta' | 'WorldPack';
+/** Source-only relations, nearest ancestor first. Never materializes an ActorDelta. */
+export interface MigrationRelationRead {
+    relation: 'parent' | 'ancestors' | 'baseActor';
+    forKinds?: Array<Exclude<MigrationTargetKind, 'WorldPack'>>;
+    fields: string[];
+    required?: boolean;
+}
 export interface MigrationStep {
     id: string;
     revision: number;
@@ -23,7 +30,7 @@ export interface MigrationStep {
     parameters?: Record<string, unknown>;
     parameterSchema?: Record<string, WorldValueSchema>;
     /** Omitted dependencies expose no cross-document/setting input. */
-    reads?: { targets?: MigrationTargetKind[]; packs?: string[]; settings?: string[] };
+    reads?: { targets?: MigrationTargetKind[]; packs?: string[]; settings?: string[]; relations?: MigrationRelationRead[] };
 }
 export interface MigrationDefinition {
     schemaVersion: typeof MIGRATION_DEFINITION_SCHEMA;
@@ -45,6 +52,8 @@ export interface MigrationHookInput {
     target: Readonly<MigrationTarget>;
     /** Host supplied references only; never a runtime/transport. */
     references: readonly MigrationTarget[];
+    /** Present for relation-aware hooks; source fields are explicitly projected. */
+    relations?: { parent?: MigrationTarget; ancestors?: readonly MigrationTarget[]; baseActor?: MigrationTarget };
     parameters: Readonly<Record<string, unknown>>;
 }
 export interface MigrationCheckResult {

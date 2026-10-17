@@ -10,8 +10,8 @@ Welcome to **SheetDelver**! We appreciate your interest in contributing to this 
 - A dedicated Foundry service account with the full **Gamemaster** role in each
   target world; Assistant Gamemaster is insufficient for Core.
 
-The connection-wide role gate is implemented in the unreleased ADR-0064 work,
-not published Core 0.18.1. See [configuration and recovery](CONFIGURATION.md#service-account-role-and-recovery).
+The connection-wide role gate shipped in Core 0.19.0 (absent from 0.18.1).
+See [configuration and recovery](CONFIGURATION.md#service-account-role-and-recovery).
 Player/Assistant test subjects remain separate accounts; their permissions are
 not raised to match Core's service account.
 
@@ -88,6 +88,16 @@ SheetDelver follows a **Decoupled Core/Shell** architecture to ensure stability 
 - `src/tests`: Automated unit and integration tests.
 
 ## Documentation and Decision Records
+
+For maintenance work, use [the lifecycle/owner inventory](MAINTENANCE_RUNTIME.md)
+and ADR-0064's C64-A–H gates. Normal request gating is not runtime shutdown.
+The tracked `src/tests/acceptance/adr0064-supervised.test.ts --run-isolated`
+harness creates its own copied workspace/data and fake loopback upstream; it
+never authorizes native testing. `--complete-matrix --inventory=30,30` covers
+the reproduced world, `--inventory=60,40 --recover-writes` covers a larger
+interrupted run. Archive install/upgrade, no-op, source-switch and restored-source
+options are documented in the ADR. Browser tools are external to runtime
+dependencies. Inspect listeners first; do not reuse root production settings.
 
 Tracked documentation must be understandable from a clean checkout. Include an
 audit's relevant findings, rationale, decisions and verification limits directly

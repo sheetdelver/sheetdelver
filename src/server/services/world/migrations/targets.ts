@@ -7,8 +7,7 @@ import { settingStore } from '@server/core/documents/primary/settings/SettingSto
 import { worldStateStore } from '@server/core/world/WorldStateStore';
 import { isRecord } from '@server/core/documents/primary/base/PrimaryDocumentStore';
 import { serviceAccountAuthority } from '@server/core/world/ServiceAccountAuthority';
-import { canReadNativePack } from '@server/core/documents/primary/base/nativePackPermissions';
-import { canReadCombatActorPack } from '@server/core/documents/primary/base/nativeCombatPermissions';
+import { canReadNativePack, canReadNativePackForSubject } from '@server/core/documents/primary/base/nativePackPermissions';
 import type { CompendiumPackMetadata } from '@server/core/compendium/types';
 import type { DocumentAccessSubject } from '@server/core/documents/primary/base/ownership';
 
@@ -21,6 +20,8 @@ export interface MigrationSourceView {
     configuration: unknown;
     subject: DocumentAccessSubject;
     generation: number;
+    /** Already enumerated identities, used only to validate untouched delta bases. */
+    baseActorIds?: ReadonlySet<string>;
 }
 
 export interface MigrationTransport {
@@ -71,7 +72,7 @@ export function migrationEnvelope(target: MigrationTarget, updates: Record<strin
 
 /** Source enumeration uses existing Core Stores plus explicitly world-owned pack reads. */
 export async function enumerateMigrationTargets(transport: MigrationTransport, kinds: Set<MigrationTargetKind>, readPacks: readonly string[] = [],
-    options: { requiredKinds?: Set<MigrationTargetKind>; requiredReadPacks?: Set<string>; exclusions?: string[]; view?: MigrationSourceView } = {}): Promise<MigrationTarget[]> {
+    options: { requiredKinds?: Set<MigrationTargetKind>; requiredReadPacks?: Set<string>; exclusions?: string[]; view?: MigrationSourceView; includeRelations?: boolean } = {}): Promise<MigrationTarget[]> {
     const required = options.requiredKinds ?? kinds;
     const view = options.view;
     if (!view && (!actorStore.isReady() || !itemStore.isReady() || !sceneStore.isReady() || !settingStore.isReady())) throw new Error('Fresh migration source Stores are required');
@@ -84,7 +85,7 @@ export async function enumerateMigrationTargets(transport: MigrationTransport, k
     if (kinds.has('ActorDelta')) {
         for (const scene of view?.scenes ?? sceneStore.list()) for (const token of rows(scene.tokens)) {
             if (token.actorLink === true || token.actorId === null) continue;
-            if (typeof token.actorId !== 'string' || !actors.some(actor => id(actor) === token.actorId)
+            if (typeof token.actorId !== 'string' || !actors.some(actor => id(actor) === token.actorId) && !view?.baseActorIds?.has(token.actorId)
                 || token.delta !== null && !isRecord(token.delta)) {
                 if (required.has('ActorDelta')) throw new Error('Required unlinked-token delta/base Actor is unavailable');
                 options.exclusions?.push(`Scene.${id(scene)}.Token.${id(token)}: advisory delta/base source unavailable`); continue;
@@ -127,12 +128,12 @@ export async function enumerateMigrationTargets(transport: MigrationTransport, k
         if (!Array.isArray(documents)) throw new Error('Pack reference enumeration unavailable');
         for (const document of rows(documents)) targets.push(...expandMigrationTargets(`Compendium.${packId}.${type}.${id(document)}`, type, document, packId).map(row => ({ ...row, readOnly: true })));
     }
-    return targets.filter(target => target.readOnly || (target.pack ? kinds.has('WorldPack') : kinds.has(target.kind)));
+    return targets.filter(target => options.includeRelations || target.readOnly || (target.pack ? kinds.has('WorldPack') : kinds.has(target.kind)));
 
     function canRead(packId: string): boolean {
         if (!view) return canReadNativePack(serviceAccountAuthority.getUserId()!, packId);
         const metadata = view.packs.find(row => row.id === packId);
         const config = isRecord(view.configuration) && isRecord(view.configuration[packId]) ? view.configuration[packId] : null;
-        return !!metadata && canReadCombatActorPack(view.subject, generation, metadata.ownership, config?.ownership);
+        return !!metadata && canReadNativePackForSubject(view.subject, generation, metadata.ownership, config?.ownership);
     }
 }

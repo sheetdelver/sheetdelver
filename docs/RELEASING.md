@@ -325,6 +325,14 @@ summary, verified against the archive, but cannot create a second migration list
 Development tooling now compiles hooks, checks catalog/definition and archive
 health, and derives release-schema-v2 summaries. See [the contract guide](MODULE_MIGRATIONS.md).
 Do not publish dependent modules before the supporting Core host/toolchain.
+The complete-maintenance correction adds SDK 3.4.0/module-api 1.6.0 for
+relation-bearing catalogs (older migration catalogs retain 1.5.0). Application
+version remains 0.19.0 during implementation; choose/publish its actual supporting
+release only after acceptance and scoped release approval. All module adoption,
+catalog activation and dependent publication remain held by C64-A–H/user review.
+Announce the persistent maintenance-only composition and the append-only receipt
+format. Keep config/module-upgrades and retained packages together; do not resume
+new-format jobs with 0.19.0 or discard receipts to make an older host start.
 Retain steps needed for skipped upgrades and declare
 supported data-read compatibility; an old host must not silently ignore migrations.
 
@@ -341,10 +349,11 @@ service-account requirement**, independent of whether a module declares migratio
 Administrators using Assistant service accounts must change them to Gamemaster in
 Foundry before upgrading; release notes must link the
 [configuration/retry procedure](CONFIGURATION.md#service-account-role-and-recovery).
-The changelog targets Core **0.19.0**, including SDK **3.3.0**, module-api **1.5.0**
-and ui-extension-api **3.2.0**; roll-engine-api remains **1.0.0**. Publication is
-pending. The selected native v13/v14 Core acceptance is complete; adopting modules
-still need their own verification and supporting release/toolchain pins. Do not
+Core **0.19.0** shipped SDK **3.3.0**, module-api **1.5.0** and UI API **3.2.0**;
+roll-engine-api remains **1.0.0**. Its original small-world native v13/v14 gate
+does not establish the complete-maintenance correction's native acceptance,
+which remains pending. Adopting modules need separate verification, user approval
+to resume held work, and supporting release/toolchain pins. Do not
 claim these additions shipped in Core 0.18.1 or change human Assistant permissions.
 Application metadata still belongs to release:tag; a changelog heading does not
 perform release preparation. See [module adoption requirements](MODULE_MIGRATIONS.md#compatibility-and-adoption).

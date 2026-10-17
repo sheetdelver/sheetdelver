@@ -21,6 +21,7 @@ import type { CompendiumPackMetadata } from '@server/core/compendium/types';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
 import { parseDocumentUuid, type ParsedDocumentUuid } from '@server/services/documents';
 import { worldBootstrapper } from './WorldBootstrapper';
+import { primaryDocumentCacheCoordinator } from '@server/core/documents/primary/PrimaryDocumentCacheCoordinator';
 import type {
     FoundryAutosaveEvent,
     FoundryDocumentCompatibilityEvent,
@@ -60,6 +61,7 @@ interface FoundryIngressCompendiumStore {
 }
 
 interface FoundryEventIngressDeps {
+    observationOnly?: boolean;
     routeDocument?: (...args: Parameters<typeof modifyDocumentRouter.route>) =>
         ReturnType<typeof modifyDocumentRouter.route> | void;
     compendiumStore?: FoundryIngressCompendiumStore;
@@ -109,6 +111,7 @@ const ACTIVE_WORLD_ROOT_TYPES = new Set([
 ]);
 
 export class FoundryEventIngress {
+    private readonly observationOnly: boolean;
     private readonly routeDocumentResult: (...args: Parameters<typeof modifyDocumentRouter.route>) =>
         ReturnType<typeof modifyDocumentRouter.route> | void;
     private readonly packStore: FoundryIngressCompendiumStore;
@@ -120,6 +123,7 @@ export class FoundryEventIngress {
     private readonly rootRefreshes = new Map<string, RootRefreshState>();
 
     public constructor(deps: FoundryEventIngressDeps = {}) {
+        this.observationOnly = deps.observationOnly === true;
         this.routeDocumentResult = deps.routeDocument ?? modifyDocumentRouter.route.bind(modifyDocumentRouter);
         this.packStore = deps.compendiumStore ?? compendiumStore;
         this.parseUuid = deps.parseDocumentUuid ?? parseDocumentUuid;
@@ -168,6 +172,7 @@ export class FoundryEventIngress {
         ].map(([event, handler]) => ({ event: event as string, handler: handler as EventHandler }));
 
         for (const { event, handler } of handlers) {
+            if (this.observationOnly && ['foundry:userConnected', 'foundry:userDisconnected', 'foundry:userActivity'].includes(event)) continue;
             source.on(event, handler);
         }
 
@@ -215,6 +220,10 @@ export class FoundryEventIngress {
 
             if (isPackScopedDocumentResult(entry)) {
                 this.invalidatePackEntry(entry, origin);
+                continue;
+            }
+            if (this.observationOnly && entry.type !== 'User') {
+                if (entry.action !== 'get') primaryDocumentCacheCoordinator.observeMutation(entry.type!);
                 continue;
             }
 
@@ -304,7 +313,7 @@ export class FoundryEventIngress {
             packId,
             `${origin}:${entry.action}`,
         ).then(() => {
-            void worldBootstrapper.refreshWorldContext(packId).catch(() => {
+            if (!this.observationOnly) void worldBootstrapper.refreshWorldContext(packId).catch(() => {
                 logger.error('FoundryEventIngress | Declared pack refresh failed; world remains gated.');
             });
             // Successful completion is logged without document content so a
@@ -343,7 +352,7 @@ export class FoundryEventIngress {
                 this.getActiveSystemId(),
                 parsed.packId,
                 'pm.autosave',
-            ).then(() => worldBootstrapper.refreshWorldContext(parsed.packId)).catch(error => {
+            ).then(() => this.observationOnly ? undefined : worldBootstrapper.refreshWorldContext(parsed.packId)).catch(error => {
                 logger.error('FoundryEventIngress | Failed to invalidate autosaved compendium pack', {
                     packId: parsed.packId,
                     error: error instanceof Error ? error.message : String(error),
@@ -355,6 +364,7 @@ export class FoundryEventIngress {
         const root = parsed.kind === 'world'
             ? { type: parsed.documentType, id: parsed.documentId }
             : { type: parsed.root.type, id: parsed.root.id };
+        if (this.observationOnly) { primaryDocumentCacheCoordinator.observeMutation(root.type); return; }
         if (!ACTIVE_WORLD_ROOT_TYPES.has(root.type)) {
             logger.warn('FoundryEventIngress | Ignored autosave for unsupported world root', {
                 uuid,

@@ -366,6 +366,22 @@ under the `SurfaceHost` root:
 Module CSS must scope selectors under `.sdk-module--<id>` unless the checker
 explicitly allows the construct, such as `@font-face` or `@keyframes`.
 
+### Maintenance-only presentation (unreleased correction)
+
+Normal Core/Next workers stop during reviewed world maintenance. Core serves a
+small dependency-free status/admin shell at the application port; it does not
+load module assets or player providers. Its public panel contains no world,
+target or recovery detail. Authenticated administrators see complete plans,
+bounded reasons/progress, the mandatory backup-warning acknowledgement and a
+keyboard-accessible stop confirmation. Browser light/dark preferences and narrow
+viewports remain supported without mounting a module theme.
+
+Old player pages retain the shared nondismissible, inert maintenance boundary.
+Reconnects get public maintenance status only, never restored user transports.
+After verified activation, an observed new runtime token requests a reload;
+old assets cannot adopt the new mutation token. See [runtime lifecycle and
+operator flow](MAINTENANCE_RUNTIME.md) and [API payloads](API.md#module-world-context-and-maintenance-apis-unreleased).
+
 ---
 
 ## Dice Presentation and Player Settings

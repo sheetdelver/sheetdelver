@@ -1,5 +1,13 @@
 # Releases
 
+## Unreleased
+
+- Isolated complete maintenance runtime
+- Added bounded migration relations
+- Completed responsive migration execution
+- Preserved durable recovery diagnostics
+- Corrected v13 pack access
+
 ## 0.19.0
 
 - Advanced SDK to 3.3.0

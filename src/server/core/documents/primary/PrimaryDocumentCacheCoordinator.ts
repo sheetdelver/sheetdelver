@@ -57,6 +57,11 @@ class PrimaryDocumentCacheCoordinator {
     register(seeder: PrimaryDocumentSeeder): void {
         this.seeders.push(seeder);
     }
+    observeMutation(type: string): void {
+        const store = this.reconciliationStores[type as keyof typeof this.reconciliationStores];
+        if (store) store.observeMutation();
+        else for (const root of [actorStore, itemStore, sceneStore]) root.observeMutation();
+    }
 
     async seedAll(client: CoreSocket): Promise<void> {
         for (const seeder of this.seeders) {

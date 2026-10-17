@@ -206,17 +206,24 @@ export async function dryRunLocalModuleArchive(
     input: LocalModuleArchiveInput,
 ): Promise<DryRunLocalModuleArchiveResult> {
     let preparedOperation: PreparedOperation | undefined;
+    let retainedForMaintenance = false;
     try {
         preparedOperation = await prepareOperation(operation, input);
         const governance = await runGovernancePreview(operation, input, preparedOperation);
         const blockingReasons = [...preparedOperation.blockers, ...governance.blockingReasons];
         let migration: UpgradePreview | undefined;
-        const { assertMigrationReplacement, createHostUpgradeCoordinator } = await import('@server/services/world/migrations/ModuleUpgradeService');
+        const { assertMigrationReplacement, createHostUpgradeCoordinator, getUpgradeJournal } = await import('@server/services/world/migrations/ModuleUpgradeService');
         assertMigrationReplacement(preparedOperation.prepared.moduleDirectory, preparedOperation.prepared.info);
         if (blockingReasons.length === 0 && discoverMigrations(preparedOperation.prepared.moduleDirectory, preparedOperation.prepared.info)) {
-            migration = await createHostUpgradeCoordinator().preview({ moduleId: preparedOperation.archive.moduleId,
+            const retainedArchive = path.join(preparedOperation.prepared.transactionDirectory, 'maintenance-input.tar.gz');
+            fs.copyFileSync(input.archivePath, retainedArchive);
+            const candidate = { moduleId: preparedOperation.archive.moduleId,
                 version: preparedOperation.archive.version, artifactDigest: preparedOperation.archive.integrity,
-                root: preparedOperation.prepared.moduleDirectory, info: preparedOperation.prepared.info });
+                root: preparedOperation.prepared.moduleDirectory, info: preparedOperation.prepared.info,
+                archive: { operation, input: { ...input, archivePath: retainedArchive } } };
+            migration = await createHostUpgradeCoordinator().preview(candidate);
+            getUpgradeJournal().saveSourceCandidate(migration.id, candidate);
+            retainedForMaintenance = true;
             blockingReasons.push(...migration.plan.blockers);
         }
         return {
@@ -236,7 +243,7 @@ export async function dryRunLocalModuleArchive(
             blockingReasons: [error instanceof Error ? error.message : String(error)],
         };
     } finally {
-        if (preparedOperation) discardPreparedModuleArchive(preparedOperation.prepared);
+        if (preparedOperation && !retainedForMaintenance) discardPreparedModuleArchive(preparedOperation.prepared);
     }
 }
 

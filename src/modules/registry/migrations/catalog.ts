@@ -6,7 +6,7 @@ import { MIGRATION_CATALOG_SCHEMA, MIGRATION_DEFINITION_SCHEMA, type MigrationCa
     type MigrationDefinition, type MigrationStep } from '@shared/sdk/migrations';
 import type { SystemModuleInfo } from '../core/types';
 import { isWorldValue } from '@shared/sdk/world';
-import { WORLD_MIGRATION_API_MINIMUM } from '@shared/sdk/contractVersions';
+import { WORLD_MIGRATION_API_MINIMUM, MIGRATION_RELATIONS_API_MINIMUM } from '@shared/sdk/contractVersions';
 
 export function migrationDigest(value: string | Uint8Array): string {
     return `sha256:${createHash('sha256').update(value).digest('hex')}`;
@@ -108,7 +108,28 @@ export function discoverMigrations(root: string, info: SystemModuleInfo, source 
                     || Object.entries(step.parameterSchema).some(([key, schema]) => !schema || !isWorldValue(step.parameters![key], schema))) throw new Error('Migration parameters do not match declared schema');
             }
             if (step.reads) {
-                exactKeys(step.reads, ['targets', 'packs', 'settings']);
+                exactKeys(step.reads, ['targets', 'packs', 'settings', 'relations']);
+                if (step.reads.relations !== undefined) {
+                    if (!Array.isArray(step.reads.relations) || step.reads.relations.length > 3
+                        || new Set(step.reads.relations.map(row => row.relation)).size !== step.reads.relations.length) throw new Error('Invalid migration relations');
+                    const supportsRelations = minimum.split(/[\s,]+/).some(token => {
+                        const match = token.match(/^(>=|>|=)?(\d+\.\d+\.\d+)$/);
+                        return match && resolveModuleCompatibility({ coreVersion: match[2], requiredCoreVersion: `>=${MIGRATION_RELATIONS_API_MINIMUM}`, providedApiContracts: {} }).compatible;
+                    });
+                    if (!supportsRelations) throw new Error('Migration relations require an explicit module-api 1.6 lower bound');
+                    for (const relation of step.reads.relations) {
+                        exactKeys(relation, ['relation', 'forKinds', 'fields', 'required']);
+                        if (!['parent', 'ancestors', 'baseActor'].includes(relation.relation)
+                            || relation.required !== undefined && typeof relation.required !== 'boolean'
+                            || relation.forKinds !== undefined && (!Array.isArray(relation.forKinds) || !relation.forKinds.length
+                                || relation.forKinds.some(kind => !['Actor', 'Item', 'ActiveEffect', 'ActorDelta'].includes(kind)))
+                            || !Array.isArray(relation.fields) || !relation.fields.length || relation.fields.length > 64
+                            || relation.fields.some(field => typeof field !== 'string' || field.length > 256
+                                || !/^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*$/.test(field)
+                                || field.split('.').some(part => ['__proto__', 'constructor', 'prototype'].includes(part))
+                                || ['items', 'effects'].includes(field.split('.')[0]))) throw new Error('Invalid bounded migration relation projection');
+                    }
+                }
                 if (step.reads.targets && (!Array.isArray(step.reads.targets) || step.reads.targets.some(kind => !['Actor', 'Item', 'ActiveEffect', 'ActorDelta', 'WorldPack'].includes(kind)))
                     || step.reads.packs && (!Array.isArray(step.reads.packs) || step.reads.packs.length > 100 || step.reads.packs.some(pack => typeof pack !== 'string' || !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(pack)))
                     || step.reads.settings && (!Array.isArray(step.reads.settings) || step.reads.settings.some(key => !info.worldSettings?.some(row => row.key === key)))) throw new Error('Undeclared migration read dependency');

@@ -1194,8 +1194,13 @@ server contract changes. See [Notifications and Chat](NOTIFICATIONS.md).
 authorized context projections and an **admin-owned upgrade job**. See
 [the complete contract](MODULE_MIGRATIONS.md). Existing request writes remain
 caller-bound; modules receive no privileged migration execution API.
-The SDK surface is 3.3.0, module-api 1.5.0 and ui-extension-api 3.2.0; see
+Released 0.19.0 supplies SDK 3.3.0/module-api 1.5.0/UI 3.2.0. The corrective
+tree supplies SDK 3.4.0/module-api 1.6.0 for bounded migration relations; UI is
+unchanged. No supporting application release is assigned yet. See
 [compatibility and adoption](MODULE_MIGRATIONS.md#compatibility-and-adoption).
+The [independent review](adr/0064-module-world-context-and-data-migrations.md#independent-complete-maintenance-review--october-17-2026) records open CR64-14–17;
+maintenance cancellation, large legacy-plan review and final readiness require
+correction before these unreleased workflows are accepted.
 
 | Surface | Contract |
 | --- | --- |
@@ -1210,8 +1215,22 @@ The SDK surface is 3.3.0, module-api 1.5.0 and ui-extension-api 3.2.0; see
 | `POST /admin/module-upgrades/:id/review` | Fresh expiring preview for a stopped job with changed/restored source. |
 | `POST /admin/module-upgrades/:id/reapprove` | Exact revised `planId`, `backupAcknowledged`; retains prior approvals/outcomes. |
 | `POST /admin/module-upgrades/:id/cleanup` | Completed jobs only; confined retained staging/package cleanup, not world data. |
+| `GET /admin/module-maintenance` | Admin-only durable composition, progress, failure and exact review plan when available; no-store. |
+| `POST /admin/module-maintenance/enter` | Advisory `{planId}`; persists disruption consent, closes admission/drains/stops normal runtime; **no write approval**. |
+| `POST /admin/module-maintenance/plan` | Builds the complete authoritative review after isolation; approved jobs use reviewed recovery, never silent replanning. |
+| `POST /admin/module-maintenance/approve` | Exact authoritative `{planId,backupAcknowledged:true}` and authenticated administrator; process-owned job returns 202. |
+| `POST /admin/module-maintenance/resume` | Continue persisted unchanged approval after source/readback/lease checks, without expiring an executing job. |
+| `POST /admin/module-maintenance/cancel` | Stop scheduling; before writes restore validated prior files, after possible writes retain maintenance/recovery; no undo. |
 
-These are direct Core routes. The browser uses the existing `/api/admin/...`
+During maintenance, legacy mutation endpoints above return 503 rather than
+bypassing composition isolation. Use the controller routes. Ordinary player,
+module, debug, login and non-maintenance admin routes also return 503. Only
+admin authentication/status/recovery and generic public status remain available.
+The restricted shell is served directly by Core at `/`, `/admin`, `/admin/modules`
+on the configured application port: no Next worker is running. It uses direct
+`/admin/...` calls with the same network/origin/session/CSRF/audit policy.
+
+Outside maintenance these are direct Core routes. The normal browser uses `/api/admin/...`
 same-origin proxy (not `/admin/api/...`). Diagnostics name the failed phase and
 admin remediation, including discovery/read/preparation exceptions; public clients
 receive only generic maintenance. Source/catalog/recovery reviews show exact world,

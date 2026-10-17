@@ -406,6 +406,16 @@ export class SystemService extends EventEmitter {
         if (!this.systemClient) throw new Error("SystemService not initialized");
         return this.systemClient;
     }
+    /** Restricted composition supplies one transport, without normal controller/producers. */
+    public useMaintenanceTransport(client: CoreSocket): void {
+        if (this.worldTransportController || this.systemClient) throw new Error('Normal runtime must exit before maintenance transport composition');
+        this.systemClient = client;
+    }
+    public stopNormalTransport(): void {
+        this.worldTransportController?.dispose();
+        this.detachFoundryEventIngress?.();
+        this.systemClient?.disconnect();
+    }
 
     public getWorldTransportController(): WorldTransportController {
         if (!this.worldTransportController) throw new Error("SystemService not initialized");

@@ -5,21 +5,31 @@ import type { ModuleWorldSnapshot } from '@shared/sdk/world';
 import type { MigrationTarget } from '@shared/sdk/migrations';
 import { WorldWorkGate } from '@server/core/world/WorldWorkGate';
 import { UpgradeJournal, type UpgradeJob, type UpgradePreview, type UpgradePhase } from './UpgradeJournal';
-import { applyMigrationPatch, hookInput, migrationInputHashes, migrationTargetHash, planWorldMigrations, sourceHash, targetSourceHash } from './planner';
+import { applyMigrationPatch, hookInput, migrationInputHashes, migrationTargetHash, sourceHash, targetSourceHash, migrationReason, migrationSimulation, simulateMigrationOperation, type PlannedMigrationTarget } from './planner';
+import { computeWorldMigrations, type MigrationComputeProgress } from './compute';
 import { runMigrationHook } from './hooks';
+import { createMigrationHookRunner } from './hooks';
+import { migrationEnvelope } from './targets';
 
 export interface UpgradeCandidate {
     moduleId: string; version: string; artifactDigest: string; root: string; info: SystemModuleInfo;
     sourceDirectory?: string; sourceDigest?: string; sourceCategory?: 'local' | 'managed';
+    /** Owner-only retained archive input; never supplied to hooks or players. */
+    archive?: { operation: 'install' | 'upgrade'; input: import('@modules/registry/core/archiveOperations').LocalModuleArchiveInput };
 }
 export interface UpgradeSourceSnapshot { world: Readonly<ModuleWorldSnapshot>; targets: MigrationTarget[]; exclusions?: string[]; assertCurrent?: () => void }
 export interface UpgradeCoordinatorDeps {
     journal: UpgradeJournal;
     gate: WorldWorkGate;
     /** Fresh source, without candidate adapter initialization or user readiness. */
-    snapshot(catalog: ResolvedMigrationCatalog): Promise<UpgradeSourceSnapshot>;
+    snapshot(catalog: ResolvedMigrationCatalog, previous?: UpgradeSourceSnapshot, operation?: PlannedMigrationTarget): Promise<UpgradeSourceSnapshot>;
+    progress?(progress: MigrationComputeProgress): void;
+    jobIdentity?(): string;
+    acquireLease?(job: UpgradeJob): string;
+    assertApproval?(preview: UpgradePreview): void;
     assertAuthority(): void;
     write(target: MigrationTarget, updates: Record<string, unknown>, fence: () => void): Promise<void>;
+    writeBatch?(entries: Array<{ target: MigrationTarget; updates: Record<string, unknown> }>, fence: () => void): Promise<void>;
     promote(job: UpgradeJob): Promise<void>;
     restart(job: UpgradeJob): void;
     prepare(job: UpgradeJob): Promise<void>;
@@ -51,7 +61,8 @@ export class ModuleUpgradeCoordinator {
         const source = await this.deps.snapshot(catalog);
         this.deps.assertAuthority();
         if (source.world.identity.systemId !== candidate.moduleId && !candidate.info.aliases?.includes(source.world.identity.systemId)) throw new Error('Wrong world/system for migration preview');
-        const plan = planWorldMigrations(candidate.root, catalog, source.world, source.targets, false, source.exclusions);
+        const plan = await computeWorldMigrations(candidate.root, catalog, source.world, source.targets, false, source.exclusions, this.deps.progress);
+        source.assertCurrent?.();
         const preview: UpgradePreview = { id: randomUUID(), moduleId: candidate.moduleId, artifactDigest: candidate.artifactDigest,
             treeDigest: migrationDirectoryDigest(candidate.root),
             stepDigests: Object.fromEntries(catalog.steps.map(step => [step.id, step.digest])),
@@ -68,6 +79,7 @@ export class ModuleUpgradeCoordinator {
             return existing;
         }
         const preview = this.deps.journal.preview(approval.planId);
+        this.deps.assertApproval?.(preview);
         if (preview.recoveryJobId) throw new Error('Recovery preview requires explicit reapproval of the existing job');
         if (this.deps.journal.jobs().some(job => !['completed', 'cancelled'].includes(job.phase)
             && (job.moduleId === candidate.moduleId || this.deps.journal.leaseKey(job) === this.deps.journal.leaseKey(preview)))) throw new Error('Another approved job owns the world/module lease');
@@ -76,14 +88,14 @@ export class ModuleUpgradeCoordinator {
             || preview.moduleId !== candidate.moduleId || preview.candidateVersion !== candidate.version || preview.catalogDigest !== catalog.digest
             || preview.treeDigest !== migrationDirectoryDigest(candidate.root)
             || preview.plan.blockers.length) throw new Error('Upgrade preview is blocked, stale or changed');
-        const job: UpgradeJob = { ...preview, jobId: randomUUID(), administrator: approval.administrator, idempotencyKey: approval.idempotencyKey,
+        const job: UpgradeJob = { ...preview, jobId: this.deps.jobIdentity?.() ?? randomUUID(), administrator: approval.administrator, idempotencyKey: approval.idempotencyKey,
             phase: 'quiescing', backupAcknowledged: true, backupWarningRevision: 1, leaseToken: '', candidateRoot: candidate.root,
             outcomes: {}, possibleWrite: false, sourceDirectory: candidate.sourceDirectory, sourceDigest: candidate.sourceDigest,
             sourceCategory: candidate.sourceCategory, worldDataStatus: 'unverified' };
         // Persist the gate BEFORE file replacement; process startup loads it before registry/adapter imports.
         // Acquire before publishing a pending job. A losing tab must not leave
         // an orphan maintenance record which can never own the existing lease.
-        job.leaseToken = this.deps.journal.acquire(job);
+        job.leaseToken = this.deps.acquireLease?.(job) ?? this.deps.journal.acquire(job);
         try { this.deps.journal.save(job); }
         catch (error) { this.deps.journal.release(job); throw error; }
         this.gate('quiescing');
@@ -91,7 +103,7 @@ export class ModuleUpgradeCoordinator {
             await this.deps.gate.drain();
             const source = await this.deps.snapshot(catalog);
             this.fence(job);
-            const current = planWorldMigrations(candidate.root, catalog, source.world, source.targets, false, source.exclusions);
+            const current = await computeWorldMigrations(candidate.root, catalog, source.world, source.targets, false, source.exclusions, this.deps.progress);
             if (current.digest !== preview.plan.digest) throw new Error('World plan changed; rerun preview');
             source.assertCurrent?.();
             this.phase(job, 'installing');
@@ -127,6 +139,7 @@ export class ModuleUpgradeCoordinator {
             let source = await this.deps.snapshot(catalog);
             this.assertWorld(job, source.world);
             this.phase(job, 'migrating');
+            const runHook = createMigrationHookRunner(candidate.root);
             for (let index = 0; index < job.plan.operations.length; index += 1) {
                 this.fence(job);
                 job = this.deps.journal.job(jobId); // Includes cancellation/retirement written by another admin action.
@@ -135,10 +148,75 @@ export class ModuleUpgradeCoordinator {
                 const key = `${index}:${operation.stepId}:${operation.uuid}`;
                 const step = catalog.steps.find(step => step.id === operation.stepId && step.digest === operation.stepDigest);
                 if (!step) throw new Error('Approved migration step changed');
-                source = await this.deps.snapshot(catalog);
+                // A bounded native update envelope is not a new approval/chunk.
+                // Keep legacy broad read sets sequential; their dependency
+                // semantics cannot be weakened by grouping sibling mutations.
+                const batch = [operation];
+                const firstTarget = source.targets.find(row => row.uuid === operation.uuid);
+                const envelopeKey = (target: MigrationTarget) => {
+                    const envelope = migrationEnvelope(target, {});
+                    return JSON.stringify([envelope.type, envelope.operation.parentUuid ?? null, envelope.operation.pack ?? null]);
+                };
+                if (this.deps.writeBatch && firstTarget && !job.outcomes[key]
+                    && !catalog.steps.some(row => row.reads?.targets?.length || row.reads?.packs?.length)) {
+                    let bytes = Buffer.byteLength(JSON.stringify(operation.updates));
+                    for (let next = index + 1; next < job.plan.operations.length && batch.length < 50; next++) {
+                        const row = job.plan.operations[next]; const target = source.targets.find(target => target.uuid === row.uuid);
+                        const size = Buffer.byteLength(JSON.stringify(row.updates));
+                        if (row.stepId !== operation.stepId || job.outcomes[`${next}:${row.stepId}:${row.uuid}`]
+                            || !target || batch.some(prior => prior.uuid === row.uuid) || envelopeKey(target) !== envelopeKey(firstTarget) || bytes + size > 524_288) break;
+                        batch.push(row); bytes += size;
+                    }
+                }
+                if (batch.length > 1) {
+                    const combined = { ...operation, dependencies: Object.assign({}, ...batch.map(row => row.dependencies)) };
+                    source = await this.deps.snapshot(catalog, source, combined);
+                    this.assertWorld(job, source.world);
+                    const simulated = migrationSimulation(source.targets, batch.map(row => row.uuid));
+                    const entries = batch.map(row => {
+                        const target = simulated.find(target => target.uuid === row.uuid);
+                        if (!target || !row.dependencies || !row.effects) throw new Error('Approval lacks batch dependency evidence');
+                        if (sourceHash(migrationInputHashes(source.world, target, simulated, step)) !== sourceHash(row.dependencies)
+                            || targetSourceHash(target.source) !== row.sourceHash) throw new Error(`Migration reference/source conflict: ${row.uuid}; new preview required`);
+                        const entry = { target: structuredClone(target), updates: row.updates };
+                        simulateMigrationOperation(simulated, row);
+                        return entry;
+                    });
+                    source.assertCurrent?.(); this.fence(job);
+                    for (let offset = 0; offset < batch.length; offset++) {
+                        const row = batch[offset]; const expected = simulated.find(target => target.uuid === row.uuid)!;
+                        job.outcomes[`${index + offset}:${row.stepId}:${row.uuid}`] = { state: 'intent', before: row.sourceHash, post: sourceHash(expected.source) };
+                    }
+                    job.possibleWrite = true; this.deps.journal.save(job); // fsync every intent before the one native send
+                    try { await this.deps.writeBatch!(entries, () => { this.fence(job); source.assertCurrent?.(); }); }
+                    catch (error) {
+                        for (let offset = 0; offset < batch.length; offset++) {
+                            const key = `${index + offset}:${batch[offset].stepId}:${batch[offset].uuid}`;
+                            job.outcomes[key] = { ...job.outcomes[key], state: 'uncertain' };
+                        }
+                        this.deps.journal.save(job);
+                        throw new Error(`Migration batch acknowledgement uncertain: ${step.id}: native-send: ${batch[0].uuid} through ${batch.at(-1)!.uuid} (${batch.length} targets): ${migrationReason(error)}; inspect source before resuming`);
+                    }
+                    const after = await this.deps.snapshot(catalog, source, combined); this.assertWorld(job, after.world);
+                    for (let offset = 0; offset < batch.length; offset++) {
+                        const row = batch[offset]; const actual = after.targets.find(target => target.uuid === row.uuid);
+                        const expected = simulated.find(target => target.uuid === row.uuid)!;
+                        if (!actual || targetSourceHash(actual.source) !== targetSourceHash(expected.source)) throw new Error(`${step.id}: ${row.uuid}: batch readback differs from exact approved source`);
+                        const verify = runHook<{ valid: boolean; reason?: string }>(step, 'verify', hookInput(after.world, actual, after.targets, step));
+                        if (verify.valid !== true) throw new Error(`${step.id}: ${row.uuid}: verify: ${migrationReason(verify.reason || 'Post-write verification failed')}`);
+                        job.outcomes[`${index + offset}:${row.stepId}:${row.uuid}`] = { state: 'confirmed', before: row.sourceHash, post: sourceHash(actual.source) };
+                    }
+                    after.assertCurrent?.(); this.deps.journal.save(job); source = after;
+                    index += batch.length - 1;
+                    this.deps.progress?.({ checked: index + 1, total: job.plan.operations.length, planned: job.plan.operations.length,
+                        stepId: step.id, phase: 'migrating', confirmed: Object.values(job.outcomes).filter(row => row.state === 'confirmed').length,
+                        uncertain: Object.values(job.outcomes).filter(row => row.state === 'uncertain').length });
+                    continue;
+                }
+                source = await this.deps.snapshot(catalog, source, operation);
                 this.assertWorld(job, source.world);
                 const target = source.targets.find(row => row.uuid === operation.uuid);
-                if (!target) throw new Error('Approved migration target removed');
+                if (!target) throw new Error(`${step.id}: ${operation.uuid}: source-read: approved migration target removed`);
                 const outcome = job.outcomes[key];
                 if (!operation.dependencies || !operation.effects) throw new Error('Approval lacks dependency evidence; new preview required');
                 const currentInputs = migrationInputHashes(source.world, target, source.targets, step);
@@ -172,8 +250,8 @@ export class ModuleUpgradeCoordinator {
                     }
                     if (outcome.state === 'confirmed') throw new Error('Verified source regressed; external restore requires new admin preview');
                 }
-                if (sourceHash(currentInputs) !== sourceHash(operation.dependencies)) throw new Error('Migration reference dependency conflict; new preview required');
-                if (targetSourceHash(target.source) !== operation.sourceHash) throw new Error('Migration source conflict; new preview required');
+                if (sourceHash(currentInputs) !== sourceHash(operation.dependencies)) throw new Error(`${step.id}: ${target.uuid}: Migration reference dependency conflict; new preview required`);
+                if (targetSourceHash(target.source) !== operation.sourceHash) throw new Error(`${step.id}: ${target.uuid}: Migration source conflict; new preview required`);
                 const expected = applyMigrationPatch(target.source, operation.updates);
                 source.assertCurrent?.();
                 // The original patch remains exact. A hook/code change cannot replan under old approval.
@@ -183,24 +261,31 @@ export class ModuleUpgradeCoordinator {
                 this.fence(job);
                 try {
                     await this.deps.write(target, operation.updates, () => { this.fence(job); source.assertCurrent?.(); });
-                } catch {
+                } catch (error) {
                     const latest = this.deps.journal.job(jobId);
-                    if (latest.outcomes[key]) latest.outcomes[key].state = 'uncertain';
+                    if (latest.outcomes[key]) latest.outcomes[key] = { ...latest.outcomes[key], state: 'uncertain' };
                     this.deps.journal.save(latest);
-                    throw new Error('Migration acknowledgement uncertain; inspect source before resuming');
+                    throw new Error(`${step.id}: ${target.uuid}: native-send: Migration acknowledgement uncertain: ${migrationReason(error)}; inspect source before resuming`);
                 }
-                const after = await this.deps.snapshot(catalog);
+                const after = await this.deps.snapshot(catalog, source, operation);
                 this.assertWorld(job, after.world);
                 const actual = after.targets.find(row => row.uuid === target.uuid);
-                if (!actual || runMigrationHook<{ valid: boolean }>(candidate.root, step, 'verify', hookInput(after.world, actual, after.targets, step)).valid !== true) throw new Error('Migration post-write verification failed');
+                if (!actual) throw new Error(`${step.id}: ${target.uuid}: readback target unavailable`);
+                const verified = runMigrationHook<{ valid: boolean; reason?: string }>(candidate.root, step, 'verify', hookInput(after.world, actual, after.targets, step));
+                if (verified.valid !== true) throw new Error(`${step.id}: ${target.uuid}: verify: ${migrationReason(verified.reason || 'Migration post-write verification failed')}`);
+                source = after;
                 job.outcomes[key] = { state: 'confirmed', before: operation.sourceHash, post: sourceHash(actual.source) };
                 this.deps.journal.save(job);
+                if ((index + 1) % 10 === 0 || index + 1 === job.plan.operations.length) this.deps.progress?.({ checked: index + 1, total: job.plan.operations.length, planned: job.plan.operations.length,
+                    stepId: step.id, phase: 'migrating', confirmed: Object.values(job.outcomes).filter(row => row.state === 'confirmed').length,
+                    uncertain: Object.values(job.outcomes).filter(row => row.state === 'uncertain').length });
             }
             this.phase(job, 'verifying');
             const actual = await this.deps.snapshot(catalog);
             this.assertWorld(job, actual.world);
-            const checked = planWorldMigrations(candidate.root, catalog, actual.world, actual.targets, true, actual.exclusions);
-            if (checked.blockers.length) throw new Error('Required source checks still need maintenance');
+            const checked = await computeWorldMigrations(candidate.root, catalog, actual.world, actual.targets, true, actual.exclusions, this.deps.progress);
+            actual.assertCurrent?.();
+            if (checked.blockers.length) throw new Error(checked.blockers[0]);
             await this.deps.prepare(job);
             this.fence(job);
             // Preparation can await module work while native editing continues.
@@ -208,7 +293,10 @@ export class ModuleUpgradeCoordinator {
             const preparedSource = await this.deps.snapshot(catalog);
             this.assertWorld(job, preparedSource.world);
             if (sourceHash(preparedSource.targets) !== sourceHash(actual.targets)
-                || planWorldMigrations(candidate.root, catalog, preparedSource.world, preparedSource.targets, true).blockers.length) throw new Error('Source changed during preparation; recovery required');
+                || (await computeWorldMigrations(candidate.root, catalog, preparedSource.world, preparedSource.targets, true, [], this.deps.progress)).blockers.length) throw new Error('Source changed during preparation; recovery required');
+            preparedSource.assertCurrent?.();
+            if (migrationDirectoryDigest(candidate.root) !== job.treeDigest
+                || candidate.sourceDirectory && migrationDirectoryDigest(candidate.sourceDirectory) !== candidate.sourceDigest) throw new Error('Approved artifact changed during execution/preparation');
             await this.deps.activate(job);
             this.fence(job);
             this.phase(job, 'completed');
@@ -240,7 +328,8 @@ export class ModuleUpgradeCoordinator {
         const catalog = discoverMigrations(candidate.root, candidate.info)!;
         const source = await this.deps.snapshot(catalog);
         this.deps.assertAuthority(); this.deps.journal.assertLease(job);
-        if (planWorldMigrations(candidate.root, catalog, source.world, source.targets, false, source.exclusions).digest !== preview.plan.digest) throw new Error('Recovery source changed; review again');
+        if ((await computeWorldMigrations(candidate.root, catalog, source.world, source.targets, false, source.exclusions, this.deps.progress)).digest !== preview.plan.digest) throw new Error('Recovery source changed; review again');
+        source.assertCurrent?.();
         job.priorApprovals = [...(job.priorApprovals ?? []), { planId: job.id, digest: job.plan.digest, outcomes: job.outcomes, reviewedAt: this.now() }];
         job.plan = preview.plan; job.id = preview.id; job.expiresAt = preview.expiresAt; job.outcomes = {};
         job.administrator = administrator;
@@ -290,7 +379,7 @@ export class ModuleUpgradeCoordinator {
         const latest = this.deps.journal.job(job.jobId);
         if (['completed', 'cancelled', 'recovery-required'].includes(latest.phase)) return;
         job = latest;
-        job.phase = 'recovery-required'; job.failure = error instanceof Error ? error.message : 'Upgrade failed';
+        job.phase = 'recovery-required'; job.failure = migrationReason(error);
         this.deps.journal.save(job); this.gate(job.phase);
     }
 }

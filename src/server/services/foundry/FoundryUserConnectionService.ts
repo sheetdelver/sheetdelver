@@ -4,6 +4,7 @@ import type { FoundryConfig } from '@server/core/foundry/types';
 import { worldStateStore } from '@server/core/world/WorldStateStore';
 import { worldLifecycleStore } from '@server/core/world/WorldLifecycleStore';
 import { dispatchWorldWork } from '@server/core/world/WorldWorkGate';
+import { maintenanceOnly } from '@server/core/world/MaintenanceMode';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
 import { FoundryUserRole } from '@server/core/documents/primary/base/ownership';
 import { logger } from '@shared/utils/logger';
@@ -52,6 +53,12 @@ export class FoundryUserConnectionService {
     private readonly RESTORE_RETRY_BASE_DELAY_MS = 300;
     private readonly RESTORE_RETRY_MAX_DELAY_MS = 2000;
     private authorityEpoch = 0;
+    private suspended = false;
+    public suspendForMaintenance(): void {
+        this.suspended = true; this.authorityEpoch += 1;
+        for (const connection of this.connections.values()) { this.detachConnectionIngress(connection); connection.client.disconnect(); }
+        this.connections.clear(); // encrypted credentials remain for later reauthentication
+    }
     private readonly sessionAuthorityVersions = new Map<string, number>();
     private readonly deletedUserIds = new Set<string>();
     private isSaving = false;
@@ -90,6 +97,7 @@ export class FoundryUserConnectionService {
     }
 
     public async createSession(username: string, password?: string): Promise<{ sessionId: string; userId: string }> {
+        if (this.suspended || maintenanceOnly()) throw new Error('World unavailable — maintenance required');
         logger.info(`FoundryUserConnectionService | Creating Foundry user connection for: ${username}`);
         const authorityEpoch = this.authorityEpoch;
 
@@ -166,6 +174,7 @@ export class FoundryUserConnectionService {
     }
 
     public async resolveSession(sessionId: string): Promise<FoundrySessionResolution> {
+        if (this.suspended || maintenanceOnly()) return { status: 'temporarily-unavailable' };
         const connection = this.connections.get(sessionId);
         const lifecycleState = worldLifecycleStore.getState();
 
@@ -451,6 +460,7 @@ export class FoundryUserConnectionService {
     }
 
     private async tryRestoreSession(sessionId: string): Promise<RestoreAttemptResult> {
+        if (this.suspended || maintenanceOnly()) return { status: 'retryable' };
         let client: ClientSocket | null = null;
         const authorityEpoch = this.authorityEpoch;
         const sessionAuthorityVersion = this.getSessionAuthorityVersion(sessionId);

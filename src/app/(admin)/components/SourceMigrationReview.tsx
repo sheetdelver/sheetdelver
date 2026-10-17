@@ -12,12 +12,11 @@ export default function SourceMigrationReview({ moduleId, source, onSessionExpir
     moduleId: string; source: 'local' | 'managed'; onSessionExpired: () => void;
 }) {
     const [preview, setPreview] = useState<Preview | null>(null);
-    const [acknowledged, setAcknowledged] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
     const { beginRuntimeRestart } = useAdminRuntimeRestart();
     const inspect = async () => {
-        setBusy(true); setError(null); setPreview(null); setAcknowledged(null);
+        setBusy(true); setError(null); setPreview(null);
         const result = await adminFetch<Preview>(`/module-upgrades/source/${encodeURIComponent(moduleId)}/preview`, {
             method: 'POST', body: JSON.stringify({ source }),
         });
@@ -27,15 +26,14 @@ export default function SourceMigrationReview({ moduleId, source, onSessionExpir
         setBusy(false);
     };
     const apply = async () => {
-        if (!preview || acknowledged !== preview.id || preview.plan.blockers.length) return;
-        if (preview.expiresAt <= Date.now()) { setPreview(null); setAcknowledged(null); setError('Preview expired. Run world checks again.'); return; }
+        if (!preview) return;
         setBusy(true);
-        const result = await adminFetch<{ restartScheduled: boolean }>('/module-upgrades/source/apply', {
-            method: 'POST', body: JSON.stringify({ planId: preview.id, backupAcknowledged: true }),
+        const result = await adminFetch<{ accepted: boolean }>('/module-maintenance/enter', {
+            method: 'POST', body: JSON.stringify({ planId: preview.id }),
         });
         if (result.sessionExpired) onSessionExpired();
         else if (!result.ok) setError(result.error ?? 'Approval changed; run checks again');
-        else if (result.data?.restartScheduled) beginRuntimeRestart();
+        else if (result.data?.accepted) beginRuntimeRestart();
         setBusy(false);
     };
     return <details className="rounded-lg border border-[var(--admin-border)] p-3 text-sm">
@@ -47,9 +45,8 @@ export default function SourceMigrationReview({ moduleId, source, onSessionExpir
             <MigrationPlanDetails preview={preview} />
             {preview.plan.blockers.map((reason, index) => <p key={index} role="alert">{reason}</p>)}
             <p>SheetDelver cannot back up or restore the world or undo migration writes. Interrupted changes may be partly applied. Back up through Foundry before continuing; external restore may lose later changes.</p>
-            <label className="flex items-start gap-2"><input type="checkbox" checked={acknowledged === preview.id}
-                onChange={event => setAcknowledged(event.target.checked ? preview.id : null)} />I acknowledge the backup and recovery limits for this exact plan.</label>
-            <Button disabled={busy || acknowledged !== preview.id || preview.plan.blockers.length > 0} onClick={() => void apply()}>Approve maintenance and restart</Button>
+            <p>This is advisory. Entering maintenance stops normal services but authorizes no writes. Review and approve the authoritative plan after isolation.</p>
+            <Button disabled={busy} onClick={() => void apply()}>Enter maintenance</Button>
         </div>}
     </details>;
 }

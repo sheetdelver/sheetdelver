@@ -210,7 +210,8 @@ export async function run(): Promise<void> {
             worldStateStore.seed({ world: { id: 'w1' }, system: { id: 'fixture', version: '1.0.0' }, release: { generation } } as any);
             assert.equal(canReadNativePack('role0', pack1), false);
             assert.equal(canReadNativePack('role4', pack2), true);
-            assert.equal(canReadNativePack('role1', pack1), generation === 14);
+            assert.equal(canReadNativePack('role1', pack1), true, 'native v13 and v14 CompendiumCollection grant OBSERVER');
+            assert.equal(canReadNativePack('role2', pack1), true, 'Trusted inherits native PLAYER threshold');
             assert.equal(canReadNativePack('role3', pack2), generation === 13, 'native generation-specific Assistant pack rule retained');
         }
         const sourceActor = { _id: 'canonical', id: 'canonical', name: 'Actor', type: 'character', system: { first: uuid1, second: uuid2 }, items: [], effects: [], derived: {}, img: '' };
