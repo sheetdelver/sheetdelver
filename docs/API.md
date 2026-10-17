@@ -658,6 +658,12 @@ Resolves a Foundry UUID through the platform `DocumentResolver`.
 - Live Foundry compendium fallback is diagnostics-only and must not be required
   by module code.
 
+Malformed UUIDs return400; an authorized but missing document returns404.
+Typed `permission_denied` returns403 with a bounded safe message and SDK code,
+including revocation during awaited/warm-cache reads. Unexpected upstream/internal
+errors remain500 with details logged only server-side. A native transport returning
+a record does not bypass caller authorization.
+
 ---
 
 ## Module UI Serving
@@ -1200,7 +1206,10 @@ unchanged. No supporting application release is assigned yet. See
 [compatibility and adoption](MODULE_MIGRATIONS.md#compatibility-and-adoption).
 The [independent review](adr/0064-module-world-context-and-data-migrations.md#independent-complete-maintenance-review--october-17-2026) identified CR64-14–17. Corrective
 implementation and isolated acceptance cover cancellation drain proof, complete
-large legacy-plan review and fresh final readiness; native/user gates remain open.
+large legacy-plan review and fresh final readiness. Subsequent CR64-18–21
+corrections and selected native v13/v14 acceptance pass; C64-H user/release review
+and module hold-release remain open. See the
+[current acceptance](adr/0064-module-world-context-and-data-migrations.md#fresh-complete-maintenance-native-v13-acceptance--october-17-2026).
 
 | Surface | Contract |
 | --- | --- |
@@ -1230,6 +1239,14 @@ Cancellation does not bypass an unknown ordinary-send outcome: durable
 cancellation retains the lease and recovery diagnostic;202 is acceptance of work,
 not completion. Admin preparation retry uses the normal lifecycle readiness event
 and may finish a freshly verified activation, never authorize a new repair.
+
+An admin maintenance record may contain provisional `initialApproval` identity
+while the first approval is being published. It is not a bound job or write
+authority. Cancellation/startup reconciles joined storage outside an aborted
+computation: an unpublished intent remains safely cancellable; an existing
+durable approval retains its original identity/history. Missing/corrupt active
+jobs remain gated. Poll the durable mode/busy/failure state after202; neither a
+provisional ID nor HTTP acknowledgement establishes migration completion.
 
 During maintenance, legacy mutation endpoints above return 503 rather than
 bypassing composition isolation. Use the controller routes. Ordinary player,

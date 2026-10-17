@@ -1,10 +1,10 @@
 # Core ADR-0064: Module World Context and Data Migrations
 
-**Status:** Accepted/open — CR64-09–17 have Core implementation and isolated acceptance evidence; independent review confirms CR64-14–17 corrected with no new confirmed Core blocker in the reviewed scope. Fresh complete-maintenance native v13/v14 acceptance and user/release review remain pending. All module work remains held until C64-A–H pass and are reviewed. Core 0.19.0 and earlier native results remain historical evidence within their scope.
+**Status:** Accepted/open — CR64-09–17 are checkpointed at `140f838`; CR64-18–21 are corrected with offline and native verification. Fresh complete-maintenance native v13 and retained v14 acceptance pass, including focused first-publication recovery on both generations. Cleanup and tested source identity are verified. User review identified CR64-22: admin migration status and required action are insufficiently visible; this Core UI follow-up is documented, not implemented. C64-H, supporting release and explicit module hold-release remain open; module work stays held.
 **Date:** October 16, 2026
 **Related:** Core ADR-0021, ADR-0027, ADR-0028, ADR-0038, ADR-0056, ADR-0057, ADR-0063; Shadowdark module ADR-0001
 
-Current disposition: [CR64-14–17 independent confirmation](#cr64-1417-independent-confirmation--october-17-2026), following the [corrective implementation](#cr64-1417-corrective-implementation--october-17-2026), the [independent complete-maintenance review](#independent-complete-maintenance-review--october-17-2026) and [implementation checkpoint](#complete-maintenance-implementation-and-isolated-acceptance--october-17-2026).
+Current disposition: [CR64-22 admin migration visibility](#cr64-22-admin-migration-visibility--october-17-2026), following [fresh complete-maintenance native v13 acceptance](#fresh-complete-maintenance-native-v13-acceptance--october-17-2026), [independent CR64-21 verification](#independent-cr64-21-verification--october-17-2026), [CR64-21 recovery correction and focused native verification](#cr64-21-first-approval-recovery-correction--october-17-2026), [CR64-18–20 corrections and native v14 repeat](#cr64-1820-correction-and-native-v14-repeat--october-17-2026) and [complete-maintenance implementation](#complete-maintenance-implementation-and-isolated-acceptance--october-17-2026). Earlier pending-native statements below retain their historical scope.
 
 The [independent Core review](#independent-core-review--october-16-2026) of
 `5013e86` supersedes the implementation checkpoint's completion implications.
@@ -15,9 +15,11 @@ records their initial corrective results. The [corrective independent review](#c
 The subsequent [native v14 acceptance](#native-v14-acceptance-and-cr64-08--october-16-2026)
 records actual Foundry writes, settings ingress, recovery and the admin UI. It
 supersedes earlier statements that no native testing was authorized or performed.
-The [native v13 acceptance](#native-v13-acceptance-and-g8-handoff--october-16-2026)
-completes the selected two-generation Core acceptance gate. G8 remains module-owned
-work; neither native run establishes compliance of an adopting system module.
+The earlier [native v13 acceptance](#native-v13-acceptance-and-g8-handoff--october-16-2026)
+completed the then-selected smaller matrix, not the subsequent complete-maintenance
+correction/repeat gate. The latest addendum now supplies fresh v13 acceptance of
+the current implementation. G8 remains module-owned work; no Core fixture run establishes compliance
+of an adopting system module.
 
 ## Problem and reviewed baseline
 
@@ -2810,3 +2812,843 @@ SDK3.4/module-api1.6 remain development contracts. Preserve the journal-format
 rollback warning; unmodified0.19.0 cannot resume the new format. The authorized
 checkpoint is already committed; subsequent fixes and this review remain
 uncommitted for the user's next checkpoint/release decision.
+
+
+## Fresh complete-maintenance native v14 acceptance — October 17, 2026
+
+The user authorized checkpointing and native acceptance against localhost:30000,
+then will switch to v13 after this run. Checkpoint
+`140f838893f5841d4ee1025ee9a7a42e518b0eb8` contains CR64-14–17 and the independent
+review on `fix/adr-0064-complete-maintenance`. This acceptance changes no production
+source, module checkout, release version or remote state. App/lock 0.19.0,
+SDK 3.4 / module-api 1.6 remain development versions, not a new published release.
+Before editing this ADR, the 218829-byte prior version was saved and byte-compared;
+SHA256 `ddfeec801dc0987898cbdde1cdfe2f3b3f84d4d25e993dbef35ff24ead90c5df`.
+
+### Scope, independent oracle and provenance
+
+Actual Foundry **14.367**, world `shadowdark-test`, native system **Shadowdark 4.0.6**.
+A separate Core source copy, data directory, app/API ports and passwordless fixture
+full-GM account were used; root production configuration and the user's Foundry
+process were left intact. A Core-owned fixture package uses the matching system
+ID solely to exercise the supported contracts. It is not the Shadowdark module
+implementation or evidence of G8 adoption. Its module-api floor is 1.6.0 because
+it declares ancestor/base-Actor relations.
+
+Baseline original collection counts: 9 Actors, 0 Items, 2 Scenes, 32 Settings, 4 Users and
+0 world packs. All native writes are confined to recorded fixture documents/accounts,
+pack configuration and temporary settings/permission changes. The private ledger
+records original settings and every created root/pack/user ID for cleanup.
+
+Initial inventory: 30 Player/NPC Actors, 900 embedded Items, 300 Actor/Item effects,
+one world Item/effect, one inactive Scene with nonempty unlinked/inherited-only/
+linked/actorless token cases and two arbitrarily named world Actor/Item packs.
+The persisted delta includes own children and native tombstones. Effects retain
+native v14 `system.changes` data. An independent recursive source walker predicted
+**1,244** changed UUIDs, without calling Core's target expansion/planner/verify.
+The migration changes only each marked fixture's version flag. Full native source
+comparison preserves all other values, embedded content/order, native effect
+shape, unknowns, false/zero/null, tombstones and canonical pack/delta identity;
+only native `_stats` bookkeeping is excluded. This is generic host coverage,
+not a claim that real module schema/formula transformations have been accepted.
+
+The test copy has an explicitly scoped transport observer that records actual
+native acknowledgements and drops one successful receipt to exercise uncertainty.
+It does not fabricate source data, successful writes or Core lifecycle results.
+A known task-owned Core process is also killed after a confirmed write prefix;
+Foundry is never stopped. Normal manager/Core/Next and public admin APIs perform
+the upgrade, journal recovery and activation.
+
+### Verified native results
+
+| Native case | Observed result |
+| --- | --- |
+| Public archive 0.9.0→1.0.0 upgrade | Real release-v2 package; read-only advisory; authoritative maintenance review checks 1,339 targets and lists 1,244 patches. Logical plan 953,639 B, review 392,826 B. |
+| Normal-to-maintenance barrier | Active player and human-GM sessions; normal Core/Next stop; adapter timers stop; restricted Core only. Actor/chat/combat/module/debug and world-launch/login routes return 503. Browser reconnect sees generic maintenance and cannot authenticate. Incorrect plan/backup acknowledgement rejected before writes. |
+| Native uncertainty and crash | First real native write committed before the test drops its receipt. Maintenance retained with the exact target/reason. Public resume plus subsequent Core termination/replacement completes the same approval. **1,244 unique actual upstream writes, 1,244 confirmed receipts, no duplicated write**, complete source equality. |
+| Final preparation and activation | Admin 200/player 503 while preparation held; activation reaches ready; old mutation returns 409 and runtime token is the completed job ID. |
+| Restored source with completed journal | Restore one fixture flag to 0; cold bootstrap retains completed history and requires a fresh one-target review. One new exact approval repairs it; source oracle passes again. Completed history does not authorize repair. |
+| Completed no-op/cancel | Zero-operation review; pre-write cancellation restores verified serving. |
+| Settings and service identity | Native create/update/delete and user-scoped collision; Pulp and auto-consume values reach caller context. Earlier snapshot remains immutable; revisions advance. Native owner update succeeds then fails after revocation. Assistant service login rejected; demoting only the fixture service account to 3 gates players 503; promotion to 4 plus retry restores readiness. |
+| Native pack policy | Player/Trusted/Assistant/full-GM allow/deny decisions reflect live metadata and warm-cache revocation. Locked required pack blocks preview 409; unlock yields no-op. Native raw source reads can return hidden records, so successful transport access must not replace Core caller authorization. Denials expose the HTTP classification defect below. |
+| Rendered maintenance | Actual native-connected maintenance shell at 320/390/820/1440 px in light/dark: computed colors differ, no page overflow, approval disabled before acknowledgement. All eight admin captures visually inspected. A separate player-view pass at four widths in each theme confirms generic status, hidden plan details, distinct themes and no overflow; those eight captures were also visually inspected. This proves these layouts, not final human operator acceptance. |
+
+Initial workflow resource sampling (includes bootstrap, migration, recovery,
+activation and a later timed-out acceptance-client retry): peak Core RSS
+1,451.97 MiB, 113.12 sampled CPU seconds, 86,624,215 read characters,
+17,208,593 write characters across 232.86 s. Core only; not total host RSS or a
+small-host guarantee. A 10 s acceptance-client timeout interrupted the subsequent
+retry-context observation after the main job had completed. The unchanged host
+was restarted and public restored-source/no-op acceptance completed separately;
+this timeout is not reported as a failed migration or concealed as one clean run.
+
+### Fresh corrective findings
+
+**CR64-18 — synchronous durable plan persistence blocks status (open).**
+During the first native write-bearing archive advisory, an independent
+`GET /api/status` timed out after 5.021 s. The actual Core process was observed in
+`jbd2_log_wait_commit`. `MigrationPlanStorage.save/put` synchronously creates and
+fsyncs content files and the containing directory per record on the serving
+thread. Owned computation workers do not isolate this persistence phase. The
+advisory eventually returned and the migration completed; this is a responsiveness
+defect, not another global migration-time limit.
+
+The larger cold advisory reproduced **135 consecutive failed 1.5-second HTTP
+probes**, spanning about **135.53 seconds**, without a planned runtime restart in
+that phase. The complete advisory took 205.19 s. During an independently sampled
+stall, Core had 11,263 content files totaling only 2,928,926 logical bytes: small
+per-record durable files amplify filesystem work. The run ultimately succeeded;
+this still fails the required responsive status/operator boundary. Other phases
+include expected replacement outages and are reported separately, not all
+classified as this defect. Existing isolated checks sampled final preparation;
+that does not establish responsiveness during first cold plan persistence.
+
+Required correction: move complete plan encoding/persistence/loading work that
+can monopolize the event loop behind an owned worker or asynchronous durable
+storage boundary, and reduce avoidable per-record file/fsync fan-out without
+weakening publication ordering. Register that worker with the same lifecycle
+ownership/drain/termination rules; a replaced/cancelled writer must not overlap a
+new plan. Keep compatibility with existing v2 and legacy plan/receipt journals. Preserve atomic publication, dependency/digest
+verification,
+fsync-before-authorization/write, immutable approvals and crash recovery. Do not
+remove durability, truncate inventory, silently cap dependencies or introduce a
+new job deadline. Check cold plans/legacy import, authoritative review, approval,
+resume and final activation while independently polling admin/player status;
+include disk-waiting persistence, not just CPU-worker progress.
+
+**CR64-19 — ordinary arbitrary Actor-pack index ignores metadata (open).**
+Read-only native comparison: `world.cr64full14dwky0m-actor` has declared and
+stored type Actor; direct native index and full source each return 1 record.
+`CompendiumService.getPackEntries` returns 0 after 10,011 ms and logs that all
+strategies failed. The similarly named Item pack returns 1 in 2 ms.
+`fetchPackEntries` calls `inferDocumentType(packId)` without the available metadata;
+it chooses Item except for a name heuristic for tables. Migration inventory
+reads use the correct type and migrated this pack successfully. Ordinary
+freshness/index reads still need correction. A failed index is also collapsed
+to `[]`, which can be mistaken for a successfully empty pack by hydration.
+
+Required correction: propagate canonical pack metadata/declaration type through
+all index/freshness strategies. Distinguish unreadable/failed from valid empty
+indexes and never publish a false empty freshness result. Verify arbitrary
+Actor/Item/other supported pack names, native v13/v14 transport shapes, cached
+refresh after actual content changes and permission revocation; preserve the
+migration's correct canonical identities and package-pack read-only boundary.
+
+**CR64-20 — caller denial becomes HTTP 500 (open).**
+After native pack ownership is revoked, Core correctly denies the Player,
+Trusted and v14 Assistant callers while the full GM retains access. The public
+`/api/foundry/document` route returns 500 for these expected denials.
+`moduleDocumentServices` throws `SdkError('permission_denied')` but
+`registerUtilityRoutes` flattens every exception to 500. No hidden document was
+returned through Core; this is error classification/consumer behavior, not an
+observed authorization bypass.
+
+Required correction: preserve typed authorization failures at the public HTTP
+boundary using the existing SDK/domain error mapping (403 for permission denied),
+with bounded safe responses. Verify denied, absent/malformed and actual upstream
+failure cases independently; retain authorization before and after async reads
+and warm-cache checks. Do not relax permissions to make transport results match.
+
+### Larger inventory, measurements and cleanup
+
+The follow-on native package 1.0.0→1.1.0 retained the historical hook unchanged and
+added a dependent second step on a separate fixture flag. Its input has 60 Actors,
+2,400 embedded Items, 720 Actor/Item effects and the same loose/pack/delta cases.
+Both steps check 6,578 targets across 3,289 source targets; the independent oracle
+predicts 3,194 patches. Restarting the restricted Core before approval retained the
+same review and made no writes. One exact approval then produced **3,194 unique
+native writes and 3,194 confirmed receipts**, complete independent source equality,
+completed journal and ready normal runtime. No tail/page was omitted and no
+manual batches or repeated approvals were required.
+
+| Larger native measurement | Observed value |
+| --- | ---: |
+| Source inventory JSON | 3,527,993 B |
+| Authoritative public review | 1,000,946 B |
+| Cold archive advisory | 205.189 s |
+| Advisory start through verified normal readiness | 674.346 s |
+| Peak Core RSS across owned processes | 3,952.00 MiB / 3.859 GiB |
+| Sampled Core CPU across owned processes (100 ticks/s) | 560.19 s |
+| Sampled Core read/write characters | 143,027,902 / 18,498,707 |
+| Native GET acknowledgements during the larger maintenance operation | 8,485 |
+| Observed native acknowledgement JSON bytes during that operation | 253,232,906 B |
+| Retained complete acceptance journal (all runs) | 8,014,388 B |
+| Retained content blocks (all runs) | 11,488 files / 5,084,456 logical B |
+
+Resource samples span 715.12 s including initial startup and packaging; the 674.35 s
+workflow window starts at advisory dispatch. Numbers include acceptance observer
+cost and worker CPU within Core; they exclude supervisor/Next/native Foundry and
+test-driver RSS and are not physical disk/network-byte measurements. Do not
+promise a 4 GiB or smaller host can run this configuration. Logical paging avoids
+the old 32 MiB rejection, but does not make complete computation low-memory.
+
+Continuous HTTP probes: advisory 203 samples/135 failed; maintenance-plan 71/14 failed;
+execution 323/2 failed; activation 77/6 failed. Replacement/restart phases include
+expected brief unreachability. Advisory has no intentional replacement and its
+135-probe failure streak is the confirmed CR64-18 evidence. Longest successful
+response in execution was 1,121 ms; sampling must cover persistence rather than
+report only healthy worker intervals. A preparatory larger test attempt created
+its recorded inventory but hit a client fetch failure before archive upload;
+the successful retry reused those same fixtures and retained that failed-attempt
+log. No native migration writes occurred in that preparatory attempt.
+
+Artifact/catalog identities (SHA-256):
+
+| Core-owned fixture | Archive | Catalog |
+| --- | --- | --- |
+| 1.0.0 | `1a928aff22e9dc729173f7361084f8c85aeecbda2302d3876baaa6cc9b2d804b` | `26f6e7b534164ae3e13b272e9c30f7d26dab7f19d2131f62359a466f66cd587b` |
+| 1.1.0 | `67328593925c64343748d3882ad02bbbe31ebdd9414b78e212adddfe5e429353` | `9d3505558105eee91b352321b933cd46a9a01c86c5b2a121c2c81d833b44e6ab` |
+
+After stopping all owned Core/Next supervisors, recorded-ID cleanup removed the
+fixture roots/users and both world packs and restored original settings. Fresh
+native reads match original membership **9 Actors / 0 Items / 2 Scenes / 32 Settings / 4 Users**
+and all original source fields (excluding `_stats`) with **zero differences**.
+World-pack membership returned to its original empty set. User-owned
+Foundry port 30000/PID 1274293 remained running; isolated 41985/34611 listeners are gone.
+The user may now switch to v13. Private source/ledger/evidence artifacts are
+retained for reproducibility; no source data is copied into tracked docs.
+
+### Remaining native work and gate disposition
+
+| Gate / case | Current disposition |
+| --- | --- |
+| CR64-09–17 | Implemented/checkpointed; qualified independent isolated evidence retained, plus the native cases above. No reclassification of those confirmed fixes as unimplemented. |
+| CR64-18 | Open Core correction: first cold durable plan persistence can block the whole HTTP event loop for over two minutes. Preserve durability and completion while fixing responsiveness. |
+| CR64-19 | Open Core correction: ordinary arbitrary Actor-pack index/freshness path ignores native type and returns false empty. Migration source transport itself passed. |
+| CR64-20 | Open Core correction: permission is enforced but public SDK denial is misclassified as 500. |
+| C64-G native v14 | Representative and larger upgrades, partial/delta/pack sources, declared follow-on dependency, crash/lost-receipt/review restart, restored-source repair, no-op/cancel, settings/permissions/full-GM gate and 16 rendered layouts evidenced. **Not a full gate pass** while the fresh findings and unfilled matrix cells remain. |
+| C64-G native v13 | Fresh current implementation run pending user switch; earlier small-fixture result remains historical. |
+| Other full-matrix cells | Native first install/source switch, multiple catalog milestones/skipped upgrade, file-promotion interruption, transport loss/return distinct from a process crash, additional pending-action/session/context races and native effect-array/schema transformations are not established by this scalar-fixture pass. Existing isolated evidence retains its scope; focused native follow-up must fill these cells before full closeout. |
+| C64-H / G8 | User/release acceptance pending; all module work remains held. These Core-owned generic fixtures do not establish module compliance. |
+
+Correct CR64-18–20, verify their original native reproductions and carry forward
+these complete source oracles and approval/recovery checks. Continue v13 discovery
+only after the user switches the endpoint; do not infer a native pass from test
+counts. This acceptance establishes completion/correctness for the exercised
+real sources and documented interruptions, not universal failure immunity.
+
+## CR64-18–20 correction and native v14 repeat — October 17, 2026
+
+This addendum supersedes the preceding instruction to switch to v13: implement
+the known Core corrections and complete their v14 repeat first. The branch stays
+`fix/adr-0064-complete-maintenance` at checkpoint `140f838`; subsequent changes
+are uncommitted. The three initial documentation edits were preserved. Before
+revision, the ADR was saved byte-for-byte (235749 bytes, SHA-256
+`59f4cb160ca1dd3a7d098fb13c1561e545b7beb1c810d766ec8647b291cec5c0`).
+No application/module release or public SDK contract version changes are needed.
+Module implementation/adoption remains held.
+
+### Corrective implementation and regressions
+
+| Finding | Implemented correction | Correct-behavior regression evidence |
+| --- | --- | --- |
+| CR64-18 | `AsyncUpgradeJournal` owns one serialized storage worker. Complete encoding, digest validation, persistence, receipt processing and cold/legacy loading execute off HTTP. Atomic v3 bundles replace per-record file/fsync fanout; file fsync, rename and directory fsync still precede durable metadata authority. Archive/file transitions, intent and receipts are awaited. Reused bundles re-establish durable publication after a lost acknowledgement. Lease/final-send fences read only small metadata. Cached maintenance review is diagnostic, never write authority. Cancellation joins a retired worker, drain/close prevents overlapping replacements, and HTTP disconnect does not cancel a job. | The tracked cold-storage HTTP regression first failed with966 main-thread fsync calls. It now passes with zero, real HTTP polling, exact digest reload and cancellation during a real temporary-bundle write followed by joined replacement. The360-operation, over39MB legacy plan round-trips through a cold worker while HTTP/timers continue. Inline originals, v2 blocks, outcomes and historical approvals survive; corrupt bundles reject recovery. |
+| CR64-19 | Ordinary index, freshness, hydration and full-read strategies carry canonical native pack type or explicit declaration, with metadata taking precedence over names/caller guesses. Valid empty arrays/envelopes remain empty; exhausted/invalid reads throw and cannot replace a prior valid index. Current metadata/content revisions fence awaited publication. | The new arbitrary Actor-pack regression first returned0 instead of1. It now passes for Actor, Item, JournalEntry, RollTable, Scene, Macro, Playlist, Cards and Adventure, both response shapes, valid emptiness and failed refresh preserving prior content. Typed transport denial terminates the fallback ladder. |
+| CR64-20 | Generic document routing preserves the established SDK error/status contract. Permission denial is403 with safe bounded detail; malformed UUID400, authorized absence404, unexpected upstream/internal500 with server-only diagnostics. Session compendium checks before/after reads throw typed denial, not generic errors. | The new public route test first returned500 instead of403. It now covers actual UtilityService/Store authorization before read, warm-cache revocation during await, underlying typed denial, malformed input,404 and genuine500. No blanket forbidden classification or transport-based authorization is introduced. |
+
+The additional asynchronous storage awaits are followed by freshness fences:
+preview publication rechecks source/authority, the installing-phase ACK rechecks
+source/authority/lease before file promotion, and completion rechecks them before
+readiness/gate release. Tracked await-boundary regressions demonstrate that the
+preview and promotion would previously proceed after a source retirement, then
+reject after correction; the completion regression retains recovery and lease.
+CR64-14–17 exact readback, safe cancellation, durable legacy and final-readiness
+coverage remains required. Bundles change private durable storage, not logical
+approval digests, catalog/hook inputs, native normalization or caller permissions.
+Older v2 and inline journals remain readable; downgrade-to-0.19.0 recovery is not
+supported. Preserve the entire journal directory and retained originals.
+
+The first full repeat exposed a second CR64-18 fanout: each diagnostic progress
+update still fsynced the maintenance file on HTTP. The actual host-progress
+regression failed with2 main-thread fsyncs for one update, then passed with zero.
+Progress now uses an operation/file/stage-scoped in-process overlay; durable
+stage/drain/lease transitions checkpoint it. The complete plan and receipt ledger,
+not counters, reconstruct recovery and determine work. Tests cover visible
+progress without a disk rewrite, durable checkpointing and overlay retirement
+on replacement. No admission, approval, drain or receipt durability is removed.
+The final large native repeat below includes this correction; the earlier repeat
+is retained as qualified evidence, not silently relabeled failure-free.
+
+### Repeat acceptance status
+
+Native evidence uses a newly verified Foundry14.367 / Shadowdark4.0.6 /
+`shadowdark-test` on localhost30000, fresh marked fixtures, isolated Core source,
+data, accounts and loopback ports. Core-owned fixture catalogs exercise generic
+contracts; no module checkout is inspected or adapted. The original Foundry
+process remains user-owned and running. Fixture cleanup and final gate disposition
+are recorded below. This is not a blanket C64-G/H acceptance claim.
+
+### Completed native v14 matrix
+
+| Workflow / protection | Actual repeat evidence |
+| --- | --- |
+| Representative upgrade | 30 marked Actors,900 embedded Items and300 Actor/Item effects, plus loose Item/effect, persisted ActorDelta/owned children/tombstones, inherited-only/linked/actorless null deltas and arbitrary world Actor/Item packs.1,244 unique actual native writes and confirmed receipts, independent complete source equality, lost-receipt and Core-process crash/resume, final preparation and normal activation. |
+| Larger upgrade and final same-version repair | Full60 Actors/2400 embedded Items/720 effects inventory plus the same other source locations. The final repeat completed3,194 unique actual native writes and3,194 confirmed receipts, with zero duplicate sends and independent full source equality. It reconciled a real successful ACK withheld from Core, resumed the same approval, verified and activated. Restart before approval retained the exact review with zero writes in the earlier larger upgrade. No targets were omitted and no manual migration batches or whole-job timeout were introduced. |
+| First install / current bootstrap / source switch | Separate isolated host with no installed system fixture completed a six-write first install with source equality. All-current bootstrap stayed normal. Public local→managed selection (with the preceding local selection) completed no-op maintenance, fresh preparation and source equality with prior history retained. The positive case uses the canonical source directory that built the immutable fixture package. Relocating and recompiling it changed esbuild header bytes and was correctly rejected by the historical-step guard; no hash normalization/bypass was added. |
+| Cumulative native milestones / arrays | A fixture artifact skipped an intermediate package version and retained prior steps across native milestones4.0.5/4.0.6. Five actual native effect arrays/keys and one Actor field migrated, with six confirmed receipts and full source equality. The source/patch/oracle uses native numeric effect values. This is Core fixture coverage, not adoption of Shadowdark rules. |
+| File-promotion interruption | Test-copy observer terminated only the restricted Core after durable previous-files-retained evidence and before native intent. Replacement retained recovery with unchanged world source; public cancellation restored the prior fixture files and normal validated readiness. A fresh public review then completed the intended upgrade. |
+| Transport loss and return | Actual service socket disconnected after a real ACK, without stopping Foundry or the Core process. Maintenance retained uncertain intent and ordinary-work503/admin recovery access. Same-job resume reconciled source; a late reconnect observation retired final validation, so an additional explicit admin resume revalidated the same approval. Six actual unique sends total, no replay, full source equality and activation. |
+| External restore / context retirement | Restoring a completed fixture Actor to a legacy flag required a fresh one-target review/approval, not authority from the old completion marker. Changing a declared world setting after review rejected approval before native writes; restoring it and cancelling the unwritten job recovered through fresh normal validation. |
+| Ordinary pending send / sessions | A real player socket ACK was withheld before delivery to the production transport promise/guard. Entry persisted `drained:false`, new ordinary work returned503, the late request returned503, then the proven drain allowed cancellation and normal validation. Full source remained unchanged except supported timestamps; missing/old runtime mutation requests returned409. Initial harness placement after the guard correctly reported an already-proven drain and was not counted as unknown-drain evidence. |
+| Pack index / permissions | Arbitrarily named Actor and Item packs each returned1 through Core index, native index and full source reads, including rename/invalidate/refresh. Actor sequence including refresh/restore took7ms; Item4ms. A real empty Actor pack remained a valid empty index and was deleted. Native system Item pack index7 matched, while the Core migration boundary remained read-only. Public Player/Trusted/Assistant/GM requests returned200 or typed403 according to current pack policy, including warm-cache revocation. Native raw transport returned hidden data that Core correctly withheld. Authorized missing UUID404 and malformed UUID400 were also verified publicly. Other canonical pack types and array/envelope/error handling are offline coverage, not nine native pack-class claims. |
+| Settings / full-GM authority | Stored/create/update/delete/default paths, excluded user-scoped collision, immutable context/revision refresh and authenticated projection passed. Ordinary owner revocation denied native writes. Assistant service login rejected; active service demotion blocked ordinary work503 with admin diagnosis; restoring full GM and explicit retry recovered. Required locked world pack blocked preflight409 and unlocked no-op passed. Ordinary Assistant document permissions were not broadened or restricted. |
+| Rendered / operator | Actual native-connected maintenance/admin and public pages:320/390/820/1440, light/dark,16 captures visually reviewed, nonempty distinct styles, no viewport overflow, private detail absent publicly and approval disabled without acknowledgement. Separate actual-component admin/player suites verify appearance scope, keyboard/focus, auth expiry, nondismissible gating and first-upgrade missed-restart reload; these are distinguished from native permission evidence. |
+
+The native observer exists only in the isolated Core copy: it observes real ACKs,
+can withhold one receipt/socket callback or terminate a marked test Core, and
+fabricates no source, ACK success, authorization or lifecycle result. No module
+repository, root production settings or unrelated Foundry data was used.
+
+### Responsiveness, storage and capacity
+
+Independent probes target both `/api/status` and authenticated
+`/admin/module-maintenance`,1500ms timeout, approximately500ms cadence. They run
+in a separate process, beginning before cold advisory and continuing through
+review, approval, recovery and activation. The final cold advisory explicitly
+records its request start/end rather than inferring them from a file timestamp.
+
+| Final measured interval | Per-endpoint result |
+| --- | --- |
+| Cold complete3,197-operation advisory (69.776s, read-only; no package promotion or native writes) |139 probes each, all200, zero timeouts, maximum100ms. Complete durable plan published; source unchanged and installed fixture remained1.3.0. The private1.3.1 test artifact is not an application/module release bump. |
+| Authoritative planning in final3,194-write repair |100 probes each, zero timeouts; status max39ms, admin max40ms. |
+| Execution/resume/verification/preparation before replacement |771 probes each, all200, zero timeouts, maximum121ms. |
+| Supervised startup/composition changes | Brief listener outages remain:2 startup,9 maintenance-entry/replacement and13 activation/replacement timeouts per endpoint in the sampled run. They are not hidden or counted as successful probes. Responses after replacement max444ms. This is responsive durable computation, not zero-downtime service replacement. |
+
+The final larger job completed in596.083s. Core peak RSS was4.128GiB (including
+its threads, excluding Foundry, Next, watchers and driver),682.37 sampled CPU
+seconds,167.01MiB logical reads and24.84MiB logical writes. Sampling spans592.681s
+and does not capture every startup/exit instruction. Logical syscall I/O includes
+harness/HTTP/cache/log costs, not a physical-disk benchmark. The host has62GiB
+shared RAM; these numbers establish **no small-host capacity guarantee**. The
+earlier3.86GiB measurement was not a small-host bound, and resource/elapsed
+differences between runs are not a controlled speed benchmark.
+
+Final larger review payload:1,001,128 bytes; durable metadata6,222 bytes; one
+content-addressed plan bundle4,363,780 bytes; receipt stream2,081,771 bytes. All
+3,194 operations and dependencies remain present. The first repeat completed
+but retained shorter stable-phase stalls until diagnostic fsync fanout was
+corrected; its512.825s/4.065GiB result is qualified historical evidence, not the
+final latency pass. The initial larger driver also omitted second-flag wire IDs:
+its source/receipt proof is retained, but exact wire accounting comes from the
+subsequent successful repairs above.
+
+### Verification, cleanup and disposition
+
+- Core `test:unit`, `test:client`, `test:integration` (24 corrective cases plus15
+  complete-maintenance cases), TypeScript `--noEmit --incremental false`, lint
+  and whitespace checks pass. CR64-14–17 remain covered. Extra error-envelope
+  regression proves failed `{error,result:[]}` cannot clear a valid index;
+  underlying resolver typed denial also fails before/passes after correction.
+- Actual isolated supervisor readiness-race and complete-fixture interrupted-
+  drain/cancellation workflows pass on final code; no native claims derive from
+  controlled upstreams. The first unknown-drain invocation omitted its required
+  complete-fixture flag and timed out at fixture bootstrap; the corrected
+  `--complete-matrix --unknown-drain --inventory=2,2` run passes.
+- The first array fixture planned string `"2"` while native v14 stores number2.
+  Core correctly retained uncertain intent/reference conflict, no activation,
+  replay or undo. That isolated negative journal is retained as **unresolved
+  invalid-fixture evidence, not a completed migration**. A new isolated host with
+  valid native numeric patches completed the positive case; no normalization or
+  historical-integrity exception was added to product code.
+- The large fixture was partially cleaned after its first exact-wire proof,
+  then only those marked test sources were re-expanded to repeat full native
+  latency acceptance after the progress correction. This is fixture preparation/
+  cleanup, not a product world-restore feature, target cap or migration batching.
+- Final direct native cleanup matches original membership **9 Actors /0 Items /
+  2 Scenes /32 Settings /4 Users**, zero source differences excluding supported
+  `_stats`, and the original empty world-pack set. All marked fixtures and five
+  fixture accounts are removed; original settings restored. All task services,
+  probes and browser contexts stopped. Foundry PID1274293/port30000 remains
+  running, untouched as a process. Retained private evidence is not a runnable
+  future fixture: do not reuse its removed IDs or archived configuration.
+
+CR64-18, CR64-19 and CR64-20 are **resolved in the exercised Core contract**.
+C64-A–F retain their qualified evidence; C64-G's repeated v14 matrix passes,
+but its fresh v13 component remains pending. C64-H user/release review and G8
+module adoption remain pending/held. Sequence: Core corrections → successful
+v14 repeat (now recorded) → fresh identified/authorized v13 world acceptance →
+user review/clearance → separately scoped module adoption. Keep this ADR open.
+No staging, commits, branch/version changes, remote operations or publication
+were performed in this corrective pass.
+
+
+## Independent review of CR64-18–20 — October 17, 2026
+
+Review baseline: `fix/adr-0064-complete-maintenance` / `140f838`, including the
+uncommitted corrective implementation and its native v14 addendum. The preceding
+ADR was saved byte-for-byte before this review annotation: 252688 bytes, SHA-256
+`e3e44ae90ccc437ef5643110465a8827f1bc3dc92e387943cc54f42dbc5f7da4`.
+No production source, module, version, Git or native-world changes were made in
+this review. The independent checks did not reconnect to Foundry.
+
+CR64-18–20 have substantive corrections in the production paths: owned serialized
+storage and bundled durable plans, authoritative compendium types with failed
+reads distinguished from emptiness, and typed safe permission responses.
+Independent full unit (including client) and integration suites, TypeScript
+`--noEmit --incremental false`, lint and whitespace checks pass. Integration
+includes the 24 corrective and 15 complete-maintenance cases. CR64-14–17 coverage
+remains in place.
+
+Retained native evidence was inspected, not rerun: the final larger job records
+3194 unique native sends and confirmed receipts, no duplicates, independent
+source equality and completed activation. The cold advisory records 139 probes
+per endpoint, all200 with maximum100ms; stable execution records 771 per endpoint,
+all200 with maximum121ms. Cleanup records the original9 Actors/0 Items/2 Scenes/
+32 Settings/4 Users and zero source differences under the documented timestamp
+exclusion. The4.128GiB Core measurement and replacement listener outages remain
+qualified exactly as above. Those successful cases are not invalidated by the
+additional, previously uncovered cancellation boundary below.
+
+### CR64-21 — first approval cancellation leaves an absent job reference
+
+**Status: open; high-priority Core recovery correction before switching to v13.**
+
+The host lease callback in `ModuleUpgradeService.createHostUpgradeCoordinator`
+persists `maintenance.jobId` before `ModuleUpgradeCoordinator.approve` awaits the
+first durable job save. If the administrator cancels while that asynchronous
+save has not published a job, the storage operation rejects. The coordinator
+releases the lease, but the maintenance record still identifies that nonexistent
+job. `MaintenanceController.cancel` then follows the approved-job branch and
+fails reading it with `ENOENT`. No file promotion or native write is necessary
+to strand the operation in maintenance.
+
+This was reproduced with the real host lease callback, `AsyncUpgradeJournal`,
+coordinator and controller work/cancel lifecycle in an isolated temporary root.
+A test-only yielding boundary before the first job save makes the cancellation
+ordering deterministic; source snapshots are offline fixtures and no native
+transport is used. The correct-behavior assertion that an unwritten approval
+remains administratively cancellable fails. Observed state:
+
+- Approval rejected with `Maintenance scheduling stopped by administrator`.
+- Durable maintenance stage `recovery-required`, `drained:true`, with `jobId` set.
+- Durable job list empty; file promotions0, native writes0, restarts0.
+- Actual controller Cancel rejected with missing `jobs/<operation-id>.json`.
+
+Source inspection also shows Plan/Resume and maintenance startup expecting that
+job once `jobId` is set; a process restart alone is not a documented repair.
+This is an availability/recovery defect, not a demonstrated unauthorized write
+or source corruption. It does not reopen the three corrected defect mechanisms.
+The prior first-approval crash/storage-error window also needs reconciliation;
+the worker makes cancellation during the initial save an ordinary reachable path.
+
+Required implementation checkpoints:
+
+1. Make the relationship between the persistent maintenance operation, its lease
+   and the first durable approval explicit and recoverable. Do not publish an
+   authoritative job reference without a durable job or a defined provisional
+   state that startup and the admin controller can reconcile.
+2. After cancellation/storage failure, join the writer and inspect durable
+   outcome independently of the aborted computation signal. Distinguish proven
+   no-job/no-promotion/no-write cancellation from a successfully persisted job
+   whose acknowledgement was lost. Preserve exact approval identity and valid
+   lease ownership for the latter. Corrupt or uncertain evidence stays gated.
+3. Support both crash orderings: before first job publication and after job
+   publication but before maintenance binding/acknowledgement. Simply moving one
+   assignment after an await is insufficient without recovery for the other side.
+   Do not treat every missing job as permission to clear maintenance or delete
+   evidence; disappearance of a previously active job is a different condition.
+4. Add tracked failing-before/passing-after controller regressions for the
+   reproduced cancellation, first-save failure, lost durable acknowledgement and
+   restart reconciliation. Retain unknown-drain, possible-write, exact approval,
+   receipt and worker-join protections; no manual file editing should be the
+   normal recovery path for an approval that never wrote anything.
+5. Run relevant Core checks and a focused v14 public/admin cancellation and
+   recovery/activation follow-up. Retain the existing larger native evidence;
+   repeat its expensive inventory only if the correction changes the exercised
+   storage/execution mechanics or reveals another relevant concern.
+
+The failing local probe is supplementary evidence; this tracked description is
+self-contained. **CR64-18–20 remain resolved; CR64-21 is open.** The exercised v14
+matrix remains positive evidence, but readiness to switch to v13 is withdrawn
+until this recovery correction is verified. Keep v14 running. ADR-0064 stays
+open and all module work remains held. No source correction or commit was made
+by this review.
+
+## CR64-21 first-approval recovery correction — October 17, 2026
+
+**Disposition: implemented and verified; the preceding open finding is resolved.**
+CR64-18–20 and their independent/native evidence remain valid. This corrective
+pass stays on `fix/adr-0064-complete-maintenance` / `140f838`; all changes remain
+uncommitted, including the prior storage-worker files. Before revision the ADR
+was saved byte-for-byte:258607B, SHA-256
+`f296da2a3efbf48b8fa5a07880b6e5fa2748e1dc37abdd5530346ed80e5929da`.
+No module repositories, versions or Git/remote state were changed.
+
+### Implemented publication/recovery protocol
+
+The original defect bound `maintenance.jobId` in the lease callback before the
+first job save. Cancelling the asynchronous save could therefore leave a bound
+but absent job, release its lease and make actual Cancel fail with ENOENT.
+
+The host now persists a provisional `initialApproval` intent under the existing
+maintenance operation/lease. It binds job ID, exact plan ID/digest, artifact,
+catalog/tree, idempotency key and approving principal, but confers no promotion
+or native-write authority. The first durable job is then saved, bound as `jobId`,
+and the provisional intent retired **before** promotion can begin.
+
+If save/binding acknowledgement fails or computation is cancelled, the
+coordinator joins the owned storage writer and performs serialized recovery
+readback independently of the aborted computation signal. Recovery validates the
+complete existing job and re-syncs its metadata/receipts/directories before
+accepting visible publication; it does not rewrite identity or fabricate receipts.
+It distinguishes:
+
+- **No durable job:** only a matching provisional intent, with no orphan
+  receipt/legacy evidence, can be retired. The maintenance operation retains its
+  lease until proven-drain admin cancellation. No fake cancelled job is created.
+- **Durable job, interrupted ACK/binding:** exact identity and ownership must
+  match. The job is bound with its original approval, plan and evidence. No
+  promotion/write is replayed merely because acknowledgement was lost.
+- **Previously active/bound job missing or corrupt, inconsistent provisional
+  evidence, or failed recovery durability:** retain maintenance and diagnostics.
+  Arbitrary missing files are never classified as safe unwritten cancellation.
+
+Startup reconciles the provisional state before transport/lease takeover;
+controller Plan/Resume/Cancel uses the same protocol. Both crash orderings are
+covered. Cancel owns controller admission through its final asynchronous readback
+and release, prevents a second finalizer/writer, preserves durable drain proof,
+and can reclaim only the same dead operation's lease—not another owner. Existing
+legacy/v2/v3 jobs and old bound references retain their strict meaning. No manual
+journal editing is required for a provably unpublished first approval. Existing
+corrupt/absent active records still require evidence-preserving reconciliation;
+this is intentional, not a generic missing-file repair.
+
+### Independently executed regression evidence
+
+The tracked `CR64-21-first-publication-cancel` correct-behavior regression failed
+before correction with actual host/controller/AsyncUpgradeJournal ENOENT and no
+writes/promotions. It passes after correction; the original independent review
+probe also passes without changing its expected behavior. New tracked cases in
+`complete-maintenance.test.ts` exercise:
+
+| Boundary | Verified result |
+| --- | --- |
+| Cancel before publication / injected initial-save failure | No durable job or promotion/write; actual controller Cancel activates the prior validated runtime. |
+| Lost first durable ACK / aborted computation after publication | Exact original approval remains bound and leased; cancellation retains a durable cancelled job with empty outcomes and no replay. |
+| Actual subprocess exit before and after publication | Production startup reconciliation handles both; same-dead-PID lease takeover and controller cancellation succeed. |
+| Missing/corrupt bound job / orphan receipts | No activation, deletion or inferred absence; evidence remains gated. |
+| Another operation owns the lease | Cancel rejects and leaves the other owner's locks untouched. |
+| Concurrent work during cancellation finalization | Plan/second Cancel reject while the original finalizer owns admission. |
+| Actual recovery metadata-fsync failure | Publication stays provisional/unbound, bytes unchanged; restoring storage allows joined readback and actual cancellation. |
+
+Full Core unit/client/integration suites, TypeScript `--noEmit --incremental false`,
+lint and whitespace pass. Integration retains24 corrective cases and now27
+complete-maintenance cases (12 additional CR64-21 cases; crash children are setup,
+not extra counted tests). Initial storage failure is deliberately injected at
+the first save boundary; no claim of testing physical disk failure immunity is
+made. These offline cases are separate from native results below.
+
+### Focused public/native v14 verification
+
+Reverified localhost30000 **Foundry14.367, shadowdark-test, Shadowdark4.0.6** before
+fresh marked fixture writes. New isolated data/source/config/ports, one fixture
+Actor and one dedicated full-GM fixture account; root settings and module
+checkouts were unused. An immutable Core-owned fixture package exercises the
+actual supervisor, HTTP admin approval/cancel, maintenance controller, journal,
+native transport and activation. Delays/forced Core exits exist only in the
+copied test harness; native responses and writes are real.
+
+| Public native case | Verified outcome |
+| --- | --- |
+| Cancel before first durable job | No job, promotion or native write; normal readiness and exact prior source restored through public Cancel. |
+| Cancel after first durable job but before ACK/binding | Original plan ID preserved, durable cancelled job/empty outcomes, zero promotions/writes, normal readiness. |
+| Kill restricted Core before publication | Supervisor replacement reconciles absence; public Cancel succeeds without editing journals or promoting files. |
+| Kill restricted Core after durable publication before binding | Startup finds/binds the original approval; public Cancel retains its cancelled history with no promotion/write. |
+| Fresh subsequent approval | One real native write, one confirmed receipt, zero duplicates, independent complete persisted-source match, completed/verified job and successful activation. |
+
+All four interruption cases leave installed fixture0.9.0 unchanged; successful
+retry promotes the private1.0.0 fixture. These are isolated fixture versions,
+not application/module repository bumps. Nineteen changed/new Core server files
+match the final isolated copy byte-for-byte, excluding its explicit test entry
+observer. The prior3,194-write/large-inventory evidence is retained, **not rerun**:
+this correction changes first-publication reconciliation, not bulk plan format,
+approved execution/readback or batching. No new capacity/latency claim is made.
+
+The first native follow-up passed before final cancellation/durability hardening.
+An intermediate repeat used an invalid explicit test-key prefix; Core correctly
+rejected startup, only the verified test manager was stopped, and baseline cleanup
+passed. That attempt is not acceptance evidence. The final corrected-key/final-code
+run independently passes the complete focused matrix above.
+
+Final native cleanup restores original **9 Actors/0 Items/2 Scenes/32 Settings/
+4 Users**, original pack metadata and zero source differences except supported
+`_stats`. Marked Actor/account removed; all task-owned supervisors/Core/Next
+workers and probes stopped. User Foundry PID1274293/30000 remains running and was
+never stopped. Old cleaned fixture IDs/configuration must not be reused.
+
+**Ready for fresh v13 acceptance after user environment identification.** Keep
+v14 until the user switches; no switch occurred in this task. ADR-0064 remains
+open for fresh v13/C64-H user review and release readiness; G8/all module work
+remains held. No new release/SDK requirement or publication is authorized.
+
+
+## Independent CR64-21 verification — October 17, 2026
+
+Reviewed the uncommitted correction on `fix/adr-0064-complete-maintenance` /
+`140f838`. The preceding ADR was saved byte-for-byte before this annotation:
+266774 bytes, SHA-256 `6b45323b14522860ee083e50c6242a18b193c16bd7a99330902f1e2f2911dbea`.
+
+The original independent first-approval cancellation probe now passes unchanged:
+actual Cancel succeeds, the operation reaches `activating`, no durable job is
+fabricated, no native writes or promotions occur and one restart is requested.
+Review of provisional identity, joined recovery readback, lease retention and
+controller/startup reconciliation found no additional confirmed blocker.
+
+Fresh independent full unit (including client) and integration suites pass;
+integration includes24 corrective and27 complete-maintenance cases. TypeScript
+`--noEmit --incremental false`, lint and whitespace checks also pass. This review
+reran offline checks; it did not connect to Foundry or repeat native fixtures.
+
+The final focused native v14 evidence and harness were inspected: public Cancel
+and real Core restart before/after publication recover without journal editing;
+a subsequent approval completes1unique native write/1confirmed receipt with an
+independent persisted-source comparison. Baseline cleanup and stopped task
+services are recorded. All19 changed/new server files other than the documented
+observer entry byte-match the native-tested copy. The existing3194-write evidence
+remains retained, not rerun or expanded into a capacity guarantee.
+
+**CR64-21 is independently verified resolved. Fresh v13 acceptance is the next
+step; no further confirmed Core blocker was found in this review.** ADR-0064
+remains open for that acceptance and user/release review; module work remains
+held. Source, versions, Git and the user's Foundry process were unchanged by this
+review. Preserve all existing uncommitted implementation and documentation.
+
+## Fresh complete-maintenance native v13 acceptance — October 17, 2026
+
+**The selected Core native matrix now passes on both supported generations.**
+This fresh v13 run complements the retained v14 large-inventory and CR64-21
+results; it does not rerun or expand their claims. No additional confirmed Core
+defect was found. C64-H user/release review and the module hold remain open.
+
+The user switched the approved local endpoint and confirmed it was started.
+Before writes, runtime probes independently verified **Foundry 13.351**, world
+**`sd-adr61-v13`**, Shadowdark **4.0.6**, and a passwordless full-GM account.
+Acceptance used private data directories, isolated Core/Next supervisors and
+ports, Core-owned fixture packages, recorded marked documents/accounts/packs,
+and temporary settings with original values retained. Root production settings
+and module repositories were unused. Twenty-three changed/new Core runtime,
+registry and supervisor files match both tested copies; only explicit observer
+entry imports differ. No production source, versions, Git history or index changed.
+
+Before documentation edits, the preceding ADR was saved and byte-compared:
+268,722 bytes, SHA-256
+`e96101cfab7b1a99436c1e5db4c60352ca823687ff6314bcdc60c3ff11f8da31`.
+
+### Native coverage and independent outcomes
+
+| Case | Fresh v13 result |
+| --- | --- |
+| Original representative inventory | 30 Actors, 900 embedded Items and 300 Actor/Item effects, plus world Item/effect, Scene/ActorDelta and arbitrary world Actor/Item packs. All **1,244** independently enumerated operations were written once and confirmed; the complete persisted source matched an independent oracle. |
+| Larger inventory | 60 Actors, 2,400 embedded Items and 720 Actor/Item effects plus the same other locations. Two historical/dependent steps checked **6,388** targets and produced **3,194** exact unique writes/confirmed receipts. Source comparison passed before any fixture reduction. |
+| Source relations and exclusions | Required effect ancestors and delta base Actors resolved, including pack parents. Native persisted tombstones, partial overrides, null/inherited-only deltas, linked/actorless tokens and unrelated fields remained unchanged. v13 effects use top-level `changes`, numeric modes and string values. |
+| Isolation and readiness | Actual normal Core/Next workers exited; player/human-GM sessions, ordinary routes, login, non-maintenance admin mutation and module timers stopped. Reconnecting sockets exposed maintenance without restored authority. Final preparation held player requests at 503 while admin remained available; fresh activation retired stale mutations with 409. |
+| Lost receipt and restart | Withheld a real native acknowledgement after one write, explicitly resumed the original approval, then killed the isolated Core during execution. Supervisor recovery completed all 1,244 writes without duplicate confirmed sends or journal editing. |
+| Unapproved review restart | Killed restricted Core after the complete 3,194-operation review. The exact plan survived; independent comparison proved zero writes before approval. |
+| Restored source and no-op | Restoring old fixture data despite a completed ledger triggered a fresh one-write review/approval. Completed-job no-op and public cancellation returned to readiness without new writes. |
+| Promotion, milestones and reconnect | Interrupted file promotion before native intent; public Cancel restored retained files and unchanged source. A skipped private package version traversed catalog milestones 4.0.5/4.0.6: five native effect arrays across Actor, world Item, delta and both world-pack kinds plus one dependent Actor patch produced six confirmed writes. Real transport loss after ACK resumed the same approval and matched the full source oracle. |
+| Install and source switch | First migration-bearing install from no managed module completed six writes with source equality. Canonical local-source and local-to-managed switches were no-ops with exact historical hook integrity and readiness. |
+| Pending caller and stale review | A real player callback held before guard delivery kept durable drain unproven. New and late work returned 503; only acknowledged drain allowed cancellation/activation. Changing native settings after review rejected approval before writes; restoring context allowed public recovery. |
+| Settings and authority | Pulp/ammunition create/update/delete refreshed immutable contexts; user-scoped collisions were excluded and registered defaults remained distinguished. Non-GM system-data projection without a caller-safe adapter returned 403. Native owner revocation blocked writes. Assistant service login/demotion blocked readiness; restoring full GM and explicit retry recovered. |
+| Pack/index and route policy | Arbitrarily named Actor/Item packs matched native index/full counts and refreshed after renames; valid empty packs remained empty. System packs stayed read-only. Required locked packs rejected preview. Player/Trusted revocation yielded safe 403; malformed UUID 400 and authorized missing document 404 stayed distinct. |
+| Rendered operator/player | Sixteen actual maintenance layouts across 320/390/820/1440 widths and both themes passed computed-style/privacy/overflow checks and visual inspection. Approval stayed disabled without backup acknowledgement; player pages omitted private world/document details. |
+
+v13 Assistants retain native GM-like pack read visibility; that does **not** meet
+Core's role 4 service-account requirement. Raw native document reads also returned
+records hidden from Player/Trusted metadata permissions. Core correctly enforced
+caller visibility independently of transport availability. Do not infer permission
+from a successful privileged or raw read.
+
+After the full 3,194-write proof and manager shutdown, 58 marked volume Actors and
+76 marked embedded Items were removed. Subsequent install/source/session/array
+cases used the retained smaller fixture set with their own full source comparisons.
+This was disposable-fixture cleanup, not truncation or manual batching of a
+migration. The large plan, receipts and before/after evidence remain intact.
+
+### Focused CR64-21 publication recovery
+
+A separate fresh isolated run, after the first baseline cleanup, created one
+marked Actor and a dedicated full-GM fixture account. Public Cancel and real Core
+process exits were tested both **before** first durable publication and **after**
+publication but before ACK/binding. All four cases restored normal readiness
+with zero promotions/writes and unchanged sources. Unpublished cases created no
+fake job; published cases retained the exact original plan and cancelled durable
+job with empty outcomes. A subsequent fresh approval completed **one unique native
+write and one confirmed receipt, zero duplicates**, with independent complete
+source equality and verified activation. No manual journal repair was needed.
+
+Fixture identities below are evidence, not release versions (all digests SHA-256):
+
+| Run | Artifact | Catalog |
+| --- | --- | --- |
+| Representative 1,244 | `48d6d7deecd2c39038ca7db7a35de5726840e55e3f92c6228f852a0578f30053` | `b1a37d7c065a4ce89787ffbfe22c9b4fa685718b59b2869f9c3af1e0b967660e` |
+| Larger 3,194 | `7264fc03c3471c67684ab9ac25d79cc93dcb27640a8fc27317771f903a8c6689` | `cfaaf2423069d0c1b0e9d4bbbdb809f16b7384c52358111e477fda2055cf5cab` |
+| Focused CR64-21 | `f2af79f5eadf72ab6d1d1209e237adae34cd185c5003e66c5e6a7c27fb061712` | `9fc81818035d3d9241964a7ba1a568fefe10935d87bd9a51e04c927908b54382` |
+
+### Measured cost and qualifications
+
+| Larger v13 measurement | Result |
+| --- | ---: |
+| Cold advisory | 45.705 seconds; 3,194 operations |
+| Advisory through verified normal readiness | 430.969 seconds, including review/render and the deliberate unapproved restart |
+| Logical plan / complete public review | 2,430,132 / 1,000,938 bytes |
+| Durable plan bundle | 4,363,777 bytes |
+| Job metadata / separate receipt log | 5,027 / 2,081,474 bytes |
+| Approved-job native reads / response bytes | 8,487 / 210,637,016 |
+| Sampled peak Core RSS | 3.819 GiB |
+| Sampled Core CPU | 470.14 seconds across owned Core processes/threads |
+| Sampled Core read/write characters | 194,258,376 / 28,562,022; process I/O counters, not physical-disk byte claims |
+
+Independent 500 ms probes used a 1.5-second request bound. The cold advisory had
+92 polls per endpoint, zero failed requests, maximum 85 ms status/84 ms admin.
+Authoritative planning had 91 per endpoint, zero failures, maximum 19 ms;
+execution had 541 per endpoint, zero failures, maximum 16 ms. Actual supervised
+entry, deliberate review restart and activation still briefly interrupted
+listeners; these failed connection polls are retained separately, not erased or
+called continuous availability. Final preparation and normal bootstrap contribute
+to the measured elapsed time. Memory excludes Foundry, Next and the test driver;
+the shared host had approximately 62 GiB RAM. Together with the earlier 4.128 GiB
+v14 peak, this is **not a small-host guarantee** or immunity to external failures.
+
+Three driver-only attempts are excluded from positive acceptance: a Node 24
+undici parser assertion before migration, a retained `serving` record mistaken
+for pending work, and a premature advisory during bootstrap that Core correctly
+rejected as a changed snapshot. Only verified owned managers were stopped.
+The ignored driver now uses real `node:http` responses and waits for initialized
+normal readiness. Core's transport/guards were unchanged; no replies, receipts or
+source comparisons were fabricated. Final successful runs include these harness
+corrections. Prior offline full suites/types/lint remain independently verified;
+this native-only pass did not repeat them or change production source.
+
+Both fixture cleanups restored original **0 Actors/0 Items/0 Scenes/4 Settings/
+1 User**, original pack metadata and zero persisted source differences other than
+excluded `_stats`. All owned managers/Core/Next/probes stopped; no test listeners
+remain. The user's Foundry PID 478233 on 30000 was never stopped and remains running.
+
+### Gate disposition and next work
+
+| Gate | Current disposition |
+| --- | --- |
+| C64-A–F | Existing implementation/offline evidence retained and supplemented by the native source, lifecycle, recovery, access and capacity results above. No new confirmed Core blocker. |
+| C64-G | Selected whole-host/native coverage passes with fresh 13.351 and retained 14.367 results, independent oracles, rendered evidence and cleanup. Generic Core fixtures do not establish module compliance. |
+| C64-H | Open for user review, supporting-release decision and explicit hold-release. ADR remains open; no Git/release action is inferred. |
+
+The next substantive step is review/checkpoint and release preparation under
+separate authorization, followed by module adoption after the user clears the
+hold. Released Core 0.19.0 has SDK 3.3/module-api 1.5; this unreleased corrective
+tree has SDK 3.4/module-api 1.6, UI 3.2 and roll 1.0. No application release number
+is assigned here. Modules using bounded relations require the 1.6 contract and
+the actual supporting Core/SDK/toolchain release once published. Older 1.5 catalogs
+retain their semantics; they do not need private transports or rewritten history.
+G8, Shadowdark RV-08, catalog activation and dependent publication remain separate
+module-owned work. No further generic offline edge-case loop is required absent
+a new change, reproduced defect or specific missing acceptance requirement.
+
+## CR64-22 Admin migration visibility — October 17, 2026
+
+**Open Core admin UI work, identified during C64-H user review.** The migration
+execution and native acceptance evidence above remains valid. This finding concerns
+whether an administrator can recognize a required migration, identify the affected
+world and module source, and reach the correct review. No implementation is claimed.
+The preceding ADR was saved byte-for-byte before this addendum: 280,356 bytes,
+SHA-256 `c60c3c0c6e927eca6a7db074ca0eb4b289f3114c5b80e5efda794978d193aece`.
+
+### Observed behavior and limits of the evidence
+
+The user's Installed-page screenshot shows an active local Shadowdark source and
+a disabled managed 0.9.4 copy. The open drawer belongs to the managed copy, with a
+world-data check inside a disclosure and a Preview world maintenance button.
+The page's World maintenance section says “No recorded module upgrade jobs.”
+There is no explicit current-world migration status on the active module card.
+This establishes a discoverability problem; it does **not** establish that either
+source declares a catalog or that the world actually needs migration.
+
+Source inspection confirms the distinction:
+
+- `src/app/(admin)/components/ModuleUpgradeStatus.tsx` displays job history and
+  compatibility/context diagnostics. Empty history is rendered independently of
+  readiness; it is not a successful source check.
+- `SourceMigrationReview.tsx` provides a manual advisory check inside Details.
+  `ModuleDetailPanel.tsx` passes the selected card's source, so inspecting the
+  inactive managed copy does not check the active local copy. No wrong-source
+  write defect was demonstrated.
+- `CatalogModulePanel.tsx` exposes migration checks after release dry-run. A
+  release containing migrations and a world requiring writes are distinct facts.
+- `src/server/app/maintenanceShell.ts` exposes phase and technical plan/recovery
+  JSON. The primary admin explanation should identify the affected module,
+  source and world without requiring interpretation of raw identifiers.
+
+### Required behavior
+
+Use one Core-owned status projection derived from catalog discovery, current
+compatibility evidence, previews and durable maintenance/job state. Reuse existing
+services and authorization. Do not implement a second migration checker in React,
+execute hooks from the browser, or infer readiness from Enabled/Disabled, version
+direction or a completed historical job. Bind evidence to the actual world,
+module, local/managed source, artifact and relevant context/source revisions.
+
+| Situation | Admin-facing meaning and action |
+| --- | --- |
+| No declared catalog | “No migrations declared” for that source; not a claim that all world data has been validated. |
+| Unknown, checking or unavailable | Explicit state and reason, such as world stopped, inactive system, stale evidence or check failure. Offer Check world data when applicable; never present unknown as current. |
+| Fresh checks pass | “Up to date” for the named source/world with freshness information. A prior completed job alone is insufficient. |
+| Fresh checks require changes | “Migration required,” concise reason and known proposed-write count, plus Review migration. Omit unknown counts rather than inventing them. |
+| Blocked or recovery required | Explain the actual blocker or uncertain outcome and offer the applicable existing recovery/review action. A failed check is not proof that a migration is required. |
+| In progress or completed | Show authoritative phase and confirmed progress; successful completion remains distinct from final activation/readiness. |
+
+Surface required attention on the active module card and in a persistent admin
+notice visible from the overview and Installed page. Give the module title,
+source, version when known, world and direct next action. Keep lifecycle status
+separate from migration readiness. Job history may retain an empty state, but it
+must not stand in for world health. A new release may separately say “Includes
+migrations”; only checks against the relevant world establish required changes.
+
+For duplicate local/managed entries, label the inactive source explicitly. Its
+preview must say which source is being assessed and must not inherit the active
+source's warning or passing result. A review action must preserve exact source
+identity across navigation, refresh and runtime replacement; it must not silently
+switch sources, enter maintenance or authorize writes merely by opening a notice.
+
+In the standalone maintenance shell, show the affected module/world/source and
+plain-language reason and next step before technical details. Preserve full plan
+review and existing backup acknowledgement, approval, resume and cancellation
+semantics. Keep the restricted shell independent of Next and module code. Private
+diagnostics remain admin-only; players retain the generic unavailable presentation.
+Use existing themes/components, keyboard access and text beyond color alone.
+
+Invalidate or mark stale any displayed passing result when its world/source/
+artifact/dependency identity changes. Reconnect and maintenance transitions must
+refresh the same authoritative status. Do not run a full inventory scan on every
+render or poll; consume existing evidence and deliberate server-owned checks.
+Read-only inspection never grants mutation authority. No new SDK version or module
+work is implied; prefer existing or internal admin contracts unless review proves
+a public contract change is necessary.
+
+### Implementation checkpoints and acceptance
+
+1. Inventory existing status/diagnostic sources and specify the unified projection,
+   identity, freshness and state precedence. A durable active/recovery job takes
+   precedence over an old passing check; unavailable evidence never becomes green.
+2. Add the admin notice, active-card status and direct review/check action. Make
+   inactive-source inspection explicit and separate history from current readiness.
+3. Improve the restricted maintenance shell's primary explanation while retaining
+   technical details and the existing exact-plan authorization/recovery boundaries.
+4. Verify meaningful state combinations: required changes with no jobs; no catalog;
+   offline/unknown/stale state; active local versus inactive managed and the reverse;
+   migration-bearing candidate with zero writes; in-progress/recovery/completion;
+   and source/world changes during navigation or reconnect. Verify ordinary users
+   cannot obtain the admin projection or private reasons.
+5. Review overview/Installed and restricted-shell layouts at the existing four
+   widths and both themes, including keyboard access and a direct route to the
+   correct review. Earlier rendered captures establish their recorded layout and
+   privacy results, not acceptance of this newly identified discoverability need.
+6. Update operator/API documentation for the actual implemented behavior and
+   record evidence here and in the handoff. Run checks appropriate to changed
+   components/services. Existing native v13/v14 results remain retained for a
+   presentation-only change; reassess affected native coverage if orchestration,
+   authority, source selection or public contracts change.
+
+CR64-22 is the next substantive Core follow-up under C64-H. It supersedes the
+preceding “review/checkpoint and release preparation” next-step statement until
+this UI work is implemented and reviewed. Module work remains held. This addendum
+changes documentation only; no source, versions, Git state or live services were
+changed, and no native or module inspection was needed.

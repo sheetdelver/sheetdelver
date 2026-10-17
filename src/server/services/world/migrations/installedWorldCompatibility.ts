@@ -32,7 +32,7 @@ export async function checkInstalledWorldCompatibility(systemId: string, prepare
     worldWorkGate.block('migration-compatibility', { phase: 'blocked', message: 'World unavailable — maintenance required' });
     try {
     const currentWorld = moduleWorldContext.snapshot();
-    const pendingJob = getUpgradeJournal().jobs().find(job => !['completed', 'cancelled'].includes(job.phase)
+    const pendingJob = (await getUpgradeJournal().jobs()).find(job => !['completed', 'cancelled'].includes(job.phase)
         && job.moduleId === entry.info.id && job.plan.world.identity.instanceId === currentWorld.identity.instanceId
         && job.plan.world.identity.worldId === currentWorld.identity.worldId);
     if (options.readOnlyPreparation) {
@@ -47,7 +47,7 @@ export async function checkInstalledWorldCompatibility(systemId: string, prepare
         return;
     }
     const declared = discoverMigrations(root, entry.info, local);
-    if (!declared) assertMigrationReplacement(root, entry.info);
+    if (!declared) await assertMigrationReplacement(root, entry.info);
     if (declared && local) root = (await prepareSourceCandidate(root, entry.info, 'local')).root;
     const catalog = discoverMigrations(root, entry.info);
     if (!catalog) { phase = 'preparation'; await prepare(); worldWorkGate.release('migration-compatibility'); return; }

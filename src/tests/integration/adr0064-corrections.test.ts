@@ -23,7 +23,9 @@ import { prepareSourceCandidate } from '@server/services/world/migrations/source
 import { WorldBootstrapper, worldBootstrapper } from '@server/services/world/WorldBootstrapper';
 import { ModuleUpgradeCoordinator } from '@server/services/world/migrations/ModuleUpgradeCoordinator';
 import { UpgradeJournal } from '@server/services/world/migrations/UpgradeJournal';
-import { applyMigrationPatch } from '@server/services/world/migrations/planner';
+import { applyMigrationPatch, planWorldMigrations, sourceHash } from '@server/services/world/migrations/planner';
+import { setMaintenanceComputationSignal, saveMaintenanceMode, readMaintenanceMode, maintenanceFile } from '@core/world/MaintenanceMode';
+import { expandMigrationTargets } from '@server/services/world/migrations/targets';
 import { discoverMigrations, migrationDirectoryDigest } from '@modules/registry/migrations/catalog';
 import { packageMigrations } from '@modules/registry/migrations/compile';
 import { BrowserWorldRuntime, observeWorldRuntime, worldRuntimeHeaders } from '@client/ui/api/worldRuntime';
@@ -43,6 +45,43 @@ import { fixture, world } from '../unit/world/module-world-migrations.test';
 const cases: Record<string, (root: string) => Promise<void>> = {};
 const declarations: WorldSettingDeclaration[] = [{ key: 'fixture.variant', scope: 'world', systemVersion: '>=1.0.0 <2.0.0',
     schema: { type: 'boolean' }, affectsPreparation: true, exposure: 'authenticated' }];
+
+cases['CR64-18-cold-journal-http'] = async root => {
+    initDataDir(root);
+    const candidate = fixture(path.join(root, 'candidate'));
+    const catalog = discoverMigrations(candidate.root, candidate.info)!;
+    const targets = Array.from({ length: 160 }, (_, i) => expandMigrationTargets(`Actor.a${i}`, 'Actor', { _id: `a${i}`, system: { fixed: false } })).flat();
+    const plan = planWorldMigrations(candidate.root, catalog, world, targets);
+    const journal = getUpgradeJournal();
+    const preview = { id: 'cold-plan', moduleId: 'fixture', candidateVersion: '1.0.0', artifactDigest: candidate.artifactDigest,
+        catalogDigest: catalog.digest, treeDigest: candidate.artifactDigest, stepDigests: {}, expiresAt: Date.now() + 60_000, plan };
+    const app = express(); app.get('/status', (_req, res) => res.json({ alive: true }));
+    const server = app.listen(0, '127.0.0.1'); await new Promise<void>(resolve => server.once('listening', resolve));
+    const url = `http://127.0.0.1:${(server.address() as { port: number }).port}/status`;
+    const original = fs.fsyncSync; let mainSyncs = 0; let polls = 0; let maxGap = 0; let last = Date.now();
+    const timer = setInterval(() => { maxGap = Math.max(maxGap, Date.now() - last); last = Date.now();
+        void fetch(url).then(response => { assert.equal(response.status, 200); polls++; }); }, 20);
+    // Model slow durable storage on the HTTP thread, not a fake successful write.
+    // Owned storage workers do not inherit this main-thread instrumentation.
+    fs.fsyncSync = fd => { mainSyncs++; Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2); original(fd); };
+    try {
+        await new Promise(resolve => setTimeout(resolve, 50));
+        await journal.savePreview(preview);
+        const restored = await journal.preview(preview.id); assert.equal(restored.plan.digest, plan.digest);
+        const changed = { ...plan, world: { ...plan.world, identity: { ...plan.world.identity, contextRevision: 2 } } };
+        const { digest: _digest, diagnostics: _diagnostics, ...body } = changed; changed.digest = sourceHash(body);
+        const cancel = new AbortController(); setMaintenanceComputationSignal(cancel.signal);
+        const watcher = fs.watch(path.join(journal.root, 'plan-content'), (_event, name) => { if (name?.endsWith('.tmp')) cancel.abort(); });
+        try { await assert.rejects(journal.savePreview({ ...preview, id: 'cancelled-storage', plan: changed }), /stopped|abort/i); }
+        finally { watcher.close(); setMaintenanceComputationSignal(); }
+        await journal.drain().catch(() => {});
+        await journal.savePreview({ ...preview, id: 'recovered-storage', plan: changed });
+        assert.equal((await journal.preview('recovered-storage')).plan.digest, changed.digest, 'a retired writer is joined before the replacement writes');
+        await new Promise(resolve => setTimeout(resolve, 50));
+        assert.equal(mainSyncs, 0, 'plan encoding/persistence/loading must not fsync on the HTTP event loop');
+        assert.ok(polls >= 3); assert.ok(maxGap < 500, `cold storage starved HTTP: ${maxGap}ms`);
+    } finally { fs.fsyncSync = original; clearInterval(timer); await (journal as any).close?.(); await new Promise<void>(resolve => server.close(() => resolve())); }
+};
 
 async function host(root: string) {
     for (const key of Object.keys(process.env)) if (/^(FOUNDRY_|APP_)/.test(key)) delete process.env[key];
@@ -84,6 +123,23 @@ async function host(root: string) {
     return { source, transport, data };
 }
 
+cases['CR64-18-diagnostic-progress'] = async root => {
+    await host(root); const candidate = fixture(path.join(root, 'candidate')); const journal = getUpgradeJournal();
+    saveMaintenanceMode({ schemaVersion: 1, id: 'progress-only', moduleId: 'fixture', stage: 'planning', drained: true, updatedAt: 1 });
+    const before = fs.readFileSync(maintenanceFile(), 'utf8'), sync = fs.fsyncSync; let mainSyncs = 0;
+    fs.fsyncSync = fd => { mainSyncs++; sync(fd); };
+    try {
+        await createHostUpgradeCoordinator().preview(candidate);
+        assert.equal(readMaintenanceMode()?.progress?.checked, 1, 'actual host progress remains visible');
+        assert.equal(mainSyncs, 0, 'diagnostic counters must not fsync on the HTTP thread');
+        assert.equal(fs.readFileSync(maintenanceFile(), 'utf8'), before, 'progress is not durable authority');
+        const current = readMaintenanceMode()!; current.stage = 'review'; saveMaintenanceMode(current);
+        assert.equal(JSON.parse(fs.readFileSync(maintenanceFile(), 'utf8')).progress.checked, 1, 'durable stage transitions checkpoint counters');
+        fs.writeFileSync(maintenanceFile(), JSON.stringify({ ...JSON.parse(before), id: 'replacement-operation' }));
+        assert.equal(readMaintenanceMode()?.progress, undefined, 'a replacement operation cannot inherit local counters');
+    } finally { fs.fsyncSync = sync; await journal.close(); }
+};
+
 cases['CR64-17-final-readiness'] = async root => {
     const { source } = await host(root); const authored = fixture(path.join(root, 'authored'));
     const directory = path.join(root, 'modules/fixture'); fs.mkdirSync(directory, { recursive: true });
@@ -102,6 +158,49 @@ cases['CR64-17-final-readiness'] = async root => {
     assert.equal(getMigrationCompatibilityDiagnostic()?.phase, 'post-preparation-source-check');
     source.onRead = undefined; source.fixed = true; actorStore.observeMutation();
     await checkInstalledWorldCompatibility('fixture'); assert.equal(worldWorkGate.hasBlock('migration-compatibility'), false, 'fresh validation can recover');
+};
+
+cases['CR64-17-completion-storage-await'] = async root => {
+    const candidate = fixture(path.join(root, 'candidate'));
+    const journal = new UpgradeJournal(path.join(root, 'journal')); const gate = new WorldWorkGate();
+    let current = true; let fixed = false;
+    const save = journal.save.bind(journal);
+    const storage = { root: journal.root, lockRoot: journal.lockRoot, leaseKey: journal.leaseKey.bind(journal),
+        acquire: journal.acquire.bind(journal), release: journal.release.bind(journal), assertLease: journal.assertLease.bind(journal),
+        assertActive: journal.assertActive.bind(journal), savePreview: journal.savePreview.bind(journal), preview: journal.preview.bind(journal),
+        job: journal.job.bind(journal), jobs: journal.jobs.bind(journal), recoverJob: journal.recoverJob.bind(journal), sourceCandidate: journal.sourceCandidate.bind(journal),
+        saveSourceCandidate: journal.saveSourceCandidate.bind(journal),
+        async save(job: Parameters<UpgradeJournal['save']>[0]) { save(job); if (job.phase === 'completed') { await new Promise(resolve => setImmediate(resolve)); current = false; } } };
+    const coordinator = new ModuleUpgradeCoordinator({ journal: storage, gate, assertAuthority() {},
+        snapshot: async () => ({ world, targets: [{ uuid: 'Actor.a', kind: 'Actor', source: { _id: 'a', system: { fixed } } }],
+            assertCurrent() { if (!current) throw new Error('source retired during completion storage'); } }),
+        write: async (_target, updates) => { fixed = updates['system.fixed'] as boolean; }, promote: async () => {},
+        prepare: async () => {}, activate: async () => {}, rollbackFiles: async () => {}, restart() {} });
+    const preview = await coordinator.preview(candidate);
+    const approved = await coordinator.approve(candidate, { planId: preview.id, administrator: 'admin', idempotencyKey: 'completion-await', backupAcknowledged: true });
+    await assert.rejects(coordinator.resume(approved.jobId, candidate), /source retired during completion storage/);
+    assert.equal(journal.job(approved.jobId).phase, 'recovery-required');
+    assert.equal(journal.job(approved.jobId).worldDataStatus, 'maintenance');
+    assert.equal(gate.hasBlock('module-upgrade'), true, 'durability ACK cannot release a now-stale preparation');
+    journal.assertLease(journal.job(approved.jobId));
+};
+
+for (const boundary of ['preview', 'promotion'] as const) cases[`CR64-18-${boundary}-storage-await`] = async root => {
+    const candidate = fixture(path.join(root, 'candidate')); const journal = new UpgradeJournal(path.join(root, 'journal'));
+    let current = true; let promoted = false;
+    const savePreview = journal.savePreview.bind(journal), save = journal.save.bind(journal);
+    journal.savePreview = async preview => { savePreview(preview); if (boundary === 'preview') { await new Promise(resolve => setImmediate(resolve)); current = false; } };
+    journal.save = async job => { save(job); if (boundary === 'promotion' && job.phase === 'installing') { await new Promise(resolve => setImmediate(resolve)); current = false; } };
+    const coordinator = new ModuleUpgradeCoordinator({ journal, gate: new WorldWorkGate(), assertAuthority() {},
+        snapshot: async () => ({ world, targets: [{ uuid: 'Actor.a', kind: 'Actor', source: { _id: 'a', system: { fixed: false } } }],
+            assertCurrent() { if (!current) throw new Error('source retired during storage'); } }),
+        write: async () => {}, promote: async () => { promoted = true; }, prepare: async () => {}, activate: async () => {}, rollbackFiles: async () => {}, restart() {} });
+    if (boundary === 'preview') await assert.rejects(coordinator.preview(candidate), /source retired during storage/);
+    else {
+        const preview = await coordinator.preview(candidate);
+        await assert.rejects(coordinator.approve(candidate, { planId: preview.id, administrator: 'admin', idempotencyKey: 'promotion-await', backupAcknowledged: true }), /source retired during storage/);
+        assert.equal(promoted, false, 'retired source must not reach file promotion after a durable phase await');
+    }
 };
 
 cases['CR64-01'] = async root => {
@@ -295,6 +394,7 @@ cases['CR64-06-adapter-lifecycle'] = async root => {
         assert.throws(preparing.assertCurrent, /scope changed/, 'adapter initialize/hydration is not the content authority');
         release(); await bootstrap;
         assert.equal(worldBootstrapper.isReady(), true);
+        await worldBootstrapper.refreshWorldContext('system.references');
         const serving = await freshMigrationSnapshot(catalog);
         mutate();
         assert.throws(serving.assertCurrent, /scope changed/, 'declared-pack observation retires scope before async context refresh');
@@ -317,7 +417,7 @@ cases['CR64-06-before-intent'] = async root => {
     };
     await assert.rejects(coordinator.resume(job.jobId, candidate));
     assert.deepEqual(source.writes, [], 'CR64-06 observed multi-pack ingress must reject before an obsolete send');
-    const stopped = getUpgradeJournal().job(job.jobId);
+    const stopped = (await getUpgradeJournal().job(job.jobId));
     assert.equal(stopped.possibleWrite, false, 'pre-intent retirement records zero possible writes');
     assert.deepEqual(stopped.outcomes, {});
 };
@@ -334,7 +434,7 @@ cases['CR64-06-final-send'] = async root => {
     });
     await assert.rejects(coordinator.resume(job.jobId, candidate));
     assert.deepEqual(source.writes, [], 'CR64-06 final dispatch fence rejects observed pack mutation after intent');
-    const stopped = getUpgradeJournal().job(job.jobId);
+    const stopped = (await getUpgradeJournal().job(job.jobId));
     assert.equal(stopped.possibleWrite, true, 'never erase durable intent/possible-write evidence');
     assert.equal(stopped.outcomes['0:fix-key:Actor.a'].state, 'uncertain');
     await assert.rejects(coordinator.resume(job.jobId, candidate));
@@ -343,7 +443,7 @@ cases['CR64-06-final-send'] = async root => {
     assert.equal(review.plan.operations[0].updates['system.fixed'], 20);
     await coordinator.reapprove(job.jobId, candidate, review.id, 'admin', true);
     await coordinator.resume(job.jobId, candidate);
-    const completed = getUpgradeJournal().job(job.jobId);
+    const completed = (await getUpgradeJournal().job(job.jobId));
     assert.deepEqual(source.writes, ['a'], 'fresh exact approval writes the newly observed value once');
     assert.equal(source.fixed, 20);
     assert.equal(completed.priorApprovals?.length, 1, 'original evidence remains in the approval history');
@@ -375,7 +475,7 @@ for (const mode of ['partial', 'uncertain', 'changed-uncertain']) cases[`CR64-06
     const job = await coordinator.approve(candidate, { planId: preview.id, idempotencyKey: `pack-${mode}`, administrator: 'admin', backupAcknowledged: true });
     await assert.rejects(coordinator.resume(job.jobId, candidate));
     assert.deepEqual(source.writes, ['a'], 'no second obsolete send after the first partial/uncertain write');
-    const stopped = getUpgradeJournal().job(job.jobId);
+    const stopped = (await getUpgradeJournal().job(job.jobId));
     assert.equal(stopped.phase, 'recovery-required'); assert.equal(stopped.possibleWrite, true);
     if (mode.includes('uncertain')) assert.equal(stopped.outcomes['0:fix-key:Actor.a'].state, 'uncertain');
     if (mode === 'uncertain') {
@@ -389,11 +489,11 @@ for (const mode of ['partial', 'uncertain', 'changed-uncertain']) cases[`CR64-06
         await coordinator.reapprove(job.jobId, candidate, revised.id, 'admin', true);
         await coordinator.resume(job.jobId, candidate);
         assert.deepEqual(source.writes, ['a', 'a', 'b'], 'fresh exact repair of partial source is not automatic replay');
-        assert.equal(getUpgradeJournal().job(job.jobId).priorApprovals?.length, 1);
+        assert.equal((await getUpgradeJournal().job(job.jobId)).priorApprovals?.length, 1);
     }
     const writes = [...source.writes]; await coordinator.resume(job.jobId, candidate);
     assert.deepEqual(source.writes, writes);
-    assert.equal(getUpgradeJournal().job(job.jobId).phase, 'completed');
+    assert.equal((await getUpgradeJournal().job(job.jobId)).phase, 'completed');
 };
 
 cases['CR64-02-matrix'] = async root => {
@@ -578,7 +678,7 @@ cases['host-composition'] = async root => {
     assert.equal(job.phase, 'restarting');
     assert.equal(source.writes.length, 0);
     await bootstrap.bootstrap(transport); // real installed compatibility resumes real host coordinator
-    assert.equal(getUpgradeJournal().job(job.jobId).phase, 'completed');
+    assert.equal((await getUpgradeJournal().job(job.jobId)).phase, 'completed');
     assert.deepEqual(source.writes, ['a']);
     assert.equal((preparedActorStore.getRequired('a').derived as any).fixed, true, 'preparation uses migrated serving sources, not a stale preview/Store split');
     assert.deepEqual((preparedActorStore.getRequired('a').derived as any).variant, { status: 'world', value: true }, 'prepared context matches the approved native setting');

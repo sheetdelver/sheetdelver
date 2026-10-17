@@ -318,7 +318,7 @@ does not need another approval per batch, elapsed interval or ordinary resume.
 The pre-approval preview expiry must not expire an executing approved job.
 
 The corrective journal stores complete logical plans in digest-verified paged
-`plan-content/` blocks (`core-migration-plan.v2` references), with exact dependency
+`plan-content/` bundles (`core-migration-plan.v3` references), with exact dependency
 deltas rather than repeated whole-world maps in metadata. Individual records
 retain32MiB bounds; total inventory is not truncated. Preview/job HTTP reviews
 retain all targets, patches and logical approval digest, omitting private
@@ -327,6 +327,23 @@ Legacy inline approvals remain readable; oversized inline records are imported
 with their exact digest and retained original `.legacy-inline` bytes. Prior
 approvals and receipt streams remain durable. Preserve the entire directory
 during recovery; no block pruning or downgrade-to-0.19.0 recovery is supported.
+Existing v2 loose blocks remain readable. Core owns a serialized storage worker:
+encoding, digest checks, cold/legacy loading and fsynced atomic publication finish
+before approval authority or native sends. Modules need no new hook/SDK contract.
+The runtime guide describes worker ownership, cancellation and recovery boundaries.
+Diagnostic progress is process-local between durable state checkpoints. It is
+not an approval, receipt, inventory limit or signal to dispatch/replay a write.
+
+First approval publication is recoverable: a provisional maintenance intent pins
+the exact operation, plan, artifact, principal and lease before the first durable
+job. It grants no promotion/write authority. Cancellation/startup joins the writer
+and reads back outside the aborted computation signal. A published job is bound
+only after complete validation and re-established durability; an unpublished
+intent can return through proven-drain cancellation without manual journal edits.
+Missing/corrupt previously active approvals or orphan receipts remain gated,
+never treated as permission to clear maintenance. The same exact approval survives
+lost acknowledgements; no automatic native replay or new SDK/module mechanism is
+introduced. See the runtime guide for lease takeover and recovery boundaries.
 
 Single and batched native readback must match the exact approved resulting source
 (apart from supported `_stats` normalization) and still-current snapshot before
@@ -427,3 +444,48 @@ create lossless source-derived catalog/hooks and tests; implement dependency ref
 use caller capabilities on all served collections/cards; remove caller/UI repair
 routes. After a supporting Core release exists, adopt its tested SDK/toolchain minima.
 Do not publish a dependent module against an unavailable host release.
+
+
+### Current native acceptance and adoption hold
+
+The unreleased SDK 3.4 / module-api 1.6 implementation now has passing selected
+native v13/v14 coverage: complete representative and 3,194-write inventories,
+independent source/receipt comparisons, public install/upgrade/source-switch,
+recovery, settings/permissions and rendered maintenance. Focused CR64-21 first
+publication cancellation/crash/retry also passes on both generations. C64-H user
+review, a supporting Core release and explicit module hold-release remain open.
+The current evidence and measured operating costs are in
+[ADR-0064](adr/0064-module-world-context-and-data-migrations.md#fresh-complete-maintenance-native-v13-acceptance--october-17-2026).
+
+User review identified an additional Core admin UI follow-up:
+[CR64-22](adr/0064-module-world-context-and-data-migrations.md#cr64-22-admin-migration-visibility--october-17-2026).
+Currently, “No recorded module upgrade jobs” describes history, not current world
+readiness. Manual world-data preview in module Details checks the selected local
+or managed source; an inactive managed copy does not describe the active local
+copy. Explicit active-source migration status, a prominent review action and a
+clearer maintenance explanation are planned, not implemented. A catalog's presence
+alone does not establish that a particular world needs migration.
+
+CR64-18–21 storage responsiveness, pack metadata, permission-error classification
+and first-job publication are Core responsibilities. Module work remains held;
+do not add timeouts, manual migration batches, private transports, pack-name
+heuristics or UI repair paths to compensate. Native Core fixtures do not establish
+compliance of a system module. Supporting application/SDK/toolchain release
+versions must be identified after publication; private fixture versions are not
+release floors. Bounded relations require module-api 1.6, while existing 1.5
+catalog semantics remain supported.
+
+A native source transport returning a pack record does not establish caller
+visibility. Both native generations returned hidden records that Core correctly
+withheld based on current pack metadata. v13 Assistants retain native GM-like pack
+read visibility, while Core's service account must still have role 4. Continue
+using caller-bound SDK capabilities, including checks after asynchronous reads
+and cache revocation.
+
+Module adoption must preserve exact historical hook bytes: relocated/recompiled
+source is not automatically the same artifact (including compiler header bytes).
+The native positive source-switch fixture uses its canonical packaging source;
+byte-different history was rejected, not normalized or excused. Do not add module
+workarounds for Core, silently change published steps, or infer a release floor
+from private fixture version numbers. No module work was performed by the native
+Core acceptance. Both disposable worlds were restored and test services stopped.

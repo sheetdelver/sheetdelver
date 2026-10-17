@@ -83,6 +83,15 @@ export class UpgradeJournal {
         try { fs.fsyncSync(descriptor); } finally { fs.closeSync(descriptor); }
     }
     savePreview(preview: UpgradePreview): void { this.durableWrite(this.file('plans', preview.id), { ...preview, plan: this.plans.save(preview.plan) }); }
+    planReference(plan: MigrationWorldPlan) { return this.plans.save(plan); }
+    resolvePlan(reference: import('./MigrationPlanStorage').StoredMigrationPlan) { return this.plans.load(reference); }
+    /** Small synchronous final-send fence; never materializes a durable plan. */
+    assertActive(job: UpgradeJob): void {
+        const file = this.file('jobs', job.jobId); const stat = fs.lstatSync(file);
+        if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 32 * 1024 * 1024) throw new Error('Upgrade state requires asynchronous recovery before dispatch');
+        const current = JSON.parse(fs.readFileSync(file, 'utf8'));
+        if (current.id !== job.id || current.plan?.digest !== job.plan.digest || ['completed', 'cancelled', 'recovery-required'].includes(current.phase)) throw new Error('Upgrade scheduling retired');
+    }
     private read(file: string, migration = false): unknown {
         const stat = fs.lstatSync(file);
         if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 32 * 1024 * 1024 && !migration) throw new Error('Invalid or oversized upgrade journal record');
@@ -182,6 +191,26 @@ export class UpgradeJournal {
             || value.backupAcknowledged !== true || value.backupWarningRevision !== 1 || typeof value.administrator !== 'string'
             || typeof value.possibleWrite !== 'boolean' || typeof value.outcomes !== 'object' || !value.outcomes) throw new Error('Invalid upgrade job schema');
         return value;
+    }
+    /** Absence is meaningful only to the explicit first-publication protocol.
+     * Missing content/receipts of an existing approval must still throw. */
+    recoverJob(id: string): UpgradeJob | null {
+        const file = this.file('jobs', id);
+        try { fs.lstatSync(file); }
+        catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+            if (fs.existsSync(`${file}.receipts`) || fs.existsSync(`${file}.legacy-inline`)) throw new Error('Approval metadata missing beside retained evidence; preserve journal for recovery');
+            return null;
+        }
+        const job = this.job(id);
+        // A worker can die after rename but before directory-sync/ACK. Visible
+        // bytes alone are not durable approval authority. Re-establish the
+        // existing record's durability without changing approval or receipts.
+        const sync = (target: string) => { const fd = fs.openSync(target, 'r'); try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); } };
+        sync(file);
+        if (fs.existsSync(`${file}.receipts`)) sync(`${file}.receipts`);
+        if (process.platform !== 'win32') { sync(path.dirname(file)); sync(this.root); }
+        return job;
     }
     jobs(): UpgradeJob[] {
         const directory = path.join(this.root, 'jobs');

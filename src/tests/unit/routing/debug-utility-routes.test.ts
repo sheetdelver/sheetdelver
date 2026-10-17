@@ -4,6 +4,10 @@ import { registerDebugRoutes } from '@server/routes/debug/registerDebugRoutes';
 import { registerUtilityRoutes } from '@server/routes/protected/registerUtilityRoutes';
 import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
+import { settingStore } from '@server/core/documents/primary/settings/SettingStore';
+import { compendiumStore } from '@server/core/compendium/CompendiumStore';
+import { worldStateStore } from '@server/core/world/WorldStateStore';
+import { SdkError } from '@shared/sdk/errors';
 import {
     DocumentOwnershipLevel,
     FoundryUserRole,
@@ -90,6 +94,26 @@ async function runUtilityRouteSmokeTests() {
     assert.ok(documentHandlers);
 
     try {
+        await settingStore.seed(async () => []);
+        worldStateStore.seed({ world: { id: 'fixture' }, release: { generation: 14 } });
+        const pack = 'world.arbitrary';
+        const packMetadata = (readable: boolean) => compendiumStore.setPackMetadata(pack, { id: pack, type: 'Actor', ownership: { PLAYER: readable ? 'OBSERVER' : 'NONE' } });
+        const getPack = async (resolve: () => Promise<unknown>) => {
+            const response = createResponseStub();
+            await documentHandlers![0]({ query: { uuid: `Compendium.${pack}.Actor.row` }, foundryClient: createRouteClient(resolve) } as any, response as any, (() => {}) as any);
+            return response;
+        };
+        packMetadata(false); let rawReads = 0;
+        const denied = await getPack(async () => { rawReads++; return { private: true }; });
+        assert.equal(denied.statusCode, 403, 'expected SDK denial is not an internal server failure'); assert.equal(rawReads, 0);
+        assert.equal((denied.payload as any).code, 'permission_denied');
+        packMetadata(true);
+        const revoked = await getPack(async () => { packMetadata(false); return { private: true }; });
+        assert.equal(revoked.statusCode, 403); assert.equal((revoked.payload as any).private, undefined);
+        packMetadata(true);
+        assert.equal((await getPack(async () => null)).statusCode, 404);
+        assert.equal((await getPack(async () => { throw new Error('secret upstream detail'); })).statusCode, 500);
+        assert.equal((await getPack(async () => { throw new SdkError('permission_denied', 'Pack access changed'); })).statusCode, 403);
         const missingUuidRes = createResponseStub();
         await documentHandlers![0](
             {

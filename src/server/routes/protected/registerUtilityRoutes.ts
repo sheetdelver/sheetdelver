@@ -3,6 +3,7 @@ import { logger } from '@shared/utils/logger';
 import { createUtilityService } from '@server/services/utility/UtilityService';
 import { getErrorMessage } from '@server/shared/utils/getErrorMessage';
 import { isErrorPayload } from '@server/shared/utils/isErrorPayload';
+import { isSdkError } from '@shared/sdk/errors';
 
 export function registerUtilityRoutes(appRouter: express.Router) {
     // Utility domain service: displaced dashboard helper logic for documents, users, and shared content.
@@ -17,7 +18,13 @@ export function registerUtilityRoutes(appRouter: express.Router) {
             }
             res.json(payload);
         } catch (error: unknown) {
-            res.status(500).json({ error: getErrorMessage(error) });
+            if (isSdkError(error)) return res.status(error.status).json({
+                error: ['permission_denied', 'out_of_scope'].includes(error.code) ? 'Document access denied'
+                    : error.code === 'internal' ? 'Document read failed' : error.message.slice(0, 512),
+                code: error.code, status: error.status,
+            });
+            logger.error(`Document read failed: ${getErrorMessage(error)}`);
+            res.status(500).json({ error: 'Document read failed' });
         }
     });
 

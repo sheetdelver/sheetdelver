@@ -79,7 +79,7 @@ const MANAGED_CONFIG_COMMAND = 'generate-managed';
 if (command !== 'build' && command !== MANAGED_CONFIG_COMMAND) {
     const releaseLease = acquireCoreRuntimeLease('manager');
     process.once('exit', releaseLease);
-    restoreLegacyMaintenanceMode();
+    await restoreLegacyMaintenanceMode();
     configureServerFileLogging('manager', fileLogLevel);
     logger.info(`[Manager] Started (${command}; pid=${process.pid}).`);
 }

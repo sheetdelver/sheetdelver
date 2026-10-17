@@ -112,6 +112,31 @@ requesting repository mirrors pack results into primary world Stores.
 Unsolicited read broadcasts also never mutate primary Stores. Only confirmed
 world reads and document changes may refresh the world cache.
 
+Pack index/freshness/hydration strategies carry the Store's native document type
+(or explicit declaration when native metadata is unavailable), not pack-name
+guesses when authority exists. Failed reads never become authoritative empty
+freshness results; successful empty arrays/envelopes remain valid. Current
+metadata/content revisions fence awaited publication. Route/SDK caller checks
+still precede and follow reads, including warm-cache revocation; raw native
+transport access is not a permission grant.
+
+Migration plan/journal bulk I/O is owned by one serialized storage worker per
+Core process. Immutable digest-addressed bundles reduce small-file/fsync fanout;
+approval and native intent still await durable storage. The supervisor drains and
+joins the worker before normal-runtime exit; cancellation retires it before any
+replacement. Cached maintenance status/review is diagnostic only. See
+[maintenance storage/recovery](MAINTENANCE_RUNTIME.md) for compatibility and
+durability details. Lease and final-send metadata fences remain Core-owned.
+
+First approval uses a durable provisional publication record tied to the exact
+maintenance operation, plan, principal and lease, not an early authoritative
+job reference. Only a confirmed durable job can be bound before promotion.
+Cancellation/startup join the old writer and reconcile publication independently
+of an aborted computation signal. An unpublished intent can be cancelled after
+proven drain; a lost acknowledgement retains the exact approval. Missing/corrupt
+previously bound jobs remain gated. Recovery re-syncs visible metadata before
+binding; it does not authorize new repairs or replay writes (CR64-21).
+
 On a same-world reconnect, `WorldBootstrapper.recover()` verifies world/system identity, refreshes the world snapshot and all active primary-document Stores, and rebuilds prepared actors without reinitializing the module adapter. Browser-visible changes are calculated from the snapshot captured at transport loss and published after readiness; Stores reject a seed that raced with a live mutation. A changed world/system still tears down and bootstraps anew. See ADR-0056.
 
 ---
@@ -457,7 +482,10 @@ read-only worker over the single parent transport; its timers/callbacks are
 terminated before activation. [Maintenance runtime](MAINTENANCE_RUNTIME.md)
 defines the producer/owner map, exclusive leases, shell, journal upgrade and
 workflow. SDK 3.4.0/module-api 1.6.0 add bounded relation declarations; application
-release metadata remains 0.19.0. C64-A–H/native/user review are not closed.
+release metadata remains 0.19.0. Selected C64-G native v13/v14 acceptance now
+passes; C64-H user/release review and explicit module hold-release remain open.
+See the [current native evidence](adr/0064-module-world-context-and-data-migrations.md#fresh-complete-maintenance-native-v13-acceptance--october-17-2026)
+for source comparisons, cleanup, memory/latency costs and qualifications.
 The [independent review](adr/0064-module-world-context-and-data-migrations.md#independent-complete-maintenance-review--october-17-2026) identified CR64-14–17. The corrective
 tree now uses shared exact single/batch readback and fresh receipts, durable drain
 enforcement on all maintenance exits, content-addressed paged plan/dependency

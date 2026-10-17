@@ -31,9 +31,9 @@ export function registerAdminUpgradeRoutes(router: express.Router, account: expr
             if (job.phase === 'restarting') restart(`module-source-maintenance:${job.moduleId}`, { moduleId: job.moduleId, jobId: job.jobId });
         } catch (error) { res.status(409).json({ error: error instanceof Error ? error.message : 'Source apply unavailable' }); }
     });
-    router.get('/module-upgrades', account, requireAdminAuth, (_req, res) => {
+    router.get('/module-upgrades', account, requireAdminAuth, async (_req, res) => {
         res.setHeader('Cache-Control', 'no-store');
-        try { res.json({ jobs: getUpgradeJournal().jobs().map(upgradeReview), serviceAccountDiagnostic: serviceAccountAuthority.getDiagnostic(), compatibilityDiagnostic: getMigrationCompatibilityDiagnostic(), contextDiagnostic: worldBootstrapper.getContextRefreshDiagnostic() }); }
+        try { res.json({ jobs: (await getUpgradeJournal().jobs()).map(upgradeReview), serviceAccountDiagnostic: serviceAccountAuthority.getDiagnostic(), compatibilityDiagnostic: getMigrationCompatibilityDiagnostic(), contextDiagnostic: worldBootstrapper.getContextRefreshDiagnostic() }); }
         catch { res.status(503).json({ error: 'Upgrade journal is unreadable. Preserve config/module-upgrades and inspect its owner-only records before restarting.', code: 'upgrade-journal-unreadable' }); }
     });
     router.post('/module-upgrades/retry-context', account, requireAdminAuth, requireAdminCsrf, auditAdminAction, async (_req, res) => {
@@ -42,18 +42,18 @@ export function registerAdminUpgradeRoutes(router: express.Router, account: expr
             res.json({ accepted: true });
         } catch { res.status(409).json({ error: 'World preparation could not recover. Inspect the admin diagnostics and Core logs; no new migration approval was granted.' }); }
     });
-    router.get('/module-upgrades/:id', account, requireAdminAuth, (req, res) => {
-        try { res.setHeader('Cache-Control', 'no-store'); res.json(upgradeReview(getUpgradeJournal().job(String(req.params.id)))); }
+    router.get('/module-upgrades/:id', account, requireAdminAuth, async (req, res) => {
+        try { res.setHeader('Cache-Control', 'no-store'); res.json(upgradeReview((await getUpgradeJournal().job(String(req.params.id))))); }
         catch { res.status(404).json({ error: 'Upgrade job unavailable' }); }
     });
     router.post('/module-upgrades/:id/resume', account, requireAdminAuth, requireAdminCsrf, auditAdminAction, async (req, res) => {
         try {
-            const job = getUpgradeJournal().job(String(req.params.id));
+            const job = (await getUpgradeJournal().job(String(req.params.id)));
             const candidate = installedUpgradeCandidate(job);
             // Run through normal bootstrap so fresh role/source checks and actual
             // adapter/prepared health, not a status-only modal, control activation.
             if (job.phase === 'recovery-required') {
-                job.phase = 'restarting'; delete job.failure; getUpgradeJournal().save(job);
+                job.phase = 'restarting'; delete job.failure; await getUpgradeJournal().save(job);
             }
             void worldBootstrapper.bootstrap(systemService.getSystemClient()).catch(() => undefined);
             res.status(202).json({ accepted: true, jobId: job.jobId, moduleId: candidate.moduleId });
@@ -65,20 +65,20 @@ export function registerAdminUpgradeRoutes(router: express.Router, account: expr
     });
     router.post('/module-upgrades/:id/review', account, requireAdminAuth, requireAdminCsrf, auditAdminAction, async (req, res) => {
         try {
-            const job = getUpgradeJournal().job(String(req.params.id));
+            const job = (await getUpgradeJournal().job(String(req.params.id)));
             res.json(upgradeReview(await createHostUpgradeCoordinator().reviewRecovery(job.jobId, installedUpgradeCandidate(job))));
         } catch (error) { res.status(409).json({ error: error instanceof Error ? error.message : 'Fresh recovery review unavailable' }); }
     });
     router.post('/module-upgrades/:id/reapprove', account, requireAdminAuth, requireAdminCsrf, auditAdminAction, async (req, res) => {
         try {
-            const job = getUpgradeJournal().job(String(req.params.id));
+            const job = (await getUpgradeJournal().job(String(req.params.id)));
             const next = await createHostUpgradeCoordinator().reapprove(job.jobId, installedUpgradeCandidate(job), String(req.body?.planId ?? ''), req.adminSession!.adminId, req.body?.backupAcknowledged === true);
             res.status(202).json({ accepted: true, jobId: next.jobId });
             void worldBootstrapper.bootstrap(systemService.getSystemClient()).catch(() => undefined);
         } catch (error) { res.status(409).json({ error: error instanceof Error ? error.message : 'Recovery approval unavailable' }); }
     });
-    router.post('/module-upgrades/:id/cleanup', account, requireAdminAuth, requireAdminCsrf, auditAdminAction, (req, res) => {
-        try { res.json(cleanupRetainedUpgradeFiles(String(req.params.id))); }
+    router.post('/module-upgrades/:id/cleanup', account, requireAdminAuth, requireAdminCsrf, auditAdminAction, async (req, res) => {
+        try { res.json(await cleanupRetainedUpgradeFiles(String(req.params.id))); }
         catch (error) { res.status(409).json({ error: error instanceof Error ? error.message : 'Cleanup unavailable' }); }
     });
 }

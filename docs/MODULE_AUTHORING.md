@@ -695,7 +695,10 @@ for `reads.relations`: bounded parent/ancestor/base source-field projections,
 including arbitrary world-pack identities and partial deltas. Declare that API
 floor when adopting relations; existing catalogs retain 1.5.0. No application
 release floor has been invented for this correction. **All module work remains
-held** until C64-A–H/native evidence and user review. Do not activate catalogs or
+held** pending C64-H user review and explicit clearance. Selected native v13/v14
+acceptance now passes, including complete inventories and first-publication
+recovery; see the [current evidence](adr/0064-module-world-context-and-data-migrations.md#fresh-complete-maintenance-native-v13-acceptance--october-17-2026).
+Dependent publication also requires the actual supporting Core release. Do not activate catalogs or
 implement module workarounds while that hold is active. The
 [independent Core review](adr/0064-module-world-context-and-data-migrations.md#independent-complete-maintenance-review--october-17-2026) adds CR64-14–17; fixing host
 readback, cancellation, durable-plan capacity and readiness remains Core-owned.

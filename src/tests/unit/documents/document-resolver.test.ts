@@ -14,6 +14,7 @@ import {
 import type { CompendiumPackManifest } from '@server/core/compendium/types';
 
 export async function run() {
+    await runCompendiumTypedDenial();
     runInvalidUuidParsing();
     runDirectWorldUuidParsing();
     runEmbeddedWorldUuidParsing();
@@ -491,4 +492,16 @@ async function runCompendiumOptInLiveFallback() {
         documentId: 'missing',
         type: 'Item',
     }]);
+}
+
+async function runCompendiumTypedDenial() {
+    const { SdkError } = await import('@shared/sdk/errors');
+    const denial = new SdkError('permission_denied', 'Pack access changed');
+    const resolver = new DocumentResolver({
+        worldStateStore: new SyntheticWorldState(),
+        compendiumPackStore: new SyntheticCompendiumPackStore({ packs: { 'synthetic.items': { hydrate: false } } }),
+        getCompendiumService: () => ({ async getPackDocument() { throw denial; } }),
+        allowLiveCompendiumUuidFallback: true,
+    });
+    await assert.rejects(resolver.fetchByUuid('Compendium.synthetic.items.Item.private'), error => error === denial);
 }

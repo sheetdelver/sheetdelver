@@ -4,9 +4,9 @@
 
 - Isolated complete maintenance runtime
 - Added bounded migration relations
-- Completed responsive migration execution
-- Preserved exact durable recovery
-- Corrected v13 pack access
+- Completed responsive durable migrations
+- Recovered durable approval interruptions
+- Corrected pack access and indexing
 
 ## 0.19.0
 

@@ -17,6 +17,7 @@ import { moduleWorldContext } from '@server/services/world/ModuleWorldContextSer
 import { readMaintenanceMode, saveMaintenanceMode } from '@server/core/world/MaintenanceMode';
 import { MaintenanceController, installMaintenanceController } from '@server/services/world/migrations/MaintenanceController';
 import { getUpgradeJournal } from '@server/services/world/migrations/ModuleUpgradeService';
+import { reconcileMaintenanceApproval } from '@server/services/world/migrations/firstApproval';
 import { requestFullStackRestart } from '@shared/runtime/fullStackRestart';
 import { adminSessionManager } from '@server/security/adminSessionService';
 import { migrationReason } from '@server/services/world/migrations/planner';
@@ -64,6 +65,7 @@ export async function startMaintenance(config: AppConfig, corePort: number): Pro
     const poll = async () => {
         try {
             if (readMaintenanceMode()?.diagnosticOnly) return;
+            await reconcileMaintenanceApproval(getUpgradeJournal());
             if (!client.isConnected) { await client.connect(); epoch = -1; }
             if (client.isConnected && epoch !== client.connectionEpoch) {
                 const snapshot = await client.getBootstrapSnapshot();
@@ -75,22 +77,23 @@ export async function startMaintenance(config: AppConfig, corePort: number): Pro
                 const settings = await client.readDocumentSources('Setting', { query: {} }) as { result: never[] };
                 await settingStore.seed(async () => settings.result);
                 compendiumStore.seedPackMetadataFromGameData(data);
-                const candidate = controller.candidate();
+                const candidate = await controller.candidate();
                 moduleWorldContext.configure(config.foundry.url!, { worldId: data.world.id, systemId: data.system.id,
                     systemVersion: data.system.version, foundryGeneration: data.release.generation, foundryBuild: String(data.release.build), runtimeEpoch: client.connectionEpoch }, candidate.info.worldSettings);
                 let mode = readMaintenanceMode()!;
                 const identity = moduleWorldContext.snapshot().identity;
                 if (mode.world && (mode.world.instanceId !== identity.instanceId || mode.world.worldId !== identity.worldId || mode.world.systemId !== identity.systemId)) throw new Error('Maintenance is pinned to another world/instance; restore the selected world');
-                const lease = mode.jobId ? getUpgradeJournal().job(mode.jobId) : { jobId: mode.id, moduleId: mode.moduleId, plan: getUpgradeJournal().preview(mode.candidateId!).plan };
+                const lease = mode.jobId ? (await getUpgradeJournal().job(mode.jobId)) : { jobId: mode.id, moduleId: mode.moduleId, plan: (await getUpgradeJournal().preview(mode.candidateId!)).plan };
                 try { getUpgradeJournal().assertLease({ ...lease, leaseToken: mode.leaseToken ?? '' }); }
                 catch { mode.leaseToken = getUpgradeJournal().acquire(lease); saveMaintenanceMode(mode); }
                 if (mode.jobId) {
-                    const job = getUpgradeJournal().job(mode.jobId);
+                    const job = (await getUpgradeJournal().job(mode.jobId));
                     job.leaseToken = mode.leaseToken!; getUpgradeJournal().assertLease(job);
-                    getUpgradeJournal().save(job); // transfer verified ownership, never approval/outcomes
+                    await getUpgradeJournal().save(job); // transfer verified ownership, never approval/outcomes
                 }
                 epoch = client.connectionEpoch;
                 mode = readMaintenanceMode()!;
+                if (mode.previewId) await getUpgradeJournal().preview(mode.previewId);
                 if (!retried && ['entering', 'isolated', 'planning', 'executing'].includes(mode.stage)) {
                     retried = true;
                     void (mode.jobId ? controller.resume() : controller.plan()).catch(() => undefined);

@@ -18,30 +18,32 @@ import { freezeWorldValue } from '@shared/sdk/world';
 import { applicableMigrationSteps, discoverMigrations, migrationDirectoryDigest, type ResolvedMigrationCatalog } from '@modules/registry/migrations/catalog';
 import { ModuleUpgradeCoordinator, type UpgradeCoordinatorDeps, type UpgradeCandidate, type UpgradeSourceSnapshot } from './ModuleUpgradeCoordinator';
 import type { PlannedMigrationTarget } from './planner';
-import { UpgradeJournal, type UpgradeJob } from './UpgradeJournal';
+import { type UpgradeJob } from './UpgradeJournal';
+import { AsyncUpgradeJournal } from './AsyncUpgradeJournal';
+import { beginMaintenanceApproval, settleMaintenanceApproval } from './firstApproval';
 import { enumerateMigrationTargets, migrationEnvelope } from './targets';
-import { readMaintenanceMode, saveMaintenanceMode, maintenanceOnly, maintenanceCompositionEnforced, getMaintenanceComputationSignal } from '@server/core/world/MaintenanceMode';
+import { readMaintenanceMode, saveMaintenanceMode, reportMaintenanceProgress, maintenanceOnly, maintenanceCompositionEnforced, getMaintenanceComputationSignal } from '@server/core/world/MaintenanceMode';
 
-let journal: UpgradeJournal | null = null;
+let journal: AsyncUpgradeJournal | null = null;
 let journalRoot: string | null = null;
-export function getUpgradeJournal(): UpgradeJournal {
+export function getUpgradeJournal(): AsyncUpgradeJournal {
     const root = path.join(getDataDir(), 'config', 'module-upgrades');
     if (!journal || journalRoot !== root) {
-        journalRoot = root;
-        journal = new UpgradeJournal(root, process.env.SHEET_DELVER_MIGRATION_LOCK_DIR || path.join(root, 'leases'));
+        void journal?.close(); journalRoot = root;
+        journal = new AsyncUpgradeJournal(root, process.env.SHEET_DELVER_MIGRATION_LOCK_DIR || path.join(root, 'leases'));
     }
     return journal;
 }
-export function restoreUpgradeMaintenance(): void {
+export async function restoreUpgradeMaintenance(): Promise<void> {
     try {
-    const completed = getUpgradeJournal().jobs().filter(job => job.phase === 'completed').sort((a, b) => (a.completedAt ?? 0) - (b.completedAt ?? 0));
+    const completed = (await getUpgradeJournal().jobs()).filter(job => job.phase === 'completed').sort((a, b) => (a.completedAt ?? 0) - (b.completedAt ?? 0));
     if (completed.length) worldWorkGate.activateServingToken(completed.at(-1)!.jobId);
     for (const job of completed) {
         // Completion may have been fsynced immediately before a process died.
         // Reclaim only that same dead job's locks, never another live writer's.
         try { job.leaseToken = getUpgradeJournal().acquire(job); getUpgradeJournal().release(job); } catch { /* another live job/host owns the lease */ }
     }
-    for (const job of getUpgradeJournal().jobs()) if (!['completed', 'cancelled'].includes(job.phase)) {
+    for (const job of (await getUpgradeJournal().jobs())) if (!['completed', 'cancelled'].includes(job.phase)) {
         worldWorkGate.block('module-upgrade', { phase: job.phase, message: 'Module upgrade in progress' });
     }
     } catch {
@@ -157,17 +159,26 @@ export function createHostUpgradeCoordinator(overrides: Partial<UpgradeCoordinat
             const mode = maintenanceCompositionEnforced() ? readMaintenanceMode() : null;
             if (!mode || mode.id !== job.jobId) return getUpgradeJournal().acquire(job);
             try { getUpgradeJournal().assertLease({ ...job, leaseToken: mode.leaseToken ?? '' }); }
-            catch { mode.leaseToken = getUpgradeJournal().acquire(job); }
-            mode.jobId = job.jobId; saveMaintenanceMode(mode);
+            catch { mode.leaseToken = getUpgradeJournal().acquire(job); saveMaintenanceMode(mode); }
+            job.leaseToken = mode.leaseToken!;
+            beginMaintenanceApproval(job);
             return mode.leaseToken!;
+        },
+        settleApproval: (expected, durable) => {
+            if (!maintenanceCompositionEnforced() || readMaintenanceMode()?.id !== expected.jobId) {
+                if (!durable) getUpgradeJournal().release(expected);
+                return;
+            }
+            getUpgradeJournal().assertLease(expected);
+            settleMaintenanceApproval(expected, durable);
         },
         progress: progress => {
             const mode = readMaintenanceMode();
             if (!maintenanceOnly(mode)) return;
-            const job = mode!.jobId ? getUpgradeJournal().job(mode!.jobId) : null;
-            mode!.progress = { ...progress, ...(job ? { planned: job.plan.operations.length,
+            const job = mode!.jobId ? getUpgradeJournal().peekJob(mode!.jobId) : null;
+            reportMaintenanceProgress({ ...progress, ...(job ? { planned: job.plan.operations.length,
                 confirmed: Object.values(job.outcomes).filter(row => row.state === 'confirmed').length,
-                uncertain: Object.values(job.outcomes).filter(row => row.state === 'uncertain').length } : {}), updatedAt: Date.now() }; saveMaintenanceMode(mode!);
+                uncertain: Object.values(job.outcomes).filter(row => row.state === 'uncertain').length } : {}), updatedAt: Date.now() });
         },
         write: async (target, updates, fence) => {
             const { systemService } = await import('../SystemService');
@@ -237,18 +248,18 @@ export function installedUpgradeCandidate(job: UpgradeJob): UpgradeCandidate {
     if (migrationDirectoryDigest(job.targetDirectory) !== job.treeDigest) throw new Error('Installed candidate digest changed');
     return { moduleId: job.moduleId, version: info.version, root: job.targetDirectory, info, artifactDigest: job.artifactDigest };
 }
-export function hasPriorWorldMigration(moduleId: string): boolean {
-    return getUpgradeJournal().jobs().some(job => job.moduleId === moduleId && job.possibleWrite);
+export async function hasPriorWorldMigration(moduleId: string): Promise<boolean> {
+    return (await getUpgradeJournal().jobs()).some(job => job.moduleId === moduleId && job.possibleWrite);
 }
-export function assertMigrationReplacement(root: string, info: UpgradeCandidate['info']): void {
+export async function assertMigrationReplacement(root: string, info: UpgradeCandidate['info']): Promise<void> {
     const catalog = discoverMigrations(root, info);
-    if (!catalog && hasPriorWorldMigration(info.id)) throw new Error('Cannot prove data-read compatibility after prior migrations; catalog required');
+    if (!catalog && await hasPriorWorldMigration(info.id)) throw new Error('Cannot prove data-read compatibility after prior migrations; catalog required');
 }
 export function configuredServiceAccountName(): string { return getConfig().foundry.username ?? ''; }
 
 /** Completed jobs retain files until an explicit admin cleanup, never on failure. */
-export function cleanupRetainedUpgradeFiles(jobId: string): UpgradeJob {
-    const job = getUpgradeJournal().job(jobId);
+export async function cleanupRetainedUpgradeFiles(jobId: string): Promise<UpgradeJob> {
+    const job = (await getUpgradeJournal().job(jobId));
     if (job.phase !== 'completed') throw new Error('Only completed upgrade files may be cleaned');
     if (job.retainedFiles === 'cleaned') return job;
     const archiveRoot = path.resolve(getDataDir(), 'dist', 'archives');
@@ -260,6 +271,6 @@ export function cleanupRetainedUpgradeFiles(jobId: string): UpgradeJob {
         if (fs.lstatSync(resolved).isSymbolicLink()) throw new Error('Unexpected retained artifact path');
         fs.rmSync(resolved, { recursive: true, force: true });
     }
-    job.retainedFiles = 'cleaned'; getUpgradeJournal().save(job);
+    job.retainedFiles = 'cleaned'; await getUpgradeJournal().save(job);
     return job;
 }

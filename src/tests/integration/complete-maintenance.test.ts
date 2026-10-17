@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { fixture, world } from '../unit/world/module-world-migrations.test';
@@ -21,10 +22,162 @@ import { ModuleUpgradeCoordinator } from '@server/services/world/migrations/Modu
 import { WorldWorkGate } from '@server/core/world/WorldWorkGate';
 import { applyMigrationPatch } from '@server/services/world/migrations/planner';
 import { initDataDir } from '@server/core/paths';
-import { acquireCoreRuntimeLease, readMaintenanceMode, saveMaintenanceMode, maintenanceOnly } from '@server/core/world/MaintenanceMode';
+import { acquireCoreRuntimeLease, readMaintenanceMode, saveMaintenanceMode, maintenanceOnly, enforceMaintenanceComposition, setMaintenanceComputationSignal } from '@server/core/world/MaintenanceMode';
 import { MaintenanceController } from '@server/services/world/migrations/MaintenanceController';
+import { AsyncUpgradeJournal } from '@server/services/world/migrations/AsyncUpgradeJournal';
 
 const cases: Record<string, (root: string) => Promise<void>> = {};
+cases['CR64-21-first-publication-cancel'] = async root => {
+    initDataDir(root); enforceMaintenanceComposition();
+    const { createHostUpgradeCoordinator, getUpgradeJournal } = await import('@server/services/world/migrations/ModuleUpgradeService');
+    const candidate = fixture(path.join(root, 'candidate')); const journal = getUpgradeJournal();
+    let writes = 0; let promotions = 0; let restarts = 0;
+    const coordinator = createHostUpgradeCoordinator({ assertAuthority() {},
+        snapshot: async () => ({ world, targets: expandMigrationTargets('Actor.a', 'Actor', { _id: 'a', system: { fixed: false } }) }),
+        write: async () => { writes++; }, promote: async () => { promotions++; }, restart: () => { restarts++; } });
+    const preview = await coordinator.preview(candidate); await journal.saveSourceCandidate(preview.id, candidate);
+    const id = 'first-approval-cancel'; const leaseToken = journal.acquire({ jobId: id, moduleId: candidate.moduleId, plan: preview.plan });
+    saveMaintenanceMode({ schemaVersion: 1, id, moduleId: candidate.moduleId, stage: 'executing', drained: true,
+        candidateId: preview.id, previewId: preview.id, leaseToken, world: world.identity, updatedAt: Date.now() });
+    const controller = new MaintenanceController({} as never, () => { restarts++; });
+    const save = journal.save.bind(journal); let cancellation: Promise<void> | undefined;
+    journal.save = async job => {
+        cancellation = controller.cancel();
+        // Record the rejection immediately; assertion below observes its outcome.
+        void cancellation.catch(() => {});
+        await new Promise<void>(resolve => setImmediate(resolve));
+        return save(job);
+    };
+    try {
+        await assert.rejects((controller as any).work(async () => coordinator.approve(candidate,
+            { planId: preview.id, idempotencyKey: 'first-approval-key', administrator: 'test', backupAcknowledged: true })));
+        journal.save = save;
+        await cancellation;
+        assert.equal(readMaintenanceMode()?.stage, 'activating', 'unpublished, unwritten first approval must remain cancellable');
+        assert.equal((await journal.jobs()).length, 0);
+        assert.equal(writes, 0); assert.equal(promotions, 0); assert.equal(restarts, 1);
+    } finally { journal.save = save; setMaintenanceComputationSignal(); await journal.close(); }
+};
+async function initialApprovalFixture(root: string) {
+    initDataDir(root); enforceMaintenanceComposition();
+    const { createHostUpgradeCoordinator, getUpgradeJournal } = await import('@server/services/world/migrations/ModuleUpgradeService');
+    const journal = getUpgradeJournal(); const candidate = fixture(path.join(root, 'candidate'));
+    const counts = { writes: 0, promotions: 0, restarts: 0 };
+    const coordinator = createHostUpgradeCoordinator({ assertAuthority() {},
+        snapshot: async () => ({ world, targets: expandMigrationTargets('Actor.a', 'Actor', { _id: 'a', system: { fixed: false } }) }),
+        write: async () => { counts.writes++; }, promote: async () => { counts.promotions++; }, restart: () => { counts.restarts++; } });
+    const preview = await coordinator.preview(candidate); await journal.saveSourceCandidate(preview.id, candidate);
+    const id = 'publication-operation'; const leaseToken = journal.acquire({ jobId: id, moduleId: candidate.moduleId, plan: preview.plan });
+    saveMaintenanceMode({ schemaVersion: 1, id, moduleId: candidate.moduleId, stage: 'executing', drained: true,
+        candidateId: preview.id, previewId: preview.id, leaseToken, world: world.identity, updatedAt: Date.now() });
+    const controller = new MaintenanceController({} as never, () => { counts.restarts++; });
+    const approve = () => (controller as any).work(async () => coordinator.approve(candidate,
+        { planId: preview.id, idempotencyKey: 'publication-exact-key', administrator: 'test-admin', backupAcknowledged: true }));
+    return { journal, controller, approve, preview, counts, id };
+}
+for (const kind of ['failure', 'lost-ack', 'aborted-ack'] as const) cases[`CR64-21-${kind}`] = async root => {
+    const context = await initialApprovalFixture(root); const { journal, controller, approve, counts, id, preview } = context;
+    const save = journal.save.bind(journal); let published: UpgradeJob | undefined;
+    journal.save = async job => {
+        if (kind !== 'failure') { await save(job); published = job; }
+        if (kind === 'aborted-ack') setMaintenanceComputationSignal(AbortSignal.abort(new Error('test cancelled after durable publication')));
+        throw new Error(kind === 'failure' ? 'controlled initial storage failure before publication' : 'controlled lost durable acknowledgement');
+    };
+    try {
+        await assert.rejects(approve(), /controlled/); journal.save = save;
+        assert.equal(readMaintenanceMode()?.initialApproval, undefined);
+        assert.equal(readMaintenanceMode()?.jobId, kind === 'failure' ? undefined : id);
+        if (published) {
+            const durable = await journal.job(id); assert.equal(durable.id, preview.id);
+            assert.equal(durable.idempotencyKey, 'publication-exact-key'); assert.equal(durable.phase, 'quiescing');
+            journal.assertLease(durable);
+        }
+        await controller.cancel();
+        assert.equal(readMaintenanceMode()?.stage, 'activating'); assert.equal(counts.restarts, 1);
+        assert.equal(counts.writes, 0); assert.equal(counts.promotions, 0);
+        if (published) { const durable = await journal.job(id); assert.equal(durable.phase, 'cancelled'); assert.deepEqual(durable.outcomes, {}); }
+        else assert.equal((await journal.jobs()).length, 0);
+    } finally { journal.save = save; setMaintenanceComputationSignal(); await journal.close(); }
+};
+cases['CR64-21-cancel-owns-finalizer'] = async root => {
+    const { journal, controller, counts } = await initialApprovalFixture(root);
+    const preview = journal.preview.bind(journal); let checked = false;
+    journal.preview = async id => {
+        await new Promise<void>(resolve => setImmediate(resolve));
+        assert.equal(controller.status().busy, true);
+        await assert.rejects(controller.plan(), /already active/);
+        await assert.rejects(controller.cancel(), /already active/);
+        checked = true; return preview(id);
+    };
+    try { await controller.cancel(); assert(checked); assert.equal(counts.restarts, 1); assert.equal(counts.promotions, 0); assert.equal(counts.writes, 0); }
+    finally { journal.preview = preview; await journal.close(); }
+};
+cases['CR64-21-recovery-durability'] = async root => {
+    const { journal, controller, approve, counts, id } = await initialApprovalFixture(root);
+    const save = journal.save.bind(journal), recover = journal.recoverJob.bind(journal);
+    const metadata = path.join(journal.root, 'jobs', `${id}.json`); let originalBytes = '';
+    journal.save = async job => { await save(job); originalBytes = fs.readFileSync(metadata, 'utf8'); throw new Error('lost first ACK'); };
+    journal.recoverJob = async jobId => {
+        const sync = fs.fsyncSync; const inode = fs.statSync(metadata).ino;
+        fs.fsyncSync = fd => { if (fs.fstatSync(fd).ino === inode) throw new Error('controlled recovery fsync failure'); sync(fd); };
+        try { return new UpgradeJournal(journal.root, journal.lockRoot).recoverJob(jobId); }
+        finally { fs.fsyncSync = sync; }
+    };
+    try {
+        await assert.rejects(approve(), /recovery fsync failure/);
+        assert(readMaintenanceMode()?.initialApproval); assert.equal(readMaintenanceMode()?.jobId, undefined);
+        assert.equal(fs.readFileSync(metadata, 'utf8'), originalBytes, 'failed recovery cannot rewrite approval identity');
+        assert.equal(counts.promotions, 0); assert.equal(counts.writes, 0);
+        journal.save = save; journal.recoverJob = recover;
+        await controller.cancel(); assert.equal((await journal.job(id)).phase, 'cancelled'); assert.equal(counts.restarts, 1);
+    } finally { journal.save = save; journal.recoverJob = recover; await journal.close(); }
+};
+// A real process exit leaves the lease PID dead; restart uses the production
+// reconciler and controller, not a callback which fabricates durable evidence.
+for (const side of ['before', 'after'] as const) cases[`CR64-21-crash-${side}-child`] = async root => {
+    const { journal, approve } = await initialApprovalFixture(root); const save = journal.save.bind(journal);
+    journal.save = async job => { if (side === 'after') await save(job); process.exit(side === 'before' ? 73 : 74); };
+    await approve(); throw new Error('crash boundary not reached');
+};
+for (const kind of ['before', 'after', 'missing-active', 'corrupt-active', 'orphan-receipts', 'other-owner'] as const) cases[`CR64-21-restart-${kind}`] = async root => {
+    const side = ['before', 'orphan-receipts', 'other-owner'].includes(kind) ? 'before' : 'after';
+    const result = spawnSync(process.execPath, ['--import', 'tsx', fileURLToPath(import.meta.url), '--case', `CR64-21-crash-${side}-child`, '--root', root],
+        { cwd: process.cwd(), encoding: 'utf8', timeout: 30_000 });
+    assert.equal(result.status, side === 'before' ? 73 : 74, result.stdout + result.stderr);
+    initDataDir(root); enforceMaintenanceComposition();
+    const { getUpgradeJournal } = await import('@server/services/world/migrations/ModuleUpgradeService');
+    const { restoreLegacyMaintenanceMode } = await import('@server/services/world/migrations/restoreMaintenanceMode');
+    const journal = getUpgradeJournal(); const id = 'publication-operation';
+    const file = path.join(journal.root, 'jobs', `${id}.json`);
+    let restarts = 0; const controller = new MaintenanceController({} as never, () => { restarts++; });
+    try {
+        if (kind === 'orphan-receipts') { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(`${file}.receipts`, 'retained uncertain evidence\n'); }
+        await restoreLegacyMaintenanceMode();
+        if (['missing-active', 'corrupt-active'].includes(kind)) {
+            assert.equal(readMaintenanceMode()?.jobId, id, 'startup binds the fsynced approval even without its original acknowledgement');
+            if (kind === 'missing-active') fs.unlinkSync(file); else fs.writeFileSync(file, '{corrupt retained approval');
+        }
+        if (kind === 'other-owner') {
+            const preview = await journal.preview(readMaintenanceMode()!.candidateId!);
+            const locks = fs.readdirSync(journal.lockRoot).filter(name => /^[a-f0-9]{64}$/.test(name));
+            for (const lock of locks) { const ownerFile = path.join(journal.lockRoot, lock, 'owner.json');
+                fs.writeFileSync(ownerFile, JSON.stringify({ token: 'another-owner', jobId: 'another-operation', host: os.hostname(), pid: process.pid })); }
+            await assert.rejects(controller.cancel(), /lease|installation|live runner/i);
+            assert.equal(restarts, 0); assert.equal(fs.readdirSync(journal.lockRoot).length, locks.length);
+            assert.equal(preview.plan.operations.length, 1); return;
+        }
+        if (['missing-active', 'corrupt-active', 'orphan-receipts'].includes(kind)) {
+            await assert.rejects(controller.cancel()); assert.equal(restarts, 0); assert.equal(maintenanceOnly(), true);
+            if (kind === 'orphan-receipts') assert.equal(fs.readFileSync(`${file}.receipts`, 'utf8'), 'retained uncertain evidence\n');
+            return;
+        }
+        assert.equal(readMaintenanceMode()?.initialApproval, undefined);
+        assert.equal(readMaintenanceMode()?.jobId, kind === 'after' ? id : undefined);
+        await controller.cancel(); assert.equal(restarts, 1); assert.equal(readMaintenanceMode()?.stage, 'activating');
+        if (kind === 'after') { const durable = await journal.job(id); assert.equal(durable.phase, 'cancelled'); assert.equal(durable.possibleWrite, false); assert.deepEqual(durable.outcomes, {}); }
+        else assert.equal((await journal.jobs()).length, 0);
+    } finally { setMaintenanceComputationSignal(); await journal.close(); }
+};
 async function exactReadback(root: string, count: number, stale = false, metadataOnly = false) {
     const candidate = fixture(path.join(root, 'candidate'));
     let rows = Array.from({ length: count }, (_, i) => ({ uuid: `Actor.a${i}`, kind: 'Actor' as const,
@@ -103,6 +256,17 @@ cases['CR64-16-legacy-writes'] = async root => {
     const inlineFile = path.join(journal.root, 'plans/legacy-inline.json');
     const original = JSON.stringify(inline);
     fs.writeFileSync(inlineFile, original);
+    const asyncJournal = new AsyncUpgradeJournal(journal.root, path.join(journal.root, 'leases'));
+    const status = http.createServer((_req, res) => res.end('available'));
+    await new Promise<void>(resolve => status.listen(0, '127.0.0.1', resolve));
+    const url = `http://127.0.0.1:${(status.address() as { port: number }).port}`;
+    let tick = Date.now(); let maxGap = 0; let ticks = 0; let responses = 0;
+    const requests: Promise<void>[] = [];
+    const pulse = setInterval(() => { maxGap = Math.max(maxGap, Date.now() - tick); tick = Date.now(); ticks++;
+        requests.push(fetch(url).then(async response => { assert.equal(await response.text(), 'available'); responses++; })); }, 20);
+    try { assert.equal((await asyncJournal.preview(inline.id)).plan.digest, plan.digest); }
+    finally { clearInterval(pulse); await asyncJournal.close(); await Promise.all(requests); await new Promise<void>(resolve => status.close(() => resolve())); }
+    assert.ok(ticks > 2); assert.ok(responses > 2); assert.ok(maxGap < 1500, `cold legacy plan load blocked the HTTP loop: ${maxGap}ms`);
     assert.equal(new UpgradeJournal(journal.root).preview(inline.id).plan.digest, plan.digest);
     assert.equal(fs.readFileSync(`${inlineFile}.legacy-inline`, 'utf8'), original);
     assert.ok(fs.statSync(inlineFile).size < 4096);
@@ -118,9 +282,20 @@ cases['CR64-16-legacy-writes'] = async root => {
     assert.deepEqual(new UpgradeJournal(journal.root).job(legacyJob.jobId).outcomes, legacyJob.outcomes);
     assert.ok(fs.existsSync(`${jobFile}.legacy-inline`)); assert.ok(fs.statSync(jobFile).size < 4096);
     const record = JSON.parse(fs.readFileSync(inlineFile, 'utf8'));
-    const manifestFile = path.join(journal.root, 'plan-content', `${record.plan.root.slice(7)}.json`);
+    const manifestFile = path.join(journal.root, 'plan-content', `${record.plan.root.slice(7)}.bundle`);
+    const bundleIdentity = fs.statSync(manifestFile); const sync = fs.fsyncSync; let bundleSynced = false;
+    fs.fsyncSync = fd => { if (fs.fstatSync(fd).ino === bundleIdentity.ino) bundleSynced = true; sync(fd); };
+    try { new UpgradeJournal(journal.root).savePreview({ ...preview, id: 'publication-retry' }); }
+    finally { fs.fsyncSync = sync; }
+    assert.equal(bundleSynced, true, 'reused bundles must re-establish durable publication after a lost sync acknowledgement');
+    // Existing v2 loose content records remain supported without reapproval.
+    const lines = fs.readFileSync(manifestFile, 'utf8').trimEnd().split('\n').slice(1);
+    for (const line of lines) fs.writeFileSync(path.join(journal.root, 'plan-content', `${line.slice(7, 71)}.json`), line.slice(72));
+    fs.writeFileSync(inlineFile, JSON.stringify({ ...record, plan: { ...record.plan, storage: 'core-migration-plan.v2' } }));
+    assert.equal(new UpgradeJournal(journal.root).preview(inline.id).plan.digest, plan.digest);
+    fs.writeFileSync(inlineFile, JSON.stringify(record));
     fs.appendFileSync(manifestFile, ' ');
-    assert.throws(() => new UpgradeJournal(journal.root).preview(inline.id), /digest mismatch/, 'restart cannot accept tampered approved content');
+    assert.throws(() => new UpgradeJournal(journal.root).preview(inline.id), /digest mismatch|Incomplete/, 'restart cannot accept tampered approved content');
     console.log(JSON.stringify({ legacyWritePlan: 360, logicalBytes: Buffer.byteLength(JSON.stringify(preview)) }));
 };
 async function batchCase(root: string, partial = false) {
@@ -267,15 +442,15 @@ cases['legacy-journal'] = async root => {
     assert.deepEqual(new UpgradeJournal(journal.root).job(job.jobId).outcomes, job.outcomes, 'lease/phase updates cannot discard old inline confirmation evidence');
 };
 export async function run(): Promise<void> {
-    for (const id of Object.keys(cases)) {
+    for (const id of Object.keys(cases).filter(id => !id.endsWith('-child'))) {
         const result = spawnSync(process.execPath, ['--import', 'tsx', fileURLToPath(import.meta.url), '--case', id], { cwd: process.cwd(), encoding: 'utf8', timeout: 120_000 });
         assert.equal(result.status, 0, `${id}: ${result.stdout}\n${result.stderr}`);
     }
-    console.log(`Complete-maintenance correctness: ${Object.keys(cases).length} cases passed`);
+    console.log(`Complete-maintenance correctness: ${Object.keys(cases).filter(id => !id.endsWith('-child')).length} cases passed`);
 }
 if (import.meta.url === `file://${process.argv[1]}`) {
     const id = process.argv.includes('--case') ? process.argv[process.argv.indexOf('--case') + 1] : '';
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sd-complete-maintenance-'));
+    const root = process.argv.includes('--root') ? process.argv[process.argv.indexOf('--root') + 1] : fs.mkdtempSync(path.join(os.tmpdir(), 'sd-complete-maintenance-'));
     (id ? cases[id](root) : run()).catch(error => { console.error(error); process.exitCode = 1; })
         .finally(() => fs.rmSync(root, { recursive: true, force: true }));
 }

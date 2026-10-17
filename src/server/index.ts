@@ -60,8 +60,8 @@ async function startServer() {
     adminSessionManager.initialize();
 
     // Durable gate loads before registry/candidate adapter imports or player routing.
-    restoreUpgradeMaintenance();
-    restoreLegacyMaintenanceMode();
+    await restoreUpgradeMaintenance();
+    await restoreLegacyMaintenanceMode();
     const persistentMode = readMaintenanceMode();
     const selectedCorePort = Number(process.env.PORT || process.env.API_PORT || config.app.apiPort);
     if (maintenanceOnly(persistentMode)) {

@@ -2,6 +2,7 @@ import { strict as assert } from 'node:assert';
 import { CompendiumStore } from '@server/core/compendium/CompendiumStore';
 import type { CompendiumIndexEntry } from '@server/core/compendium/types';
 import { CompendiumService, type CompendiumTransport } from '@server/services/compendium';
+import { SdkError } from '@shared/sdk/errors';
 
 type EmitHandler = (event: string, payloads: unknown[]) => Promise<unknown> | unknown;
 type DispatchHandler = (
@@ -53,6 +54,8 @@ class FakeCompendiumTransport implements CompendiumTransport {
 }
 
 export async function run() {
+    await runTypedDenialPreserved();
+    await runAuthoritativeTypes();
     await runPackEntriesFallbackAndHeartbeat();
     await runPackIndexDispatchFallback();
     await runPackIndexProjectedDispatchFallback();
@@ -62,6 +65,43 @@ export async function run() {
     await runPackDocumentDisconnected();
     await runIndexProjectionRejectsUnprojectedFallback();
     console.log('  - CompendiumService: all checks passed');
+}
+
+async function runTypedDenialPreserved() {
+    const denial = new SdkError('permission_denied', 'Private pack');
+    for (const read of [
+        (service: CompendiumService) => service.getPackEntries('world.arbitrary'),
+        (service: CompendiumService) => service.getPackIndex('world.arbitrary', 'Actor'),
+        (service: CompendiumService) => service.getPackDocuments('world.arbitrary', 'Actor'),
+        (service: CompendiumService) => service.getPackDocument('world.arbitrary', 'row', 'Actor'),
+    ]) {
+        const transport = new FakeCompendiumTransport(); transport.emitHandler = () => { throw denial; };
+        await assert.rejects(read(new CompendiumService({ transport, store: new CompendiumStore() })), error => error === denial);
+        assert.equal(transport.calls.length, 1, 'denial is terminal, never probed through a less constrained strategy');
+    }
+}
+
+async function runAuthoritativeTypes() {
+    for (const type of ['Actor', 'Item', 'JournalEntry', 'RollTable', 'Scene', 'Macro', 'Playlist', 'Cards', 'Adventure']) {
+        const store = new CompendiumStore(); const transport = new FakeCompendiumTransport();
+        const pack = `world.uninformative-${type.length}`;
+        store.setPackMetadata(pack, { id: pack, type });
+        const service = new CompendiumService({ transport, store });
+        transport.emitHandler = (event, payloads) => {
+            assert.equal(event, 'modifyDocument'); assert.equal((payloads[0] as any).type, type, 'native metadata must determine the request type');
+            return type.length % 2 ? [{ _id: 'row', name: 'Native row' }] : { result: [{ _id: 'row', name: 'Native row' }] };
+        };
+        assert.equal((await service.getPackEntries(pack)).length, 1);
+        transport.emitHandler = () => ({ error: 'native read denied', result: [] });
+        await assert.rejects(service.getPackEntries(pack), /index|entries|strategies/i);
+        assert.equal(store.getPackIndex(pack)?.length, 1, 'an error envelope with an empty result is not a successful empty read');
+        transport.emitHandler = () => { throw new Error('native index unavailable'); };
+        await assert.rejects(service.getPackEntries(pack), /index|entries|strategies/i);
+        assert.equal(store.getPackIndex(pack)?.length, 1, 'failed freshness must not replace the last valid index');
+        transport.emitHandler = () => ({ result: [] });
+        assert.deepEqual(await service.getPackEntries(pack), []);
+        assert.deepEqual(store.getPackIndex(pack), [], 'a genuinely empty native response is authoritative');
+    }
 }
 
 function createIndex(packId: string, overrides: Partial<CompendiumIndexEntry> = {}): CompendiumIndexEntry[] {
@@ -223,14 +263,14 @@ async function runIndexProjectionRejectsUnprojectedFallback() {
     const missingFieldStore = new CompendiumStore();
     const missingFieldService = new CompendiumService({ transport: missingFieldTransport, store: missingFieldStore });
     missingFieldTransport.emitHandler = () => ({ result: createIndex('synthetic.items') });
-    assert.deepEqual(await missingFieldService.getPackEntries('synthetic.items', { fields: ['system.tier'] }), []);
+    await assert.rejects(missingFieldService.getPackEntries('synthetic.items', { fields: ['system.tier'] }), /unavailable/);
     assert.equal(missingFieldStore.getPackIndex('synthetic.items', { fields: ['system.tier'] }), null);
 
     const noIdentityTransport = new FakeCompendiumTransport();
     const noIdentityStore = new CompendiumStore();
     const noIdentityService = new CompendiumService({ transport: noIdentityTransport, store: noIdentityStore });
     noIdentityTransport.emitHandler = () => ({ result: [{ name: 'Nameless ID', 'system.tier': 1 }] });
-    assert.deepEqual(await noIdentityService.getPackEntries('synthetic.items', { fields: ['system.tier'] }), []);
+    await assert.rejects(noIdentityService.getPackEntries('synthetic.items', { fields: ['system.tier'] }), /unavailable/);
     assert.equal(noIdentityStore.getPackIndex('synthetic.items', { fields: ['system.tier'] }), null);
 }
 

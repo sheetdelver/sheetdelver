@@ -1,12 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { ensureOwnerOnlyDirectorySync, writeOwnerOnlyFileAtomicSync } from '@core/paths';
 import { migrationDigest } from '@modules/registry/migrations/catalog';
 import { sourceHash, type MigrationWorldPlan, type PlannedMigrationTarget } from './planner';
 
 const RECORD_BYTES = 32 * 1024 * 1024;
 const PAGE_BYTES = 512 * 1024;
-export interface StoredMigrationPlan { storage: 'core-migration-plan.v2'; root: string; digest: string }
+export interface StoredMigrationPlan { storage: 'core-migration-plan.v2' | 'core-migration-plan.v3'; root: string; digest: string }
 type ListNode = { leaf: unknown[] } | { children: string[] };
 interface DependencyDelta { previous?: string; set: string; remove: string }
 
@@ -14,6 +15,8 @@ interface DependencyDelta { previous?: string; set: string; remove: string }
 export class MigrationPlanStorage {
     private cache = new Map<string, MigrationWorldPlan>();
     private references = new WeakMap<MigrationWorldPlan, StoredMigrationPlan>();
+    private writing?: Map<string, string>;
+    private reading?: Map<string, string>;
     constructor(readonly directory: string) { ensureOwnerOnlyDirectorySync(directory); }
     private file(digest: string): string {
         if (!/^sha256:[a-f0-9]{64}$/.test(digest)) throw new Error('Invalid migration content identity');
@@ -23,12 +26,17 @@ export class MigrationPlanStorage {
         const json = JSON.stringify(value);
         if (Buffer.byteLength(json) > RECORD_BYTES) throw new Error('Migration content record exceeds 32 MiB; preserve the complete plan and inspect the offending value');
         const digest = migrationDigest(json); const file = this.file(digest);
+        if (this.writing) { this.writing.set(digest, json); return digest; }
         if (fs.existsSync(file)) { this.get(digest); return digest; }
         writeOwnerOnlyFileAtomicSync(file, json);
         if (process.platform !== 'win32') { const fd = fs.openSync(this.directory, 'r'); try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); } }
         return digest;
     }
     private get(digest: string): any {
+        this.file(digest); // confined identity validation also applies to bundled records
+        const bundled = this.reading?.get(digest);
+        if (this.reading && bundled === undefined) throw new Error('Migration bundle record missing');
+        if (bundled !== undefined) return JSON.parse(bundled);
         const file = this.file(digest); const stat = fs.lstatSync(file);
         if (!stat.isFile() || stat.isSymbolicLink() || stat.size > RECORD_BYTES) throw new Error('Invalid migration content record');
         const json = fs.readFileSync(file, 'utf8');
@@ -60,6 +68,8 @@ export class MigrationPlanStorage {
     save(plan: MigrationWorldPlan): StoredMigrationPlan {
         const known = this.references.get(plan);
         if (known && Object.isFrozen(plan)) return known;
+        this.writing = new Map();
+        try {
         let previous: Record<string, string> = {}; let previousRef: string | undefined;
         const operations: unknown[] = [];
         for (const operation of plan.operations) {
@@ -72,15 +82,20 @@ export class MigrationPlanStorage {
         const { operations: _operations, blockers, exclusions, diagnostics, ...header } = plan;
         const root = this.put({ schema: 2, header, operations: this.list(operations), operationCount: operations.length,
             blockers: this.list(blockers), exclusions: this.list(exclusions), ...(diagnostics ? { diagnostics: this.list(diagnostics) } : {}) });
-        const reference: StoredMigrationPlan = { storage: 'core-migration-plan.v2', root, digest: plan.digest };
+        const reference: StoredMigrationPlan = { storage: 'core-migration-plan.v3', root, digest: plan.digest };
+        this.writeBundle(root, this.writing);
+        this.references.set(plan, reference);
         return reference;
+        } finally { this.writing = undefined; }
     }
     load(value: MigrationWorldPlan | StoredMigrationPlan): MigrationWorldPlan {
         if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid migration plan schema');
         if (!('storage' in value)) return value;
-        if (value.storage !== 'core-migration-plan.v2') throw new Error('Unsupported migration plan storage');
+        if (!['core-migration-plan.v2', 'core-migration-plan.v3'].includes(value.storage)) throw new Error('Unsupported migration plan storage');
         const cached = this.cache.get(value.root);
         if (cached) { if (cached.digest !== value.digest) throw new Error('Migration approval digest changed'); return cached; }
+        this.reading = value.storage === 'core-migration-plan.v3' ? this.readBundle(value.root) : undefined;
+        try {
         const encoded = this.get(value.root);
         if (encoded.schema !== 2 || !encoded.header || encoded.header.digest !== value.digest) throw new Error('Migration plan manifest mismatch');
         let previousRef: string | undefined; let previous: Record<string, string> = {};
@@ -104,6 +119,59 @@ export class MigrationPlanStorage {
         const freeze = (entry: unknown): void => { if (entry && typeof entry === 'object' && !Object.isFrozen(entry)) { Object.values(entry).forEach(freeze); Object.freeze(entry); } };
         freeze(plan); this.cache.set(value.root, plan); this.references.set(plan, value);
         return plan;
+        } finally { this.reading = undefined; }
+    }
+    private bundleFile(root: string): string { return this.file(root).replace(/\.json$/, '.bundle'); }
+    private writeBundle(root: string, blocks: Map<string, string>): void {
+        const file = this.bundleFile(root);
+        if (fs.existsSync(file)) {
+            // A previous writer may have renamed successfully but lost the
+            // directory-sync acknowledgement. Validate and re-establish durable
+            // publication before a new journal can confer approval authority.
+            this.readBundle(root);
+            const existing = fs.openSync(file, 'r'); try { fs.fsyncSync(existing); } finally { fs.closeSync(existing); }
+            this.syncDirectory(); return;
+        }
+        const temporary = `${file}.${process.pid}.${randomUUID()}.tmp`;
+        const fd = fs.openSync(temporary, 'wx', 0o600);
+        try {
+            const write = (text: string) => { const bytes = Buffer.from(text); let offset = 0;
+                while (offset < bytes.length) { const count = fs.writeSync(fd, bytes, offset); if (!count) throw new Error('Incomplete durable bundle write'); offset += count; } };
+            write(`core-migration-plan.v3 ${root}\n`);
+            for (const [digest, json] of blocks) write(`${digest} ${json}\n`);
+            fs.fsyncSync(fd);
+        } catch (error) { fs.closeSync(fd); fs.unlinkSync(temporary); throw error; }
+        fs.closeSync(fd);
+        fs.renameSync(temporary, file);
+        this.syncDirectory();
+    }
+    private syncDirectory(): void {
+        if (process.platform !== 'win32') { const directory = fs.openSync(this.directory, 'r'); try { fs.fsyncSync(directory); } finally { fs.closeSync(directory); } }
+    }
+    private readBundle(root: string): Map<string, string> {
+        const file = this.bundleFile(root); const stat = fs.lstatSync(file);
+        if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('Invalid migration bundle');
+        const fd = fs.openSync(file, 'r'); const buffer = Buffer.alloc(64 * 1024);
+        const decoder = new TextDecoder('utf-8', { fatal: true });
+        const blocks = new Map<string, string>(); let pending = ''; let header = false;
+        try {
+            for (;;) {
+                const count = fs.readSync(fd, buffer); pending += decoder.decode(buffer.subarray(0, count), { stream: count > 0 });
+                let end: number;
+                while ((end = pending.indexOf('\n')) >= 0) {
+                    const line = pending.slice(0, end); pending = pending.slice(end + 1);
+                    if (!header) { if (line !== `core-migration-plan.v3 ${root}`) throw new Error('Migration bundle identity mismatch'); header = true; continue; }
+                    if (Buffer.byteLength(line) > RECORD_BYTES + 72) throw new Error('Oversized migration content record');
+                    const digest = line.slice(0, 71); const json = line.slice(72); this.file(digest);
+                    if (line[71] !== ' ' || blocks.has(digest) || migrationDigest(json) !== digest) throw new Error('Migration content digest mismatch');
+                    blocks.set(digest, json);
+                }
+                if (Buffer.byteLength(pending) > RECORD_BYTES + 72) throw new Error('Oversized migration content record');
+                if (!count) break;
+            }
+            if (pending || !header || !blocks.has(root)) throw new Error('Incomplete migration bundle');
+            return blocks;
+        } finally { fs.closeSync(fd); }
     }
 }
 

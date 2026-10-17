@@ -1,17 +1,13 @@
 # Maintenance-only runtime (development)
 
 ADR-0064's complete-maintenance correction is implemented on the corrective
-branch and undergoing whole-host acceptance. This is not a released Core version
-or permission to resume module adoption. The [independent review](adr/0064-module-world-context-and-data-migrations.md#independent-complete-maintenance-review--october-17-2026)
-identified CR64-14–17 in exact single-write verification, unproven-drain
-cancellation, legacy plan storage and final bootstrap fencing. The corrective
-tree implements those guards and verifies them with tracked regressions and
-isolated public/supervisor workflows. Native and user acceptance remain open;
-the ADR records the evidence and qualifications. A subsequent
-[independent confirmation](adr/0064-module-world-context-and-data-migrations.md#cr64-1417-independent-confirmation--october-17-2026) reran the original failure cases
-and actual supervisor readiness/recovery flow, finding no new confirmed blocker
-in the reviewed changes. Native v13/v14 remains the next acceptance step. Application/module release
-metadata is unchanged.
+branch, with passing selected whole-host and native v13/v14 acceptance. This is
+not a released Core version or permission to resume module adoption. CR64-14–21
+corrections have tracked failing-before/passing-after evidence and public/native
+recovery results. The [latest acceptance](adr/0064-module-world-context-and-data-migrations.md#fresh-complete-maintenance-native-v13-acceptance--october-17-2026)
+records exact source/write/receipt comparisons, cleanup and measured costs.
+C64-H user review, supporting release and explicit hold-release remain open.
+Application/module release metadata is unchanged.
 
 ## Lifecycle owners
 
@@ -117,8 +113,8 @@ approvals/receipts rather than clearing evidence. An incomplete record stops in
 diagnosable recovery. Do not downgrade to 0.19.0 to resume the new journal format;
 use a tested supporting Core release. No world backup/restore/undo is provided.
 
-Complete plans use internal `core-migration-plan.v2` references in preview/job
-metadata and content-addressed `plan-content/` blocks. Paged lists and exact
+Complete plans use internal `core-migration-plan.v3` references in preview/job
+metadata and atomic content-addressed `plan-content/*.bundle` files. Paged lists and exact
 dependency deltas avoid repeating whole-world maps in every durable operation;
 each block remains bounded to32MiB and SHA-256 verified. The complete logical
 plan/digest, dependency membership, patches and approval identity are unchanged.
@@ -131,6 +127,50 @@ catalogs are preserved. Missing, incomplete or corrupted blocks stop recovery;
 do not prune blocks/backups or downgrade to a release that cannot read them.
 Logical plans are still materialized for execution and hashing, so memory/CPU
 costs grow with the declared read sets; compression is not a small-host guarantee.
+
+One serialized, process-owned storage worker performs complete plan encoding,
+legacy/v2 loading, digest validation, receipt persistence and durable publication,
+off the HTTP event loop. A bundle is fully written and file-synced, atomically
+renamed, then directory-synced before metadata can confer approval or a native
+send can proceed. Reusing an existing bundle validates and re-establishes its
+durable publication. This reduces per-record file/fsync fanout, not durability.
+Existing v2 loose blocks and inline journals remain readable without changing
+logical approvals. Keep all historical content, receipts and retained originals.
+Cancellation joins the retired worker before replacement; normal-worker shutdown
+drains and terminates it. HTTP disconnect alone does not cancel execution.
+
+First approval has a durable `initialApproval` publication intent in the
+maintenance record, binding operation/plan/artifact/catalog/tree/principal and
+idempotency identity under that operation's lease. It is not write authority.
+The first job must be durable and bound as `jobId` before file promotion begins.
+On interrupted save/acknowledgement, Core joins the storage writer, validates the
+complete durable result independently of the cancelled computation signal, and
+re-syncs visible metadata/receipts/directories before binding authority. A proven
+unpublished intent retains its maintenance lease until admin cancellation; it
+never fabricates a cancelled job. A published job retains its exact approval and
+evidence and can be cancelled before writes or explicitly recovered.
+
+Startup and controller Plan/Resume/Cancel reconcile this provisional state.
+Both crash orderings are supported: before job publication, and after publication
+but before binding. Cancellation owns controller admission through its final
+readback/release and requires the original durable drain proof. Dead-PID takeover
+is limited to the same operation; another owner cannot be released. Missing or
+corrupt previously bound jobs, orphan receipt evidence, inconsistent identities
+or a failed recovery durability barrier remain gated with admin diagnostics.
+An arbitrary missing file is never proof that no writes occurred. Existing
+legacy/v2/v3 approvals, receipts and history retain their original meaning.
+Maintenance polling uses a process-local review/progress snapshot, never an
+authoritative shortcut for approval or writes. Small lease/final-send metadata
+checks stay synchronous. Brief supervised replacement outages remain possible;
+off-thread storage is not a promise of bounded memory or zero-latency HTTP.
+
+Progress counters are process-local diagnostics scoped to the current durable
+record, not an fsynced write for every counter update. State transitions still
+checkpoint the latest counters while durably recording stage/drain/lease intent.
+After a crash, counts are reconstructed from the complete plan and durable
+receipts; a counter reset never changes approval or permits replay. A changed
+operation/file retires the local progress overlay. Admission, drain, approval,
+native intents and receipts remain durable; this is not weaker write recovery.
 
 After final asynchronous compatibility computation, normal bootstrap/reconnect
 revalidates source, connection, authority and context before releasing the gate or
@@ -147,3 +187,49 @@ Core termination and preparation replacement. Original 30/900/300 and larger
 60/2400/720 inventories complete with independent source oracles. These controlled
 upstreams are not native v13/v14 acceptance. Resource costs, limitations and open
 native/user gates are recorded in ADR-0064; module work remains held.
+
+
+## Native acceptance limitations (unreleased)
+
+Fresh Foundry 14.367 acceptance at checkpoint `140f838`, then its uncommitted
+CR64-18–20 correction/repeat, confirms real
+1,244- and 3,194-write migrations, lossless source comparison, lost-receipt/crash recovery,
+maintenance isolation, activation and fresh approval for externally restored
+source. This does not close the full native/operator gate or release module work.
+See [ADR-0064 final correction/repeat](adr/0064-module-world-context-and-data-migrations.md#cr64-1820-correction-and-native-v14-repeat--october-17-2026).
+
+The CR64-18 reproduction used synchronous plan encoding,
+file writes and fsync on the HTTP thread. A native cold-plan run stalled status
+requests even though computation ran in a worker and the migration eventually
+completed. The larger advisory had 135 consecutive failed 1.5-second probes,
+spanning about 135.53 seconds. The owned-worker/bundle correction above removes
+that storage work from HTTP, with cold-load/cancellation regressions and repeat
+native measurements recorded in ADR-0064. Capacity remains host-specific.
+
+Ordinary pack index/freshness/hydration now retains authoritative document type
+(CR64-19), including arbitrary Actor-pack names, and fails unavailable reads rather
+than publishing a false empty index. A successful empty read remains valid.
+Caller pack denials remain enforced and use typed HTTP403 through the generic
+document route (CR64-20); this does not grant visibility based on raw transport
+results. The final repeated3,194-write job completed with exact source/receipt/wire
+accounting; planning and execution/resume polling had zero timeouts (max121ms).
+A separately timed cold3,197-operation advisory also had zero timeouts. Brief
+actual supervised replacement outages remain. Measured Core peak4.128GiB is not
+a small-host guarantee. Source baseline cleanup is verified; no test services
+remain, and the user's Foundry was not stopped. See ADR-0064 for costs, qualified
+failed attempts and user/release gates. The subsequent fresh v13 matrix also
+completed 3,194 unique writes and exact source/receipt comparison: peak sampled
+Core memory 3.819 GiB, cold advisory 45.705 seconds and full measured workflow
+430.969 seconds. Cold advisory, planning and stable execution had zero failed
+polls; actual process replacement still interrupts listeners. Both measurements
+come from a shared approximately 62 GiB host. Modules remain held.
+
+
+Independent review subsequently reproduced **CR64-21**, an interrupted first
+approval which left an absent job bound. The provisional-publication correction
+above preserves the earlier successful v14 evidence. Focused cancellation and
+crashes on both sides of first publication, then one unique confirmed write and
+baseline cleanup, now pass on both v13 and v14. Current review/release disposition
+is recorded in
+[ADR-0064](adr/0064-module-world-context-and-data-migrations.md#fresh-complete-maintenance-native-v13-acceptance--october-17-2026).
+All module work remains held; no public SDK or release-version change is needed.

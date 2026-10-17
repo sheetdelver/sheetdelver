@@ -52,7 +52,7 @@ export async function previewModuleSource(moduleId: string, category: 'local' | 
     const candidate = await prepareSourceCandidate(directory, info, category);
     try {
         const preview = await createHostUpgradeCoordinator().preview(candidate);
-        getUpgradeJournal().saveSourceCandidate(preview.id, candidate);
+        await getUpgradeJournal().saveSourceCandidate(preview.id, candidate);
         return preview;
     } catch (error) {
         fs.rmSync(candidate.root, { recursive: true, force: true });
@@ -60,7 +60,7 @@ export async function previewModuleSource(moduleId: string, category: 'local' | 
     }
 }
 export async function applyModuleSource(planId: string, administrator: string, backupAcknowledged: boolean) {
-    const candidate = getUpgradeJournal().sourceCandidate(planId);
+    const candidate = (await getUpgradeJournal().sourceCandidate(planId));
     if (!candidate.sourceDirectory || migrationDirectoryDigest(candidate.sourceDirectory) !== candidate.sourceDigest) throw new Error('Source changed; rerun preview');
     const journal = getUpgradeJournal();
     return createHostUpgradeCoordinator({
@@ -68,14 +68,14 @@ export async function applyModuleSource(planId: string, administrator: string, b
             job.registryBackups = [getDefaultLifecycleStateFilePath(), getDefaultArtifactStoreFilePath()]
                 .map(file => ({ path: file, contents: fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null }));
             job.targetDirectory = candidate.sourceDirectory;
-            job.fileTransition = 'intent'; journal.save(job);
+            job.fileTransition = 'intent'; await journal.save(job);
             const category = candidate.sourceCategory === 'local' ? ModuleSourceCategory.Local : ModuleSourceCategory.Managed;
             const result = switchModuleSource(candidate.moduleId, category, () => {
                 journal.assertLease(job);
                 if (migrationDirectoryDigest(candidate.sourceDirectory!) !== candidate.sourceDigest) throw new Error('Approved source changed');
             });
             if (!result.success) throw new Error(result.error);
-            job.fileTransition = 'registered'; journal.save(job);
+            job.fileTransition = 'registered'; await journal.save(job);
         },
         restart: () => {},
     }).approve(candidate, { planId, idempotencyKey: planId, administrator, backupAcknowledged });

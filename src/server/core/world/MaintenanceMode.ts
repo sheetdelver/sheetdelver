@@ -12,6 +12,9 @@ export interface MaintenanceMode {
     candidateId?: string;
     previewId?: string;
     jobId?: string;
+    /** Durable pre-publication intent, never authority to promote or write. */
+    initialApproval?: { jobId: string; planId: string; planDigest: string; artifactDigest: string;
+        catalogDigest: string; treeDigest: string; idempotencyKey: string; administrator: string };
     leaseToken?: string;
     world?: { instanceId: string; worldId: string; systemId: string };
     failure?: string;
@@ -22,6 +25,10 @@ export interface MaintenanceMode {
     updatedAt: number;
 }
 export function maintenanceFile(): string { return path.join(getDataDir(), 'config/module-upgrades/maintenance.json'); }
+// Counters are diagnostics, not admission, approval, drain or receipt evidence.
+// A different durable record/process must never inherit a stale local overlay.
+let liveProgress: { file: string; stamp: string; id: string; stage: MaintenanceMode['stage']; value: NonNullable<MaintenanceMode['progress']> } | undefined;
+const fileStamp = (stat: fs.Stats) => `${stat.ino}:${stat.mtimeMs}:${stat.size}`;
 export function readMaintenanceMode(): MaintenanceMode | null {
     const file = maintenanceFile();
     if (!fs.existsSync(file)) return null;
@@ -32,11 +39,23 @@ export function readMaintenanceMode(): MaintenanceMode | null {
     if (value.schemaVersion !== 1 || !/^[a-zA-Z0-9-]{1,128}$/.test(value.id)
         || !['entering', 'isolated', 'planning', 'review', 'executing', 'recovery-required', 'activating', 'serving'].includes(value.stage)
         || typeof value.moduleId !== 'string') throw new Error('Invalid persistent maintenance mode schema');
+    if (liveProgress?.file === file && liveProgress.stamp === fileStamp(stat)
+        && liveProgress.id === value.id && liveProgress.stage === value.stage) {
+        return { ...value, progress: { ...liveProgress.value }, updatedAt: Math.max(value.updatedAt, liveProgress.value.updatedAt) };
+    }
     return value;
     } catch {
         return { schemaVersion: 1, id: 'unreadable-maintenance', moduleId: 'unknown', stage: 'recovery-required', diagnosticOnly: true,
             failure: 'Persistent maintenance record is unreadable. Preserve config/module-upgrades and restore a validated operation record before resuming. No world writes are authorized.', updatedAt: 0 };
     }
+}
+/** Responsive process-local progress. Durable transitions checkpoint the latest
+ * snapshot; a crash reconstructs authority/counts from the complete journal. */
+export function reportMaintenanceProgress(progress: NonNullable<MaintenanceMode['progress']>): void {
+    const mode = readMaintenanceMode();
+    if (!mode || mode.diagnosticOnly || !maintenanceOnly(mode)) return;
+    const file = maintenanceFile();
+    liveProgress = { file, stamp: fileStamp(fs.lstatSync(file)), id: mode.id, stage: mode.stage, value: Object.freeze({ ...progress }) };
 }
 export function saveMaintenanceMode(mode: MaintenanceMode): void {
     if (['activating', 'serving'].includes(mode.stage)) assertMaintenanceDrained(mode);
@@ -45,6 +64,7 @@ export function saveMaintenanceMode(mode: MaintenanceMode): void {
     mode.updatedAt = Date.now();
     writeOwnerOnlyFileAtomicSync(file, JSON.stringify(mode));
     if (process.platform !== 'win32') { const fd = fs.openSync(path.dirname(file), 'r'); try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); } }
+    liveProgress = undefined;
 }
 export function assertMaintenanceDrained(mode: MaintenanceMode): void {
     if (mode.diagnosticOnly || mode.drained !== true) throw new Error('Ordinary native write outcomes remain unknown: a proven drain is required before leaving maintenance. Preserve the lease and reconcile outcomes.');
