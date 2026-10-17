@@ -1,7 +1,6 @@
 # Releases
 
-## Unreleased
-
+## 0.19.1
 - Isolated complete maintenance runtime
 - Added bounded migration relations
 - Completed responsive durable migrations
@@ -11,7 +10,6 @@
 - Fixed clean bootstrap generation
 
 ## 0.19.0
-
 - Advanced SDK to 3.3.0
 - Advanced module API to 1.5.0
 - Advanced UI API to 3.2.0
