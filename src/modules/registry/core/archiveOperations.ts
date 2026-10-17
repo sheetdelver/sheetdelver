@@ -206,17 +206,24 @@ export async function dryRunLocalModuleArchive(
     input: LocalModuleArchiveInput,
 ): Promise<DryRunLocalModuleArchiveResult> {
     let preparedOperation: PreparedOperation | undefined;
+    let retainedForMaintenance = false;
     try {
         preparedOperation = await prepareOperation(operation, input);
         const governance = await runGovernancePreview(operation, input, preparedOperation);
         const blockingReasons = [...preparedOperation.blockers, ...governance.blockingReasons];
         let migration: UpgradePreview | undefined;
-        const { assertMigrationReplacement, createHostUpgradeCoordinator } = await import('@server/services/world/migrations/ModuleUpgradeService');
-        assertMigrationReplacement(preparedOperation.prepared.moduleDirectory, preparedOperation.prepared.info);
+        const { assertMigrationReplacement, createHostUpgradeCoordinator, getUpgradeJournal } = await import('@server/services/world/migrations/ModuleUpgradeService');
+        await assertMigrationReplacement(preparedOperation.prepared.moduleDirectory, preparedOperation.prepared.info);
         if (blockingReasons.length === 0 && discoverMigrations(preparedOperation.prepared.moduleDirectory, preparedOperation.prepared.info)) {
-            migration = await createHostUpgradeCoordinator().preview({ moduleId: preparedOperation.archive.moduleId,
+            const retainedArchive = path.join(preparedOperation.prepared.transactionDirectory, 'maintenance-input.tar.gz');
+            fs.copyFileSync(input.archivePath, retainedArchive);
+            const candidate = { moduleId: preparedOperation.archive.moduleId,
                 version: preparedOperation.archive.version, artifactDigest: preparedOperation.archive.integrity,
-                root: preparedOperation.prepared.moduleDirectory, info: preparedOperation.prepared.info });
+                root: preparedOperation.prepared.moduleDirectory, info: preparedOperation.prepared.info,
+                archive: { operation, input: { ...input, archivePath: retainedArchive } } };
+            migration = await createHostUpgradeCoordinator().preview(candidate);
+            await getUpgradeJournal().saveSourceCandidate(migration.id, candidate);
+            retainedForMaintenance = true;
             blockingReasons.push(...migration.plan.blockers);
         }
         return {
@@ -236,7 +243,7 @@ export async function dryRunLocalModuleArchive(
             blockingReasons: [error instanceof Error ? error.message : String(error)],
         };
     } finally {
-        if (preparedOperation) discardPreparedModuleArchive(preparedOperation.prepared);
+        if (preparedOperation && !retainedForMaintenance) discardPreparedModuleArchive(preparedOperation.prepared);
     }
 }
 
@@ -285,7 +292,7 @@ export async function applyLocalModuleArchive(
         }
 
         const { assertMigrationReplacement, createHostUpgradeCoordinator, getUpgradeJournal } = await import('@server/services/world/migrations/ModuleUpgradeService');
-        assertMigrationReplacement(preparedOperation.prepared.moduleDirectory, preparedOperation.prepared.info);
+        await assertMigrationReplacement(preparedOperation.prepared.moduleDirectory, preparedOperation.prepared.info);
         if (discoverMigrations(preparedOperation.prepared.moduleDirectory, preparedOperation.prepared.info)) {
             if (preparedOperation.archive.activeSource === 'local') throw new Error('Candidate managed package is inactive beside a local source; select the managed source explicitly before its world upgrade');
             if (!input.planId || !input.idempotencyKey || !input.administrator) throw new Error('Admin-reviewed migration plan required before file promotion');
@@ -296,18 +303,18 @@ export async function applyLocalModuleArchive(
                     job.registryBackups = [getLifecycleStateFilePathOverride() ?? getDefaultLifecycleStateFilePath(),
                         getArtifactStateFilePathOverride() ?? getDefaultArtifactStoreFilePath()].map(file => ({ path: file,
                         contents: fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null }));
-                    getUpgradeJournal().save(job);
-                    promotePreparedModuleArchive(preparedOperation.prepared, getModulesDataDir(), (phase, paths) => {
+                    await getUpgradeJournal().save(job);
+                    await promotePreparedModuleArchive(preparedOperation.prepared, getModulesDataDir(), async (phase, paths) => {
                         job.fileTransition = phase;
                         job.targetDirectory = paths.targetDirectory;
                         job.previousDirectory = paths.previousDirectory;
-                        getUpgradeJournal().save(job);
+                        await getUpgradeJournal().save(job);
                     });
                     const result = await registerArchive(operation, input, preparedOperation);
                     if (!result.success) throw new Error(result.error || 'Candidate registry transition failed');
                     job.fileTransition = 'registered';
                     job.candidateRoot = job.targetDirectory!;
-                    getUpgradeJournal().save(job);
+                    await getUpgradeJournal().save(job);
                     // Previous files remain durable. Only successful verified activation
                     // may finalize them; never call the old promotion.commit() here.
                 },
@@ -321,7 +328,7 @@ export async function applyLocalModuleArchive(
         }
 
         promotionAttempted = true;
-        const promotion = promotePreparedModuleArchive(preparedOperation.prepared);
+        const promotion = await promotePreparedModuleArchive(preparedOperation.prepared);
         const governedInfo = {
             ...preparedOperation.prepared.info,
             trust: { tier: preparedOperation.sourceTrustTier },

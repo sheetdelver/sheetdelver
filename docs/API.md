@@ -658,6 +658,12 @@ Resolves a Foundry UUID through the platform `DocumentResolver`.
 - Live Foundry compendium fallback is diagnostics-only and must not be required
   by module code.
 
+Malformed UUIDs return400; an authorized but missing document returns404.
+Typed `permission_denied` returns403 with a bounded safe message and SDK code,
+including revocation during awaited/warm-cache reads. Unexpected upstream/internal
+errors remain500 with details logged only server-side. A native transport returning
+a record does not bypass caller authorization.
+
 ---
 
 ## Module UI Serving
@@ -1194,15 +1200,27 @@ server contract changes. See [Notifications and Chat](NOTIFICATIONS.md).
 authorized context projections and an **admin-owned upgrade job**. See
 [the complete contract](MODULE_MIGRATIONS.md). Existing request writes remain
 caller-bound; modules receive no privileged migration execution API.
-The SDK surface is 3.3.0, module-api 1.5.0 and ui-extension-api 3.2.0; see
+Released 0.19.0 supplies SDK 3.3.0/module-api 1.5.0/UI 3.2.0. The corrective
+tree supplies SDK 3.4.0/module-api 1.6.0 for bounded migration relations; UI is
+unchanged. No supporting application release is assigned yet. See
 [compatibility and adoption](MODULE_MIGRATIONS.md#compatibility-and-adoption).
+The [independent review](adr/0064-module-world-context-and-data-migrations.md#independent-complete-maintenance-review--october-17-2026) identified CR64-14–17. Corrective
+implementation and isolated acceptance cover cancellation drain proof, complete
+large legacy-plan review and fresh final readiness. Subsequent CR64-18–21
+corrections and selected native v13/v14 acceptance pass. CR64-22/R1 administrator
+visibility and navigation acceptance complete C64-H and the Core implementation
+scope. Merge, supporting-release publication and separately authorized G8 module
+adoption remain pending. See the
+[final Core disposition](adr/0064-module-world-context-and-data-migrations.md#cr64-22-r1-correction-and-core-closeout--october-17-2026).
 
 | Surface | Contract |
 | --- | --- |
 | `GET /api/module-world-context` | Authenticated, initialized, role-filtered immutable context; no raw Settings. |
 | `GET /admin/world/service-account` | Admin-only observed/required role and remediation. |
+| `GET /admin/module-migrations` | Admin-only, no-store current source/world status projection; metadata/evidence only, no hooks or full inventory scans. Available in restricted maintenance too. |
 | `GET /admin/module-upgrades[/:id]` | Owner-only durable job/target outcomes and bounded compatibility/context diagnostics; no-store. |
-| `POST /admin/module-upgrades/source/:moduleId/preview` | `{source: "local" or "managed"}`; isolated, read-only world plan; no serving Store/context mutation. |
+| `POST /admin/module-upgrades/source/:moduleId/preview` | `{source: "local" or "managed",scopeKey?}`; isolated, read-only world plan; optional exact diagnostic scope checked before/after computation. No serving Store/context mutation. |
+| `GET /admin/module-upgrades/source/:moduleId/review?source=...&scopeKey=...` | Load the exact fresh cached advisory; no scan or source selection. Stale/missing/expired evidence returns409. |
 | `POST /admin/module-upgrades/source/apply` | Exact `planId`, `backupAcknowledged`; current admin principal; 202 accepted. |
 | `POST /admin/module-upgrades/retry-context` | Retry compatibility/preparation after dependency failure; 409 on failure; no new repair authorization. |
 | `POST /admin/module-upgrades/:id/resume` | Readback/reconcile the persisted approval, not a fresh repair authorization. |
@@ -1210,8 +1228,47 @@ The SDK surface is 3.3.0, module-api 1.5.0 and ui-extension-api 3.2.0; see
 | `POST /admin/module-upgrades/:id/review` | Fresh expiring preview for a stopped job with changed/restored source. |
 | `POST /admin/module-upgrades/:id/reapprove` | Exact revised `planId`, `backupAcknowledged`; retains prior approvals/outcomes. |
 | `POST /admin/module-upgrades/:id/cleanup` | Completed jobs only; confined retained staging/package cleanup, not world data. |
+| `GET /admin/module-maintenance` | Admin-only durable composition, progress, failure, plain-language `migration` projection and exact review plan when available; no-store. |
+| `POST /admin/module-maintenance/enter` | Advisory `{planId}`; persists disruption consent, closes admission/drains/stops normal runtime; **no write approval**. |
+| `POST /admin/module-maintenance/plan` | Builds the complete authoritative review after isolation; approved jobs use reviewed recovery, never silent replanning. |
+| `POST /admin/module-maintenance/approve` | Exact authoritative `{planId,backupAcknowledged:true}` and authenticated administrator; process-owned job returns 202. |
+| `POST /admin/module-maintenance/resume` | Continue persisted unchanged approval after source/readback/lease checks, without expiring an executing job. |
+| `POST /admin/module-maintenance/cancel` | Stop scheduling; before writes restore validated prior files, after possible writes retain maintenance/recovery; no undo. |
 
-These are direct Core routes. The browser uses the existing `/api/admin/...`
+Review projections include every planned target/path/patch and the exact logical
+approval digest; server-internal `operations[].dependencies`/`effects` proofs are
+not transmitted. Durable storage layout is private, not a module contract.
+The internal `module-migrations` response contains `sources`, `active`,
+`maintenance`, `revision` and `generatedAt`. Per-source entries name the module,
+local/managed copy, version, actual world and opaque `scopeKey`, with explicit
+state/reason/action and known freshness/counts/digests. Recovery/in-progress state
+supersedes prior passing evidence. Restricted composition omits normal source
+inventory. This diagnostic key is not approval authority, and the endpoint does
+not expose this information through public/player status. A GET cannot authorize
+writes or switch sources. No SDK/API contract-version change is required.
+Cancellation does not bypass an unknown ordinary-send outcome: durable
+`drained:true` is required even before native reconnect/planning. Rejected async
+cancellation retains the lease and recovery diagnostic;202 is acceptance of work,
+not completion. Admin preparation retry uses the normal lifecycle readiness event
+and may finish a freshly verified activation, never authorize a new repair.
+
+An admin maintenance record may contain provisional `initialApproval` identity
+while the first approval is being published. It is not a bound job or write
+authority. Cancellation/startup reconciles joined storage outside an aborted
+computation: an unpublished intent remains safely cancellable; an existing
+durable approval retains its original identity/history. Missing/corrupt active
+jobs remain gated. Poll the durable mode/busy/failure state after202; neither a
+provisional ID nor HTTP acknowledgement establishes migration completion.
+
+During maintenance, legacy mutation endpoints above return 503 rather than
+bypassing composition isolation. Use the controller routes. Ordinary player,
+module, debug, login and non-maintenance admin routes also return 503. Only
+admin authentication/status/recovery and generic public status remain available.
+The restricted shell is served directly by Core at `/`, `/admin`, `/admin/modules`
+on the configured application port: no Next worker is running. It uses direct
+`/admin/...` calls with the same network/origin/session/CSRF/audit policy.
+
+Outside maintenance these are direct Core routes. The normal browser uses `/api/admin/...`
 same-origin proxy (not `/admin/api/...`). Diagnostics name the failed phase and
 admin remediation, including discovery/read/preparation exceptions; public clients
 receive only generic maintenance. Source/catalog/recovery reviews show exact world,

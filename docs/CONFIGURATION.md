@@ -8,6 +8,14 @@ startup. Security procedures and key rotation are covered separately in
 
 ## Loading And Precedence
 
+The unreleased complete-maintenance correction persists its mode in
+`<DATA_DIR>/config/module-upgrades/maintenance.json`. A restart honors that mode;
+it does not restore ordinary Core/Next serving. Only the restricted admin/status
+shell and one full-GM observation/write path run until reviewed completion.
+Preserve the entire upgrade directory, receipts, leases and retained packages.
+Do not delete mode/locks to escape recovery or downgrade to 0.19.0 to resume
+new-format receipts. See [maintenance operations](MAINTENANCE_RUNTIME.md).
+
 Normal `npm run dev`, `npm run build`, and `npm start` commands load a
 project-root `.env` before starting Core or the application shell. Variables
 already present in the process environment take precedence over `.env`.
@@ -86,8 +94,8 @@ role on the actual Foundry user; neither `security.service-token`, SheetDelver
 admin login nor a local configuration field grants Foundry permissions.
 
 **Enforcement status:** [ADR-0064](adr/0064-module-world-context-and-data-migrations.md#full-gm-service-account-connection-and-recovery-prerequisite)
-implements connection/reconnect/demotion checks in the unreleased development
-tree, not published Core 0.18.1. Configure the full role before adopting it.
+implements connection/reconnect/demotion checks shipped in Core0.19.0, absent
+from0.18.1. Configure the full role before upgrading from older releases.
 
 The implementation blocks bootstrap/world access for a missing, lower-role or
 unverifiable service identity, while keeping administration available. Admin sees

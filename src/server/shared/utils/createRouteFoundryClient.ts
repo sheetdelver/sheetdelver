@@ -1,4 +1,4 @@
-import type { RollMode } from '@shared/sdk';
+import { SdkError, type RollMode } from '@shared/sdk';
 import type { ChatSendBody } from '@server/shared/types/documents';
 import type { RouteFoundryClient } from '@server/shared/types/requestContext';
 import type {
@@ -381,10 +381,10 @@ function createBaseRouteFoundryClient(
         fetchByUuid: async (uuid: string) => {
             const parsed = parseDocumentUuid(uuid);
             if (options.useSystemCompendiumTransport && parsed?.kind === 'compendium'
-                && (!client.userId || !canReadNativePack(client.userId, parsed.packId))) throw new Error('Pack read denied');
+                && (!client.userId || !canReadNativePack(client.userId, parsed.packId))) throw new SdkError('permission_denied', 'Pack read denied');
             const result = await getDocumentResolver().fetchByUuid(uuid);
             if (options.useSystemCompendiumTransport && parsed?.kind === 'compendium'
-                && (!client.userId || !canReadNativePack(client.userId, parsed.packId))) throw new Error('Pack access changed');
+                && (!client.userId || !canReadNativePack(client.userId, parsed.packId))) throw new SdkError('permission_denied', 'Pack access changed');
             return result;
         },
     };

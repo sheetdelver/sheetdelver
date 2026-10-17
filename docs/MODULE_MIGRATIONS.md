@@ -1,20 +1,34 @@
 # Native world context and module maintenance
 
-Unreleased Core implementation of [ADR-0064](adr/0064-module-world-context-and-data-migrations.md).
-The aggregate SDK additions are 3.3.0, module-api 1.5.0 and UI API 3.2.0. They are
-not present in released Core 0.18.1. Module adoption remains separate from the
-completed disposable-world native Core gate. Application/module release numbers
-are unchanged.
+Core **0.19.0** implements [ADR-0064](adr/0064-module-world-context-and-data-migrations.md),
+with SDK 3.3.0, module-api 1.5.0 and UI API 3.2.0. These contracts are absent from
+Core 0.18.1. Module adoption remains separate from the recorded disposable-world
+native Core gate. The [G8 corrective follow-up](adr/0064-module-world-context-and-data-migrations.md#g8-corrective-follow-up--october-16-2026)
+identifies unresolved capacity, parent-reference, diagnostic and v13 pack-policy
+defects in 0.19.0. The later [complete-maintenance decision](adr/0064-module-world-context-and-data-migrations.md#complete-maintenance-and-migration-acceptance--october-16-2026)
+adds runtime isolation (CR64-13) and holds all module work until Core's reconciled
+C64-A–H acceptance gates pass and are reviewed. The corrective branch now
+implements these changes; isolated whole-host acceptance is recorded in the ADR.
+The [independent review](adr/0064-module-world-context-and-data-migrations.md#independent-complete-maintenance-review--october-17-2026) identified four further Core gaps
+(CR64-14–17); their corrective implementation and isolated acceptance now precede
+fresh native v13/v14 acceptance and user review. Passing isolated scenarios do not
+close those remaining gates. Original native
+fixtures are not full adoption proof. See [maintenance runtime](MAINTENANCE_RUNTIME.md)
+for lifecycle owners, operator workflow and durable-format compatibility.
+
+The [independent confirmation](adr/0064-module-world-context-and-data-migrations.md#cr64-1417-independent-confirmation--october-17-2026) confirms CR64-14–17
+corrected on the current tree. Fresh native v13/v14 and user acceptance remain
+pending; this does not release the module-work hold.
 
 ## Compatibility and adoption
 
-The planned Core release is **0.19.0**, as recorded in the changelog; its release
-preparation/publication is still pending. The application package remains 0.18.1
-until the release helper updates it. After publication, modules adopting these
+The released baseline is **0.19.0** (`v0.19.0`, `2f71597`). Modules adopting these
 contracts should require the tested supporting Core release and pin both their
-validation and release workflows to it. Do not publish a dependent module against
-an unavailable host release or use the development package version as proof of
-released compatibility.
+validation and release workflows to it. Adoption requiring the corrective
+follow-up must use the eventual release containing those fixes and any new
+versioned contract; no new version is assigned by the review. Do not publish a
+dependent module against an unavailable host release or use the development
+package version as proof of released compatibility.
 
 | Surface | Provided version | Module compatibility requirement when adopted |
 | --- | --- | --- |
@@ -22,6 +36,12 @@ released compatibility.
 | `module-api` | 1.5.0 | `>=1.5.0 <2.0.0`; mandatory for migration-bearing packages. |
 | `ui-extension-api` | 3.2.0 | `>=3.2.0 <4.0.0` when using the new UI setting/context APIs. |
 | `roll-engine-api` | 1.0.0 | Unchanged; retain the module's existing compatible range. |
+
+This table describes released 0.19.0. The corrective tree adds SDK **3.4.0** /
+module-api **1.6.0** for declared relations. Existing catalogs retain their 1.5.0
+floor; relation-bearing definitions must explicitly exclude earlier hosts.
+UI/roll versions and application/module release versions are unchanged. No
+published supporting Core version is assigned by this implementation.
 
 Versions come from `src/shared/sdk/contractVersions.ts`; modules access public
 exports through `@sheet-delver/sdk`, never private host imports. Declare API
@@ -33,6 +53,34 @@ pure migration hooks and caller-safe projections. Non-full-GM `/api/system/data`
 requests require `getSystemDataForUser`; the host returns 403 when it is absent.
 Test the Core/module pair's player flows before deployment. Existing bootstrap
 caches and a GM-only test run cannot establish caller-safe compatibility.
+
+### Selected correction and module-work hold
+
+The user has paused further module implementation, catalog activation, module
+acceptance work and dependent releases until Core proves the complete workflow.
+Core-owned acceptance may consume existing immutable module artifacts; it must
+not change module repositories or claim their adoption is complete. This hold
+also covers otherwise independent module fixes. Follow the ADR's
+[reconciled implementation gates](adr/0064-module-world-context-and-data-migrations.md#reconciled-implementation-gates),
+not the earlier instruction to proceed with G8 in parallel.
+
+The selected design stops the ordinary Core/Next runtime and restarts a
+maintenance-only composition under the existing supervisor. Only maintenance
+UI/admin controls, one necessary service-account transport/observation path and
+the migration controller/workers remain active. Normal routes, user sockets,
+session restores, module callbacks and background jobs remain stopped. Full
+authoritative inventory/planning and reviewed write approval occur after that
+isolation; an online dry-run is advisory. Verified completion and a controlled
+fresh serving activation are required before access reopens.
+
+Healthy work must complete across every required supported target without a
+whole-job timeout or manual batch resubmission. Interruption by transport/process
+failure retains maintenance and durable progress for verified continuation.
+Readiness requires the real host/native v13/v14 coverage matrix, including world
+packs, deltas, representative size, background-work isolation, recovery and
+rendered maintenance—not only passing hook fixtures. No unconditional immunity
+to external failure is implied. The remaining sections describe the baseline
+plus explicitly identified unreleased corrections. Module adoption remains held.
 
 **Review status:** the independent review of `5013e86` found five Core defects
 despite passing automated suites. Their corrective implementation and evidence are in
@@ -91,7 +139,8 @@ Keep it bounded, read-only and revision-aware. Source ingress continues during t
 refresh; preparation uses the latest source after the asynchronous barrier. Failed
 refresh holds world work unavailable instead of publishing old values as current.
 Recovery refreshes context without normal adapter reinitialization.
-After failure, an admin can **Retry world preparation** in World maintenance.
+After failure, an admin can **Retry world preparation** from Installed's
+**World preparation requires attention** diagnostics.
 The retry reruns source compatibility and preparation; it does not authorize repairs
 or release unrelated gates. A hook timeout cannot cancel module JavaScript: Core
 prevents overlapping preparation, including across world teardown, until that hook
@@ -155,13 +204,44 @@ missing parameters reject the catalog. Aggregate parameters are bounded to 64 Ki
 Partial delta targets carry `baseActorUuid`; the base remains a separate source,
 not a synthetic materialized delta. Parameters/read dependencies are digest-bound.
 
+**Unreleased CR64-10 correction:** `reads.relations` selects `parent`, `ancestors`
+(closest first), or `baseActor`, independently of world-pack names. For example:
+
+```json
+{"reads":{"relations":[{"relation":"ancestors","forKinds":["ActiveEffect"],"fields":["type","system.category"],"required":true}]}}
+```
+
+Each declaration projects only its safe source `fields` (1–64 paths); at most
+three distinct relations are allowed. Entire `items`/`effects` collections and
+prototype paths are rejected. Canonical UUID/kind/pack/base identity remains
+attached. Missing required relations reject the exact target with a reason;
+optional absent relations stay absent. Null and partial ActorDelta fields stay
+null/partial; `baseActor` is separate, never a materialized delta. Hook input
+and pre-send dependency evidence bind selected relations. No world pack ID is
+hardcoded by Core. This addition requires module-api 1.6.0; the old broad
+`reads.targets`/`reads.packs` contracts and historical steps remain supported.
+
 Packaging separately bundles each hook as `.cjs`, rewrites the packaged definition,
 and validates the same catalog. Relative imports must remain confined; remote,
 builtin and other external imports are rejected. Execution verifies code digests
 and uses a timeout-bound VM with no supplied clock/network/filesystem/random API.
 This extends the trusted-plugin model, **not an OS security sandbox**. Each hook
-has a one-second limit; the current synchronous plan has a five-second computation
-budget and fails without approving a partial plan if exceeded.
+has a one-second limit. **Unreleased CR64-09 correction:** complete computation
+runs in Core-owned workers with durable progress and no global five-second
+inventory ceiling. Compiled scripts are reused within a job; every invocation
+still receives a new isolated VM. Initial/final inventories are complete. Bounded
+plans refresh relevant native roots during execution and group compatible native
+updates (at most 50 rows/512 KiB per envelope). These are automatic transport
+bounds, not total inventory limits or new approval boundaries. Every target
+intent precedes send, exact readback follows it, and uncertain batches reconcile
+without blindly replaying confirmed writes. Legacy broad dependencies retain
+complete reads rather than weakening approval semantics.
+
+**Unreleased CR64-11/12 corrections:** specific bounded step/target/phase reasons
+survive planning and durable recovery; public clients receive generic maintenance
+only. General v13 pack reads follow native role ownership, including Player
+OBSERVER access, separately from combat-management permissions. Caller checks
+and warm-cache revocation remain mandatory; no privileged fallback is introduced.
 
 Definitions constrain update-only targets and field prefixes. Core rejects identity,
 ownership, role, core flags, undeclared flag namespaces, unsafe keys and unsupported
@@ -223,12 +303,57 @@ Resume still requires exact dependency/source readback; changed inputs need a ne
 review and backup acknowledgement, retaining prior approval/outcome history. This
 does not detect edits Core has not observed after dispatch and is not native CAS.
 
-The durable sequence is inspect → approve/quiesce → retain/promote → restart in
+The current 0.19.0 sequence is inspect → approve/quiesce → retain/promote → restart in
 maintenance → migrate/read back → verify/prepare → activate/complete. Files installed,
 adapter serving and world-data ready are distinct outcomes. Job acceptance is HTTP
 202, not completion. A retained previous package protects pre-write installation
 recovery, not world data. Interrupted pre-write file/registry transitions require
 admin cancellation/review; never guess which package is safe after possible writes.
+
+The complete-maintenance addendum supersedes that execution order for the
+correction: optional online preflight → persistent maintenance and normal-worker
+shutdown → maintenance-only startup → complete authoritative plan → reviewed
+approval → retain/promote → migrate/read back → verify/prepare → activate/reopen.
+Entering maintenance does not itself authorize writes. An approved unchanged job
+does not need another approval per batch, elapsed interval or ordinary resume.
+The pre-approval preview expiry must not expire an executing approved job.
+
+The corrective journal stores complete logical plans in digest-verified paged
+`plan-content/` bundles (`core-migration-plan.v3` references), with exact dependency
+deltas rather than repeated whole-world maps in metadata. Individual records
+retain32MiB bounds; total inventory is not truncated. Preview/job HTTP reviews
+retain all targets, patches and logical approval digest, omitting private
+dependency/effect maps. Catalogs/hooks and the module SDK input do not change.
+Legacy inline approvals remain readable; oversized inline records are imported
+with their exact digest and retained original `.legacy-inline` bytes. Prior
+approvals and receipt streams remain durable. Preserve the entire directory
+during recovery; no block pruning or downgrade-to-0.19.0 recovery is supported.
+Existing v2 loose blocks remain readable. Core owns a serialized storage worker:
+encoding, digest checks, cold/legacy loading and fsynced atomic publication finish
+before approval authority or native sends. Modules need no new hook/SDK contract.
+The runtime guide describes worker ownership, cancellation and recovery boundaries.
+Diagnostic progress is process-local between durable state checkpoints. It is
+not an approval, receipt, inventory limit or signal to dispatch/replay a write.
+
+First approval publication is recoverable: a provisional maintenance intent pins
+the exact operation, plan, artifact, principal and lease before the first durable
+job. It grants no promotion/write authority. Cancellation/startup joins the writer
+and reads back outside the aborted computation signal. A published job is bound
+only after complete validation and re-established durability; an unpublished
+intent can return through proven-drain cancellation without manual journal edits.
+Missing/corrupt previously active approvals or orphan receipts remain gated,
+never treated as permission to clear maintenance. The same exact approval survives
+lost acknowledgements; no automatic native replay or new SDK/module mechanism is
+introduced. See the runtime guide for lease takeover and recovery boundaries.
+
+Single and batched native readback must match the exact approved resulting source
+(apart from supported `_stats` normalization) and still-current snapshot before
+confirmation. Unrelated changes retain intent/recovery; they do not authorize
+replay or undo. Every exit from isolation requires a proven durable ordinary-send
+drain, regardless of diagnostic text or process restart. Final asynchronous
+bootstrap validation rechecks freshness before readiness/publication. Admin
+preparation retry shares normal lifecycle readiness events and authorizes no new
+repair. See [the runtime guide](MAINTENANCE_RUNTIME.md) for operator recovery rules.
 
 Owner-only jobs/plans live under `<DATA_DIR>/config/module-upgrades`, outside
 evictable/module caches. File intent and per-target native intent are durable before
@@ -313,10 +438,95 @@ The browser checks use existing external tooling, never runtime dependencies.
 The supervised check copies only Core source/configuration into a temporary
 workspace, uses generated data and a fake loopback upstream, and replaces the real
 manager's Core/Next children. It does not connect to native Foundry. Inspect
-listeners first; the ADR records evidence and remaining native/adoption gates.
+listeners first; the ADR records qualified native evidence and pending release/adoption work.
 
 G8 module adoption is separate: declare native settings with versioned provenance;
 create lossless source-derived catalog/hooks and tests; implement dependency refresh;
 use caller capabilities on all served collections/cards; remove caller/UI repair
 routes. After a supporting Core release exists, adopt its tested SDK/toolchain minima.
 Do not publish a dependent module against an unavailable host release.
+
+
+### Current native acceptance and adoption hold
+
+The unreleased SDK 3.4 / module-api 1.6 implementation now has passing selected
+native v13/v14 coverage: complete representative and 3,194-write inventories,
+independent source/receipt comparisons, public install/upgrade/source-switch,
+recovery, settings/permissions and rendered maintenance. Focused CR64-21 first
+publication cancellation/crash/retry also passes on both generations. Core
+implementation closeout is recorded under the user's conditional instruction;
+supporting-release publication and separately authorized module adoption remain.
+The current evidence and measured operating costs are in
+[ADR-0064](adr/0064-module-world-context-and-data-migrations.md#fresh-complete-maintenance-native-v13-acceptance--october-17-2026).
+
+User review identified an additional Core admin UI follow-up:
+[CR64-22](adr/0064-module-world-context-and-data-migrations.md#cr64-22-admin-migration-visibility--october-17-2026).
+Independent review confirms the final placement, disclosures and Audit history.
+[CR64-22-R1](adr/0064-module-world-context-and-data-migrations.md#cr64-22-r1-correction-and-core-closeout--october-17-2026)
+corrects mounted-page navigation: unavailable or malformed targets retire prior
+source drawers, previews and controls with an accessible explanation. History
+navigation resolves the exact source anew; stale revision checks remain in force.
+Manual Details/close choices and disclosures survive stable refreshes. The
+backend and retained native migration evidence are unchanged.
+The corrective branch provides one Core-owned migration-status projection.
+Overview and unrelated admin pages show a compact notice only for required,
+blocked, in-progress or recovery states. Installed owns the full status panel
+(including unknown, unavailable, checking and passing results), without a duplicate
+global notice. Module cards/reviews retain source-specific detail; the restricted
+maintenance shell keeps its full reason/progress/next action.
+Installed status and source migration cards default collapsed unless they need
+attention. Click/keyboard expands them; new attention opens automatically, routine
+results collapse, and stable polling does not undo manual toggles. The explicitly
+opened source-review drawer stays detailed. **Audit → Migration job history** owns
+past jobs, receipts and retained-file/recovery controls. Installed shows only
+current status and actionable preparation diagnostics, with a link to history.
+“Migration job history” remains separate: empty history, Enabled status, catalog
+presence and old completion do not establish current readiness. Each source says
+no catalog, unknown/checking/unavailable, freshly up to date, required, blocked,
+in progress or recovery required. Known counts are shown; unknown counts are not
+invented. A catalog's presence alone does not establish required world changes.
+
+An attention notice identifies the module, actual world, local/managed source and known
+version. **Review migration** opens that exact source/world revision on Installed;
+**Review migration plan** loads its existing fresh advisory without scanning.
+**Check world data** deliberately runs the existing read-only advisory check. A
+stale link is rejected rather than redirected to another copy. Inactive copies
+are explicitly labeled and cannot inherit the selected source's result. Opening
+either action does not switch sources, enter maintenance or authorize writes.
+
+Fresh evidence comes from existing bootstrap checks or explicit source previews,
+not page renders. Core retires it on observed world/context/document/pack,
+connection/authority or source-file changes. Normal browser status polls are
+metadata-only; failed/overdue responses clear the display. A process restart
+requires fresh evidence rather than reviving a historical green result. These
+are observed-revision diagnostics, not a substitute for execution-time checks.
+
+The standalone shell presents a plain-language reason, exact known identity,
+progress and next action before the full technical plan/recovery details. Its
+admin-only explanation does not load Next or module code. Required backup
+acknowledgement and exact authoritative approval remain separate from advisory
+inspection. No migration approval, source-selection or execution contract changed.
+
+CR64-18–21 storage responsiveness, pack metadata, permission-error classification
+and first-job publication are Core responsibilities. Module work remains held;
+do not add timeouts, manual migration batches, private transports, pack-name
+heuristics or UI repair paths to compensate. Native Core fixtures do not establish
+compliance of a system module. Supporting application/SDK/toolchain release
+versions must be identified after publication; private fixture versions are not
+release floors. Bounded relations require module-api 1.6, while existing 1.5
+catalog semantics remain supported.
+
+A native source transport returning a pack record does not establish caller
+visibility. Both native generations returned hidden records that Core correctly
+withheld based on current pack metadata. v13 Assistants retain native GM-like pack
+read visibility, while Core's service account must still have role 4. Continue
+using caller-bound SDK capabilities, including checks after asynchronous reads
+and cache revocation.
+
+Module adoption must preserve exact historical hook bytes: relocated/recompiled
+source is not automatically the same artifact (including compiler header bytes).
+The native positive source-switch fixture uses its canonical packaging source;
+byte-different history was rejected, not normalized or excused. Do not add module
+workarounds for Core, silently change published steps, or infer a release floor
+from private fixture version numbers. No module work was performed by the native
+Core acceptance. Both disposable worlds were restored and test services stopped.

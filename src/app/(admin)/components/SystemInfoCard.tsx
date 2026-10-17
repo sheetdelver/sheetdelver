@@ -104,7 +104,7 @@ export default function SystemInfoCard() {
                         : 'bg-[var(--admin-danger-bg)] text-[var(--admin-danger-text)] border border-[var(--admin-danger-border)]'
                 }`}>
                     <span className="font-semibold">{connected ? '✓ Connected' : '✗ Disconnected'}:</span>
-                    <span className="ml-2 font-mono">{system.url}</span>
+                    <span className="ml-2 break-all font-mono">{system.url}</span>
                 </div>
             )}
 

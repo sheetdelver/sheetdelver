@@ -392,7 +392,8 @@ export class SystemService extends EventEmitter {
         });
     }
 
-    private async recoverOrBootstrap(): Promise<void> {
+    /** Recovery uses the same readiness event/heartbeat boundary as bootstrap. */
+    public async recoverOrBootstrap(): Promise<void> {
         if (!this.systemClient) throw new Error('SystemService not initialized');
         await worldBootstrapper.recover(this.systemClient, {
             onReady: ({ systemId }) => {
@@ -405,6 +406,16 @@ export class SystemService extends EventEmitter {
     public getSystemClient(): CoreSocket {
         if (!this.systemClient) throw new Error("SystemService not initialized");
         return this.systemClient;
+    }
+    /** Restricted composition supplies one transport, without normal controller/producers. */
+    public useMaintenanceTransport(client: CoreSocket): void {
+        if (this.worldTransportController || this.systemClient) throw new Error('Normal runtime must exit before maintenance transport composition');
+        this.systemClient = client;
+    }
+    public stopNormalTransport(): void {
+        this.worldTransportController?.dispose();
+        this.detachFoundryEventIngress?.();
+        this.systemClient?.disconnect();
     }
 
     public getWorldTransportController(): WorldTransportController {

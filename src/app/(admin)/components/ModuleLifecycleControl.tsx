@@ -16,7 +16,6 @@ import { ModuleSourceCategory, ModuleLifecycleStatus, ManagerAction } from '@sha
 import { useAdminAuth } from '../context/AdminAuthContext';
 import {
     fetchModuleLifecycle,
-    fetchAdminStatus,
     postLifecycleAction,
     type ModuleLifecycleInfo,
 } from '../lib/adminApi';
@@ -26,6 +25,10 @@ import EmptyState from './ui/EmptyState';
 import ErrorState from './ui/ErrorState';
 import Drawer from './ui/Drawer';
 import { useAdminRuntimeRestart } from '../context/AdminRuntimeRestartContext';
+import { useAdminMigration } from '../context/AdminMigrationContext';
+import { MigrationSourceStatus } from './MigrationAttentionNotice';
+import type { AdminMigrationStatus } from '@shared/types/adminMigration';
+import { useSearchParams } from 'next/navigation';
 
 // ─── Status styling ────────────────────────────────────────────────
 
@@ -67,6 +70,7 @@ interface CardEntry {
     reason?: string;
     health?: { errorCount: number; lastError: string; lastErrorAt: number };
     validation?: ModuleLifecycleInfo['validation'];
+    migration?: AdminMigrationStatus;
 }
 
 function buildCardEntries(modules: ModuleLifecycleInfo[]): CardEntry[] {
@@ -134,16 +138,28 @@ export default function ModuleLifecycleControl({ onModulesLoaded }: {
     onModulesLoaded?: (modules: ModuleLifecycleInfo[]) => void;
 }) {
     const { beginRuntimeRestart } = useAdminRuntimeRestart();
+    const { data: migrationData, refresh: refreshMigration } = useAdminMigration();
+    const search = useSearchParams();
+    const requestedModule = search.get('module'), requestedSource = search.get('source'), requestedScope = search.get('migration');
+    const navigationIntent = JSON.stringify(['module', 'source', 'migration'].map(key => search.getAll(key)));
+    const hasNavigationTarget = ['module', 'source', 'migration'].some(key => search.has(key));
+    const invalidNavigationTarget = hasNavigationTarget && (!requestedModule || !['local', 'managed'].includes(requestedSource ?? '')
+        || ['module', 'source', 'migration'].some(key => search.getAll(key).length > 1)
+        || (search.has('migration') && !requestedScope));
     const { isAuthenticated, csrfToken, logout } = useAdminAuth();
     const [modules, setModules] = useState<ModuleLifecycleInfo[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [operationInProgress, setOperationInProgress] = useState<string | null>(null);
     // Selected card whose detail/operations are shown in the right drawer (ADR-0030 UX-5).
-    const [selectedKey, setSelectedKey] = useState<string | null>(null);
+    // undefined follows the exact URL target; null/string are deliberate manual
+    // close/selection. A changed intent cannot render the previous drawer even
+    // before the effect runs. Stable data refreshes must not undo manual choices.
+    const [selection, setSelection] = useState<{ intent: string; key: string | null | undefined }>({ intent: navigationIntent, key: undefined });
+    const selectManually = (key: string | null) => setSelection({ intent: navigationIntent, key });
     // The connected world's system id determines which module is actually operative
     // (Foundry runs one world/system at a time) — used to mark the Active card (ADR-0030 UX-6).
-    const [activeSystemId, setActiveSystemId] = useState<string | null>(null);
+    const activeSystemId = migrationData?.active?.world?.systemId ?? null;
 
     const loadModules = useCallback(async () => {
         if (!isAuthenticated) { setError('Not authenticated'); setLoading(false); return; }
@@ -163,19 +179,12 @@ export default function ModuleLifecycleControl({ onModulesLoaded }: {
     }, [isAuthenticated, logout]);
 
     useEffect(() => { loadModules(); }, [loadModules]);
-    // Resolve the connected world's system id so the operative module can be marked Active.
-    useEffect(() => {
-        let active = true;
-        fetchAdminStatus().then(result => {
-            if (active && result.ok && result.data) {
-                setActiveSystemId(result.data.system?.id ?? null);
-            }
-        });
-        return () => { active = false; };
-    }, []);
     useEffect(() => {
         if (modules.length > 0 && onModulesLoaded) onModulesLoaded(modules);
     }, [modules, onModulesLoaded]);
+    useEffect(() => {
+        setSelection({ intent: navigationIntent, key: undefined });
+    }, [navigationIntent]);
 
     const handleToggle = async (entry: CardEntry) => {
         if (!isAuthenticated || !csrfToken) { setError('Authentication context missing.'); return; }
@@ -217,17 +226,25 @@ export default function ModuleLifecycleControl({ onModulesLoaded }: {
 
     // ─── Render ────────────────────────────────────────────────────
 
-    const entries = buildCardEntries(modules);
+    const entries = buildCardEntries(modules).map(entry => ({ ...entry, migration: migrationData?.sources.find(status => status.moduleId === entry.mod.moduleId
+        && status.source === (entry.cardSource ?? entry.mod.activeSource ?? 'managed')) }));
+    const requestedEntry = invalidNavigationTarget ? undefined : entries.find(entry => entry.mod.moduleId === requestedModule
+        && (entry.cardSource ?? entry.mod.activeSource) === requestedSource);
+    const selectedKey = selection.intent === navigationIntent ? selection.key : undefined;
+    const selected = selectedKey === undefined ? requestedEntry : entries.find(entry => entry.key === selectedKey);
 
     return (
         <div className="p-4">
             <div className="mb-4 flex items-center justify-end">
-                <Button variant="secondary" size="sm" onClick={loadModules} disabled={loading}>
+                <Button variant="secondary" size="sm" onClick={() => { void loadModules(); void refreshMigration(); }} disabled={loading}>
                     {loading ? 'Refreshing...' : 'Refresh'}
                 </Button>
             </div>
 
             {error && <ErrorState message={error} className="mb-4" />}
+            {invalidNavigationTarget && <p role="alert">The requested module/source review link is invalid. Use a single module and local or managed source, with a nonempty revision if supplied. No alternative source was selected.</p>}
+            {!loading && hasNavigationTarget && !invalidNavigationTarget && !requestedEntry
+                && <p role="alert">The requested module/source is no longer installed. No alternative source was selected.</p>}
 
             {/* Single-active reality: only the module matching the connected world's system is live. */}
             <p className="mb-3 text-xs text-[var(--admin-text-muted)]">
@@ -246,7 +263,7 @@ export default function ModuleLifecycleControl({ onModulesLoaded }: {
                             activeSystemId={activeSystemId}
                             operationInProgress={operationInProgress === entry.key}
                             onToggle={() => handleToggle(entry)}
-                            onOpenDetail={() => setSelectedKey(entry.key)}
+                            onOpenDetail={() => selectManually(entry.key)}
                         />
                     ))
                 )}
@@ -254,16 +271,17 @@ export default function ModuleLifecycleControl({ onModulesLoaded }: {
 
             {/* Detail/operations drawer — keeps the list scannable (ADR-0030 UX-5). */}
             {(() => {
-                const selected = entries.find(e => e.key === selectedKey);
                 return (
                     <Drawer
                         open={!!selected}
                         title={selected ? selected.mod.title : ''}
-                        onClose={() => setSelectedKey(null)}
+                        onClose={() => selectManually(null)}
                     >
                         {selected && (
                             <ModuleDetailPanel
+                                key={`${navigationIntent}:${selected.key}`}
                                 entry={selected}
+                                expectedMigrationScope={selected.mod.moduleId === requestedModule && (selected.cardSource ?? selected.mod.activeSource) === requestedSource ? requestedScope ?? undefined : undefined}
                                 onOperationComplete={() => { loadModules(); }}
                                 onSessionExpired={logout}
                             />
@@ -321,11 +339,11 @@ function ModuleCard({
 
     return (
         <div className={`rounded-lg border p-4 transition-colors ${cardClass}`}>
-            <div className="flex items-start justify-between">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="flex-1 min-w-0">
                     {/* Title + badges */}
                     <div className="flex items-center gap-2 flex-wrap">
-                        <h3 className="text-lg font-semibold text-[var(--admin-text-primary)]">
+                        <h3 className="break-words text-lg font-semibold text-[var(--admin-text-primary)]">
                             {mod.title}
                         </h3>
                         {isActive && (
@@ -359,7 +377,7 @@ function ModuleCard({
                     </div>
 
                     {/* Module ID + status */}
-                    <div className="mt-1 flex items-center gap-3 text-sm text-[var(--admin-text-secondary)]">
+                    <div className="mt-1 flex flex-wrap items-center gap-3 text-sm text-[var(--admin-text-secondary)]">
                         <span className="font-mono text-xs">{mod.moduleId}</span>
                         <span className="flex items-center gap-1.5">
                             <span className={`inline-block h-2 w-2 rounded-full ${getStatusColor(isEffectivelyEnabled ? 'enabled' : status)}`} />
@@ -376,6 +394,7 @@ function ModuleCard({
                     )}
 
                     {/* Health */}
+                    {cardSource && cardSource !== mod.activeSource && <p className="mt-2 text-sm font-semibold">Inactive {cardSource} source — {mod.activeSource ?? 'another source'} is selected</p>}
                     {health && health.errorCount > 0 && (
                         <div className="mt-1 flex items-center gap-1 text-xs text-[var(--admin-danger-text)]">
                             <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -387,7 +406,7 @@ function ModuleCard({
                 </div>
 
                 {/* Action buttons */}
-                <div className="ml-4 flex flex-col items-end gap-1">
+                <div className="flex flex-col items-start gap-1 sm:ml-4 sm:items-end">
                     <div className="flex items-center gap-2">
                         <button
                             onClick={onOpenDetail}
@@ -422,6 +441,8 @@ function ModuleCard({
                     )}
                 </div>
             </div>
+            <div className="mt-3">{entry.migration ? <MigrationSourceStatus status={entry.migration} onReview={onOpenDetail} />
+                : <p className="text-sm text-[var(--admin-text-muted)]">Migration readiness unavailable — lifecycle status is not a data check.</p>}</div>
         </div>
     );
 }

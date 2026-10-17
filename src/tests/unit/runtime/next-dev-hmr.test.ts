@@ -73,7 +73,7 @@ export function run(): void {
         assert.equal(fs.readFileSync(target, 'utf8'), `${original}\n// unexpected modification`);
         assert.equal(fs.readFileSync(installedTarget, 'utf8'), installed, 'real installed dependency untouched');
         const manager = fs.readFileSync('src/scripts/start-server.ts', 'utf8');
-        assert.match(manager, /if \(command === 'dev'\) \{\s*const patchResult = prepareNextDev\(\);/);
+        assert.match(manager, /if \(command === 'dev' && !restricted\) \{\s*const patchResult = prepareNextDev\(\);/);
         assert.ok(manager.indexOf('const patchResult = prepareNextDev();') < manager.indexOf("coreProcess = spawn('npx'"));
         console.log('next-dev-hmr: scoped sync, broadcasts, reconnect, idempotence, restore and mismatch guards PASS');
     } finally { fs.rmSync(fixture, { recursive: true, force: true }); }

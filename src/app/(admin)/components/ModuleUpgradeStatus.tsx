@@ -16,7 +16,7 @@ interface Job {
 interface Diagnostic { account: string; observedRole: number | null; requiredRole: number; remediation: string }
 
 /** Admin-only progress survives a new browser/session; the server journal is authoritative. */
-export default function ModuleUpgradeStatus() {
+export default function ModuleUpgradeStatus({ diagnosticsOnly = false }: { diagnosticsOnly?: boolean }) {
     const { logout } = useAdminAuth();
     const [jobs, setJobs] = useState<Job[]>([]);
     const [diagnostic, setDiagnostic] = useState<Diagnostic | null>(null);
@@ -38,7 +38,7 @@ export default function ModuleUpgradeStatus() {
         setContextDiagnostic(result.data.contextDiagnostic ?? null);
     }, [logout]);
     useEffect(() => { void load(); }, [load]);
-    const running = jobs.some(job => !['completed', 'cancelled', 'recovery-required'].includes(job.phase));
+    const running = !diagnosticsOnly && jobs.some(job => !['completed', 'cancelled', 'recovery-required'].includes(job.phase));
     useEffect(() => {
         if (!running) return;
         let checks = 0;
@@ -71,16 +71,17 @@ export default function ModuleUpgradeStatus() {
         else if (result.ok) { setReview(null); await load(); } else setError(result.error ?? 'Recovery approval failed');
         setBusy(false);
     };
-    return <section className="admin-panel my-4 space-y-3 rounded-xl p-4" aria-label="Module upgrade status">
-        <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="font-semibold">World maintenance</h2>
+    if (diagnosticsOnly && !diagnostic && !error && !compatibility && !contextDiagnostic) return null;
+    return <section id={diagnosticsOnly ? undefined : 'module-upgrade-history'} className="admin-panel my-4 space-y-3 rounded-xl p-4" aria-label={diagnosticsOnly ? 'World preparation diagnostics' : 'Module upgrade status'}>
+        <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="font-semibold">{diagnosticsOnly ? 'World preparation requires attention' : 'Migration job history'}</h2>
             <Button onClick={() => void load()} disabled={busy}>Refresh status</Button></div>
-        {diagnostic && <div role="alert" className="break-words text-sm text-[var(--admin-warning-text)]">
+        {diagnosticsOnly && diagnostic && <div role="alert" className="break-words text-sm text-[var(--admin-warning-text)]">
             <p>Service account: {diagnostic.account}; observed role: {diagnostic.observedRole ?? 'unknown'}; required: Gamemaster ({diagnostic.requiredRole}).</p>
             <p>{diagnostic.remediation}</p>
         </div>}
         {error && <p role="alert" className="text-sm text-[var(--admin-danger-text)]">{error}</p>}
-        {compatibility && <div role="alert" className="break-words text-sm"><p>{compatibility.moduleId}: source maintenance required ({compatibility.phase}).</p><ul>{compatibility.blockers.map((reason, i) => <li key={i}>{reason}</li>)}</ul><p>{compatibility.remediation}</p></div>}
-        {(contextDiagnostic || compatibility) && <div className="space-y-2 text-sm">
+        {diagnosticsOnly && compatibility && <div role="alert" className="break-words text-sm"><p>{compatibility.moduleId}: compatibility diagnostic ({compatibility.phase}). See current world migration status above.</p><ul>{compatibility.blockers.map((reason, i) => <li key={i}>{reason}</li>)}</ul><p>{compatibility.remediation}</p></div>}
+        {diagnosticsOnly && (contextDiagnostic || compatibility) && <div className="space-y-2 text-sm">
             {contextDiagnostic && <p role="alert">World context revision {contextDiagnostic.revision}: {contextDiagnostic.remediation}</p>}
             <Button disabled={busy || contextDiagnostic?.pendingHook} onClick={async () => {
                 setBusy(true);
@@ -89,8 +90,8 @@ export default function ModuleUpgradeStatus() {
                 await load(); setBusy(false);
             }}>Retry world preparation</Button>
         </div>}
-        {!jobs.length && <p className="text-sm text-[var(--admin-text-muted)]">No recorded module upgrade jobs.</p>}
-        {jobs.map(job => <div key={job.jobId} className="rounded-lg border border-[var(--admin-border)] p-3 text-sm">
+        {!diagnosticsOnly && !jobs.length && <p className="text-sm text-[var(--admin-text-muted)]">No recorded module upgrade jobs. This is history only, not a world-data readiness check.</p>}
+        {!diagnosticsOnly && jobs.map(job => <div key={job.jobId} className="rounded-lg border border-[var(--admin-border)] p-3 text-sm">
             <p className="break-words font-semibold">{job.moduleId} {job.candidateVersion}: {job.phase}</p>
             <p>Installed candidate: {job.installedVersion ?? 'not promoted'}; activated by this job: {job.servingVersion ?? 'not activated'}; world data: {job.worldDataStatus ?? 'unverified'}.</p>
             <p>{Object.values(job.outcomes).filter(row => row.state === 'confirmed').length} confirmed target writes.</p>

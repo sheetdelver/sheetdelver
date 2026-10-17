@@ -350,11 +350,11 @@ function syncPromotionTree(directory: string): void {
     syncPromotionDirectory(directory);
 }
 
-export function promotePreparedModuleArchive(
+export async function promotePreparedModuleArchive(
     prepared: PreparedModuleArchive,
     modulesRoot = getModulesDataDir(),
-    onTransition?: (phase: 'intent' | 'previous-retained' | 'promoted', paths: { targetDirectory: string; previousDirectory: string }) => void,
-): ModuleArchivePromotion {
+    onTransition?: (phase: 'intent' | 'previous-retained' | 'promoted', paths: { targetDirectory: string; previousDirectory: string }) => void | Promise<void>,
+): Promise<ModuleArchivePromotion> {
     const moduleId = parseModuleId(prepared.info.id);
     if (!moduleId) throw new Error('Prepared archive has an invalid module id');
     ensurePlainDirectory(modulesRoot);
@@ -369,7 +369,7 @@ export function promotePreparedModuleArchive(
     const backupDirectory = path.join(prepared.transactionDirectory, 'previous');
     const targetExists = fs.existsSync(targetDirectory);
     if (onTransition) syncPromotionTree(prepared.moduleDirectory);
-    onTransition?.('intent', { targetDirectory, previousDirectory: backupDirectory });
+    await onTransition?.('intent', { targetDirectory, previousDirectory: backupDirectory });
     if (targetExists) {
         const targetStat = fs.lstatSync(targetDirectory);
         if (!targetStat.isDirectory() || targetStat.isSymbolicLink()) {
@@ -378,12 +378,12 @@ export function promotePreparedModuleArchive(
         fs.renameSync(targetDirectory, backupDirectory);
         if (onTransition) { syncPromotionDirectory(modulesRoot); syncPromotionDirectory(prepared.transactionDirectory); }
     }
-    onTransition?.('previous-retained', { targetDirectory, previousDirectory: backupDirectory });
+    await onTransition?.('previous-retained', { targetDirectory, previousDirectory: backupDirectory });
 
     try {
         fs.renameSync(prepared.moduleDirectory, targetDirectory);
         if (onTransition) { syncPromotionDirectory(modulesRoot); syncPromotionDirectory(prepared.transactionDirectory); }
-        onTransition?.('promoted', { targetDirectory, previousDirectory: backupDirectory });
+        await onTransition?.('promoted', { targetDirectory, previousDirectory: backupDirectory });
     } catch (error) {
         if (targetExists && fs.existsSync(backupDirectory)) {
             fs.renameSync(backupDirectory, targetDirectory);

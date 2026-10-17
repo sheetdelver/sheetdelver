@@ -1,5 +1,15 @@
 # Releases
 
+## Unreleased
+
+- Isolated complete maintenance runtime
+- Added bounded migration relations
+- Completed responsive durable migrations
+- Recovered durable approval interruptions
+- Corrected pack access and indexing
+- Surfaced source-bound migration attention
+- Fixed clean bootstrap generation
+
 ## 0.19.0
 
 - Advanced SDK to 3.3.0

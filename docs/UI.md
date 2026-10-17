@@ -366,6 +366,64 @@ under the `SurfaceHost` root:
 Module CSS must scope selectors under `.sdk-module--<id>` unless the checker
 explicitly allows the construct, such as `@font-face` or `@keyframes`.
 
+### Maintenance-only presentation (unreleased correction)
+
+Overview and unrelated admin pages show only a compact **Migration attention**
+notice when the active source needs migration, is blocked, is in progress or
+requires recovery. It names the module/world/source/version and links directly
+to review; routine checking, unknown/unavailable, up-to-date and no-catalog states
+do not occupy global chrome. A failed/retired status response also removes stale
+attention rather than leaving a warning for another world or session.
+
+Installed owns the detailed **World migration status** panel in every state,
+including loading/error, unknown/unavailable and passing results, plus the manual
+refresh/check action. It suppresses the shared notice to avoid duplication.
+The Installed panel and source migration cards are disclosures: routine states
+start collapsed with a compact status summary; required, blocked, in-progress and
+recovery states start expanded. Administrators can toggle either with pointer or
+keyboard. Stable polls preserve manual choices; a changed state or world/source
+scope restores the appropriate default. Explicit review drawers remain detailed.
+
+Migration job history, receipts and retained-file/recovery controls live under
+**Audit → Migration job history**, not Installed. Installed retains actionable
+service-account/compatibility/context diagnostics and preparation retry when
+needed, without rendering empty history or old jobs. Its expanded status links
+to Audit. History is not readiness evidence. Inactive copies are explicit. Links retain exact
+source/world revision; stale links require reopening the current review and never
+select another source. One authenticated provider polls evidence every5s while
+visible; failed, session-retired or overdue evidence is removed rather than left
+green. Polling does not run full migration scans. The standalone maintenance
+shell retains its full explanation; the attention-only rule concerns normal
+admin-page chrome, not the restricted recovery interface.
+
+Explicit module/source navigation, including Back/Forward, retires the previous
+drawer and loaded preview before rendering the new target. Missing modules,
+unavailable sources and malformed/ambiguous links leave an accessible explanation,
+not another source's controls. An explicitly supplied empty revision is invalid;
+an older revision retains its scope check and disables migration actions. Manual
+Details and close choices survive stable refreshes; a changed navigation target
+resolves afresh. This UI retirement does not change backend approval authority.
+See [CR64-22-R1](adr/0064-module-world-context-and-data-migrations.md#cr64-22-r1-correction-and-core-closeout--october-17-2026).
+
+Normal Core/Next workers stop during reviewed world maintenance. Core serves a
+small dependency-free status/admin shell at the application port; it does not
+load module assets or player providers. Its public panel contains no world,
+target or recovery detail. Authenticated administrators see complete plans,
+bounded reasons/progress, the mandatory backup-warning acknowledgement and a
+keyboard-accessible stop confirmation. Browser light/dark preferences and narrow
+viewports remain supported without mounting a module theme.
+The primary authenticated explanation names the known world/module/source,
+plain-language reason, progress and next action before a technical disclosure.
+The disclosure retains every proposed update. Changing plan/artifact identity
+clears backup acknowledgement; failed or expired authentication removes private
+details and disables approval. This remains independent of Next/module runtime.
+
+Old player pages retain the shared nondismissible, inert maintenance boundary.
+Reconnects get public maintenance status only, never restored user transports.
+After verified activation, an observed new runtime token requests a reload;
+old assets cannot adopt the new mutation token. See [runtime lifecycle and
+operator flow](MAINTENANCE_RUNTIME.md) and [API payloads](API.md#module-world-context-and-maintenance-apis-unreleased).
+
 ---
 
 ## Dice Presentation and Player Settings

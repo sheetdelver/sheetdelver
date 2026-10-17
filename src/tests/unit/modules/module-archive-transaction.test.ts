@@ -124,7 +124,7 @@ export async function run() {
         assert.equal(prepared.artifactHealth.hasErrors, false);
         assert.equal(prepared.integrity, archiveDigest.integrity);
 
-        const promotion = promotePreparedModuleArchive(prepared, modulesRoot);
+        const promotion = await promotePreparedModuleArchive(prepared, modulesRoot);
         assert.equal(promotion.replacedExisting, true);
         assert.equal(fs.existsSync(path.join(oldManaged, 'dist', 'logic.js')), true);
         assert.equal(fs.existsSync(path.join(oldManaged, 'old.txt')), false);
@@ -137,7 +137,7 @@ export async function run() {
             stagingRoot,
             coreVersion: '0.8.0',
         });
-        const committedPromotion = promotePreparedModuleArchive(preparedForCommit, modulesRoot);
+        const committedPromotion = await promotePreparedModuleArchive(preparedForCommit, modulesRoot);
         committedPromotion.commit();
         assert.equal(fs.existsSync(path.join(oldManaged, 'dist', 'ui.js')), true);
 

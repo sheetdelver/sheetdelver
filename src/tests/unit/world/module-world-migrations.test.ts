@@ -9,6 +9,7 @@ import { WorldWorkGate, worldWorkGate } from '@server/core/world/WorldWorkGate';
 import { discoverMigrations, migrationDigest } from '@modules/registry/migrations/catalog';
 import { ModuleUpgradeCoordinator, type UpgradeCoordinatorDeps, type UpgradeCandidate } from '@server/services/world/migrations/ModuleUpgradeCoordinator';
 import { UpgradeJournal } from '@server/services/world/migrations/UpgradeJournal';
+import { readLegacyMigrationJson } from '@server/services/world/migrations/MigrationPlanStorage';
 import { planWorldMigrations, applyMigrationPatch, validateMigrationPatch, hookInput } from '@server/services/world/migrations/planner';
 import { runMigrationHook } from '@server/services/world/migrations/hooks';
 import { enumerateMigrationTargets, expandMigrationTargets, type MigrationSourceView } from '@server/services/world/migrations/targets';
@@ -42,6 +43,17 @@ export const world: ModuleWorldSnapshot = { identity: { instanceId: 'opaque-loca
 export async function run(): Promise<void> {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sd-core-migrations-'));
     try {
+        const legacyJson = path.join(root, 'legacy-reader.json');
+        const unicode = { note: 'x'.repeat(65_525) + '世😀\\"tail', values: [false, 0, null, -1.25e3], nested: { yes: true } };
+        fs.writeFileSync(legacyJson, JSON.stringify(unicode));
+        assert.deepEqual(readLegacyMigrationJson(legacyJson), unicode, 'UTF-8 across streaming pages and escaped strings remain lossless');
+        fs.writeFileSync(legacyJson, '{"__proto__":{"polluted":true}}');
+        const imported = readLegacyMigrationJson(legacyJson);
+        assert.equal(Object.getPrototypeOf(imported), Object.prototype); assert.ok(Object.hasOwn(imported, '__proto__'));
+        for (const invalid of ['{"x":1,"x":2}', '[1,]', '{} trailing', '\u00a0{}', '['.repeat(66) + ']'.repeat(66)]) {
+            fs.writeFileSync(legacyJson, invalid); assert.throws(() => readLegacyMigrationJson(legacyJson));
+        }
+        fs.writeFileSync(legacyJson, Buffer.from([0xff])); assert.throws(() => readLegacyMigrationJson(legacyJson));
         const settings = new SettingStore();
         const context = new ModuleWorldContextService(settings);
         const declarations: WorldSettingDeclaration[] = ['false', 'zero', 'null', 'default'].map(key => ({
@@ -210,7 +222,8 @@ export async function run(): Promise<void> {
             worldStateStore.seed({ world: { id: 'w1' }, system: { id: 'fixture', version: '1.0.0' }, release: { generation } } as any);
             assert.equal(canReadNativePack('role0', pack1), false);
             assert.equal(canReadNativePack('role4', pack2), true);
-            assert.equal(canReadNativePack('role1', pack1), generation === 14);
+            assert.equal(canReadNativePack('role1', pack1), true, 'native v13 and v14 CompendiumCollection grant OBSERVER');
+            assert.equal(canReadNativePack('role2', pack1), true, 'Trusted inherits native PLAYER threshold');
             assert.equal(canReadNativePack('role3', pack2), generation === 13, 'native generation-specific Assistant pack rule retained');
         }
         const sourceActor = { _id: 'canonical', id: 'canonical', name: 'Actor', type: 'character', system: { first: uuid1, second: uuid2 }, items: [], effects: [], derived: {}, img: '' };

@@ -33,7 +33,7 @@ export function AdminRuntimeRestartProvider({ children }: { children: React.Reac
                 const status = await fetchAdminStatus();
                 // Admin must be usable while an approved job holds player readiness.
                 // Reloading the isolated admin shell is not world activation.
-                if (active && status.ok && status.data && (isRuntimeRestartReady(status.data) || status.data.maintenance)) {
+                if (active && status.ok && status.data && (isRuntimeRestartReady(status.data) || status.data.maintenance && status.data.maintenance.phase !== 'entering')) {
                     window.location.reload();
                     return;
                 }

@@ -112,6 +112,31 @@ requesting repository mirrors pack results into primary world Stores.
 Unsolicited read broadcasts also never mutate primary Stores. Only confirmed
 world reads and document changes may refresh the world cache.
 
+Pack index/freshness/hydration strategies carry the Store's native document type
+(or explicit declaration when native metadata is unavailable), not pack-name
+guesses when authority exists. Failed reads never become authoritative empty
+freshness results; successful empty arrays/envelopes remain valid. Current
+metadata/content revisions fence awaited publication. Route/SDK caller checks
+still precede and follow reads, including warm-cache revocation; raw native
+transport access is not a permission grant.
+
+Migration plan/journal bulk I/O is owned by one serialized storage worker per
+Core process. Immutable digest-addressed bundles reduce small-file/fsync fanout;
+approval and native intent still await durable storage. The supervisor drains and
+joins the worker before normal-runtime exit; cancellation retires it before any
+replacement. Cached maintenance status/review is diagnostic only. See
+[maintenance storage/recovery](MAINTENANCE_RUNTIME.md) for compatibility and
+durability details. Lease and final-send metadata fences remain Core-owned.
+
+First approval uses a durable provisional publication record tied to the exact
+maintenance operation, plan, principal and lease, not an early authoritative
+job reference. Only a confirmed durable job can be bound before promotion.
+Cancellation/startup join the old writer and reconcile publication independently
+of an aborted computation signal. An unpublished intent can be cancelled after
+proven drain; a lost acknowledgement retains the exact approval. Missing/corrupt
+previously bound jobs remain gated. Recovery re-syncs visible metadata before
+binding; it does not authorize new repairs or replay writes (CR64-21).
+
 On a same-world reconnect, `WorldBootstrapper.recover()` verifies world/system identity, refreshes the world snapshot and all active primary-document Stores, and rebuilds prepared actors without reinitializing the module adapter. Browser-visible changes are calculated from the snapshot captured at transport loss and published after readiness; Stores reject a seed that raced with a live mutation. A changed world/system still tears down and bootstraps anew. See ADR-0056.
 
 ---
@@ -426,13 +451,83 @@ dependencies.
 - **Backend (API)**: 3001
 - **Foundry**: Configurable via `<DATA_DIR>/config/settings.yaml`
 
-## Module world context and maintenance (unreleased)
+## Module world context and maintenance
 
-[Core ADR-0064](adr/0064-module-world-context-and-data-migrations.md) implements
+### Administrator migration evidence
+
+CR64-22 adds an internal, admin-only status projection (`migrationAttention`),
+separate from lifecycle Enabled status and upgrade history. Existing compatibility
+checks and deliberate source previews publish diagnostic evidence into
+`migrationEvidence`; render/status requests never run hooks or inventory scans.
+Evidence binds source category/directory/version and observed file revisions to
+world/context, transport generation, full-GM authority and primary/pack revisions.
+Normal Core owns passive unref'ed filesystem observers; replacement closes them.
+Failed observations cannot establish passing evidence. Restarted Core starts with
+unknown readiness until fresh checks complete.
+
+Durable maintenance/recovery takes precedence, using existing controller/journal
+read models. Restricted composition reads no normal registry/module graph for this
+projection. Once on restricted startup, the existing owned storage worker warms
+durable candidate/job/review metadata even if native reconnect is unavailable;
+status polling never initiates those loads. One admin provider refreshes status, clears retired/failed/overdue data,
+and carries exact source/world scope in review links. Compact shared chrome shows
+only required/blocked/in-progress/recovery attention, including on Overview;
+Installed makes full status available and suppresses duplicate chrome. Its panel
+and source migration cards default collapsed for routine states and expanded for
+attention; native disclosures retain manual toggles across stable polls and reset
+for changed status/scope. Explicit review drawers remain detailed. Migration job
+history lives in Audit; Installed retains actionable preparation diagnostics only.
+Module cards/reviews remain source-specific. These are presentation rules over the same
+authoritative status, not another migration decision engine. Cached plan inspection is
+read-only; original authoritative approval and write-time checks remain decisive.
+See [operator behavior](MODULE_MIGRATIONS.md#current-native-acceptance-and-adoption-hold)
+and [admin endpoints](API.md#module-world-context-and-maintenance-apis-unreleased).
+
+[Core ADR-0064](adr/0064-module-world-context-and-data-migrations.md), released in Core 0.19.0, implements
 live, immutable snapshots of declared native world settings and dependency
 revisions for prepared data, shared pack-permission policy and canonical Actor
 response references. See [the contract guide](MODULE_MIGRATIONS.md) for schemas,
 ownership, endpoint payloads, recovery limits and module-adoption requirements.
+
+**Unreleased corrective implementation:** the
+[complete-maintenance addendum](adr/0064-module-world-context-and-data-migrations.md#complete-maintenance-and-migration-acceptance--october-16-2026)
+requires a supervised maintenance-only runtime and complete migration coverage
+before any more module work. The gate/drain remains the final native-send
+boundary; it is now paired with persistent composition selection and supervised
+normal-worker shutdown. Earlier successful small native fixtures do not replace
+fresh complete-maintenance native acceptance.
+
+The corrective architecture persists maintenance before stopping normal Core/
+Next workers and confirms their exit. The supervisor then starts only admin/
+status/recovery, the job controller and necessary full-GM transport/observation
+services. Ordinary user transports, routes, realtime delivery, module work and
+background producers remain stopped. Authoritative planning and write approval
+occur under that isolation; a normal-service dry-run is advisory. A fresh verified
+serving generation activates only after complete migration/readback/preparation.
+Maintain minimal native identity, authority, acknowledgement and revision
+observations; suppress ordinary cache/preparation/publication work. Foundry keeps
+running. Reuse existing infrastructure rather than adding a module-owned transport
+or another public world cache. Final adapter preparation runs in an owned,
+read-only worker over the single parent transport; its timers/callbacks are
+terminated before activation. [Maintenance runtime](MAINTENANCE_RUNTIME.md)
+defines the producer/owner map, exclusive leases, shell, journal upgrade and
+workflow. SDK 3.4.0/module-api 1.6.0 add bounded relation declarations; application
+release metadata remains 0.19.0. Selected C64-G native v13/v14 acceptance now
+passes; CR64-22/R1 completes C64-H and closes the Core implementation scope.
+Merge, supporting-release publication and separately authorized G8 adoption remain
+pending. See the [final Core disposition](adr/0064-module-world-context-and-data-migrations.md#cr64-22-r1-correction-and-core-closeout--october-17-2026).
+See the [current native evidence](adr/0064-module-world-context-and-data-migrations.md#fresh-complete-maintenance-native-v13-acceptance--october-17-2026)
+for source comparisons, cleanup, memory/latency costs and qualifications.
+The [independent review](adr/0064-module-world-context-and-data-migrations.md#independent-complete-maintenance-review--october-17-2026) identified CR64-14–17. The corrective
+tree now uses shared exact single/batch readback and fresh receipts, durable drain
+enforcement on all maintenance exits, content-addressed paged plan/dependency
+storage and final post-worker bootstrap revision/authority fencing. Admin retry
+uses SystemService's recovery/readiness event path. Public review omits internal
+dependency proofs but preserves every target/patch and exact logical digest.
+Existing inline journals import losslessly; originals, receipts and historical
+approvals remain retained. These are Core changes, not module workarounds or a
+release-version bump. Qualified native acceptance is complete; release publication
+and the module hold remain separate from Core closeout.
 
 Migration execution belongs to the Core admin upgrade coordinator. A module
 keeps requirements in a root `migration.json` catalog and native-version directories
@@ -475,5 +570,8 @@ do not advance the fence; cache failure, late completion and resets cannot reviv
 an old scope. Possible-write evidence and exact recovery approval remain intact.
 The [CR64-06/07 follow-up](adr/0064-module-world-context-and-data-migrations.md#cr64-0607-corrective-implementation--october-16-2026)
 records real host/ingress/dispatch regressions, actual player appearance-provider
-rendering and isolated supervised replacement. Native acceptance, realistic
-inventory measurement and separate G8 adoption are still pending.
+rendering and isolated supervised replacement. Later native v13/v14 fixtures
+passed within their recorded scope. Subsequent complete-maintenance workflows,
+isolation and representative/larger native inventories also pass with the recorded
+memory and replacement-interruption limitations. Module work remains held pending
+the supporting release and explicit resumption.

@@ -30,6 +30,7 @@ import { DEFAULT_MODULE_ARCHIVE_LIMITS } from '@modules/registry/distribution/ar
 import { isDistributionHostAllowed } from '@modules/registry/distribution/publicDistributionClient';
 import { getConfig } from '@server/core/config';
 import { worldWorkGate } from '@server/core/world/WorldWorkGate';
+import { archiveUpgradeReview } from '@server/services/world/migrations/upgradeReview';
 
 export interface RegisterAdminModuleRoutesOptions {
     adminRouter: express.Router;
@@ -435,7 +436,7 @@ export function registerAdminModuleRoutes(opts: RegisterAdminModuleRoutesOptions
 
                     if (dryRun) {
                         const preview = await dryRunLocalModuleArchive(operation, input);
-                        return res.json(preview);
+                        return res.json(archiveUpgradeReview(preview));
                     }
 
                     const result = await applyLocalModuleArchive(operation, input);
@@ -535,7 +536,7 @@ export function registerAdminModuleRoutes(opts: RegisterAdminModuleRoutesOptions
 
                     if (dryRun) {
                         const preview = await releaseOperations.dryRunPublicModuleRelease(operation, input);
-                        return res.json(preview);
+                        return res.json(archiveUpgradeReview(preview));
                     }
 
                     const result = await releaseOperations.applyPublicModuleRelease(operation, input);
@@ -1136,7 +1137,7 @@ export function registerAdminModuleRoutes(opts: RegisterAdminModuleRoutesOptions
                     const releaseOperations = await import('@modules/registry/server');
                     if (dryRun) {
                         const preview = await releaseOperations.dryRunPublicModuleRelease(operation, input);
-                        return res.json({ ...preview, sourceId });
+                        return res.json({ ...archiveUpgradeReview(preview), sourceId });
                     }
 
                     const result = await releaseOperations.applyPublicModuleRelease(operation, input);

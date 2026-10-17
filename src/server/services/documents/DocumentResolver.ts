@@ -25,6 +25,7 @@ import { PrimaryDocumentCacheNotReadyError } from '@server/core/documents/primar
 import type { CompendiumService } from '@server/services/compendium/CompendiumService';
 import type { CompendiumPackManifest } from '@server/core/compendium/types';
 import { logger } from '@shared/utils/logger';
+import { isSdkError } from '@shared/sdk/errors';
 
 // DocumentResolver is the service-layer owner for UUID routing. Callers ask for
 // a UUID; this service decides which Store/service owns the bytes. Socket
@@ -401,7 +402,8 @@ export class DocumentResolver {
                 + 'Update module compendium pack config so normal SDK reads come from hydrated pack rows.',
             );
             return await service.getPackDocument(parsed.packId, parsed.documentId, parsed.type);
-        } catch {
+        } catch (error) {
+            if (isSdkError(error) && error.code === 'permission_denied') throw error;
             return null;
         }
     }

@@ -122,7 +122,7 @@ export async function run(): Promise<void> {
             },
             promote: async job => {
                 job.transactionDirectory = staged.transactionDirectory;
-                promotePreparedModuleArchive(staged, modules, (phase, paths) => {
+                await promotePreparedModuleArchive(staged, modules, (phase, paths) => {
                     job.fileTransition = phase; job.targetDirectory = paths.targetDirectory; job.previousDirectory = paths.previousDirectory; journal.save(job);
                 });
                 job.fileTransition = 'registered'; journal.save(job); promoted = true;
@@ -179,7 +179,7 @@ export async function run(): Promise<void> {
             const oldRoot = path.join(managedRoot, 'fixture'); fs.mkdirSync(oldRoot); fs.writeFileSync(path.join(oldRoot, 'old.txt'), 'old package');
             const stagedCrash = await prepareModuleArchive({ archivePath: archive, stagingRoot: archiveRoot, coreVersion: '0.18.1' });
             const crashed = { ...journal.job(job.jobId), possibleWrite: false, phase: 'recovery-required' as const, transactionDirectory: stagedCrash.transactionDirectory };
-            assert.throws(() => promotePreparedModuleArchive(stagedCrash, managedRoot, (phase, locations) => {
+            await assert.rejects(() => promotePreparedModuleArchive(stagedCrash, managedRoot, (phase, locations) => {
                 Object.assign(crashed, locations, { fileTransition: phase });
                 if (phase === boundary) throw new Error('injected process interruption');
             }));

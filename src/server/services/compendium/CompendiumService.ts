@@ -10,6 +10,7 @@ import type {
     GameDataPackEnvelope,
 } from '@server/core/compendium/types';
 import type { CompendiumPackConfig, CompendiumPackDeclaration } from '@shared/sdk';
+import { isSdkError } from '@shared/sdk/errors';
 
 export interface CompendiumTransport {
     isConnected: boolean;
@@ -31,6 +32,7 @@ export interface CompendiumServiceDeps {
 
 export interface GetPackEntriesOptions extends CompendiumIndexOptions {
     index?: boolean;
+    metadata?: CompendiumPackMetadata;
 }
 
 export interface HydratePacksResult {
@@ -52,6 +54,8 @@ const DEFAULT_INDEX_FIELDS = ['name', 'img', 'type'] as const;
 const INDEX_IDENTITY_FIELDS = ['_id', ...DEFAULT_INDEX_FIELDS] as const;
 
 function responseArray<T = unknown>(response: unknown): T[] | null {
+    if (response && typeof response === 'object'
+        && ((response as { error?: unknown }).error || (response as { success?: boolean }).success === false)) return null;
     if (Array.isArray(response)) return response as T[];
     if (response && typeof response === 'object' && Array.isArray((response as { result?: unknown }).result)) {
         return (response as { result: T[] }).result;
@@ -277,6 +281,7 @@ export class CompendiumService {
         manifest: CompendiumPackManifest,
     ): Promise<'hydrated' | 'skipped' | 'missing'> {
         const packId = declaration.id;
+        const assertCurrent = this.captureScope(packId);
 
         // Declared-but-absent: the module's info.json names a pack that the
         // running world doesn't expose. Log and skip with no transport call.
@@ -306,15 +311,17 @@ export class CompendiumService {
 
         logger.info(`CompendiumService | Hydrating pack ${packId} (${declaration.hydrate ? 'FULL' : 'INDEX'})...`);
 
-        let documents: Record<string, unknown>[] = [];
+        let documents: Record<string, unknown>[];
 
         if (declaration.hydrate) {
             const response = await this.transport.emitSocketEvent<{ result?: Record<string, unknown>[] }>('modifyDocument', {
-                type: declaration.type,
+                type: inferDocumentType(packId, this.getDeclarationMetadata(declaration)),
                 action: 'get',
                 operation: { pack: packId, index: false, query: {} },
             }, 5000);
-            if (response?.result && Array.isArray(response.result)) documents = response.result;
+            const rows = responseArray<Record<string, unknown>>(response);
+            if (!rows) throw new Error(`Full pack read failed: ${packId}`);
+            documents = rows;
         } else {
             documents = await this.getIndexedPackRows(declaration, entries, packFields);
         }
@@ -322,7 +329,7 @@ export class CompendiumService {
         // A compendium pack is primary-keyed by `_id`: retain one row per id
         // even if a transport response contains duplicate documents.
         documents = dedupeById(documents);
-
+        assertCurrent();
         await this.store.setPackRows(systemId, packId, documents);
 
         manifest.packs[packId] = {
@@ -345,14 +352,17 @@ export class CompendiumService {
     }
 
     private async fetchPackEntries(packId: string, options: GetPackEntriesOptions): Promise<CompendiumIndexEntry[]> {
+        const assertCurrent = this.captureScope(packId);
         logger.debug(`CompendiumService | Fetching entries for pack ${packId} (options: ${JSON.stringify(options)})...`);
         const indexFields = requestedIndexFields(options.fields);
+        const metadata = this.store.getPackMetadata(packId) || options.metadata;
+        const documentType = inferDocumentType(packId, metadata);
 
         try {
             try {
                 logger.debug(`[CompendiumService] [TRACE] getPackEntries Strategy 1 (modifyDocument): ${packId}`);
                 const response = await this.transport.emitSocketEvent<unknown>('modifyDocument', {
-                    type: inferDocumentType(packId),
+                    type: documentType,
                     action: 'get',
                     operation: {
                         pack: packId,
@@ -363,10 +373,12 @@ export class CompendiumService {
                 }, 5000);
                 const rows = responseArray<CompendiumIndexEntry>(response);
                 if (rows && indexMatchesRequest(rows, options.fields)) {
+                    assertCurrent();
                     this.writeIndex(packId, rows, { fields: options.fields });
                     return rows;
                 }
-            } catch {
+            } catch (error) {
+                if (isSdkError(error) && error.code === 'permission_denied') throw error;
                 // Preserve the existing socket ladder: failed probes fall through.
             }
 
@@ -374,7 +386,7 @@ export class CompendiumService {
                 logger.debug(`[CompendiumService] [TRACE] getPackEntries Strategy 2 (getDocuments): ${packId}`);
                 const response = await this.transport.emitSocketEvent<unknown>(
                     'getDocuments',
-                    inferDocumentType(packId),
+                    documentType,
                     {
                         index: true,
                         pack: packId,
@@ -385,10 +397,12 @@ export class CompendiumService {
                 );
                 const rows = responseArray<CompendiumIndexEntry>(response);
                 if (rows && indexMatchesRequest(rows, options.fields)) {
+                    assertCurrent();
                     this.writeIndex(packId, rows, { fields: options.fields });
                     return rows;
                 }
-            } catch {
+            } catch (error) {
+                if (isSdkError(error) && error.code === 'permission_denied') throw error;
                 // Preserve the existing socket ladder: failed probes fall through.
             }
 
@@ -397,18 +411,20 @@ export class CompendiumService {
                 const response = await this.transport.emitSocketEvent<unknown>('getCompendiumIndex', packId, 5000);
                 const rows = responseArray<CompendiumIndexEntry>(response);
                 if (rows && indexMatchesRequest(rows, options.fields)) {
+                    assertCurrent();
                     this.writeIndex(packId, rows, { fields: options.fields });
                     return rows;
                 }
-            } catch {
+            } catch (error) {
+                if (isSdkError(error) && error.code === 'permission_denied') throw error;
                 // Preserve the existing socket ladder: failed probes fall through.
             }
 
             logger.error(`CompendiumService | All entry fetch strategies failed for pack ${packId}`);
-            return [];
+            throw new Error(`Pack index entries unavailable: ${packId}; all strategies failed`);
         } catch (error) {
             logger.warn(`CompendiumService | getPackEntries failed for ${packId}: ${error}`);
-            return [];
+            throw error;
         }
     }
 
@@ -417,6 +433,8 @@ export class CompendiumService {
         type: string,
         options: CompendiumIndexOptions & { metadata?: CompendiumPackMetadata } = {},
     ): Promise<CompendiumIndexEntry[]> {
+        const assertCurrent = this.captureScope(packId);
+        type = inferDocumentType(packId, this.store.getPackMetadata(packId) || options.metadata || { id: packId, type });
         try {
             logger.debug(`CompendiumService | Fetching index for pack ${packId} (type: ${type})...`);
             const indexFields = requestedIndexFields(options.fields);
@@ -425,10 +443,12 @@ export class CompendiumService {
                 const response = await this.transport.emitSocketEvent<unknown>('getCompendiumIndex', packId, 3000);
                 const rows = responseArray<CompendiumIndexEntry>(response);
                 if (rows && indexMatchesRequest(rows, options.fields)) {
+                    assertCurrent();
                     this.writeIndex(packId, rows, options);
                     return rows;
                 }
-            } catch {
+            } catch (error) {
+                if (isSdkError(error) && error.code === 'permission_denied') throw error;
                 // Preserve the existing socket ladder: failed probes fall through.
             }
 
@@ -445,10 +465,12 @@ export class CompendiumService {
                     }, 2000);
                     const rows = responseArray<CompendiumIndexEntry>(response);
                     if (rows && indexMatchesRequest(rows, options.fields)) {
+                        assertCurrent();
                         this.writeIndex(packId, rows, options);
                         return rows;
                     }
-                } catch {
+                } catch (error) {
+                    if (isSdkError(error) && error.code === 'permission_denied') throw error;
                     // Try next type alias.
                 }
             }
@@ -461,23 +483,27 @@ export class CompendiumService {
                     broadcast: false,
                     ...(indexFields ? { indexFields } : {}),
                 }, undefined, false);
-                const rows = responseArray<CompendiumIndexEntry>(response) || [];
-                if (rows.length > 0 && indexMatchesRequest(rows, options.fields)) {
+                const rows = responseArray<CompendiumIndexEntry>(response);
+                if (rows && indexMatchesRequest(rows, options.fields)) {
+                    assertCurrent();
                     this.writeIndex(packId, rows, options);
                     return rows;
                 }
-            } catch {
+            } catch (error) {
+                if (isSdkError(error) && error.code === 'permission_denied') throw error;
                 // Ignore packData errors, matching the old CoreSocket behavior.
             }
 
-            return [];
+            throw new Error(`Pack index unavailable: ${packId}; all strategies failed`);
         } catch (error) {
             logger.warn(`CompendiumService | getPackIndex failed for ${packId}: ${error}`);
-            return [];
+            throw error;
         }
     }
 
     public async getPackDocuments(packId: string, type: string): Promise<unknown[]> {
+        const assertCurrent = this.captureScope(packId);
+        type = inferDocumentType(packId, this.store.getPackMetadata(packId) || { id: packId, type });
         try {
             logger.debug(`CompendiumService | Fetching full documents for pack ${packId} (type: ${type})...`);
 
@@ -488,8 +514,9 @@ export class CompendiumService {
                         operation: { pack: packId, query: {} },
                     }, 5000);
                     const rows = responseArray(response);
-                    if (rows) return rows;
-                } catch {
+                    if (rows) { assertCurrent(); return rows; }
+                } catch (error) {
+                    if (isSdkError(error) && error.code === 'permission_denied') throw error;
                     // Try next type alias.
                 }
             }
@@ -500,16 +527,17 @@ export class CompendiumService {
                     query: {},
                     broadcast: false,
                 }, undefined, false);
-                const rows = responseArray(response) || [];
-                if (rows.length > 0) return rows;
-            } catch {
+                const rows = responseArray(response);
+                if (rows) { assertCurrent(); return rows; }
+            } catch (error) {
+                if (isSdkError(error) && error.code === 'permission_denied') throw error;
                 // Ignore errors, matching the old CoreSocket behavior.
             }
 
-            return [];
+            throw new Error(`Pack documents unavailable: ${packId}; all strategies failed`);
         } catch (error) {
             logger.warn(`CompendiumService | getPackDocuments failed for ${packId}: ${error}`);
-            return [];
+            throw error;
         }
     }
 
@@ -519,6 +547,7 @@ export class CompendiumService {
         type?: string | null,
     ): Promise<Record<string, unknown> | null> {
         if (!this.transport.isConnected) return null;
+        if (this.store.getPackMetadata(packId)) type = inferDocumentType(packId, this.store.getPackMetadata(packId));
 
         const trialTimeout = 500;
         for (const t of packDocumentTypes(type)) {
@@ -533,7 +562,8 @@ export class CompendiumService {
                 }, trialTimeout);
                 const found = findDocumentInResponse(response, documentId);
                 if (found) return found;
-            } catch {
+            } catch (error) {
+                if (isSdkError(error) && error.code === 'permission_denied') throw error;
                 // Preserve the legacy fetchByUuid ladder: failed probes fall through.
             }
 
@@ -545,7 +575,8 @@ export class CompendiumService {
                 }, trialTimeout);
                 const found = findDocumentInResponse(response, documentId);
                 if (found) return found;
-            } catch {
+            } catch (error) {
+                if (isSdkError(error) && error.code === 'permission_denied') throw error;
                 // Try the next inferred type.
             }
         }
@@ -558,8 +589,17 @@ export class CompendiumService {
         index: CompendiumIndexEntry[],
         options: CompendiumIndexOptions & { metadata?: CompendiumPackMetadata } = {},
     ): void {
-        const metadata = options.metadata || this.store.getPackMetadata(packId) || { id: packId, type: inferDocumentType(packId) };
+        const metadata = this.store.getPackMetadata(packId) || options.metadata || { id: packId, type: inferDocumentType(packId) };
         this.store.setPackIndex(packId, metadata, index, { fields: options.fields });
+    }
+    private captureScope(packId: string): () => void {
+        const metadata = JSON.stringify(this.store.getPackMetadata(packId));
+        const revision = this.store.getPackContentRevision(packId);
+        return () => {
+            if (revision !== this.store.getPackContentRevision(packId) || metadata !== JSON.stringify(this.store.getPackMetadata(packId))) {
+                throw new Error(`Pack index scope changed: ${packId}; retry with current metadata/content`);
+            }
+        };
     }
 
     private getPackFields(declaration: CompendiumPackDeclaration): string[] {
@@ -567,9 +607,9 @@ export class CompendiumService {
     }
 
     private getDeclarationMetadata(declaration: CompendiumPackDeclaration): CompendiumPackMetadata {
-        return this.store.getPackMetadata(declaration.id) || {
+        return { ...this.store.getPackMetadata(declaration.id),
             id: declaration.id,
-            type: declaration.type,
+            type: inferDocumentType(declaration.id, this.store.getPackMetadata(declaration.id) || { id: declaration.id, type: declaration.type }),
         };
     }
 
@@ -592,7 +632,7 @@ export class CompendiumService {
             return cachedDefault;
         }
 
-        const fetched = await this.getPackEntries(declaration.id, { index: true });
+        const fetched = await this.getPackEntries(declaration.id, { index: true, metadata: this.getDeclarationMetadata(declaration) });
         if (Array.isArray(fetched)) {
             this.store.setPackIndex(
                 declaration.id,
@@ -623,6 +663,7 @@ export class CompendiumService {
         const fetched = await this.getPackEntries(declaration.id, {
             index: true,
             fields: packFields,
+            metadata: this.getDeclarationMetadata(declaration),
         }) as CompendiumIndexEntry[] || [];
 
         this.store.setPackIndex(

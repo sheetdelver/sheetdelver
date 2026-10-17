@@ -7,11 +7,14 @@ import { userStore } from '@server/core/documents/primary/users/UserStore';
 import { sharedContentStore } from '@server/core/world/SharedContentStore';
 import { createDocumentStore } from '@server/shared/utils/moduleDocumentServices';
 import { systemService } from '@server/services/world';
+import { parseDocumentUuid } from '@server/services/documents/DocumentResolver';
+import { SdkError } from '@shared/sdk/errors';
 
 export function createUtilityService() {
     // Generic Foundry document fetch used by dashboard links and drill-in flows.
     const getFoundryDocument = async (client: UtilityClientLike, uuid?: string) => {
         if (!uuid) return { error: 'Missing uuid', status: 400 };
+        if (typeof uuid !== 'string' || uuid.length > 2048 || !parseDocumentUuid(uuid)) throw new SdkError('validation', 'Invalid document UUID');
 
         // The route client can resolve privileged cache bytes, so generic UUID
         // reads must pass through the same caller-scoped Store gate as modules.

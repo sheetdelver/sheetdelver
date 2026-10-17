@@ -683,14 +683,30 @@ See [Notifications and Chat](NOTIFICATIONS.md) for timing, sanitization and
 lifecycle details, and [ADR-0043](adr/0043-sdk-notification-lifecycle.md) for the
 contract decision. Notification calls are client-only, never server runtime APIs.
 
-## Native world settings and data maintenance (unreleased)
+## Native world settings and data maintenance
 
 [Core ADR-0064](adr/0064-module-world-context-and-data-migrations.md) is implemented
 in the development tree; [the authoring contract](MODULE_MIGRATIONS.md) defines
-SDK 3.3.0, module-api 1.5.0 and ui-extension-api 3.2.0, catalog examples and
+released SDK 3.3.0, module-api 1.5.0 and ui-extension-api 3.2.0, catalog examples and
 adoption gates. See its [compatibility requirements](MODULE_MIGRATIONS.md#compatibility-and-adoption)
-for API floors and both CI/release toolchain pins. Core 0.19.0 is planned;
-published Core 0.18.1 does not supply these additions.
+for API floors and both CI/release toolchain pins. Core 0.19.0 supplies the baseline;
+0.18.1 does not. The unreleased corrective tree adds SDK 3.4.0/module-api 1.6.0
+for `reads.relations`: bounded parent/ancestor/base source-field projections,
+including arbitrary world-pack identities and partial deltas. Declare that API
+floor when adopting relations; existing catalogs retain 1.5.0. No application
+release floor has been invented for this correction. **All module work remains
+held** pending C64-H user review and explicit clearance. Selected native v13/v14
+acceptance now passes, including complete inventories and first-publication
+recovery; see the [current evidence](adr/0064-module-world-context-and-data-migrations.md#fresh-complete-maintenance-native-v13-acceptance--october-17-2026).
+Dependent publication also requires the actual supporting Core release. Do not activate catalogs or
+implement module workarounds while that hold is active. The
+[independent Core review](adr/0064-module-world-context-and-data-migrations.md#independent-complete-maintenance-review--october-17-2026) adds CR64-14–17; fixing host
+readback, cancellation, durable-plan capacity and readiness remains Core-owned.
+Those corrective guards and journal encoding are Core-owned implementations:
+legacy1.5 catalogs do not need rewriting for large write-bearing plans. Public
+review retains all target patches/digests while internal dependency proofs stay
+server-side. Isolated verification does not release the module-adoption hold or
+establish a published host version for the new contract.
 `useModuleSettings` does not expose native world settings, and
 adapter initialization cannot write documents. A registered default is not proof
 of an unreadable world's value. The world context updates to a new
@@ -726,8 +742,9 @@ writes, and changed dependencies require fresh admin review. Dependency hooks
 must settle after errors/timeouts: the host cannot cancel their JavaScript and will
 hold subsequent preparation until settlement or a Core restart.
 
-Core's admin workflow reviews the selected running world's current data, records
-an exact plan and backup-warning acknowledgement, then handles maintenance,
+Core's corrective workflow persists maintenance and stops normal workers first,
+then reviews the complete authoritative plan and backup-warning acknowledgement.
+An online preview is advisory, not write approval. Core handles
 transport, progress, restart recovery and activation. Every bootstrap/reconciliation
 checks required postconditions against fresh source; an externally restored world
 can require admin repair even when the local journal says completed. Modules get
@@ -742,6 +759,6 @@ not rerun adapter initialization. Module adoption is separately authorized G8.
 
 Core's configured Foundry service account must be full **Gamemaster** in each world.
 ADR-0064 G0a requires connection/reconnect/demotion checks before module readiness;
-that enforcement is implemented but unreleased. Modules must not handle this with
+that enforcement shipped in 0.19.0. Modules must not handle this with
 privileged fallbacks or apply the service-account rule to human Assistant users.
 See [operator configuration](CONFIGURATION.md#service-account-role-and-recovery).

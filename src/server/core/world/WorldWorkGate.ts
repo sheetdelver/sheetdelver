@@ -32,6 +32,7 @@ export class WorldWorkGate extends EventEmitter {
     }
     isOpen(): boolean { return this.blockers.size === 0; }
     hasBlock(key: string): boolean { return this.blockers.has(key); }
+    pendingDispatches(): number { return this.inFlight; }
     getServingToken(): string | null { return this.servingToken; }
     activateServingToken(token: string): void { this.servingToken = token; this.generation += 1; this.emit('changed'); }
     status(): MaintenanceStatus | null {
