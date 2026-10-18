@@ -1,6 +1,6 @@
 # Core ADR-0064: Module World Context and Data Migrations
 
-**Status:** Closed — CR64-27 accepted October 18, 2026. The user verified the normal admin/maintenance experience and reported successful module migration in production. Isolated Core and browser evidence is recorded below. Core point release 0.19.3 is selected for the fixes; implementation closeout does not claim publication. SDK/API contracts and module artifacts are unchanged. The [CR64-27 amendment](#cr64-27-normal-admin-access-during-maintenance--october-18-2026) and [operator acceptance](#cr64-27-operator-acceptance-and-release-preparation--october-18-2026) own this disposition; earlier open statements retain their dated context.
+**Status:** Completed — CR64-27 accepted October 18, 2026. The user verified the normal admin/maintenance experience and reported successful module migration in production. Isolated Core and browser evidence is recorded below. Core point release 0.19.3 is selected for the fixes; implementation closeout does not claim publication. SDK/API contracts and module artifacts are unchanged. The [CR64-27 amendment](#cr64-27-normal-admin-access-during-maintenance--october-18-2026) and [operator acceptance](#cr64-27-operator-acceptance-and-release-preparation--october-18-2026) own this disposition; earlier open statements retain their dated context.
 **Date:** October 16, 2026
 **Related:** Core ADR-0021, ADR-0027, ADR-0028, ADR-0038, ADR-0056, ADR-0057, ADR-0063; Shadowdark module ADR-0001
 
