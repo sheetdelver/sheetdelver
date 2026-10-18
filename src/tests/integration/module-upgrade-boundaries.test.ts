@@ -189,6 +189,7 @@ export async function run(): Promise<void> {
         }
 
         for (const generation of [13, 14]) {
+            await settingStore.seed(async () => []);
             worldStateStore.seed({ world: { id: 'w1' }, system: { id: 'fixture', version: '1.0.0' }, release: { generation } } as any);
             await sceneStore.seed(async () => [{ _id: 'scene', tokens: [
                 { _id: 'linked', actorId: 'a', actorLink: true },
@@ -211,6 +212,7 @@ export async function run(): Promise<void> {
             transport.emit('foundry:documentDispatchConfirmed', { response: { type: 'Actor', action: 'update', operation: envelope.operation, result: [{ _id: 'packed', system: { fixed: true } }] } });
             assert.equal(actorStore.get('packed'), null, 'pack acknowledgement cannot enter the world ActorStore');
             compendiumStore.setPackMetadata('world.test', { id: 'world.test', type: 'Actor', packageType: 'world', locked: true });
+            await settingStore.seed(async () => [{ _id: 'native-lock', key: 'core.compendiumConfiguration', value: JSON.stringify({ 'world.test': { locked: true } }) }]);
             assert.throws(() => migrationEnvelope(packed, { 'system.fixed': true }), /locked/);
             const exclusions: string[] = [];
             const advisory = await enumerateMigrationTargets({ dispatchDocumentSocket: async () => { throw new Error('Locked advisory pack must not be read'); } }, new Set(['WorldPack']), [], { requiredKinds: new Set(), exclusions });

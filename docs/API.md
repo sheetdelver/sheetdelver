@@ -72,7 +72,7 @@ During startup, `isAuthenticated: false` on this status response is not proof
 that a persisted player session was revoked. Player session authority is
 checked through the protected session read below.
 
-**Unreleased prerequisite (ADR-0064):** Core's configured Foundry service account must
+**Prerequisite since Core 0.19.0 (ADR-0064):** Core's configured Foundry service account must
 be full Gamemaster for every world connection. The connection/reconnect/
 demotion gate holds readiness and world-backed routes unavailable when that
 role cannot be verified. The admin status/recovery projection explains the
@@ -1194,24 +1194,43 @@ is introduced by ADR-0040. ADR-0043 exposes client-only add/update/remove method
 through `useSDK()` in SDK 1.4.0 / `ui-extension-api` 1.2.0; no REST endpoint or
 server contract changes. See [Notifications and Chat](NOTIFICATIONS.md).
 
-## Module world-context and maintenance APIs (unreleased)
+<a id="module-world-context-and-maintenance-apis-unreleased"></a>
+
+## Module world-context and maintenance APIs
 
 [Core ADR-0064](adr/0064-module-world-context-and-data-migrations.md) implements
 authorized context projections and an **admin-owned upgrade job**. See
 [the complete contract](MODULE_MIGRATIONS.md). Existing request writes remain
 caller-bound; modules receive no privileged migration execution API.
-Released 0.19.0 supplies SDK 3.3.0/module-api 1.5.0/UI 3.2.0. The corrective
-tree supplies SDK 3.4.0/module-api 1.6.0 for bounded migration relations; UI is
-unchanged. No supporting application release is assigned yet. See
+Released 0.19.1 supplies SDK 3.4.0/module-api 1.6.0 for bounded migration
+relations and the complete-maintenance corrections; UI remains 3.2.0. Core
+0.19.0 supplied the initial SDK 3.3/module-api 1.5 contract. See
 [compatibility and adoption](MODULE_MIGRATIONS.md#compatibility-and-adoption).
-The [independent review](adr/0064-module-world-context-and-data-migrations.md#independent-complete-maintenance-review--october-17-2026) identified CR64-14–17. Corrective
-implementation and isolated acceptance cover cancellation drain proof, complete
-large legacy-plan review and fresh final readiness. Subsequent CR64-18–21
-corrections and selected native v13/v14 acceptance pass. CR64-22/R1 administrator
-visibility and navigation acceptance complete C64-H and the Core implementation
-scope. Merge, supporting-release publication and separately authorized G8 module
-adoption remain pending. See the
-[final Core disposition](adr/0064-module-world-context-and-data-migrations.md#cr64-22-r1-correction-and-core-closeout--october-17-2026).
+The [four-issue G8 correction amendment](adr/0064-module-world-context-and-data-migrations.md#g8-integration-correction-amendment--october-18-2026)
+selects four additional fixes. Released Core 0.19.1 has a wrong default for world-pack
+locks, lacks automatic Player collection invalidation for ownership-only changes,
+and can misclassify typed SDK errors across the tested external-data managed JS
+boundary. Fresh authorization still rejects forbidden requests; CG-10 concerns
+safe error mapping. The fourth fix, CG-5, concerns shared dialog keyboard use,
+not migration readiness. The corrective branch implements these fixes without
+new routes, payload fields or SDK/API version changes; they are not released in
+0.19.1. See the amendment's focused evidence and pending acceptance.
+
+Pack access-only changes advance the existing world-context revision even when
+no declared rule-setting value changed. `worldContextChanged` / SDK
+`world:contextChanged` may legitimately contain `keys: []`; consumers must still
+retire loaded/pending caller-dependent collections, then refetch. No ownership
+map or raw Setting row is disclosed. Prepared data is republished before the
+revision hint; reconnect reconciles current access. Identical observed access
+inputs do not create another revision.
+
+`isSdkError` recognizes supported ESM/CJS SDK evaluations through a non-wire
+`Symbol.for` brand on an actual Error, validated own code/status data, the fixed
+SDK taxonomy and integer error status400–599. Custom error statuses and subclasses
+are supported; use this helper rather than constructor identity. Ordinary objects,
+message matching, malformed errors and unbranded exceptions are not typed errors.
+Unknown module-route exceptions return sanitized500/internal while diagnostic
+details stay in server logs. Legitimate nonowner404 concealment remains unchanged.
 
 | Surface | Contract |
 | --- | --- |

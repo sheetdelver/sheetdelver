@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { InitiativeRollModalProps } from '@shared/sdk/ui';
 import { applyInitiativeMode } from '@shared/contracts/initiativeMode';
 import RollDialogFrame, { resolveRollDialogTheme } from './RollDialogFrame';
+import { useModalFocus } from '../hooks/useModalFocus';
 
 /** Shared Core initiative presentation; no formula edits or transport access. */
 export default function InitiativeRollDialog({ isOpen, title, combatantName, formula, source,
@@ -12,27 +13,12 @@ export default function InitiativeRollDialog({ isOpen, title, combatantName, for
     const [manual, setManual] = useState(false);
     const [total, setTotal] = useState('');
     const dialogRef = useRef<HTMLDivElement>(null);
-    const priorFocus = useRef<HTMLElement | null>(null);
-    const onCloseRef = useRef(onClose);
-    useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
+    useModalFocus(dialogRef, isOpen, onClose);
 
     useEffect(() => {
         if (!isOpen) return;
-        priorFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
         setManual(!rollAvailable);
         setTotal('');
-        dialogRef.current?.querySelector('button')?.focus();
-        const onKey = (event: KeyboardEvent) => {
-            if (event.key === 'Escape') onCloseRef.current();
-            if (event.key !== 'Tab' || !dialogRef.current) return;
-            const controls = [...dialogRef.current.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled)')];
-            const first = controls[0];
-            const last = controls[controls.length - 1];
-            if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
-            else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
-        };
-        document.addEventListener('keydown', onKey);
-        return () => { document.removeEventListener('keydown', onKey); priorFocus.current?.focus(); };
     }, [isOpen, rollAvailable]);
 
     if (!isOpen) return null;
@@ -56,7 +42,7 @@ export default function InitiativeRollDialog({ isOpen, title, combatantName, for
             </> : <>
                 {rollAvailable && <button type="button" className={t.rollBtn('normal')}
                     onClick={() => onConfirm({ kind: 'roll' })}>Roll initiative</button>}
-                {rollAvailable && advantageAvailable && <div className="grid grid-cols-1 gap-2 min-[400px]:grid-cols-2">
+                {rollAvailable && advantageAvailable && <div className="flex flex-wrap gap-2">
                     <button type="button" className={t.rollBtn('adv')} title={applyInitiativeMode(formula, 'advantage')}
                         onClick={() => onConfirm({ kind: 'roll', advantageMode: 'advantage' })}>Advantage</button>
                     <button type="button" className={t.rollBtn('dis')} title={applyInitiativeMode(formula, 'disadvantage')}

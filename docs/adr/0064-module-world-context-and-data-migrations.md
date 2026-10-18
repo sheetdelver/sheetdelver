@@ -1,13 +1,17 @@
 # Core ADR-0064: Module World Context and Data Migrations
 
-**Status:** Completed — Core implementation scope, including C64-A–H and CR64-22-R1, closed under the user's conditional closeout instruction on October 17, 2026. Qualified offline/native evidence and the final navigation regression are recorded below. G8 module adoption and supporting-release operations remain separately pending; this is not module compliance or publication approval.
+**Status:** Completed — Core scope closed October 18 under the user's conditional closeout instruction. CR64-23–26 and the small CR64-26-R1 responsive-layout correction are verified; independent review and fresh native v13/v14 acceptance passed. Supporting Core point-release publication remains pending. Prior C64-A–H / CR64-01–22-R1 corrections shipped in Core 0.19.1. CG-5 is shared UI work, not a migration blocker. Module adoption remains separate and waits for the supporting release and user resumption.
 **Date:** October 16, 2026
 **Related:** Core ADR-0021, ADR-0027, ADR-0028, ADR-0038, ADR-0056, ADR-0057, ADR-0063; Shadowdark module ADR-0001
 
-Latest disposition: [CR64-22-R1 correction and Core closeout](#cr64-22-r1-correction-and-core-closeout--october-17-2026), following the
-[independent CR64-22 review](#independent-cr64-22-review-and-deliverable-reconciliation--october-17-2026).
-Earlier open findings and pending acceptance statements below are dated history,
-not new obligations; valid evidence and its limitations remain preserved.
+Latest disposition: [Responsive roll-dialog correction and Core closeout](#responsive-roll-dialog-correction-and-core-closeout--october-18-2026), following [native v13 verification](#final-source-native-v13-verification--october-18-2026), [native v14 verification](#final-source-native-v14-verification--october-18-2026), [independent G8 verification](#independent-g8-verification--october-18-2026) and the
+[G8 integration correction amendment](#g8-integration-correction-amendment--october-18-2026).
+The [October 17 Core closeout](#cr64-22-r1-correction-and-core-closeout--october-17-2026)
+remains the historical disposition of the released work. Its then-current
+"no confirmed Core gap" and pending-release statements do not describe the new
+G8 findings or the current release state. Earlier open findings and pending
+acceptance statements below are dated history, not new obligations; valid
+evidence and its limitations remain preserved.
 
 Preceding implementation evidence: [CR64-22 admin migration visibility](#cr64-22-admin-migration-visibility--october-17-2026), following [fresh complete-maintenance native v13 acceptance](#fresh-complete-maintenance-native-v13-acceptance--october-17-2026), [independent CR64-21 verification](#independent-cr64-21-verification--october-17-2026), [CR64-21 recovery correction and focused native verification](#cr64-21-first-approval-recovery-correction--october-17-2026), [CR64-18–20 corrections and native v14 repeat](#cr64-1820-correction-and-native-v14-repeat--october-17-2026) and [complete-maintenance implementation](#complete-maintenance-implementation-and-isolated-acceptance--october-17-2026). Earlier pending-native statements below retain their historical scope.
 
@@ -4056,3 +4060,663 @@ release number is invented. Published 0.19.0 still lacks these corrections and
 SDK 3.4/module-api 1.6. G8 adoption requires explicit resumption and the published
 supporting host/toolchain before dependent module publication. No module
 repository, live Foundry instance or production configuration was accessed.
+
+## G8 integration correction amendment — October 18, 2026
+
+### Selection, chronology and ownership
+
+The user selected **four Core corrections** after actual Shadowdark adoption of
+released Core 0.19.1: CG-5, CG-7, CG-9 and CG-10. Reopen this ADR only for the
+checkpoints below. CG-5 is included here at the user's explicit request for the
+same correction/release slice; it is **not a migration defect, maintenance gate,
+or reason to block migration testing**. All four are selected release deliverables.
+
+Core `main` at `10213980` has package/lock 0.19.1, SDK 3.4.0,
+module-api 1.6.0, ui-extension-api 3.2.0 and roll-engine-api 1.0.0. The user reports
+0.19.1 published after squash-merge; local release commit `10213980` follows
+`091adc08` (ADR-0064 corrections). This amendment did not query remote CI or
+publication. Prior complete-maintenance, approval, execution, recovery and admin
+navigation evidence stands within its recorded scope. These findings do not
+establish that those fixes regressed.
+
+CG-5/CG-7 were recorded during G8's isolated real-Core review; CG-9 was recorded
+during subsequent installed-consumer testing. The October 18 native v14 run
+confirmed those three. **Only CG-10 is new from that native run.** The prior Core
+closeout and generic fixtures did not establish all packaged-module integration
+paths. The next closeout must report migration, live access refresh, packaged
+error handling and UI accessibility separately.
+
+The originating evidence belongs to Shadowdark ADR-0001 and its tracked audit,
+`docs/audits/2026-10-15-native-alignment.md`, sections "Core observations",
+"Additional Core dependency CG-9" and "Native v14 acceptance". Core's reproducible
+requirements and observations are restated here so this ADR does not depend on
+an ignored report or a module checkout. Implementations and new regression tests
+belong to Core; module source, catalogs, workflows, versions and working trees
+remain unchanged. A read-only copy of the existing module package may be used in
+an isolated Core-owned harness.
+
+| Core ID | Origin | Classification | Selected outcome / status |
+| --- | --- | --- | --- |
+| CR64-23 | CG-7 | Migration eligibility defect | Correct native world-pack lock defaults consistently; open. |
+| CR64-24 | CG-9 | Caller-data freshness after access changes | Retire/refetch loaded and pending collections through the existing public context mechanism; open. |
+| CR64-25 | CG-10 | Packaged SDK error contract | Preserve safe typed status handling across supported module loading boundaries; open. |
+| CR64-26 | CG-5 | Shared UI accessibility | Correct shared sheet roll-dialog keyboard/focus behavior; open, independent of migration acceptance. |
+
+Earlier module observations CG-4 (reconnect pack freshness), CG-6 (untyped context
+conflicts), CG-8 (package/history determinism), advisory-status omissions and an
+intentional-lock exclusion policy are **not selected by this four-issue request**.
+Do not mark them fixed or silently add them to this implementation. If a selected
+correction demonstrably requires one, record the specific dependency and seek a
+scope decision while completing independent work. Explicitly carry their status
+into the follow-up handoff. No new general migration inventory or module feature
+program is implied.
+
+### CR64-23 / CG-7 — authoritative world-pack lock defaults
+
+**Observed failure.** A new native world Actor pack on Foundry 14.367 had no
+`locked` metadata field and no `core.compendiumConfiguration` entry. Native
+`game.packs.get(id).locked` was false. Core bootstrap instead reported
+"Required world pack is locked or unreadable" and withheld readiness. Setting
+only the fixture's configuration to explicit `locked:false` admitted it. The
+failure occurred before writes; this is not an interrupted migration.
+
+Both locally inspected Foundry v13/v14 `CompendiumCollection#locked` implementations
+use `this.config.locked ?? (this.metadata.packageType !== "world")`.
+Core `src/server/services/world/migrations/targets.ts`, `packIsWritableWorld`,
+currently falls back through metadata to true. The blanket default is wrong for
+proven world-owned packs. Do not use a `world.` prefix alone as proof of native
+package ownership, or infer writability from a populated read cache.
+
+Required implementation:
+
+1. Trace authoritative metadata/configuration through fresh discovery, isolated
+   preview, maintenance enumeration and execution. Centralize the verified native
+   lock rule where all those paths can share it; distinguish an absent override
+   from unreadable configuration or unresolved package identity.
+2. Apply explicit native lock configuration with native precedence; a verified
+   world-owned pack without an override defaults unlocked. Non-world packs stay
+   outside migration writes, even if individually unlocked. Unknown ownership,
+   failed reads and insufficient authority remain explicit blocked outcomes.
+3. Retain required migration completeness. Never fix this by making required
+   world-pack steps advisory, skipping targets, changing Foundry configuration,
+   auto-unlocking packs, or allowing module bootstrap to write.
+4. Recheck relevant lock/access state before approval and at the final native
+   write boundary. A pack locked after preview must invalidate obsolete approval
+   or stop safely before the affected write. Preserve intent/receipt recovery for
+   any earlier writes. Reuse existing dependency fencing and diagnostics.
+
+Acceptance: a tracked regression fails on an otherwise valid required pack with
+no lock override; the corrected public bootstrap/preview/apply migrates all its
+fixture targets. Cover explicit true/false, native precedence, non-world packs,
+missing/failed metadata and configuration, and lock changes after preview.
+Use native v13 and v14 focused fixtures with **absent configuration**, not fixtures
+that pre-insert `locked:false`. Verify complete sources and confirmed receipt
+counts; clean up only the fixtures. Intentionally locked required packs still
+block with an accurate explanation. Choosing an exclusion policy is separate.
+
+### CR64-24 / CG-9 — invalidate loaded collections on access changes
+
+**Observed failure.** A Player opened the Gear picker and loaded Rope. Revoking
+PLAYER access to its native compendium made fresh requests return 403, while the
+old Rope row stayed visible. Index/collection request counts remained 1 to 1.
+Changing an unrelated declared Pulp setting finally retired/refetched the data.
+Permission restoration plus manual Retry recovered it. The native run confirms
+correct fresh-request authorization but missing automatic retirement.
+
+Current ownership: `SystemService` observes SettingStore changes;
+`WorldBootstrapper.refreshWorldContext()` returns when no declared setting value
+changed and no pack was named. `ModuleWorldContextService.refresh()` compares only
+declared module settings. `AppSocketGateway` restricts raw Setting events to their
+privileged audience, while already publishing authorized `worldContextChanged`
+revision hints. A capability change needs invalidation, not raw configuration
+exposure. The module already retires caches on supported context revisions.
+
+Required implementation:
+
+1. Recognize effective pack-access changes from authoritative Core ingress and
+   reconciliation, including override deletion/reset. Determine affected current
+   callers/dependencies without publishing ownership maps or native Setting rows.
+2. Prefer the existing revisioned world-context/dependency publication and SDK
+   consumer path. Publish a meaningful revision even if declared rule-setting
+   values did not change; empty visible setting-key lists must not suppress it.
+   Do not invent a required module callback when existing consumers can handle
+   the correction. If a public extension proves necessary, document its exact
+   compatibility impact before claiming no contract change.
+3. Invalidate affected server projections and ensure mounted public consumers
+   retire both loaded results and in-flight requests, then refetch with current
+   caller authority. Late responses from a superseded revision cannot restore
+   revoked content. Preserve relevant manual search/tab state and actionable
+   loading/denial/retry states. Restoring access must be observable too.
+4. Keep notification ordering consistent with Store updates and preparation;
+   coalesce redundant events. Reconnect must reconcile an access change missed
+   while disconnected. Do not add periodic module polling, a second settings
+   cache, privileged module reads or normal-runtime work during maintenance.
+
+Acceptance: mount a real public-SDK consumer with a Player's collection loaded,
+revoke only compendium ownership, and prove automatic retirement/refetch without
+Pulp changes, remount, reload or manual Retry. Repeat with a delayed old response,
+restore-only changes, deletion/reset and reconnect. Verify fresh denied reads
+remain 403, another caller's private data/settings never enter the payload, and
+normal setting notifications still work. A fresh read alone cannot close this
+finding. Include the unchanged packaged module in the isolated Core UI run.
+
+### CR64-25 / CG-10 — SDK errors across managed package boundaries
+
+**Observed failure.** A Player with OBSERVER access could read the fixture Actor
+but could not update its owned Item ActiveEffect, as intended. Source remained
+unchanged. The actual module effect route returned sanitized HTTP 500/internal
+instead of the host's typed `permission_denied` / 403. OWNER writes worked;
+LIMITED detail/write paths returned legitimate concealment 404.
+
+A separate no-network probe invoked the exact installed `dist/server.js` route
+with a runtime throwing Core's `SdkError('permission_denied', ...)`; the packaged
+handler still returned 500. In an adjacent external data directory a `.js`
+importer saw different SDK constructors and failed `isSdkError` in both directions;
+a `.mjs` importer shared identity. The tested archive has `.js` server output
+outside Core's ESM package boundary. This supports a CJS/ESM loading identity
+failure in that configuration, not a Foundry permission bypass or a claim about
+every installation layout. The public helper currently uses `instanceof` alone.
+
+Required implementation:
+
+1. Reproduce using an actual managed archive and configured data directory outside
+   Core's package tree. Trace `src/modules/registry/core/bootstrap.ts`, package
+   output/SDK resolution and `src/shared/sdk/errors.ts`; a same-constructor unit
+   mock is insufficient. Retain a development-module comparison.
+2. Make error recognition reliable across supported host/module loaders, through
+   consistent loading and/or a deliberately validated SDK error representation.
+   Existing valid managed archives must work without editing module source or
+   rewriting their catalog/historical hooks. A packaging-only change that fixes
+   newly built archives but leaves the tested archive broken is incomplete.
+3. Preserve the public taxonomy and safe HTTP mapping: permission_denied and
+   out_of_scope 403, not_found 404, conflict 409, validation 400, not_ready 503,
+   internal/unknown 500. Do not classify arbitrary errors by message text, trust
+   an unvalidated object/status, disclose internal exceptions, elevate authority,
+   or replace intentional nonowner 404 concealment with 403.
+4. Preserve supported custom status behavior and document any chosen identity
+   validation. Verify SDK helpers in both import directions and actual route
+   responses, rather than only comparing constructors. No module-specific hack.
+
+Acceptance: track a failing-before/passing-after external-data `.js` archive case,
+with an in-tree managed and local-development comparison, in supported development
+and production launch modes. Cover typed codes, malformed/unknown errors and
+sanitization. Repeat the native OBSERVER write denial with exact unchanged-source
+proof; verify OWNER success and LIMITED concealment. Run existing authorization
+regressions, including CR64-20. Its earlier safe-403 evidence did not cover this
+specific packaged boundary; do not rewrite that evidence as a passed CG-10 case.
+
+### CR64-26 / CG-5 — shared roll-dialog keyboard and focus
+
+**Observed failure.** Eight native-backed width/theme cases found that opening
+Core's shared sheet roll dialog did not move focus inside, Tab escaped to the
+page, Escape did not close it and focus was not restored. Module resource dialogs
+passed the same checks. `SheetRollDialog` uses `RollDialogFrame` with a ref and
+ARIA role but does not use the existing Core `useModalFocus` convention.
+
+Required implementation:
+
+1. Correct the shared Core sheet roll-dialog lifecycle using the existing modal
+   focus mechanism. Choose a single owner; avoid duplicate traps/listeners when
+   the frame or another consumer already manages focus.
+2. Enter focus on open, contain Tab/Shift+Tab, close the appropriate top dialog
+   on Escape and return focus to a still-connected invoker. Clean up listeners
+   and body scroll state on close/unmount. Check invocation from a resource card
+   so closing the roll dialog does not incorrectly close its parent.
+3. Preserve roll arguments, defaults, manual input, persisted roll mode, theme,
+   backdrop/close-button behavior and the initiative variant. Do not implement
+   another module-local roll modal or change game rules.
+
+Acceptance: reproduce with the actual SDK-provided component, then exercise
+keyboard open/close/reopen, both tab directions, confirm/cancel and invoker
+unmount. Inspect narrow and desktop light/dark rendering; retain the established
+320/390/820/1440 matrix where the harness supports it. A focused browser test does
+not require native writes or a migration job. Report this row as **UI acceptance**,
+not a migration prerequisite or justification to gate a world.
+
+### Implementation checkpoints and evidence
+
+| Checkpoint | Deliverable | Completion evidence |
+| --- | --- | --- |
+| F1 — baseline | Core-only corrective branch; preserve this documentation and all unrelated/module work. | Record HEAD, release/contracts, immutable artifact identity, owned listeners and exact baseline failures for the four IDs. |
+| F2 — corrections | Implement CR64-23–26 with tracked regressions. | Each original defect fails before and passes after; actual call/loader/component paths exercised. |
+| F3 — integration | Isolated Core with public admin/player flows and an unchanged migration-bearing managed package. | No invented unlock, unrelated settings trigger, same-constructor-only mock or replacement module UI. Complete source/receipt oracle, context invalidation and error/keyboard outcomes recorded separately. |
+| F4 — regression | Appropriate full Core suites and clean-checkout/build validation. | Unit, client, integration, TypeScript, lint and whitespace pass; managed generation and production build use isolated data. Prior large inventories remain retained unless changed behavior requires a repeat. |
+| F5 — native | Focused native v14 and v13 coverage of the selected native-dependent behavior. | Exact world/version/fixture scope, absent-lock pack, access revoke/restore, observer refusal, source comparison and cleanup recorded. No unexecuted generation or UI-only result reported as a native migration pass. |
+| F6 — release readiness | Independent review, current guides/handoff and concise changelog; four rows explicitly disposed. | No unexplained selected failures; no claim that deferred observations or full module A01 acceptance are complete. User owns commit/merge/publication unless separately delegated. |
+
+Use isolated data/configuration and inspect listeners before launching or stopping
+services. Existing explicit authorization for the disposable local v14 fixture
+run is recorded with the module evidence; verify that the endpoint still serves
+the same intended disposable world before using that scope. It does not authorize
+production, a different world or unrelated writes. A v13 operator switch is still
+needed for fresh v13 checks; finish independent work first and state exactly which
+focused native rows await it. Do not replace or stop the user's Foundry process.
+No native connection is needed to implement the fixes or reproduce the controlled
+failures. Stop owned test services, remove fixtures and verify the original
+baseline after native use. Existing backup limitations/acknowledgement remain;
+this amendment adds no backup/undo or Foundry-user lockout capability.
+
+The preserved native v14 module baseline was Foundry 14.367 / Shadowdark 4.0.6,
+world `shadowdark-test`, isolated Core 0.19.1 and managed module 0.9.4. Its archive
+SHA-256 was `2fcacac74dc0accbcefc5829611afcec6cae588ecf757ec97ad57d8234a7d971`.
+Eight initial fixture effects and one deliberately restored effect migrated with
+full source comparison and fresh approval. This proves the exercised migration
+execution/restart/restore paths; CG-7's absent-lock case was independently blocked.
+It is not a large-inventory rerun or full Shadowdark A01-01–10 acceptance. Prefer
+Core-owned generic tracked fixtures for reproducibility from a clean checkout;
+consume the real package read-only as additional integration evidence, never make
+Core CI depend on an ignored module checkout or local evidence directory.
+
+### Point release and module resumption
+
+The intended next release is a **Core point release after 0.19.1** (normally
+0.19.2; confirm the available version at release preparation). During correction,
+update terse Unreleased changelog entries only. Keep package/lock versions at
+0.19.1 and module metadata unchanged. Use `docs/RELEASING.md` and `release:tag`
+after review/merge; this documentation task does not authorize commits, tags,
+pushes, workflow dispatch or publication. Do not pre-bump SDK/API versions simply
+because the application is getting a point release. Prefer corrections within
+existing contracts; if an actual public addition is necessary, record the exact
+surface, compatibility rationale and required version decision.
+
+Update architecture, API/error/context guidance, module authoring/manifest and
+migration/runtime guides with implemented behavior and limits. Preserve this
+amendment's plan as history and append actual evidence/disposition; a checklist or
+passing unrelated suite does not close a finding. Close the reopened Core scope
+only after the four selected corrections are verified and reviewed; identify
+publication separately if it has not happened yet.
+
+After the supporting point release is published, resume the separately owned
+Shadowdark work: adopt the actual published Core/toolchain floor in its later
+module task, then finish outstanding native/module acceptance. This Core task
+must not change module manifests, versions or CI pins. CG-5's inclusion in the
+selected release never changes migration readiness semantics. Carry unselected
+CG-4/6/8 and policy questions forward explicitly; their disposition requires a
+separate decision, not a claim that these four fixes resolved them.
+
+## Selected G8 corrections — implementation and verification, October 18, 2026
+
+The four selected corrections are implemented, not merely audited. Fresh v14
+and independent offline work are complete; **fresh native v13 and review remain
+open**. No module compliance or release is inferred. Work is uncommitted on
+`fix/adr-0064-g8-integration`, from main `10213980`, preserving all eight original
+documentation edits. Before revision the ADR was saved byte-for-byte:338790B,
+SHA256 `e4422ebb384dbf7f767c88e87f03e6544d3e70a06ac9943b4ca21fbe847b431f`.
+
+### Corrections and failing-before/passing-after evidence
+
+| Finding | Implemented behavior and regressions |
+| --- | --- |
+| CR64-23 / CG-7 | Existing native pack policy now owns lock precedence: explicit configuration, otherwise the verified package-ownership default. World defaults unlocked; `metadata.locked` is not an override. Unknown ownership, unavailable/malformed configuration (including a present Setting without a value), explicit locks and non-world write targets fail closed. Compendium seeding retains authoritative envelope provenance and world-scoped manifest names instead of creating phantom system-scoped entries. Required targets, approval/dependency fences and final-envelope checks remain intact. The tracked absent-lock regression failed `false !== true` before correction. It now covers complete enumeration, metadata/configuration precedence, true/false/null, missing/unreadable input, package exclusions and changes after a snapshot. Native v14 migrated both absent-lock fixture packs without inserting `locked:false`. |
+| CR64-24 / CG-9 | The existing world-context service privately fingerprints access dependencies from authoritative Stores. Ownership-only changes, restoration and override removal advance its revision even with no declared-setting change. The existing preparation/publication path then emits a revision hint, possibly `keys:[]`, never raw ownership/Setting rows. Identical observations coalesce; replacing recovery publishes current context. The original real-ingress/bootstrap regression failed because the revision did not advance. It now passes with empty public keys and reconnect coverage; the SDK bus test also preserves empty-key events across reattachment. Mounted unchanged-package consumers are verified separately below. |
+| CR64-25 / CG-10 | `isSdkError` uses a non-wire `Symbol.for` brand on an actual Error plus validated own taxonomy/status data, not constructor or message matching. Integer custom error statuses400–599 and valid subclasses remain supported. Plain objects, malformed codes/statuses and unbranded exceptions are not typed errors. Unknown host module-route exceptions are sanitized500/internal; expected403 and concealment404 remain distinct. The external-data `.js` regression originally failed cross-loader recognition. Both import directions, actual compiled archive/registry/proxy HTTP routes, in-tree managed and local-development comparisons now pass. Existing archives/catalogs/hooks are not rewritten. |
+| CR64-26 / CG-5 — UI only | Sheet and initiative rollers each use Core's existing modal-focus convention, not a second frame/document trap. Focus enters, both tab directions remain contained, Escape affects the top dialog and return targets must still exist. The shared convention tracks active dialogs so nested close/tree unmount restores scroll correctly. The original actual SDK component failed focus entry; expanded coverage then exposed nested-unmount `overflow:hidden` leakage, corrected with the same owner. Manual/default arguments, persisted mode, module theme, close/backdrop and initiative presentation remain unchanged. This does not gate migrations. |
+
+Tracked coverage is `src/tests/integration/adr0064-g8.test.ts` (four isolated
+cases, included in `test:integration`), existing native-generation boundary tests
+and `src/tests/unit/client/sdk-event-bus.test.ts`. The generic managed archive is
+compiled and installed by Core tests; CI has no dependency on a module checkout
+or ignored artifact. `src/tests/fixtures/maintenanceInventory.ts` now uses absent
+lock metadata, not an explicit unlock. The actual public supervisor workflow
+completes25unique writes/32checks and the independent source oracle. Existing
+explicit-lock tests now set the native configuration rather than relying on an
+incorrect metadata field. No required step was made advisory or omitted.
+
+### Public, rendered and native integration
+
+The unchanged additional managed archive has SHA256
+`2fcacac74dc0accbcefc5829611afcec6cae588ecf757ec97ad57d8234a7d971`.
+It was copied read-only into isolated Core-owned data outside this repository.
+No module source, manifest, catalog, hook, branch or workflow was modified.
+
+Fresh disposable native identity was verified before writes: loopback30000,
+Foundry14.367, `shadowdark-test`, Shadowdark4.0.6; the user-owned Foundry process
+was inspected and never stopped. A fresh baseline/fixture ledger was created;
+old cleaned IDs were not reused. The module's actual catalog proposed exactly
+eight marked fixture effects across world/owned/delta/world-pack sources. Both
+new Actor/Item world packs lacked lock metadata and lock overrides. Public
+review/backup acknowledgement/approval completed eight unique intents and eight
+confirmed receipts. Independent literal-key/full-source comparison matched all
+intended changes; ordinary restart required no further migration.
+
+In **development and built production mode**, actual public HTTP and mounted
+managed-package browser flows verify:
+
+- A Player's loaded Rope collection retires/refetches on ownership-only denial
+  and restoration, without Pulp changes, reload, remount or manual Retry. Search
+  and the original mounted search element survive; request count grows1→3.
+- A held positive response from the old revision cannot restore content after
+  a new denial. Override removal and access changes missed while disconnected
+  recover automatically. Fresh denied requests remain403; no page exception.
+- OBSERVER reads succeed but owned-Item effect writes return
+  `permission_denied`403 with the entire Actor source unchanged. LIMITED and
+  nonowner detail/write paths retain404 concealment. OWNER writes succeed via
+  that same packaged route, change exactly the intended field, then restore it.
+- The unchanged module invokes Core's shared SDK sheet roller with working
+  focus, Tab/Shift+Tab, Escape and return at320/390/820/1440 in both themes.
+  These keyboard checks submit no native roll/chat write and are UI acceptance,
+  not evidence of another migration.
+
+The standalone actual-SDK browser harness
+`src/tests/acceptance/adr0064-g8-roll-dialog.mjs` additionally verifies manual
+arguments, initiative, nested resource-card behavior, removed invokers and whole
+nested-tree unmount. Actual player appearance scopes produce distinct nonempty
+light/dark styles; captures were visually inspected. The existing admin/recovery
+rendered harness also passes, preserving its focus/stop/cleanup behavior.
+
+### Checkpoint disposition and limitations
+
+| Checkpoint | Actual disposition |
+| --- | --- |
+| F1 | Approved corrective branch, original docs preserved, immutable artifact and original four failures recorded. |
+| F2 | Four bounded implementations and failing-before/passing-after regressions present. No new SDK/API surface or release-version bump. |
+| F3 | Actual public routes/registry/archive loading, supervised workflow and unchanged packaged browser consumers pass; development and production launch modes distinguished. |
+| F4 | Full Core unit/client/integration, TypeScript, lint and whitespace checks pass; clean managed-generation regression and isolated production build pass. The latest integration includes24 prior corrective,27 complete-maintenance,9 attention and4 G8 cases. Prior large-inventory evidence is retained, not rerun or relabeled. |
+| F5 | Focused native v14 passes, with fresh baseline restoration. **Fresh v13 remains pending an operator switch and identification of its disposable world/accounts.** Controlled generation13/14 boundary tests and old native evidence are not that fresh acceptance. |
+| F6 | Guides, changelog, active report and handoff updated. Independent/user review, selected point release and subsequent module resumption remain pending. Keep this amendment open. |
+
+Harness corrections are not hidden successes: initial native UI stopped at an
+unpopulated isolated login-world cache; the existing Core import CLI populated
+that isolated cache from credential-free exports and the host was restarted.
+An initial copied-workspace build failed because Turbopack rejects external
+dependency symlinks; physical isolated dependencies allowed the real build.
+Production startup then exposed the world-manifest provenance defect corrected
+under CR64-23 above. A subsequent harness retry encountered its already-created
+admin account; setup was made idempotent, not bypassed in Core. Final production
+startup, native permissions and mounted ownership recovery pass. These failed
+attempts are not counted as completed acceptance.
+
+Cleanup restores original9Actors/0Items/2Scenes/4Users and original pack membership,
+with no source differences; temporary settings/overrides, users and documents are
+removed. Source comparisons omit native `_stats` bookkeeping; original User
+identity/role/character roster is compared without exporting credentials. Only
+owned test Core/Next/manager/browser processes were managed and stopped. Root
+production configuration was never used. No native13 run or full Shadowdark
+A01/M5 acceptance is claimed. Unselected CG-4/6/8, advisory-status omissions and
+intentional-lock exclusion policy remain in their separate ledger, unchanged.
+
+Application/lock remain0.19.1; SDK3.4/module-api1.6/UI3.2/roll1.0 remain unchanged.
+The corrections are **unreleased**. Concise Unreleased notes target the next Core
+point release after review (normally0.19.2; confirm availability at preparation).
+No commits, remote operations or publication were performed. Module adoption
+waits for that supporting published host/toolchain and separate authorization.
+
+
+## Independent G8 verification — October 18, 2026
+
+**No new blocking defect found in the four selected corrections.** Independent
+review of the uncommitted Core diff on `fix/adr-0064-g8-integration` / `10213980`
+confirms the original CG-5/7/9/10 paths are corrected. Fresh native v13 acceptance
+and user review remain pending; this is not ADR closeout or release authorization.
+The ADR was saved before annotation: 348,950 bytes, SHA256
+`bfcc55efcbc20b75fe7faa9cb70882bd45d107f0c4453961ded1acd291918a28`. No application source was changed by this review.
+
+### Independent checks
+
+- Full Core unit suite (including client checks), full integration suite,
+  TypeScript, lint and whitespace pass. The integration run includes the four
+  tracked G8 cases, 24 retained corrective cases, 27 complete-maintenance cases
+  and nine migration-attention cases. The real managed archive/registry/router
+  cases exercise external and in-tree data roots plus local development.
+- A fresh real supervisor/Core/Next isolated workflow with the current source,
+  absent-lock pack fixtures, `--complete-matrix --inventory=2,2 --restart-review`
+  completes **25 writes**, with a complete independent source oracle, durable
+  review restart, readiness and replacement/authority checks. Elapsed32.830s.
+  This uses a controlled upstream, not native Foundry or a new capacity claim.
+- A fresh actual SDK-component browser run passes all eight width/theme cases,
+  including focus entry, both tab directions, Escape/return, manual arguments,
+  initiative, nested resource cards, disconnected invokers and whole-tree
+  unmount/scroll restoration. Narrow light and desktop dark captures were
+  visually inspected. CG-5 remains UI acceptance, independent of migrations.
+- Code review confirms private access fingerprints advance existing public
+  context revisions without exposing raw ownership settings; final lock/write
+  fences remain in place; SDK cross-loader recognition validates actual branded
+  Error/code/status data and unknown route exceptions stay sanitized.
+
+### Retained native and production evidence qualifications
+
+The recorded v14 result files were inspected: eight scoped effect migrations
+across world/owned/delta/Actor-pack/Item-pack locations; complete source comparison
+and no-op restart; loaded/pending access revoke/restore/reset/reconnect behavior;
+OBSERVER403, OWNER success/restoration and LIMITED/nonowner404; eight UI cases
+in both development and production; cleanup with `differences: []`.
+These remain the implementation agent's native runs, not new independent native
+execution in this review. No native connection or write was made here.
+
+Source comparison confirms all **11 changed runtime files** in the final
+production acceptance workspace match the reviewed tree byte-for-byte. The
+retained production build log records completion. That build was inspected,
+not independently repeated after the unchanged-source comparison.
+
+The earlier development/native migration workspace predates five final file
+refinements: package-envelope provenance, unavailable-configuration/unknown-scope
+handling, subclass error recognition and nested-modal cleanup. Its eight native
+writes must not be described as a fresh rerun after those refinements. Later
+current-source production bootstrap/access/error/UI evidence and this independent
+current-source isolated migration workflow supplement that earlier native result.
+This distinction does not establish a new defect or reopen the prior large
+inventory work. The focused fresh v13 row remains the next outstanding acceptance.
+
+### Disposition
+
+F2–F4 have independent passing evidence within the scope above; F5 retains the
+qualified v14 evidence and awaits fresh v13. F6's independent review is complete;
+user acceptance, the selected point release and later module resumption remain.
+No extra implementation correction or SDK/API bump is requested by this review.
+Unselected CG-4/6/8 and policy observations remain unselected, not implicitly fixed.
+
+Only review documentation/handoff changed. No module repository, application
+version, staging, commit or remote operation changed. All independently started
+test processes/listeners exited; the existing user Foundry listener was left
+running and untouched. The next task is focused v13 acceptance of these changes,
+not another general audit or a repeat of all historical migration inventories.
+
+
+## Final-source native v14 verification — October 18, 2026
+
+**The final reviewed CR64-23–26 source passes focused native v14 acceptance.**
+This fresh run supersedes the preceding review's qualification about the earlier
+native migration workspace predating final refinements. It does not close fresh
+v13, user review, release or full Shadowdark A01/M5 acceptance. CG-5 remains a
+separate UI correction, not a migration prerequisite.
+
+### Identity and scope
+
+The operator authorized the running disposable instance on loopback port30000.
+Discovery verified Foundry14.367, native Shadowdark4.0.6, world `shadowdark-test`
+and the passwordless full-GM `Gamemaster` account. Core branch remains
+`fix/adr-0064-g8-integration`, HEAD `10213980`; all17 changed/new source/test files
+match the independent review hashes. The reused production workspace matches all
+751 source files, with its completed build retained. Application metadata remains
+0.19.1 plus the uncommitted corrections; this is **not** released0.19.1 behavior.
+SDK3.4/module-api1.6/UI3.2/roll1.0 are unchanged.
+
+The unchanged managed Shadowdark0.9.4 archive has SHA256
+`2fcacac74dc0accbcefc5829611afcec6cae588ecf757ec97ad57d8234a7d971`.
+Fresh fixture IDs, isolated Core data/admin configuration and independent source
+snapshots were used. Module repositories and production configuration were unused.
+The ADR was saved before this annotation: 353,464 bytes, SHA256
+`413aa5c3e12f768acc2f01d5eea18255df2ca93d0e2957c69138fb319c03c79d`.
+
+### Results
+
+| Boundary | Fresh native result |
+| --- | --- |
+| Required migration / CR64-23 | Actual public preview and approved maintenance complete exactly eight fixture ActiveEffect writes: world Actor, owned Item, world Item, ActorDelta and its Item, Actor-pack Actor and owned Item, Item-pack Item. Native world packs have no explicit lock override. Complete independent source comparison matches the intended literal-key transformation; unrelated world data is unchanged. |
+| Durable execution | Eight unique operation keys, eight intents and eight confirmed receipts. Real supervisor restart serves current data without another migration or source change. |
+| Native lock precedence | Explicit `locked: true` produces409 and a locked/unreadable explanation. Explicitfalse, null and absent overrides produce200 with no blockers or operations after migration. Every preview leaves all compared sources unchanged; original configuration is restored. |
+| Ownership-only changes / CR64-24 | Development and production each pass revoke/restore on the same mounted Gear picker, held stale positive response rejection, override removal and offline/reconnect reconciliation. Search and mounted element persist; initial revoke/restore requests advance1→3. No Pulp change, page reload, manual Retry or page errors. |
+| Packaged SDK errors / CR64-25 | Development and production each pass nonowner404, LIMITED detail/write404 with authorized card200, OBSERVER detail200/write403, and OWNER200 through the same managed JS route. Denials preserve the complete Actor source; owner change and restoration match the exact intended field. |
+| Shared roller / CR64-26 | Actual unchanged managed module → Core SDK passes focus entry, both tab directions, Escape and focus return at320/390/820/1440 in both appearance selections, separately in development and production (eight cases each). No native roll/chat submitted. Layout qualification below remains explicit. |
+
+Production initially failed before the sheet appeared because the acceptance
+harness reused a matching build with a different API port from its compiled
+Next.js rewrites. The failed browser attempt was retained. After stopping the
+isolated host and matching its configuration to the build's free ports, all
+production checks above passed. This was a harness setup correction; no Core
+source was changed, and the failed attempt is not counted as passing evidence.
+
+### Presentation observation and cleanup
+
+At320px, the Shadowdark-themed roller clips the right side of the Disadvantage
+button in development and production. The earlier native captures show the same
+layout; this patch leaves the action-row layout unchanged. Keyboard acceptance
+passes, but these captures are **not** evidence of a fully correct narrow layout.
+Record a separate presentation follow-up to determine the shared layout/theme
+interaction and verify both Core and module themes. It is outside the selected
+focus correction and has no migration impact; it does not reopen CG-5 as a
+migration blocker or authorize module changes.
+
+All ledgered fixture documents, accounts and world packs were removed. Original
+settings and pack membership were restored. Baseline verification reports no
+source differences:9Actors,0Items,2Scenes,4Users. Actor/Item/Scene comparisons
+exclude only native `_stats` bookkeeping; safe User identity/role/character and
+selected Setting values are compared without exporting credentials. All task
+Core/Next/manager/browser processes exited. The operator's Foundry process was
+left running. No source, module, version, index, commit or remote changes occurred.
+
+F5's native14 portion now has independent final-source evidence. **Fresh v13 is
+next, after the operator switches the disposable instance.** Recheck identity
+before using a fresh fixture ledger; do not reuse the cleaned IDs. F6 still needs
+user review and the supporting Core point release before separately authorized
+module resumption. Prior larger inventories remain retained, not rerun or claimed
+as a new capacity measurement.
+
+
+## Final-source native v13 verification — October 18, 2026
+
+**The selected CR64-23–26 Core acceptance now passes on both native generations.**
+The operator switched the disposable endpoint and confirmed readiness. Fresh
+checks verified Foundry13.351, Shadowdark4.0.6, world `sd-adr61-v13`, port30000
+and passwordless full-GM `Gamemaster`. This completes the amendment's F5 native
+row alongside the final-source v14 result above. User review and supporting
+point release remain pending; module A01/M5 acceptance remains separate.
+
+### Reviewed source and native fixtures
+
+The approved branch remains `fix/adr-0064-g8-integration`, HEAD `10213980`.
+All17 reviewed changed/new source/test files remain byte-identical; the retained
+production build's workspace matches all751 source files. Metadata remains
+Core0.19.1 plus uncommitted fixes, SDK3.4/module-api1.6/UI3.2/roll1.0. No release,
+SDK bump or claim that published0.19.1 contains these fixes is implied.
+The unchanged managed Shadowdark0.9.4 archive retains SHA256
+`2fcacac74dc0accbcefc5829611afcec6cae588ecf757ec97ad57d8234a7d971`.
+
+The v13 world was empty:0Actors,0Items,0Scenes,1User and no world packs.
+A fresh ledger recorded four marked Actors, one world Item, one Scene, two world
+packs and two temporary users. Basic Player/NPC fixtures used native Foundry
+system defaults; the authorization case used a neutral owned Item/effect, not
+invented weapon rules or imported v14 effects. Migration fixtures persisted
+**top-level `changes` with numeric modes and string values**, verified by native
+readback before approval. Eight intentionally old keys were distributed across
+the same world/owned/delta/Actor-pack/Item-pack locations as the v14 matrix.
+
+The ADR was saved before this revision:359,117 bytes, SHA256
+`f1aded730a60e2577829f2d4ecd724ed04b77a17777815c9e664b72b9a3f858c`.
+Core-owned isolated data/configuration, immutable package copies and existing
+external browser tooling were used. Module repositories and operator production
+configuration remained untouched.
+
+### Fresh v13 outcomes
+
+| Boundary | Result |
+| --- | --- |
+| Required migration and source oracle | Actual public preview identified exactly eight fixture effects, with no explicit pack unlock. Approved maintenance completed all eight writes. Complete independent source comparison matched only the literal-key repair, preserving native modes, values and unrelated fields. |
+| Durable execution and restart | Eight unique operation keys, eight intents and eight confirmed receipts. Real supervisor restart served current data with no additional migration or source change. Production bootstrap also found no further work. |
+| Lock defaults and precedence | Explicittrue produced409 with the lock/readability reason. Explicitfalse, null and absent overrides produced200 with zero current operations/blockers. All four previews preserved every compared world/pack source; original settings were restored. |
+| Ownership-only invalidation | Development and production each passed all four mounted-consumer cases: revoke/restore, held stale positive response rejection, override removal and offline/reconnect reconciliation. Original search element and query persisted; initial requests advanced1→3 without Pulp, remount/reload or Retry. No page errors. |
+| Actual managed SDK error handling | Development and production each passed nonowner404, LIMITED detail/write404 with authorized card200, OBSERVER detail200/write403, OWNER200 and exact field restoration. Whole Actor sources were unchanged by denied writes. |
+| Shared roller keyboard behavior | Development and production each passed all eight320/390/820/1440 width/appearance cases for focus entry, Tab/ShiftTab containment, Escape and return. No native roll/chat was submitted. CG-5 remains UI acceptance, not a migration condition. |
+
+The production host reused the matching build with its original free compiled
+proxy ports, so the v14 harness port mismatch was not repeated. No failed native
+v13 case required an application correction. The known320px Shadowdark-themed
+Disadvantage clipping is also visible on v13; desktop controls fit. The separate
+presentation observation above remains carried, not silently fixed or promoted
+to a migration blocker. Keyboard results do not establish complete narrow-layout
+correctness.
+
+### Cleanup and disposition
+
+All ledgered fixtures/accounts/packs were removed. Original selected Settings,
+world membership and safe User identity/role/character roster were restored;
+cleanup reports **no differences**,0Actors/0Items/0Scenes/1User and no world
+packs. Full document source comparisons exclude only native `_stats` bookkeeping;
+credentials were not exported. All task Core/Next/manager/browser processes exited.
+The operator's Foundry13 process remained running on30000.
+
+F1–F4 retain their passing implementation/independent evidence; **F5 is complete
+for the four selected corrections with fresh final-source v13 and v14 evidence**.
+F6 documentation is current; user acceptance and the selected supporting Core
+point release remain. No additional selected implementation blocker was found.
+Do not repeat historical large inventories or infer a new capacity guarantee from
+these focused runs. No source, module, metadata, staging, commit or remote changes
+were made. Resume module work only after the supporting release and the user's
+instruction; unselected CG-4/6/8 and policy findings remain unselected.
+
+
+## Responsive roll-dialog correction and Core closeout — October 18, 2026
+
+**Core scope is closed under the user's instruction to fix the clipping if small,
+then close out and commit.** The fix is contained to two layout class changes in
+Core's shared sheet and initiative dialogs. No module change or new SDK contract
+is needed. The previously deferred DW-18 observation is completed as CR64-26-R1;
+it has never been a migration gate.
+
+### CR64-26-R1: keep themed action buttons visible
+
+The sheet roller used one nonwrapping flex row for Advantage/Disadvantage.
+Shadowdark's uppercase, spaced labels had a combined minimum width larger than
+the narrow dialog. The frame's scrolling/overflow behavior then clipped the right
+button. Initiative's fixed two-column breakpoint could create the same mismatch
+between available space and label width. Both rows now use wrapping flex layout:
+controls share a row when they fit and occupy separate rows when they do not.
+Theme classes, full labels, focus behavior, manual input and roll arguments remain
+unchanged. No font shrinking, truncation, new breakpoint or module-specific branch
+was introduced.
+
+The isolated browser reproduction used the actual Core components plus the exact
+roll theme functions and scoped CSS from the unchanged managed Shadowdark0.9.4
+artifact, not a substitute dialog. Before correction at320px, the dialog's visible
+right edge was304px and the Disadvantage button extended to359.56px; scroll width
+was340px for280px client width. The bounds assertion failed with the original
+screenshot retained. After correction, all **28 width/appearance/presentation
+cases** passed:320/390/400/420/640/820/1440, light/dark, Core/packaged Shadowdark.
+Each case checked sheet, selected sheet and initiative controls (84 bounds
+measurements), full label containment and absence of horizontal overflow.
+
+The same run verified the Disadvantage callback value and prior manual arguments,
+focus entry, bidirectional Tab containment, Escape/return, nested card dismissal,
+disconnected invoker and whole-tree scroll cleanup. Narrow Shadowdark sheet,
+400px initiative and desktop Core captures were visually inspected. Fresh client
+tests, TypeScript, lint and whitespace checks pass. No new unit test mirroring a
+CSS class was added. These were browser-only checks; no Foundry service or module
+repository was contacted or changed in this final slice.
+
+The preceding full unit/client/integration, isolated public/supervisor/package/
+build and fresh native13/14 results remain valid for the unchanged server and
+contracts. The native captures predate these two layout classes; final layout
+acceptance comes from the fresh rendered checks above. Native migrations and
+large inventories were not rerun or relabeled. The saved pre-closeout ADR was
+364,713 bytes, SHA256
+`293c283cf88365c270f5312ed2af47065a6354f23a19cf7586650b7264a51519`.
+
+### Final selected-scope disposition
+
+| Checkpoint | Disposition |
+| --- | --- |
+| F1–F2 | Approved branch/scope, original defects, four corrective implementations and tracked regressions preserved; responsive UI follow-up also complete. |
+| F3–F4 | Actual public/managed/development/production boundaries and independent Core checks pass; final layout/client/type/lint evidence added. |
+| F5 | Fresh scoped native13.351 and14.367 acceptance, full source/receipt comparisons and baseline cleanup complete. Final browser-only layout correction is separately evidenced above. |
+| F6 | User's conditional closeout criteria met; tracked guides, changelog and handoff reconciled; active Core audit archived. Authorized checkpoint commit follows. Publication is a separate remaining operation. |
+
+No confirmed blocker remains in this selected Core scope. CR64-23–26/R1 are not
+in publishedCore0.19.1: the supporting point release is still required before
+module adoption resumes. Package/lock0.19.1 and SDK3.4/module-api1.6/UI3.2/roll1.0
+remain unchanged. The user normally owns push/PR/squash merge/publication; this
+instruction authorizes the local commit, not remote or release operations.
+Unselected CG-4/6/8, advisory exclusion/status and intentional-lock policy remain
+explicitly unselected. Core closeout does not close Shadowdark A01/M5 or authorize
+module work. All task services are stopped and the operator's Foundry stays
+untouched. Earlier pending/hold/observation statements are dated history, with
+this closeout owning the current Core disposition.

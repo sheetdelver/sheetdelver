@@ -45,6 +45,15 @@ export function run() {
     assert.deepEqual(changes[3], { type: 'Scene', id: 's1', action: 'update' });
     assert.deepEqual(changes[4], { type: 'Setting', id: 'set1', action: 'create' });
 
+    // Access-only context changes carry no public setting names, but must still
+    // reach mounted SDK collections (including after a socket reconnect).
+    const contexts: Array<{ revision: number; keys: string[] }> = [];
+    bus.on('world:contextChanged', event => contexts.push(event));
+    socket.emit('worldContextChanged', { revision: 17, keys: [] });
+    bus.detach(); bus.attach(socket as any);
+    socket.emit('worldContextChanged', { revision: 18, keys: [] });
+    assert.deepEqual(contexts, [{ revision: 17, keys: [] }, { revision: 18, keys: [] }]);
+
     // Unsubscribe stops delivery.
     offChange();
     socket.emit('actorChanged', { actorId: 'a2', action: 'update' });

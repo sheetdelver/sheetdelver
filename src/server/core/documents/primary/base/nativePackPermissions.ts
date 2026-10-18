@@ -4,6 +4,20 @@ import { settingStore } from '../settings/SettingStore';
 import { worldStateStore } from '@server/core/world/WorldStateStore';
 import { compendiumStore } from '@server/core/compendium/CompendiumStore';
 import { isRecord } from './PrimaryDocumentStore';
+import type { CompendiumPackMetadata } from '@server/core/compendium/types';
+
+/** Native v13/v14 CompendiumCollection.locked: configuration, then package
+ * ownership default. metadata.locked is not part of that native precedence.
+ * null means the configuration/identity cannot be established, not unlocked. */
+export function nativePackLocked(metadata: CompendiumPackMetadata, configuration: unknown): boolean | null {
+    if (!['world', 'system', 'module'].includes(String(metadata.packageType))) return null;
+    if (configuration !== undefined && !isRecord(configuration)) return null;
+    const row = isRecord(configuration) ? configuration[String(metadata.id)] : undefined;
+    if (row != null && !isRecord(row)) return null;
+    const override = isRecord(row) ? row.locked : undefined;
+    if (override != null && typeof override !== 'boolean') return null;
+    return override ?? metadata.packageType !== 'world';
+}
 
 /** Native CompendiumCollection role ownership on v13/v14, not a Combat capability. */
 export function canReadNativePackForSubject(subject: DocumentAccessSubject, generation: number | undefined,

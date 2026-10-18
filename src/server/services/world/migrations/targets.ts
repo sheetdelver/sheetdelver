@@ -7,7 +7,7 @@ import { settingStore } from '@server/core/documents/primary/settings/SettingSto
 import { worldStateStore } from '@server/core/world/WorldStateStore';
 import { isRecord } from '@server/core/documents/primary/base/PrimaryDocumentStore';
 import { serviceAccountAuthority } from '@server/core/world/ServiceAccountAuthority';
-import { canReadNativePack, canReadNativePackForSubject } from '@server/core/documents/primary/base/nativePackPermissions';
+import { canReadNativePack, canReadNativePackForSubject, nativePackLocked } from '@server/core/documents/primary/base/nativePackPermissions';
 import type { CompendiumPackMetadata } from '@server/core/compendium/types';
 import type { DocumentAccessSubject } from '@server/core/documents/primary/base/ownership';
 
@@ -18,6 +18,8 @@ export interface MigrationSourceView {
     scenes: Record<string, unknown>[];
     packs: CompendiumPackMetadata[];
     configuration: unknown;
+    /** false for a present but unreadable Setting, distinct from verified absence. */
+    configurationAvailable?: boolean;
     subject: DocumentAccessSubject;
     generation: number;
     /** Already enumerated identities, used only to validate untouched delta bases. */
@@ -48,11 +50,10 @@ export function expandMigrationTargets(uuid: string, kind: MigrationTarget['kind
 }
 export function packIsWritableWorld(packId: string, view?: MigrationSourceView): boolean {
     const metadata = view ? view.packs.find(row => row.id === packId) : compendiumStore.getPackMetadata(packId);
-    if (!metadata || !packId.startsWith('world.') || metadata.packageType && metadata.packageType !== 'world') return false;
+    if (!metadata || metadata.packageType !== 'world' || !view && !settingStore.isReady()) return false;
     const configuration = view ? view.configuration : settingStore.getValueByKey('core.compendiumConfiguration');
-    const config = isRecord(configuration) && isRecord(configuration[packId]) ? configuration[packId] : null;
-    // Native packs are locked by default. Never infer unlock from a read cache.
-    return (config?.locked ?? metadata.locked ?? true) === false;
+    if (view?.configurationAvailable === false || !view && settingStore.hasWorldKey('core.compendiumConfiguration') && configuration === undefined) return false;
+    return nativePackLocked({ ...metadata, id: packId }, configuration) === false;
 }
 export function migrationEnvelope(target: MigrationTarget, updates: Record<string, unknown>): { type: string; operation: Record<string, unknown> } {
     if (target.readOnly) throw new Error('Read-only migration reference cannot be written');
@@ -100,9 +101,15 @@ export async function enumerateMigrationTargets(transport: MigrationTransport, k
     if (kinds.has('WorldPack')) {
         for (const pack of view?.packs ?? compendiumStore.listPackMetadata()) {
             const packId = String(pack.id ?? '');
-            if (!packId.startsWith('world.')) continue; // Intentional package-pack exclusion.
             const type = pack.type ?? pack.documentName ?? pack.entity;
             if (type !== 'Actor' && type !== 'Item') continue;
+            if (pack.packageType !== 'world') {
+                if (!['system', 'module'].includes(String(pack.packageType))) {
+                    if (required.has('WorldPack')) throw new Error('Required world pack ownership is unavailable');
+                    options.exclusions?.push(`${packId}: advisory pack ownership unavailable`);
+                }
+                continue; // Explicit system/module packs never become write targets.
+            }
             const userId = serviceAccountAuthority.getUserId();
             if (!userId || !canRead(packId) || !packIsWritableWorld(packId, view)) {
                 if (required.has('WorldPack')) throw new Error('Required world pack is locked or unreadable');

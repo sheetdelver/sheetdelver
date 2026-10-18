@@ -685,28 +685,37 @@ contract decision. Notification calls are client-only, never server runtime APIs
 
 ## Native world settings and data maintenance
 
-[Core ADR-0064](adr/0064-module-world-context-and-data-migrations.md) is implemented
-in the development tree; [the authoring contract](MODULE_MIGRATIONS.md) defines
-released SDK 3.3.0, module-api 1.5.0 and ui-extension-api 3.2.0, catalog examples and
-adoption gates. See its [compatibility requirements](MODULE_MIGRATIONS.md#compatibility-and-adoption)
-for API floors and both CI/release toolchain pins. Core 0.19.0 supplies the baseline;
-0.18.1 does not. The unreleased corrective tree adds SDK 3.4.0/module-api 1.6.0
-for `reads.relations`: bounded parent/ancestor/base source-field projections,
-including arbitrary world-pack identities and partial deltas. Declare that API
-floor when adopting relations; existing catalogs retain 1.5.0. No application
-release floor has been invented for this correction. **All module work remains
-held** pending C64-H user review and explicit clearance. Selected native v13/v14
-acceptance now passes, including complete inventories and first-publication
-recovery; see the [current evidence](adr/0064-module-world-context-and-data-migrations.md#fresh-complete-maintenance-native-v13-acceptance--october-17-2026).
-Dependent publication also requires the actual supporting Core release. Do not activate catalogs or
-implement module workarounds while that hold is active. The
-[independent Core review](adr/0064-module-world-context-and-data-migrations.md#independent-complete-maintenance-review--october-17-2026) adds CR64-14–17; fixing host
-readback, cancellation, durable-plan capacity and readiness remains Core-owned.
-Those corrective guards and journal encoding are Core-owned implementations:
-legacy1.5 catalogs do not need rewriting for large write-bearing plans. Public
-review retains all target patches/digests while internal dependency proofs stay
-server-side. Isolated verification does not release the module-adoption hold or
-establish a published host version for the new contract.
+[Core ADR-0064](adr/0064-module-world-context-and-data-migrations.md) is released
+through Core 0.19.1, with SDK 3.4.0/module-api 1.6.0/UI 3.2.0. See
+[the authoring contract](MODULE_MIGRATIONS.md) and its
+[compatibility requirements](MODULE_MIGRATIONS.md#compatibility-and-adoption).
+Bounded `reads.relations` require module-api 1.6; existing catalogs retain their
+1.5 introduction floor. Core 0.18.1 lacks these contracts.
+
+The [four-issue G8 correction amendment](adr/0064-module-world-context-and-data-migrations.md#g8-integration-correction-amendment--october-18-2026)
+tracks CG-7 pack defaults, CG-9 access-driven refresh, CG-10 managed SDK errors and
+CG-5 shared roll-dialog keyboard behavior. They are not fixed in 0.19.1. Module
+work is held for the supporting point release; the selected Core implementation,
+independent/native acceptance and responsive UI follow-up are closed.
+Keep module requirements and historical hooks unchanged during that Core task;
+choose the published supporting minimum and CI/release pins during later module
+resumption. Do not work around these findings with advisory required migrations,
+privileged reads, polling, message-based error classification or duplicated UI.
+CG-5 is not a migration blocker. The prior native Core evidence does not establish
+full module acceptance.
+
+The current Core correction preserves existing archives and public contracts.
+Subscribe to the existing `world:contextChanged` signal for caller-dependent
+collections even when `keys` is empty: retire loaded values and pending responses
+before refetching, retaining search/tab intent. Ownership configuration is never
+exposed to module UI. Do not use an unrelated setting as a refresh trigger.
+Use `isSdkError`, not `instanceof`, across host/module loaders. Recognition uses
+the SDK's non-wire brand, actual Error identity and validated code/error status;
+arbitrary objects and internal exceptions remain sanitized failures. No module
+repackaging, historical-hook rewrite or SDK/API contract bump is needed for these
+implementation corrections. Adoption still waits for the supporting Core release;
+select its actual application minimum in the later module-owned task.
+
 `useModuleSettings` does not expose native world settings, and
 adapter initialization cannot write documents. A registered default is not proof
 of an unreadable world's value. The world context updates to a new

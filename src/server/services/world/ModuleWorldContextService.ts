@@ -4,6 +4,7 @@ import { settingStore, type SettingStore } from '@server/core/documents/primary/
 import { freezeWorldValue, isWorldValue, validateWorldSettings, type ModuleWorldContext, type ModuleWorldSnapshot,
     type ModuleWorldIdentity, type WorldSettingDeclaration, type WorldSettingResult } from '@shared/sdk/world';
 import { resolveModuleCompatibility } from '@modules/registry/lifecycle/compatibilityResolver';
+import { compendiumStore } from '@server/core/compendium/CompendiumStore';
 
 export function versionMatches(version: string, range: string): boolean {
     return resolveModuleCompatibility({ coreVersion: version, requiredCoreVersion: range, providedApiContracts: {} }).compatible;
@@ -15,6 +16,7 @@ export class ModuleWorldContextService extends EventEmitter {
     private current: Readonly<ModuleWorldSnapshot> | null = null;
     private epoch = 0;
     private revision = 0;
+    private accessFingerprint = '';
     constructor(private readonly store: SettingStore = settingStore) { super(); }
     configure(instanceUrl: string, identity: Omit<ModuleWorldIdentity, 'instanceId' | 'contextRevision'>,
         declarations: WorldSettingDeclaration[] = []): void {
@@ -23,6 +25,7 @@ export class ModuleWorldContextService extends EventEmitter {
         if (!this.current || this.current.identity.worldId !== identity.worldId
             || this.current.identity.systemId !== identity.systemId || this.current.identity.runtimeEpoch !== identity.runtimeEpoch) this.epoch += 1;
         this.declarations = structuredClone(declarations);
+        this.accessFingerprint = this.packAccessFingerprint();
         this.current = freezeWorldValue({ identity: { ...identity,
             instanceId: createHash('sha256').update(new URL(instanceUrl).origin + new URL(instanceUrl).pathname).digest('hex'),
             contextRevision: ++this.revision }, settings: this.resolve(identity.systemVersion) });
@@ -37,14 +40,17 @@ export class ModuleWorldContextService extends EventEmitter {
         this.current = freezeWorldValue({ identity: { ...this.current.identity, contextRevision: ++this.revision },
             settings: Object.fromEntries(this.declarations.map(row => [row.key, { status: 'unavailable' as const, reason: 'not-ready' as const }])) });
     }
-    refresh(): { changedKeys: string[]; affectsPreparation: boolean } {
+    refresh(): { changedKeys: string[]; affectsPreparation: boolean; dependenciesChanged: boolean } {
         if (!this.current) throw new Error('World context unavailable');
         const settings = this.resolve(this.current.identity.systemVersion);
         const changedKeys = Object.keys(settings).filter(key => JSON.stringify(settings[key]) !== JSON.stringify(this.current!.settings[key]));
-        if (changedKeys.length) {
+        const fingerprint = this.packAccessFingerprint();
+        const dependenciesChanged = fingerprint !== this.accessFingerprint;
+        this.accessFingerprint = fingerprint;
+        if (changedKeys.length || dependenciesChanged) {
             this.current = freezeWorldValue({ identity: { ...this.current.identity, contextRevision: ++this.revision }, settings });
         }
-        return { changedKeys, affectsPreparation: this.declarations.some(row => row.affectsPreparation && changedKeys.includes(row.key)) };
+        return { changedKeys, dependenciesChanged, affectsPreparation: this.declarations.some(row => row.affectsPreparation && changedKeys.includes(row.key)) };
     }
     snapshot(): Readonly<ModuleWorldSnapshot> {
         if (!this.current) throw new Error('World context unavailable');
@@ -71,6 +77,16 @@ export class ModuleWorldContextService extends EventEmitter {
     publish(changedKeys: string[]): void { this.emit('changed', { revision: this.snapshot().identity.contextRevision,
         keys: this.declarations.filter(row => row.exposure !== 'server' && changedKeys.includes(row.key))
             .map(row => ({ key: row.key, exposure: row.exposure })) }); }
+    /** Private dependency evidence only. Never project native ownership maps or
+     * Setting rows. Deletion/reset and unchanged rule settings still retire data. */
+    private packAccessFingerprint(): string {
+        const config = this.store.getValueByKey('core.compendiumConfiguration');
+        const configured = config && typeof config === 'object' && !Array.isArray(config)
+            ? Object.entries(config).sort(([a], [b]) => a.localeCompare(b)).map(([id, row]) => [id,
+                row && typeof row === 'object' ? (row as Record<string, unknown>).ownership : 'invalid']) : config;
+        const metadata = compendiumStore.listPackMetadata().map(row => [row.id, row.ownership]).sort(([a], [b]) => String(a).localeCompare(String(b)));
+        return createHash('sha256').update(JSON.stringify([this.store.isReady(), configured, metadata])).digest('hex');
+    }
     private resolve(version: string): Record<string, WorldSettingResult> {
         return Object.fromEntries(this.declarations.map(row => {
             let result: WorldSettingResult;

@@ -263,7 +263,7 @@ export function createModuleRouter(deps: ModuleRouterDeps) {
             }
             const message = getErrorMessage(error);
             logger.error(`Module Routing Error (${req.path}): ${message}`);
-            return res.status(500).json({ error: message });
+            return res.status(500).json({ error: 'Internal server error', code: 'internal', status: 500 });
         }
     });
 

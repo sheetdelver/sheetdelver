@@ -915,11 +915,14 @@ works.
     these methods originated in UI contract 1.1.0; modules targeting the
     next host release declare `ui-extension-api: ">=3.0.0 <4.0.0"`.
 
-## World context and migration discovery (unreleased)
+<a id="world-context-and-migration-discovery-unreleased"></a>
+
+## World context and migration discovery
 
 [Core ADR-0064](adr/0064-module-world-context-and-data-migrations.md) implements
-`worldSettings` and immutable runtime world context in SDK 3.3.0/module-api 1.5.0;
-the client setting/context APIs use ui-extension-api 3.2.0.
+`worldSettings` and immutable runtime world context, introduced in Core 0.19.0 /
+SDK 3.3.0/module-api 1.5.0. Released Core 0.19.1 provides SDK 3.4.0/module-api
+1.6.0 for bounded migration relations; client APIs use ui-extension-api 3.2.0.
 See [schemas and complete examples](MODULE_MIGRATIONS.md). Existing `settings` remain browser preferences;
 adapter initialization remains read-only.
 
@@ -939,5 +942,18 @@ compatible range) so older hosts reject requirements they cannot enforce. Declar
 `ui-extension-api: ">=3.2.0 <4.0.0"` when adopting its new client APIs; there is
 no separate `sdkVersion` manifest field. See [compatibility and release adoption](MODULE_MIGRATIONS.md#compatibility-and-adoption).
 Bootstrap must check actual source even after a completed journal entry; it cannot
-initiate writes. This contract remains unreleased; dependent modules must wait
-for a supporting published host before declaring its minimum.
+initiate writes. Later G8 findings are selected in the [four-issue G8 correction amendment](adr/0064-module-world-context-and-data-migrations.md#g8-integration-correction-amendment--october-18-2026); their Core implementation and acceptance are closed, but the fixes are absent
+from released0.19.1. Module adoption waits for the supporting point
+release. Do not invent an `sdkVersion` field or alter historical catalogs to
+compensate for a Core defect.
+
+The corrective branch preserves these contracts. Ownership-only access changes
+can emit the existing `world:contextChanged` signal with an empty `keys` list;
+the revision still retires loaded and pending caller-dependent data. Modules must
+not require an unrelated setting change or raw Setting access to respond. Shared
+sheet/initiative rollers retain their SDK props and module themes while Core owns
+keyboard/focus behavior. Typed errors should use `isSdkError`, not constructor
+identity: Core validates the SDK's non-wire brand, Error/code and400–599 status
+across supported managed JS loaders. Existing archives need no rewriting. These
+implementation fixes are not present in releasedCore0.19.1; the actual supporting
+point release remains a later, separately approved publication.

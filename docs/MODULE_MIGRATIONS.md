@@ -1,47 +1,49 @@
 # Native world context and module maintenance
 
-Core **0.19.0** implements [ADR-0064](adr/0064-module-world-context-and-data-migrations.md),
-with SDK 3.3.0, module-api 1.5.0 and UI API 3.2.0. These contracts are absent from
-Core 0.18.1. Module adoption remains separate from the recorded disposable-world
-native Core gate. The [G8 corrective follow-up](adr/0064-module-world-context-and-data-migrations.md#g8-corrective-follow-up--october-16-2026)
-identifies unresolved capacity, parent-reference, diagnostic and v13 pack-policy
-defects in 0.19.0. The later [complete-maintenance decision](adr/0064-module-world-context-and-data-migrations.md#complete-maintenance-and-migration-acceptance--october-16-2026)
-adds runtime isolation (CR64-13) and holds all module work until Core's reconciled
-C64-A–H acceptance gates pass and are reviewed. The corrective branch now
-implements these changes; isolated whole-host acceptance is recorded in the ADR.
-The [independent review](adr/0064-module-world-context-and-data-migrations.md#independent-complete-maintenance-review--october-17-2026) identified four further Core gaps
-(CR64-14–17); their corrective implementation and isolated acceptance now precede
-fresh native v13/v14 acceptance and user review. Passing isolated scenarios do not
-close those remaining gates. Original native
-fixtures are not full adoption proof. See [maintenance runtime](MAINTENANCE_RUNTIME.md)
-for lifecycle owners, operator workflow and durable-format compatibility.
-
-The [independent confirmation](adr/0064-module-world-context-and-data-migrations.md#cr64-1417-independent-confirmation--october-17-2026) confirms CR64-14–17
-corrected on the current tree. Fresh native v13/v14 and user acceptance remain
-pending; this does not release the module-work hold.
+Core **0.19.1** supplies complete maintenance, bounded relations and the
+CR64-01–22-R1 corrections recorded in [ADR-0064](adr/0064-module-world-context-and-data-migrations.md).
+Selected Core native v13/v14 evidence remains valid; module adoption is separate.
+The [four-issue G8 correction amendment](adr/0064-module-world-context-and-data-migrations.md#g8-integration-correction-amendment--october-18-2026)
+reopens only CG-7 (pack lock defaults), CG-9 (permission-driven collection refresh),
+CG-10 (packaged SDK error recognition) and CG-5 (shared roll-dialog keyboard use).
+These corrections are implemented on the corrective branch, not released in
+0.19.1. Independent review and focused final-source native v13/v14 acceptance
+passed. The user's October18 conditional closeout is satisfied; supporting publication
+remains pending. CG-5 is not a migration blocker.
+Module work is held for this selected Core point-release sequence. Earlier dated
+review sections below retain historical evidence, not additional active gates.
+See [maintenance runtime](MAINTENANCE_RUNTIME.md) for lifecycle owners, recovery
+limits and durable-format compatibility.
 
 ## Compatibility and adoption
 
-The released baseline is **0.19.0** (`v0.19.0`, `2f71597`). Modules adopting these
-contracts should require the tested supporting Core release and pin both their
-validation and release workflows to it. Adoption requiring the corrective
-follow-up must use the eventual release containing those fixes and any new
-versioned contract; no new version is assigned by the review. Do not publish a
-dependent module against an unavailable host release or use the development
-package version as proof of released compatibility.
+The current released baseline is **0.19.1** (`v0.19.1`, local release commit
+`10213980`). Modules should require the tested supporting Core release and pin
+both validation and release toolchains to it. Corrections selected on October 18
+need a later published point release; its version is confirmed at release time,
+not inferred from a development checkout. No module metadata changes in this
+Core-only slice.
 
-| Surface | Provided version | Module compatibility requirement when adopted |
+| Surface | Provided in Core 0.19.1 | Module compatibility requirement when adopted |
 | --- | --- | --- |
-| Aggregate SDK | 3.3.0 | Informational; no separate `sdkVersion` manifest property. |
-| `module-api` | 1.5.0 | `>=1.5.0 <2.0.0`; mandatory for migration-bearing packages. |
-| `ui-extension-api` | 3.2.0 | `>=3.2.0 <4.0.0` when using the new UI setting/context APIs. |
-| `roll-engine-api` | 1.0.0 | Unchanged; retain the module's existing compatible range. |
+| Aggregate SDK | 3.4.0 | Informational; no separate `sdkVersion` manifest property. |
+| `module-api` | 1.6.0 | Migration catalogs retain a 1.5.0 introduction floor; bounded relations require `>=1.6.0 <2.0.0`. |
+| `ui-extension-api` | 3.2.0 | `>=3.2.0 <4.0.0` when using its client setting/context APIs. |
+| `roll-engine-api` | 1.0.0 | Retain the module's existing compatible range. |
 
-This table describes released 0.19.0. The corrective tree adds SDK **3.4.0** /
-module-api **1.6.0** for declared relations. Existing catalogs retain their 1.5.0
-floor; relation-bearing definitions must explicitly exclude earlier hosts.
-UI/roll versions and application/module release versions are unchanged. No
-published supporting Core version is assigned by this implementation.
+Core 0.19.0 supplied SDK 3.3/module-api 1.5; 0.18.1 lacks the world-context and
+migration contracts. The four selected fixes aim to preserve existing public
+contracts. Do not pre-bump SDK/API versions without an actual surface change.
+
+The current correction uses native v13/v14 lock precedence: the world's
+`core.compendiumConfiguration[packId].locked` overrides the package-ownership
+default. A verified world pack defaults unlocked; system/module packs remain
+excluded from migration writes even when unlocked. `metadata.locked` is not the
+native override. Unavailable/malformed configuration or unresolved ownership
+blocks required work. Package envelopes supply provenance and world namespaces;
+a `world.` prefix or hydrated read cache alone never proves write permission.
+Live snapshots and final dispatch retain lock/authority/revision fencing; no
+automatic unlock, required-target omission or approval change is introduced.
 
 Versions come from `src/shared/sdk/contractVersions.ts`; modules access public
 exports through `@sheet-delver/sdk`, never private host imports. Declare API
@@ -56,13 +58,16 @@ caches and a GM-only test run cannot establish caller-safe compatibility.
 
 ### Selected correction and module-work hold
 
-The user has paused further module implementation, catalog activation, module
-acceptance work and dependent releases until Core proves the complete workflow.
-Core-owned acceptance may consume existing immutable module artifacts; it must
-not change module repositories or claim their adoption is complete. This hold
-also covers otherwise independent module fixes. Follow the ADR's
-[reconciled implementation gates](adr/0064-module-world-context-and-data-migrations.md#reconciled-implementation-gates),
-not the earlier instruction to proceed with G8 in parallel.
+The earlier complete-maintenance hold was satisfied by the reviewed Core work and
+0.19.1 release. G8 resumed, then exposed the integration findings now selected in
+the [four-issue G8 correction amendment](adr/0064-module-world-context-and-data-migrations.md#g8-integration-correction-amendment--october-18-2026).
+Module implementation/acceptance and dependent publication are held again until
+this correction/review/point-release sequence completes. Core-owned acceptance
+may consume an unchanged module archive in isolation; it does not establish full
+module compliance. Only CG-7 directly concerns migration eligibility; the other
+selected rows have their own access/error/UI acceptance criteria.
+
+### Retained complete-maintenance behavior and evidence
 
 The selected design stops the ordinary Core/Next runtime and restarts a
 maintenance-only composition under the existing supervisor. Only maintenance
@@ -79,10 +84,11 @@ failure retains maintenance and durable progress for verified continuation.
 Readiness requires the real host/native v13/v14 coverage matrix, including world
 packs, deltas, representative size, background-work isolation, recovery and
 rendered maintenance—not only passing hook fixtures. No unconditional immunity
-to external failure is implied. The remaining sections describe the baseline
-plus explicitly identified unreleased corrections. Module adoption remains held.
+to external failure is implied. The remaining sections describe released behavior
+and historical evidence. The October 18 amendment above governs the current
+selected corrections and hold.
 
-**Review status:** the independent review of `5013e86` found five Core defects
+**Historical review:** the independent review of `5013e86` found five Core defects
 despite passing automated suites. Their corrective implementation and evidence are in
 [ADR-0064 CR64-01–05](adr/0064-module-world-context-and-data-migrations.md#independent-core-review--october-16-2026).
 Tracked regressions now cover preview consistency, reference-dependent resume,
@@ -97,8 +103,9 @@ The [native v14 pass](adr/0064-module-world-context-and-data-migrations.md#nativ
 verifies actual14.367 writes, setting refresh, role enforcement, supervised
 activation and admin recovery, with measured test-world inventory costs. It also
 corrects CR64-08's null-delta enumeration. The [native v13 pass and G8 handoff](adr/0064-module-world-context-and-data-migrations.md#native-v13-acceptance-and-g8-handoff--october-16-2026)
-verify13.351 with the same native system4.0.6. G8 module adoption and user review
-remain pending; the measured small worlds do not establish large-world capacity.
+verify13.351 with the same native system4.0.6. At that checkpoint G8 adoption
+and user review remained pending; the measured small worlds did not establish
+large-world capacity. Later complete-maintenance evidence is recorded in the ADR.
 Do not treat generic Core fixtures as module compliance or migration-release approval.
 
 ## Rule inputs
@@ -449,13 +456,13 @@ Do not publish a dependent module against an unavailable host release.
 
 ### Current native acceptance and adoption hold
 
-The unreleased SDK 3.4 / module-api 1.6 implementation now has passing selected
-native v13/v14 coverage: complete representative and 3,194-write inventories,
-independent source/receipt comparisons, public install/upgrade/source-switch,
-recovery, settings/permissions and rendered maintenance. Focused CR64-21 first
-publication cancellation/crash/retry also passes on both generations. Core
-implementation closeout is recorded under the user's conditional instruction;
-supporting-release publication and separately authorized module adoption remain.
+Core 0.19.1's SDK 3.4 / module-api 1.6 implementation has passing selected
+native v13/v14 coverage: representative and 3,194-write inventories, independent
+source/receipt comparisons, public install/upgrade/source-switch, recovery,
+settings/permissions and rendered maintenance. Focused CR64-21 publication
+cancellation/crash/retry also passes on both generations. That Core scope was
+closed and released; it does not cover all later G8 integration cases. The
+October 18 amendment now owns the scoped correction and renewed module hold.
 The current evidence and measured operating costs are in
 [ADR-0064](adr/0064-module-world-context-and-data-migrations.md#fresh-complete-maintenance-native-v13-acceptance--october-17-2026).
 
@@ -468,7 +475,7 @@ source drawers, previews and controls with an accessible explanation. History
 navigation resolves the exact source anew; stale revision checks remain in force.
 Manual Details/close choices and disclosures survive stable refreshes. The
 backend and retained native migration evidence are unchanged.
-The corrective branch provides one Core-owned migration-status projection.
+Core 0.19.1 provides one Core-owned migration-status projection.
 Overview and unrelated admin pages show a compact notice only for required,
 blocked, in-progress or recovery states. Installed owns the full status panel
 (including unknown, unavailable, checking and passing results), without a duplicate
