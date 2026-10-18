@@ -1,7 +1,6 @@
 # Releases
 
-## Unreleased
-
+## 0.19.2
 - Corrected native pack lock defaults
 - Refreshed ownership-dependent collections
 - Preserved packaged SDK error handling
