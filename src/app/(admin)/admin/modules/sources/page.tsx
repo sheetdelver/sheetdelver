@@ -1,4 +1,5 @@
 import PageHeading from '../../../components/PageHeading';
+import AdminServiceAvailability from '../../../components/AdminServiceAvailability';
 import SourceProfilePanel from '../../../components/SourceProfilePanel';
 
 export default function AdminSourcesPage() {
@@ -6,7 +7,9 @@ export default function AdminSourcesPage() {
         <>
             <PageHeading title="Modules - Sources" description="Public catalogs used for module discovery." />
             <section className="admin-panel overflow-hidden rounded-lg shadow-sm">
-                <SourceProfilePanel />
+                <AdminServiceAvailability feature="Catalog source management">
+                    <SourceProfilePanel />
+                </AdminServiceAvailability>
             </section>
         </>
     );

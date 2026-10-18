@@ -106,7 +106,7 @@ export function maintenanceMigrationStatus(): AdminMigrationStatus | null {
         artifactDigest: preview?.artifactDigest ?? job?.artifactDigest, catalogDigest: preview?.catalogDigest ?? job?.catalogDigest,
         ...(preview ? { checked: preview.plan.checked, proposedWrites: preview.plan.operations.length, previewId: preview.id }
             : job ? { checked: job.plan.checked, proposedWrites: job.plan.operations.length } : {}), progress: mode.progress,
-    }, { kind: 'maintenance', label: recovery ? 'Review recovery' : phase === 'review' ? 'Review exact plan' : 'View maintenance', href: '/admin' });
+    }, { kind: 'maintenance', label: recovery ? 'Review recovery' : phase === 'review' ? 'Review exact plan' : 'View maintenance', href: '/admin/modules#world-maintenance' });
 }
 export function readAdminMigrationOverview(): AdminMigrationOverview {
     const maintenance = maintenanceMigrationStatus();

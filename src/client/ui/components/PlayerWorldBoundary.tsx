@@ -106,8 +106,8 @@ export function PlayerWorldBoundary({ children }: { children: ReactNode }) {
                 ) : (
                     <div ref={overlayRef} tabIndex={-1} className="fixed inset-0 z-[240]" role="status" aria-live="polite">
                         <LoadingModal
-                            message={maintenance?.message ?? (prolonged ? 'World unavailable' : 'Reconnecting to world...')}
-                            submessage={maintenance ? 'SheetDelver access is paused. An administrator can review progress and recovery.'
+                            message={maintenance ? 'SheetDelver is in maintenance' : (prolonged ? 'World unavailable' : 'Reconnecting to world...')}
+                            submessage={maintenance ? undefined
                                 : prolonged ? 'Please check back later.' : 'Waiting for SheetDelver and Foundry to be ready.'}
                             theme={system?.componentStyles?.loadingModal}
                         />

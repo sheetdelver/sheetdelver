@@ -1,6 +1,7 @@
 'use client';
 
 import PageHeading from '../../components/PageHeading';
+import AdminServiceAvailability from '../../components/AdminServiceAvailability';
 import CacheInfoPanel from '../../components/CacheInfoPanel';
 
 export default function AdminCachePage() {
@@ -8,7 +9,9 @@ export default function AdminCachePage() {
         <>
             <PageHeading title="Cache" description="Persistent world/cache state." />
             <section className="admin-panel rounded-xl shadow-sm overflow-hidden">
-                <CacheInfoPanel />
+                <AdminServiceAvailability feature="Cache inspection">
+                    <CacheInfoPanel />
+                </AdminServiceAvailability>
             </section>
         </>
     );

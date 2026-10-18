@@ -1,5 +1,11 @@
 # Releases
 
+## 0.19.3
+- Restored maintenance admin access
+- Simplified client maintenance notice
+- Suppressed unavailable admin requests
+- Preserved maintenance review controls
+
 ## 0.19.2
 - Corrected native pack lock defaults
 - Refreshed ownership-dependent collections

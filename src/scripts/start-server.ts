@@ -344,8 +344,7 @@ async function start() {
     });
 
     if (restricted) {
-        logger.info('[Manager] Maintenance-only composition: normal Next worker is not started.');
-        return;
+        logger.info('[Manager] Restricted Core with the regular admin frontend; player pages are gated before rendering.');
     }
 
     // 2. Start the application shell. Route groups keep player/admin providers

@@ -28,6 +28,8 @@ const onlineEntry = process.argv.includes('--online-entry') || unknownDrain;
 const archiveOperation = process.argv.find(arg => arg.startsWith('--archive-op='))?.split('=')[1] as 'install' | 'upgrade' | undefined;
 const localSwitch = process.argv.includes('--local-switch');
 const migrationAttention = process.argv.includes('--migration-attention');
+const maintenanceLogin = process.argv.includes('--maintenance-login');
+let browserSession: { browser: any; page: any; context: any; cookie: string } | undefined;
 const cancelReview = process.argv.includes('--cancel-review');
 const noOp = process.argv.includes('--no-op') || cancelReview;
 const restartReview = process.argv.includes('--restart-review');
@@ -251,6 +253,19 @@ async function acceptance() { try {
     await until('Core admin ready', async () => (await request('/admin/auth/status')).ok || false);
     const login = await request('/admin/auth/login', { password: 'isolated-acceptance-password' }); assert.equal(login.status, 200);
     cookie = login.headers.getSetCookie()[0].split(';')[0]; csrf = (await login.json()).csrfToken;
+    if (maintenanceLogin && process.env.SD_PLAYWRIGHT_MODULE) {
+        const { chromium } = await import(process.env.SD_PLAYWRIGHT_MODULE);
+        const browser = await chromium.launch({ executablePath: '/usr/bin/google-chrome', headless: true, args: ['--no-sandbox', '--disable-background-networking'] });
+        const context = await browser.newContext(); const page = await context.newPage();
+        await until('normal admin frontend reachable', async () => (await fetch(`${origin}/admin`)).ok || false);
+        await page.goto(`${origin}/admin`);
+        await page.getByLabel('Admin Password', { exact: true }).fill('isolated-acceptance-password');
+        await page.getByRole('button', { name: 'Login', exact: true }).click();
+        await page.getByRole('heading', { name: 'Overview', exact: true }).waitFor();
+        const issued = (await context.cookies()).find((row: any) => row.name === 'sheet-delver-admin-session');
+        assert.equal(issued.path, '/api/admin'); assert.equal(issued.httpOnly, true);
+        browserSession = { browser, context, page, cookie: issued.value };
+    }
     const verifyReadinessFence = async (expectedObservations: number) => {
         await until('external observation during final compute', async () => readinessObserved === expectedObservations || false);
         const blocked = await until('final source revision blocked readiness', async () => {
@@ -346,7 +361,7 @@ async function acceptance() { try {
                 assert.equal((await request('/api/actors')).status, 503);
             }
             assert.equal(writes, 0);
-            assert.equal([...fs.readFileSync(logFile, 'utf8').matchAll(/Application Shell spawned/g)].length, 1, 'unsafe cancellation never requests a normal shell');
+            assert.equal([...fs.readFileSync(logFile, 'utf8').matchAll(/Application Shell spawned/g)].length, 2, 'unsafe cancellation retains the existing admin frontend without activation');
             pendingUserAck!(); await retired;
             fs.writeFileSync(path.join(root, 'evidence.json'), JSON.stringify({ native: false, unknownDrain: true, cancelRejected: 3, recoveryRetained: true, leasesRetained: leases.length, writes, userWrites }, null, 2));
             console.log(`PASS: public cancellation after interrupted drain, offline cold replacement retains recovery/lease. Evidence: ${root}`);
@@ -367,7 +382,7 @@ async function acceptance() { try {
     assert.equal((await request('/api/actors')).status, 503);
     const before = fs.readFileSync(logFile, 'utf8');
     const initialPids = [...before.matchAll(/(?:Core Service spawned|Application Shell spawned) \(pid=(\d+)\)/g)].map(row => Number(row[1]));
-    assert.equal(initialPids.length, 3, 'normal Core/Next replaced by one maintenance Core, no Next');
+    assert.equal(initialPids.length, 4, 'normal Core/Next replaced by restricted Core and the regular admin frontend');
     assert.equal(maintained.mode.stoppedWorkers.length, 2);
     for (const entry of ['src/scripts/start-server.ts', 'src/server/index.ts']) {
         const contender = spawnSync(process.execPath, ['--import', 'tsx', entry, ...entry.includes('start-server') ? ['dev'] : [], `--data-dir=${data}`],
@@ -423,45 +438,90 @@ async function acceptance() { try {
         const browser = await chromium.launch({ executablePath: '/usr/bin/google-chrome', headless: true, args: ['--no-sandbox', '--disable-background-networking'] });
         const styles: Record<string, string> = {};
         try {
-            if (migrationAttention) {
-                const publicPage = await browser.newPage(); await publicPage.goto(`${origin}/admin`);
-                await publicPage.getByRole('button', { name: 'Sign in', exact: true }).waitFor();
-                assert.equal(await publicPage.locator('#identity').textContent(), '');
-                assert.equal(await publicPage.locator('#admin').isVisible(), false);
-                assert.equal((await fetch(`${api}/admin/module-migrations`)).status, 401);
-                await publicPage.close();
+            const publicPage = await browser.newPage();
+            await publicPage.goto(origin);
+            assert.equal(await publicPage.locator('body').innerText(), 'SheetDelver is in maintenance');
+            assert.equal(await publicPage.locator('form, input, button, a').count(), 0);
+            await publicPage.goto(`${origin}/actors/a0`);
+            assert.equal(await publicPage.locator('body').innerText(), 'SheetDelver is in maintenance');
+            assert.equal((await fetch(`${origin}/api/admin/module-migrations`)).status, 401);
+            for (const width of [320, 1440]) for (const colorScheme of ['light', 'dark'] as const) {
+                await publicPage.setViewportSize({ width, height: 900 });
+                await publicPage.emulateMedia({ colorScheme });
+                assert.ok(await publicPage.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+                await publicPage.screenshot({ path: path.join(root, `client-maintenance-${colorScheme}-${width}.png`), fullPage: true });
+            }
+            await publicPage.close();
+            if (browserSession) {
+                await browserSession.page.goto(`${origin}/admin/modules`);
+                await browserSession.page.locator('#world-maintenance').waitFor();
+                assert.equal((await browserSession.context.cookies()).find((row: any) => row.name === 'sheet-delver-admin-session')?.value, browserSession.cookie, 'real browser session survives supervised replacement without cookie injection or relogin');
+                await browserSession.page.close();
             }
             for (const width of [320, 390, 820, 1440]) for (const colorScheme of ['light', 'dark'] as const) {
                 const context = await browser.newContext({ viewport: { width, height: 900 }, colorScheme });
-                const [name, ...value] = cookie.split('=');
-                await context.addCookies([{ name, value: value.join('='), url: origin, httpOnly: true }]);
                 const page = await context.newPage();
+                const ordinaryRequests: string[] = [];
+                page.on('request', (req: any) => { if (req.url().includes('/api/admin/lifecycle')) ordinaryRequests.push(req.url()); });
                 await page.goto(`${origin}/admin/modules`);
-                await page.locator('#admin:not([hidden])').waitFor();
+                await page.getByRole('heading', { name: 'Admin Login', exact: true }).waitFor();
+                await page.screenshot({ path: path.join(root, `admin-login-${colorScheme}-${width}.png`), fullPage: true });
+                if (width === 320 && colorScheme === 'light') {
+                    await page.getByLabel('Admin Password', { exact: true }).fill('incorrect-isolated-password');
+                    await page.getByRole('button', { name: 'Login', exact: true }).click();
+                    await page.getByText('Invalid password', { exact: true }).waitFor();
+                }
+                await page.getByLabel('Admin Password', { exact: true }).fill('isolated-acceptance-password');
+                await page.getByRole('button', { name: 'Login', exact: true }).click();
+                await page.locator('#world-maintenance').waitFor();
+                const issued = (await context.cookies()).find((row: any) => row.name === 'sheet-delver-admin-session');
+                assert.equal(issued?.path, '/api/admin'); assert.equal(issued?.httpOnly, true);
+                await page.reload(); await page.locator('#world-maintenance').waitFor();
                 await page.waitForFunction(() => document.getElementById('phase')?.textContent?.includes('review'));
                 if (migrationAttention) {
-                    assert.equal(await page.locator('#attention-title').textContent(), 'Maintenance in progress');
-                    assert.match(await page.locator('#identity').textContent() || '', /managed/);
-                    assert.match(await page.locator('#identity').textContent() || '', /w1/);
-                    assert.match(await page.locator('#next-step').textContent() || '', /acknowledge the backup warning/);
+                    assert.ok((await page.locator('[aria-label="Current world migration status"]').textContent())?.includes('Maintenance in progress'));
+                    assert.match(await page.locator('[aria-label="Current world migration status"]').textContent() || '', /managed/);
+                    assert.match(await page.locator('[aria-label="Current world migration status"]').textContent() || '', /w1/);
+                    assert.match(await page.locator('[aria-label="Current world migration status"]').textContent() || '', /acknowledge the backup warning/);
                     await page.getByText('Technical plan and recovery details', { exact: true }).click();
                     assert.match(await page.locator('#detail').textContent() || '', /"updates"/);
-                    await page.locator('#cancel').click(); await page.getByRole('dialog').waitFor();
-                    for (let i = 0; i < 4; i++) await page.keyboard.press('Tab');
-                    assert.ok(await page.evaluate(() => document.querySelector('dialog[open]')?.contains(document.activeElement)));
-                    await page.keyboard.press('Escape'); assert.equal(await page.getByRole('dialog').isVisible(), false);
+                }
+                await page.locator('#cancel').click(); await page.locator('dialog[open]').waitFor();
+                const refreshed = page.waitForResponse((response: any) => response.url().endsWith('/api/admin/module-migrations') && response.status() === 200);
+                await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+                await refreshed;
+                assert.equal(await page.locator('dialog[open]').count(), 1, 'successful focus refresh preserves the current confirmation');
+                for (let i = 0; i < 4; i++) await page.keyboard.press('Tab');
+                assert.ok(await page.evaluate(() => document.querySelector('dialog[open]')?.contains(document.activeElement)));
+                await page.keyboard.press('Escape'); assert.equal(await page.getByRole('dialog').isVisible(), false);
+                if (width === 320 && colorScheme === 'light') {
+                    const rejectedRequests: string[] = [];
+                    const observe = (response: any) => { if (response.url().includes('/api/admin/') && response.status() >= 400) rejectedRequests.push(`${response.status()} ${new URL(response.url()).pathname}`); };
+                    page.on('response', observe);
+                    for (const [route, feature] of [['cache', 'Cache inspection'], ['world', 'World management'], ['modules/available', 'Module discovery'], ['modules/updates', 'Module update checks'], ['modules/sources', 'Catalog source management'], ['audit', 'The general audit log']]) {
+                        await page.goto(`${origin}/admin/${route}`);
+                        await page.getByText(`${feature} is unavailable during maintenance`, { exact: true }).waitFor();
+                        assert.ok(await page.getByRole('button', { name: 'Logout', exact: true }).isVisible(), 'regular admin navigation remains available');
+                    }
+                    await page.goto(`${origin}/admin`);
+                    await page.getByRole('heading', { name: 'System Overview', exact: true }).waitFor();
+                    await page.goto(`${origin}/admin/modules`);
+                    await page.waitForFunction(() => document.getElementById('phase')?.textContent?.includes('review'));
+                    page.off('response', observe);
+                    assert.deepEqual(rejectedRequests, [], 'ordinary admin panels must not request stopped services during maintenance');
                 }
                 assert.equal(await page.locator('#approve').isDisabled(), true);
                 assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
                 styles[colorScheme] = await page.locator('section').first().evaluate((element: Element) => getComputedStyle(element).backgroundColor);
                 await page.keyboard.press('Tab'); await page.keyboard.press('Escape');
-                assert.ok(await page.getByText('World access paused', { exact: true }).isVisible());
+                assert.ok(await page.getByRole('heading', { name: 'World maintenance', exact: true }).isVisible());
                 await page.screenshot({ path: path.join(root, `maintenance-${colorScheme}-${width}.png`), fullPage: true });
                 if (width === 1440 && colorScheme === 'dark') {
                     await page.locator('#backup').check();
                     const response = page.waitForResponse((res: { url(): string }) => res.url().endsWith('/admin/module-maintenance/approve'));
                     await page.locator('#approve').click(); assert.equal((await response).status(), 202); approvedInBrowser = true;
                 }
+                assert.deepEqual(ordinaryRequests, [], 'restricted maintenance never mounts ordinary module lifecycle consumers');
                 await context.close();
             }
             assert.notEqual(styles.light, styles.dark);
@@ -544,7 +604,7 @@ async function acceptance() { try {
     const after = fs.readFileSync(logFile, 'utf8');
     const replacedPids = [...after.matchAll(/(?:Core Service spawned|Application Shell spawned) \(pid=(\d+)\)/g)].map(row => Number(row[1]));
     const extraRestarts = Number(recovery) + Number(restartPreparation) + Number(restartReview);
-    assert.equal(replacedPids.length, 5 + extraRestarts); assert.ok(replacedPids[3] !== initialPids[0] && replacedPids[4] !== initialPids[1]);
+    assert.equal(replacedPids.length, 6 + 2 * extraRestarts); assert.ok(replacedPids.at(-2) !== initialPids[0] && replacedPids.at(-1) !== initialPids[1]);
     assert.match(after, /Full-stack restart requested/);
     const actualCorePids = [...after.matchAll(/Core Service \| Started \(pid=(\d+)/g)].map(row => Number(row[1]));
     assert.equal(actualCorePids.length, 3 + extraRestarts); assert.notEqual(actualCorePids[0], actualCorePids[1]);
@@ -581,12 +641,14 @@ async function acceptance() { try {
         upstreamPort, jobId, phases: ['restarting', 'verifying', 'completed'], pendingLeaseObserved: true, admissionBeforeConstruction: true,
         adminDuringPreparation: 200, playerDuringPreparation: 503, staleMutationAfterActivation: 409,
         writes, userWrites, onlineEntry, archiveOperation, localSwitch, noOp, restartPreparation, restartReview, restoredEvidence, legacyWrites, reviewBytes, logicalPlanBytes, cumulative: process.argv.includes('--cumulative'), nativeReads, wireBytes, elapsedMs: Date.now() - startedAt, maxStatusMs, journalBytes: bytes(path.join(data, 'config/module-upgrades')),
+        maintenanceLogin, realBrowserSessionRetained: !!browserSession, freshBrowserLogins: process.env.SD_PLAYWRIGHT_MODULE ? 8 : 0,
         resourceSamples: samples, fullSourceOracle: complete, approvedInBrowser, readinessObserved, unexpectedReadback, generation: game.release.generation, migrationAttentionEvidence,
         inventory: complete ? { actors: counts[0], embeddedItems: counts[0] * counts[1], actorAndItemEffects: counts[0] * (2 + Math.ceil(counts[1] / 4)),
             expectedWrites: expectedUuids().length, checked: preview.plan.checked } : undefined,
         adapter: fs.readFileSync(trace, 'utf8'), native: false }, null, 2));
     console.log(`PASS: actual manager/Core/Next replacement, durable lease/job, pre-adapter admission, admin continuity and first-token fence. Evidence: ${root}`);
 } finally {
+    await browserSession?.browser.close();
     browserSockets.forEach(socket => socket.disconnect());
     readinessWatcher?.close();
     clearInterval(sampling);

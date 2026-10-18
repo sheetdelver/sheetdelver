@@ -95,6 +95,19 @@ graph TD
         - **UI**: The core actor page delegates rendering to the module's registered `ActorPage`, ensuring full UI autonomy.
     - **Shared Content**: `SharedContentStore` retains one latest share per authenticated session and world, populated only from that user's Foundry socket for the session lifetime, including gaps between browser connections. Opaque stream IDs and receipt sequences order HTTP snapshots and realtime emits; a late snapshot cannot supersede newer delivery or retirement. Service-account receipts are not public broadcasts. Terminal session/world teardown clears the scope; no persistent share history is introduced.
 
+### Maintenance and the admin interface
+
+During module maintenance, the supervisor replaces ordinary Core with its
+restricted migration composition. The regular Next admin route group stays
+available with its existing login, session cookies and `/api/admin` proxy.
+Player navigation is stopped by the server proxy before rendering and shows
+only “SheetDelver is in maintenance” in a styled box. Existing player sessions remain fenced by
+Core. Admin attention and exact-plan/recovery controls live inside the normal
+Modules panel; there is no separate maintenance login application. This is the
+[CR64-27 correction](adr/0064-module-world-context-and-data-migrations.md#cr64-27-normal-admin-access-during-maintenance--october-18-2026)
+to the earlier standalone-shell design, accepted by the operator for Core0.19.3,
+pending publication.
+
 ### 3.3 World-Ready Bootstrap Gates
 
 `SystemService.bootstrap()` blocks world readiness on the data the platform needs before serving user workflows:
@@ -492,17 +505,18 @@ ownership, endpoint payloads, recovery limits and module-adoption requirements.
 **Released correction and selected follow-up:** Core 0.19.1 implements the
 [complete-maintenance addendum](adr/0064-module-world-context-and-data-migrations.md#complete-maintenance-and-migration-acceptance--october-16-2026).
 The [four-issue G8 correction amendment](adr/0064-module-world-context-and-data-migrations.md#g8-integration-correction-amendment--october-18-2026)
-selects four additional fixes discovered during module adoption; corrective
-implementation is present on the branch, with independent review and focused
-final-source native v13/v14 acceptance passed. Selected Core scope, including the
-responsive shared-roll follow-up, is closed; supporting publication remains pending.
+records four additional fixes discovered during module adoption, now released
+in Core0.19.2 with focused native v13/v14 acceptance and the responsive shared-roll
+follow-up. CR64-27 separately corrects normal admin access during maintenance;
+that focused correction is accepted for0.19.3 and awaits publication.
 Preserve the prior native/recovery evidence. CG-5 is independent shared
 UI work; it must not change migration readiness or maintenance gating.
 
 The corrective architecture persists maintenance before stopping normal Core/
-Next workers and confirms their exit. The supervisor then starts only admin/
-status/recovery, the job controller and necessary full-GM transport/observation
-services. Ordinary user transports, routes, realtime delivery, module work and
+Next workers and confirms their exit. The supervisor then starts the regular Next admin frontend, restricted Core
+admin/status/recovery, the job controller and necessary full-GM transport/observation
+services. Player routes are gated before rendering; admin panels that need stopped
+services show availability instead of mounting their request consumers. Ordinary user transports, routes, realtime delivery, module work and
 background producers remain stopped. Authoritative planning and write approval
 occur under that isolation; a normal-service dry-run is advisory. A fresh verified
 serving generation activates only after complete migration/readback/preparation.
@@ -591,5 +605,6 @@ records real host/ingress/dispatch regressions, actual player appearance-provide
 rendering and isolated supervised replacement. Later native v13/v14 fixtures
 passed within their recorded scope. Subsequent complete-maintenance workflows,
 isolation and representative/larger native inventories also pass with the recorded
-memory and replacement-interruption limitations. Module work remains held pending
-the supporting release and explicit resumption.
+memory and replacement-interruption limitations. Supporting Core0.19.2 was
+subsequently released and module work resumed; CR64-27 is a separate Core operator-
+access correction, not renewed module acceptance.

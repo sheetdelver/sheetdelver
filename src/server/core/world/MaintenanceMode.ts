@@ -24,13 +24,12 @@ export interface MaintenanceMode {
     diagnosticOnly?: boolean;
     updatedAt: number;
 }
-export function maintenanceFile(): string { return path.join(getDataDir(), 'config/module-upgrades/maintenance.json'); }
+export function maintenanceFile(dataDirectory = getDataDir()): string { return path.join(dataDirectory, 'config/module-upgrades/maintenance.json'); }
 // Counters are diagnostics, not admission, approval, drain or receipt evidence.
 // A different durable record/process must never inherit a stale local overlay.
 let liveProgress: { file: string; stamp: string; id: string; stage: MaintenanceMode['stage']; value: NonNullable<MaintenanceMode['progress']> } | undefined;
 const fileStamp = (stat: fs.Stats) => `${stat.ino}:${stat.mtimeMs}:${stat.size}`;
-export function readMaintenanceMode(): MaintenanceMode | null {
-    const file = maintenanceFile();
+export function readMaintenanceMode(file = maintenanceFile()): MaintenanceMode | null {
     if (!fs.existsSync(file)) return null;
     try {
     const stat = fs.lstatSync(file);

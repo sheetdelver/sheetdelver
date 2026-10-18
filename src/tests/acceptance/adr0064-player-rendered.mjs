@@ -54,7 +54,7 @@ try {
         await page.locator('#actor-action').waitFor(); await page.locator('#actor-action').click();
         await page.evaluate(() => window.fixture.emit('systemStatus', { ...window.fixture.status, initialized: false,
             maintenance: { phase: 'migrating', message: 'Module upgrade in progress' } }));
-        await page.getByText('Module upgrade in progress', { exact: true }).waitFor();
+        await page.getByText('SheetDelver is in maintenance', { exact: true }).waitFor();
         await page.locator(`.sd-player-root[data-sd-appearance="${theme}"]`).waitFor();
         assert.equal(await page.locator('body').getAttribute('data-sd-appearance'), theme);
         assert.equal(await page.locator('html').getAttribute('data-sd-appearance'), theme);
@@ -75,7 +75,7 @@ try {
         await page.keyboard.press('Tab'); await page.keyboard.press('Enter');
         assert.notEqual(await page.evaluate(() => document.activeElement?.id), 'actor-action', 'keyboard cannot reach an inert actor action');
         await page.mouse.click(width / 2, 200);
-        assert.ok(await page.getByText('Module upgrade in progress', { exact: true }).isVisible(), 'player cannot dismiss server maintenance');
+        assert.ok(await page.getByText('SheetDelver is in maintenance', { exact: true }).isVisible(), 'player cannot dismiss server maintenance');
         assert.equal(await page.evaluate(() => window.fixture.writes), 1);
         assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
         await page.screenshot({ path: path.join(output, `maintenance-${theme}-${width}.png`) });

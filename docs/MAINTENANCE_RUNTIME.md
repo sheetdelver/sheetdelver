@@ -7,14 +7,15 @@ closed the prior Core scope. See the
 [native evidence](adr/0064-module-world-context-and-data-migrations.md#fresh-complete-maintenance-native-v13-acceptance--october-17-2026)
 for source/write/receipt comparisons, cleanup and measured costs.
 
-The [four-issue G8 correction amendment](adr/0064-module-world-context-and-data-migrations.md#g8-integration-correction-amendment--october-18-2026)
-reopens only four selected integration fixes, not the entire maintenance design.
-CG-7 directly affects migration eligibility; CG-9/CG-10 concern caller freshness
-and SDK error handling; CG-5 is shared UI accessibility, not a maintenance gate.
-These fixes are implemented on the corrective branch with independent review and
-focused final-source native v13/v14 evidence. The selected Core scope is closed
-under the user's October18 instruction. Module work is held for the supporting
-point release; retained migration evidence is not a full module acceptance claim.
+Core **0.19.2** also ships the [four selected G8 corrections](adr/0064-module-world-context-and-data-migrations.md#g8-integration-correction-amendment--october-18-2026).
+Their native v13/v14 and rendered evidence remains valid within its recorded scope.
+The new [CR64-27 amendment](adr/0064-module-world-context-and-data-migrations.md#cr64-27-normal-admin-access-during-maintenance--october-18-2026)
+corrects operator access: the separate maintenance login failed normal browser
+cookie handling. The corrective branch keeps the regular admin frontend and
+login available, with migration controls inside Modules → Installed. Clients see
+only **“SheetDelver is in maintenance”**, in a styled box with no punctuation,
+form or operator details. The user accepted this correction and reported successful production migration;
+Core0.19.3 is prepared for publication.
 
 World-pack write eligibility follows native configuration/default precedence,
 not `metadata.locked`. A verified absent override defaults unlocked only for a
@@ -27,7 +28,7 @@ prefix. Approval/readback/intent/receipt and final dispatch checks are unchanged
 
 | Normal producer / owner | Shutdown boundary | Maintenance replacement |
 | --- | --- | --- |
-| Next request rendering, module UI imports, HMR/build watchers / manager | Stop normal Next process group; confirm all live owned descendants exit | Small Core-owned status/admin shell, no Next or module UI |
+| Next request rendering, module UI imports, HMR/build watchers / manager | Stop the previous Next process group; confirm all live owned descendants exit | Start the regular Next frontend for admin; server proxy gates player routes before providers or module UI render |
 | Core HTTP/domain/module/debug routes / index and route composers | Close admission before auth/restoration; terminate normal Core group after drain | Authenticated maintenance/status/recovery routes only |
 | User login, cached restore/retries, authorization refresh, shared-content listeners / FoundryUserConnectionService | Suspend and retire authority epoch; detach/disconnect live transports without erasing encrypted credentials; process exit retires late promises | No user connection service is instantiated |
 | Gameplay sockets, presence, preference and document listeners / AppSocketGateway | Disconnect sockets; terminate owning Core | Public maintenance status only; no credential restoration/action handlers |
@@ -38,7 +39,7 @@ prefix. Approval/readback/intent/receipt and final dispatch checks are unchanged
 | Native document/batch/autosave/catalog ingress and queued repairs / FoundryEventIngress | Stop serving repairs, preparation and gameplay publications | Observation-only ingress advances existing Store/pack revisions; User authority updates remain active |
 | Pending native writes / WorldWorkGate | Close admission, settle counted sends before supervisor replacement; failed drain persists recovery | Exact approved controller dispatch only; intent and readback remain durable |
 | Admin auth/session cleanup, logging / existing security and logging services | Retain restart handoff; credentials remain owner-only | Same admin network/origin/session/CSRF/audit policy and logging |
-| Normal manager/Core and their owned descendants / start-server | Exclusive data-directory leases and confirmed process-group exit | Manager supervises maintenance Core only, including crash replacement |
+| Normal manager/Core and their owned descendants / start-server | Exclusive data-directory leases and confirmed process-group exit | Manager supervises restricted Core and the regular admin frontend, including crash replacement |
 
 Restricted startup warms its durable diagnostic identity/review once through the
 existing storage worker, independently of Foundry reconnect. A stopped/unavailable
@@ -90,11 +91,19 @@ recovery without connecting a native writer or overwriting the damaged record.
    bootstrap must pass before serving is persisted and admission reopens. Runtime
    tokens retire old browser mutation authority.
 
-Only the restricted admin/status shell, one full-GM service transport, observation,
-controller/CPU workers, journal, security and supervisor run in maintenance. Normal
-world-changing admin tools, login, module/domain/debug APIs and player actions are
-unavailable even with existing credentials. Admin and player responses remain
-separate; only administrators see source/step/target failure reasons.
+The regular admin frontend and restricted Core retain normal admin authentication,
+status and reviewed recovery. One full-GM service transport, observation,
+controller/CPU workers, journal, security and supervisor support that work.
+Player login, module/domain/debug APIs, world-changing admin tools and player
+actions remain unavailable even with existing credentials. The normal admin
+pages retain navigation and explain when cache, world, catalog and general audit
+services are unavailable; their components do not mount or request stopped
+services. Migration job history and review remain available. Only authenticated
+administrators see source/step/target failure reasons.
+
+The endpoint paths above describe Core's internal admin API. The existing browser
+frontend uses `/api/admin/*` through its normal Next proxy and session-cookie
+scope. A maintenance form at `/admin/*` is not an alternative login path.
 
 ## Computation, source reads and receipts
 
@@ -208,8 +217,8 @@ Core termination and preparation replacement. Original 30/900/300 and larger
 60/2400/720 inventories complete with independent source oracles. These controlled
 upstreams are distinct from the subsequent native v13/v14 acceptance below.
 Resource costs, limitations and final Core closeout are recorded in ADR-0064;
-the recorded implementation shipped in 0.19.1. The October 18 amendment now
-owns the selected follow-up and renewed module hold.
+the recorded implementation shipped in 0.19.1. The selected G8 follow-up shipped
+in0.19.2; CR64-27 now owns the focused admin-access correction.
 
 
 <a id="native-acceptance-limitations-unreleased"></a>
@@ -221,7 +230,7 @@ CR64-18–20 correction/repeat, confirms real
 1,244- and 3,194-write migrations, lossless source comparison, lost-receipt/crash recovery,
 maintenance isolation, activation and fresh approval for externally restored
 source. That v14 run alone did not close the combined native/operator gate;
-subsequent v13 and final UI acceptance complete Core closeout. Module work remains held.
+subsequent v13 and final UI acceptance completed that Core closeout.
 See [ADR-0064 final correction/repeat](adr/0064-module-world-context-and-data-migrations.md#cr64-1820-correction-and-native-v14-repeat--october-17-2026).
 
 The CR64-18 reproduction used synchronous plan encoding,
@@ -248,7 +257,7 @@ completed 3,194 unique writes and exact source/receipt comparison: peak sampled
 Core memory 3.819 GiB, cold advisory 45.705 seconds and full measured workflow
 430.969 seconds. Cold advisory, planning and stable execution had zero failed
 polls; actual process replacement still interrupts listeners. Both measurements
-come from a shared approximately 62 GiB host. Modules remain held.
+come from a shared approximately 62 GiB host.
 
 
 Independent review subsequently reproduced **CR64-21**, an interrupted first
@@ -259,5 +268,5 @@ baseline cleanup, now pass on both v13 and v14. Current review/release dispositi
 is recorded in
 [ADR-0064's historical Core disposition](adr/0064-module-world-context-and-data-migrations.md#cr64-22-r1-correction-and-core-closeout--october-17-2026).
 That implementation shipped in 0.19.1. The [four-issue G8 correction amendment](adr/0064-module-world-context-and-data-migrations.md#g8-integration-correction-amendment--october-18-2026)
-now governs the renewed module hold and next point-release preparation; do not
-infer any SDK/API bump without an actual public surface change.
+subsequently shipped in0.19.2. The CR64-27 correction described above is pending
+publication as0.19.3 after operator acceptance; it does not change public SDK/API contracts.
