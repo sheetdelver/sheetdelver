@@ -60,6 +60,14 @@ compatibility delegate, not a second overlay. Images and shared journals replace
 each other, and journal replies are guarded by request/share identity. Each new
 image receipt owns its loading state, including cached identical URLs. Both
 dialogs contain keyboard focus, close on Escape and restore the prior control.
+The SDK's shared sheet and initiative RollDialog use the same Core modal-focus
+convention. Focus enters on open; Tab/Shift+Tab stay inside, Escape closes only
+the top dialog, and closing returns to a connected invoker. Nested resource-card
+dialogs retain their parent; closing or unmounting nested overlays restores body
+scroll state. The frame owns presentation, not a second keyboard listener.
+Sheet and initiative Advantage/Disadvantage controls wrap according to their
+available width, keeping full themed labels visible on narrow screens.
+Roll arguments, manual input, saved roll mode and module themes are unchanged.
 Only one dismissal record is kept per tab; storage denial still permits closing.
 Image captions from native shares render as bounded, scrollable plain text
 within that same dialog. Markup in a caption stays inert. Owner journal edits

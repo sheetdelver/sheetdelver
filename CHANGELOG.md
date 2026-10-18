@@ -1,5 +1,13 @@
 # Releases
 
+## Unreleased
+
+- Corrected native pack lock defaults
+- Refreshed ownership-dependent collections
+- Preserved packaged SDK error handling
+- Contained shared roll-dialog focus
+- Fixed responsive roll controls
+
 ## 0.19.1
 - Isolated complete maintenance runtime
 - Added bounded migration relations

@@ -91,10 +91,10 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
   distinct. A prepared host value is not proof of native Foundry browser data.
   Core owns lifecycle/cache/authorization; modules own system rules (ADR-0038).
 - The configured Core Foundry service account must be full Gamemaster in every
-  served world; Assistant is insufficient. ADR-0064 implements the unreleased
-  connection/reconnect/demotion gate and admin retry guidance. Do not describe it
-  as shipped in 0.18.1, promote a live account implicitly, or apply this
-  service-account restriction to ordinary Assistant/player request permissions.
+  served world; Assistant is insufficient. The connection/reconnect/demotion
+  gate shipped in Core 0.19.0; complete-maintenance corrections shipped in 0.19.1.
+  Do not describe either as shipped in 0.18.1, promote a live account implicitly,
+  or apply this service-account restriction to ordinary Assistant/player request permissions.
 - Shared chat, notifications and dice presentation belong in Core UI/SDK, not
   duplicated in each module. Preserve visibility, lifecycle and realtime rules.
 - Never use native browser `alert()`, `confirm()` or `prompt()` for application
@@ -116,6 +116,11 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
   Module-owned technical evidence stays with the module, not in another root queue.
   Closed ADRs and archived research do not create new obligations because an old
   paragraph says pending.
+- ADR-0064's selected October 18 Core corrections (CR64-23–26/R1) are closed
+  with independent and native v13/v14 acceptance. Supporting publication and
+  module resumption remain separate. CG-5 is shared UI, not a migration blocker.
+  Preserve verified evidence; unselected G8 observations remain in the deferred
+  ledger. Do not reopen completed gates or edit module repositories by inference.
 - Deferred ideas stay deferred until the user chooses them. Do not revive the
   parked native D&D preparation-runtime experiment without explicit direction.
 - Record deferred work in `temp/audit-reports/DEFERRED-WORK.md`, with stable IDs,

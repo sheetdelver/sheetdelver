@@ -27,7 +27,7 @@ export function maintenanceInventory(actorCount = 30, itemsPerActor = 30, curren
         'fixture.readOnly': [item('packageItem', true)],
     };
     const metadata = Object.keys(packs).map(id => ({ id, collection: id, type: id.endsWith('Actors') ? 'Actor' : 'Item',
-        packageType: id.startsWith('world.') ? 'world' : 'system', locked: !id.startsWith('world.'), ownership: { PLAYER: 'OBSERVER', ASSISTANT: 'OWNER' } }));
+        packageType: id.startsWith('world.') ? 'world' : 'system', ownership: { PLAYER: 'OBSERVER', ASSISTANT: 'OWNER' } }));
     return { actors, items, scenes, packs, metadata };
 }
 

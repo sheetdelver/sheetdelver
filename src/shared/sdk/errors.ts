@@ -24,10 +24,14 @@ export const SDK_ERROR_STATUS: Record<SdkErrorCode, number> = {
     conflict: 409,
     internal: 500,
 };
+// Supported ESM/CJS SDK evaluations share a realm but not necessarily a class.
+// A non-wire brand plus validated Error data preserves recognition across them.
+const SDK_ERROR_BRAND = Symbol.for('sheetdelver.sdk.error.v1');
 
 /**
  * SdkError carries a stable `code` and an HTTP `status`. Thrown by server services
- * and emitted by the `error()` route helper; modules may `instanceof`-check it.
+ * and emitted by the `error()` route helper. Use isSdkError across module loaders;
+ * instanceof alone cannot recognize another supported SDK evaluation.
  */
 export class SdkError extends Error {
     readonly code: SdkErrorCode;
@@ -38,10 +42,17 @@ export class SdkError extends Error {
         this.name = 'SdkError';
         this.code = code;
         this.status = status ?? SDK_ERROR_STATUS[code];
+        Object.defineProperty(this, SDK_ERROR_BRAND, { value: true });
     }
 }
 
 /** Narrow an unknown thrown value to an SdkError. */
 export function isSdkError(value: unknown): value is SdkError {
-    return value instanceof SdkError;
+    try {
+        if (!(value instanceof Error) || Object.getOwnPropertyDescriptor(value, SDK_ERROR_BRAND)?.value !== true) return false;
+        const code = Object.getOwnPropertyDescriptor(value, 'code')?.value;
+        const status = Object.getOwnPropertyDescriptor(value, 'status')?.value;
+        return typeof code === 'string' && Object.hasOwn(SDK_ERROR_STATUS, code)
+            && Number.isInteger(status) && status >= 400 && status <= 599;
+    } catch { return false; }
 }

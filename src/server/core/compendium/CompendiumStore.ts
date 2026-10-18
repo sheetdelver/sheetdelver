@@ -251,10 +251,14 @@ export class CompendiumStore {
         for (const { source, packs } of sources) {
             if (!Array.isArray(packs)) continue;
             for (const pack of packs) {
-                const id = getPackId(pack, systemId);
+                // Package envelopes are authoritative provenance, not a guess
+                // from a collection prefix. World manifest names are world-
+                // scoped; using the current system creates phantom duplicates.
+                const id = getPackId(pack, source === 'world' ? 'world' : systemId);
                 if (!id || seen.has(id)) continue;
                 seen.add(id);
-                this.setPackMetadata(id, { ...pack, id, source: pack.source || source });
+                this.setPackMetadata(id, { ...pack, id, source: pack.source || source,
+                    packageType: pack.packageType ?? (source === 'game.packs' ? undefined : source) });
             }
         }
     }

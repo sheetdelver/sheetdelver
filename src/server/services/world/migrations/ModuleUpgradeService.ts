@@ -84,7 +84,7 @@ export async function freshMigrationSnapshot(catalog: ResolvedMigrationCatalog, 
     const packContentStamp = () => {
         const writableScope = kinds.has('WorldPack') ? compendiumStore.listPackMetadata().filter(pack => {
             const type = pack.type ?? pack.documentName ?? pack.entity;
-            return pack.id?.startsWith('world.') && (type === 'Actor' || type === 'Item');
+            return pack.packageType === 'world' && (type === 'Actor' || type === 'Item');
         }).map(pack => String(pack.id)) : [];
         return [...new Set([...readPacks, ...writableScope])].sort().map(id => [id, compendiumStore.getPackContentRevision(id)]);
     };
@@ -124,6 +124,7 @@ export async function freshMigrationSnapshot(catalog: ResolvedMigrationCatalog, 
         exclusions, includeRelations, requiredKinds: new Set(requiredSteps.flatMap(step => [...step.targets, ...(step.reads?.targets ?? [])])), requiredReadPacks: new Set(requiredSteps.flatMap(step => step.reads?.packs ?? [])),
         view: { actors, ...(selected ? { baseActorIds: new Set(previous!.targets.filter(row => row.kind === 'Actor' && row.uuid.split('.').length === 2).map(row => String(row.source._id))) } : {}),
             items, scenes, packs: compendiumStore.listPackMetadata().filter(pack => !selected || [...selected].some(uuid => uuid.startsWith(`Compendium.${pack.id}.`))), configuration: settings.getValueByKey('core.compendiumConfiguration'),
+            configurationAvailable: !settings.hasWorldKey('core.compendiumConfiguration') || settings.getValueByKey('core.compendiumConfiguration') !== undefined,
             subject: userStore.createAccessSubject(userId)!, generation: world.identity.foundryGeneration },
     });
     if (selected) targets = [...previous!.targets.filter(row => !selected.has(migrationSourceRoot(row.uuid))),

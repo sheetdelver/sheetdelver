@@ -2,6 +2,9 @@
 
 import { useEffect, useRef, type RefObject } from 'react';
 
+const activeDialogs: HTMLElement[] = [];
+let originalOverflow = '';
+
 /** Core dialog keyboard/focus convention, shared by image and journal overlays. */
 export function useModalFocus(ref: RefObject<HTMLElement | null>, open: boolean, onClose: () => void) {
     const closeRef = useRef(onClose);
@@ -10,10 +13,14 @@ export function useModalFocus(ref: RefObject<HTMLElement | null>, open: boolean,
         if (!open || !ref.current) return;
         const dialog = ref.current;
         const previous = document.activeElement;
-        const overflow = document.body.style.overflow;
+        if (!activeDialogs.length) originalOverflow = document.body.style.overflow;
+        // Child effects may enter first when an entire nested tree mounts.
+        const descendant = activeDialogs.findIndex(other => dialog.contains(other));
+        activeDialogs.splice(descendant < 0 ? activeDialogs.length : descendant, 0, dialog);
         document.body.style.overflow = 'hidden';
-        dialog.focus();
+        if (activeDialogs.at(-1) === dialog) dialog.focus();
         const keydown = (event: KeyboardEvent) => {
+            if (activeDialogs.at(-1) !== dialog) return;
             if (event.key === 'Escape') {
                 event.preventDefault();
                 event.stopPropagation();
@@ -36,8 +43,11 @@ export function useModalFocus(ref: RefObject<HTMLElement | null>, open: boolean,
         dialog.addEventListener('keydown', keydown);
         return () => {
             dialog.removeEventListener('keydown', keydown);
-            document.body.style.overflow = overflow;
-            if (previous instanceof HTMLElement && previous.isConnected) previous.focus();
+            const wasTop = activeDialogs.at(-1) === dialog;
+            const index = activeDialogs.indexOf(dialog);
+            if (index >= 0) activeDialogs.splice(index, 1);
+            document.body.style.overflow = activeDialogs.length ? 'hidden' : originalOverflow;
+            if (wasTop && previous instanceof HTMLElement && previous.isConnected) previous.focus();
         };
     }, [ref, open]);
 }

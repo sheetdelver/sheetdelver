@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import InitiativeRollDialog from './InitiativeRollDialog';
 import RollDialogFrame, { defaultRollDialogTheme as defaultTheme, resolveRollDialogTheme } from './RollDialogFrame';
 import type { RollDialogProps, SheetRollDialogProps } from '@shared/sdk/ui';
+import { useModalFocus } from '../hooks/useModalFocus';
 
 function SheetRollDialog({ isOpen, title, type, actor, defaults, onConfirm, onClose, theme }: SheetRollDialogProps) {
     const [abilityBonus, setAbilityBonus] = useState(0);
@@ -13,6 +14,7 @@ function SheetRollDialog({ isOpen, title, type, actor, defaults, onConfirm, onCl
     const [isManual, setIsManual] = useState(false);
     const [manualValue, setManualValue] = useState<string>('');
     const popupRef = useRef<HTMLDivElement>(null);
+    useModalFocus(popupRef, isOpen, onClose);
 
     const t = resolveRollDialogTheme(theme);
 
@@ -117,7 +119,7 @@ function SheetRollDialog({ isOpen, title, type, actor, defaults, onConfirm, onCl
             </button>
 
             {!isManual && (
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                     <button
                         onClick={() => toggleAdvantage('advantage')}
                         className={t.rollBtn ? t.rollBtn('adv') : defaultTheme.rollBtn('adv')}

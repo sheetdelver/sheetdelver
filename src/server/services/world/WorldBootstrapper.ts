@@ -684,7 +684,7 @@ export class WorldBootstrapper {
         if (this.recoveryPromise) return Promise.resolve(); // recovery fences this notification before publication
         if (this.contextRefreshFailed) return Promise.reject(new Error('World context recovery required'));
         const observed = moduleWorldContext.refresh();
-        if (!packId && !observed.changedKeys.length) return Promise.resolve();
+        if (!packId && !observed.changedKeys.length && !observed.dependenciesChanged) return Promise.resolve();
         observed.changedKeys.forEach(key => this.contextChangedKeys.add(key));
         this.pendingContextRefreshes += 1;
         worldWorkGate.block('context-refresh', { phase: 'refreshing', message: 'Refreshing world rules' });
@@ -699,7 +699,7 @@ export class WorldBootstrapper {
                 moduleWorldContext.touchDependencies();
             }
             const snapshot = moduleWorldContext.snapshot();
-            if (observed.changedKeys.length || packId) {
+            if (observed.changedKeys.length || observed.dependenciesChanged || packId) {
                 await this.refreshAdapterContext(snapshot, { keys: observed.changedKeys, recovery: false, packs: packId ? [packId] : [] });
                 this.assertCurrentEpoch(epoch);
                 // Source ingress continued while the hook waited; rebuild from the

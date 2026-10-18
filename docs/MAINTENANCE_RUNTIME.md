@@ -1,15 +1,27 @@
-# Maintenance-only runtime (development)
+# Maintenance-only runtime
 
-ADR-0064's complete-maintenance correction is implemented on the corrective
-branch, with passing selected whole-host and native v13/v14 acceptance. This is
-not a released Core version or permission to resume module adoption. CR64-14–21
-corrections have tracked failing-before/passing-after evidence and public/native
-recovery results. The [latest acceptance](adr/0064-module-world-context-and-data-migrations.md#fresh-complete-maintenance-native-v13-acceptance--october-17-2026)
-records exact source/write/receipt comparisons, cleanup and measured costs.
-Core implementation/C64-H closeout, including final navigation retirement, is
-recorded in the [final disposition](adr/0064-module-world-context-and-data-migrations.md#cr64-22-r1-correction-and-core-closeout--october-17-2026).
-Supporting release and separately authorized G8 adoption remain pending.
-Application/module release metadata is unchanged.
+Core 0.19.1 ships ADR-0064's complete-maintenance corrections, with passing
+selected whole-host and native v13/v14 evidence. CR64-14–21 have tracked
+failing-before/passing-after results; final CR64-22/R1 navigation acceptance
+closed the prior Core scope. See the
+[native evidence](adr/0064-module-world-context-and-data-migrations.md#fresh-complete-maintenance-native-v13-acceptance--october-17-2026)
+for source/write/receipt comparisons, cleanup and measured costs.
+
+The [four-issue G8 correction amendment](adr/0064-module-world-context-and-data-migrations.md#g8-integration-correction-amendment--october-18-2026)
+reopens only four selected integration fixes, not the entire maintenance design.
+CG-7 directly affects migration eligibility; CG-9/CG-10 concern caller freshness
+and SDK error handling; CG-5 is shared UI accessibility, not a maintenance gate.
+These fixes are implemented on the corrective branch with independent review and
+focused final-source native v13/v14 evidence. The selected Core scope is closed
+under the user's October18 instruction. Module work is held for the supporting
+point release; retained migration evidence is not a full module acceptance claim.
+
+World-pack write eligibility follows native configuration/default precedence,
+not `metadata.locked`. A verified absent override defaults unlocked only for a
+proven world-owned pack. Missing authority/metadata, unavailable settings and
+explicit locks remain blocking; required migrations are never made advisory.
+Package provenance comes from native metadata/package envelopes, not a collection
+prefix. Approval/readback/intent/receipt and final dispatch checks are unchanged.
 
 ## Lifecycle owners
 
@@ -196,10 +208,13 @@ Core termination and preparation replacement. Original 30/900/300 and larger
 60/2400/720 inventories complete with independent source oracles. These controlled
 upstreams are distinct from the subsequent native v13/v14 acceptance below.
 Resource costs, limitations and final Core closeout are recorded in ADR-0064;
-supporting release and module adoption remain pending.
+the recorded implementation shipped in 0.19.1. The October 18 amendment now
+owns the selected follow-up and renewed module hold.
 
 
-## Native acceptance limitations (unreleased)
+<a id="native-acceptance-limitations-unreleased"></a>
+
+## Native acceptance limitations
 
 Fresh Foundry 14.367 acceptance at checkpoint `140f838`, then its uncommitted
 CR64-18–20 correction/repeat, confirms real
@@ -242,5 +257,7 @@ above preserves the earlier successful v14 evidence. Focused cancellation and
 crashes on both sides of first publication, then one unique confirmed write and
 baseline cleanup, now pass on both v13 and v14. Current review/release disposition
 is recorded in
-[ADR-0064's final Core disposition](adr/0064-module-world-context-and-data-migrations.md#cr64-22-r1-correction-and-core-closeout--october-17-2026).
-All module work remains held; no public SDK or release-version change is needed.
+[ADR-0064's historical Core disposition](adr/0064-module-world-context-and-data-migrations.md#cr64-22-r1-correction-and-core-closeout--october-17-2026).
+That implementation shipped in 0.19.1. The [four-issue G8 correction amendment](adr/0064-module-world-context-and-data-migrations.md#g8-integration-correction-amendment--october-18-2026)
+now governs the renewed module hold and next point-release preparation; do not
+infer any SDK/API bump without an actual public surface change.

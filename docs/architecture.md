@@ -68,7 +68,7 @@ graph TD
 - **World Transport Controller (`src/server/services/world/WorldTransportController.ts`)**:
     - Owns service-account lifecycle policy: retry/backoff, heartbeat, browser engagement wakeups, world launch/shutdown, and lifecycle Store updates.
     - Commands `CoreSocket` as a transport; it does not live in `core/`.
-    - ADR-0064's unreleased role gate requires the configured service account to be
+    - ADR-0064's role gate, shipped in Core 0.19.0, requires the configured service account to be
       full Gamemaster on connect/reconnect and while active. This lifecycle policy
       blocks world access and gives admin recovery guidance; it does not change
       ordinary user/Assistant permissions.
@@ -489,13 +489,15 @@ revisions for prepared data, shared pack-permission policy and canonical Actor
 response references. See [the contract guide](MODULE_MIGRATIONS.md) for schemas,
 ownership, endpoint payloads, recovery limits and module-adoption requirements.
 
-**Unreleased corrective implementation:** the
-[complete-maintenance addendum](adr/0064-module-world-context-and-data-migrations.md#complete-maintenance-and-migration-acceptance--october-16-2026)
-requires a supervised maintenance-only runtime and complete migration coverage
-before any more module work. The gate/drain remains the final native-send
-boundary; it is now paired with persistent composition selection and supervised
-normal-worker shutdown. Earlier successful small native fixtures do not replace
-fresh complete-maintenance native acceptance.
+**Released correction and selected follow-up:** Core 0.19.1 implements the
+[complete-maintenance addendum](adr/0064-module-world-context-and-data-migrations.md#complete-maintenance-and-migration-acceptance--october-16-2026).
+The [four-issue G8 correction amendment](adr/0064-module-world-context-and-data-migrations.md#g8-integration-correction-amendment--october-18-2026)
+selects four additional fixes discovered during module adoption; corrective
+implementation is present on the branch, with independent review and focused
+final-source native v13/v14 acceptance passed. Selected Core scope, including the
+responsive shared-roll follow-up, is closed; supporting publication remains pending.
+Preserve the prior native/recovery evidence. CG-5 is independent shared
+UI work; it must not change migration readiness or maintenance gating.
 
 The corrective architecture persists maintenance before stopping normal Core/
 Next workers and confirms their exit. The supervisor then starts only admin/
@@ -511,11 +513,27 @@ or another public world cache. Final adapter preparation runs in an owned,
 read-only worker over the single parent transport; its timers/callbacks are
 terminated before activation. [Maintenance runtime](MAINTENANCE_RUNTIME.md)
 defines the producer/owner map, exclusive leases, shell, journal upgrade and
-workflow. SDK 3.4.0/module-api 1.6.0 add bounded relation declarations; application
-release metadata remains 0.19.0. Selected C64-G native v13/v14 acceptance now
-passes; CR64-22/R1 completes C64-H and closes the Core implementation scope.
-Merge, supporting-release publication and separately authorized G8 adoption remain
-pending. See the [final Core disposition](adr/0064-module-world-context-and-data-migrations.md#cr64-22-r1-correction-and-core-closeout--october-17-2026).
+workflow. SDK 3.4.0/module-api 1.6.0 add bounded relation declarations and ship
+in Core 0.19.1. Selected C64-G native v13/v14 acceptance and CR64-22/R1 C64-H
+closeout remain historical completed evidence. The [four-issue G8 correction amendment](adr/0064-module-world-context-and-data-migrations.md#g8-integration-correction-amendment--october-18-2026)
+records the completed corrections: native pack lock defaults, access-change invalidation through
+public context, safe packaged SDK errors and shared roll-dialog focus. No new
+module permissions, raw Setting exposure or module-local UI copies were added.
+
+CR64-23 centralizes native lock precedence in the existing pack policy: verified
+world ownership plus absent configuration defaults unlocked; explicit locks and
+unknown identity/configuration stay blocked. Package-envelope provenance is
+preserved at compendium seeding, including world-scoped manifest names, avoiding
+phantom system packs. Migration snapshots and final writes share that authority.
+CR64-24 fingerprints access dependencies privately in the existing world-context
+service; ownership-only changes advance and publish its revision after prepared
+refresh, including empty visible key lists. Reconnect reconciliation uses the same
+revision path. CR64-25 validates branded SDK Errors across supported ESM/CJS
+evaluations rather than relying on constructor identity, with sanitized unknown
+route failures. Existing managed JavaScript archives remain byte-for-byte valid.
+CR64-26 reuses Core's modal-focus owner for sheet/initiative rollers and nested
+overlay scroll/focus cleanup; it does not alter migration gates or roll rules.
+
 See the [current native evidence](adr/0064-module-world-context-and-data-migrations.md#fresh-complete-maintenance-native-v13-acceptance--october-17-2026)
 for source comparisons, cleanup, memory/latency costs and qualifications.
 The [independent review](adr/0064-module-world-context-and-data-migrations.md#independent-complete-maintenance-review--october-17-2026) identified CR64-14–17. The corrective
