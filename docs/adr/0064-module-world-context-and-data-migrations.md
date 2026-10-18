@@ -1,10 +1,10 @@
 # Core ADR-0064: Module World Context and Data Migrations
 
-**Status:** Completed — Core scope closed October 18 under the user's conditional closeout instruction. CR64-23–26 and the small CR64-26-R1 responsive-layout correction are verified; independent review and fresh native v13/v14 acceptance passed. Supporting Core point-release publication remains pending. Prior C64-A–H / CR64-01–22-R1 corrections shipped in Core 0.19.1. CG-5 is shared UI work, not a migration blocker. Module adoption remains separate and waits for the supporting release and user resumption.
+**Status:** Completed — CR64-27 accepted October 18, 2026. The user verified the normal admin/maintenance experience and reported successful module migration in production. Isolated Core and browser evidence is recorded below. Core point release 0.19.3 is selected for the fixes; implementation closeout does not claim publication. SDK/API contracts and module artifacts are unchanged. The [CR64-27 amendment](#cr64-27-normal-admin-access-during-maintenance--october-18-2026) and [operator acceptance](#cr64-27-operator-acceptance-and-release-preparation--october-18-2026) own this disposition; earlier open statements retain their dated context.
 **Date:** October 16, 2026
 **Related:** Core ADR-0021, ADR-0027, ADR-0028, ADR-0038, ADR-0056, ADR-0057, ADR-0063; Shadowdark module ADR-0001
 
-Latest disposition: [Responsive roll-dialog correction and Core closeout](#responsive-roll-dialog-correction-and-core-closeout--october-18-2026), following [native v13 verification](#final-source-native-v13-verification--october-18-2026), [native v14 verification](#final-source-native-v14-verification--october-18-2026), [independent G8 verification](#independent-g8-verification--october-18-2026) and the
+Previous disposition: [Responsive roll-dialog correction and Core closeout](#responsive-roll-dialog-correction-and-core-closeout--october-18-2026), following [native v13 verification](#final-source-native-v13-verification--october-18-2026), [native v14 verification](#final-source-native-v14-verification--october-18-2026), [independent G8 verification](#independent-g8-verification--october-18-2026) and the
 [G8 integration correction amendment](#g8-integration-correction-amendment--october-18-2026).
 The [October 17 Core closeout](#cr64-22-r1-correction-and-core-closeout--october-17-2026)
 remains the historical disposition of the released work. Its then-current
@@ -4720,3 +4720,168 @@ explicitly unselected. Core closeout does not close Shadowdark A01/M5 or authori
 module work. All task services are stopped and the operator's Foundry stays
 untouched. Earlier pending/hold/observation statements are dated history, with
 this closeout owning the current Core disposition.
+
+
+## CR64-27: Normal admin access during maintenance — October 18, 2026
+
+The operator reported that, after starting the Shadowdark 0.9.5 upgrade on
+Core 0.19.2, both the client URL and `/admin` presented a separate maintenance
+page with a nonfunctional administrator form. The user reconfirmed the agreed
+behavior: clients see only **“SheetDelver is in maintenance”** The regular
+admin interface and login remain available; authenticated administrators see
+maintenance attention and review/recovery actions in the existing panel.
+A maintenance page must not include a login form, admin link, world details,
+progress, migration reasons or recovery instructions for clients.
+
+### Confirmed defect and missed verification
+
+The old standalone shell called `/admin/auth/login` and `/admin/auth/me` directly,
+but the existing HttpOnly session cookie is scoped to `/api/admin`. A real browser
+accepted the login response and stored that cookie, then omitted it from the
+`/admin/auth/me` request. The endpoint returned 401. The shell caught that error,
+cleared its state and hid the failure: the login form remained without feedback.
+The same page was mounted at `/`, `/admin` and `/admin/modules`.
+
+An isolated reproduction using the actual old shell and cookie helper confirmed
+login **200 → identity 401**, no cookie on the identity request, and an empty
+visible error. Earlier browser acceptance manually injected a cookie with a
+broader inferred path; direct HTTP checks also supplied Cookie headers explicitly.
+Those checks bypassed normal browser cookie scoping and did not establish that
+an operator could sign in. Their migration/write evidence remains valid within
+its recorded scope; their operator login coverage was inadequate.
+
+### Corrected agreement and implementation
+
+1. Preserve the ordinary Next admin route group, login component, auth provider,
+   `/api/admin` proxy, HttpOnly cookie scope, CSRF, host and network policies.
+   No second login, cookie workaround or replacement admin application.
+2. The supervisor still drains and replaces ordinary Core and its owned process
+   tree. Restricted Core retains only maintenance transport, observation,
+   reviewed migration/recovery and approved admin endpoints. Player/user sockets,
+   session restore, module runtime callbacks and ordinary mutation APIs remain
+   stopped or fenced. The supervisor also starts the **regular Next frontend**
+   so the normal admin panel remains available.
+3. Next's server proxy reads the small, validated maintenance record from the
+   supervisor-selected data directory before rendering player routes. During
+   maintenance it returns a no-store 503 page containing only the client notice.
+   Admin routes continue through their unchanged origin/host checks. Corrupt
+   maintenance records stay closed for clients while admin recovery stays available.
+   Already-mounted player boundaries show the same minimal notice.
+4. Move exact-plan review, acknowledgement, approval, progress, resume and stop
+   controls from the removed standalone shell into **Admin → Modules → Installed**,
+   using the existing admin request helper, theme, buttons, plan details and drawer.
+   The existing attention notice links there. Ordinary module lifecycle controls
+   are not offered while the restricted controller owns the world. Cache, world,
+   catalog and general audit pages retain their usual heading/navigation but show
+   an availability message instead of mounting consumers of stopped services.
+   Migration history remains available. This also corrects the operator's follow-up
+   `CacheInfoPanel` 503/console-error report: a known maintenance restriction is
+   page availability, not a failed cache fetch. Initial unknown status waits for
+   the existing shared status provider before mounting those consumers.
+5. Preserve server-side exact-plan identity, backup acknowledgement, write/drain
+   fences and recovery rules. Reading the panel never approves, cancels or writes.
+   Poll failure retires displayed review/acknowledgement; action failures remain
+   visible. Logout/unmount retires responses from the old admin session.
+
+This explicitly supersedes earlier ADR language requiring **all Next processes
+to be absent** or a standalone admin maintenance shell. The requirement is to
+stop gameplay/module work and protect world data, while retaining the normal
+admin control plane. It does not authorize normal Core/player services to run
+during migration. No native migration hook, SDK contract or module artifact changes.
+
+### Verification and disposition
+
+Required checks for this correction:
+
+- Submit the real normal login form before and during maintenance, including an
+  invalid password, a fresh context, refresh, and session continuity across actual
+  supervised replacement. Do not inject, widen or manually forward browser cookies.
+- Verify public root and deep actor/tool navigation show the one-line notice with
+  no form or operator content; normal admin host/origin protections remain intact.
+- Exercise the authenticated Modules panel, exact approval and cancellation UI,
+  and the existing public/supervised migration workflow with source comparison.
+  Confirm old user transports/module timers stop and gameplay remains unavailable.
+- Run relevant Core unit/client/integration, typing and lint checks; visually
+  inspect normal login and maintenance controls at narrow/desktop widths and both themes.
+- Leave the operator's existing review/job and Foundry data untouched. The user
+  will restart their instance and perform operator review after the fix is ready.
+
+Implementation on `fix/maintenance-admin-login` passes the full unit, client and
+integration suites, TypeScript, lint and whitespace checks. The new navigation
+regression checks player root/actor/tool503 responses, normal admin routing,
+admin host concealment and corrupt-record recovery access. The prior login
+reproduction retains the failing200/401 sequence without injected cookies.
+
+Final isolated supervisor/browser acceptance used the actual manager, Core and
+Next with a controlled upstream. All eight320/390/820/1440 × light/dark normal
+login contexts pass, including invalid-password feedback, the actual HttpOnly
+`/api/admin` cookie, refresh and a pre-existing browser session surviving real
+process replacement. Six other admin pages (Cache, World, Available, Updates,
+Sources and Audit), Overview and Installed were navigated without failed admin
+requests; restricted-service consumers stayed unmounted. The stop confirmation
+survives a successful focus refresh and keyboard navigation, then dismisses with
+Escape. Earlier verification exposed the focus handler clearing otherwise-fresh
+status and unmounting the drawer; the correction retains fresh controls while
+failed, overdue, session-retired and runtime-retired evidence still clears.
+
+The isolated job was approved through the normal browser panel and completed
+**18 unique migration writes**, with full independent source comparison, exact
+receipts and a single ordinary fixture write settled before shutdown. Old user
+transports/module producers stopped, player access returned503 and stale mutation
+authority returned409 after activation. This is controlled upstream evidence,
+not a new native Foundry acceptance claim. Final-source evidence is
+`/tmp/sd-cr64-supervised-2R7wLU`; the tracked harness is
+`src/tests/acceptance/adr0064-supervised.test.ts --run-isolated --complete-matrix --inventory=1,1 --online-entry --maintenance-login`
+with the existing optional Playwright test installation.
+
+The actual mounted player boundary also passes eight viewport/theme cases:
+exact notice text, inert controls, nondismissible maintenance and recovery reload.
+Root/deep-navigation client boxes were captured at320/1440 in both themes, alongside
+eight normal login and eight maintenance-panel captures. Narrow/desktop client,
+normal login and panel captures were visually inspected. No production build or
+native Foundry run is newly claimed for CR64-27. All task-owned services stopped;
+operator Core and Foundry were left running. The operator restarted their own
+instance while reviewing; its existing Shadowdark review still has five proposed
+changes. This task did not approve, cancel or mutate that review.
+
+Core/application versions remain 0.19.2; SDK/API versions are unchanged. No commit,
+push or release is authorized by this correction request. User review remains open.
+The pre-amendment ADR snapshot SHA-256 is
+`c3933c7db8cafa67898aebc929faef4190e11564a7baed49a819cd0e2c308976`.
+
+
+### CR64-27 operator acceptance and release preparation — October 18, 2026
+
+The user confirmed: “verified correct now” and “Also verified module migration
+on production, all worked as expected.” This completes the outstanding operator
+review for the normal admin login/interface, minimal client notice and migration
+workflow. Production migration success is **user-reported acceptance**; it is not
+relabeled as an agent-run native source comparison or a new v13/v14 matrix. The
+previous isolated source/receipt, security and rendered evidence keeps its stated
+scope. The earlier note that the production review had five pending changes is
+superseded by this user report; this task did not execute that migration.
+
+CR64-27 and the selected Core scope of ADR-0064 are closed. The active Core audit
+is archived and the stable handoff now records release preparation. No confirmed
+blocker remains in this correction. Earlier accepted Core corrections and module-
+owned work are not reopened by historical pending statements.
+
+Prepare **Core 0.19.3** with concise changelog entries for maintenance admin access,
+client notice, unavailable-service panels and stable review controls. SDK3.4.0,
+module-api1.6.0, UI3.2.0 and roll1.0.0 are unchanged; no module metadata or artifact
+change is needed. The implementation checkpoint belongs on the approved feature
+branch. Per the existing release workflow, package/lock versions stay0.19.2 in
+that commit; after merge to main, `release:tag -- 0.19.3` applies the three release
+metadata changes and creates the local tag. Push, PR/merge and publication remain
+user-owned operations. No feature branch release tag or manual pre-bump.
+
+Release preparation additionally passed a fresh isolated production build using
+the unchanged dependency graph, generated managed configuration and CI fixture;
+no Core service or Foundry connection was started. The production dependency
+audit reports zero vulnerabilities. The exact0.19.3 changelog section validates
+with the existing release-notes extractor. Build evidence:
+`/tmp/sd-cr64-release-oc8qowxp/build.log`. Next reported filesystem-tracing warnings
+through the maintenance reader's existing Core path helpers; compilation, typing
+and route generation completed successfully. No new runtime acceptance is inferred
+from compilation. The pre-closeout ADR snapshot SHA256 is
+`a67de2453047dc2cdf6553bad40cbb23536dd16fb575a6939920885c687a8ca0`.

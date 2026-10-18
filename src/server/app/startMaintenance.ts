@@ -1,8 +1,5 @@
-import { createServer } from 'node:http';
-import { randomBytes } from 'node:crypto';
 import type { AppConfig } from '@shared/interfaces';
 import { createApp } from './createApp';
-import { maintenanceShell } from './maintenanceShell';
 import { createAdminRouter } from '@server/routes/admin/createAdminRouter';
 import { CoreSocket } from '@server/core/foundry/sockets/CoreSocket';
 import { FoundryEventIngress } from '@server/services/world/FoundryEventIngress';
@@ -43,12 +40,6 @@ export async function startMaintenance(config: AppConfig, corePort: number): Pro
         appVersion: config.app.version, runtimeToken: worldWorkGate.getServingToken(),
         maintenance: { phase: readMaintenanceMode()?.stage ?? 'recovery-required', message: 'Module upgrade in progress' } });
     app.get(['/api/status', '/api/config'], (_req, res) => { res.setHeader('Cache-Control', 'no-store'); res.json(status()); });
-    app.get(['/', '/admin', '/admin/modules'], (_req, res) => {
-        const nonce = randomBytes(18).toString('base64');
-        res.setHeader('Cache-Control', 'no-store');
-        res.setHeader('Content-Security-Policy', `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'`);
-        res.type('html').send(maintenanceShell.replace('<script>', `<script nonce="${nonce}">`));
-    });
     app.use('/admin', createAdminRouter({ maintenance: true, getSystemStatusPayload: async () => status(), broadcastToClients: () => {} }));
     app.use((_req, res) => res.status(503).json({ error: 'World unavailable — maintenance required', code: 'WORLD_WORK_UNAVAILABLE' }));
     registerHttpErrorHandlers(app);
@@ -56,12 +47,10 @@ export async function startMaintenance(config: AppConfig, corePort: number): Pro
     io.on('connection', socket => { socket.emit('systemStatus', status()); });
     const publish = setInterval(() => io.emit('systemStatus', status()), 4000);
     await new Promise<void>(resolve => httpServer.listen(corePort, '127.0.0.1', resolve));
-    const shellServer = createServer(app); io.attach(shellServer);
-    await new Promise<void>(resolve => shellServer.listen(config.app.port, config.app.host, resolve));
-    logger.info(`Maintenance | Restricted Core pid=${process.pid}; shell=${config.app.port}; API=${corePort}. No Next/player/session/module workers.`);
+    logger.info(`Maintenance | Restricted Core pid=${process.pid}; API=${corePort}. Normal admin frontend retained; no player/session/module workers.`);
     void warmMaintenanceMigrationStatus().catch(error => logger.debug(`Maintenance | Diagnostic read models unavailable: ${migrationReason(error)}`));
     let stopped = false; let epoch = -1; let retried = false;
-    const stop = () => { stopped = true; clearInterval(publish); detach(); client.disconnect(); io.close(); shellServer.close(); httpServer.close(); };
+    const stop = () => { stopped = true; clearInterval(publish); detach(); client.disconnect(); io.close(); httpServer.close(); };
     process.once('SIGINT', () => { stop(); process.exit(0); });
     process.once('SIGTERM', () => { stop(); process.exit(0); });
     const poll = async () => {

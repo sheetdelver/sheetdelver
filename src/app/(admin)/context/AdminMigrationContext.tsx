@@ -34,7 +34,9 @@ export function AdminMigrationProvider({ children }: { children: React.ReactNode
         if (!isAuthenticated || restarting) return;
         let active = true; let timer: ReturnType<typeof setTimeout>;
         const poll = async () => { if (document.visibilityState !== 'hidden') await refresh(); if (active) timer = setTimeout(poll, 5000); };
-        const wake = () => { if (document.visibilityState !== 'hidden') { setData(null); void refresh(); } };
+        // Keep still-fresh controls mounted during a focus refresh. Failed,
+        // overdue or changed-session reads retire them through the existing paths.
+        const wake = () => { if (document.visibilityState !== 'hidden') void refresh(); };
         const freshness = setInterval(() => { if (receivedAt.current && Date.now() - receivedAt.current > 15_000) { setData(null); setError('Status refresh overdue. Check connectivity; no current readiness is established.'); } }, 1000);
         void poll(); window.addEventListener('focus', wake); document.addEventListener('visibilitychange', wake);
         return () => { active = false; clearTimeout(timer); clearInterval(freshness); retire();

@@ -313,7 +313,7 @@ without querying GitHub at application runtime. Releases made before adopting
 this workflow join history only when they contain `sheet-delver-manifest.json`.
 A release workflow refuses to overwrite an existing GitHub Release.
 
-## Migration-bearing module releases (unreleased contract)
+## Migration-bearing module releases
 
 [Core ADR-0064](adr/0064-module-world-context-and-data-migrations.md) implements a
 conventional root `migration.json` catalog, native-version directories containing
@@ -326,10 +326,12 @@ Development tooling now compiles hooks, checks catalog/definition and archive
 health, and derives release-schema-v2 summaries. See [the contract guide](MODULE_MIGRATIONS.md).
 Do not publish dependent modules before the supporting Core host/toolchain.
 The complete-maintenance correction adds SDK 3.4.0/module-api 1.6.0 for
-relation-bearing catalogs (older migration catalogs retain 1.5.0). Application
-version remains 0.19.0 during implementation; choose/publish its actual supporting
-release only after acceptance and scoped release approval. All module adoption,
-catalog activation and dependent publication remain held by C64-A–H/user review.
+relation-bearing catalogs (older migration catalogs retain 1.5.0). These contracts
+and complete-maintenance corrections shipped in0.19.1; the selected G8 fixes shipped
+in0.19.2. CR64-27's normal admin access correction is accepted for0.19.3 and retains
+the same SDK/API versions. Its changelog is prepared before feature merge; the
+release helper applies package/lock metadata on main. Module adoption and release
+acceptance remain module-owned, with explicit tested host/toolchain requirements.
 Announce the persistent maintenance-only composition and the append-only receipt
 format. Keep config/module-upgrades and retained packages together; do not resume
 new-format jobs with 0.19.0 or discard receipts to make an older host start.
@@ -351,9 +353,10 @@ Foundry before upgrading; release notes must link the
 [configuration/retry procedure](CONFIGURATION.md#service-account-role-and-recovery).
 Core **0.19.0** shipped SDK **3.3.0**, module-api **1.5.0** and UI API **3.2.0**;
 roll-engine-api remains **1.0.0**. Its original small-world native v13/v14 gate
-does not establish the complete-maintenance correction's native acceptance,
-which remains pending. Adopting modules need separate verification, user approval
-to resume held work, and supporting release/toolchain pins. Do not
+does not by itself establish the later complete-maintenance correction's native
+acceptance. ADR-0064 records the subsequent completed Core v13/v14 gates and
+CR64-27 operator acceptance. Adopting modules still need their own verification
+and supporting release/toolchain pins. Do not
 claim these additions shipped in Core 0.18.1 or change human Assistant permissions.
 Application metadata still belongs to release:tag; a changelog heading does not
 perform release preparation. See [module adoption requirements](MODULE_MIGRATIONS.md#compatibility-and-adoption).

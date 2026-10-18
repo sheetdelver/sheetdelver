@@ -1,3 +1,4 @@
+import path from 'node:path';
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import {
@@ -5,6 +6,8 @@ import {
   createContentSecurityPolicy,
 } from '@shared/security/browserSecurityHeaders';
 import { isAdminRequestHostAllowed } from '@shared/security/adminOrigin';
+import { maintenanceOnly, maintenanceFile, readMaintenanceMode } from '@server/core/world/MaintenanceMode';
+import { maintenanceShell } from '@server/app/maintenanceShell';
 
 function normalizeOrigin(value: string): string | undefined {
   try {
@@ -34,6 +37,20 @@ export function proxy(request: NextRequest) {
         return NextResponse.json({ error: 'Admin API requires the configured local origin' }, { status: 403 });
       }
     }
+  }
+
+  // Maintenance gates player navigation before its route/providers can render.
+  // Admin continues through its ordinary host/origin policy, login and proxy.
+  if (!isAdminPage && !isAdminApi && maintenanceOnly(readMaintenanceMode(maintenanceFile(process.env.SHEET_DELVER_DATA || path.resolve('data'))))) {
+    const nonce = Buffer.from(crypto.randomUUID()).toString('base64');
+    return new NextResponse(maintenanceShell.replace('<script>', `<script nonce="${nonce}">`), {
+      status: 503,
+      headers: {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'no-store',
+        'Content-Security-Policy': `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'`,
+      },
+    });
   }
 
   const nonce = Buffer.from(crypto.randomUUID()).toString('base64');

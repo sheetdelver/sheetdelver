@@ -1,30 +1,25 @@
 # Native world context and module maintenance
 
-Core **0.19.1** supplies complete maintenance, bounded relations and the
-CR64-01–22-R1 corrections recorded in [ADR-0064](adr/0064-module-world-context-and-data-migrations.md).
+Core **0.19.2** supplies complete maintenance, bounded relations and the
+CR64-01–26/R1 corrections recorded in [ADR-0064](adr/0064-module-world-context-and-data-migrations.md).
 Selected Core native v13/v14 evidence remains valid; module adoption is separate.
-The [four-issue G8 correction amendment](adr/0064-module-world-context-and-data-migrations.md#g8-integration-correction-amendment--october-18-2026)
-reopens only CG-7 (pack lock defaults), CG-9 (permission-driven collection refresh),
-CG-10 (packaged SDK error recognition) and CG-5 (shared roll-dialog keyboard use).
-These corrections are implemented on the corrective branch, not released in
-0.19.1. Independent review and focused final-source native v13/v14 acceptance
-passed. The user's October18 conditional closeout is satisfied; supporting publication
-remains pending. CG-5 is not a migration blocker.
-Module work is held for this selected Core point-release sequence. Earlier dated
-review sections below retain historical evidence, not additional active gates.
-See [maintenance runtime](MAINTENANCE_RUNTIME.md) for lifecycle owners, recovery
-limits and durable-format compatibility.
+The [CR64-27 amendment](adr/0064-module-world-context-and-data-migrations.md#cr64-27-normal-admin-access-during-maintenance--october-18-2026)
+corrects maintenance admin access without changing migration or SDK contracts.
+It retains the regular login and admin panel, with only a maintenance notice on
+client pages. The user accepted the correction and reported successful production
+migration. Core0.19.3 is selected for publication. Earlier dated review sections retain historical evidence, not
+additional active gates. See [maintenance runtime](MAINTENANCE_RUNTIME.md) for
+lifecycle owners, recovery limits and durable-format compatibility.
 
 ## Compatibility and adoption
 
-The current released baseline is **0.19.1** (`v0.19.1`, local release commit
-`10213980`). Modules should require the tested supporting Core release and pin
-both validation and release toolchains to it. Corrections selected on October 18
-need a later published point release; its version is confirmed at release time,
-not inferred from a development checkout. No module metadata changes in this
+The current released baseline is **0.19.2** (`v0.19.2`). Modules should require
+the tested supporting Core release and pin both validation and release toolchains
+to it. The operator-access correction is not included in 0.19.2 and requires a
+subsequent release0.19.3 after the accepted review. No module metadata changes are part of this
 Core-only slice.
 
-| Surface | Provided in Core 0.19.1 | Module compatibility requirement when adopted |
+| Surface | Provided in Core 0.19.2 | Module compatibility requirement when adopted |
 | --- | --- | --- |
 | Aggregate SDK | 3.4.0 | Informational; no separate `sdkVersion` manifest property. |
 | `module-api` | 1.6.0 | Migration catalogs retain a 1.5.0 introduction floor; bounded relations require `>=1.6.0 <2.0.0`. |
@@ -32,8 +27,8 @@ Core-only slice.
 | `roll-engine-api` | 1.0.0 | Retain the module's existing compatible range. |
 
 Core 0.19.0 supplied SDK 3.3/module-api 1.5; 0.18.1 lacks the world-context and
-migration contracts. The four selected fixes aim to preserve existing public
-contracts. Do not pre-bump SDK/API versions without an actual surface change.
+migration contracts. The released G8 fixes and current operator-access correction preserve existing
+public contracts. Do not pre-bump SDK/API versions without an actual surface change.
 
 The current correction uses native v13/v14 lock precedence: the world's
 `core.compendiumConfiguration[packId].locked` overrides the package-ownership
@@ -69,10 +64,11 @@ selected rows have their own access/error/UI acceptance criteria.
 
 ### Retained complete-maintenance behavior and evidence
 
-The selected design stops the ordinary Core/Next runtime and restarts a
-maintenance-only composition under the existing supervisor. Only maintenance
-UI/admin controls, one necessary service-account transport/observation path and
-the migration controller/workers remain active. Normal routes, user sockets,
+The selected design drains and replaces ordinary Core under the existing
+supervisor. Restricted Core retains one necessary service-account transport/
+observation path and the migration controller/workers. The regular Next admin
+interface and login remain available. Player pages receive only “SheetDelver is
+in maintenance.” before their route renders. Normal gameplay routes, user sockets,
 session restores, module callbacks and background jobs remain stopped. Full
 authoritative inventory/planning and reviewed write approval occur after that
 isolation; an online dry-run is advisory. Verified completion and a controlled
@@ -480,7 +476,7 @@ Overview and unrelated admin pages show a compact notice only for required,
 blocked, in-progress or recovery states. Installed owns the full status panel
 (including unknown, unavailable, checking and passing results), without a duplicate
 global notice. Module cards/reviews retain source-specific detail; the restricted
-maintenance shell keeps its full reason/progress/next action.
+authenticated admin panel keeps its full reason/progress/next action.
 Installed status and source migration cards default collapsed unless they need
 attention. Click/keyboard expands them; new attention opens automatically, routine
 results collapse, and stable polling does not undo manual toggles. The explicitly
@@ -508,9 +504,11 @@ metadata-only; failed/overdue responses clear the display. A process restart
 requires fresh evidence rather than reviving a historical green result. These
 are observed-revision diagnostics, not a substitute for execution-time checks.
 
-The standalone shell presents a plain-language reason, exact known identity,
-progress and next action before the full technical plan/recovery details. Its
-admin-only explanation does not load Next or module code. Required backup
+The regular admin interface presents attention after normal login. Admin →
+Modules → Installed contains exact identity, progress, plan and recovery controls,
+using the same admin session and /api/admin path as ordinary operation. Clients
+receive only the maintenance notice, without a form or operator details. The
+restricted Core still does not initialize normal module/player services. Required backup
 acknowledgement and exact authoritative approval remain separate from advisory
 inspection. No migration approval, source-selection or execution contract changed.
 
@@ -537,3 +535,14 @@ byte-different history was rejected, not normalized or excused. Do not add modul
 workarounds for Core, silently change published steps, or infer a release floor
 from private fixture version numbers. No module work was performed by the native
 Core acceptance. Both disposable worlds were restored and test services stopped.
+
+
+### CR64-27 operator-access correction
+
+Core 0.19.2's separate maintenance login used `/admin` requests with a cookie
+scoped to `/api/admin`, so normal browser sign-in failed silently. The corrective
+branch retains the normal admin frontend/login and places maintenance controls
+inside the existing Modules panel. See the [ADR amendment](adr/0064-module-world-context-and-data-migrations.md#cr64-27-normal-admin-access-during-maintenance--october-18-2026).
+The correction is accepted for Core0.19.3, pending publication; existing migration
+permissions, hooks and approval rules are unchanged. Do not clear a maintenance marker or bypass approval
+to recover from this UI defect.

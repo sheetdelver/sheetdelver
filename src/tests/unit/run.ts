@@ -1,3 +1,4 @@
+import { run as runMaintenanceNavigation } from './security/maintenance-navigation.test';
 import path from 'node:path';
 import { resolveDataDir, initDataDir } from '../../server/core/paths';
 
@@ -185,6 +186,7 @@ async function runAllUnitTests() {
     runFoundryUrl();
     runFullStackRestart();
     runNextDevHmr();
+    runMaintenanceNavigation();
     runManagedBootstrap();
     runServerFileLogger();
     runAdrMetadata();
