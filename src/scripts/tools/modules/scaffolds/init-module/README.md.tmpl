@@ -31,19 +31,25 @@ The compiled Tailwind artifact and your declared stylesheets load as separate `<
 
 ## Validation And Releases
 
-The generated validation workflow checks this module against Sheet Delver
-`%CORE_REF%` on pull requests, pushes to `main`, and manual runs. It runs both
-the module contract checker and a complete package build in an isolated data
-directory.
+Validation checks this module against SheetDelver `%CORE_REF%` on pull requests,
+`main` pushes, version-tag pushes and manual runs. It runs the standalone release
+helper tests, module contract checks and isolated packaging.
 
-The generated release workflow runs only for pushed `v*` tags. Before tagging,
-set `info.json` `version` to the intended release version and commit the change.
-The tag without its leading `v` must exactly match that version. For example,
-module version `1.2.0` is released with tag `v1.2.0`.
+The module owns `npm run release:tag`; no local Core checkout or npm dependencies
+are needed to run it. Write a numbered release in `CHANGELOG.md`, then use:
 
-The release workflow publishes the generated archive, SHA-256 checksum, and
-`sheet-delver-manifest.json` as GitHub Release assets. It does not write to any
-developer `local/modules` directory.
+```sh
+npm run release:tag -- --dry-run
+npm run release:tag
+```
+
+The helper prepares `info.json.version` and an annotated tag, asks to push it,
+waits for validation and asks separately before dispatching the release workflow.
+The release build retains its pinned Core toolchain. `info.json` remains the only
+version authority; the npm manifest only supplies commands.
+
+See [module release instructions](docs/RELEASING.md) for local-only preparation,
+resume behavior, first-adoption requirements and `npm run test:release`.
 
 Refer to the [Sheet Delver Module Manifest documentation](https://github.com/sheetdelver/sheetdelver/blob/main/docs/MODULE_MANIFEST.md) for detailed API usage and examples.
 

@@ -105,8 +105,15 @@ only “SheetDelver is in maintenance” in a styled box. Existing player sessio
 Core. Admin attention and exact-plan/recovery controls live inside the normal
 Modules panel; there is no separate maintenance login application. This is the
 [CR64-27 correction](adr/0064-module-world-context-and-data-migrations.md#cr64-27-normal-admin-access-during-maintenance--october-18-2026)
-to the earlier standalone-shell design, accepted by the operator for Core0.19.3,
-pending publication.
+to the earlier standalone-shell design, accepted by the operator and released in
+Core 0.19.3.
+
+The Next proxy imports only `MaintenanceRecord.ts`, a read-only parser and gate
+predicate with an explicit runtime file path. Core's `MaintenanceMode.ts` wraps
+that same reader with initialized path defaults and process-local progress;
+directory setup, durable writers and runtime leases stay outside the proxy's
+dependency graph. This keeps runtime data out of application dependency tracing
+without duplicating validation or changing maintenance admission (CR64-28).
 
 ### 3.3 World-Ready Bootstrap Gates
 

@@ -6,7 +6,7 @@ import {
   createContentSecurityPolicy,
 } from '@shared/security/browserSecurityHeaders';
 import { isAdminRequestHostAllowed } from '@shared/security/adminOrigin';
-import { maintenanceOnly, maintenanceFile, readMaintenanceMode } from '@server/core/world/MaintenanceMode';
+import { maintenanceOnly, maintenanceFile, readMaintenanceRecord } from '@server/core/world/MaintenanceRecord';
 import { maintenanceShell } from '@server/app/maintenanceShell';
 
 function normalizeOrigin(value: string): string | undefined {
@@ -41,7 +41,7 @@ export function proxy(request: NextRequest) {
 
   // Maintenance gates player navigation before its route/providers can render.
   // Admin continues through its ordinary host/origin policy, login and proxy.
-  if (!isAdminPage && !isAdminApi && maintenanceOnly(readMaintenanceMode(maintenanceFile(process.env.SHEET_DELVER_DATA || path.resolve('data'))))) {
+  if (!isAdminPage && !isAdminApi && maintenanceOnly(readMaintenanceRecord(maintenanceFile(process.env.SHEET_DELVER_DATA || path.resolve('data'))))) {
     const nonce = Buffer.from(crypto.randomUUID()).toString('base64');
     return new NextResponse(maintenanceShell.replace('<script>', `<script nonce="${nonce}">`), {
       status: 503,

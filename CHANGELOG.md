@@ -1,5 +1,9 @@
 # Releases
 
+## 0.19.4
+- Scoped maintenance build dependencies
+- Scaffolded independent module releases
+
 ## 0.19.3
 - Restored maintenance admin access
 - Simplified client maintenance notice

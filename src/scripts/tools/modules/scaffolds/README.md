@@ -11,3 +11,10 @@
 
 Keep SDK examples current here. `module-init-scaffold.test.ts` generates the tree and runs
 `module:check` against it.
+
+The standalone release helper, test suite, npm commands and release guide are
+copied byte-for-byte. Only the module-specific workflow filenames/IDs/pins and
+initial README/changelog use templates. Keep the distributed helper/test copies
+in maintained modules aligned; there is no runtime import from the Core tree.
+The scaffold regression executes the generated helper tests and verifies the
+tag-validation/manual-publication workflow boundary.
