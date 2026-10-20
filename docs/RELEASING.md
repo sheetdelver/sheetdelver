@@ -2,6 +2,8 @@
 
 SheetDelver releases are published by `.github/workflows/release.yml` when a
 stable semantic-version tag such as `v0.9.1` is pushed.
+The Actions publication run is titled `Release <tag>`; the preparation commit
+retains its `chore(release): prepare <tag>` message.
 
 The root `package.json` version is the application release authority. The
 matching `CHANGELOG.md` heading supplies the GitHub Release notes. SDK and
