@@ -1,6 +1,7 @@
 # Releases
 
 ## Unreleased
+- Reuse validated release artifacts
 - Streamline player session restoration
 - Refresh mutable module styles
 - Center themed startup spinners

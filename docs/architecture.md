@@ -630,3 +630,12 @@ isolation and representative/larger native inventories also pass with the record
 memory and replacement-interruption limitations. Supporting Core0.19.2 was
 subsequently released and module work resumed; CR64-27 is a separate Core operator-
 access correction, not renewed module acceptance.
+
+### Validation and release artifacts
+
+[ADR-0066](adr/0066-reuse-release-validation.md) separates validation from
+publication. Successful exact-commit CI retains checksummed release files;
+publication verifies their origin and uses those bytes without a second build.
+Module main/tag pushes at one commit serialize and reuse validation. Core retains
+its SBOM/source-release format; modules retain archive/manifest/checksum/history.
+The runtime module-loading and compatibility contracts are unchanged.

@@ -14,78 +14,24 @@ concurrency:
 
 jobs:
   release:
-    name: Verify and release
+    name: Publish validated release
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
     permissions:
       contents: write
-    env:
-      RELEASE_TAG: ${{ github.ref_name }}
-
+      actions: read
     steps:
       - name: Check out tagged source
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          fetch-depth: 0
           persist-credentials: false
 
-      - name: Use Node.js 22.x
+      - name: Use Node.js 22
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '22.x'
-          cache: npm
 
-      - name: Configure isolated data directory
-        run: echo "SHEET_DELVER_DATA=$RUNNER_TEMP/sheet-delver-release-data" >> "$GITHUB_ENV"
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Prepare release notes
-        run: npm run release:prepare -- "$RELEASE_TAG" "$RUNNER_TEMP/release-notes.md"
-
-      - name: Generate managed configuration
-        run: npm run managed:generate
-
-      - name: Audit production dependencies
-        run: npm audit --omit=dev --audit-level=high
-
-      - name: Lint
-        run: npm run lint
-
-      - name: Type check
-        run: npx tsc --noEmit
-
-      - name: Unit tests
-        run: npm run test:unit
-
-      - name: Integration tests
-        run: npm run test:integration
-
-      - name: Validate the clean-checkout fixture
-        run: npm run ci:fixture
-
-      - name: Build
-        run: npm run build
-
-      - name: Generate production SBOM
-        run: npm sbom --omit=dev --sbom-format cyclonedx > "$RUNNER_TEMP/sheet-delver-$RELEASE_TAG.cdx.json"
-
-      - name: Generate artifact checksum
-        working-directory: ${{ runner.temp }}
-        run: sha256sum "sheet-delver-$RELEASE_TAG.cdx.json" > SHA256SUMS
-
-      - name: Create GitHub release
+      - name: Publish files from successful exact-commit validation
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            echo "Release $RELEASE_TAG already exists; refusing to overwrite it." >&2
-            exit 1
-          fi
-          gh release create "$RELEASE_TAG" \
-            "$RUNNER_TEMP/sheet-delver-$RELEASE_TAG.cdx.json" \
-            "$RUNNER_TEMP/SHA256SUMS" \
-            --title "SheetDelver $RELEASE_TAG" \
-            --notes-file "$RUNNER_TEMP/release-notes.md" \
-            --verify-tag
+        run: node src/scripts/tools/releases/publish-release.mjs

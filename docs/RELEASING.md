@@ -193,13 +193,21 @@ After main CI passes, push only the intended release tag:
 git push --no-follow-tags origin v0.11.1
 ```
 
-The release workflow repeats the dependency audit, lint, type checking, tests,
-fixture validation, and production build against the tagged commit. It then:
+The release workflow downloads the publication files retained by successful CI
+for the **exact tagged commit**, verifies their origin and SHA-256 hashes, then
+publishes the CI-produced notes and CycloneDX SBOM plus its checksum. It does
+not repeat dependency installation, audit, lint, typing, tests or build.
+A main CI run still in progress is awaited. A different commit requires its own
+validation, even if the only changes are release metadata.
 
-- Verifies that the tag exactly matches the `package.json` version.
-- Extracts the matching `CHANGELOG.md` section as release notes.
-- Generates a CycloneDX production dependency SBOM.
-- Publishes the SBOM and its SHA-256 checksum with the GitHub Release.
+CI retains these files for 30 days. If they expired, were removed, or predate
+artifact-producing CI, run `ci.yml` manually at the unchanged release tag and
+retry publication after it succeeds. Manual validation runs the full checks.
+Do not move the tag or disable checks to recover a missing artifact. API errors,
+failed validation and digest/identity mismatches stop publication.
+
+See [ADR-0066](adr/0066-reuse-release-validation.md) for the reuse contract and
+first-adoption limits. Historical release tags retain their original workflows.
 
 GitHub automatically provides source archives for the tag. SheetDelver does
 not currently publish a deployment ZIP because a complete deployment includes
@@ -284,14 +292,22 @@ The helper asks before pushing `main` and that one tag. Tag pushes run the modul
 validation workflow; they do not publish. After successful validation for the exact
 tag, commit and push event, the helper asks separately before dispatching the
 module release workflow at that tag. The wrapper independently verifies the same
-CI result, then calls `.github/workflows/module-release.yml` at its existing tested
-Core pin. Keep the reusable-workflow ref and `core_ref` aligned.
+CI result, then publishes the validated archive through module-owned tooling.
+Main and tag push validation share a commit concurrency group: whichever runs
+second reuses the successful first run's artifact instead of repeating tests and
+packaging. The pinned Core toolchain commit is checked as well as the module
+commit. PRs still run full validation; manual validation deliberately runs fully.
 
-The pinned build creates the archive, checksum, `sheet-delver-manifest.json` and
-`sheet-delver-releases.json`. Its release-history and GitHub-generated notes policy
-is unchanged. The helper waits for completion and verifies the Release exists.
-Local checks cannot establish live GitHub publication; no dispatch is performed
-by tooling tests.
+The package, checksum and `sheet-delver-manifest.json` are the exact CI files.
+Publication generates `sheet-delver-releases.json` using the existing Core
+history generator bundled during validation. It needs no npm installation or
+Core checkout. The module's tested validation pin and runtime compatibility
+remain unchanged. Module release notes remain GitHub-generated.
+
+The updated reusable `module-release.yml` entry point delegates to the same
+module-owned publication tools; callers must adopt their artifact-producing CI
+and scripts together. New wrappers are standalone. Existing tags that pin older
+Core workflows retain the older rebuild behavior.
 
 Commit/push both wrappers and the helper together before adopting this process.
 The dispatch wrapper must exist on the default branch. Older wrappers still

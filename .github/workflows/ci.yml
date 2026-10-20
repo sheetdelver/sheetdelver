@@ -5,9 +5,15 @@ on:
     branches: ["main"]
   pull_request:
     branches: ["main"]
+  workflow_dispatch:
 
 permissions:
   contents: read
+  actions: read
+
+concurrency:
+  group: validation-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: false
 
 jobs:
   verify:
@@ -64,13 +70,27 @@ jobs:
       - name: Generate production SBOM
         run: npm sbom --omit=dev --sbom-format cyclonedx > "${{ runner.temp }}/sheet-delver.cdx.json"
 
-      - name: Upload production SBOM
+      - name: Prepare validated publication files
+        if: github.event_name != 'pull_request'
+        run: |
+          mkdir -p "$RUNNER_TEMP/validated-release"
+          VERSION=$(node -p "require('./package.json').version")
+          npm run release:prepare -- "v$VERSION" "$RUNNER_TEMP/validated-release/release-notes.md"
+          cp "$RUNNER_TEMP/sheet-delver.cdx.json" "$RUNNER_TEMP/validated-release/"
+
+      - name: Bind files to this validation attempt
+        id: bundle
+        if: github.event_name != 'pull_request'
+        run: node src/scripts/tools/releases/ci-artifacts.mjs record "$RUNNER_TEMP/validated-release"
+
+      - name: Retain validated publication files
+        if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: sheet-delver-sbom-${{ github.sha }}
-          path: ${{ runner.temp }}/sheet-delver.cdx.json
+          name: ${{ steps.bundle.outputs.artifact_name }}
+          path: ${{ runner.temp }}/validated-release/*
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 30
 
   # Public repositories can run GitHub's dependency-delta review directly.
   # Keep this PR-only: push builds retain the mandatory full npm audit above.
