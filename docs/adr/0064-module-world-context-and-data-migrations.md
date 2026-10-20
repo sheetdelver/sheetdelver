@@ -1,6 +1,6 @@
 # Core ADR-0064: Module World Context and Data Migrations
 
-**Status:** Completed — CR64-27 accepted October 18, 2026. The user verified the normal admin/maintenance experience and reported successful module migration in production. Isolated Core and browser evidence is recorded below. Core point release 0.19.3 is selected for the fixes; implementation closeout does not claim publication. SDK/API contracts and module artifacts are unchanged. The [CR64-27 amendment](#cr64-27-normal-admin-access-during-maintenance--october-18-2026) and [operator acceptance](#cr64-27-operator-acceptance-and-release-preparation--october-18-2026) own this disposition; earlier open statements retain their dated context.
+**Status:** Completed — CR64-28 build-tracing correction verified October 20, 2026; local checkpoint prepared for user-owned push/merge and point release 0.19.4. Core 0.19.3 is released; its CR64-27 operator acceptance remains valid. The [CR64-28 amendment](#cr64-28-maintenance-proxy-build-tracing--october-20-2026) records the warning-free build and preserved maintenance behavior. SDK/API contracts and module artifacts are unchanged; 0.19.4 publication is not claimed.
 **Date:** October 16, 2026
 **Related:** Core ADR-0021, ADR-0027, ADR-0028, ADR-0038, ADR-0056, ADR-0057, ADR-0063; Shadowdark module ADR-0001
 
@@ -4885,3 +4885,68 @@ through the maintenance reader's existing Core path helpers; compilation, typing
 and route generation completed successfully. No new runtime acceptance is inferred
 from compilation. The pre-closeout ADR snapshot SHA256 is
 `a67de2453047dc2cdf6553bad40cbb23536dd16fb575a6939920885c687a8ca0`.
+
+## CR64-28: Maintenance proxy build tracing — October 20, 2026
+
+The user's production `npm run build` on Core 0.19.3/Next 16.3.8 succeeds but
+reports four dynamic-filesystem tracing warnings. The import chain is
+`src/proxy.ts` → `MaintenanceMode.ts` → `paths.ts`. Startup directory creation,
+CLI path resolution and legacy-path checks consequently enter the Next proxy's
+build graph. The same warnings were recorded during CR64-27 release preparation;
+this is a scoped build-dependency correction, not a failed migration or a new
+module requirement. The original log is retained locally as `temp/build-errors.txt`.
+
+Decision: share a read-only `MaintenanceRecord.ts` between the Next proxy and
+Core. It owns the record type, explicit-path lookup, existing validation and gate
+predicate. Core's existing `MaintenanceMode.ts` entry points retain initialized
+path defaults, progress overlays, writers, drain checks and runtime leases.
+The proxy supplies its runtime data path and imports no startup/write helpers.
+Do not duplicate parsing, hide warnings globally, remove maintenance protection
+or change normal admin login, cookies, host restrictions or API routing.
+
+Validation requires the real Turbopack production build and inspection of its
+dependency traces. The new bundled-proxy regression in
+`src/tests/unit/security/maintenance-navigation.test.ts` failed against the
+original import graph and passes after extraction. Existing navigation checks
+and added stage/drain/schema/size cases preserve player gating and normal admin
+access. Existing integration tests cover Core's progress overlays and recovery.
+An isolated workspace uses build-only configuration, never root `.env` or native
+Foundry.
+
+The fresh isolated build on Node 24.21.0 / Next 16.3.8 passes compilation,
+TypeScript and all 13 generated pages with **zero warnings**. The actual
+`middleware.js.nft.json` contains 111 files; its maps include
+`MaintenanceRecord.ts` and exclude `MaintenanceMode.ts` and `core/paths.ts`.
+The trace excludes runtime settings/maintenance records. No tracing suppression
+or dependency change was needed.
+
+The built production Next server also passed eight HTTP smoke states: absent
+record, review, activating/serving with both drain values, corrupt record and
+record removal. Runtime data deliberately differs from the build-time data path.
+Maintenance returns player HTTP 503 with `no-store` and the existing minimal
+notice; regular admin remains HTTP 200 and wrong-host admin remains 404.
+Serving resumes only with the existing stage/drain predicate. The smoke starts
+Next alone, with no Core or Foundry connection, and stops its owned process.
+These are compiled-server routing checks, not a new native migration or rendered
+operator acceptance claim.
+
+Build/trace/smoke evidence is retained in `/tmp/sd-cr64-28-c240vcsa/` as
+`build.log`, `trace-review.json` and `production-smoke.json`. The copied workspace
+uses clean tracked source plus this correction, its own dependencies and CI
+fixture, excluding unrelated pending scaffold edits and production configuration.
+
+Scope: Core-only implementation and documentation, authorized local checkpoint;
+user owns push/merge/release. Keep application and SDK versions unchanged in this
+commit; the release helper owns the eventual **0.19.4** point-release metadata.
+The corresponding changelog heading is prepared. The prior
+ADR was saved to `temp/ADR-0064-before-cr64-28.md`. Existing independent module
+release-tool/scaffold edits are outside this correction and must remain unstaged.
+
+CR64-28 is complete on this scoped evidence. Fresh `npm run test:unit`,
+`npm run test:integration`, `npm run lint`, explicit `tsc --noEmit --incremental
+false`, `npm run build` and whitespace checks pass. Integration includes the
+24 corrective cases, 27 complete-maintenance cases, nine migration-attention
+cases and G8 regression group, including the unchanged Core progress-overlay
+behavior. No new native acceptance is required for this dependency extraction;
+prior native results retain their original scope. Node 22 CI remains for the PR.
+Task-owned services are stopped; the operator's Foundry service was untouched.
