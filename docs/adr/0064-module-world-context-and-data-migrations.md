@@ -4939,8 +4939,9 @@ Scope: Core-only implementation and documentation, authorized local checkpoint;
 user owns push/merge/release. Keep application and SDK versions unchanged in this
 commit; the release helper owns the eventual **0.19.4** point-release metadata.
 The corresponding changelog heading is prepared. The prior
-ADR was saved to `temp/ADR-0064-before-cr64-28.md`. Existing independent module
-release-tool/scaffold edits are outside this correction and must remain unstaged.
+ADR was saved to `temp/ADR-0064-before-cr64-28.md`. Independent module
+release-tool/scaffold edits were excluded from the CR64-28 checkpoint; the user
+subsequently selected them as release collateral in the amendment below.
 
 CR64-28 is complete on this scoped evidence. Fresh `npm run test:unit`,
 `npm run test:integration`, `npm run lint`, explicit `tsc --noEmit --incremental
@@ -4950,3 +4951,53 @@ cases and G8 regression group, including the unchanged Core progress-overlay
 behavior. No new native acceptance is required for this dependency extraction;
 prior native results retain their original scope. Node 22 CI remains for the PR.
 Task-owned services are stopped; the operator's Foundry service was untouched.
+
+## Release collateral: Independent module release scaffolding — October 20, 2026
+
+After CR64-28 checkpoint `dfd84a18`, the user authorized committing the previously
+prepared `module:init` scaffold changes on the same release branch and documenting
+them here. They accompany Core 0.19.4 as development tooling; they do not change
+ADR-0064's world context, migration authority, maintenance runtime or SDK contracts.
+Earlier instructions to leave this collateral uncommitted are superseded by that
+authorization. Module repositories and Core's own release helper are unchanged.
+
+New modules receive a standalone `scripts/release.mjs`, its regression tests,
+command-only `package.json`, initial numbered changelog and release guide from
+`src/scripts/tools/modules/scaffolds/init-module/`. The generated helper uses
+Node built-ins, Git and `gh`; it imports no Core code and needs no local Core
+checkout. `info.json` stays the sole module version authority. The generator
+copies the helper/tests/guide unchanged and renders only module-specific
+templates. Existing modules are not modified by `module:init`.
+
+Release sequence: read the latest numbered changelog, prepare the version commit
+and annotated tag, confirm pushing only main and that tag, wait for successful
+push CI for the exact tag/commit, then separately confirm publication by workflow
+dispatch. Tag pushes run validation only. The dispatch wrapper independently
+checks that same CI evidence before calling the pinned reusable Core packaging
+workflow. `--dry-run`, `--no-push` and `--resume` support review, local preparation
+and interrupted workflows without replacing tags. Default-branch adoption and
+failure/recovery requirements are documented in the generated release guide.
+
+The Core [module-authoring guide](../MODULE_AUTHORING.md#ci-and-independent-module-releases),
+[release guide](../RELEASING.md#module-releases) and scaffold README describe the
+same flow. Module compatibility and Core toolchain pins are preserved; no version
+bump or actual release follows from running tooling tests. The 0.19.4 changelog
+includes this scaffold addition; application version metadata remains owned by
+Core's `release:tag` after merge.
+
+Verification is through `src/tests/unit/modules/module-init-scaffold.test.ts`:
+generate an isolated module, parse its CI/release YAML, verify tag-validation and
+manual-publication dependencies, check copied files/npm metadata/template tokens,
+run the generated standalone helper suite, and run `module:check`. Helper tests
+use temporary Git repositories/local remotes and simulated GitHub responses;
+they do not push real refs, dispatch workflows or contact Foundry.
+
+Fresh verification of the combined Core/scaffold tree passes the full unit suite,
+including all 26 generated helper cases and module checking, explicit TypeScript,
+lint and whitespace checks. The helper files and rendered workflow checks pass
+without an application dependency addition. CR64-28's warning-free production
+build, compiled HTTP smoke and integration evidence are retained; this collateral
+changes no runtime source and does not claim another live/native test. Logs are
+`/tmp/sd-cr64-28-c240vcsa/scaffold-{unit,types,lint}.log`. No services were started.
+The collateral is complete for a separate authorized local commit on
+`fix/adr-0064-maintenance-build-tracing`; push/merge/release remain user-owned.

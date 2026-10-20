@@ -261,57 +261,49 @@ recovery above is the only exception for a pushed tag with no Release.
 
 ## Module Releases
 
-Public module repositories can call the reusable
-`.github/workflows/module-release.yml` workflow from a small tag-triggered
-wrapper:
+Modules own an independent, dependency-free release helper at
+`scripts/release.mjs`. `module:init` copies that helper, its tests, a command-only
+`package.json`, initial changelog, release guide and two workflows into each new
+module. The helper runs inside the module repository with Node.js22, Git and `gh`;
+it does not import Core or require a local Core checkout. The application helper
+above continues to release Core only.
 
-`npm run module:init` generates this wrapper and a separate validation workflow
-for new modules. The example remains useful when migrating an existing module:
+From the module's clean `main`, prepare a numbered changelog section and run:
 
-```yaml
-name: Release Module
-
-on:
-  push:
-    tags:
-      - 'v*.*.*'
-
-permissions:
-  contents: read
-
-jobs:
-  release:
-    permissions:
-      contents: write
-    uses: sheetdelver/sheetdelver/.github/workflows/module-release.yml@v0.9.0
-    with:
-      module_id: my-system
-      core_ref: v0.9.0
+```sh
+npm run release:tag -- --dry-run
+npm run release:tag
 ```
 
-Pin both the workflow call and `core_ref` to the same tested SheetDelver
-release tag. The explicit toolchain ref prevents a later change on `main` from
-altering an older module's release build.
-The module tag without its leading `v` must exactly match the version in
-`info.json`.
+An optional version must match the first numbered changelog release. The helper
+updates only `info.json.version`, commits it with the notes and creates an
+annotated tag. Matching already-committed metadata uses tag-only preparation.
+Compatibility, SDK/API requirements and workflow pins remain unchanged.
 
-The reusable workflow checks out the module and the pinned SheetDelver
-toolchain into the GitHub runner, stages the module under an isolated temporary
-data directory, runs `module:check`, packages it, verifies the checksum, and
-creates a GitHub Release containing:
+The helper asks before pushing `main` and that one tag. Tag pushes run the module's
+validation workflow; they do not publish. After successful validation for the exact
+tag, commit and push event, the helper asks separately before dispatching the
+module release workflow at that tag. The wrapper independently verifies the same
+CI result, then calls `.github/workflows/module-release.yml` at its existing tested
+Core pin. Keep the reusable-workflow ref and `core_ref` aligned.
 
-- `<moduleId>-<version>.tgz`
-- `sheet-delver-manifest.json`
-- `sheet-delver-releases.json`
-- `<moduleId>-<version>.sha256`
+The pinned build creates the archive, checksum, `sheet-delver-manifest.json` and
+`sheet-delver-releases.json`. Its release-history and GitHub-generated notes policy
+is unchanged. The helper waits for completion and verifies the Release exists.
+Local checks cannot establish live GitHub publication; no dispatch is performed
+by tooling tests.
 
-The fixed manifest asset name allows the static module catalog to follow the
-latest release without editing the catalog for every module version. The release
-history asset records up to 100 immutable manifests from existing non-draft,
-non-prerelease releases, allowing compatible historical versions to be selected
-without querying GitHub at application runtime. Releases made before adopting
-this workflow join history only when they contain `sheet-delver-manifest.json`.
-A release workflow refuses to overwrite an existing GitHub Release.
+Commit/push both wrappers and the helper together before adopting this process.
+The dispatch wrapper must exist on the default branch. Older wrappers still
+publish on tag pushes and are rejected by the helper; historical tags retain
+those original workflows. Do not change published tags.
+
+`--dry-run` is entirely offline; `--no-push` prepares locally; `--resume` observes
+existing refs/workflows and continues after a declined operation or interruption.
+Tags are never moved/replaced. See the generated
+[module release guide](../src/scripts/tools/modules/scaffolds/init-module/docs/RELEASING.md)
+for failure recovery and `npm run test:release`. These commands and independent
+module versions are separate from Core's `release:tag` and release authorization.
 
 ## Migration-bearing module releases
 

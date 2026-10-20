@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import yaml from 'js-yaml';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { execFileSync } from 'node:child_process';
 
 import { __resetDataDirForTests, initDataDir, resolveDataDir } from '@server/core/paths';
 import { initModule } from '../../../scripts/tools/modules/init-module';
@@ -63,6 +64,23 @@ export async function run() {
     );
     assert.match(releaseWorkflowSource, /module_id: 'sdk-check-test'/);
     assert.match(releaseWorkflowSource, /core_ref: 'v9\.8\.7'/);
+    const ciWorkflow = yaml.load(ciWorkflowSource) as any;
+    const releaseWorkflow = yaml.load(releaseWorkflowSource) as any;
+    assert.deepEqual(ciWorkflow.on.push.tags, ['v*']);
+    assert.deepEqual(Object.keys(releaseWorkflow.on), ['workflow_dispatch']);
+    assert.equal(releaseWorkflow.jobs.release.needs, 'verify');
+    assert.match(releaseWorkflowSource, /node scripts\/release\.mjs --verify-tag-ci/);
+    assert.match(ciWorkflowSource, /node --test .*scripts\/release\.test\.mjs/);
+    const modulePackage = JSON.parse(fs.readFileSync(path.join(modulePath, 'package.json'), 'utf8'));
+    assert.equal(modulePackage.version, undefined, 'info.json remains the version authority');
+    assert.equal(modulePackage.type, 'module', 'module-local npm commands preserve ESM source semantics');
+    assert.equal(modulePackage.scripts['release:tag'], 'node scripts/release.mjs');
+    for (const file of ['scripts/release.mjs', 'scripts/release.test.mjs', 'docs/RELEASING.md']) {
+        assert.equal(fs.readFileSync(path.join(modulePath, file), 'utf8'), fs.readFileSync(path.join(scaffoldPath, file), 'utf8'));
+    }
+    assert.match(fs.readFileSync(path.join(modulePath, 'CHANGELOG.md'), 'utf8'), /## 1\.0\.0/);
+    const helperResults = execFileSync(process.execPath, ['--test', 'scripts/release.test.mjs'], { cwd: modulePath, encoding: 'utf8' });
+    assert.match(helperResults, /(?:# |ℹ )fail 0/);
     assert.throws(
         () => initModule('invalid-ref-test', 'Invalid Ref Test', { coreRef: 'main\ncontents: write' }),
         /Invalid Sheet Delver core ref/,

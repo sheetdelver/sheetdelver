@@ -552,36 +552,41 @@ npm run module:package my-system
 
 Packaging compiles the declared entry points, externalizes host-provided dependencies such as React and `@sheet-delver/sdk`, copies package assets, and writes an archive under the configured data directory.
 
-## CI
+## CI and independent module releases
 
-`module:init` creates two workflows under `.github/workflows/` in the generated
-module. Keep them with the module repository:
+`module:init` creates module-owned validation/release workflows, a standalone
+`scripts/release.mjs`, its tests, a command-only npm manifest, initial changelog
+and `docs/RELEASING.md`. The helper has no dependency on Core or another module.
+`info.json` remains the only module version authority.
 
-- `ci-<moduleId>.yaml` checks pull requests, `main` pushes, and manual runs. It
-  checks out the pinned Sheet Delver toolchain, stages the module in an isolated
-  local-source directory, and runs both validation and packaging.
-- `release-<moduleId>.yaml` runs only for pushed `v*` tags and calls Sheet
-  Delver's reusable release workflow using the same pinned core ref.
+- `ci-<moduleId>.yaml` checks pull requests, `main` pushes, pushed `v*` tags and
+  manual runs. It runs the standalone helper tests, then validates/packages the
+  module against its pinned Core toolchain in an isolated data directory.
+- `release-<moduleId>.yaml` runs only on an explicitly confirmed workflow dispatch
+  at the version tag. A read-only verification job requires successful push CI
+  for that exact tag/commit before calling the existing pinned reusable build.
 
-The validation commands are:
+From the module repository, after preparing the numbered release in its changelog:
 
-```bash
-npm run module:check <moduleId>
-npm run module:package <moduleId>
+```sh
+npm run release:tag -- --dry-run
+npm run release:tag
+npm run test:release
 ```
 
-For a release, update and commit `info.json` first, then create a tag whose value
-without the leading `v` exactly matches the module version. The workflow creates
-a GitHub Release containing the package archive, checksum, stable
-`sheet-delver-manifest.json`, and generated `sheet-delver-releases.json` history.
-The history copies each release's compatibility declaration, so only versions
-compatible with the running Sheet Delver core and SDK contracts are offered in
-the catalog. Authors do not maintain the history file by hand. Ordinary CI never
-publishes a release.
+An optional version must match that changelog section. The helper prepares the
+manifest version and annotated tag, asks to push main/tag, waits for tag CI, and
+asks separately to publish. It supports local-only preparation and resuming an
+interrupted run without replacing tags. Commit the helper/workflow changes to the
+default branch before using it. See the generated release guide for prerequisites
+and exact recovery behavior. Ordinary CI and tag pushes do not publish releases
+under the new wrappers.
 
-The Sheet Delver repository keeps CI focused on SDK integrity, scaffold
-integrity, and platform tests. Module repositories own their validation and
-release runs.
+The reusable build still publishes the archive, checksum, stable manifest and
+release history, using the module's tested Core pin. The release history retains
+each version's compatibility declarations; authors do not maintain it by hand.
+Core owns scaffold/platform tests; modules own validation and release runs. No
+module or Core version bump is implied by editing release tooling.
 
 ## Shared Dice Presentation
 
