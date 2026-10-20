@@ -1,6 +1,6 @@
 # Releases
 
-## Unreleased
+## 0.19.6
 - Reuse validated release artifacts
 - Streamline player session restoration
 - Refresh mutable module styles
