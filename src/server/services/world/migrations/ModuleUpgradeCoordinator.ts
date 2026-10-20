@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { canonicalJson, discoverMigrations, migrationDirectoryDigest, type ResolvedMigrationCatalog } from '@modules/registry/migrations/catalog';
+import { assertMigrationSource } from '@modules/registry/migrations/sourceInspection';
 import type { SystemModuleInfo } from '@modules/registry/core/types';
 import type { ModuleWorldSnapshot } from '@shared/sdk/world';
 import type { MigrationTarget } from '@shared/sdk/migrations';
@@ -54,6 +55,7 @@ export class ModuleUpgradeCoordinator {
         for (const job of (await this.deps.journal.jobs())) if (!['completed', 'cancelled'].includes(job.phase)) this.gate(job.phase);
     }
     async preview(candidate: UpgradeCandidate): Promise<UpgradePreview> {
+        assertMigrationSource(candidate);
         const catalog = discoverMigrations(candidate.root, candidate.info);
         if (!catalog) throw new Error('Candidate has no migration catalog');
         for (const job of (await this.deps.journal.jobs()).filter(job => job.moduleId === candidate.moduleId && job.possibleWrite)) {
@@ -72,10 +74,12 @@ export class ModuleUpgradeCoordinator {
             stepDigests: Object.fromEntries(catalog.steps.map(step => [step.id, step.digest])),
             candidateVersion: candidate.version, catalogDigest: catalog.digest, expiresAt: this.now() + 15 * 60_000, plan };
         await this.deps.journal.savePreview(preview);
+        assertMigrationSource(candidate);
         source.assertCurrent?.(); this.deps.assertAuthority();
         return preview;
     }
     async approve(candidate: UpgradeCandidate, approval: { planId: string; idempotencyKey: string; backupAcknowledged: boolean; administrator: string }): Promise<UpgradeJob> {
+        assertMigrationSource(candidate);
         if (!approval.backupAcknowledged) throw new Error('Foundry backup / no SheetDelver undo warning acknowledgement required');
         if (!/^[a-zA-Z0-9-]{8,128}$/.test(approval.idempotencyKey) || !approval.administrator) throw new Error('Invalid admin approval');
         const existing = (await this.deps.journal.jobs()).find(job => job.idempotencyKey === approval.idempotencyKey);
@@ -148,6 +152,7 @@ export class ModuleUpgradeCoordinator {
             const catalog = discoverMigrations(candidate.root, candidate.info);
             if (!catalog || candidate.moduleId !== job.moduleId || candidate.artifactDigest !== job.artifactDigest || catalog.digest !== job.catalogDigest
                 || migrationDirectoryDigest(candidate.root) !== job.treeDigest) throw new Error('Approved artifact changed');
+            assertMigrationSource(job);
             if ((job.transactionDirectory || job.sourceDirectory) && job.fileTransition !== 'registered') {
                 throw new Error('Interrupted file/registry promotion; cancel before writes and rerun the reviewed upgrade');
             }
@@ -316,8 +321,8 @@ export class ModuleUpgradeCoordinator {
             if (sourceHash(preparedSource.targets) !== sourceHash(actual.targets)
                 || (await computeWorldMigrations(candidate.root, catalog, preparedSource.world, preparedSource.targets, true, [], this.deps.progress)).blockers.length) throw new Error('Source changed during preparation; recovery required');
             preparedSource.assertCurrent?.();
-            if (migrationDirectoryDigest(candidate.root) !== job.treeDigest
-                || candidate.sourceDirectory && migrationDirectoryDigest(candidate.sourceDirectory) !== candidate.sourceDigest) throw new Error('Approved artifact changed during execution/preparation');
+            if (migrationDirectoryDigest(candidate.root) !== job.treeDigest) throw new Error('Approved artifact changed during execution/preparation');
+            assertMigrationSource(job);
             await this.deps.activate(job);
             this.fence(job);
             await this.phase(job, 'completed');
@@ -332,6 +337,7 @@ export class ModuleUpgradeCoordinator {
     }
     /** Explicit fresh review of a stopped partial job, preserving its write ledger. */
     async reviewRecovery(jobId: string, candidate: UpgradeCandidate): Promise<UpgradePreview> {
+        assertMigrationSource(candidate);
         const job = (await this.deps.journal.job(jobId));
         if (job.phase !== 'recovery-required' || this.running.has(jobId)) throw new Error('Stop the job before fresh review');
         if (job.artifactDigest !== candidate.artifactDigest || job.treeDigest !== migrationDirectoryDigest(candidate.root)) throw new Error('Recovery artifact changed');
@@ -342,6 +348,7 @@ export class ModuleUpgradeCoordinator {
         return preview;
     }
     async reapprove(jobId: string, candidate: UpgradeCandidate, planId: string, administrator: string, backupAcknowledged: boolean): Promise<UpgradeJob> {
+        assertMigrationSource(candidate);
         const job = (await this.deps.journal.job(jobId));
         const preview = (await this.deps.journal.preview(planId));
         if (!administrator || !backupAcknowledged || job.phase !== 'recovery-required' || this.running.has(jobId)

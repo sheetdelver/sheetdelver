@@ -1,22 +1,48 @@
 # Native world context and module maintenance
 
-Core **0.19.2** supplies complete maintenance, bounded relations and the
+Core **0.19.4** retains complete maintenance, bounded relations and the
 CR64-01–26/R1 corrections recorded in [ADR-0064](adr/0064-module-world-context-and-data-migrations.md).
 Selected Core native v13/v14 evidence remains valid; module adoption is separate.
 The [CR64-27 amendment](adr/0064-module-world-context-and-data-migrations.md#cr64-27-normal-admin-access-during-maintenance--october-18-2026)
 corrects maintenance admin access without changing migration or SDK contracts.
 It retains the regular login and admin panel, with only a maintenance notice on
 client pages. The user accepted the correction and reported successful production
-migration. Core0.19.3 is selected for publication. Earlier dated review sections retain historical evidence, not
+migration. That operator-access correction is included in Core 0.19.3 and 0.19.4. Earlier dated review sections retain historical evidence, not
 additional active gates. See [maintenance runtime](MAINTENANCE_RUNTIME.md) for
 lifecycle owners, recovery limits and durable-format compatibility.
 
 ## Compatibility and adoption
 
-The current released baseline is **0.19.2** (`v0.19.2`). Modules should require
+### Local development source checks
+
+The CR64-29 correction described in
+[ADR-0064](adr/0064-module-world-context-and-data-migrations.md#cr64-29-local-module-input-inspection--october-20-2026)
+inspects module inputs rather than an entire local checkout. Inputs are the
+manifest and local configuration, declared entry points and their local imports,
+migration definitions/hooks/helpers, standard assets and declared package
+resources. Inspection compiles for dependency discovery without executing the
+module or writing generated code into its checkout.
+
+Unreferenced reports, screenshots, notes and temporary builds do not affect
+migration readiness. No special folder name or `.gitignore` entry is required.
+A resource used without an import must appear under `assets/` or in the existing
+`package.include` declaration. Imported/declared files remain inputs regardless
+of their directory name. Unresolvable computed code imports are reported.
+
+Preview, approval, restart/recovery and activation use the same input identity.
+Actual module changes require fresh review. Old approved whole-tree identities
+keep their original meaning; replace an unapproved review with a fresh check,
+and use normal cancellation/recovery for an approved job. Managed artifacts
+retain complete artifact integrity checks. This correction is not in 0.19.4.
+There is no new SDK/API contract or module version requirement.
+
+### Released contract baseline
+
+The SDK/API contract baseline introduced in **0.19.2** remains unchanged in
+**0.19.4**. Modules should require
 the tested supporting Core release and pin both validation and release toolchains
-to it. The operator-access correction is not included in 0.19.2 and requires a
-subsequent release0.19.3 after the accepted review. No module metadata changes are part of this
+to it. The operator-access correction is not included in 0.19.2 and requires
+Core 0.19.3 or later. No module metadata changes are part of this
 Core-only slice.
 
 | Surface | Provided in Core 0.19.2 | Module compatibility requirement when adopted |

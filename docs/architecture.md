@@ -578,6 +578,16 @@ Only verified migration, adapter initialization and prepared-data rebuild permit
 activation. File rollback cannot restore Foundry data; world restoration remains
 an external administrator operation.
 
+For local development, CR64-29 fingerprints declared runtime/migration entry
+graphs and resources rather than the checkout directory. Source review,
+promotion, recovery and activation share that versioned input policy. Admin
+status watches the same inputs and resolution/resource locations; unrelated
+workspace output neither consumes inspection limits nor retires the status.
+Only explicit checks discover dependencies; ordinary status reads do not compile
+modules or rescan the world. Managed artifact integrity and legacy approvals
+retain their original whole-artifact identity. See
+[the source-inspection amendment](adr/0064-module-world-context-and-data-migrations.md#cr64-29-local-module-input-inspection--october-20-2026).
+
 Adapter initialization remains read-only and ordinary SDK writes remain caller-
 bound. Every bootstrap checks actual data readiness despite completed journal
 entries;
