@@ -3,6 +3,7 @@ import { readMaintenanceMode, saveMaintenanceMode, maintenanceOnly, assertMainte
 import { worldWorkGate } from '@server/core/world/WorldWorkGate';
 import { getUpgradeJournal, createHostUpgradeCoordinator, installedUpgradeCandidate } from './ModuleUpgradeService';
 import { migrationDirectoryDigest } from '@modules/registry/migrations/catalog';
+import { assertMigrationSource } from '@modules/registry/migrations/sourceInspection';
 import { applyModuleSource } from './sourceCandidates';
 import { migrationReason } from './planner';
 import type { UpgradeCandidate } from './ModuleUpgradeCoordinator';
@@ -21,6 +22,7 @@ export async function enterMaintenance(planId: string): Promise<MaintenanceMode>
     const journal = getUpgradeJournal(); const preview = (await journal.preview(planId));
     const candidate = (await journal.sourceCandidate(planId));
     if (migrationDirectoryDigest(candidate.root) !== preview.treeDigest) throw new Error('Advisory candidate changed; inspect it again');
+    assertMigrationSource(candidate);
     const mode: MaintenanceMode = { schemaVersion: 1, id: randomUUID(), stage: 'entering', moduleId: candidate.moduleId,
         candidateId: planId, world: preview.plan.world.identity, drained: worldWorkGate.pendingDispatches() === 0, updatedAt: Date.now() };
     mode.leaseToken = journal.acquire({ jobId: mode.id, moduleId: mode.moduleId, plan: preview.plan });

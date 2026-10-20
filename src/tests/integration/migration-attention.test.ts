@@ -66,6 +66,32 @@ cases['catalog-absence-and-check-failure'] = async root => {
     await assert.rejects(previewModuleSource('fixture', 'local'));
     assert.equal(sourceStatus().state, 'blocked'); assert.notEqual(sourceStatus().state, 'required');
 };
+cases['local-input-status-observation'] = async root => {
+    const { local } = await migrationAttentionHost(root);
+    fs.mkdirSync(path.join(local.root, 'working'));
+    fs.writeFileSync(path.join(local.root, 'working', 'helper.js'), 'export const value=1;');
+    fs.appendFileSync(path.join(local.root, 'logic.js'), '\nimport {value} from "./working/helper"; export const inspected=value;');
+    await previewModuleSource('fixture', 'local');
+    const checked = sourceStatus();
+    assert.equal(checked.state, 'up-to-date');
+    fs.writeFileSync(path.join(local.root, 'working', 'notes.txt'), 'unrelated adjacent file');
+    await turn();
+    assert.equal(sourceStatus().scopeKey, checked.scopeKey);
+    assert.equal(sourceStatus().state, 'up-to-date');
+    fs.writeFileSync(path.join(local.root, 'working', 'helper.ts'), 'export const value=2;');
+    await turn();
+    assert.equal(sourceStatus().state, 'unknown', 'new higher-priority import resolution retires the prior check');
+    await previewModuleSource('fixture', 'local');
+    assert.equal(sourceStatus().state, 'up-to-date');
+    fs.appendFileSync(path.join(local.root, 'working', 'helper.ts'), '\n// changed imported helper');
+    await turn();
+    assert.equal(sourceStatus().state, 'unknown');
+    await previewModuleSource('fixture', 'local');
+    fs.mkdirSync(path.join(local.root, 'assets'));
+    fs.writeFileSync(path.join(local.root, 'assets', 'icon.svg'), '<svg/>');
+    await turn();
+    assert.equal(sourceStatus().state, 'unknown', 'new declared resource scope retires the prior check');
+};
 cases['source-context-pack-user-revisions'] = async root => {
     const { source, local } = await migrationAttentionHost(root); await previewModuleSource('fixture', 'local');
     let key = sourceStatus().scopeKey;
@@ -139,7 +165,12 @@ cases['durable-maintenance-recovery-precedence'] = async root => {
     assert.equal(readAdminMigrationOverview().maintenance?.state, 'in-progress', 'completion is not final activation');
 };
 cases['http-authorization-exact-review-and-retirement'] = async root => {
-    const { source } = await migrationAttentionHost(root); source.fixed = false; actorStore.observeMutation();
+    const { source, local } = await migrationAttentionHost(root); source.fixed = false; actorStore.observeMutation();
+    // CR64-29: the public Check world data path must tolerate arbitrary local
+    // output, without relying on a special folder name or .gitignore.
+    fs.mkdirSync(path.join(local.root, 'work-output'));
+    const oversized = fs.openSync(path.join(local.root, 'work-output', 'build.bin'), 'w');
+    try { fs.ftruncateSync(oversized, 600 * 1024 * 1024); } finally { fs.closeSync(oversized); }
     await createAdminAccount('isolated-attention-fixture');
     const app = express(); app.use(express.json()); app.use(createAdminRouter({ getSystemStatusPayload: async () => ({}), broadcastToClients: () => {} }));
     const server = app.listen(0, '127.0.0.1'); await new Promise<void>(resolve => server.once('listening', resolve));
@@ -153,6 +184,12 @@ cases['http-authorization-exact-review-and-retirement'] = async root => {
         const status = (await before.json()).active;
         const checked = await fetch(base + '/module-upgrades/source/fixture/preview', { method: 'POST', headers, body: JSON.stringify({ source: 'local', scopeKey: status.scopeKey }) });
         assert.equal(checked.status, 200); const preview = await checked.json(); assert.equal(preview.plan.operations.length, 1);
+        assert.equal(sourceStatus().state, 'required');
+        fs.writeFileSync(path.join(local.root, 'work-output', 'notes.txt'), 'unrelated output');
+        fs.writeFileSync(path.join(local.root, 'unused.ts'), 'export const unrelated=true;');
+        await turn();
+        assert.equal(sourceStatus().state, 'required', 'unrelated workspace changes do not retire a current migration status');
+        assert.equal(sourceStatus().scopeKey, status.scopeKey, 'unrelated files do not change exact-source navigation');
         const query = new URLSearchParams({ source: 'local', scopeKey: status.scopeKey }); const reads = source.reads.length;
         const review = await fetch(base + '/module-upgrades/source/fixture/review?' + query, { headers }); assert.equal(review.status, 200);
         assert.equal((await review.json()).id, preview.id); assert.equal(source.reads.length, reads, 'opening a notice/review must not rerun scans');

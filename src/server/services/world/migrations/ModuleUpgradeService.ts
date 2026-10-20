@@ -16,6 +16,7 @@ import { isRecord } from '@server/core/documents/primary/base/PrimaryDocumentSto
 import { moduleWorldContext, ModuleWorldContextService } from '../ModuleWorldContextService';
 import { freezeWorldValue } from '@shared/sdk/world';
 import { applicableMigrationSteps, discoverMigrations, migrationDirectoryDigest, type ResolvedMigrationCatalog } from '@modules/registry/migrations/catalog';
+import { assertMigrationSource } from '@modules/registry/migrations/sourceInspection';
 import { ModuleUpgradeCoordinator, type UpgradeCoordinatorDeps, type UpgradeCandidate, type UpgradeSourceSnapshot } from './ModuleUpgradeCoordinator';
 import type { PlannedMigrationTarget } from './planner';
 import { type UpgradeJob } from './UpgradeJournal';
@@ -239,7 +240,7 @@ export function rollbackUpgradeFiles(job: UpgradeJob, dataDirectory: string): vo
 }
 export function installedUpgradeCandidate(job: UpgradeJob): UpgradeCandidate {
     if (job.sourceDirectory) {
-        if (migrationDirectoryDigest(job.sourceDirectory) !== job.sourceDigest) throw new Error('Approved local/source code changed');
+        assertMigrationSource(job);
         const info = JSON.parse(fs.readFileSync(path.join(job.candidateRoot, 'info.json'), 'utf8'));
         return { moduleId: job.moduleId, version: info.version, root: job.candidateRoot, info, artifactDigest: job.artifactDigest,
             sourceDirectory: job.sourceDirectory, sourceDigest: job.sourceDigest, sourceCategory: job.sourceCategory };

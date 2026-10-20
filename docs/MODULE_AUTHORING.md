@@ -72,6 +72,14 @@ The scaffold creates the expected layout:
 The platform-owned source for this generated tree lives under
 `src/scripts/tools/modules/scaffolds/init-module/`.
 
+Local migration checks use the module's declared entry points and their local
+dependencies, hooks, configuration and resources. Unreferenced development
+output is outside that input set, regardless of folder name or Git ignore rules.
+Keep runtime resources under `assets/` or declare them in `package.include`;
+literal lazy code imports are followed automatically. The
+[local source inspection correction](MODULE_MIGRATIONS.md#local-development-source-checks)
+also scopes admin status observation and preserves approval/recovery integrity.
+
 The three entry points are:
 
 | Entry | Purpose |

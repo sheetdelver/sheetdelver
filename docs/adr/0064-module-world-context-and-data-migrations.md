@@ -1,6 +1,6 @@
 # Core ADR-0064: Module World Context and Data Migrations
 
-**Status:** Completed — CR64-28 build-tracing correction verified October 20, 2026; local checkpoint prepared for user-owned push/merge and point release 0.19.4. Core 0.19.3 is released; its CR64-27 operator acceptance remains valid. The [CR64-28 amendment](#cr64-28-maintenance-proxy-build-tracing--october-20-2026) records the warning-free build and preserved maintenance behavior. SDK/API contracts and module artifacts are unchanged; 0.19.4 publication is not claimed.
+**Status:** Completed — CR64-29 local module input inspection verified offline and accepted in the user's operator retest October 20, 2026, on the Core 0.19.4 baseline. The user authorized the local checkpoint; PR, merge and point-release publication remain user-owned. Earlier completed migration, operator-access and build-tracing work retains its original disposition. See the [CR64-29 amendment](#cr64-29-local-module-input-inspection--october-20-2026). SDK/API contracts and module artifacts are unchanged.
 **Date:** October 16, 2026
 **Related:** Core ADR-0021, ADR-0027, ADR-0028, ADR-0038, ADR-0056, ADR-0057, ADR-0063; Shadowdark module ADR-0001
 
@@ -5001,3 +5001,134 @@ changes no runtime source and does not claim another live/native test. Logs are
 `/tmp/sd-cr64-28-c240vcsa/scaffold-{unit,types,lint}.log`. No services were started.
 The collateral is complete for a separate authorized local commit on
 `fix/adr-0064-maintenance-build-tracing`; push/merge/release remain user-owned.
+
+## CR64-29: Local module input inspection — October 20, 2026
+
+### Reproduction and cause
+
+On Core 0.19.4 (`cfa21c0d`), the operator's active local Shadowdark 0.9.6
+checkout reports **Candidate tree exceeds inspection bounds**. This error is
+about filesystem inspection, not a failed check of Foundry documents.
+`migrationDirectoryDigest` in `src/modules/registry/migrations/catalog.ts`
+recursively hashes a candidate directory, omitting only `.git` and
+`node_modules`. `prepareSourceCandidate` incorrectly applied that archive
+inspection policy to an author's entire development checkout.
+
+Read-only file measurement found 59,563 files / 2,614,545,284 bytes under that
+checkout's `temp/`, compared with approximately 2.4 MiB elsewhere. Temporary
+builds and test output exceeded the 20,000-file / 512 MiB candidate limit.
+Even below those limits, edits to unrelated notes would invalidate an approval.
+Prior isolated fixtures were small and did not cover an ordinary checkout with
+substantial local output; their passing results did not establish this behavior.
+
+### Decision and implementation
+
+**Local identity is based on module inputs, not checkout-directory membership.**
+There is no runtime requirement for test reports, screenshots, Git history or
+proof that tests were run. This correction does not add `temp` to a blacklist,
+raise the archive limits, delete author files, or change module rules/UI.
+
+`src/modules/registry/migrations/sourceInspection.ts` implements one shared
+source-identity policy:
+
+- Read `info.json`; resolve its logic/UI/server entry points using the existing
+  confined entry resolver and build configuration. Obtain transitive local
+  imports, including literal lazy imports, using esbuild without execution or
+  output writes. Host/runtime package imports remain external. Include local
+  package/compiler configuration and the effective compiler output in identity.
+- Include `migration.json`, each declared definition, its hooks and their
+  relative helper dependencies. Existing pure-hook packaging remains unchanged.
+- Include the standard `assets/` resource directory, explicit `package.include`
+  resources, and the existing Tailwind/compiled-style conventions. Runtime
+  files loaded as resources must be declared, just as for module packaging.
+- Rediscover that input set on each check. New/deleted resources and changed
+  dependency resolution invalidate identity. Unreferenced files are not read
+  merely because they sit in the checkout. A file under `temp/` is included
+  when actually imported or declared; folder naming grants no exemption.
+- Keep confinement, symlink rejection and the existing file/byte bounds for
+  actual inputs. Errors identify the offending input and measured limit.
+  Computed code imports that cannot be statically resolved are reported rather
+  than silently omitted from the approval.
+
+Use the same policy in source snapshot preparation, advisory checks,
+pre-maintenance entry, approval/source promotion, installed-candidate recovery,
+execution resume, recovery review/reapproval and final activation checks.
+The immutable compiled migration snapshot still receives its original complete
+artifact digest. Migration authority, world checks, receipts and native writes
+are unchanged.
+
+New local source digests have a `module-inputs-v1:sha256:` prefix. Saved jobs
+retain that identity across restart. Existing unprefixed source digests continue
+to use their original whole-tree policy; an old approval is never silently
+reinterpreted under narrower rules. An unapproved old review can be replaced
+with a fresh review. A previously approved job retains the normal cancellation
+or recovery requirements, including preservation of partial/uncertain writes.
+Managed archives and managed-source repair keep their existing artifact-wide
+integrity checks, compiled hook bytes and history.
+
+The admin status observer had the same overly broad directory assumption.
+`migrationEvidence.ts` now watches local input files, potential resolution
+replacements and declared resource directories, rather than recursively watching
+the checkout. Explicit checks refresh the dependency selection; status GETs do
+not compile dependencies or scan the world. Unrelated source-adjacent files and
+arbitrarily named build directories do not retire a valid result. Actual input
+changes still retire exact-source review links and require a new check.
+
+### Verification and closeout criteria
+
+Maintained regressions:
+
+| Check | Required observation |
+| --- | --- |
+| `src/tests/integration/adr0064-corrections.test.ts`, `CR64-29-local-workspace` | A 600 MiB unrelated sparse build file reproduces the old error, then source preparation passes without reading/counting it. Additional output leaves source and hook identities unchanged. |
+| `src/tests/unit/modules/migration-source-inputs.test.ts` | Unrelated files/directories are not traversed; transitive helpers/lazy UI, definitions/hooks, declared data/assets and configuration are bound; referenced `temp/` input is included; actual source/resource changes invalidate; confinement and bounds remain; legacy/managed policy is preserved. |
+| `CR64-29-source-approval-recovery` | Notes do not prevent approval or journal reload; one exact fixture migration completes. Code changes before approval create no job/write, code changes across restart cause no write, and changes during preparation retain recovery instead of activating. |
+| Actual affected checkout, read-only inspection | Shadowdark's development output stays in place; selected input discovery completes without importing the adapter or contacting Foundry. |
+| `src/tests/integration/migration-attention.test.ts`, authenticated HTTP review | A 600 MiB file under arbitrarily named `work-output/` does not block the real admin preview endpoint. Unrelated output and source-adjacent files leave the result and navigation identity stable; world/source changes still retire it. |
+| Core verification | Unit/client, integration, explicit TypeScript, lint and whitespace checks pass. No module/UI changes, version bump, live connection or test-output deletion. |
+
+The first integration regression failed before implementation with the exact
+reported error and passes after correction. The affected checkout currently
+selects 125 files / 1,142,847 bytes; the observed read-only inspection took
+146 ms. These are local filesystem/compiler checks, not native world migration
+or rendered operator acceptance. Full-suite results and final disposition are
+recorded below after verification.
+
+Scope: Core-only on `fix/adr-0064-local-source-inspection`. The reported
+Mörk Borg UI/SCVM Factory problems are
+separate, user-reported and uninvestigated in this slice. Module code is untouched.
+Application/SDK metadata remains unchanged; the changelog uses Unreleased.
+
+Final verification passes:
+
+- `npm run test:unit`, including the client suite, new source-input cases and
+  generated-module validation.
+- `npm run test:integration`: lifecycle/archive boundaries, 26 corrective cases,
+  27 complete-maintenance cases, 10 status/HTTP cases and G8 corrections.
+- `node node_modules/typescript/bin/tsc --noEmit --incremental false`,
+  `npm run lint` and `git diff --check`.
+- After the final inherited-configuration qualification, the complete unit/client
+  suite, all 10 status/HTTP cases, both CR64-29 source/recovery cases, typing and
+  lint were rerun successfully. JSONC inheritance and local aliases are covered.
+
+The isolated workspace/log directory is `/tmp/sd-cr64-29-yz92qs6q`;
+`*-final.log` records commands/results and `watcher-before.log` records the old
+watcher failure. The maintained tests above are the reproducible verification
+contract; these temporary logs are not application inputs or prerequisites.
+No task services remain. The operator's Foundry process was untouched by agent
+verification. No fresh agent-run native migration, rendered UI acceptance or
+production build is claimed.
+
+### Operator acceptance and disposition
+
+After the instruction to restart Core with this correction and use **Check world
+data** for the local source, the user reported “ok that fixed it.” This is
+user-reported acceptance of the original local-checkout inspection failure;
+it does not extend the automated results into new native migration or broader
+module UI coverage. CR64-29 is complete on the verification above and this
+operator retest. The scoped audit is archived.
+
+The user subsequently authorized committing this correction and will create the
+PR, merge into main and prepare a point release. The Unreleased changelog entry
+is ready; application and SDK version metadata remain unchanged for the release
+helper. Publication has not occurred in this slice.

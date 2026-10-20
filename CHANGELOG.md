@@ -1,5 +1,8 @@
 # Releases
 
+## Unreleased
+- Scoped local module inspection
+
 ## 0.19.4
 - Scoped maintenance build dependencies
 - Scaffolded independent module releases

@@ -17,7 +17,7 @@ import { systemService } from '@server/services/world/SystemService';
 import { CoreSocket } from '@server/core/foundry/sockets/CoreSocket';
 import { FoundryEventIngress } from '@server/services/world/FoundryEventIngress';
 import { moduleWorldContext } from '@server/services/world/ModuleWorldContextService';
-import { createHostUpgradeCoordinator, freshMigrationSnapshot, getUpgradeJournal } from '@server/services/world/migrations/ModuleUpgradeService';
+import { createHostUpgradeCoordinator, freshMigrationSnapshot, getUpgradeJournal, installedUpgradeCandidate } from '@server/services/world/migrations/ModuleUpgradeService';
 import { compendiumStore } from '@server/core/compendium/CompendiumStore';
 import { prepareSourceCandidate } from '@server/services/world/migrations/sourceCandidates';
 import { WorldBootstrapper, worldBootstrapper } from '@server/services/world/WorldBootstrapper';
@@ -45,6 +45,77 @@ import { fixture, world } from '../unit/world/module-world-migrations.test';
 const cases: Record<string, (root: string) => Promise<void>> = {};
 const declarations: WorldSettingDeclaration[] = [{ key: 'fixture.variant', scope: 'world', systemVersion: '>=1.0.0 <2.0.0',
     schema: { type: 'boolean' }, affectsPreparation: true, exposure: 'authenticated' }];
+
+cases['CR64-29-local-workspace'] = async root => {
+    initDataDir(root);
+    const source = fixture(path.join(root, 'source'));
+    fs.writeFileSync(path.join(source.root, 'logic.js'), 'export default class Adapter {}');
+    fs.writeFileSync(path.join(source.root, 'ui.js'), 'export default {}');
+    fs.mkdirSync(path.join(source.root, 'temp'));
+    const file = fs.openSync(path.join(source.root, 'temp', 'unused-build.bin'), 'w');
+    try { fs.ftruncateSync(file, 600 * 1024 * 1024); } finally { fs.closeSync(file); }
+    const candidate = await prepareSourceCandidate(source.root, source.info, 'local');
+    fs.writeFileSync(path.join(source.root, 'temp', 'report.txt'), 'unrelated test output');
+    const refreshed = await prepareSourceCandidate(source.root, source.info, 'local');
+    assert.equal(candidate.sourceDigest, refreshed.sourceDigest, 'unrelated local output must not affect the approved module inputs');
+    assert.equal(candidate.artifactDigest, refreshed.artifactDigest, 'compiled migration bytes stay identical');
+};
+
+cases['CR64-29-source-approval-recovery'] = async root => {
+    initDataDir(root);
+    for (const mode of ['workspace', 'before-approval', 'restart', 'preparation'] as const) {
+        const source = fixture(path.join(root, mode, 'source'));
+        const logic = path.join(source.root, 'logic.js');
+        fs.writeFileSync(logic, 'export default class Adapter {}');
+        fs.writeFileSync(path.join(source.root, 'ui.js'), 'export default {}');
+        const candidate = await prepareSourceCandidate(source.root, source.info, 'local');
+        let journal = new UpgradeJournal(path.join(root, mode, 'journal'));
+        const targets = expandMigrationTargets('Actor.a', 'Actor', { _id: 'a', system: { fixed: false } });
+        let writes = 0, activated = false;
+        const coordinator = () => new ModuleUpgradeCoordinator({
+            journal, gate: new WorldWorkGate(), snapshot: async () => ({ world, targets: structuredClone(targets) }),
+            assertAuthority: () => {}, promote: async job => { job.fileTransition = 'registered'; }, restart: () => {},
+            prepare: async () => { if (mode === 'preparation') fs.appendFileSync(logic, '\n// changed while preparing'); },
+            activate: async () => { activated = true; }, rollbackFiles: async () => {},
+            write: async (target, updates, fence) => { fence(); writes++; targets[0].source = applyMigrationPatch(target.source, updates); },
+        });
+        const preview = await coordinator().preview(candidate);
+        if (mode === 'before-approval') {
+            fs.appendFileSync(logic, '\n// edited after advisory preview');
+            await assert.rejects(coordinator().approve(candidate, { planId: preview.id, idempotencyKey: 'changed-before-approval',
+                administrator: 'fixture-admin', backupAcknowledged: true }), /source changed/);
+            assert.equal(journal.jobs().length, 0, 'stale source cannot acquire durable mutation authority');
+            assert.equal(writes, 0);
+            continue;
+        }
+        fs.mkdirSync(path.join(source.root, 'notes'));
+        fs.writeFileSync(path.join(source.root, 'notes', 'developer.md'), 'unrelated working notes');
+        const job = await coordinator().approve(candidate, { planId: preview.id, idempotencyKey: `local-source-${mode}`,
+            administrator: 'fixture-admin', backupAcknowledged: true });
+        journal = new UpgradeJournal(journal.root);
+        const durable = journal.job(job.jobId);
+        assert.equal(durable.sourceDigest, candidate.sourceDigest, 'input policy is durable across journal reload');
+        if (mode === 'restart') {
+            fs.appendFileSync(logic, '\n// changed after approval');
+            assert.throws(() => installedUpgradeCandidate(durable), /source changed/);
+            await assert.rejects(coordinator().resume(job.jobId, candidate), /source changed/);
+            assert.equal(writes, 0, 'changed local source is rejected before the first write');
+        } else {
+            fs.appendFileSync(path.join(source.root, 'notes', 'developer.md'), '\nmore notes');
+            const restored = installedUpgradeCandidate(durable);
+            if (mode === 'preparation') {
+                await assert.rejects(coordinator().resume(job.jobId, restored), /source changed/);
+                assert.equal(journal.job(job.jobId).phase, 'recovery-required');
+                assert.equal(activated, false, 'changed runtime source cannot activate');
+            } else {
+                assert.equal((await coordinator().resume(job.jobId, restored)).phase, 'completed');
+                assert.equal(activated, true);
+            }
+            assert.equal(writes, 1, 'the exact approved migration completes one write');
+            assert.deepEqual(targets[0].source, { _id: 'a', system: { fixed: true } });
+        }
+    }
+};
 
 cases['CR64-18-cold-journal-http'] = async root => {
     initDataDir(root);
