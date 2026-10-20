@@ -189,6 +189,11 @@ On a same-world reconnect, `WorldBootstrapper.recover()` verifies world/system i
   session read confirms the current cookie and user ID before unblocking, and
   Core remains the authority for every HTTP and socket action. See
   [ADR-0057](adr/0057-core-player-world-state-boundary.md).
+  Restoring the cookie-session marker keeps an already authenticated socket.
+  Protected readiness immediately reconciles the latest status instead of
+  waiting for another heartbeat. FoundryProvider owns initial/reconnect Actor
+  and combat reads; ChatProvider owns chat. See
+  [ADR-0065](adr/0065-player-startup-and-module-styles.md).
 - **ChatProvider**: Owns authorized chat DTOs, live-message indication and
   browser-local preview preferences. Create hints are paired with authorized
   API reads; history alone never creates a preview. ChatMessageCard renders the

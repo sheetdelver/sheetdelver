@@ -34,7 +34,7 @@ export const LoadingScreen = ({ step, system }: LoadingScreenProps) => {
                 visible={step === 'initializing'}
                 theme={{
                     ...system?.componentStyles?.loadingModal,
-                    spinner: "w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"
+                    spinner: "w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto"
                 }}
             />
 
@@ -44,7 +44,7 @@ export const LoadingScreen = ({ step, system }: LoadingScreenProps) => {
                 visible={step === 'startup'}
                 theme={{
                     ...system?.componentStyles?.loadingModal,
-                    spinner: "w-12 h-12 border-4 border-green-500 border-t-transparent rounded-full animate-spin"
+                    spinner: "w-12 h-12 border-4 border-green-500 border-t-transparent rounded-full animate-spin mx-auto"
                 }}
             />
 

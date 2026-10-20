@@ -234,7 +234,9 @@ export function createModuleRouter(deps: ModuleRouterDeps) {
             return res.status(404).json({ error: 'Asset not found' });
         }
 
-        res.setHeader('Cache-Control', 'public, max-age=3600');
+        // These URLs select mutable local files or the currently active package.
+        // They are not content-addressed, so every reuse must revalidate.
+        res.setHeader('Cache-Control', 'no-cache');
         res.sendFile(fullPath);
     });
 

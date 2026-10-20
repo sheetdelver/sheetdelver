@@ -164,8 +164,8 @@ export function FoundryProvider({ children }: { children: ReactNode }) {
         // state rather than trusting the retained pre-outage snapshots.
         void fetchActors();
         void fetchCombats();
-        void fetchChat();
-    }, [token, linkState, step, fetchActors, fetchCombats, fetchChat]);
+        // ChatProvider owns its initial/reconnect read.
+    }, [token, linkState, step, fetchActors, fetchCombats]);
 
     useSystemStatusRealtime({
         appSocket,
@@ -186,7 +186,6 @@ export function FoundryProvider({ children }: { children: ReactNode }) {
         setSharedContent: receiveSharedContent,
         setLastWorldId,
         resetActorCombatState,
-        fetchActors,
         isExplicitLogoutPending,
     });
     useSharedContentRealtime({ appSocket, sharedContent, setSharedContent: receiveSharedContent });

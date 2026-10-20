@@ -540,9 +540,11 @@ async function runModuleRouterSmokeTests() {
 
         const localAsset = await invokeAssetRoute(ModuleSourceCategory.Local);
         assert.equal(localAsset.filePath, fs.realpathSync(path.join(localModuleDir, assetRelativePath)));
+        assert.equal(localAsset.headers['Cache-Control'], 'no-cache', 'mutable local assets must revalidate');
 
         const managedAsset = await invokeAssetRoute(ModuleSourceCategory.Managed);
         assert.equal(managedAsset.filePath, fs.realpathSync(path.join(managedModuleDir, assetRelativePath)));
+        assert.equal(managedAsset.headers['Cache-Control'], 'no-cache', 'selected managed version can change at the same URL');
 
         const inactiveAsset = await invokeAssetRoute(undefined);
         assert.equal(inactiveAsset.statusCode, 404);
