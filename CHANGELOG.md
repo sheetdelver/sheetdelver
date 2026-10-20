@@ -1,6 +1,6 @@
 # Releases
 
-## Unreleased
+## 0.19.5
 - Scoped local module inspection
 
 ## 0.19.4
