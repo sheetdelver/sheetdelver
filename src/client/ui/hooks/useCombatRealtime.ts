@@ -38,7 +38,6 @@ export function useCombatRealtime({
     useEffect(() => {
         if (step !== 'dashboard' || !token) return;
 
-        void fetchCombats();
         if (!appSocket) return;
 
         const handleCombatChanged = () => { requestCombatRefresh(); };

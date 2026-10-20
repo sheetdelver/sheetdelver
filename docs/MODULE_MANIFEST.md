@@ -752,6 +752,12 @@ The source directory and source `info.json` are never modified by packaging.
 
 Static files should live under `assets/`. CSS listed in the UI manifest's
 `stylesheet` field must be under `assets/` and is injected when the module mounts.
+Core revalidates mutable asset URLs before browser reuse. Injected stylesheet
+URLs distinguish the selected source, while server-side registry selection
+remains authoritative. Standalone CSS changes take effect on reload/module
+resolution; they do not promise automatic Next Fast Refresh. Include warm-cache
+navigation in host integration checks, as recorded in
+[ADR-0065](adr/0065-player-startup-and-module-styles.md).
 
 For non-standard files or directories, declare them in source `info.json`:
 

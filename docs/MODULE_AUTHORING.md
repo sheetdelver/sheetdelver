@@ -345,6 +345,13 @@ const { assetUrl } = useSDK();
 
 `assetUrl(path)` is bound to the current module's id; outside a component, `buildModuleAssetUrl(moduleId, path)` from `@sheet-delver/sdk` produces the same `/api/modules/<id>/assets/<path>` URL. The module's declared `stylesheet` is injected by the platform via that same route. Core serves assets from the registry-selected source, so local development cannot accidentally borrow files from an older managed package. Author CSS scoped under the surface root (`.sdk-module--<id>`); the checker fails on global selector leaks, remote runtime CSS/font dependencies, and missing or escaping asset references. Self-host runtime CSS dependencies beneath `assets/`.
 
+Module asset URLs are mutable and revalidate before browser reuse. Injected
+stylesheet links distinguish the selected source and bypass URLs cached by older
+Core releases. Reload or re-resolve the module to pick up an edited standalone
+CSS asset; changing CSS alone does not promise Next Fast Refresh. Verify with
+ordinary browser caching enabled as well as a fresh packaged load
+([ADR-0065](adr/0065-player-startup-and-module-styles.md)).
+
 ### Internal navigation
 
 Keep page/tool headers in normal flow beneath the Core combat HUD. Do not

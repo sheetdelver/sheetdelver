@@ -179,7 +179,9 @@ export async function getUIModule(systemId: string): Promise<UIModuleManifest> {
     if (typeof document !== 'undefined') {
         const injectStylesheet = (relPath: string) => {
             const sheetPath = relPath.replace(/^\/?assets\//, '');
-            const href = `/api/modules/${id}/assets/${sheetPath}`;
+            // Separate source identities and bypass older, hour-cached URLs.
+            // The server still chooses the source; this query grants no access.
+            const href = `/api/modules/${id}/assets/${sheetPath}?source=${encodeURIComponent(source ?? '')}`;
             if (document.querySelector(`link[rel="stylesheet"][href="${href}"]`)) return;
             const link = document.createElement('link');
             link.rel = 'stylesheet';

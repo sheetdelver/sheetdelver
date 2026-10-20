@@ -32,6 +32,12 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
     const [maintenance, setMaintenance] = useState<RealtimeContextType['maintenance']>(null);
     const currentUserIdRef = useRef(currentUserId);
     useEffect(() => { currentUserIdRef.current = currentUserId; }, [currentUserId]);
+    const tokenRef = useRef(token);
+    const sessionChangedRef = useRef<(() => void) | null>(null);
+    useEffect(() => {
+        tokenRef.current = token;
+        sessionChangedRef.current?.();
+    }, [token]);
 
     useEffect(() => {
         setLinkState('connecting');
@@ -71,7 +77,7 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
         };
 
         const finishAuthorization = () => {
-            if (disposed || unavailable || !validated || !worldReady || !socket.connected) return;
+            if (disposed || unavailable || isExplicitLogoutPending() || !validated || !worldReady || !socket.connected) return;
             if (audience === 'authenticated') {
                 setLinkState('ready');
                 if (outageLogged) logger.info('RealtimeContext | Browser connection recovered.');
@@ -92,7 +98,7 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
         };
 
         const verifyCurrentCookie = () => {
-            if (disposed || unavailable || guestConfirmed || !socket.connected || checkingGeneration === connectionGeneration) return;
+            if (disposed || unavailable || isExplicitLogoutPending() || guestConfirmed || !socket.connected || checkingGeneration === connectionGeneration) return;
             const verificationGeneration = connectionGeneration;
             checkingGeneration = verificationGeneration;
             lastCheckAt = Date.now();
@@ -113,18 +119,17 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
                     currentUserIdRef.current = result.currentUserId;
                     setCurrentUserId(result.currentUserId);
                     validated = true;
-                    if (!token) {
-                        // The marker is not a credential. Its transition also
-                        // replaces a cold-load public socket with a fresh one.
+                    if (!tokenRef.current) {
+                        // Restoring this local marker does not replace an
+                        // already-authenticated transport.
                         setToken(COOKIE_SESSION_MARKER);
-                        return;
                     }
                     finishAuthorization();
                 } catch (error) {
                     if (disposed || unavailable || verificationGeneration !== connectionGeneration) return;
                     if (error instanceof UnauthorizedApiError) {
-                        if (token || audience === 'authenticated') socket.disconnect();
-                        if (token) invalidateLocalSession('protected-session-401');
+                        if (tokenRef.current || audience === 'authenticated') socket.disconnect();
+                        if (tokenRef.current) invalidateLocalSession('protected-session-401');
                         else guestConfirmed = true;
                         setLinkState('guest');
                     } else if (error instanceof ApiError && error.status === 503) {
@@ -145,6 +150,7 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
             audience = 'unknown';
             validated = false;
             worldReady = false;
+            guestConfirmed = false;
             setLinkState('checking');
             logger.debug('RealtimeContext | App Socket Connected');
             verifyCurrentCookie();
@@ -161,7 +167,7 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
                 ? 'authenticated' : 'public';
             worldReady = status.connected && status.initialized
                 && (!status.system?.status || status.system.status === 'active');
-            if (token && !worldReady) {
+            if (tokenRef.current && !worldReady) {
                 validated = false;
                 setLinkState('checking');
             }
@@ -199,11 +205,12 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
                 // The gateway has already removed authenticated authority and
                 // moved this transport into the public status room. Keep it
                 // long enough to observe Foundry's logout presence update.
+                validated = false;
                 return;
             }
             // Stop this authenticated transport before clearing React state so
             // no queued world-backed event can arrive during the rerender. The
-            // token transition creates a fresh public-status socket.
+            // marker transition creates a fresh public-status handshake.
             socket.disconnect();
             invalidateLocalSession(payload.reason);
             setLinkState('guest');
@@ -211,7 +218,7 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
 
         const pollForRestartRecovery = async () => {
             try {
-                const status = await foundryApi.fetchStatus(token);
+                const status = await foundryApi.fetchStatus(tokenRef.current);
                 if (isRuntimeRestartReady(status)) {
                     window.location.reload();
                     return;
@@ -237,14 +244,31 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
         });
 
         setAppSocket(socket);
+        sessionChangedRef.current = () => {
+            if (tokenRef.current && validated) return;
+            guestConfirmed = false;
+            unavailable = false;
+            if (!tokenRef.current) {
+                // Logout/revocation requires a new public handshake. Cookie
+                // restoration above only updates a non-secret client marker.
+                validated = false;
+                deliberateRehandshake = false;
+                socket.disconnect().connect();
+            } else if (!socket.connected) {
+                socket.connect();
+            } else {
+                verifyCurrentCookie();
+            }
+        };
 
         return () => {
             disposed = true;
+            sessionChangedRef.current = null;
             if (restartRecoveryTimer) clearTimeout(restartRecoveryTimer);
             socket.disconnect();
             setAppSocket(null);
         };
-    }, [invalidateLocalSession, isExplicitLogoutPending, setCurrentUserId, setToken, token]);
+    }, [invalidateLocalSession, isExplicitLogoutPending, setCurrentUserId, setToken]);
 
     const value = useMemo(() => ({ appSocket, linkState, maintenance }), [appSocket, linkState, maintenance]);
 

@@ -4,7 +4,6 @@ import { useEffect, useRef } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import { logger } from '@shared/utils/logger';
 import type { Socket } from 'socket.io-client';
-import type { ActorListPayload } from '@shared/contracts/actors';
 import type { RealtimeStatusPayload } from '@shared/contracts/status';
 import type { RealtimeSharedContentPayload } from '@shared/contracts/realtime';
 import type { AppSystemInfo, ConnectionStep, User } from '@shared/interfaces';
@@ -33,7 +32,6 @@ interface UseSystemStatusRealtimeOptions {
     setSharedContent: Dispatch<SetStateAction<RealtimeSharedContentPayload | null>>;
     setLastWorldId: Dispatch<SetStateAction<string | null>>;
     resetActorCombatState: () => void;
-    fetchActors: () => Promise<ActorListPayload | void>;
     isExplicitLogoutPending: () => boolean;
 }
 
@@ -56,7 +54,6 @@ export function useSystemStatusRealtime({
     setSharedContent,
     setLastWorldId,
     resetActorCombatState,
-    fetchActors,
     isExplicitLogoutPending,
 }: UseSystemStatusRealtimeOptions) {
     const latestRef = useRef({
@@ -68,7 +65,6 @@ export function useSystemStatusRealtime({
         appVersion,
         isConfigured,
         lastWorldId,
-        fetchActors,
     });
 
     useEffect(() => {
@@ -81,14 +77,17 @@ export function useSystemStatusRealtime({
             appVersion,
             isConfigured,
             lastWorldId,
-            fetchActors,
         };
-    }, [appVersion, fetchActors, isConfigured, lastWorldId, linkState, step, system, token, users]);
+    }, [appVersion, isConfigured, lastWorldId, linkState, step, system, token, users]);
+
+    const reconcileStatusRef = useRef<(() => void) | null>(null);
 
     useEffect(() => {
         if (!appSocket) return;
+        let lastStatus: RealtimeStatusPayload | null = null;
 
         const handleSystemStatus = (data: RealtimeStatusPayload) => {
+            lastStatus = data;
             try {
                 if (data.debug?.level !== undefined) {
                     logger.setLevel(data.debug.level);
@@ -151,15 +150,13 @@ export function useSystemStatusRealtime({
                 // A protected cookie is still being verified. Do not turn a
                 // retained page into login merely because a public socket
                 // status arrives before restored authority is checked.
-                if (latest.token && latest.linkState !== 'ready' && targetStep === 'login') {
+                if (latest.linkState !== 'ready' && latest.linkState !== 'guest' && targetStep === 'login') {
                     targetStep = latest.step === 'dashboard' ? 'dashboard' : 'authenticating';
                 }
+                if (latest.linkState === 'guest' && targetStep === 'authenticating') targetStep = 'login';
 
                 if (latest.step !== targetStep) {
                     setStep(targetStep, 'socket', `Status change: ${targetStep}`);
-                    if (targetStep === 'dashboard' && data.connected && latest.linkState === 'ready') {
-                        void latest.fetchActors();
-                    }
                 }
             } catch (e) {
                 logger.error('FoundryProvider | Error handling system status:', e);
@@ -167,7 +164,11 @@ export function useSystemStatusRealtime({
         };
 
         appSocket.on('systemStatus', handleSystemStatus);
+        reconcileStatusRef.current = () => {
+            if (lastStatus) handleSystemStatus(lastStatus);
+        };
         return () => {
+            reconcileStatusRef.current = null;
             appSocket.off('systemStatus', handleSystemStatus);
         };
     }, [
@@ -183,4 +184,8 @@ export function useSystemStatusRealtime({
         invalidateLocalSession,
         setUsers,
     ]);
+
+    // Protected cookie validation often settles after the initial status.
+    // Apply it immediately instead of waiting for the next status heartbeat.
+    useEffect(() => { reconcileStatusRef.current?.(); }, [linkState, token]);
 }

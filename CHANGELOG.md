@@ -1,5 +1,10 @@
 # Releases
 
+## Unreleased
+- Streamline player session restoration
+- Refresh mutable module styles
+- Center themed startup spinners
+
 ## 0.19.5
 - Scoped local module inspection
 
