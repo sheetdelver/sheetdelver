@@ -45,7 +45,7 @@ npm run release:tag
 
 The helper prepares `info.json.version` and an annotated tag, asks to push it,
 waits for validation and asks separately before dispatching the release workflow.
-The release build retains its pinned Core toolchain. `info.json` remains the only
+Validation retains its pinned Core toolchain; publication reuses the validated archive without a rebuild. `info.json` remains the only
 version authority; the npm manifest only supplies commands.
 
 See [module release instructions](docs/RELEASING.md) for local-only preparation,

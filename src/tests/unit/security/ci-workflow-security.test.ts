@@ -1,5 +1,6 @@
 import { strict as assert } from 'node:assert';
 import fs from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import yaml from 'js-yaml';
 
@@ -92,41 +93,20 @@ export function run() {
     assert.ok(release.source.includes("- 'v*.*.*'"));
 
     const releaseCommands = release.steps.map((step) => step.run ?? '').join('\n');
-    for (const required of [
-        'npm ci',
-        'npm run managed:generate',
-        'npm audit --omit=dev --audit-level=high',
-        'npm run lint',
-        'npx tsc --noEmit',
-        'npm run test:unit',
-        'npm run test:integration',
-        'npm run ci:fixture',
-        'npm run build',
-        'npm run release:prepare',
-        'npm sbom --omit=dev --sbom-format cyclonedx',
-        'sha256sum',
-        'gh release create',
-        '--verify-tag',
-    ]) {
-        assert.ok(
-            releaseCommands.includes(required),
-            'Release workflow is missing required gate or command: ' + required,
-        );
+    assert.equal(releaseJob?.permissions?.actions, 'read');
+    assert.ok(releaseCommands.includes('node src/scripts/tools/releases/publish-release.mjs'));
+    for (const forbidden of ['npm ci', 'npm run build', 'npm run test:', 'npm run lint']) {
+        assert.equal(releaseCommands.includes(forbidden), false, 'Publication must reuse completed CI, not repeat ' + forbidden);
     }
-
-    assert.ok(
-        releaseCommands.indexOf('npm run managed:generate')
-            < releaseCommands.indexOf('npx tsc --noEmit'),
-        'Release workflow must generate managed TypeScript paths before type checking',
-    );
+    assert.ok(ciCommands.includes('ci-artifacts.mjs record'));
+    assert.ok(ciCommands.includes('npm run release:prepare'));
+    assert.ok(ci.source.includes("if: github.event_name != 'pull_request'"));
     assert.equal(release.source.includes('softprops/'), false);
     assert.equal(release.source.includes('cat >'), false);
     assert.equal(release.source.includes('settings.yaml'), false);
     assert.equal(release.source.includes('.next/standalone'), false);
     assert.ok(release.source.includes('GH_TOKEN: ${{ github.token }}'));
     assert.equal(releaseCommands.includes('${{'), false);
-    assert.ok(releaseCommands.includes('$RELEASE_TAG'));
-    assert.ok(releaseCommands.includes('$RUNNER_TEMP'));
 
     const moduleRelease = loadWorkflow('module-release.yml');
     const moduleReleaseJob = moduleRelease.workflow.jobs?.release;
@@ -134,24 +114,14 @@ export function run() {
     assert.equal(moduleReleaseJob?.permissions?.contents, 'write');
     assertPinnedActions(moduleRelease.source, moduleRelease.steps);
     assertCheckoutCredentialsDisabled(moduleRelease.steps);
-    assert.ok(
-        moduleRelease.steps.some((step) => step.uses?.startsWith('actions/upload-artifact@')),
-    );
+    assert.equal(moduleReleaseJob?.permissions?.actions, 'read');
+    const moduleReleaseCommands = moduleRelease.steps.map(step => step.run ?? '').join('\n');
+    assert.ok(moduleReleaseCommands.includes('node scripts/release.mjs --verify-tag-ci'));
+    assert.ok(moduleReleaseCommands.includes('node scripts/publish-release.mjs'));
+    assert.doesNotMatch(moduleReleaseCommands, /npm ci|module:package|npm run build/);
 
-    const moduleReleaseCommands = moduleRelease.steps
-        .map((step) => step.run ?? '')
-        .join('\n');
-    for (const required of [
-        'npm ci',
-        'npm run managed:generate',
-        'npm run module:package',
-        'sha256sum',
-        'gh release create',
-        '--verify-tag',
-    ]) {
-        assert.ok(
-            moduleReleaseCommands.includes(required),
-            'Module release workflow is missing required gate or command: ' + required,
-        );
-    }
+    // Execute the provenance/hash/publication contracts, not just workflow text assertions.
+    execFileSync(process.execPath, ['--test',
+        'src/scripts/tools/releases/ci-artifacts.test.mjs',
+        'src/scripts/tools/releases/publish-release.test.mjs'], { stdio: 'pipe' });
 }

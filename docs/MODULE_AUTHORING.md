@@ -576,10 +576,13 @@ and `docs/RELEASING.md`. The helper has no dependency on Core or another module.
 
 - `ci-<moduleId>.yaml` checks pull requests, `main` pushes, pushed `v*` tags and
   manual runs. It runs the standalone helper tests, then validates/packages the
-  module against its pinned Core toolchain in an isolated data directory.
+  module against its pinned Core toolchain in an isolated data directory. Main
+  and tag pushes at the same commit reuse one successful validation/artifact;
+  PRs and explicit manual validation retain full checks.
 - `release-<moduleId>.yaml` runs only on an explicitly confirmed workflow dispatch
-  at the version tag. A read-only verification job requires successful push CI
-  for that exact tag/commit before calling the existing pinned reusable build.
+  at the version tag. Successful push CI for that exact tag/commit is required.
+  Module-owned publication scripts verify the retained artifact and publish its
+  exact archive bytes; they do not reinstall the toolchain or rebuild.
 
 From the module repository, after preparing the numbered release in its changelog:
 
@@ -597,8 +600,9 @@ default branch before using it. See the generated release guide for prerequisite
 and exact recovery behavior. Ordinary CI and tag pushes do not publish releases
 under the new wrappers.
 
-The reusable build still publishes the archive, checksum, stable manifest and
-release history, using the module's tested Core pin. The release history retains
+Publication retains the archive, checksum, stable manifest and release history.
+The history generator is bundled from CI's tested Core pin and runs at publication
+without another dependency installation. The release history retains
 each version's compatibility declarations; authors do not maintain it by hand.
 Core owns scaffold/platform tests; modules own validation and release runs. No
 module or Core version bump is implied by editing release tooling.

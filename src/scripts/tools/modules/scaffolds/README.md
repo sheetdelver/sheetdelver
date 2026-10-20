@@ -18,3 +18,8 @@ initial README/changelog use templates. Keep the distributed helper/test copies
 in maintained modules aligned; there is no runtime import from the Core tree.
 The scaffold regression executes the generated helper tests and verifies the
 tag-validation/manual-publication workflow boundary.
+
+The artifact handoff and publisher scripts/tests are also copied. The standalone
+publisher uses CI's archive bytes and bundled pinned-Core history generator;
+it does not install dependencies or invoke module packaging. Keep these copies
+aligned with the maintained modules and Core's artifact handoff tests.

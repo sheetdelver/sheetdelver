@@ -195,8 +195,9 @@ npm run module:check my-system
 
 Pass `--data-dir` when working outside the default `./data` directory. The generated module is discovered automatically from `<DATA_DIR>/local/modules/<module-id>/`; no registry edits are required.
 
-The scaffold also creates module validation and tag-triggered release workflows.
-They pin to the Sheet Delver release matching the root package version. Use
+The scaffold also creates module validation and separately confirmed publication
+workflows. Validation pins to the SheetDelver release matching the root package
+version; publication reuses its verified artifact without a rebuild. Use
 `--core-ref <ref>` only when intentionally testing a pushed development ref,
 and replace that ref with a stable Sheet Delver release tag before publishing
 the module.
@@ -214,8 +215,8 @@ npm run module:package <module-id>
 Use `-- --data-dir <path>` when packaging from a non-default data directory. The packaging tool writes its archive and integrity hash under the configured data directory; the authoring guide covers the expected workflow in more detail.
 
 The packaging command does not create tags or GitHub Releases. Generated module
-release CI owns those repository mutations and runs only after an explicit
-version tag is pushed.
+release tooling owns those repository mutations. A tag push validates; publication
+requires the separate confirmation/manual dispatch described in RELEASING.md.
 
 ## Module API & Server-Side Logic
 
