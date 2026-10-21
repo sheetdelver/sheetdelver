@@ -7,6 +7,7 @@ import yaml from 'js-yaml';
 interface WorkflowStep {
     uses?: string;
     run?: string;
+    if?: string;
     with?: Record<string, unknown>;
 }
 
@@ -99,8 +100,13 @@ export function run() {
         assert.equal(releaseCommands.includes(forbidden), false, 'Publication must reuse completed CI, not repeat ' + forbidden);
     }
     assert.ok(ciCommands.includes('ci-artifacts.mjs record'));
-    assert.ok(ciCommands.includes('npm run release:prepare'));
-    assert.ok(ci.source.includes("if: github.event_name != 'pull_request'"));
+    assert.ok(ciCommands.includes('node src/scripts/tools/releases/release-notes.mjs'));
+    assert.ok(ciCommands.includes('--package-lock-only'));
+    assert.ok(ciCommands.includes('ci-reuse.mjs'));
+    for (const step of ci.steps.filter(step => /^(npm ci|npm audit|npm run (managed:generate|lint|test:|ci:fixture|build)|npx tsc)/.test(step.run ?? ''))) {
+        assert.equal(step.if, "steps.reuse.outputs.reused != 'true'", step.run);
+    }
+    assert.ok(ci.source.includes("steps.reuse.outputs.exact != 'true' && github.event_name != 'pull_request'"));
     assert.equal(release.source.includes('softprops/'), false);
     assert.equal(release.source.includes('cat >'), false);
     assert.equal(release.source.includes('settings.yaml'), false);
@@ -123,5 +129,7 @@ export function run() {
     // Execute the provenance/hash/publication contracts, not just workflow text assertions.
     execFileSync(process.execPath, ['--test',
         'src/scripts/tools/releases/ci-artifacts.test.mjs',
+        'src/scripts/tools/releases/ci-reuse.test.mjs',
+        'src/scripts/tools/releases/release-notes.test.mjs',
         'src/scripts/tools/releases/publish-release.test.mjs'], { stdio: 'pipe' });
 }

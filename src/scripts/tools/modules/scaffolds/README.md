@@ -23,3 +23,9 @@ The artifact handoff and publisher scripts/tests are also copied. The standalone
 publisher uses CI's archive bytes and bundled pinned-Core history generator;
 it does not install dependencies or invoke module packaging. Keep these copies
 aligned with the maintained modules and Core's artifact handoff tests.
+
+`ci-reuse.mjs` and its tests also ship unchanged. They compare complete Git trees
+for the narrow version/changelog exception; source/config/dependency changes
+require full validation. Version-bearing module metadata still invokes the pinned
+packager. Keep workflow conditions and these scripts together when updating the
+scaffold or an existing module. See Core ADR-0066's October21 addendum.
