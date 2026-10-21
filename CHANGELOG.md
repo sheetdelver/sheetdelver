@@ -1,6 +1,6 @@
 # Releases
 
-## Unreleased
+## 0.19.7
 - Clarify failed world startup
 - Preserve orphaned scene tokens
 - Add selectable token cleanup
