@@ -199,8 +199,22 @@ The release workflow downloads the publication files retained by successful CI
 for the **exact tagged commit**, verifies their origin and SHA-256 hashes, then
 publishes the CI-produced notes and CycloneDX SBOM plus its checksum. It does
 not repeat dependency installation, audit, lint, typing, tests or build.
-A main CI run still in progress is awaited. A different commit requires its own
-validation, even if the only changes are release metadata.
+A main CI run for the exact tag still in progress is awaited. The small CI
+selection step can reuse successful main validation through version/changelog-only
+commits. It compares the entire Git tree and permits only `CHANGELOG.md` and the
+three aligned root version fields in package.json/package-lock.json. Dependencies,
+scripts, integrity, source, configuration, workflow/tooling changes and unknown
+files run full validation. Missing history/artifacts or a changed toolchain also
+run fully; corruption/API failures remain errors.
+
+On Core metadata reuse, CI refreshes notes and generates a lockfile-based
+production SBOM without npm installation or application compilation/tests. This
+SBOM includes platform-optional production packages in the lock. The final files
+are bound to the new commit and successful run, with the baseline recorded.
+Exact-commit reuse skips even that refresh. Same-repository metadata-only PRs may
+reuse main checks but cannot publish artifacts; fork PRs run independently.
+Manual CI always runs fully. The Actions step summary identifies the chosen path.
+An in-progress prior merge has not passed yet and cannot authorize metadata reuse.
 
 CI retains these files for 30 days. If they expired, were removed, or predate
 artifact-producing CI, run `ci.yml` manually at the unchanged release tag and

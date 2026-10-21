@@ -667,3 +667,11 @@ publication verifies their origin and uses those bytes without a second build.
 Module main/tag pushes at one commit serialize and reuse validation. Core retains
 its SBOM/source-release format; modules retain archive/manifest/checksum/history.
 The runtime module-loading and compatibility contracts are unchanged.
+
+Release preparation may reuse successful main validation across strictly compared
+version/changelog-only commits (ADR-0066 R66-01–03). Core refreshes notes and a
+lockfile-based SBOM; module version changes still use the pinned packager because
+`info.json` is embedded in compiled JavaScript. Final files retain exact-tag
+identity and a validation baseline. Source, dependency, configuration, workflow
+or unknown input changes run full checks. Runtime behavior and SDK contracts are
+unaffected; see [releasing](RELEASING.md) for fallback and operator steps.

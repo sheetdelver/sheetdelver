@@ -64,27 +64,32 @@ export async function run() {
     const ciWorkflow = yaml.load(ciWorkflowSource) as any;
     const releaseWorkflow = yaml.load(releaseWorkflowSource) as any;
     assert.deepEqual(ciWorkflow.on.push.tags, ['v*']);
+    assert.equal(ciWorkflow.on.push.paths, undefined, 'new input files must trigger validation');
+    assert.equal(ciWorkflow.on.pull_request.paths, undefined);
     assert.deepEqual(Object.keys(releaseWorkflow.on), ['workflow_dispatch']);
     assert.equal(releaseWorkflow.jobs.release.permissions.actions, 'read');
     assert.equal(ciWorkflow.concurrency['cancel-in-progress'], false);
     assert.match(ciWorkflow.concurrency.group, /github\.sha/);
     const validationSteps = ciWorkflow.jobs.validate.steps;
     for (const step of validationSteps.filter((step: any) => /npm ci|npm run managed:generate|npm run module:(check|package)|node --test/.test(step.run ?? ''))) {
-        assert.equal(step.if, "steps.reuse.outputs.reused != 'true'", `${step.name} must skip on verified reuse`);
+        const needsPackage = /npm ci|npm run managed:generate|npm run module:package/.test(step.run ?? '');
+        assert.equal(step.if, needsPackage
+            ? "steps.reuse.outputs.reused != 'true' || steps.reuse.outputs.package == 'true'"
+            : "steps.reuse.outputs.reused != 'true'", `${step.name} must use the correct reuse condition`);
     }
     const artifactUpload = validationSteps.find((step: any) => step.uses?.startsWith('actions/upload-artifact@'));
     assert.match(artifactUpload.if, /github.event_name != 'pull_request'/);
     assert.equal(artifactUpload.with['if-no-files-found'], 'error');
     assert.match(releaseWorkflowSource, /node scripts\/release\.mjs --verify-tag-ci/);
     assert.match(ciWorkflowSource, /node --test .*scripts\/\*\.test\.mjs/);
-    assert.match(ciWorkflowSource, /node scripts\/ci-artifacts\.mjs restore/);
+    assert.match(ciWorkflowSource, /node scripts\/ci-reuse\.mjs/);
     assert.match(ciWorkflowSource, /steps\.reuse\.outputs\.reused != 'true'/);
     assert.match(ciWorkflowSource, /generate-release-history\.ts --bundle/);
     const modulePackage = JSON.parse(fs.readFileSync(path.join(modulePath, 'package.json'), 'utf8'));
     assert.equal(modulePackage.version, undefined, 'info.json remains the version authority');
     assert.equal(modulePackage.type, 'module', 'module-local npm commands preserve ESM source semantics');
     assert.equal(modulePackage.scripts['release:tag'], 'node scripts/release.mjs');
-    for (const file of ['scripts/release.mjs', 'scripts/release.test.mjs', 'scripts/ci-artifacts.mjs', 'scripts/ci-artifacts.test.mjs', 'scripts/publish-release.mjs', 'scripts/publish-release.test.mjs', 'docs/RELEASING.md']) {
+    for (const file of ['scripts/release.mjs', 'scripts/release.test.mjs', 'scripts/ci-artifacts.mjs', 'scripts/ci-artifacts.test.mjs', 'scripts/ci-reuse.mjs', 'scripts/ci-reuse.test.mjs', 'scripts/publish-release.mjs', 'scripts/publish-release.test.mjs', 'docs/RELEASING.md']) {
         assert.equal(fs.readFileSync(path.join(modulePath, file), 'utf8'), fs.readFileSync(path.join(scaffoldPath, file), 'utf8'));
     }
     assert.match(fs.readFileSync(path.join(modulePath, 'CHANGELOG.md'), 'utf8'), /## 1\.0\.0/);

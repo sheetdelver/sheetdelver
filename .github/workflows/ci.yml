@@ -26,6 +26,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          fetch-depth: 0
 
       - name: Use Node.js 22
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -33,58 +34,76 @@ jobs:
           node-version: "22.x"
           cache: npm
 
+      - name: Select exact or metadata-only validation reuse
+        id: reuse
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+        run: node src/scripts/tools/releases/ci-reuse.mjs "$RUNNER_TEMP/validated-release"
+
       # runner.temp is a step-level expression; exporting it here avoids the
       # invalid job-level context that previously broke workflow evaluation.
       - name: Configure isolated data directory
+        if: steps.reuse.outputs.reused != 'true'
         run: echo "SHEET_DELVER_DATA=${{ runner.temp }}/sheet-delver-data" >> "$GITHUB_ENV"
 
       - name: Install reviewed dependency graph
+        if: steps.reuse.outputs.reused != 'true'
         run: npm ci
 
       # .managed is intentionally ignored, so a clean runner must generate the
       # alias map before TypeScript resolves application imports.
       - name: Generate managed configuration
+        if: steps.reuse.outputs.reused != 'true'
         run: npm run managed:generate
 
       - name: Audit production dependencies
+        if: steps.reuse.outputs.reused != 'true'
         run: npm audit --omit=dev --audit-level=high
 
       - name: Lint
+        if: steps.reuse.outputs.reused != 'true'
         run: npm run lint
 
       - name: Type check
+        if: steps.reuse.outputs.reused != 'true'
         run: npx tsc --noEmit
 
       - name: Unit tests
+        if: steps.reuse.outputs.reused != 'true'
         run: npm run test:unit
 
       - name: Integration tests
+        if: steps.reuse.outputs.reused != 'true'
         run: npm run test:integration
 
       - name: Generate isolated build fixture
+        if: steps.reuse.outputs.reused != 'true'
         run: npm run ci:fixture
 
       - name: Build
+        if: steps.reuse.outputs.reused != 'true'
         run: npm run build
 
-      - name: Generate production SBOM
-        run: npm sbom --omit=dev --sbom-format cyclonedx > "${{ runner.temp }}/sheet-delver.cdx.json"
+      - name: Generate production SBOM from the unchanged dependency lock
+        if: steps.reuse.outputs.exact != 'true' && github.event_name != 'pull_request'
+        run: npm sbom --omit=dev --sbom-format cyclonedx --package-lock-only > "${{ runner.temp }}/sheet-delver.cdx.json"
 
       - name: Prepare validated publication files
-        if: github.event_name != 'pull_request'
-        run: |
-          mkdir -p "$RUNNER_TEMP/validated-release"
-          VERSION=$(node -p "require('./package.json').version")
-          npm run release:prepare -- "v$VERSION" "$RUNNER_TEMP/validated-release/release-notes.md"
-          cp "$RUNNER_TEMP/sheet-delver.cdx.json" "$RUNNER_TEMP/validated-release/"
+        if: steps.reuse.outputs.exact != 'true'
+        run: node src/scripts/tools/releases/release-notes.mjs "$RUNNER_TEMP/validated-release/release-notes.md"
+
+      - name: Include the current SBOM
+        if: steps.reuse.outputs.exact != 'true' && github.event_name != 'pull_request'
+        run: cp "$RUNNER_TEMP/sheet-delver.cdx.json" "$RUNNER_TEMP/validated-release/"
 
       - name: Bind files to this validation attempt
         id: bundle
-        if: github.event_name != 'pull_request'
+        if: steps.reuse.outputs.exact != 'true' && github.event_name != 'pull_request'
         run: node src/scripts/tools/releases/ci-artifacts.mjs record "$RUNNER_TEMP/validated-release"
 
       - name: Retain validated publication files
-        if: github.event_name != 'pull_request'
+        if: steps.reuse.outputs.exact != 'true' && github.event_name != 'pull_request'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ steps.bundle.outputs.artifact_name }}
@@ -93,7 +112,7 @@ jobs:
           retention-days: 30
 
   # Public repositories can run GitHub's dependency-delta review directly.
-  # Keep this PR-only: push builds retain the mandatory full npm audit above.
+  # Keep this PR-only: changed dependency inputs also require the full npm audit above.
   dependency-review:
     name: Dependency review
     if: github.event_name == 'pull_request'

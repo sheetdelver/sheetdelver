@@ -577,8 +577,14 @@ and `docs/RELEASING.md`. The helper has no dependency on Core or another module.
 - `ci-<moduleId>.yaml` checks pull requests, `main` pushes, pushed `v*` tags and
   manual runs. It runs the standalone helper tests, then validates/packages the
   module against its pinned Core toolchain in an isolated data directory. Main
-  and tag pushes at the same commit reuse one successful validation/artifact;
-  PRs and explicit manual validation retain full checks.
+  and tag pushes at the same commit reuse one successful validation/artifact.
+  Strictly compared `info.json.version`/changelog-only commits can reuse successful
+  main checks. Version changes still require packaging to update embedded metadata;
+  unchanged packages are retained for changelog-only edits when the changelog is
+  not packaged. Other manifest fields, source, dependencies, configuration and
+  unknown files run the full checks. Same-repository metadata-only PRs may reuse
+  main checks but cannot publish artifacts; fork PRs and manual CI run fully.
+  There is no path filter that silently excludes new build inputs.
 - `release-<moduleId>.yaml` runs only on an explicitly confirmed workflow dispatch
   at the version tag. Successful push CI for that exact tag/commit is required.
   Module-owned publication scripts verify the retained artifact and publish its

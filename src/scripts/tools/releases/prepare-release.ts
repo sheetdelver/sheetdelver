@@ -3,48 +3,12 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { logger } from '../../../shared/utils/logger';
 
-const STABLE_RELEASE_TAG = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
+import { extractReleaseNotes, versionFromReleaseTag } from './release-notes.mjs';
+export { extractReleaseNotes, versionFromReleaseTag } from './release-notes.mjs';
 
 export interface PreparedRelease {
     version: string;
     notes: string;
-}
-
-export function versionFromReleaseTag(tag: string): string {
-    const match = STABLE_RELEASE_TAG.exec(tag);
-    if (!match) {
-        throw new Error('Release tag must use the stable vMAJOR.MINOR.PATCH format.');
-    }
-    return tag.slice(1);
-}
-
-export function extractReleaseNotes(changelog: string, version: string): string {
-    const heading = '## ' + version;
-    const lines = changelog.replace(/\r\n/g, '\n').split('\n');
-    const headingIndexes = lines
-        .map((line, index) => line.trim() === heading ? index : -1)
-        .filter((index) => index >= 0);
-
-    if (headingIndexes.length === 0) {
-        throw new Error('CHANGELOG.md is missing the exact heading "' + heading + '".');
-    }
-    if (headingIndexes.length > 1) {
-        throw new Error('CHANGELOG.md contains duplicate headings for "' + heading + '".');
-    }
-
-    const start = headingIndexes[0] + 1;
-    const nextHeading = lines.findIndex((line, index) => index >= start && /^##\s+/.test(line));
-    const end = nextHeading >= 0 ? nextHeading : lines.length;
-    const notes = lines.slice(start, end).join('\n').trim();
-
-    if (!notes) {
-        throw new Error('CHANGELOG.md section "' + heading + '" has no release notes.');
-    }
-    if (!notes.split('\n').some((line) => /^\s*-\s+\S/.test(line))) {
-        throw new Error('CHANGELOG.md section "' + heading + '" must contain at least one bullet.');
-    }
-
-    return notes;
 }
 
 export function prepareRelease(tag: string, packageVersion: string, changelog: string): PreparedRelease {

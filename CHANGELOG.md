@@ -1,5 +1,8 @@
 # Releases
 
+## Unreleased
+- Reuse merge validation checks
+
 ## 0.19.7
 - Clarify failed world startup
 - Preserve orphaned scene tokens
