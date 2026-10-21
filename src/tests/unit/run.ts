@@ -120,6 +120,8 @@ import { run as runFoundryVersionCompatibility } from './world/foundry-version-c
 import { run as runWorldBootstrapper } from './world/world-bootstrapper.test';
 import { run as runWorldTransportController } from './world/world-transport-controller.test';
 import { run as runModuleWorldMigrations } from './world/module-world-migrations.test';
+import { run as runOrphanTokenCleanup } from './world/orphan-token-cleanup.test';
+import { run as runMigrationCompatibilityCache } from './world/migration-compatibility-cache.test';
 import { run as runMigrationSourceInputs } from './modules/migration-source-inputs.test';
 
 // ── admin ─────────────────────────────────────────────────────────────────────
@@ -265,6 +267,8 @@ async function runAllUnitTests() {
     await runWorldBootstrapper();
     await runWorldTransportController();
     await runModuleWorldMigrations();
+    await runOrphanTokenCleanup();
+    await runMigrationCompatibilityCache();
     runMigrationSourceInputs();
     await runSharedContentStore();
     await runSharedJournalView();

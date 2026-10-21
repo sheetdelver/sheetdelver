@@ -17,6 +17,8 @@ function decide(overrides: Partial<PlayerBoundaryInput> = {}) {
 export function run() {
     assert.equal(decide({ mountedScope: null }).retainPage, false, 'cold page waits for readiness');
     assert.deepEqual(decide(), { terminal: false, ready: true, retainPage: true, blocked: false });
+    assert.equal(decide({ step: 'world-unavailable' }).blocked, true, 'failed world keeps prior page inert');
+    assert.equal(decide({ step: 'world-unavailable', mountedScope: null }).retainPage, false, 'failed cold world does not mount player pages');
     assert.equal(decide({ step: 'startup' }).blocked, true, 'same-world Foundry outage retains and blocks');
     assert.equal(decide({ linkState: 'disconnected' }).blocked, true, 'browser link loss retains and blocks');
     assert.equal(decide({ linkState: 'checking' }).blocked, true, 'session revalidation remains blocked');

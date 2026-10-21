@@ -24,6 +24,8 @@ export function PlayerWorldBoundary({ children }: { children: ReactNode }) {
     const [loginLoading, setLoginLoading] = useState(false);
     const [prolonged, setProlonged] = useState(false);
     const overlayRef = useRef<HTMLDivElement>(null);
+    const worldUnavailable = step === 'world-unavailable';
+    const maintenanceNotice = maintenance && !['initializing', 'refreshing'].includes(maintenance.phase);
 
     const currentScope = worldId && currentUserId
         ? JSON.stringify([worldId, currentUserId, sessionEpoch]) : null;
@@ -44,17 +46,17 @@ export function PlayerWorldBoundary({ children }: { children: ReactNode }) {
     }, [terminal, resetUI]);
 
     useEffect(() => {
-        if (!blocked) {
+        if (!blocked || worldUnavailable) {
             setProlonged(false);
             return;
         }
         const timer = setTimeout(() => setProlonged(true), 15_000);
         return () => clearTimeout(timer);
-    }, [blocked]);
+    }, [blocked, worldUnavailable]);
 
     useEffect(() => {
-        if (blocked || linkState === 'unavailable') overlayRef.current?.focus();
-    }, [blocked, linkState]);
+        if (blocked || worldUnavailable || linkState === 'unavailable') overlayRef.current?.focus();
+    }, [blocked, worldUnavailable, linkState]);
 
     const onLogin = async (username: string, password: string) => {
         setLoginLoading(true);
@@ -70,6 +72,7 @@ export function PlayerWorldBoundary({ children }: { children: ReactNode }) {
     const stateView = () => {
         if (step === 'setup') return <SetupView appVersion={appVersion || ''} />;
         if (step === 'world-closed') return <WorldClosedView system={system} appVersion={appVersion || ''} />;
+        if (worldUnavailable || linkState === 'unavailable') return null;
         if (step === 'login' && (linkState === 'guest' || linkState === 'ready')) {
             return <LoginView users={users} system={system} onLogin={onLogin} loading={loginLoading} />;
         }
@@ -95,12 +98,12 @@ export function PlayerWorldBoundary({ children }: { children: ReactNode }) {
                     )}
                 </main>
             )}
-            {(blocked || linkState === 'unavailable') && step !== 'setup' && step !== 'world-closed' && (
-                linkState === 'unavailable' ? (
+            {(blocked || worldUnavailable || linkState === 'unavailable') && step !== 'setup' && step !== 'world-closed' && (
+                worldUnavailable || linkState === 'unavailable' ? (
                     <div ref={overlayRef} tabIndex={-1} className="sd-ui-overlay fixed inset-0 z-[240] flex items-center justify-center p-4" role="alert">
                         <div className="sd-ui-panel-raised max-w-md rounded-2xl p-8 text-center">
-                            <h2 className="text-xl font-bold">SheetDelver is unavailable</h2>
-                            <p className="sd-ui-muted mt-3">Please try again later by reloading this page.</p>
+                            <h2 className="text-xl font-bold">{maintenanceNotice ? 'SheetDelver is in maintenance' : 'SheetDelver is unavailable'}</h2>
+                            {linkState === 'unavailable' && !worldUnavailable && <p className="sd-ui-muted mt-3">Please try again later by reloading this page.</p>}
                         </div>
                     </div>
                 ) : (

@@ -2,6 +2,7 @@
 
 import PageHeading from '../../components/PageHeading';
 import ModuleLifecycleControl from '../../components/ModuleLifecycleControl';
+import OrphanTokenCleanup from '../../components/OrphanTokenCleanup';
 import ModuleUpgradeStatus from '../../components/ModuleUpgradeStatus';
 import { Suspense } from 'react';
 import MaintenanceControlPanel from '../../components/MaintenanceControlPanel';
@@ -16,6 +17,7 @@ export default function AdminModulesPage() {
             <InstalledMigrationStatus />
             {data?.maintenance ? <MaintenanceControlPanel /> : data ? <>
                 <ModuleUpgradeStatus diagnosticsOnly />
+                <OrphanTokenCleanup />
                 <section className="admin-panel rounded-xl shadow-sm overflow-hidden">
                     <Suspense fallback={<p className="p-4">Loading exact source selection…</p>}><ModuleLifecycleControl /></Suspense>
                 </section>

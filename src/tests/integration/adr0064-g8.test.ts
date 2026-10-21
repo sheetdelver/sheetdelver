@@ -1,3 +1,5 @@
+import { createHook } from 'node:async_hooks';
+import { checkInstalledWorldCompatibility } from '@server/services/world/migrations/installedWorldCompatibility';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -6,24 +8,89 @@ import { pathToFileURL, fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { host } from './adr0064-corrections.test';
 import { fixture, world } from '../unit/world/module-world-migrations.test';
-import { packIsWritableWorld, migrationEnvelope } from '@server/services/world/migrations/targets';
+import { packIsWritableWorld, migrationEnvelope, enumerateMigrationTargets, type MigrationSourceView } from '@server/services/world/migrations/targets';
 import { freshMigrationSnapshot } from '@server/services/world/migrations/ModuleUpgradeService';
 import { discoverMigrations } from '@modules/registry/migrations/catalog';
 import { compendiumStore } from '@server/core/compendium/CompendiumStore';
 import { settingStore } from '@server/core/documents/primary/settings/SettingStore';
 import { moduleWorldContext } from '@server/services/world/ModuleWorldContextService';
 import { worldBootstrapper } from '@server/services/world/WorldBootstrapper';
-import { refreshRegistry } from '@modules/registry/server';
+import { refreshRegistry, enableModule } from '@modules/registry/server';
 import { SdkError, isSdkError, SDK_ERROR_STATUS } from '@shared/sdk/errors';
 import express from 'express';
 import * as tar from 'tar';
 import { build } from 'esbuild';
 import { createModuleRouter } from '@server/routes/modules/createModuleRouter';
 import { packageMigrations } from '@modules/registry/migrations/compile';
+import { computeWorldMigrations } from '@server/services/world/migrations/compute';
+import { getOrphanTokenCleanup } from '@server/services/world/OrphanTokenCleanup';
+import { sceneStore } from '@server/core/documents/primary/scenes/SceneStore';
 
 const cases: Record<string, (root: string) => Promise<void>> = {};
+for (const generation of [13, 14]) cases[`orphans-v${generation}`] = async root => {
+    const { transport, source, data } = await host(root); data.release.generation = generation;
+    const candidate = fixture(path.join(root, 'modules/fixture'));
+    fs.writeFileSync(path.join(candidate.root, 'logic.js'), 'export class Adapter {systemId="fixture";match(){return true} normalizeActorData(a){return {...a,id:a._id,img:"",derived:{}}}}');
+    fs.writeFileSync(path.join(candidate.root, 'ui.js'), 'export default {}');
+    const file = path.join(candidate.root, 'migrations/1.0.0/definition.json');
+    const definition = JSON.parse(fs.readFileSync(file, 'utf8')); definition.steps[0].targets = ['ActorDelta'];
+    fs.writeFileSync(file, JSON.stringify(definition)); refreshRegistry();
+    const scene = { _id: 'chapel', name: 'Old chapel', tokens: [{ _id: 'orphan', name: 'Skeleton', actorId: 'gone', actorLink: false,
+        delta: { _id: 'delta', system: { fixed: false }, items: [{ _id: 'old-item' }], effects: [{ _id: 'legacy-effect', changes: [] }] } }] };
+    const originalScene = structuredClone(scene); let restored = false; let deletes = 0;
+    const original = transport.emitSocketEvent.bind(transport);
+    transport.emitSocketEvent = async <T>(event: string, ...payloads: any[]): Promise<T> => {
+        const { type, action, operation } = payloads[0];
+        if (type === 'Scene' && action === 'get') return { type, action, operation, result: [structuredClone(scene)] } as T;
+        if (type === 'Actor' && action === 'get' && restored) return { type, action, operation, result: [{ _id: 'a', system: { fixed: true } }, { _id: 'gone', system: { fixed: true } }] } as T;
+        if (type === 'Token' && action === 'delete') {
+            assert.equal(operation.parentUuid, 'Scene.chapel'); assert.deepEqual(operation.ids, ['orphan']);
+            deletes++; scene.tokens = []; return { type, action, operation, result: ['orphan'] } as T;
+        }
+        return original<T>(event, ...payloads);
+    };
+    await worldBootstrapper.bootstrap(transport);
+    assert.equal(worldBootstrapper.isReady(), true, 'an inert orphan does not block adapter preparation');
+    assert.deepEqual(scene, originalScene, 'startup preserves all token/Item/effect source'); assert.deepEqual(source.writes, []);
+    const catalog = discoverMigrations(candidate.root, candidate.info)!;
+    const orphanSnapshot = await freshMigrationSnapshot(catalog);
+    assert.equal(orphanSnapshot.targets.length, 0); assert.equal(orphanSnapshot.exclusions?.length, 1);
+    restored = true;
+    const restoredSnapshot = await freshMigrationSnapshot(catalog);
+    assert.equal(restoredSnapshot.targets.filter(row => row.kind === 'ActorDelta').length, 1, 'restored Actor makes persisted delta eligible');
+    assert.equal((await computeWorldMigrations(candidate.root, catalog, restoredSnapshot.world, restoredSnapshot.targets, true)).blockers.length, 1);
+    restored = false;
+    const cleanup = await getOrphanTokenCleanup(); const review = cleanup.list()[0];
+    assert.equal(review.tokenName, 'Skeleton'); assert.equal(deletes, 0);
+    await cleanup.remove({ ...review, confirmed: true }, () => {});
+    assert.equal(deletes, 1); assert.equal(sceneStore.getToken('chapel', 'orphan'), null, 'normal confirmation ingress updates primary SceneStore');
+    assert.deepEqual(cleanup.list(), []);
+    worldBootstrapper.reset('orphan-regression-complete');
+};
+cases['compatibility-reuse'] = async root => {
+    const { source } = await host(root);
+    const candidate = fixture(path.join(root, 'modules/fixture'));
+    fs.writeFileSync(path.join(candidate.root, 'logic.js'), 'export class Adapter {systemId="fixture";match(){return true}}');
+    fs.writeFileSync(path.join(candidate.root, 'ui.js'), 'export default {}');
+    refreshRegistry(); enableModule('fixture');
+    let workers = 0;
+    const observer = createHook({ init(_id, type) { if (type === 'WORKER') workers++; } }).enable();
+    try {
+        await checkInstalledWorldCompatibility('fixture');
+        assert.ok(workers >= 1); const firstWorkers = workers;
+        const reads = source.reads.length;
+        await checkInstalledWorldCompatibility('fixture');
+        assert.equal(workers, firstWorkers, 'unchanged installed checks reuse disk result without any new computation worker');
+        assert.ok(source.reads.length > reads, 'fresh native source comparison still detects outside restores');
+        source.fixed = false;
+        await assert.rejects(checkInstalledWorldCompatibility('fixture'), /requires admin maintenance/);
+        assert.equal(workers, firstWorkers + 1, 'restored legacy source triggers checks and blocks without auto-repair');
+        assert.deepEqual(source.writes, []);
+    } finally { observer.disable(); }
+};
 cases.locks = async root => {
-    const { transport } = await host(root);
+    const { transport, source } = await host(root);
+    source.fixed = false;
     const candidate = fixture(path.join(root, 'candidate'));
     const file = path.join(candidate.root, 'migrations/1.0.0/definition.json');
     const definition = JSON.parse(fs.readFileSync(file, 'utf8')); definition.steps[0].targets = ['WorldPack'];
@@ -50,7 +117,22 @@ cases.locks = async root => {
     await settingStore.seed(async () => [{ _id: 'config', key: 'core.compendiumConfiguration', value: JSON.stringify({ [pack]: { locked: true } }) }]);
     assert.throws(snapshot.assertCurrent, /scope changed/);
     assert.throws(() => migrationEnvelope(target, { 'system.fixed': true }), /locked/);
-    await assert.rejects(freshMigrationSnapshot(catalog), /locked or unreadable/);
+    const locked = await freshMigrationSnapshot(catalog);
+    assert.equal(locked.targets.length, 1, 'locked pack is readable and still fully checked');
+    const lockedPlan = await computeWorldMigrations(candidate.root, catalog, locked.world, locked.targets);
+    assert.equal(lockedPlan.operations.length, 0);
+    assert.match(lockedPlan.blockers[0], /world.unusualActors.*needs changes but is locked/);
+    const currentLocked = structuredClone(locked.targets);
+    currentLocked[0].source.system = { fixed: true };
+    for (const checkOnly of [false, true]) {
+        const currentPlan = await computeWorldMigrations(candidate.root, catalog, locked.world, currentLocked, checkOnly);
+        assert.equal(currentPlan.checked, 1); assert.deepEqual(currentPlan.blockers, []); assert.deepEqual(currentPlan.operations, []);
+    }
+    await settingStore.seed(async () => []);
+    const unlocked = await freshMigrationSnapshot(catalog);
+    const unlockedPlan = await computeWorldMigrations(candidate.root, catalog, unlocked.world, unlocked.targets);
+    assert.equal(unlockedPlan.operations.length, 1, 'unlock permits reviewed migration without bypassing the check');
+    assert.notEqual(unlockedPlan.inventoryHash, lockedPlan.inventoryHash, 'lock changes retire prior approval identity');
     for (const packageType of ['system', 'module', undefined]) {
         compendiumStore.setPackMetadata(pack, { ...metadata, packageType, locked: false });
         await settingStore.seed(async () => [{ _id: 'config', key: 'core.compendiumConfiguration', value: JSON.stringify({ [pack]: { locked: false } }) }]);
@@ -62,7 +144,24 @@ cases.locks = async root => {
     assert.equal(packIsWritableWorld(pack), false, 'malformed configuration is not verified absence');
     await settingStore.seed(async () => [{ _id: 'bad', key: 'core.compendiumConfiguration' } as never]);
     assert.equal(packIsWritableWorld(pack), false, 'present missing-value configuration is unreadable, not absent');
-    await assert.rejects(freshMigrationSnapshot(catalog), /locked or unreadable/);
+    const unavailableLock = await freshMigrationSnapshot(catalog);
+    const unavailablePlan = await computeWorldMigrations(candidate.root, catalog, unavailableLock.world, unavailableLock.targets);
+    assert.match(unavailablePlan.blockers[0], /lock setting is unavailable/);
+    const view: MigrationSourceView = { actors: [], items: [], scenes: [], packs: [metadata], configuration: {}, subject: { userId: 'service', role: 4 }, generation: 14 };
+    for (const response of [null, { result: [null] }, { result: [{ _id: 'invalid.identity' }] }, new Error('read failed')]) {
+        const wire = { dispatchDocumentSocket: async () => { if (response instanceof Error) throw response; return response; } };
+        await assert.rejects(enumerateMigrationTargets(wire, new Set(['WorldPack']), [], { view }), /Required pack enumeration unavailable/);
+        const exclusions: string[] = [];
+        assert.deepEqual(await enumerateMigrationTargets(wire, new Set(['WorldPack']), [], { view, requiredKinds: new Set(), exclusions }), []);
+        assert.equal(exclusions.length, 1, 'declared advisory pack failure is reported without becoming a required blocker');
+        await assert.rejects(enumerateMigrationTargets(wire, new Set(), [pack], { view }), /Required pack enumeration unavailable/);
+        const referenceExclusions: string[] = [];
+        assert.deepEqual(await enumerateMigrationTargets(wire, new Set(), [pack], { view, requiredReadPacks: new Set(), exclusions: referenceExclusions }), []);
+        assert.equal(referenceExclusions.length, 1);
+    }
+    const emptyExclusions: string[] = [];
+    assert.deepEqual(await enumerateMigrationTargets({ dispatchDocumentSocket: async () => ({ result: [] }) }, new Set(['WorldPack']), [], { view, exclusions: emptyExclusions }), []);
+    assert.equal(emptyExclusions.length, 0, 'a verified empty pack is different from an unavailable read');
     settingStore.clear(); assert.equal(packIsWritableWorld(pack), false, 'unavailable settings fail closed');
 };
 
@@ -178,7 +277,7 @@ export async function run() {
         const result = spawnSync(process.execPath, ['--import', 'tsx', fileURLToPath(import.meta.url), '--case', id], { encoding: 'utf8', timeout: 60_000 });
         assert.equal(result.status, 0, `${id}: ${result.stdout}\n${result.stderr}`);
     }
-    console.log('ADR-0064 G8 regressions: locks/access/packaged errors passed');
+    console.log('ADR-0064 regressions: v13/v14 orphan startup/cleanup, locks/advisory reads, access and packaged errors passed');
 }
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
     const id = process.argv[process.argv.indexOf('--case') + 1];

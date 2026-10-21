@@ -105,6 +105,10 @@ export async function run(): Promise<void> {
         assert.equal(loaded + initialized + prepared, 0, 'actual bootstrap holds adapter loading and preparation behind fresh source checks');
         assert.equal(calls.length, 0, 'bootstrap never authorizes new repairs');
         assert.equal(worldWorkGate.isOpen(), false);
+        assert.equal(bootstrap.getBootstrapDiagnostic()?.phase, 'compatibility');
+        assert.equal(bootstrap.getBootstrapDiagnostic()?.reason, 'Source needs maintenance');
+        await assert.rejects(bootstrap.bootstrap(transport), /maintenance/);
+        assert.equal(calls.length, 0, 'retrying a failed compatibility check performs no writes');
 
         const modules = path.join(root, 'modules'); fs.mkdirSync(modules);
         const previous = path.join(modules, 'fixture'); fs.mkdirSync(previous); fs.writeFileSync(path.join(previous, 'prior.txt'), 'retained');
@@ -151,6 +155,7 @@ export async function run(): Promise<void> {
         assert.equal((actorStore.get('a')?.system as Record<string, unknown>).fixed, true, 'confirmed dispatch follows real ingress into ActorStore');
         await coordinator.resume(job.jobId, installed);
         assert.deepEqual(calls, ['a', 'b'], 'reloaded job/readback do not repeat an acknowledged or ambiguously applied target');
+        assert.equal(bootstrap.getBootstrapDiagnostic(), null, 'approved successful preparation clears the prior failure');
         assert.equal(initialized, 1); assert.equal(prepared, 1); assert.equal(journal.job(job.jobId).phase, 'completed');
         assert.equal(worldWorkGate.isOpen(), true);
 
@@ -215,8 +220,9 @@ export async function run(): Promise<void> {
             await settingStore.seed(async () => [{ _id: 'native-lock', key: 'core.compendiumConfiguration', value: JSON.stringify({ 'world.test': { locked: true } }) }]);
             assert.throws(() => migrationEnvelope(packed, { 'system.fixed': true }), /locked/);
             const exclusions: string[] = [];
-            const advisory = await enumerateMigrationTargets({ dispatchDocumentSocket: async () => { throw new Error('Locked advisory pack must not be read'); } }, new Set(['WorldPack']), [], { requiredKinds: new Set(), exclusions });
-            assert.equal(advisory.length, 0); assert.equal(exclusions.length, 1, 'advisory exclusion is explicit, not counted as migrated');
+            const advisory = await enumerateMigrationTargets({ dispatchDocumentSocket: async () => ({ result: [{ _id: 'packed', system: { fixed: false } }] }) }, new Set(['WorldPack']), [], { requiredKinds: new Set(), exclusions });
+            assert.equal(advisory.length, 1); assert.match(advisory[0].writeBlockedReason!, /needs changes but is locked/);
+            assert.equal(exclusions.length, 0, 'readable advisory pack is checked before deciding whether its lock matters');
             assert.throws(() => migrationEnvelope({ ...packed, pack: 'fixture.package' }, { 'system.fixed': true }), /locked/);
         }
         await sceneStore.seed(async () => []); compendiumStore.clear();

@@ -1,6 +1,12 @@
 # Releases
 
 ## Unreleased
+- Clarify failed world startup
+- Preserve orphaned scene tokens
+- Add selectable token cleanup
+- Reuse unchanged migration checks
+- Log world preparation timings
+- Check compatible locked packs
 - Clarify release workflow titles
 
 ## 0.19.6

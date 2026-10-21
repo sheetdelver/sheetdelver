@@ -1,10 +1,10 @@
 import { strict as assert } from 'node:assert';
-import { systemService } from '@server/services/world';
+import { systemService, worldBootstrapper } from '@server/services/world';
 import { SetupManager } from '@core/world/SetupManager';
 import { worldLifecycleStore } from '@server/core/world/WorldLifecycleStore';
 import { worldStateStore } from '@server/core/world/WorldStateStore';
 import { createAdminService } from '@server/services/admin/AdminService';
-import { createStatusService } from '@server/services/status/StatusService';
+import { createStatusService, projectPublicStatus } from '@server/services/status/StatusService';
 import type {
     FoundryCompatibilityStatus,
     FoundryCompatibilityStatusPayload,
@@ -99,6 +99,20 @@ async function runStatusProjectionTests() {
             assert.deepEqual(payload.foundryCompatibility, entry);
             assert.deepEqual(payload.debug, { enabled: false, level: 1 }, 'file journal level stays server-only');
         }
+
+        const originalDiagnostic = worldBootstrapper.getBootstrapDiagnostic;
+        try {
+            worldBootstrapper.getBootstrapDiagnostic = () => ({ phase: 'compatibility', reason: 'Scene.private.Token.secret', remediation: 'private instructions' });
+            worldLifecycleStore.setState('startup', 'test-failed-bootstrap');
+            const failed = await projectCompatibility(null);
+            assert.equal(failed.system.status, 'unavailable');
+            assert.equal(failed.initialized, false);
+            assert.equal(JSON.stringify(failed).includes('Scene.private'), false, 'even authenticated player status contains no admin source diagnostic');
+            assert.equal(projectPublicStatus(failed).system.status, 'unavailable');
+            assert.equal(JSON.stringify(projectPublicStatus(failed)).includes('private'), false, 'public status omits diagnostic details');
+            worldBootstrapper.getBootstrapDiagnostic = () => null;
+            assert.equal((await projectCompatibility(null)).system.status, 'startup', 'retry clears terminal status');
+        } finally { worldBootstrapper.getBootstrapDiagnostic = originalDiagnostic; }
 
         const nullPayload = await projectCompatibility(null);
         assert.equal(nullPayload.foundryCompatibility, null);

@@ -1,3 +1,4 @@
+import { isOrphanToken, tokenDisplayName } from '@server/core/world/orphanTokens';
 import type { MigrationTarget, MigrationTargetKind } from '@shared/sdk/migrations';
 import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
 import { itemStore } from '@server/core/documents/primary/items/ItemStore';
@@ -28,6 +29,10 @@ export interface MigrationSourceView {
 
 export interface MigrationTransport {
     dispatchDocumentSocket(type: string, action: string, operation?: Record<string, unknown>): Promise<unknown>;
+}
+/** Core-owned availability metadata, preserved through worker/plan serialization. */
+export interface MigrationSourceTarget extends MigrationTarget {
+    writeBlockedReason?: string;
 }
 function id(source: Record<string, unknown>): string {
     const value = source._id ?? source.id;
@@ -73,27 +78,41 @@ export function migrationEnvelope(target: MigrationTarget, updates: Record<strin
 
 /** Source enumeration uses existing Core Stores plus explicitly world-owned pack reads. */
 export async function enumerateMigrationTargets(transport: MigrationTransport, kinds: Set<MigrationTargetKind>, readPacks: readonly string[] = [],
-    options: { requiredKinds?: Set<MigrationTargetKind>; requiredReadPacks?: Set<string>; exclusions?: string[]; view?: MigrationSourceView; includeRelations?: boolean } = {}): Promise<MigrationTarget[]> {
+    options: { requiredKinds?: Set<MigrationTargetKind>; requiredReadPacks?: Set<string>; exclusions?: string[]; view?: MigrationSourceView; includeRelations?: boolean } = {}): Promise<MigrationSourceTarget[]> {
     const required = options.requiredKinds ?? kinds;
     const view = options.view;
     if (!view && (!actorStore.isReady() || !itemStore.isReady() || !sceneStore.isReady() || !settingStore.isReady())) throw new Error('Fresh migration source Stores are required');
     const generation = view?.generation ?? worldStateStore.getRelease()?.generation;
     if (generation !== 13 && generation !== 14) throw new Error('Unsupported Foundry migration generation');
-    const targets: MigrationTarget[] = [];
+    const targets: MigrationSourceTarget[] = [];
     const actors = view?.actors ?? actorStore.list();
+    const baseActorIds = new Set([...actors.map(id), ...(view?.baseActorIds ?? [])]);
     for (const actor of actors) targets.push(...expandMigrationTargets(`Actor.${id(actor)}`, 'Actor', actor));
     for (const item of view?.items ?? itemStore.list()) targets.push(...expandMigrationTargets(`Item.${id(item)}`, 'Item', item));
     if (kinds.has('ActorDelta')) {
         for (const scene of view?.scenes ?? sceneStore.list()) for (const token of rows(scene.tokens)) {
             if (token.actorLink === true || token.actorId === null) continue;
-            if (typeof token.actorId !== 'string' || !actors.some(actor => id(actor) === token.actorId) && !view?.baseActorIds?.has(token.actorId)
-                || token.delta !== null && !isRecord(token.delta)) {
-                if (required.has('ActorDelta')) throw new Error('Required unlinked-token delta/base Actor is unavailable');
-                options.exclusions?.push(`Scene.${id(scene)}.Token.${id(token)}: advisory delta/base source unavailable`); continue;
+            const tokenUuid = `Scene.${id(scene)}.Token.${id(token)}`;
+            const label = `Token “${tokenDisplayName(token, id(token))}” in scene “${tokenDisplayName(scene, id(scene))}”`;
+            if (isOrphanToken(token, baseActorIds)) {
+                // Foundry preserves these inert placements but cannot construct
+                // a synthetic Actor. They are not executable migration targets.
+                options.exclusions?.push(`${label} has no Actor and was left unchanged (${tokenUuid}; Actor.${token.actorId}). Optional cleanup is available in admin.`);
+                continue;
+            }
+            const issue = typeof token.actorId !== 'string' || !token.actorId
+                ? 'actorId is missing or invalid'
+                : token.delta !== null && !isRecord(token.delta)
+                        ? `delta is ${token.delta === undefined ? 'missing' : 'malformed'}; expected a stored object or native null`
+                        : null;
+            if (issue) {
+                const reason = `${label}: ${issue}. Reference: ${tokenUuid}. Inspect this Token and its Actor reference in Foundry, then retry world preparation. No data was changed by this check.`;
+                if (required.has('ActorDelta')) throw new Error(`Required unlinked-token source unavailable — ${reason}`);
+                options.exclusions?.push(`Advisory unlinked-token source unavailable — ${reason}`); continue;
             }
             // Native ActorDeltaField materializes a null delta lazily. Its base
             // Actor is already enumerated; no persisted overrides exist here.
-            if (token.delta === null) continue;
+            if (!isRecord(token.delta)) continue; // Only native null reaches here; invalid values were rejected above.
             targets.push(...expandMigrationTargets(`Scene.${id(scene)}.Token.${id(token)}.ActorDelta.${id(token.delta)}`, 'ActorDelta', token.delta)
                 .map(row => ({ ...row, baseActorUuid: `Actor.${token.actorId}` })));
         }
@@ -111,14 +130,16 @@ export async function enumerateMigrationTargets(transport: MigrationTransport, k
                 continue; // Explicit system/module packs never become write targets.
             }
             const userId = serviceAccountAuthority.getUserId();
-            if (!userId || !canRead(packId) || !packIsWritableWorld(packId, view)) {
-                if (required.has('WorldPack')) throw new Error('Required world pack is locked or unreadable');
-                options.exclusions?.push(`${packId}: advisory world pack locked/unreadable`); continue;
+            if (!userId || !canRead(packId)) {
+                if (required.has('WorldPack')) throw new Error(`Required world pack “${pack.label ?? packId}” (${packId}) is unreadable. Restore service-account read access, then check again.`);
+                options.exclusions?.push(`${packId}: advisory world pack unreadable`); continue;
             }
-            const response = await transport.dispatchDocumentSocket(type, 'get', { pack: packId, index: false, query: {}, broadcast: false });
-            const documents = isRecord(response) ? response.result : response;
-            if (!Array.isArray(documents)) throw new Error('World-pack enumeration unavailable');
-            for (const document of rows(documents)) targets.push(...expandMigrationTargets(`Compendium.${packId}.${type}.${id(document)}`, type, document, packId));
+            // Locking affects writes, not compatibility. Check every readable
+            // document, including locked packs; only needed changes are blocked.
+            const writeBlockedReason = packIsWritableWorld(packId, view) ? undefined
+                : `World pack “${pack.label ?? packId}” (${packId}) needs changes but is locked or its lock setting is unavailable. Review its lock setting in Foundry, then check again.`;
+            const documents = await readPack(packId, type, required.has('WorldPack'));
+            targets.push(...documents.map(target => ({ ...target, ...(writeBlockedReason ? { writeBlockedReason } : {}) })));
         }
     }
     for (const packId of new Set(readPacks)) {
@@ -130,12 +151,24 @@ export async function enumerateMigrationTargets(transport: MigrationTransport, k
             if (options.requiredReadPacks === undefined || options.requiredReadPacks.has(packId)) throw new Error('Required declared pack reference unavailable');
             options.exclusions?.push(`${packId}: advisory pack reference unavailable`); continue;
         }
-        const response = await transport.dispatchDocumentSocket(type, 'get', { pack: packId, index: false, query: {}, broadcast: false });
-        const documents = isRecord(response) ? response.result : response;
-        if (!Array.isArray(documents)) throw new Error('Pack reference enumeration unavailable');
-        for (const document of rows(documents)) targets.push(...expandMigrationTargets(`Compendium.${packId}.${type}.${id(document)}`, type, document, packId).map(row => ({ ...row, readOnly: true })));
+        const documents = await readPack(packId, type, options.requiredReadPacks === undefined || options.requiredReadPacks.has(packId));
+        targets.push(...documents.map(row => ({ ...row, readOnly: true })));
     }
     return targets.filter(target => options.includeRelations || target.readOnly || (target.pack ? kinds.has('WorldPack') : kinds.has(target.kind)));
+
+    async function readPack(packId: string, type: 'Actor' | 'Item', requiredRead: boolean): Promise<MigrationTarget[]> {
+        try {
+            const response = await transport.dispatchDocumentSocket(type, 'get', { pack: packId, index: false, query: {}, broadcast: false });
+            const documents = isRecord(response) ? response.result : response;
+            if (!Array.isArray(documents) || documents.some(document => !isRecord(document))) throw new Error('Invalid pack source');
+            return documents.flatMap(document => expandMigrationTargets(`Compendium.${packId}.${type}.${id(document)}`, type, document, packId));
+        } catch {
+            const reason = `Pack “${packId}” source read failed or returned invalid documents. Check the pack in Foundry, then retry.`;
+            if (requiredRead) throw new Error(`Required pack enumeration unavailable — ${reason}`);
+            options.exclusions?.push(`Advisory pack excluded — ${reason}`);
+            return [];
+        }
+    }
 
     function canRead(packId: string): boolean {
         if (!view) return canReadNativePack(serviceAccountAuthority.getUserId()!, packId);

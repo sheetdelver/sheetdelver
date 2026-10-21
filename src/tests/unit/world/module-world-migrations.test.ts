@@ -277,11 +277,31 @@ export async function run(): Promise<void> {
         assert.deepEqual(nativeTargets.map(target => target.uuid), ['Actor.base', 'Actor.base.Item.base-item',
             'Scene.scene.Token.owned.ActorDelta.delta', 'Scene.scene.Token.owned.ActorDelta.delta.Item.own'],
         'native lazy null deltas have no owned overrides; enumerate base once without materializing a synthetic delta');
-        const missingBase = structuredClone(nativeDeltaView); missingBase.actors = [];
-        await assert.rejects(enumerateMigrationTargets(noTransport, new Set(['ActorDelta']), [], { view: missingBase }), /delta\/base Actor is unavailable/);
+        for (const generation of [13, 14]) {
+        const missingBase = structuredClone(nativeDeltaView); missingBase.actors = []; missingBase.generation = generation;
+        const preservedOrphans = JSON.stringify(missingBase);
+        const orphanNotes: string[] = [];
+        assert.deepEqual(await enumerateMigrationTargets(noTransport, new Set(['ActorDelta']), [], { view: missingBase, exclusions: orphanNotes }), []);
+        assert.equal(orphanNotes.length, 2, 'both lazy and stored orphan deltas are nonblocking exclusions');
+        assert.match(orphanNotes[1], /Token “owned” in scene “scene” has no Actor/);
+        assert.equal(JSON.stringify(missingBase), preservedOrphans, 'orphan data including stored children is preserved');
+        missingBase.actors = structuredClone(nativeDeltaView.actors);
+        assert.equal((await enumerateMigrationTargets(noTransport, new Set(['ActorDelta']), [], { view: missingBase })).length, 1, 'restored base makes the delta eligible again');
+        }
         const malformedDelta = structuredClone(nativeDeltaView);
         (malformedDelta.scenes[0].tokens as Record<string, unknown>[])[0].delta = 'invalid';
-        await assert.rejects(enumerateMigrationTargets(noTransport, new Set(['ActorDelta']), [], { view: malformedDelta }), /delta\/base Actor is unavailable/);
+        await assert.rejects(enumerateMigrationTargets(noTransport, new Set(['ActorDelta']), [], { view: malformedDelta }), /Token “lazy” in scene “scene”: delta is malformed/);
+        for (const generation of [13, 14]) {
+            const missingId = structuredClone(nativeDeltaView); missingId.generation = generation;
+            const token = (missingId.scenes[0].tokens as Record<string, unknown>[])[0];
+            delete token.actorId;
+            await assert.rejects(enumerateMigrationTargets(noTransport, new Set(['ActorDelta']), [], { view: missingId }), /Token “lazy” in scene “scene”: actorId is missing or invalid/);
+            token.actorId = 'base'; delete token.delta;
+            await assert.rejects(enumerateMigrationTargets(noTransport, new Set(['ActorDelta']), [], { view: missingId }), /Token “lazy” in scene “scene”: delta is missing/);
+            const exclusions: string[] = [];
+            await enumerateMigrationTargets(noTransport, new Set(['ActorDelta']), [], { view: missingId, requiredKinds: new Set(), exclusions });
+            assert.match(exclusions[0], /Token “lazy” in scene “scene”: delta is missing/);
+        }
         fs.writeFileSync(path.join(candidate.root, 'migrations/1.0.0/check.cjs'), 'module.exports=()=>({status:globalThis.Date.now()})');
         const impure = discoverMigrations(candidate.root, candidate.info)!;
         assert.throws(() => runMigrationHook(candidate.root, impure.steps[0], 'check', { world, target: targets[0], references: [], parameters: {} }), /undefined|now/, 'global Date cannot bypass the pure hook clock restriction');

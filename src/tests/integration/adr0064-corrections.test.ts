@@ -221,7 +221,7 @@ cases['CR64-17-final-readiness'] = async root => {
     let prepared = false; let armed = false; let changed = false;
     source.onRead = type => { if (prepared && type === 'Actor') armed = true; };
     const observer = createHook({ init(_id, type) {
-        if (armed && !changed && type === 'WORKER') { changed = true; queueMicrotask(() => { source.fixed = false; actorStore.observeMutation(); }); }
+        if (armed && !changed && ['WORKER', 'FSREQPROMISE'].includes(type)) { changed = true; queueMicrotask(() => { source.fixed = false; actorStore.observeMutation(); }); }
     } }).enable();
     try { await assert.rejects(checkInstalledWorldCompatibility('fixture', async () => { prepared = true; }), /scope changed|retired|stale/); }
     finally { observer.disable(); }

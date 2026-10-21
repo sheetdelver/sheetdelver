@@ -52,6 +52,15 @@ function determine(
 
 function runConnectionStepCases() {
     assert.equal(determine({}, { isConfigured: false }), 'setup');
+    for (const isAuthenticated of [false, true]) {
+        assert.equal(determine({ initialized: false, system: { id: 'shadowdark', status: 'unavailable' } }, { isAuthenticated }), 'world-unavailable');
+        assert.equal(determine({ initialized: false, system: { id: 'shadowdark', status: 'startup' }, maintenance: { phase: 'blocked', message: 'internal diagnostic must not be displayed' } }, { isAuthenticated }), 'world-unavailable', 'cold and prior-ready migration blocks do not spin');
+        assert.equal(determine({}, { currentStep: 'world-unavailable', isAuthenticated }), isAuthenticated ? 'dashboard' : 'login', 'fresh success releases the presentation without reload');
+    }
+    for (const phase of ['initializing', 'refreshing']) {
+        assert.equal(determine({ initialized: false, system: { id: 'fixture', status: 'startup' }, maintenance: { phase, message: 'In progress' } }), 'startup', 'ordinary preparation remains transitional');
+    }
+    assert.equal(determine({ system: { id: null, status: 'setup' }, maintenance: { phase: 'blocked', message: 'old' } }), 'world-closed', 'definitive departure wins over stale maintenance');
     assert.equal(determine({ system: { id: 'dnd5e', status: 'closed' } }), 'world-closed');
     assert.equal(determine({ system: { id: 'dnd5e', status: 'setup' } }), 'world-closed');
     assert.equal(determine({ system: { id: null, status: 'setup' } }, { isConfigured: false }), 'world-closed');
