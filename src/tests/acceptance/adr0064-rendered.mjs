@@ -18,8 +18,9 @@ import { AdminMigrationProvider, useAdminMigration } from './src/app/(admin)/con
 import MigrationAttentionNotice, { InstalledMigrationStatus, MigrationSourceStatus } from './src/app/(admin)/components/MigrationAttentionNotice';
 import SourceMigrationReview from './src/app/(admin)/components/SourceMigrationReview';
 import ModuleUpgradeStatus from './src/app/(admin)/components/ModuleUpgradeStatus';
+import OrphanTokenCleanup from './src/app/(admin)/components/OrphanTokenCleanup';
 function App(){return <div className="admin-shell min-h-screen bg-[var(--admin-bg)] p-3" data-admin-theme={window.fixture.theme}>
-<AdminAuthProvider><AdminRuntimeRestartProvider><AdminMigrationProvider><MigrationAttentionNotice/><InstalledMigrationStatus/><FixtureSourceCard/><SourceMigrationReview moduleId="fixture" source="managed" onSessionExpired={()=>window.fixture.expired++}/><ModuleUpgradeStatus diagnosticsOnly/><ModuleUpgradeStatus/></AdminMigrationProvider></AdminRuntimeRestartProvider></AdminAuthProvider></div>}
+<AdminAuthProvider><AdminRuntimeRestartProvider><AdminMigrationProvider><MigrationAttentionNotice/><InstalledMigrationStatus/><FixtureSourceCard/><SourceMigrationReview moduleId="fixture" source="managed" onSessionExpired={()=>window.fixture.expired++}/><ModuleUpgradeStatus diagnosticsOnly/><OrphanTokenCleanup/><ModuleUpgradeStatus/></AdminMigrationProvider></AdminRuntimeRestartProvider></AdminAuthProvider></div>}
 function FixtureSourceCard(){const {data,refresh}=useAdminMigration();return <><button onClick={()=>void refresh()}>Refresh fixture status</button><section aria-label="Fixture source card">{data?.active&&<MigrationSourceStatus status={data.active}/>}</section></>}
 createRoot(document.getElementById('root')).render(<App/>);
 `, resolveDir: process.cwd(), sourcefile: 'adr0064-rendered-fixture.tsx', loader: 'tsx' }, bundle: true, write: false,
@@ -27,7 +28,7 @@ createRoot(document.getElementById('root')).render(<App/>);
 // Actual Core stylesheet/variables and Tailwind utilities, without scanning any module repository.
 const css = await postcss([tailwind({ base: process.cwd() })]).process(fs.readFileSync('src/app/globals.css', 'utf8')
     .replace('@import "tailwindcss";', '@import "tailwindcss" source(none);\n@source "./(admin)";\n@source "../client/ui/components";'), { from: path.resolve('src/app/globals.css') });
-const browser = await chromium.launch({ executablePath: '/usr/bin/google-chrome', headless: true,
+const browser = await chromium.launch({ executablePath: process.env.SD_CHROME || '/usr/bin/google-chrome', headless: true,
     args: ['--no-sandbox', '--disable-background-networking'] });
 let jobs = [{ jobId: 'job', moduleId: 'fixture', phase: 'recovery-required', candidateVersion: '1.0.0', possibleWrite: true, outcomes: { a: { state: 'confirmed' } } }];
 const preview = { id: 'exact-plan', artifactDigest: 'sha256:' + 'a'.repeat(64), candidateVersion: '1.0.0', expiresAt: Date.now() + 900_000,
@@ -36,6 +37,7 @@ const preview = { id: 'exact-plan', artifactDigest: 'sha256:' + 'a'.repeat(64), 
 let expired = false; const requests = [];
 let unavailable = false;
 let diagnosticsAvailable = true;
+let bootstrapDiagnostic = null;
 const migration = { moduleId: 'fixture', title: 'Controlled module', source: 'managed', version: '1.0.0', selectedSource: true,
     activeWorld: true, world: { worldId: 'controlled-world', title: 'Controlled world', systemId: 'fixture' }, scopeKey: 'controlled-revision',
     catalogDeclared: true, state: 'required', label: 'Migration required', reason: 'Fresh checks propose changes.', checked: 1, proposedWrites: 1,
@@ -43,6 +45,10 @@ const migration = { moduleId: 'fixture', title: 'Controlled module', source: 'ma
 const errors = [];
 try {
     for (const width of [320, 390, 820, 1440]) for (const theme of ['light', 'dark']) {
+        let orphans = [{ sceneId: 'scene-id', sceneName: 'Old chapel', tokenId: 'token-id', tokenName: 'Forgotten skeleton', actorId: 'missing-id', review: 'exact-review' }];
+        orphans.push({ ...orphans[0], tokenId: 'second-token', tokenName: 'Fallen guard', review: 'second-review' });
+        orphans.push({ ...orphans[0], sceneId: 'tower', sceneName: 'Tower', tokenId: 'third-token', tokenName: 'Rubble', review: 'third-review' });
+        let deletions = 0; let partial = false;
         const page = await browser.newPage({ viewport: { width, height: 900 } }); page.on('pageerror', error => { errors.push(error.message); console.error('Rendered fixture:', error.message); });
         await page.route('**/*', async route => {
             const request = route.request(); const url = new URL(request.url());
@@ -51,20 +57,88 @@ try {
             if (url.pathname.endsWith('/auth/me')) return route.fulfill({ json: { adminId: 'admin', csrfToken: 'csrf' } });
             if (url.pathname.endsWith('/auth/status')) return route.fulfill({ json: { accountExists: true } });
             if (url.pathname.endsWith('/auth/logout')) return route.fulfill({ json: { success: true } });
-            if (expired) return route.fulfill({ status: 401, json: { error: 'expired' } });
+            // Exercise expiry on the requested preview, not a racing background poll.
+            if (expired && url.pathname.endsWith('/preview')) return route.fulfill({ status: 401, json: { error: 'expired' } });
+            if (url.pathname.endsWith('/world-cleanup/orphan-tokens')) return route.fulfill({ json: { tokens: orphans } });
+            if (url.pathname.endsWith('/world-cleanup/orphan-tokens/delete')) {
+                assert.equal(request.method(), 'POST'); assert.equal(request.postDataJSON().confirmed, true);
+                const selected = request.postDataJSON().tokens; assert.equal(selected.length, 2);
+                assert.deepEqual(selected.map(row => row.review), partial ? ['second-review', 'third-review'] : ['exact-review', 'second-review']);
+                deletions++;
+                const results = selected.map((row, index) => ({ sceneId: row.sceneId, tokenId: row.tokenId, state: partial && index ? 'unconfirmed' : 'deleted', ...(partial && index ? { reason: 'Readback unavailable. No automatic retry.' } : {}) }));
+                orphans = orphans.filter(row => !results.some(result => result.tokenId === row.tokenId && result.state === 'deleted'));
+                migration.scopeKey += '-own-delete';
+                await page.getByRole('button', { name: 'Refresh fixture status' }).evaluate(button => button.click());
+                await new Promise(resolve => setTimeout(resolve, 100));
+                return route.fulfill({ json: { results } });
+            }
             if (url.pathname.endsWith('/module-migrations')) return unavailable ? route.fulfill({ status: 503, json: { error: 'Controlled status unavailable' } })
                 : route.fulfill({ json: { generatedAt: Date.now(), revision: migration.scopeKey, sources: [migration], active: migration, maintenance: null } });
-            if (url.pathname.endsWith('/module-upgrades')) return route.fulfill({ json: { jobs, serviceAccountDiagnostic: null, compatibilityDiagnostic: diagnosticsAvailable ? { moduleId: 'fixture', phase: 'source-check', blockers: ['Controlled source requires maintenance'], remediation: 'Preview exact world repair.' } : null } });
+            if (url.pathname.endsWith('/module-upgrades')) return route.fulfill({ json: { jobs, serviceAccountDiagnostic: null, bootstrapDiagnostic, compatibilityDiagnostic: diagnosticsAvailable ? { moduleId: 'fixture', phase: 'source-check', blockers: ['Controlled source requires maintenance'], remediation: 'Preview exact world repair.' } : null } });
             if (url.pathname.endsWith('/preview') || url.pathname.endsWith('/review')) return route.fulfill({ json: preview });
             if (url.pathname.endsWith('/cancel')) { jobs[0].phase = 'recovery-required'; return route.fulfill({ json: jobs[0] }); }
             if (url.pathname.endsWith('/cleanup')) { jobs[0].retainedFiles = 'cleaned'; return route.fulfill({ json: jobs[0] }); }
             return route.fulfill({ json: { accepted: true } });
         });
         await page.goto('http://127.0.0.1:31998/');
+        const cleanup = page.getByRole('region', { name: 'Optional scene cleanup' });
+        await cleanup.locator('summary').click();
+        await cleanup.getByText('Forgotten skeleton', { exact: true }).waitFor();
+        assert.equal(await cleanup.getByText('Scene: Old chapel', { exact: true }).count(), 2);
+        assert.equal((await cleanup.textContent()).includes('missing-id'), false, 'routine UI uses names, not raw IDs');
+        await cleanup.getByRole('button', { name: 'Review deletion' }).first().click();
+        const orphanDialog = page.getByRole('dialog', { name: 'Delete orphaned token?' });
+        await orphanDialog.waitFor(); assert.equal(deletions, 0);
+        for (let i = 0; i < 5; i++) await page.keyboard.press('Tab');
+        assert.ok(await orphanDialog.evaluate(element => element.contains(document.activeElement)), 'cleanup confirmation contains keyboard focus');
+        const orphanBounds = await orphanDialog.boundingBox(); assert.equal(orphanBounds.y, 0); assert.ok(orphanBounds.width <= width);
+        assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'cleanup has no horizontal overflow');
+        await page.screenshot({ path: path.join(output, `orphan-cleanup-${theme}-${width}.png`) });
+        await orphanDialog.getByRole('button', { name: 'Keep token' }).click();
+        assert.equal(deletions, 0, 'leaving the orphan unchanged is the default');
+        assert.equal(await page.evaluate(() => document.activeElement?.textContent), 'Review deletion');
+        if (width === 320 && theme === 'light') {
+            await cleanup.getByRole('button', { name: 'Review deletion' }).first().click();
+            migration.scopeKey = 'controlled-revision-changed';
+            await orphanDialog.waitFor({ state: 'detached', timeout: 10_000 });
+            assert.equal(deletions, 0, 'scope refresh retires the old confirmation');
+        }
+        if (!await cleanup.getByRole('button', { name: 'Select all', exact: true }).isVisible()) await cleanup.locator('summary').click();
+        await cleanup.getByRole('button', { name: 'Select all', exact: true }).click();
+        await cleanup.getByRole('button', { name: 'Review selected (3)', exact: true }).waitFor();
+        await cleanup.getByRole('button', { name: 'Clear selection', exact: true }).click();
+        assert.equal(await cleanup.getByRole('button', { name: 'Review selected (0)', exact: true }).isDisabled(), true);
+        partial = width === 390 && theme === 'dark';
+        await cleanup.getByRole('checkbox', { name: partial ? 'Select Rubble in Tower' : 'Select Forgotten skeleton in Old chapel', exact: true }).check();
+        await cleanup.getByRole('checkbox', { name: 'Select Fallen guard in Old chapel', exact: true }).check();
+        await cleanup.getByRole('button', { name: 'Review selected (2)', exact: true }).click();
+        const batchDialog = page.getByRole('dialog', { name: 'Delete 2 orphaned tokens?', exact: true });
+        await batchDialog.waitFor(); assert.equal(deletions, 0);
+        await page.screenshot({ path: path.join(output, `orphan-multiple-${theme}-${width}.png`) });
+        await batchDialog.getByRole('button', { name: 'Delete 2 tokens', exact: true }).click();
+        await cleanup.getByRole('status').filter({ hasText: `Deleted ${partial ? 1 : 2} of 2 selected tokens.` }).waitFor();
+        assert.equal(deletions, 1, 'one explicit submission survives its own source revisions without replay');
+        if (partial) await cleanup.getByText(/Rubble.*Tower: Deletion unconfirmed/).waitFor();
+        assert.equal(orphans.length, partial ? 2 : 1, 'unselected and unconfirmed tokens stay visible');
         await page.getByRole('button', { name: 'Check world data', exact: true }).click();
         await page.getByRole('region', { name: 'Module upgrade status' }).waitFor();
         const diagnostics = page.getByRole('region', { name: 'World preparation diagnostics' });
         await diagnostics.getByRole('button', { name: 'Retry world preparation' }).waitFor();
+        if (width === 320 && theme === 'light') {
+            diagnosticsAvailable = false;
+            bootstrapDiagnostic = { phase: 'primary-documents', reason: 'Controlled Scene read failed', remediation: 'Resolve the source then retry' };
+            await diagnostics.getByRole('button', { name: 'Refresh status', exact: true }).click();
+            await diagnostics.getByText('Controlled Scene read failed', { exact: true }).waitFor();
+            const retried = requests.filter(path => path.endsWith('/retry-context')).length;
+            await diagnostics.getByRole('button', { name: 'Retry world preparation', exact: true }).click();
+            await page.waitForFunction(() => ![...document.querySelectorAll('button')].find(el => el.textContent === 'Retry world preparation')?.disabled);
+            assert.equal(requests.filter(path => path.endsWith('/retry-context')).length, retried + 1);
+            await diagnostics.screenshot({ path: path.join(output, 'bootstrap-admin-diagnostic.png') });
+            diagnosticsAvailable = true; bootstrapDiagnostic = null;
+            await diagnostics.getByRole('button', { name: 'Refresh status', exact: true }).click();
+            await diagnostics.getByText('Controlled source requires maintenance', { exact: true }).waitFor();
+            assert.equal(await diagnostics.getByText('Controlled Scene read failed', { exact: true }).count(), 0);
+        }
         assert.equal(await diagnostics.getByText('1 confirmed target writes.', { exact: true }).count(), 0, 'Installed diagnostics do not include history');
         assert.equal(await page.getByRole('region', { name: 'Module upgrade status' }).getByRole('button', { name: 'Retry world preparation' }).count(), 0, 'history does not duplicate current diagnostics');
         await page.getByText('Proposed source paths', { exact: true }).click();

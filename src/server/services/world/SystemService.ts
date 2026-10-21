@@ -395,12 +395,15 @@ export class SystemService extends EventEmitter {
     /** Recovery uses the same readiness event/heartbeat boundary as bootstrap. */
     public async recoverOrBootstrap(): Promise<void> {
         if (!this.systemClient) throw new Error('SystemService not initialized');
-        await worldBootstrapper.recover(this.systemClient, {
+        const recovery = worldBootstrapper.recover(this.systemClient, {
             onReady: ({ systemId }) => {
                 this.worldTransportController?.startHeartbeat();
                 this.emit('world:ready', { systemId });
             },
         });
+        this.emit('system:status-update');
+        try { await recovery; }
+        finally { this.emit('system:status-update'); }
     }
 
     public getSystemClient(): CoreSocket {

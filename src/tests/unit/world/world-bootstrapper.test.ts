@@ -1,3 +1,5 @@
+import { worldWorkGate } from '@server/core/world/WorldWorkGate';
+import { bootstrapTimings } from '@server/services/world/bootstrapTimings';
 import { strict as assert } from 'node:assert';
 import {
     UnsupportedFoundryVersionError,
@@ -242,7 +244,9 @@ async function runBootstrapOrderingAndReadyCallback() {
     assert.equal(bootstrapper.isReady(), true);
     assert.equal(bootstrapper.getActiveAdapter(), initializingAdapter);
 
+    const completedOrder = [...order];
     const repeatedResult = await bootstrapper.bootstrap({} as any);
+    assert.deepEqual(order, completedOrder, 'ready-world requests perform no seeds, preparation or migration checks');
     assert.deepEqual(repeatedResult, { ready: true, systemId: 'SyntheticSystem' });
     assert.equal(initializeCalls, 1, 'idempotent bootstrap must not reinitialize the active adapter');
 }
@@ -496,6 +500,8 @@ async function runBootstrapFailureResetsForRetry() {
     assert.equal(bootstrapper.isReady(), false);
     assert.equal(readyCalls, 0);
     assert.deepEqual(teardownReasons, ['world-bootstrap-failed']);
+    assert.equal(bootstrapper.getBootstrapDiagnostic()?.phase, 'primary-documents');
+    assert.equal(bootstrapper.getBootstrapDiagnostic()?.reason, 'seed failed');
 
     await bootstrapper.bootstrap({} as any, {
         onReady: () => {
@@ -503,6 +509,7 @@ async function runBootstrapFailureResetsForRetry() {
         },
     });
 
+    assert.equal(bootstrapper.getBootstrapDiagnostic(), null, 'successful retry clears failed status');
     assert.equal(seedAttempts, 2);
     assert.equal(readyCalls, 1);
     assert.equal(bootstrapper.isReady(), true);
@@ -571,6 +578,7 @@ async function runTeardownSerializesReplacementBootstrap() {
     firstSeedGate.resolve();
 
     await assert.rejects(first, /superseded by a runtime teardown/);
+    assert.equal(bootstrapper.getBootstrapDiagnostic(), null, 'retired bootstrap failure cannot replace current world status');
     const result = await second;
 
     assert.deepEqual(result, { ready: true, systemId: 'world-b-system' });
@@ -740,9 +748,26 @@ async function runSameWorldRecoveryAndReplacement() {
     bootstrapper.reset('first-departure');
     bootstrapper.reset('duplicate-departure');
     assert.equal(bootstrapper.getRuntimeEpoch(), epoch + 1, 'duplicate departure does not advance epoch twice');
+    worldWorkGate.release('runtime-retired'); // Retire only this fixture's departure block.
+
 }
 
 export async function run() {
+    let clock = 0; const timingLogs: string[] = [];
+    const timing = bootstrapTimings('Bootstrap', 'snapshot', () => clock, row => timingLogs.push(row));
+    clock = 12.5; timing.phase('primary-documents');
+    clock = 20; timing.phase('preparation');
+    clock = 23; timing.finish('failed'); timing.finish('complete');
+    assert.deepEqual(timingLogs, [
+        'WorldBootstrapper | Bootstrap phase snapshot: 12.5ms',
+        'WorldBootstrapper | Bootstrap phase primary-documents: 7.5ms',
+        'WorldBootstrapper | Bootstrap phase preparation: 3.0ms',
+        'WorldBootstrapper | Bootstrap failed in 23.0ms (snapshot=12.5ms, primary-documents=7.5ms, preparation=3.0ms)',
+    ]);
+    const recoveryTiming = bootstrapTimings('Recovery', 'snapshot', () => clock, row => timingLogs.push(row));
+    clock = 40; recoveryTiming.finish('complete');
+    assert.match(timingLogs.at(-1)!, /Recovery complete in 17.0ms/);
+
     await runActiveAdapterLoadAndReuse();
     await runActiveAdapterClearAndReload();
     await runLoadFailureLeavesNoActiveAdapter();

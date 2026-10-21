@@ -1237,7 +1237,7 @@ details stay in server logs. Legitimate nonowner404 concealment remains unchange
 | `GET /api/module-world-context` | Authenticated, initialized, role-filtered immutable context; no raw Settings. |
 | `GET /admin/world/service-account` | Admin-only observed/required role and remediation. |
 | `GET /admin/module-migrations` | Admin-only, no-store current source/world status projection; metadata/evidence only, no hooks or full inventory scans. Available in restricted maintenance too. |
-| `GET /admin/module-upgrades[/:id]` | Owner-only durable job/target outcomes and bounded compatibility/context diagnostics; no-store. |
+| `GET /admin/module-upgrades[/:id]` | Owner-only durable job/target outcomes and bounded compatibility/context diagnostics; no-store. The list also includes admin-only `bootstrapDiagnostic` (phase, reason, remediation), or null. |
 | `POST /admin/module-upgrades/source/:moduleId/preview` | `{source: "local" or "managed",scopeKey?}`; isolated, read-only world plan; optional exact diagnostic scope checked before/after computation. No serving Store/context mutation. |
 | `GET /admin/module-upgrades/source/:moduleId/review?source=...&scopeKey=...` | Load the exact fresh cached advisory; no scan or source selection. Stale/missing/expired evidence returns409. |
 | `POST /admin/module-upgrades/source/apply` | Exact `planId`, `backupAcknowledged`; current admin principal; 202 accepted. |
@@ -1247,6 +1247,8 @@ details stay in server logs. Legitimate nonowner404 concealment remains unchange
 | `POST /admin/module-upgrades/:id/review` | Fresh expiring preview for a stopped job with changed/restored source. |
 | `POST /admin/module-upgrades/:id/reapprove` | Exact revised `planId`, `backupAcknowledged`; retains prior approvals/outcomes. |
 | `POST /admin/module-upgrades/:id/cleanup` | Completed jobs only; confined retained staging/package cleanup, not world data. |
+| `GET /admin/world-cleanup/orphan-tokens` | Admin-only, no-store named orphan Token reviews from current primary Stores; 503 when world preparation/authority is unavailable. No mutation. |
+| `POST /admin/world-cleanup/orphan-tokens/delete` | `{tokens:[{sceneId,tokenId,review}],confirmed:true}`; admin authentication, CSRF and audit. Selected Tokens are checked and deleted sequentially with fresh world/source/authority checks and Scene readback for each. Returns `{results:[{sceneId,tokenId,state,reason?}]}`; states are `deleted`, `not-deleted`, `unconfirmed` or `not-attempted`. First unsuccessful outcome stops the remaining selection; confirmed deletions remain. Invalid selection rejects before writes (409). Existing single-token payload remains supported with `{deleted:true}`. No automatic replay. Available only in ordinary prepared Core, not maintenance-only composition. |
 | `GET /admin/module-maintenance` | Admin-only durable composition, progress, failure, plain-language `migration` projection and exact review plan when available; no-store. |
 | `POST /admin/module-maintenance/enter` | Advisory `{planId}`; persists disruption consent, closes admission/drains/stops normal runtime; **no write approval**. |
 | `POST /admin/module-maintenance/plan` | Builds the complete authoritative review after isolation; approved jobs use reviewed recovery, never silent replanning. |

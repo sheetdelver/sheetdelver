@@ -170,6 +170,11 @@ export function createStatusService(deps: StatusServiceDeps) {
             // Suppress to preserve status endpoint behavior under partial world availability.
         }
 
+        // A connected Foundry world is not a successfully prepared SheetDelver world.
+        // Publish only the state; source identities and errors remain admin-only.
+        const preparationFailed = worldBootstrapper.getBootstrapDiagnostic() !== null;
+        if (preparationFailed && lifecycleState !== 'setup' && lifecycleState !== 'closed') system.status = 'unavailable';
+
         // Keep payload shape stable by always returning a sanitized user array.
         const sanitizedUsers = users?.length > 0
             ? users.map((u) => sanitizeUser(u, systemClient.url, systemClient.userId)) : [];
@@ -178,7 +183,7 @@ export function createStatusService(deps: StatusServiceDeps) {
         return {
             connected: systemClient.isConnected,
             worldId: worldStateStore.getCurrentWorldId(),
-            initialized: worldWorkGate.isOpen() && deps.foundryUserConnections.isCacheReady(),
+            initialized: !preparationFailed && worldWorkGate.isOpen() && deps.foundryUserConnections.isCacheReady(),
             maintenance: worldWorkGate.status(),
             runtimeToken: worldWorkGate.getServingToken(),
             // During setup/offline states, SetupManager's disk cache may be the

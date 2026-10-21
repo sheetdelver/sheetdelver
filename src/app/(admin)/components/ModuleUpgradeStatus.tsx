@@ -25,17 +25,19 @@ export default function ModuleUpgradeStatus({ diagnosticsOnly = false }: { diagn
     const [cancel, setCancel] = useState<Job | null>(null);
     const [review, setReview] = useState<(MigrationPreviewDetails & { job: Job; plan: MigrationPreviewDetails['plan'] & { blockers: string[] } }) | null>(null);
     const [cleanup, setCleanup] = useState<Job | null>(null);
+    const [bootstrapDiagnostic, setBootstrapDiagnostic] = useState<{ phase: string; reason: string; remediation: string } | null>(null);
     const [contextDiagnostic, setContextDiagnostic] = useState<{ remediation: string; pendingHook: boolean; revision: number | null } | null>(null);
     const [acknowledged, setAcknowledged] = useState(false);
     const reviewTrigger = useRef<HTMLElement | null>(null);
     const [compatibility, setCompatibility] = useState<{ moduleId: string; phase: string; blockers: string[]; remediation: string } | null>(null);
     const load = useCallback(async () => {
-        const result = await adminFetch<{ jobs: Job[]; serviceAccountDiagnostic: Diagnostic | null; compatibilityDiagnostic: typeof compatibility; contextDiagnostic: typeof contextDiagnostic }>('/module-upgrades');
+        const result = await adminFetch<{ jobs: Job[]; serviceAccountDiagnostic: Diagnostic | null; compatibilityDiagnostic: typeof compatibility; contextDiagnostic: typeof contextDiagnostic; bootstrapDiagnostic: typeof bootstrapDiagnostic }>('/module-upgrades');
         if (result.sessionExpired) { logout(); return; }
         if (!result.ok || !result.data) { setError(result.error ?? 'Upgrade status unavailable'); return; }
         setJobs(result.data.jobs); setDiagnostic(result.data.serviceAccountDiagnostic); setError(null);
         setCompatibility(result.data.compatibilityDiagnostic);
         setContextDiagnostic(result.data.contextDiagnostic ?? null);
+        setBootstrapDiagnostic(result.data.bootstrapDiagnostic ?? null);
     }, [logout]);
     useEffect(() => { void load(); }, [load]);
     const running = !diagnosticsOnly && jobs.some(job => !['completed', 'cancelled', 'recovery-required'].includes(job.phase));
@@ -71,7 +73,7 @@ export default function ModuleUpgradeStatus({ diagnosticsOnly = false }: { diagn
         else if (result.ok) { setReview(null); await load(); } else setError(result.error ?? 'Recovery approval failed');
         setBusy(false);
     };
-    if (diagnosticsOnly && !diagnostic && !error && !compatibility && !contextDiagnostic) return null;
+    if (diagnosticsOnly && !diagnostic && !error && !compatibility && !contextDiagnostic && !bootstrapDiagnostic) return null;
     return <section id={diagnosticsOnly ? undefined : 'module-upgrade-history'} className="admin-panel my-4 space-y-3 rounded-xl p-4" aria-label={diagnosticsOnly ? 'World preparation diagnostics' : 'Module upgrade status'}>
         <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="font-semibold">{diagnosticsOnly ? 'World preparation requires attention' : 'Migration job history'}</h2>
             <Button onClick={() => void load()} disabled={busy}>Refresh status</Button></div>
@@ -81,7 +83,8 @@ export default function ModuleUpgradeStatus({ diagnosticsOnly = false }: { diagn
         </div>}
         {error && <p role="alert" className="text-sm text-[var(--admin-danger-text)]">{error}</p>}
         {diagnosticsOnly && compatibility && <div role="alert" className="break-words text-sm"><p>{compatibility.moduleId}: compatibility diagnostic ({compatibility.phase}). See current world migration status above.</p><ul>{compatibility.blockers.map((reason, i) => <li key={i}>{reason}</li>)}</ul><p>{compatibility.remediation}</p></div>}
-        {diagnosticsOnly && (contextDiagnostic || compatibility) && <div className="space-y-2 text-sm">
+        {diagnosticsOnly && bootstrapDiagnostic && !compatibility && <div role="alert" className="break-words text-sm"><p>World preparation failed ({bootstrapDiagnostic.phase}).</p><p>{bootstrapDiagnostic.reason}</p><p>{bootstrapDiagnostic.remediation}</p></div>}
+        {diagnosticsOnly && (contextDiagnostic || compatibility || bootstrapDiagnostic) && <div className="space-y-2 text-sm">
             {contextDiagnostic && <p role="alert">World context revision {contextDiagnostic.revision}: {contextDiagnostic.remediation}</p>}
             <Button disabled={busy || contextDiagnostic?.pendingHook} onClick={async () => {
                 setBusy(true);

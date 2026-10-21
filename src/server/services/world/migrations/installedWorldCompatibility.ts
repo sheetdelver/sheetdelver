@@ -2,7 +2,7 @@ import { listModules } from '@modules/registry/server';
 import { discoverMigrations } from '@modules/registry/migrations/catalog';
 import { moduleWorldContext } from '../ModuleWorldContextService';
 import { worldWorkGate } from '@server/core/world/WorldWorkGate';
-import { computeWorldMigrations } from './compute';
+import { createCompatibilityCheck } from './compatibilityCache';
 import { migrationReason } from './planner';
 import { assertMigrationAuthority, assertMigrationReplacement, createHostUpgradeCoordinator, getUpgradeJournal, installedUpgradeCandidate, reconcileMigrationPreparation } from './ModuleUpgradeService';
 import { prepareSourceCandidate } from './sourceCandidates';
@@ -11,13 +11,14 @@ import { freshMigrationSnapshot } from './ModuleUpgradeService';
 import { sourceHash } from './planner';
 import { beginMigrationEvidence } from './migrationEvidence';
 import { migrationAttentionFrame, assertMigrationAttentionFrame } from './migrationAttention';
+import { logger } from '@shared/utils/logger';
 
 let diagnostic: { moduleId: string; worldId?: string; phase: string; blockers: string[]; counts?: unknown; remediation: string } | null = null;
 let requestMaintenance: ((moduleId: string, directory: string, local: boolean) => Promise<void>) | undefined;
 export function setCompatibilityMaintenanceHandler(handler: typeof requestMaintenance): void { requestMaintenance = handler; }
 export function getMigrationCompatibilityDiagnostic() { return diagnostic; }
 
-/** Fresh required checks run even when local job history says completed. No implicit repair approval. */
+/** Fresh sources are required even after completed jobs; identical successful hook results may be reused. No implicit repair approval. */
 export async function checkInstalledWorldCompatibility(systemId: string, prepare: () => Promise<void> = async () => {}, options: { readOnlyPreparation?: boolean } = {}): Promise<void> {
     const entry = listModules({ includeExperimental: true, includeDisabled: true }).find(entry => entry.info.id === systemId || entry.info.aliases?.includes(systemId));
     if (!entry) { await prepare(); return; }
@@ -61,9 +62,12 @@ export async function checkInstalledWorldCompatibility(systemId: string, prepare
     if (!catalog) { phase = 'preparation'; await prepare(); worldWorkGate.release('migration-compatibility'); return; }
     worldWorkGate.block('migration-compatibility', { phase: 'blocked', message: 'World unavailable — maintenance required' });
     assertMigrationAuthority();
+    const compatibility = createCompatibilityCheck(root, catalog, { directory: entry.directory, local, info: entry.info });
     phase = 'source-check';
+    const started = Date.now();
     const source = await freshMigrationSnapshot(catalog);
-    const plan = await computeWorldMigrations(root, catalog, source.world, source.targets, true);
+    const { plan, reused } = await compatibility.check(source);
+    logger.info(`WorldBootstrapper | Migration source check: ${plan.checked} targets, ${reused ? 'reused successful hook checks' : 'computed hook checks'}, ${Date.now() - started}ms`);
     source.assertCurrent();
     if (plan.blockers.length) { classified = true; observation?.finish({ state: plan.diagnostics?.some(row => catalog.steps.find(step => step.id === row.stepId)?.required) ? 'blocked' : 'required',
         reason: plan.blockers[0], checked: plan.checked, artifactDigest, catalogDigest: catalog.digest }, source.assertCurrent); }
@@ -77,7 +81,8 @@ export async function checkInstalledWorldCompatibility(systemId: string, prepare
     phase = 'post-preparation-source-check';
     const after = await freshMigrationSnapshot(catalog);
     if (sourceHash(source.targets) !== sourceHash(after.targets) || sourceHash(source.world.settings) !== sourceHash(after.world.settings)
-        || (await computeWorldMigrations(root, catalog, after.world, after.targets, true)).blockers.length) throw new Error('Source compatibility changed during preparation');
+        || (await compatibility.check(after)).plan.blockers.length) throw new Error('Source compatibility changed during preparation');
+    await compatibility.remember(after);
     after.assertCurrent();
     assertMigrationAuthority();
     worldWorkGate.release('migration-compatibility');
@@ -88,7 +93,7 @@ export async function checkInstalledWorldCompatibility(systemId: string, prepare
     } catch (error) {
         if (!classified) observation?.finish({ state: 'blocked', reason: migrationReason(error) });
         diagnostic ??= { moduleId: entry.info.id, phase, blockers: [migrationReason(error)],
-            remediation: 'Inspect the Core error log and module migration files, confirm the selected world is running, then retry world preparation. No repair is authorized by retrying.' };
+            remediation: 'Resolve the reported source or world problem, then retry world preparation. Retrying grants no new migration approval.' };
         throw error;
     } finally {
         // The bootstrap compiled copy is not an approved durable job artifact.

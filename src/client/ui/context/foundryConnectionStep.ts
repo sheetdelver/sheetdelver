@@ -7,7 +7,7 @@ interface DetermineConnectionStepOptions {
     isExplicitLogoutPending?: boolean;
 }
 
-type ConnectionStatusPayload = Pick<SystemStatusPayload, 'connected' | 'initialized' | 'system'>;
+type ConnectionStatusPayload = Pick<SystemStatusPayload, 'connected' | 'initialized' | 'system' | 'maintenance'>;
 
 export function determineConnectionStep(
     data: ConnectionStatusPayload,
@@ -19,11 +19,12 @@ export function determineConnectionStep(
     // Explicit Foundry Setup is a known no-world state, even if the Core
     // configuration has not yet resolved in this browser session.
     if (status === 'setup') return 'world-closed';
+    if (status === 'closed') return 'world-closed';
+    if (status === 'unavailable' || data.maintenance && !['initializing', 'refreshing'].includes(data.maintenance.phase)) return 'world-unavailable';
     if (!isConfigured) return 'setup';
 
     const worldTitle = data.system?.worldTitle;
 
-    if (status === 'closed') return 'world-closed';
     if (status === 'offline') return worldTitle ? 'startup' : 'initializing';
     if (status === 'startup') return 'startup';
 

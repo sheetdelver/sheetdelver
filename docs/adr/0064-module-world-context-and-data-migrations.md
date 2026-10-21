@@ -1,6 +1,6 @@
 # Core ADR-0064: Module World Context and Data Migrations
 
-**Status:** Completed — CR64-29 local module input inspection verified offline and accepted in the user's operator retest October 20, 2026, on the Core 0.19.4 baseline. The user authorized the local checkpoint; PR, merge and point-release publication remain user-owned. Earlier completed migration, operator-access and build-tracing work retains its original disposition. See the [CR64-29 amendment](#cr64-29-local-module-input-inspection--october-20-2026). SDK/API contracts and module artifacts are unchanged.
+**Status:** Implemented and operator-verified — CR64-30 corrections are accepted for a point-release checkpoint; merge/publication remain with the user. Proposed W1/W2 follow-ups remain separate. Earlier completed work, including CR64-29 released in Core 0.19.5, retains its disposition. This follow-up concerns failed bootstrap, unnecessary migration blockers and optional resource cleanup on Core 0.19.6.
 **Date:** October 16, 2026
 **Related:** Core ADR-0021, ADR-0027, ADR-0028, ADR-0038, ADR-0056, ADR-0057, ADR-0063; Shadowdark module ADR-0001
 
@@ -5132,3 +5132,356 @@ The user subsequently authorized committing this correction and will create the
 PR, merge into main and prepare a point release. The Unreleased changelog entry
 is ready; application and SDK version metadata remain unchanged for the release
 helper. Publication has not occurred in this slice.
+
+
+## CR64-30: Failed bootstrap, unnecessary blockers and optional cleanup — October 20, 2026
+
+### Report and confirmed cause
+
+Baseline: Core `10dd775e`, application 0.19.6, on the user-approved
+`fix/bootstrap-failure-state` branch. The user supplied a startup log and player
+and admin screenshots. Primary source seeding completed; required migration
+inventory enumeration then threw `Required unlinked-token delta/base Actor is
+unavailable`. Adapter initialization did not complete. The admin correctly
+reported a blocked source check and provided **Retry world preparation**, but a
+fresh player browser remained on **World Starting...** indefinitely.
+
+Core defects confirmed in this follow-up:
+
+1. `WorldBootstrapper` retained no explicit failed-bootstrap diagnostic for
+   status. `StatusService` continued projecting `startup`. The player boundary
+   rendered maintenance only for a previously mounted page, leaving a cold
+   browser on the loading view. This was a presentation gap even when Core's
+   admission gate correctly refused world operations.
+2. `enumerateMigrationTargets` combined missing/invalid `actorId`, absent base
+   Actor and missing/malformed delta into one error without a Scene/Token
+   identity. An operator could not identify or distinguish the source problem.
+
+3. After restarting with the precise diagnostic, the user identified
+   `Scene.tAwcol93iLDM4DIn.Token.DLRcGRFTEu30OIHD` referring to absent
+   `Actor.d5cDq0FUkyDBbSmX`. Foundry tolerates this orphan placement; Core incorrectly
+   treated it as a required migration target and blocked the entire world.
+4. Required world packs were rejected for being locked before any content check.
+   This blocked even a verified empty pack or a pack already satisfying the hooks.
+   A write lock is not evidence of incompatible content.
+5. A transport failure or malformed response while reading a module-declared
+   advisory pack was thrown as a global failure, unlike other advisory exclusions.
+   This unintentionally promoted optional work into a required startup blocker.
+
+The original log alone lacked the orphan identity. The later operator report and
+native source inspection establish that classification; they do not establish
+the token's display name, its full source or deletion authorization. No live data
+was read or repaired by the agent in this slice. The user's instruction explicitly
+allows leaving the token alone and offering optional admin cleanup.
+
+### Correction and boundaries
+
+- `WorldBootstrapper.getBootstrapDiagnostic()` records the owning bootstrap or
+  recovery failure. Reset/new attempt clears it; stale work cannot publish a
+  replacement world's failure. It contains phase, reason and remediation.
+- `StatusService` projects `system.status: unavailable` and `initialized: false`
+  for failed preparation. Public and authenticated player status omit the
+  diagnostic. Foundry Setup/Closed remains a distinct terminal state.
+- `determineConnectionStep` recognizes failed preparation and maintenance before
+  the generic startup fallback. Ordinary initializing/refreshing gates remain
+  transitional. `PlayerWorldBoundary` displays a static, centered notice for cold
+  and prior-ready pages. Maintenance says exactly **SheetDelver is in maintenance**
+  without a period, spinner, form or technical detail. Other failed preparation
+  says **SheetDelver is unavailable**. Prior-ready content remains inert.
+- Existing protected readiness still controls recovery. `SystemService` publishes
+  retry start/settlement status; no refresh, new login or replacement authority is
+  inferred from public status. Existing admin login/routing remains unchanged.
+- The existing authenticated `/module-upgrades` diagnostics and retry panel also
+  handle failures outside migration compatibility. Compatibility errors retain
+  their existing panel, avoiding duplicate error text.
+- Remaining token-source errors name the Token and Scene first, followed by the
+  canonical reference and invalid field. No source contents enter player status.
+
+Native reference: the local `temp/foundry-v13.mjs` and `temp/foundry-v14.mjs`
+snapshots' `BaseActorDelta.applyDelta` return `null` when `baseActor` is absent.
+`TokenDocument.baseActor` resolves `game.actors.get(actorId) ?? null`.
+`ActorDeltaField.initialize` also permits a lazy null delta for valid tokens.
+These are source inspections, not fresh native acceptance results. The maintained
+fixtures reproduce those relevant shapes on both generations.
+
+Core now preserves orphan Token source, including stored delta Items/effects,
+while excluding it from executable migration targets. Only complete fresh Actor
+reads establish absence. No native data is fabricated or changed, no Actor is
+created and no deletion occurs on startup/check. A restored base Actor causes
+fresh enumeration to include that delta again. Existing valid native null,
+unassociated token and tombstone semantics remain. Missing/malformed data on a
+live associated delta still needs resolution. Approved-source revision checks
+and full final inventory validation remain in force.
+
+Readable world-owned packs are enumerated even when locked. Hooks check and
+verify compatible documents normally. If changes are needed, Core-owned
+`MigrationSourceTarget.writeBlockedReason` stops planning a write and names the
+pack and required lock review. The field participates in target and inventory
+identity and survives the computation worker. Final native dispatch independently
+rechecks write authority/lock state. An unavailable lock Setting does not authorize
+a write. Package/system packs remain excluded from migration writes. This adds
+no public SDK field or version requirement.
+
+Failed or malformed **advisory-only** pack reads are reported as exclusions;
+required reads remain blockers. Invalid rows cannot be silently filtered into a
+successful empty inventory. A valid empty array is checked as empty. Required
+read dependencies remain required even when another step calls the pack advisory.
+Retry grants no new migration approval; approved-job recovery remains unchanged.
+
+### Optional orphan cleanup
+
+`src/server/services/world/OrphanTokenCleanup.ts` and
+`src/server/routes/admin/registerAdminCleanupRoutes.ts` provide admin-only
+listing and explicitly selected token deletion. **Modules → Installed → Optional scene cleanup**
+uses the existing Drawer and Button components and shows Token/Scene names.
+The routine list hides raw IDs. **Keep token** is a valid outcome and causes no
+write. Checkboxes, **Select all**, **Clear selection** and **Review selected**
+allow a group of placements to be reviewed together. Confirmation names every
+selected Token/Scene and explicitly confirms permanent removal of their stored data. Neither action is required to start the world.
+
+- Listing requires a prepared world, qualified service account and normal open
+  work gate. It reads the existing Core primary Stores; no extra world cache.
+- Confirmation is bound to process/connection/world, Scene, Token and exact
+  reviewed source. Fresh Scene and full Actor reads must still establish the
+  same orphan. Any source/revision, identity or admin-session change before send
+  rejects the action without a delete.
+- Existing admin account/authentication, CSRF, audit and normal world-work
+  mutation fencing apply. The route is not exposed in maintenance-only Core.
+  A duplicate in-flight confirmation is rejected.
+- The standard Token delete socket and confirmation ingress own persistence.
+  A fresh Scene read must confirm absence. Lost receipts never trigger automatic
+  replay; an unknown result asks for refreshed review or Foundry inspection.
+- Mounted UI retires old confirmation/data across world/session revision changes;
+  cancellation makes no request. Submitted multi-selection survives its own source
+  revision notifications long enough to report outcomes. Each selected token
+  receives independent fresh checks/readback, sequentially. First failure stops
+  the remainder; the response reports `deleted`, `not-deleted`, `unconfirmed` and
+  `not-attempted`. Confirmed deletes are not rolled back. There is no automatic
+  purge/retry or module-controlled cleanup authority.
+
+Foundry does not provide an atomic cross-document compare-and-delete contract.
+The fresh reads and immediate Core revision fence narrow that concurrency window;
+they are not a lock against a GM simultaneously editing Foundry. No claim of
+transactional rollback or native lockout is made.
+
+### Blocker audit and disposition
+
+This table supersedes the blanket assumption that any unavailable migration
+input should prevent world access. “Required” must describe usable content or an
+actual execution dependency, not a leftover placement or an inability to write
+already-compatible data.
+
+| ID / condition | Owning evidence | Decision / available action |
+| --- | --- | --- |
+| B01 Orphan Token, absent base Actor after complete fresh read | `migrations/targets.ts`, native `BaseActorDelta.applyDelta`, `OrphanTokenCleanup` | Implemented: nonblocking preservation/exclusion. Admin may keep it or review one deletion. No waiver needs storing because native rules establish ineligibility. Restoring the base restores eligibility. |
+| B02 Linked/unassociated Token, native lazy null delta, tombstone | `enumerateMigrationTargets`, `expandMigrationTargets` | Existing nonblocking semantics retained. No materialization, synthetic migration or cleanup needed. |
+| B03 Readable locked world pack, all checked data current (including empty pack) | `targets.ts:packIsWritableWorld`, `planner.ts:planWorldMigrations` | Implemented: run check/verify and allow readiness. Lock only prevents needed writes. No unlock or admin waiver needed. |
+| B04 Locked pack actually needing a required change | same paths; `migrationEnvelope` | Name the pack and ask for unlock/review. No silent omission. A future “exclude this pack from SheetDelver” action must also remove its content from every runtime access path; work package W1 below. |
+| B05 Declared advisory pack read/shape failure or advisory hook failure | `targets.ts:readPack`, planner required/advisory policy | Implemented: explicit exclusion rather than a global block. Required dependencies still win. Hook failures already follow required/advisory policy. |
+| B06 Required source read unavailable, unreadable required pack, unknown package provenance | `ModuleUpgradeService.ts:freshMigrationSnapshot`, `targets.ts` | Retry/repair access or provenance. No evidence of empty/orphaned data exists. A resource exclusion requires W1; a whole Actor/Scene read failure cannot be waived as though complete. Diagnostics should name the unavailable scope. |
+| B07 Invalid identity, malformed live delta, missing required relation or module check unresolved | `targets.ts:id`, `planner.ts:hookInput`, hooks | Preserve data; identify source and allow repair in Foundry. No automatic delete or guessed values. A general cleanup/ignore flow requires native eligibility plus runtime-consumer analysis for that resource type (W2). |
+| B08 No active world, non-full-GM account, changed world/connection, revoked administrator | `ModuleUpgradeService.ts:assertMigrationAuthority`, `WorldWorkGate`, admin route chain | Restore the required connection/authority. No waiver: an admin checkbox cannot create native read/write authority or make a different world the reviewed one. |
+| B09 Source/artifact/catalog changed since preview | `ModuleUpgradeCoordinator`, source candidates, revision stamps | Refresh/review exact changes. This is expired authorization, not proof of broken world data. Existing zero-write cancellation/review remains available; no reuse of stale approval. |
+| B10 Unconfirmed/partial write, active journal missing/corrupt, interrupted publication | coordinator, `UpgradeJournal`, recovery | Existing inspected recovery/cancellation with durable drain/readback. Do not suppress uncertainty or mark work complete by waiver. Optional orphan cleanup never clears a migration lease. |
+| B11 Unsupported native version/required chain, invalid declaration/path/digest | `modules/registry/migrations/catalog.ts` | Module/package correction or a supported release. Native content cannot safely be certified through a checkbox. Preserve current documented compatibility instead of claiming untested parity. |
+| B12 Local checkout reports/temp files trip inspection bounds | CR64-29, source-input graph | Already corrected and operator-accepted; only actual imported/declared module inputs participate. No new hard-coded ignored folder or revived historical task. |
+
+The audit reviewed the current enumeration, planner, catalog, coordinator and
+authority code. It is not a claim that every possible module-defined blocker is
+classified, or that a new generic waiver engine has been implemented.
+
+### Remaining scoped exclusion work
+
+**W1 — Explicit pack exclusion (open; follow-up implementation, not shipped by
+this correction).** Give the admin a concrete alternative to unlocking an
+intentionally unavailable/incompatible world pack only when Core can enforce
+that decision throughout its own runtime. Required checkpoints:
+
+1. Trace the actual public discovery, compendium reads, canonical UUID resolver,
+   projections, module caches/context and builder/import/drag-drop consumers.
+   Identify any required module dependency on that pack. Do not assume an index
+   filter is sufficient.
+2. Define a Core-owned exclusion record bound to instance/world/module/source,
+   pack identity/provenance, source revision and affected migration catalog/steps.
+   It must record reason, admin, time and explicit confirmation; list/revoke it in
+   admin. A changed pack/world/catalog invalidates or requires renewed review.
+3. Apply the same exclusion to migration target eligibility and all runtime reads,
+   including warmed caches and direct UUID calls. Retire/refetch mounted consumers.
+   Embedded Actor Items already copied from the pack remain independent source
+   documents and must still be checked; do not remove them by provenance alone.
+4. Present the impact before confirmation, retain an “excluded from SheetDelver”
+   status distinct from “migrated”, and recheck before re-enabling. Block exclusion
+   when the adapter cannot function without the declared content/dependency.
+5. Verify restricted/GM callers, warmed cache/UUID bypass, restored data, reconnect,
+   required relations, cross-world isolation, preview retirement and reversal.
+   No Foundry source mutation is necessary for this exclusion itself.
+
+**W2 — Other disposable resources (investigation first).** Before offering delete
+or ignore for another source shape, establish native eligibility and current Core
+consumers, distinguish failed reads from known absence, and present named impact.
+Reuse the admin confirmation/audit pattern; preserve live Actors and embedded
+content. No other concrete harmless resource blocker was established in this
+pass beyond B01–B05, so no broader deletion control is inferred.
+
+These open work packages keep the requested broader waiver review visible. They
+do not hold the orphan correction or require deleting this user's token.
+
+### Verification and disposition
+
+Maintained regression coverage:
+
+| Test | Observable result |
+| --- | --- |
+| `src/tests/unit/world/world-bootstrapper.test.ts` | Failure phase/reason retained, successful retry clears it, stale teardown cannot replace the current diagnostic. |
+| `src/tests/unit/services/status-compatibility.test.ts` | Failed status is unavailable/uninitialized, retry transitions, and public/player projections exclude source diagnostics. |
+| `src/tests/unit/world/module-world-migrations.test.ts` | v13/v14 orphan preservation/exclusion, restored-base eligibility, named malformed live-source diagnostics; valid null delta/advisory behavior preserved. |
+| `src/tests/unit/world/orphan-token-cleanup.test.ts` | Named list, cancellation, exact deletion, restored/changed source rejection, revoked admin, unknown readback, lost receipt without replay, duplicate protection, real HTTP auth/CSRF/audit. |
+| `src/tests/integration/adr0064-g8.test.ts` | Actual Core bootstrap with v13/v14 wire fixtures preserves orphan data and reaches readiness; restored base re-enters checks; confirmed cleanup updates SceneStore through normal ingress. Worker-backed locked/current/empty/needed checks and advisory-vs-required failed reads. |
+| `src/tests/unit/client/foundry-state-helpers.test.ts` and `player-world-boundary-policy.test.ts` | Cold/warm failure, normal startup, terminal departure and recovery are distinct; retained page stays inert. |
+| `src/tests/integration/module-upgrade-boundaries.test.ts` | Actual bootstrap source failure precedes adapter load, repeated failed check writes nothing, and approved successful preparation retires the diagnostic. |
+| `src/tests/acceptance/player-startup-assets.mjs` | Actual player providers, Socket.IO, protected readiness and boundary: cold startup-to-failure, reload while blocked, no spinner/form/technical detail, four widths/two appearances, generic failure, successful retry without page reload, warm failure with inert content. Original restoration/style checks retained. |
+| `src/tests/acceptance/adr0064-rendered.mjs` | Actual admin diagnostics/retry and cleanup: named review, keyboard/focus, cancellation, one explicit delete, old confirmation retired by scope refresh, four widths/two themes. |
+
+Final command results are recorded below. Browser tests use
+an isolated loopback server and controlled HTTP/socket sources, not Foundry.
+Native fixture shapes do not replace an operator retest on the reported world.
+No application/SDK version changes, module edits, commits, remote operations or
+operator-service restarts are part of this slice.
+
+Operator checkpoint: restart Core with this branch and use **Retry world
+preparation** if needed. The reported orphan must no longer prevent startup.
+Inspect **Optional scene cleanup** for the named placement; keeping it is valid.
+The agent has not deleted it or claimed a fresh native cleanup test. Any different
+remaining blocker must be classified using the table, not hidden by a global
+override. CR64-30 operator acceptance and W1/W2 remain explicitly open; earlier
+ADR-0064 closeouts retain their historical scope.
+
+### Final isolated verification — October 20
+
+- `npm run test:unit`: passed, including the client suite and cleanup HTTP guards.
+- `npm run test:integration`: passed, including actual bootstrap/dispatch/ingress,
+  26 corrective cases, 27 complete-maintenance cases, 10 migration-status cases,
+  and extended G8 orphan/lock/advisory coverage.
+- `node --import tsx src/tests/unit/world/orphan-token-cleanup.test.ts`: passed
+  after the final strict Actor/embedded-token readback validation. Malformed
+  responses cannot establish absence or deletion success.
+- `node node_modules/typescript/bin/tsc --noEmit --incremental false`,
+  `npm run lint` and `git diff --check`: passed; final lint has no warnings.
+- `player-startup-assets.mjs`: 16 actual-provider/browser groups passed.
+  `adr0064-rendered.mjs`: actual admin controls passed at 320/390/820/1440 in
+  light/dark themes, including scope retirement, Keep token without a write,
+  explicit deletion and no clipping. Final desktop-dark and phone-light cleanup
+  screenshots were visually inspected; player failure screenshots were reviewed
+  during the initial startup correction.
+- Local Markdown target check: 71 links across changed tracked guides resolved.
+
+Browser harnesses require the existing external Playwright entry via
+`SD_PLAYWRIGHT_MODULE` and optionally `SD_CHROME`; no browser dependency was
+added to Core. Final capture directory: `/tmp/sd-cr64-rendered-g8rZTC`.
+The maintained tests and preceding contract description are authoritative for
+reproduction; temporary captures/logs are not application inputs.
+
+All task-owned test services stopped. No native Foundry connection, source
+mutation, operator-service restart, commit, version change or remote operation
+was performed. The operator restart/retry above remains the fresh-world acceptance
+checkpoint; this correction is not represented as released.
+
+
+### CR64-30 follow-up: selected cleanup and bootstrap cost — October 21
+
+The user requested multiple-token selection, reported slower bootstrap and asked
+for total bootstrap time in logs. The named cleanup workflow above now supports
+selected groups; it retains the original per-token freshness/authority checks.
+The API continues accepting single-token clients. Empty, malformed or duplicate
+selections reject before writes. Results survive ordinary revision refreshes;
+world/session replacement retires the old review. No agent native deletions occurred.
+
+Investigation found `WorldBootstrapper.bootstrap()` already returns immediately
+for an active ready world and coalesces concurrent startup requests. A browser
+reload and admin status polling do not initiate a full migration scan. Real
+startup and recovery do read native sources. `checkInstalledWorldCompatibility()`
+previously ran the worker-backed hooks before preparation **and again** after
+preparation, even when the authoritative inputs were identical. That duplicated
+computation is confirmed by source tracing; the old operator log had no timestamps,
+so it does not establish which phase dominated the user's measured delay.
+
+`src/server/services/world/migrations/compatibilityCache.ts` now:
+
+- Reuses a successful check within preparation for identical full inputs.
+- Stores the last successful result for a source/world under the configured data
+  directory's disposable `cache/migration-checks`. A new checker can reuse it after
+  freshly reading and hashing native sources; no Actor/Scene/pack contents are
+  persisted there. Small records contain a key, checked count, exclusions and digest.
+- Keys by Core version, cache format, installed source/manifest, complete resolved
+  catalog/hook digests, complete world identity (including runtime/context revision),
+  declared settings, all target/dependency contents and current exclusions.
+  Epoch/revision changes can therefore cause a miss even with unchanged documents:
+  those values are visible to hooks and are not silently normalized away.
+- Never caches blocked or diagnostic failures. Missing, malformed, oversized or
+  inaccessible cache data falls back to fresh computation. Cache IO is asynchronous
+  and failure to save it cannot turn compatible world data into a blocker.
+- Retains fresh pre/post-preparation native source reads, primary reconciliation,
+  final asynchronous freshness and full-GM checks. Restored legacy data triggers
+  checks and maintenance review. Pending approved jobs retain their existing
+  recovery path. The cache grants neither write authority nor a readiness exemption.
+- Keeps local development hook compilation and source inspection. This correction
+  does not claim to eliminate native IO, preparation, compilation or all startup cost.
+
+Cache format must change if check/verify semantics change within an unreleased
+Core version; release version changes also retire prior cached checks. Deleting
+this cache is harmless and must not be confused with deleting durable upgrade
+journals/leases. This supersedes historical language requiring repeated hook
+execution on identical inputs, while preserving the fresh-source restore check.
+
+`src/server/services/world/bootstrapTimings.ts` uses a monotonic clock. Startup
+and reconnect recovery log non-overlapping snapshot, compendium, primary-document,
+compatibility, preparation, final validation and publication segments, plus a
+total. Recovery includes pending context work. Failure, discarded stale work and
+world replacement report totals too. The migration source-check line separately
+reports target count, computed/reused hooks and elapsed milliseconds; it is part
+of the compatibility segment. These are server diagnostics; player startup UI
+and public SDK contracts are unchanged.
+
+Maintained verification for this follow-up:
+
+| Check | Observable result |
+| --- | --- |
+| `src/tests/unit/world/orphan-token-cleanup.test.ts` | Selected subset across Scenes, own revision increments, empty/duplicate rejection, partial success, failed readback, admin/world changes, no subsequent sends/replay, authenticated HTTP bulk results. |
+| `src/tests/acceptance/adr0064-rendered.mjs` | Select/clear/review/cancel, multiple named confirmation, exactly one explicit submission, own refresh while pending, partial outcome text, unselected tokens retained, keyboard/viewport checks at four widths in both themes. |
+| `src/tests/unit/world/migration-compatibility-cache.test.ts` | Worker-backed first check, in-run and persisted reuse, restored data, context/version/source/catalog changes, corruption, stale authority/source fences and cache IO fallback. |
+| `src/tests/integration/adr0064-g8.test.ts`, `compatibility-reuse` | Real installed compatibility path creates no new worker for unchanged subsequent checks; fresh native source reads continue; restored legacy source triggers a worker and blocks without writes. |
+| `src/tests/integration/adr0064-corrections.test.ts`, CR64-17 | Final asynchronous invalidation still prevents readiness, including storage waits now used by the cached path. |
+| `src/tests/unit/world/world-bootstrapper.test.ts` | Existing ready-world reuse starts no new work; monotonic phase accounting, total failure time and recovery completion time are checked. |
+
+Focused tests pass. The actual admin browser matrix passes; mobile-light and
+desktop-dark multi-token confirmation captures were inspected. Final full
+`npm run test:unit` (including client) and `npm run test:integration` pass,
+including 26 corrective, 27 complete-maintenance, 10 status and extended G8
+cases. TypeScript, lint (no warnings), whitespace and 71 local documentation
+links pass. A shared unit fixture initially retained its own departure gate;
+its teardown now releases that gate, without changing production admission. Operator restart/performance and native
+cleanup acceptance remain separate; no live performance gain is claimed. W1/W2
+remain proposed follow-ups, not implemented blanket waivers.
+
+
+No task-owned services remain. Changes are uncommitted on the approved branch;
+module repositories, version metadata, live Foundry data and operator services
+remain unchanged. Next operator startup will supply the real phase/total timings
+needed to attribute any remaining latency. No estimated speedup is a release or
+operator performance guarantee.
+
+
+### CR64-30 operator acceptance and commit checkpoint — October 21
+
+The user reported **“verified and working”** after the final bootstrap timing,
+check reuse and selectable cleanup changes, and authorized committing this work.
+This satisfies the pending operator review for this repair. It does not add a
+measured startup benchmark or establish which individual native deletion cases
+were exercised. The isolated validation results above remain the reproducible
+technical verification; no agent native mutation is claimed.
+
+The reviewed Core changes, tests, changelog and guides are included in this
+checkpoint on `fix/bootstrap-failure-state`. Core stays at 0.19.6 and SDK/API
+versions remain unchanged. The user owns the merge and point-release preparation.
+W1/W2 remain proposed follow-ups; they do not block this accepted correction.
+Earlier uncommitted/operator-pending statements describe their dated checkpoints.

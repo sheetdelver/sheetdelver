@@ -19,6 +19,7 @@ import { registerAdminAuthRoutes } from './registerAdminAuthRoutes';
 import { registerAdminStatusRoutes } from './registerAdminStatusRoutes';
 import { registerAdminWorldRoutes } from './registerAdminWorldRoutes';
 import { registerAdminModuleRoutes } from './registerAdminModuleRoutes';
+import { registerAdminCleanupRoutes } from './registerAdminCleanupRoutes';
 import { registerAdminUpgradeRoutes } from './registerAdminUpgradeRoutes';
 import { adminSessionManager } from '@server/security/adminSessionService';
 import { worldBootstrapper } from '@server/services/world';
@@ -101,6 +102,8 @@ export function createAdminRouter(deps: AdminRouterDeps) {
         adminRouter.get('/status', requireAdminAccountExists, requireAdminAuth, async (_req, res) => res.json(await deps.getSystemStatusPayload()));
         return adminRouter;
     }
+
+    registerAdminCleanupRoutes(adminRouter, requireAdminAccountExists);
 
     registerAdminStatusRoutes({
         adminRouter,

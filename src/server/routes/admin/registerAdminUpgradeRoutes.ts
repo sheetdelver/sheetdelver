@@ -57,7 +57,7 @@ export function registerAdminUpgradeRoutes(router: express.Router, account: expr
     });
     router.get('/module-upgrades', account, requireAdminAuth, async (_req, res) => {
         res.setHeader('Cache-Control', 'no-store');
-        try { res.json({ jobs: (await getUpgradeJournal().jobs()).map(upgradeReview), serviceAccountDiagnostic: serviceAccountAuthority.getDiagnostic(), compatibilityDiagnostic: getMigrationCompatibilityDiagnostic(), contextDiagnostic: worldBootstrapper.getContextRefreshDiagnostic() }); }
+        try { res.json({ jobs: (await getUpgradeJournal().jobs()).map(upgradeReview), serviceAccountDiagnostic: serviceAccountAuthority.getDiagnostic(), compatibilityDiagnostic: getMigrationCompatibilityDiagnostic(), contextDiagnostic: worldBootstrapper.getContextRefreshDiagnostic(), bootstrapDiagnostic: worldBootstrapper.getBootstrapDiagnostic() }); }
         catch { res.status(503).json({ error: 'Upgrade journal is unreadable. Preserve config/module-upgrades and inspect its owner-only records before restarting.', code: 'upgrade-journal-unreadable' }); }
     });
     router.post('/module-upgrades/retry-context', account, requireAdminAuth, requireAdminCsrf, auditAdminAction, async (_req, res) => {

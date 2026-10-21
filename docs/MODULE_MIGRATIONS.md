@@ -60,8 +60,10 @@ The current correction uses native v13/v14 lock precedence: the world's
 `core.compendiumConfiguration[packId].locked` overrides the package-ownership
 default. A verified world pack defaults unlocked; system/module packs remain
 excluded from migration writes even when unlocked. `metadata.locked` is not the
-native override. Unavailable/malformed configuration or unresolved ownership
-blocks required work. Package envelopes supply provenance and world namespaces;
+native override. Unresolved ownership blocks required enumeration. Locked packs
+and packs with unavailable lock configuration can still be read and checked:
+compatible contents pass; needed changes require a verified unlock before writes.
+Package envelopes supply provenance and world namespaces;
 a `world.` prefix or hydrated read cache alone never proves write permission.
 Live snapshots and final dispatch retain lock/authority/revision fencing; no
 automatic unlock, required-target omission or approval change is introduced.
@@ -392,6 +394,27 @@ readiness. Every bootstrap/replacing recovery checks actual fresh sources even i
 a job was completed: external restores/new legacy documents cannot borrow an old
 completion exemption. Startup can resume an approved job, not approve new repairs.
 
+Ordinary page reloads reuse the active prepared world; status polling does not
+perform migration scans. Actual startup/recovery still reads fresh native sources.
+Core caches successful check/verify computation in `<DATA_DIR>/cache/migration-checks`
+and reuses it only when the full source inventory, dependencies, settings, world
+identity (including revisions), module/hook declarations, Core version and cache
+format match. Unchanged post-preparation inputs reuse the same check. Restored
+legacy data or changed inputs run fresh checks. Failed checks are not cached;
+a missing, corrupt or unwritable cache falls back to computation. This cache is
+neither readiness nor approval, and can be removed without losing job history.
+Local development hook compilation and fresh source reads still occur at actual
+startup. No native-runtime latency improvement is assumed from isolated tests.
+
+`WorldBootstrapper` logs monotonic total bootstrap/recovery elapsed time and
+non-overlapping phase durations: snapshot, compendiums, primary documents,
+compatibility, adapter/Actor preparation, post-preparation validation and
+publication. Recovery also includes waiting for existing context work. Failed,
+discarded and replaced attempts report their elapsed time too. The migration
+source-check line identifies computed versus reused hook checks and elapsed time;
+that duration is included in the compatibility phase, not additional time.
+
+
 A regressed partial job requires **Review changed source**, then a new exact plan
 and backup acknowledgement. It keeps the original job/lease and historical write
 outcomes; it does not quietly reinterpret the old approval. Retained files have no
@@ -415,13 +438,36 @@ a non-secret runtime token; stale clients must reload before new mutations.
 Even null-to-first activation retires an already-observed browser. Its old code
 retains its old mutation header until reload; it cannot adopt replacement authority.
 
-Restricted targets include world Actors/Items/effects, explicit unlinked ActorDelta
-data and unlocked world-owned Actor/Item packs. Shared bases are enumerated once;
+Restricted write targets include world Actors/Items/effects, explicit unlinked ActorDelta
+data and unlocked world-owned Actor/Item packs. Readable locked world packs are
+checked too; a lock alone is not a compatibility failure. Shared bases are enumerated once;
 tombstones remain tombstones and no full synthetic Actor is written into a delta.
 Native unlinked tokens can store `delta: null`: with a valid base Actor, there are
 no persisted overrides to migrate. Core skips that empty delta without creating
-one. Tokens with no Actor association are also skipped; broken Actor references
-and malformed stored deltas still block required enumeration.
+one. Tokens with no Actor association are also skipped. A Token whose referenced
+Actor is absent from a complete fresh Actor read is inert in native Foundry:
+Core leaves its stored data unchanged and excludes it from migration targets.
+It does not block startup. A later restored Actor makes that Token eligible
+again. Failed/incomplete Actor reads are not proof of an orphan. Malformed live
+delta sources still require resolution. Diagnostics use Token/Scene names first,
+with canonical references for investigation. A failed bootstrap shows a static player notice; detailed
+failure and **Retry world preparation** remain in the existing admin Installed
+view. Retrying grants no new migration approval (ADR-0064 CR64-30).
+**Modules → Installed → Optional scene cleanup** lists orphan tokens after world
+preparation. Keeping them is allowed. Select one or multiple named tokens, review
+the selected list, and confirm permanent removal. Each token is checked and deleted
+sequentially. A failed or uncertain outcome stops the remaining selection and
+reports confirmed deletions, unconfirmed results and tokens not attempted. Core rechecks fresh Scene/Actor sources,
+world identity, administrator authority and the normal mutation gate before
+dispatch, and confirms absence by a fresh read afterward. An uncertain response
+never causes automatic replay. This is an admin action, not a migration hook or
+module permission. No token is deleted merely by checking or starting the world.
+
+Declared advisory pack read failures are reported as exclusions. Required pack
+reads still need to succeed; unreadable is not equivalent to empty. Core does not
+offer a generic “mark migration complete” override. ADR-0064 CR64-30 records the
+blocker audit and the separate requirements for a future explicit content
+exclusion that also prevents normal use of incompatible content.
 System/package packs are not unlocked or migrated. Pack receipts remain outside
 primary world Stores. Native13.351 and14.367 target/readback acceptance passes
 for the controlled scope recorded in the ADR; module-specific hooks still require

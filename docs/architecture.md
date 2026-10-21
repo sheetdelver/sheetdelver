@@ -123,6 +123,13 @@ without duplicating validation or changing maintenance admission (CR64-28).
 2. Primary document seeding through `PrimaryDocumentCacheCoordinator.seedAll()`.
 3. Active module adapter initialization.
 
+A failed bootstrap/recovery is projected as `system.status: unavailable` with
+`initialized: false`, rather than an endless startup. The owning bootstrapper
+retains an admin-only phase/reason/remediation; reset or a new attempt retires it.
+The existing admin world-preparation panel provides diagnosis and retry. Player
+pages show a static maintenance/unavailable notice without diagnostic details;
+protected readiness remains necessary to resume. See ADR-0064 CR64-30.
+
 Per ADR-0022 and ADR-0023, `SystemService` lives at `src/server/services/world/SystemService.ts` (relocated from `core/system/`) so the orchestration facade sits alongside `WorldBootstrapper`, `WorldTransportController`, `FoundryEventIngress`, and `EngagementService`. `core/` never imports `services/`.
 
 For actors, the platform performs one system-client fetch during bootstrap, seeds `ActorStore`, and then keeps that store in parity through Foundry event ingress (`modifyDocument` results and broadcasts). Actor API reads and dashboard card projections should read from this platform cache; they should not repeatedly ask Foundry to rehydrate the same actor list.
@@ -548,9 +555,19 @@ module permissions, raw Setting exposure or module-local UI copies were added.
 
 CR64-23 centralizes native lock precedence in the existing pack policy: verified
 world ownership plus absent configuration defaults unlocked; explicit locks and
-unknown identity/configuration stay blocked. Package-envelope provenance is
+unknown lock configuration prohibit writes. CR64-30 allows read/check/verify of
+readable locked packs, so compatible contents do not block readiness. Unknown
+package ownership still requires resolution. Package-envelope provenance is
 preserved at compendium seeding, including world-scoped manifest names, avoiding
 phantom system packs. Migration snapshots and final writes share that authority.
+CR64-30 also follows native ActorDelta eligibility: a Token referencing an absent
+Actor is preserved but has no synthetic Actor to migrate. Fresh full Actor reads
+establish absence; restored bases restore eligibility. Admin-only optional cleanup
+uses the existing document socket/ingress and authenticated, CSRF-protected route
+chain, with exact review, immediate source rechecks and outcome readback. Admins
+can select multiple placements; sequential per-token results preserve confirmed
+deletions and stop remaining work after an unsuccessful outcome. It does
+not add module transport access, startup deletion or a blanket migration waiver.
 CR64-24 fingerprints access dependencies privately in the existing world-context
 service; ownership-only changes advance and publish its revision after prepared
 refresh, including empty visible key lists. Reconnect reconciliation uses the same
@@ -594,8 +611,19 @@ retain their original whole-artifact identity. See
 [the source-inspection amendment](adr/0064-module-world-context-and-data-migrations.md#cr64-29-local-module-input-inspection--october-20-2026).
 
 Adapter initialization remains read-only and ordinary SDK writes remain caller-
-bound. Every bootstrap checks actual data readiness despite completed journal
-entries;
+bound. An already-ready world is reused for ordinary page/bootstrap requests.
+Actual startup/recovery still checks fresh native source identity despite completed
+journal entries. `migrations/compatibilityCache.ts` reuses successful deterministic
+hook computation only for identical complete inputs, including catalog/hook digests,
+world identity/revisions, settings, target dependencies and Core/cache versions.
+The disposable cache contains hashes, counts and exclusion messages, not source
+documents, write plans or approvals. Final asynchronous revision/authority checks
+remain mandatory. Missing/corrupt cache falls back to computation.
+`bootstrapTimings.ts` logs monotonic total/phase elapsed times for bootstrap and
+recovery, including failed/discarded/replaced attempts; cached ready-world requests
+start no new timer or migration scan. A source-check log identifies reuse versus
+computation. Local hook compilation/native reads still have costs;
+
 an external restore can block the world for admin maintenance. Startup can resume
 an approved job, but cannot initiate new repairs. SettingStore, SceneStore,
 CoreSocket and prepared Stores remain the authoritative building blocks. Maintenance must keep

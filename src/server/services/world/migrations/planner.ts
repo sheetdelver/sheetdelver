@@ -4,6 +4,7 @@ import type { MigrationCheckResult, MigrationPlanResult, MigrationTarget, Migrat
 import type { ModuleWorldSnapshot } from '@shared/sdk/world';
 import { createMigrationHookRunner } from './hooks';
 import { deepMerge } from '@server/core/documents/primary/base/PrimaryDocumentStore';
+import type { MigrationSourceTarget } from './targets';
 
 export interface PlannedMigrationTarget {
     stepId: string;
@@ -141,17 +142,17 @@ export function migrationInputHashes(world: Readonly<ModuleWorldSnapshot>, targe
     const related = [...(input.relations?.ancestors ?? []), input.relations?.parent, input.relations?.baseActor].filter((row): row is MigrationTarget => !!row);
     return Object.fromEntries([target, ...input.references, ...related.map(row => index(sources).get(row.uuid)!)].map(row => [row.uuid, migrationTargetHash(row)]));
 }
-export function migrationTargetHash(target: MigrationTarget): string {
+export function migrationTargetHash(target: MigrationSourceTarget): string {
     return sourceHash({ kind: target.kind, pack: target.pack ?? null, baseActorUuid: target.baseActorUuid ?? null,
-        readOnly: target.readOnly ?? false, source: targetSourceHash(target.source) });
+        readOnly: target.readOnly ?? false, ...(target.writeBlockedReason ? { writeBlockedReason: target.writeBlockedReason } : {}), source: targetSourceHash(target.source) });
 }
-export function planWorldMigrations(root: string, catalog: ResolvedMigrationCatalog, world: Readonly<ModuleWorldSnapshot>, sources: MigrationTarget[], checkOnly = false, scopeExclusions: string[] = [], progress?: (value: { checked: number; total: number; planned: number; stepId: string; discovered: number; remaining: number; phase: string }) => void): MigrationWorldPlan {
+export function planWorldMigrations(root: string, catalog: ResolvedMigrationCatalog, world: Readonly<ModuleWorldSnapshot>, sources: MigrationSourceTarget[], checkOnly = false, scopeExclusions: string[] = [], progress?: (value: { checked: number; total: number; planned: number; stepId: string; discovered: number; remaining: number; phase: string }) => void): MigrationWorldPlan {
     const steps = applicableMigrationSteps(catalog, world.identity.systemVersion, world.identity.foundryGeneration);
     const operations: PlannedMigrationTarget[] = [];
     const blockers: string[] = [];
     const exclusions: string[] = [...scopeExclusions];
     for (const step of catalog.steps) if (!step.required && !step.foundryGenerations.includes(world.identity.foundryGeneration as 13 | 14)) exclusions.push(`${step.id}: advisory step unsupported on this Foundry generation`);
-    if (steps.some(step => step.targets.includes('WorldPack'))) exclusions.push('System/package packs are intentionally excluded; only declared unlocked world-owned Actor/Item packs are eligible.');
+    if (steps.some(step => step.targets.includes('WorldPack'))) exclusions.push('System/package packs are intentionally excluded. Readable world-owned Actor/Item packs are checked; only unlocked packs can be written.');
     let checked = 0;
     const diagnostics: MigrationDiagnostic[] = [];
     const total = steps.reduce((sum, step) => sum + sources.filter(target => !target.readOnly && (target.pack ? step.targets.includes('WorldPack') : step.targets.includes(target.kind))).length, 0);
@@ -173,6 +174,7 @@ export function planWorldMigrations(root: string, catalog: ResolvedMigrationCata
                 if (verified.valid !== true) throw new Error(verified.reason || 'Current source postcondition failed');
                 continue;
             }
+            if (target.writeBlockedReason) throw new Error(target.writeBlockedReason);
             if (checkOnly) { (step.required ? blockers : exclusions).push(`${step.id}: ${target.uuid}: maintenance required${check.reason ? `: ${migrationReason(check.reason)}` : ''}`); continue; }
             phase = 'plan';
             const plan = run<MigrationPlanResult>(step, 'plan', hookInput(world, target, simulated, step));
