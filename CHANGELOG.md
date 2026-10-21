@@ -1,6 +1,6 @@
 # Releases
 
-## Unreleased
+## 0.19.8
 - Reuse merge validation checks
 
 ## 0.19.7
