@@ -187,7 +187,7 @@ export class WorldBootstrapper {
             moduleWorldContext.configure((transportUrl()), {
                 worldId: data.world!.id!, systemId: data.system!.id!.toLowerCase(), systemVersion: data.system?.version ?? '',
                 foundryGeneration: data.release?.generation ?? 0, foundryBuild: String(data.release?.build ?? ''), runtimeEpoch: epoch,
-            }, info?.worldSettings);
+            }, info?.worldSettings, data);
         });
         this.checkDataCompatibility = deps.checkDataCompatibility ?? (async (systemId, prepare) => {
             const { checkInstalledWorldCompatibility } = await import('./migrations/installedWorldCompatibility');

@@ -53,6 +53,13 @@ export function run() {
     bus.detach(); bus.attach(socket as any);
     socket.emit('worldContextChanged', { revision: 18, keys: [] });
     assert.deepEqual(contexts, [{ revision: 17, keys: [] }, { revision: 18, keys: [] }]);
+    const packages: number[] = [];
+    const offPackages = bus.on('world:packagesChanged', event => packages.push(event.revision));
+    socket.emit('worldPackagesChanged', { revision: 1 });
+    bus.detach(); bus.attach(socket as any);
+    socket.emit('worldPackagesChanged', { revision: 2 });
+    offPackages(); socket.emit('worldPackagesChanged', { revision: 3 });
+    assert.deepEqual(packages, [1, 2]);
 
     // Unsubscribe stops delivery.
     offChange();

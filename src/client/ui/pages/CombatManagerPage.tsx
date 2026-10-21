@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import Link from 'next/link';
+import { DisplayArtwork } from '@client/ui/components/DisplayArtwork';
 import { Swords, UserRound } from 'lucide-react';
 import { useWorldBackground } from '@client/ui/main/hooks/useWorldBackground';
 import { useFoundry } from '@client/ui/context/FoundryContext';
@@ -1001,8 +1002,8 @@ export default function CombatManagerPage() {
                                 <span className="w-10 text-center font-mono text-lg">{row.initiative ?? '—'}</span>
                                 <span className="sd-ui-inset flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg"
                                     aria-hidden="true">
-                                    {row.img ? <img src={row.img} alt="" className="h-full w-full object-cover" />
-                                        : <UserRound className="sd-ui-muted h-5 w-5" />}
+                                    <DisplayArtwork src={row.img} actorId={row.actorId} combatId={encounter.id} combatantId={row.id}
+                                        purpose="combat-portrait" className="h-full w-full object-cover" fallback={<UserRound className="sd-ui-muted h-5 w-5" />} />
                                 </span>
                                 <span className="min-w-0 flex-1">
                                     <span className="flex flex-wrap items-center gap-1.5">

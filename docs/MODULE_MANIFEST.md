@@ -963,3 +963,20 @@ identity: Core validates the SDK's non-wire brand, Error/code and400–599 statu
 across supported managed JS loaders. Existing archives need no rewriting. These
 implementation fixes are not present in releasedCore0.19.1; the actual supporting
 point release remains a later, separately approved publication.
+
+### Optional native package/artwork contracts
+
+SDK3.5.0/module-api1.7.0 adds `packages`/`artwork` runtime capabilities;
+ui-extension-api3.3.0 adds package discovery hook/event support. Modules requiring
+these features declare those minimum API ranges. Optional consumers may retain
+their current ranges with feature detection and original-image fallback. No
+`info.json` list of premium/art packages is required: native bootstrap discovery
+and caller-readable pack metadata supply availability. Presence is not permission
+to read content or redistribute assets. See [ADR-0067](adr/0067-foundry-package-context-and-artwork.md).
+
+The same SDK3.5.0/module-api1.7.0 addition includes optional
+`SystemAdapter.resolveDisplayArtwork`. Implementation of the method is the
+opt-in; there is no new manifest field or mandatory native-art package list.
+`display-artwork` capability detection reports host support only. See the
+[authoring contract](MODULE_AUTHORING.md#let-core-surfaces-use-module-owned-display-artwork)
+for required versus optional compatibility, supported surfaces and examples.

@@ -213,6 +213,10 @@ export interface CompendiumPackReader {
 export interface ModuleRuntime {
     /** Host-backed immutable native world settings; old epoch handles fail closed. */
     world?: import('./world').ModuleWorldContext;
+    /** Native Foundry package metadata. Present from module-api 1.7. */
+    packages?: import('./packages').FoundryPackageContext;
+    /** Optional installed compendium art; caller-bound on request runtimes. */
+    artwork?: import('./packages').CompendiumArtworkReader;
     /** The unique identifier of the module. */
     moduleId: string;
     /** Namespaced logger for the module. */

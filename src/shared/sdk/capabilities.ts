@@ -16,6 +16,9 @@ export const SDK_CAPABILITIES = [
     'combat',      // Combat is a primary document (document:changed { type: 'Combat' })
     'settings',    // useModuleSettings
     'assets',      // assetUrl()
+    'foundry-packages', // runtime.packages / useFoundryPackages()
+    'display-artwork', // optional module-owned display policy hook
+    'compendium-artwork', // caller-bound runtime.artwork.resolve()
     'navigation',  // navigate() / replace()
     'dashboard-actions', // Core-rendered tool links and module dialog launchers
     'notification-lifecycle', // useSDK notification handles, updates and dismissal

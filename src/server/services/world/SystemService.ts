@@ -1,3 +1,4 @@
+import { moduleWorldContext } from './ModuleWorldContextService';
 import { EventEmitter } from 'node:events';
 import { CoreSocket } from '@server/core/foundry/sockets/CoreSocket';
 import { FoundryConfig } from '@server/core/foundry/types';
@@ -276,6 +277,7 @@ export class SystemService extends EventEmitter {
         // SettingStore resolves that type-level policy into the server-only
         // audience carried by each invalidation hint.
         settingStore.on('documentChanged', (event: DocumentChangedEvent) => {
+            moduleWorldContext.packages.refreshPreferences();
             void worldBootstrapper.refreshWorldContext().catch(() => {
                 logger.error('SystemService | World rule refresh failed; world work remains gated.');
             });

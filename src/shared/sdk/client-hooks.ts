@@ -1,5 +1,40 @@
 import { createElement, Fragment, useCallback, useEffect, useMemo, useSyncExternalStore, useState } from 'react';
 import type { ModuleWorldSnapshot, WorldSettingResult } from './world';
+import type { FoundryPackageSnapshot } from './packages';
+
+/** Caller-filtered native package discovery. Presence never grants content access. */
+export function useFoundryPackages(): Readonly<FoundryPackageSnapshot> {
+    const { events, fetchWithAuth, worldId, moduleId, currentUser, isConnected } = useSDK();
+    const userId = currentUser?.id;
+    const role = currentUser?.role;
+    const scope = JSON.stringify([worldId, moduleId, userId, role, isConnected]);
+    const [state, setState] = useState<{ scope: string; snapshot: FoundryPackageSnapshot } | null>(null);
+    useEffect(() => {
+        let generation = 0;
+        let retired = false;
+        let controller: AbortController | undefined;
+        const refresh = async () => {
+            const request = ++generation;
+            controller?.abort(); controller = new AbortController();
+            setState(null);
+            if (!worldId || !userId || !isConnected) return;
+            try {
+                const response = await fetchWithAuth('/api/module-packages', { cache: 'no-store', signal: controller.signal });
+                if (!response.ok) throw Error('Package context unavailable');
+                const snapshot = await response.json() as FoundryPackageSnapshot;
+                if (!snapshot || !['ready', 'unavailable'].includes(snapshot.status)) throw Error('Invalid package context');
+                if (retired || request !== generation || snapshot.status === 'ready' && snapshot.worldId !== worldId) return;
+                setState({ scope, snapshot });
+            } catch { if (!retired && request === generation) setState(null); }
+        };
+        void refresh();
+        const disposers = [events.on('world:packagesChanged', () => { void refresh(); }),
+            events.on('world:contextChanged', () => { void refresh(); }), events.on('world:ready', () => { void refresh(); }),
+            events.on('world:teardown', () => { generation++; controller?.abort(); setState(null); })];
+        return () => { retired = true; generation++; controller?.abort(); disposers.forEach(dispose => dispose()); };
+    }, [scope, events, fetchWithAuth, worldId, userId, role, isConnected]);
+    return state?.scope === scope ? state.snapshot : { status: 'unavailable', reason: 'not-ready' };
+}
 
 /** Authorized host snapshot; no localStorage defaults or native Setting documents. */
 export function useWorldSetting(key: string): { result: WorldSettingResult; revision: number | null } {

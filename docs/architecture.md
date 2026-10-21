@@ -675,3 +675,37 @@ lockfile-based SBOM; module version changes still use the pinned packager becaus
 identity and a validation baseline. Source, dependency, configuration, workflow
 or unknown input changes run full checks. Runtime behavior and SDK contracts are
 unaffected; see [releasing](RELEASING.md) for fallback and operator steps.
+
+## Native package context and artwork (ADR-0067)
+
+`FoundryPackageService`, owned by `ModuleWorldContextService`, derives allowlisted
+package metadata from the accepted bootstrap envelope. Discovery performs no new
+transport or filesystem work. Lazy, bounded mapping assets and artwork preference
+revisions are separate from rules preparation and migration readiness. Request
+runtimes replace adapter-level package/art handles with current caller visibility;
+late results recheck scope and access. Source documents and prepared stores remain
+unchanged. See [ADR-0067](adr/0067-foundry-package-context-and-artwork.md) for the
+contract, native provenance, deliberate limits and verification.
+
+The optional adapter `resolveDisplayArtwork` policy runs over authorized frozen
+source context through a separate no-store display endpoint. It is not a prepared
+Actor transform. Core's manager/HUD images render their existing source immediately;
+`DisplayArtworkService` and the mounted `DisplayArtwork` consumer govern bounded
+optional resolution, late-result retirement and image fallback. Module-specific
+default detection and mechanism selection remain in the module. Dashboard
+`getActorCardData` remains unchanged. See the ADR-0067 combat addendum and authoring
+coverage table for current host surfaces and authorization boundaries.
+
+### Encounter-copy artwork correction
+
+Operator review exposed the Compendium-copy path omitted by the first installed
+artwork fixture: `CombatManagerService.addPackActor` deliberately strips native
+`_stats` and records the exact origin in its encounter-copy marker. The initial
+hook looked only at native origins and therefore declined those copies. Core now
+projects optional `DisplayArtworkContext.compendiumSourceUuid`, after verifying
+Actor access, copy registration, matching encounter and folder, and a typed Actor
+UUID. Shadowdark consumes this public field before native origins. Custom images
+and pack permissions retain precedence. No names, private module imports, source
+repairs or additional startup work are introduced. Existing copies can resolve
+without recreation. Regression coverage includes the real public copy writer and
+Core restart; the earlier world-Actor test alone did not verify this workflow.

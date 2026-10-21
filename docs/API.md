@@ -1344,3 +1344,46 @@ failed/unknown required compatibility holds world readiness with an unavailable
 client message and admin-only maintenance reason. Job apply includes acknowledgement
 that SheetDelver provides no world backup/restore or migration undo and recommends
 backing up through Foundry first. Native-user lockout is outside this contract.
+
+## Native packages and artwork
+
+SDK3.5.0/module-api1.7.0 provides optional `runtime.packages.snapshot()` and
+`runtime.artwork.resolve(uuid, kind)`; UI3.3.0 provides `useFoundryPackages()` and
+`world:packagesChanged`. Authenticated GET `/api/module-packages` returns a ready
+world snapshot or an unavailable reason. GET `/api/module-artwork?uuid=<canonical
+Compendium UUID>&kind=image|token` returns resolved `{src, packageId, credit?}`,
+none, or unavailable with a reason. Invalid argument shapes receive400; existing
+authentication/readiness gates apply. Both responses use no-store.
+
+Request/browser pack lists and artwork reads use current caller pack visibility.
+No raw manifests/settings, arbitrary URL fetch or filesystem paths are exposed.
+Discovery is not content authorization; artwork resolution is not document
+existence validation. Read the source through the authorized document API first.
+[ADR-0067](adr/0067-foundry-package-context-and-artwork.md) specifies lifecycle,
+asset bounds and native compatibility limits.
+
+### Module-owned display artwork
+
+`SystemAdapter.resolveDisplayArtwork(context, runtime)` optionally returns
+`{src, credit?}` or null. Core supplies frozen caller-readable source Actor and
+current image provenance with a narrowed read-only runtime and abort signal.
+This generic policy hook may use the compendium resolver or module-owned assets.
+See the typed example and full lifecycle/access contract in
+[MODULE_AUTHORING](MODULE_AUTHORING.md#let-core-surfaces-use-module-owned-display-artwork).
+
+Authenticated no-store GET `/api/display-artwork` accepts `purpose=actor-card`
+with `actorId`, or `purpose=combat-portrait|combat-token` with `combatId` and
+`combatantId`. It accepts no browser-provided image or source document. Invalid
+shapes receive400; session middleware and existing readiness apply. Unauthorized,
+absent or failed optional artwork returns `{status:'none'}` without disclosing
+hidden documents. A resolved response contains `{status:'resolved',src,credit?,
+original}`; `original` is the expanded image URL used to reject stale browser rows.
+Manager targets require GM/Assistant and readable Actors; HUD targets respect
+hidden/unstarted redaction plus Actor read access. Hook results never mutate
+native documents. Current consumers: manager roster and HUD; dashboard unchanged.
+
+The display-artwork hook context includes optional `compendiumSourceUuid` for
+verified encounter-owned Actor copies. It is derived from current copy-marker,
+encounter registration and folder agreement, never a browser-supplied identity.
+It does not grant source-pack access or rewrite native Actor metadata. Modules
+should prefer it over native origin fields for these copies.

@@ -411,6 +411,11 @@ export interface SystemAdapter {
     getCompendiumPackConfig?(): CompendiumPackConfig;
     /** Build a dashboard projection from the current prepared Actor revision. */
     getActorCardData?(actor: PreparedActorData): ActorCardData;
+    /** Optional caller-bound display override. Null preserves the existing image.
+     * Must not use the privileged initialize() runtime or mutate source data.
+     */
+    resolveDisplayArtwork?(context: Readonly<import('./displayArtwork').DisplayArtworkContext>,
+        runtime: import('./displayArtwork').DisplayArtworkRuntime): Promise<import('./displayArtwork').DisplayArtworkResult | null>;
     computeActorData?(actor: ActorSheetData): Record<string, unknown>;
     categorizeItems?(actor: ActorSheetData): Record<string, FoundryItem[]>;
     /** Resolve a roll from the same prepared Actor revision used by cards and sheets. */

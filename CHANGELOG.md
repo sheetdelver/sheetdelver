@@ -1,5 +1,10 @@
 # Releases
 
+## Unreleased
+- Expose native package context
+- Resolve optional compendium artwork
+- Support module-selected combat artwork
+
 ## 0.19.8
 - Reuse merge validation checks
 

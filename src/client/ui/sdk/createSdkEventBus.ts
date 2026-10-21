@@ -116,6 +116,7 @@ export function createSdkEventBus(): SdkEventBus {
         bind('worldContextChanged', payload => emit('world:contextChanged', {
             revision: Number(payload.revision), keys: Array.isArray(payload.keys) ? payload.keys.filter((key): key is string => typeof key === 'string') : [],
         }));
+        bind('worldPackagesChanged', payload => emit('world:packagesChanged', { revision: Number(payload.revision) }));
         for (const [event, type] of Object.entries(LIST_INVALIDATED_EVENTS)) {
             bind(event, (payload) => emit('document:listInvalidated', {
                 type,

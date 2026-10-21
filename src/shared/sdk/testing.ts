@@ -23,12 +23,15 @@ import type { SDKContextValue, SDKComponentsValue } from './react';
 import type { ClientDocumentSource, DocumentSnapshot } from './client-documents';
 import type { SdkEvents, SdkSignal, SdkSignalHandler, SdkSignalPayloads } from './events';
 import { freezeWorldValue, type ModuleWorldSnapshot } from './world';
+import type { FoundryPackageSnapshot, CompendiumArtworkResult } from './packages';
 
 type Doc = Record<string, unknown>;
 type DocSeed = Record<string, Record<string, Doc>>; // type -> id -> document
 
 export interface MockRuntimeOptions {
     world?: ModuleWorldSnapshot;
+    packages?: FoundryPackageSnapshot;
+    artwork?: Record<string, CompendiumArtworkResult>;
     moduleId?: string;
     foundryUrl?: string;
     /** Seed documents: `{ Actor: { a1: {...} } }`. */
@@ -122,6 +125,8 @@ export function createMockModuleRuntime(opts: MockRuntimeOptions = {}): ModuleRe
         world: { snapshot: () => world, settings: { get: key => world.settings[key] ?? { status: 'unavailable', reason: 'undeclared' } },
             assertRevision: revision => { if (revision !== world.identity.contextRevision) throw new Error('World context changed'); } },
         foundryUrl: opts.foundryUrl ?? 'http://localhost:30000',
+        packages: { snapshot: () => freezeWorldValue(structuredClone(opts.packages ?? { status: 'unavailable', reason: 'not-ready' })) },
+        artwork: { resolve: async uuid => structuredClone(opts.artwork?.[uuid] ?? { status: 'none' }) },
         logger: { debug() {}, info() {}, warn() {}, error() {} },
         dataStore: {
             async get(key) { return (data.has(key) ? data.get(key) : null) as never; },

@@ -185,10 +185,14 @@ export async function createModuleRuntime(moduleId: string): Promise<ModuleRunti
         import('@server/services/documents'),
     ]);
     const documentResolver = new DocumentResolver({ allowLiveCompendiumUuidFallback: false });
+    const world = moduleWorldContext.handle();
+    const packages = moduleWorldContext.packages.handle(world);
 
     return {
         moduleId: canonicalId,
-        world: moduleWorldContext.handle(),
+        world,
+        packages,
+        artwork: packages,
         logger: createModuleLogger(moduleId),
         foundryUrl,
         dataStore,
