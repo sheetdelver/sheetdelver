@@ -13,8 +13,8 @@ type Ready = { title: string; reference: CompendiumReferenceIdentity; model: unk
 type Open = { scope: string; provider: CompendiumReferenceViewer; ready?: Ready; message?: string };
 
 /** Optional original-source card. Neither discovery nor loading gates combat. */
-export function CompendiumReferenceLink({ combatId, combatantId, actorId, selectionKey }: {
-    combatId: string; combatantId: string; actorId: string | null; selectionKey: string;
+export function CompendiumReferenceLink({ combatId, combatantId, actorId, selectionKey, className }: {
+    combatId: string; combatantId: string; actorId: string | null; selectionKey: string; className?: string;
 }) {
     const { currentUser, worldId, system, step, appSocket, activeUIModule } = useFoundry();
     const provider = activeUIModule?.info.id === system?.id ? activeUIModule?.referenceViews?.Actor : undefined;
@@ -83,7 +83,7 @@ export function CompendiumReferenceLink({ combatId, combatantId, actorId, select
     const ready = open?.scope === scope && open.provider === provider ? open.ready : undefined;
     const message = open?.scope !== scope || open.provider !== provider ? 'This reference is no longer current.' : open.message;
     return <>
-        {available?.scope === scope && available.provider === provider && <button type="button" className="sd-ui-accent px-2 py-1 text-xs underline" onClick={() => void show()}>View reference</button>}
+        {available?.scope === scope && available.provider === provider && <button type="button" className={className ?? 'sd-ui-accent px-2 py-1 text-xs underline'} onClick={() => void show()}>View reference</button>}
         {open && createPortal(<SurfaceHost moduleId={system?.id ?? undefined} surface="compendiumReference">
             <RollDialogFrame title={ready?.title ?? 'Compendium reference'} theme={open.provider.dialog} onClose={close} dialogRef={panel} layer={160} footer={null}>
                 {ready ? <SurfaceHost key={`${scope}:${ready.reference.uuid}`} moduleId={system?.id ?? undefined} surface="referenceContent"

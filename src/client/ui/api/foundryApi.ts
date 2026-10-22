@@ -245,9 +245,10 @@ export function postManagedInitiativeBatch(combatId: string, scope: CombatManage
 }
 
 export function postManagedInitiativeOne(combatId: string, combatantId: string,
-    advantageMode?: 'advantage' | 'disadvantage'): Promise<CombatManagerInitiativeBatchDto> {
+    advantageMode?: 'normal' | 'advantage' | 'disadvantage',
+    observed?: CombatInitiativeRequestBody['observed']): Promise<CombatManagerInitiativeBatchDto> {
     return requestJson(`/api/combat-manager/${combatId}/combatants/${combatantId}/roll-initiative`,
-        { method: 'POST', body: advantageMode ? { advantageMode } : {} });
+        { method: 'POST', body: { ...(advantageMode ? { advantageMode } : {}), ...(observed ? { observed } : {}) } });
 }
 
 export function postManagedInitiativeReset(combatId: string): Promise<CombatManagerInitiativeResetDto> {

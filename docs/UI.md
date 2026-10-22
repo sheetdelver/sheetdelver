@@ -212,6 +212,18 @@ keeps encounter navigation and participant content. Open/Close player initiative
 is pre-start only; visible, unrolled owners can roll automatically while a
 started encounter is active. End my turn remains a separate encounter setting.
 
+The selected participant heading contains Remove participant and either a PC
+sheet link or an available NPC reference button. Native Player/character/pc types
+receive sheet links; ownership alone is insufficient. Reference buttons no longer
+add a line to roster rows. Portraits fill row identity height, and the Actor picker
+includes thumbnails and expands into the desktop column's available height.
+Single-row Roll/Reroll opens the shared initiative dialog for a manual final total,
+normal, advantage or disadvantage. Unsupported die modes are hidden. The dialog
+uses the server-resolved formula and retires when its observed context changes;
+separate advantage/disadvantage buttons no longer occupy the detail footer.
+
+The combat HUD’s Sheet/Base sheet link navigates in the current tab.
+
 ADR-0063 refinements: Actor/tool navigation uses normal flow below the HUD;
 modules do not reserve a guessed HUD height. My character defaults to the
 visible owned current turn, then an actionable owned initiative target, then

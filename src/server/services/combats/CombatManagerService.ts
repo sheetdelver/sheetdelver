@@ -299,6 +299,7 @@ function projectEncounter(combat: CombatDocument, client: CombatClientLike,
         return {
             id: row.id,
             actorId: row.actorId || '',
+            actorType: actor?.type ?? null,
             source,
             isNpc: actor ? !hasPlayerOwner(actor) : false,
             name: row.name || actor?.name || 'Unknown actor',
@@ -314,7 +315,7 @@ function projectEncounter(combat: CombatDocument, client: CombatClientLike,
             effects: effectLabels(actor),
             stats: projectCombatStatFields(actor && row.actorId ? preparedActorStore.get(row.actorId) : null, attributes, actor,
                 { foundryBaseUrl: client.resolveUrl('/'), excludeUnrevealedSecrets: false }),
-            initiativeRoll: { source: initiative?.source ?? 'core', rollAvailable: initiative?.rollAvailable ?? false,
+            initiativeRoll: { formula: initiative?.formula ?? '', source: initiative?.source ?? 'core', rollAvailable: initiative?.rollAvailable ?? false,
                 advantageAvailable: initiative?.advantageAvailable ?? false },
         };
     });

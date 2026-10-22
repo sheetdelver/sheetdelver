@@ -733,3 +733,11 @@ tracker projections and write revalidation: explicit pre-start opening, automati
 visible/unrolled owner eligibility after Begin while active. Existing command
 guards and caller/source checks remain authoritative. No module rules, SDK
 extension, cache or migration is added.
+
+ADR-0069 roster follow-up keeps native Actor type separate from ownership-based
+NPC classification. The manager consumes authorized participant images and the
+optional original-source viewer. Its single-row initiative dialog consumes the
+server-resolved formula; normal/advantage/disadvantage still execute through the
+existing caller-bound roll service with observed score/formula checks. Manual
+entry retains expected-score updates. No module-specific transport or rules are
+introduced by the presentation change.

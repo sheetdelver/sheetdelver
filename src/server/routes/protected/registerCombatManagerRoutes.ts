@@ -111,12 +111,18 @@ export function registerCombatManagerRoutes(router: express.Router): void {
     router.post('/combat-manager/:id/combatants/:combatantId/roll-initiative', async (req, res) => {
         try {
             const mode = req.body?.advantageMode;
+            const observed = req.body?.observed;
             if (mode !== undefined && !['normal', 'advantage', 'disadvantage'].includes(mode)) {
                 return res.status(400).json({ error: 'Invalid initiative mode' });
             }
+            if (observed !== undefined && (!observed || typeof observed !== 'object'
+                || !(observed.initiative === null || (typeof observed.initiative === 'number' && Number.isFinite(observed.initiative)))
+                || typeof observed.formula !== 'string' || observed.formula.length > 4096)) {
+                return res.status(400).json({ error: 'Invalid initiative observation' });
+            }
             res.json(await combatManagerService.rollInitiativeOne(req.foundryClient, req.params.id,
                 req.params.combatantId, combatantId => combatService.rollInitiative(req.foundryClient,
-                    req.params.id, combatantId, { advantageMode: mode }, true)));
+                    req.params.id, combatantId, { advantageMode: mode, observed }, true)));
         } catch (error) { handleError(error, res); }
     });
     router.post('/combat-manager/:id/reset-initiative', async (req, res) => {

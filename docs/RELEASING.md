@@ -10,6 +10,22 @@ matching `CHANGELOG.md` heading supplies the GitHub Release notes. SDK and
 named API contract versions remain independent and are maintained in
 `src/shared/sdk/contractVersions.ts`.
 
+## Pending feature release: Core 0.20.0
+
+ADR-0067/0068/0069 are closed for their selected implementation scope. The
+recommended next Core release is0.20.0, carrying SDK3.5.0, module-api1.7.0 and
+ui-extension-api3.3.0; roll-engine-api remains1.0.0. These are already the canonical
+contract constants, not another SDK bump to perform during tagging. Root package
+and lock remain0.19.8 until the release helper runs after merge.
+
+Publish Core before merging/running the updated Shadowdark release workflow:
+Shadowdark's next manifest and both CI fingerprints require Core0.20.0 and its
+new module/UI APIs. The toolchain checkout is pinned to v0.20.0. Until that tag
+exists, remote module CI is not ready; the current0.19.8 development checkout
+also fails the raised module Core floor. Do not bypass compatibility or alter
+runtime version reporting to label that install successful. Existing optional
+native-art absence/failure fallback remains supported on a compatible host.
+
 ## Prepare the Release
 
 After the feature is merged, check out and update `main`. No release branch is

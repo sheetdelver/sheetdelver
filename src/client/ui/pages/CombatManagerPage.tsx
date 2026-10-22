@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import Link from 'next/link';
+import { createPortal } from 'react-dom';
+import InitiativeRollDialog from '@client/ui/components/InitiativeRollDialog';
 import { CombatManagerDialog } from './CombatManagerDialog';
 import { CompendiumReferenceLink } from '@client/ui/components/CompendiumReferenceLink';
 import { DisplayArtwork } from '@client/ui/components/DisplayArtwork';
@@ -21,6 +23,7 @@ import { combatManagerNameKey } from '@shared/contracts/combatManager';
 import { isSafeCombatStatPath, parseCombatStatSelection } from '@shared/contracts/combatStatAttributes';
 import { insertInitiativeAttribute } from './combatInitiativeDraft';
 import type {
+    CombatManagerParticipantDto,
     CombatManagerActorChoiceDto,
     CombatManagerActorSortFieldDto,
     CombatManagerActorSortRequest,
@@ -67,6 +70,18 @@ type ResourceEdit = {
 type StatEdit = ResourceEdit & { key: string };
 type InitiativeEdit = { combatantId: string; expectedValue: number | null; value: string; conflict?: boolean };
 
+function ActorThumbnail({ src }: { src: string | null }) {
+    const [failed, setFailed] = useState(false);
+    return <span className="sd-ui-inset flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded" aria-hidden="true">
+        {src && !failed
+            // Foundry assets are served through the existing authenticated image path.
+            ? <img src={src} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" onError={() => setFailed(true)} />
+            : <UserRound className="sd-ui-muted h-5 w-5" />}
+    </span>;
+}
+
+type InitiativePrompt = { scope: string; combatId: string; row: CombatManagerParticipantDto };
+
 export default function CombatManagerPage() {
     const { currentUser, step, appSocket, worldId, token, system } = useFoundry();
     const bgStyle = useWorldBackground();
@@ -90,6 +105,7 @@ export default function CombatManagerPage() {
     const [nameDirection, setNameDirection] = useState<CombatManagerSortDirection>('asc');
     const [actorSortFields, setActorSortFields] = useState<CombatManagerActorSortRequest['fields']>([]);
     const [loadingChoices, setLoadingChoices] = useState(false);
+    const [initiativePrompt, setInitiativePrompt] = useState<InitiativePrompt | null>(null);
     const [initiativeEdit, setInitiativeEdit] = useState<InitiativeEdit | null>(null);
     const [resourceEdit, setResourceEdit] = useState<ResourceEdit | null>(null);
     const [statEdit, setStatEdit] = useState<StatEdit | null>(null);
@@ -144,6 +160,7 @@ export default function CombatManagerPage() {
         // change. A transient same-world step must not clear its local state.
         refreshVersion.current += 1;
         setManagerDialog(null);
+        setInitiativePrompt(null);
         setEncounters([]);
         setSelectedId('');
         setSelectedCombatantId('');
@@ -276,6 +293,16 @@ export default function CombatManagerPage() {
     const encounter = useMemo(() => encounters.find(row => row.id === selectedId) || null, [encounters, selectedId]);
     const selected = encounter?.participants.find(row => row.id === selectedCombatantId)
         || encounter?.participants[0] || null;
+    const initiativeScope = JSON.stringify([worldId, currentUser?._id || currentUser?.id, currentUser?.role, system?.id, token, step, selectedId]);
+    const promptRow = encounter?.participants.find(row => row.id === initiativePrompt?.row.id);
+    const promptCurrent = !!initiativePrompt && allowed && encounter?.status === 'active' && !encounter.deletionRequested
+        && initiativePrompt.scope === initiativeScope && selected?.id === initiativePrompt.row.id
+        && promptRow?.actorId === initiativePrompt.row.actorId && promptRow?.initiative === initiativePrompt.row.initiative
+        && promptRow?.hidden === initiativePrompt.row.hidden
+        && JSON.stringify(promptRow?.initiativeRoll) === JSON.stringify(initiativePrompt.row.initiativeRoll);
+    useEffect(() => { if (!promptCurrent) setInitiativePrompt(null); }, [promptCurrent]);
+    // Native PC types are distinct from player ownership (an owned monster is still an NPC).
+    const selectedHasSheet = ['player', 'character', 'pc'].includes(selected?.actorType?.toLowerCase() ?? '');
     const nameCollision = label.trim() !== '' && encounters.some(row =>
         combatManagerNameKey(row.label) === combatManagerNameKey(label));
     const renameCollision = renameDraft !== null && encounters.some(row => row.id !== renameDraft.combatId
@@ -679,7 +706,7 @@ export default function CombatManagerPage() {
                 </section>
 
                 <div className="grid gap-5 lg:grid-cols-[minmax(17rem,1fr)_minmax(20rem,2fr)]">
-                    {encounter.status === 'active' && <section className={panelClass}>
+                    {encounter.status === 'active' && <section className={`${panelClass} flex min-h-0 flex-col`}>
                         <div className="mb-4 flex items-center gap-3">
                             <h2 className="sd-ui-accent text-lg font-bold uppercase tracking-widest">Add participant</h2>
                             <div className="sd-ui-divider h-px flex-1 border-t" />
@@ -741,11 +768,12 @@ export default function CombatManagerPage() {
                                 onChange={event => setPackQuantity(event.target.value)} className={`w-24 ${inputClass}`} />
                             <p className="sd-ui-muted mt-1 text-xs">1–20 independent copies per Add; each gets its own Actor and turn.</p>
                         </div>}
-                        <div className="max-h-80 space-y-2 overflow-y-auto">
+                        <div className="relative min-h-80 flex-1" aria-label="Actor picker"><div className="absolute inset-0 space-y-2 overflow-y-auto">
                             {choices.map(choice => {
                                 const alreadyAdded = choice.source === 'world' && encounter.participants.some(row => row.actorId === choice.id);
                                 return <div key={`${choice.packId || 'world'}:${choice.id}`} className="sd-ui-inset flex items-center justify-between gap-2 rounded-lg p-2 text-sm">
-                                <span className="truncate">{choice.name}<span className="sd-ui-muted ml-2 text-xs">{choice.type}</span></span>
+                                <ActorThumbnail key={choice.img} src={choice.img} />
+                                <span className="min-w-0 flex-1 break-words">{choice.name}<span className="sd-ui-muted ml-2 text-xs">{choice.type}</span></span>
                                 <button disabled={busy || alreadyAdded || (choice.source === 'compendium' && !validPackQuantity)}
                                     onClick={() => void mutate(() => choice.source === 'world'
                                     ? api.addManagedWorldActor(encounter.id, choice.id)
@@ -755,7 +783,7 @@ export default function CombatManagerPage() {
                             </div>;
                             })}
                             {choices.length === 0 && <p className="sd-ui-muted text-sm">{loadingChoices ? 'Loading Actors…' : 'No matching Actors.'}</p>}
-                        </div>
+                        </div></div>
                         {!loadingChoices && choices.length > 0 && <p className="sd-ui-muted mt-3 text-xs">
                             {choices.length} matching Actors, all shown in the scrollable list.
                         </p>}
@@ -801,8 +829,8 @@ export default function CombatManagerPage() {
                             {encounter.participants.map(row => {
                                 const health = row.stats.find(stat => stat.health && stat.edit);
                                 return <div key={row.id}
-                                className={`${selected?.id === row.id ? 'sd-ui-inset' : 'sd-ui-panel-raised'} flex w-full flex-wrap items-center gap-3 rounded-lg p-2 transition-colors ${row.isCurrent ? 'ring-2 ring-[var(--sd-ui-accent)]' : ''}`}>
-                                <div className="flex min-w-0 flex-1 basis-64 items-center gap-1">
+                                className={`${selected?.id === row.id ? 'sd-ui-inset' : 'sd-ui-panel-raised'} flex w-full flex-wrap items-stretch gap-3 rounded-lg p-2 transition-colors ${row.isCurrent ? 'ring-2 ring-[var(--sd-ui-accent)]' : ''}`}>
+                                <div className="flex min-w-0 flex-1 basis-64 items-stretch gap-1">
                                 {encounter.status === 'active' && statPreferences?.attributes.some(field => field.health) && <input
                                     type="checkbox" aria-label={`Select ${row.name} for batch health`}
                                     title={health?.edit ? `Select ${row.name}` : 'No editable default health for this Actor'}
@@ -816,17 +844,17 @@ export default function CombatManagerPage() {
                                                 : valid.filter(id => id !== row.id);
                                         });
                                     }}
-                                    style={{ accentColor: 'var(--sd-ui-accent)' }} className="ml-2 shrink-0" />}
-                                <div className="min-w-0 flex-1">
+                                    style={{ accentColor: 'var(--sd-ui-accent)' }} className="ml-2 shrink-0 self-center" />}
+                                <div className="flex min-w-0 flex-1">
                                 <button onPointerDownCapture={beginSelection} onClick={() => setSelectedCombatantId(row.id)}
-                                    className="flex w-full min-w-0 items-center gap-3 rounded-lg p-2 text-left">
-                                <span className="w-8 shrink-0 text-center font-mono text-lg">{row.initiative ?? '—'}</span>
-                                <span className="sd-ui-inset flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg"
+                                    className="flex min-h-20 w-full min-w-0 items-stretch gap-3 rounded-lg text-left">
+                                <span className="w-8 shrink-0 self-center text-center font-mono text-lg">{row.initiative ?? '—'}</span>
+                                <span className="sd-ui-inset relative flex w-20 shrink-0 items-center justify-center overflow-hidden rounded-lg"
                                     aria-hidden="true">
                                     <DisplayArtwork src={row.img} actorId={row.actorId} combatId={encounter.id} combatantId={row.id}
-                                        purpose="combat-portrait" className="h-full w-full object-cover" fallback={<UserRound className="sd-ui-muted h-5 w-5" />} />
+                                        purpose="combat-portrait" className="absolute inset-0 h-full w-full object-cover" fallback={<UserRound className="sd-ui-muted h-5 w-5" />} />
                                 </span>
-                                <span className="min-w-0 flex-1">
+                                <span className="flex min-w-0 flex-1 flex-col justify-center py-1">
                                     <span className="block break-words font-semibold">{row.name}</span>
                                     <span className="mt-1 flex flex-wrap items-center gap-1.5">
                                         {row.stats.filter(stat => stat.showInRoster).map((stat, index) => <span
@@ -845,7 +873,6 @@ export default function CombatManagerPage() {
                                     </span>
                                 </span>
                                 </button>
-                                <CompendiumReferenceLink combatId={encounter.id} combatantId={row.id} actorId={row.actorId} selectionKey={selectedCombatantId} />
                                 </div>
                                 </div>
                                 {encounter.status === 'active' && <div className="grid w-full shrink-0 grid-cols-3 gap-1 sm:w-72">
@@ -863,9 +890,13 @@ export default function CombatManagerPage() {
                                         title="Exclude from turn navigation without changing initiative, defeat or visibility"
                                         onClick={() => void mutate(() => api.updateManagedCombatant(encounter.id, row.id, { skip: !row.skip }))}
                                         className="sd-ui-button px-2 py-2 text-xs font-semibold">{row.skip ? 'Unskip' : 'Skip'}</button>
-                                    <button disabled={busy || !row.initiativeRoll.rollAvailable}
+                                    <button disabled={busy || encounter.deletionRequested}
                                         title={row.initiativeRoll.rollAvailable ? `Uses ${row.initiativeRoll.source} initiative formula` : 'Formula unavailable; enter initiative manually'}
-                                        onClick={() => void mutate(() => api.postManagedInitiativeOne(encounter.id, row.id))}
+                                        onPointerDownCapture={beginSelection}
+                                        onClick={() => {
+                                            setSelectedCombatantId(row.id);
+                                            setInitiativePrompt({ scope: initiativeScope, combatId: encounter.id, row });
+                                        }}
                                         aria-label={`${row.initiative == null ? 'Roll' : 'Reroll'} initiative for ${row.name}`}
                                         className="sd-ui-button px-2 py-2 text-xs font-semibold">{row.initiative == null ? 'Roll' : 'Reroll'}</button>
                                     <button disabled={busy || row.initiative == null}
@@ -893,12 +924,20 @@ export default function CombatManagerPage() {
                         {selected && <div className="sd-ui-divider mt-5 space-y-3 border-t pt-4">
                             <div className="flex flex-wrap items-center justify-between gap-2">
                                 <h3 className="sd-ui-accent font-bold">{selected.name}</h3>
-                                <Link href={`/actors/${encodeURIComponent(selected.actorId)}`} target="_blank" rel="noopener noreferrer"
-                                    className="sd-ui-accent text-sm underline">Open Actor sheet ↗</Link>
+                                <div className="flex flex-wrap gap-2">
+                                    {selectedHasSheet ? <Link href={`/actors/${encodeURIComponent(selected.actorId)}`} target="_blank" rel="noopener noreferrer"
+                                        className={secondaryButtonClass}>Open Actor sheet ↗</Link>
+                                        : <CompendiumReferenceLink key={selected.id} combatId={encounter.id} combatantId={selected.id}
+                                            actorId={selected.actorId} selectionKey={selected.id} className={primaryButtonClass} />}
+                                    {encounter.status === 'active' && <button disabled={busy} onClick={() => {
+                                        setPendingConfirmation({ kind: 'remove', combatId: encounter.id,
+                                            combatantId: selected.id, actorName: selected.name });
+                                    }} className="sd-ui-button sd-ui-button-danger px-3 py-2 text-sm font-semibold">Remove participant</button>}
+                                </div>
                             </div>
                             <p className="sd-ui-muted text-xs">{selected.source === 'world' ? 'Linked world Actor — edits affect ongoing world state.' : 'Encounter-owned copy from a compendium.'}</p>
+                            {selected.stats.length > 0 && <p className="sd-ui-muted text-xs font-semibold uppercase tracking-wider">Basic stats</p>}
                             {selected.stats.length > 0 && <div aria-label="Basic stats" className="sd-combat-stat-grid grid grid-cols-1 gap-2 sm:grid-cols-3">
-                                <span className="sd-ui-muted col-span-full text-xs font-semibold uppercase tracking-wider">Basic stats</span>
                                 {selected.stats.map((stat, index) => <div key={`${stat.title}:${index}`} className="sd-combat-stat-field sd-ui-inset flex min-w-0 flex-col rounded-lg px-3 py-2"
                                     style={{ '--sd-stat-columns': stat.layout?.columnSpan ?? 1, '--sd-stat-rows': stat.layout?.rowSpan ?? 1 } as CSSProperties}>
                                     <span className="sd-ui-muted block truncate text-[10px] font-bold uppercase tracking-wider" title={stat.title}>{stat.title}</span>
@@ -966,12 +1005,6 @@ export default function CombatManagerPage() {
                                     onChange={event => void mutate(() => api.updateManagedCombatant(encounter.id, selected.id, { defeated: event.target.checked }))} /> Defeated</label>
                                 <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={selected.skip === true} disabled={busy || encounter.status !== 'active'} style={{ accentColor: 'var(--sd-ui-accent)' }}
                                     onChange={event => void mutate(() => api.updateManagedCombatant(encounter.id, selected.id, { skip: event.target.checked }))} /> Skip</label>
-                                {encounter.status === 'active' && selected.initiativeRoll.advantageAvailable && <span className="flex flex-wrap gap-1">
-                                    <button disabled={busy} className={secondaryButtonClass}
-                                        onClick={() => void mutate(() => api.postManagedInitiativeOne(encounter.id, selected.id, 'advantage'))}>Roll advantage</button>
-                                    <button disabled={busy} className={secondaryButtonClass}
-                                        onClick={() => void mutate(() => api.postManagedInitiativeOne(encounter.id, selected.id, 'disadvantage'))}>Roll disadvantage</button>
-                                </span>}
                             </div>
                             {selected.resource && <div className="flex flex-wrap items-end gap-3">
                                 <label className="text-sm">Tracked resource <span className="sd-ui-muted">({selected.resource.path})</span>
@@ -993,14 +1026,27 @@ export default function CombatManagerPage() {
                                     <button className="ml-1 underline" onClick={() => setResourceEdit(null)}>Cancel</button>
                                 </span>}
                             </div>}
-                            {encounter.status === 'active' && <button disabled={busy} onClick={() => {
-                                setPendingConfirmation({ kind: 'remove', combatId: encounter.id,
-                                    combatantId: selected.id, actorName: selected.name });
-                            }} className="sd-ui-danger text-sm underline disabled:opacity-40">Remove participant</button>}
                         </div>}
                     </section>
                 </div>
             </>}
+            {initiativePrompt && promptCurrent && createPortal(<InitiativeRollDialog
+                isOpen type="initiative" title="Roll initiative" combatantName={initiativePrompt.row.name}
+                {...initiativePrompt.row.initiativeRoll} manualAvailable explicitNormal
+                audience={initiativePrompt.row.hidden ? 'gm' : 'public'}
+                onClose={() => setInitiativePrompt(null)}
+                onConfirm={choice => {
+                    if (!promptCurrent || busy) return;
+                    const intent = initiativePrompt;
+                    setInitiativePrompt(null);
+                    void mutate(() => choice.kind === 'manual'
+                        ? api.updateManagedCombatant(intent.combatId, intent.row.id, {
+                            initiative: choice.total, expectedInitiative: intent.row.initiative,
+                        })
+                        : api.postManagedInitiativeOne(intent.combatId, intent.row.id, choice.advantageMode, {
+                            initiative: intent.row.initiative, formula: intent.row.initiativeRoll.formula,
+                        }));
+                }} />, document.body)}
             <ConfirmationModal
                 isOpen={pendingConfirmation !== null}
                 title={confirmationTitle}

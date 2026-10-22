@@ -9,7 +9,7 @@ import { useModalFocus } from '../hooks/useModalFocus';
 /** Shared Core initiative presentation; no formula edits or transport access. */
 export default function InitiativeRollDialog({ isOpen, title, combatantName, formula, source,
     rollAvailable, advantageAvailable, manualAvailable, audience, onConfirm, onClose,
-    theme }: InitiativeRollModalProps) {
+    theme, explicitNormal = false }: InitiativeRollModalProps & { explicitNormal?: boolean }) {
     const [manual, setManual] = useState(false);
     const [total, setTotal] = useState('');
     const dialogRef = useRef<HTMLDivElement>(null);
@@ -41,7 +41,8 @@ export default function InitiativeRollDialog({ isOpen, title, combatantName, for
                     onClick={() => onConfirm({ kind: 'manual', total: numeric })}>Submit total</button>
             </> : <>
                 {rollAvailable && <button type="button" className={t.rollBtn('normal')}
-                    onClick={() => onConfirm({ kind: 'roll' })}>Roll initiative</button>}
+                    onClick={() => onConfirm({ kind: 'roll', ...(explicitNormal ? { advantageMode: 'normal' as const } : {}) })}>
+                    {explicitNormal ? 'Roll normal' : 'Roll initiative'}</button>}
                 {rollAvailable && advantageAvailable && <div className="flex flex-wrap gap-2">
                     <button type="button" className={t.rollBtn('adv')} title={applyInitiativeMode(formula, 'advantage')}
                         onClick={() => onConfirm({ kind: 'roll', advantageMode: 'advantage' })}>Advantage</button>
@@ -51,8 +52,8 @@ export default function InitiativeRollDialog({ isOpen, title, combatantName, for
             </>}
         </div>}>
         <div className={t.inputGroup}>
-            <span className={t.label}>Formula</span>
-            <code className={`${t.input} break-words`} aria-label="Initiative formula">{formula || 'Unavailable'}</code>
+            <span className={t.label}>{explicitNormal ? 'Normal formula' : 'Formula'}</span>
+            <code className={`${t.input} break-words`} aria-label="Initiative formula">{applyInitiativeMode(formula, explicitNormal ? 'normal' : undefined) || 'Unavailable'}</code>
         </div>
         <div className={t.inputGroup}>
             <span className={t.label}>Mode</span>

@@ -1,6 +1,6 @@
 # ADR-0068: Optional module compendium reference views
 
-**Status:** Implemented — isolated acceptance and operator review complete; final closeout pending
+**Status:** Completed — selected scope closed 2026-10-22; publication pending
 **Date:** 2026-10-21
 **Owners:** Core/SDK contract; adopting modules own reference presentation
 
@@ -249,3 +249,33 @@ The selected follow-up is now [ADR-0069](0069-compact-combat-manager.md):
 header creation/settings dialogs and automatic initiative for late owners.
 Operator review of that cleanup precedes final closeout. No push, merge, tag or release is authorized
 by this checkpoint; application and compatibility versions remain unchanged.
+
+## Final closeout — 2026-10-22
+
+The user authorized Core ADR/document closeout after the accepted artwork and
+reference behavior and the subsequent combat-manager/HUD cleanup. The selected
+scope is complete. Historical pending/uncommitted statements above describe their
+respective checkpoints; this section is the current disposition. Core artwork
+checkpoint `e41c4b48`, reference checkpoint `2fe68fc8`, and Shadowdark checkpoints
+`defb07b` / `6d190d1` / `5c084aa` retain the implementation and acceptance record.
+
+[ADR-0069](0069-compact-combat-manager.md#final-amendment-and-closeout--2026-10-22)
+records the final consumer arrangement: reference access in the selected detail
+header, full-height roster portraits and thumbnail picker, compact settings and
+creation dialogs, initiative choices, late-owner policy and current-tab HUD sheet
+navigation. It supersedes earlier per-row reference-link layout without changing
+original-source identity, read-only viewer authority or artwork fallback policy.
+
+The shared unreleased contract set is SDK3.5.0/module-api1.7.0/UI3.3.0; no second
+SDK bump is needed. Core0.20.0 is the recommended publication target. On the user's
+new compatibility instruction, Shadowdark's next release declares that Core/API
+floor and pins validation/release tooling to v0.20.0. This supersedes its earlier
+optional older-host release policy, not the generic optional SDK design or the
+absence-of-native-art-package fallback. Core publication must precede the module
+CI/release. Application/module release versions are left to their release helpers.
+
+Automated, isolated-host and operator-reported acceptance remain distinguished
+above. No new live Foundry acceptance or native document writes are claimed by
+this closeout. DW-08's live cards/actions, Item-consuming Core surfaces, arbitrary
+native browser-hook compatibility and parked research are not completed by it.
+No push, merge, tag or release was performed as part of this closeout.

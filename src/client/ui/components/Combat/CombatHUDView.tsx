@@ -248,8 +248,8 @@ export default function CombatHUDView() {
                             </option>)}</select>
                             : <span className="block truncate text-sm font-semibold">{mine?.name || 'None shown'}</span>}</span>
                     {mine && <StatChips row={mine} compact />}
-                    {mine?.actorId && mine.canOpenActor && <Link className="sd-ui-accent text-xs underline" href={`/actors/${encodeURIComponent(mine.actorId)}`}
-                        target="_blank" rel="noopener noreferrer">{mine.statSource === 'unlinked-token' ? 'Base sheet' : 'Sheet'}</Link>}
+                    {mine?.actorId && mine.canOpenActor && <Link className="sd-ui-accent text-xs underline" href={`/actors/${encodeURIComponent(mine.actorId)}`}>
+                        {mine.statSource === 'unlinked-token' ? 'Base sheet' : 'Sheet'}</Link>}
                 {pendingInitiative.length > 0 && <div className="flex min-w-0 flex-wrap items-center gap-2"
                     aria-label="Player initiative is open">
                     <button type="button" className={`${button} sd-ui-button-primary`} disabled={pendingAction !== null}

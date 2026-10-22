@@ -19,18 +19,24 @@ const listeners=new Map(); window.calls=[];
 window.foundry={worldId:'fixture',system:{id:'fixture'},step:'dashboard',token:'fixture',currentUser:{id:'gm',role:4},
  appSocket:{connected:true,on:(key,fn)=>{if(!listeners.has(key))listeners.set(key,new Set());listeners.get(key).add(fn)},off:(key,fn)=>listeners.get(key)?.delete(fn)}};
 window.emit=()=>listeners.get('combatChanged')?.forEach(fn=>fn({combatId:'c'}));
-window.fetch=async()=>Response.json({status:'unavailable'});
+window.foundry.activeUIModule={info:{id:'fixture'},referenceViews:{Actor:{load:async()=>({default:()=> <p>Reference card</p>})}}};
+window.fetch=async url=>Response.json(String(url).includes('compendium-reference')?{status:'resolved',moduleId:'fixture',reference:{documentType:'Actor',uuid:'Compendium.fixture.monsters.n'},title:'Giant reference',model:{}}:{status:'unavailable'});
+window.portrait='data:image/svg+xml,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="80" height="100"><rect width="80" height="100" fill="tan"/><circle cx="40" cy="30" r="20" fill="black"/></svg>');
 window.encounters=[{id:'c',label:'Evening encounter',status:'active',keepHistory:false,deletionRequested:false,round:0,
  currentCombatantId:null,canNavigateTurns:true,autoSkipDefeatedEnemies:false,
  playerActions:{initiativeOpen:false,endTurnEnabled:true,eligible:1,scored:1},
- participants:[{id:'r',actorId:'a',source:'world',isNpc:false,name:'Roke',img:null,initiative:12,hidden:false,defeated:false,skip:false,isCurrent:false,
+ participants:[{id:'r',actorId:'a',source:'world',actorType:'Player',isNpc:false,name:'Roke',img:null,initiative:12,hidden:false,defeated:false,skip:false,isCurrent:false,
  resource:null,effects:[],stats:[{title:'HP',value:3,subValue:'/3',showInRoster:true},{title:'AC',value:11,showInRoster:true}],
- initiativeRoll:{source:'core',rollAvailable:true,advantageAvailable:true}}]}];
+ initiativeRoll:{formula:'2d20kh1 + 3',source:'module',rollAvailable:true,advantageAvailable:true}}]}];
+window.encounters[0].participants.push({...structuredClone(window.encounters[0].participants[0]),id:'n',actorId:'monster',actorType:'NPC',isNpc:false,name:'Giant',img:window.portrait,
+ stats:[{title:'HP',value:34,subValue:'/34',showInRoster:true},{title:'Notes',value:'Monster description',multiline:true,layout:{columnSpan:3,rowSpan:2,textRows:8}}]});
 window.preferences={source:'module',attributes:[],suggestions:[],available:[],initiativeFormula:null};
 window.api={
  fetchManagedCombats:async()=>({encounters:structuredClone(window.encounters)}),
  fetchManagedActorPacks:async()=>({packs:[]}),
- searchManagedWorldActors:async()=>({actors:[],sortFields:[]}),
+ searchManagedWorldActors:async()=>({actors:Array.from({length:20},(_,i)=>({id:'choice'+i,name:'Actor '+i,img:window.portrait,type:'NPC',source:'world'})),sortFields:[]}),
+ postManagedInitiativeOne:async()=>({}),
+ updateManagedCombatant:async(id,rowId,patch)=>Object.assign(window.encounters.find(e=>e.id===id).participants.find(r=>r.id===rowId),patch),
  fetchManagedStatPreferences:async()=>({preferences:structuredClone(window.preferences)}),
  saveManagedStatPreferences:async attributes=>{window.preferences={...window.preferences,attributes,source:'saved'};return {preferences:structuredClone(window.preferences)}},
  saveManagedInitiativeFallback:async formula=>{if(window.rejectFormula)throw Error('Fixture formula rejected');window.preferences.initiativeFormula=formula;return {preferences:structuredClone(window.preferences)}},
@@ -66,6 +72,59 @@ try {
     assert.equal(await page.getByRole('heading', { name: 'Combat stat display' }).count(), 0);
     assert.ok((await page.getByRole('heading', { name: 'Initiative order' }).boundingBox()).y < 500, 'roster appears near the top');
     await page.screenshot({ path: `${output}/desktop-main.png` });
+    // The GM's single-row choice is explicit even when the stored formula already has advantage.
+    const reroll = page.getByRole('button', {name:'Reroll initiative for Roke',exact:true});
+    assert.equal(await page.getByRole('button',{name:'Roll advantage',exact:true}).count(),0);
+    assert.equal(await page.getByRole('link',{name:'Open Actor sheet ↗'}).count(),1);
+    const initialCalls = await page.evaluate(()=>window.calls.filter(c=>c.name==='postManagedInitiativeOne').length);
+    await reroll.click(); await dialog.waitFor();
+    assert.equal(await page.evaluate(()=>window.calls.filter(c=>c.name==='postManagedInitiativeOne').length),initialCalls);
+    assert.equal(await dialog.getByLabel('Initiative formula').textContent(),'1d20 + 3');
+    await page.screenshot({path:`${output}/initiative-dialog.png`});
+    for (const [button,mode] of [['Roll normal','normal'],['Advantage','advantage'],['Disadvantage','disadvantage']]) {
+        if (!await dialog.count()) await reroll.click();
+        await dialog.getByRole('button',{name:button,exact:true}).click();
+        await dialog.waitFor({state:'detached'});
+        await page.waitForFunction(mode=>window.calls.filter(c=>c.name==='postManagedInitiativeOne').at(-1)?.args[2]===mode,mode);
+        assert.deepEqual(await page.evaluate(()=>window.calls.filter(c=>c.name==='postManagedInitiativeOne').at(-1).args),['c','r',mode,{initiative:12,formula:'2d20kh1 + 3'}]);
+    }
+    await reroll.click(); await dialog.getByRole('button',{name:'Input Manually'}).click();
+    await dialog.getByLabel('Final initiative total').fill('8.5');
+    await dialog.getByRole('button',{name:'Submit total'}).click();
+    await page.waitForFunction(()=>window.encounters[0].participants[0].initiative===8.5);
+    assert.deepEqual(await page.evaluate(()=>window.calls.filter(c=>c.name==='updateManagedCombatant').at(-1).args),['c','r',{initiative:8.5,expectedInitiative:12}]);
+    for (const field of ['formula','initiative']) {
+        await reroll.click(); await dialog.waitFor();
+        await page.evaluate(field=>{const row=window.encounters[0].participants[0];if(field==='formula')row.initiativeRoll.formula='1d20 + 4';else row.initiative=14;window.emit()},field);
+        await dialog.waitFor({state:'detached'});
+    }
+    await page.evaluate(()=>{Object.assign(window.encounters[0].participants[0].initiativeRoll,{formula:'',rollAvailable:false,advantageAvailable:false});window.emit()});
+    await reroll.click(); await dialog.getByLabel('Final initiative total').waitFor();
+    assert.equal(await dialog.getByRole('button',{name:'Roll normal',exact:true}).count(),0);
+    assert.equal(await dialog.getByRole('button',{name:'Advantage',exact:true}).count(),0);
+    await page.keyboard.press('Escape');
+    await page.getByRole('button').filter({hasText:'Giant'}).first().click();
+    await page.getByRole('button',{name:'View reference',exact:true}).waitFor();
+    assert.equal(await page.getByRole('link',{name:'Open Actor sheet ↗'}).count(),0,'owned NPC does not gain a character sheet link');
+    const ref=page.getByRole('button',{name:'View reference',exact:true});
+    const remove=page.getByRole('button',{name:'Remove participant',exact:true});
+    assert.ok(Math.abs((await ref.boundingBox()).y-(await remove.boundingBox()).y)<5,'reference and removal share the detail header');
+    await remove.click(); await page.getByRole('button',{name:'Cancel',exact:true}).waitFor(); await page.getByRole('button',{name:'Cancel',exact:true}).click();
+    await page.getByLabel('Actor picker').locator('img').first().waitFor();
+    const pickerBox=await page.getByLabel('Actor picker').boundingBox();
+    assert.ok(pickerBox.height>320,'picker expands to the participant detail column');
+    const giantSelect=page.getByRole('button').filter({hasText:'Giant'}).first();
+    const imageBox=await giantSelect.locator('img').boundingBox();
+    assert.ok(Math.abs(imageBox.height-(await giantSelect.boundingBox()).height)<=2.1,'portrait fills roster identity height inside its border');
+    await page.screenshot({path:`${output}/desktop-roster.png`,fullPage:true});
+    await page.setViewportSize({width:360,height:900});
+    assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'mobile roster has no horizontal overflow');
+    await page.getByRole('heading',{name:'Initiative order',exact:true}).scrollIntoViewIfNeeded();
+    await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+    await page.screenshot({path:`${output}/mobile-roster.png`});
+    await giantSelect.scrollIntoViewIfNeeded();
+    assert.ok(await giantSelect.evaluate(node=>{const r=node.getBoundingClientRect();return node.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2))}),'mobile roster is not obscured');
+    await page.setViewportSize({width:1440,height:1000});
     await settings.click(); await dialog.waitFor();
     assert.equal(await dialog.getByRole('heading', { name: 'Player participation' }).count(), 1);
     await dialog.getByRole('button', { name: 'Open player initiative', exact: true }).click();
@@ -123,5 +182,5 @@ try {
     await page.evaluate(()=>{window.foundry={...window.foundry,worldId:'replacement'};window.render()});
     await dialog.waitFor({state:'detached'});
     assert.deepEqual(errors,[]);
-    console.log('PASS: compact main, settings scopes, participation, realtime Begin, save/errors, creation/collision, focus/Tab/Escape, world retirement, 360/820/1440 layouts');
+    console.log('PASS: roster/reference/picker, manual/normal/advantage/disadvantage, stale initiative/formula, unsupported manual fallback; compact main, settings scopes, participation, realtime Begin, save/errors, creation/collision, focus/Tab/Escape, world retirement, 360/820/1440 layouts');
 } finally { await browser.close(); }

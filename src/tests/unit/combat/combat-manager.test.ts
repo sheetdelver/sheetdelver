@@ -852,7 +852,30 @@ export async function runInitiativeOverrideValidation(): Promise<void> {
         assert.equal(rolls.length, 0, 'post-save invalidation makes no chat or fallback roll');
         assert.equal(calls.length, 0, 'post-save invalidation makes no score writes');
         await combatManagerService.saveInitiativeFormula(gm, null);
-        console.log('  - Initiative override: all-participant validation, persistence and retired-scope checks passed');
+        // Manager modal uses the same resolved formula and protects its observed score/formula.
+        await reset(); addParticipants();
+        await combatManagerService.saveInitiativeFormula(gm, '1d20+@system.init');
+        const managerRoutes = createRouteMap();
+        registerCombatManagerRoutes(createRouterStub(managerRoutes) as any);
+        const single = getLastHandler(managerRoutes, 'post', '/combat-manager/:id/combatants/:combatantId/roll-initiative');
+        const request = (body: unknown) => invokeHandler(single, { foundryClient: gm,
+            params: { id: 'OVERRIDE0', combatantId: 'ROW0' }, body } as any);
+        for (const [mode, expected] of [['normal', '1d20+1.5'], ['advantage', '2d20kh1+1.5'], ['disadvantage', '2d20kl1+1.5']]) {
+            const row = (await combatManagerService.detail(gm, 'OVERRIDE0')).participants[0];
+            assert.equal(row.actorType, 'npc');
+            assert.equal(row.initiativeRoll.formula, '1d20+1.5');
+            const result = await request({ advantageMode: mode, observed: { initiative: row.initiative, formula: row.initiativeRoll.formula } });
+            assert.equal(result.statusCode, 200);
+            assert.equal(rolls.at(-1), expected);
+        }
+        const before = rolls.length;
+        for (const body of [{observed:{}}, {observed:{initiative:null,formula:42}}, {advantageMode:'other'}])
+            assert.equal((await request(body)).statusCode, 400);
+        for (const observed of [{initiative:null,formula:'1d20+1.5'}, {initiative:17,formula:'1d20+999'}])
+            assert.equal((await request({ advantageMode:'normal', observed })).statusCode, 409);
+        assert.equal(rolls.length, before, 'invalid or stale modal requests create no roll');
+        await combatManagerService.saveInitiativeFormula(gm, null);
+        console.log('  - Initiative override and manager modal: modes, resolved formulas, native Actor type, stale observation and malformed request rejection passed');
     } finally {
         preparedActorStore.clear(); worldStateStore.clear();
         if (previousWorld) worldStateStore.seed(previousWorld);

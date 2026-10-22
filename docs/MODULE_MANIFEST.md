@@ -996,3 +996,12 @@ An absent declaration or declined/unreadable reference creates no combat-manager
 link. Item consumers beyond the exported contract are deferred. See
 [authoring instructions](MODULE_AUTHORING.md#optional-compendium-reference-viewers)
 for exact types, lifecycle, trust boundary and older-host compatibility.
+
+
+For the selected Core0.20.0 release, required package/artwork/reference adopters
+can declare `coreVersion: ">=0.20.0"`, `module-api: ">=1.7.0 <2.0.0"` and
+`ui-extension-api: ">=3.3.0 <4.0.0"`; the roll API is unchanged. This is the next
+Shadowdark release policy. Publication is pending; older application versions,
+including the pre-release development checkout reporting0.19.8, fail that Core
+floor even when its source already contains the new contracts. Generic optional
+consumers may still feature-detect under their verified older-host policy.

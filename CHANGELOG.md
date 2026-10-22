@@ -4,6 +4,7 @@
 - Streamline encounter settings
 - Allow late player initiative
 - Improve combat roster layout
+- Choose participant initiative modes
 - View optional compendium references
 - Expose native package context
 - Resolve optional compendium artwork

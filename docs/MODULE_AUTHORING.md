@@ -1033,7 +1033,10 @@ Types are part of the upcoming SDK3.5.0/module-api1.7.0/UI3.3.0 additions alongs
 ADR-0067; no additional application/version bump is introduced by this slice.
 If mandatory, declare module-api>=1.7.0 and UI-extension-api>=3.3.0. Optional adoption
 may keep an older floor with structural types and usable existing surfaces; older
-hosts ignore both hooks. Shadowdark demonstrates that optional pattern.
+hosts ignore both hooks. Shadowdark initially demonstrated that optional pattern;
+its next release now requires Core>=0.20.0, module-api>=1.7.0 and
+ui-extension-api>=3.3.0 by the release policy selected at Core closeout. The hooks
+and native art-package installation remain optional at runtime.
 
 This uses trusted module UI, just like sheets/tools. SurfaceHost is an error and
 styling boundary, **not a JavaScript sandbox**. No arbitrary Foundry-package code
@@ -1047,3 +1050,13 @@ viewer writes. Core tests: `src/tests/unit/world/compendium-reference.test.ts` a
 `src/tests/acceptance/compendium-reference.browser.mjs`. Shadowdark's maintained
 `reference-view.test.ts` and `installed-consumers.core.ts --artwork-only
 --reference-views` exercise module and managed-host adoption without native writes.
+
+
+### Publication of the package/artwork/reference additions
+
+The selected release target is Core0.20.0 with SDK3.5.0, module-api1.7.0 and
+ui-extension-api3.3.0 (roll-engine-api remains1.0.0). These contracts are implemented
+but publication is still pending; a source checkout reporting Core0.19.8 is not
+a released0.20.0 host. Modules declaring the new Core floor must wait for that
+release before validating/installing against it. Contract version authority stays
+in `src/shared/sdk/contractVersions.ts`; application metadata stays with release:tag.
