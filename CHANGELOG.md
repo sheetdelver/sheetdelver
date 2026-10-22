@@ -1,6 +1,6 @@
 # Releases
 
-## Unreleased
+## 0.20.1
 - Unify player page backgrounds
 
 ## 0.20.0
