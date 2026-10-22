@@ -245,6 +245,7 @@ presentation writes remain0. Test services stopped; operator services unchanged.
 The user confirmed the reference feature and the revised combat rows, then
 explicitly authorized local Core and Shadowdark checkpoint commits. This records
 operator-reported acceptance in addition to the isolated verification above.
-Further combat-manager UI cleanup is the next selected area, with specific edits
-to be agreed before final closeout. No push, merge, tag or release is authorized
+The selected follow-up is now [ADR-0069](0069-compact-combat-manager.md):
+header creation/settings dialogs and automatic initiative for late owners.
+Operator review of that cleanup precedes final closeout. No push, merge, tag or release is authorized
 by this checkpoint; application and compatibility versions remain unchanged.

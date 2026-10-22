@@ -1,6 +1,8 @@
 # Releases
 
 ## Unreleased
+- Streamline encounter settings
+- Allow late player initiative
 - Improve combat roster layout
 - View optional compendium references
 - Expose native package context

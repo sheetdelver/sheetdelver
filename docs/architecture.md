@@ -722,3 +722,14 @@ rechecks the target, source and authority after bounded module preparation.
 No provider/readable source means no link. Open content retires on lifecycle and
 access invalidation. No live encounter state, action runtime, source writes or
 bootstrap work is introduced. Item-consuming product UI remains deferred.
+
+### Combat manager settings and late initiative
+
+[ADR-0069](adr/0069-compact-combat-manager.md) moves creation and configuration
+into header dialogs without changing persistence scopes. World stat/formula
+preferences remain shared; participation and skip policy remain encounter-owned.
+`playerInitiativeGeneration` supplies the same effective owner-roll window to
+tracker projections and write revalidation: explicit pre-start opening, automatic
+visible/unrolled owner eligibility after Begin while active. Existing command
+guards and caller/source checks remain authoritative. No module rules, SDK
+extension, cache or migration is added.

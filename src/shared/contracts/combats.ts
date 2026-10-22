@@ -51,7 +51,7 @@ export interface CombatTrackerDto {
     canAdvanceTurn: boolean;
     canRewindTurn: boolean;
     canManage: boolean;
-    /** Only projected for an authorized managed initiative phase. */
+    /** Authorized pre-start phase or active-combat unrolled owner opportunity. */
     playerInitiative?: { open: true; generation: string };
     /** Own visible pending rows, independent of the scored managed turn roster. */
     initiativeCandidates?: CombatTrackerCombatantDto[];
@@ -87,7 +87,7 @@ export interface CombatInitiativeRequestBody {
     observed?: {
         initiative: number | null;
         formula: string;
-        /** Required for a managed owner's open phase; never a hidden-row counter. */
+        /** Required for a managed owner's pre-start or active-combat roll window; opaque, never a hidden-row counter. */
         phaseGeneration?: string;
     };
     /** Internal manager command only; never accepted on ordinary routes. */

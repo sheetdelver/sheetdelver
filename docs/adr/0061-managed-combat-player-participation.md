@@ -5,6 +5,10 @@
 **Related:** ADR-0013, ADR-0028, ADR-0038, ADR-0049, ADR-0057, ADR-0058,
 ADR-0060, ADR-0062
 
+> Current follow-up: [ADR-0069](0069-compact-combat-manager.md) supersedes only
+> the manual reopening policy for started encounters and moves participation
+> controls into settings. This completed record retains its original acceptance.
+
 ## Administrative reconciliation — October 15, 2026
 
 The dated release prerequisites below are fulfilled: Core0.18.0 published first,

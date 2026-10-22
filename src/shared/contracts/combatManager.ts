@@ -122,6 +122,7 @@ export interface CombatManagerEncounterDto {
     pausedForSkip?: true;
     autoSkipDefeatedEnemies: boolean;
     playerActions: {
+        /** Pre-start switch only; started, active encounters admit unrolled owners automatically. */
         initiativeOpen: boolean;
         endTurnEnabled: boolean;
         eligible: number;

@@ -334,7 +334,8 @@ function projectEncounter(combat: CombatDocument, client: CombatClientLike,
         canNavigateTurns: flag.status === 'active' && !flag.deletionRequested && !flag.historyRemovalRequested
             && (prepared?.rows.some(isManagedTurnEligible) ?? false),
         playerActions: {
-            initiativeOpen: actions.initiativeOpen && flag.status === 'active' && !flag.deletionRequested,
+            initiativeOpen: (combat.round ?? 0) === 0 && actions.initiativeOpen
+                && flag.status === 'active' && !flag.deletionRequested,
             endTurnEnabled: actions.endTurnEnabled,
             eligible: eligiblePlayerRows.length,
             scored: eligiblePlayerRows.filter(row => row.initiative !== null).length,
@@ -391,8 +392,8 @@ export const combatManagerService = {
         return withEncounterLock(combatId, async () => {
             const { combat, flag } = activeEncounter(combatId);
             if (flag.deletionRequested || flag.historyRemovalRequested) throw new CombatManagerError('Encounter is closing', 409);
-            if (requested.initiativeOpen === true && (combat.round ?? 0) > 0 && combat.active !== true) {
-                throw new CombatManagerError('Encounter is not active in Foundry', 409);
+            if (requested.initiativeOpen !== undefined && (combat.round ?? 0) > 0) {
+                throw new CombatManagerError('Player initiative opens automatically after combat begins', 409);
             }
             const current = playerActionsFor(flag);
             const initiativeOpen = requested.initiativeOpen ?? current.initiativeOpen;

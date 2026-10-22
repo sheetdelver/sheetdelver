@@ -25,7 +25,7 @@ import {
 import type { PreparedActorData, SystemAdapter } from '@shared/sdk';
 import type { CombatManagerSelectedStatDto } from '@shared/contracts/combatManager';
 import { buildCombatTrackerDto } from './CombatTrackerProjection';
-import { hasCombatManagerMarker, playerActionsFor, readCombatManagerFlag } from './combatManagerFlag';
+import { hasCombatManagerMarker, playerActionsFor, playerInitiativeGeneration, readCombatManagerFlag } from './combatManagerFlag';
 import { combatStatDisplayService, projectCombatStatFields } from './CombatStatDisplayService';
 import { effectiveInitiativeFormula } from './CombatInitiativeFormula';
 import { withEncounterLock } from './EncounterCommandGuard';
@@ -211,9 +211,8 @@ export function createCombatService(deps: CombatServiceDeps) {
             } : prepared, subject, { ...projectionDeps, skipDefeated, managedQueue: !!managerFlag });
             const actions = managerFlag ? playerActionsFor(managerFlag) : null;
             const owner = subject.role < FoundryUserRole.ASSISTANT;
-            const playerPhase = !!managerFlag && owner && managerFlag.status === 'active'
-                && !managerFlag.deletionRequested && !managerFlag.historyRemovalRequested
-                && actions?.initiativeOpen === true && (prepared.round === 0 || prepared.active);
+            const phaseGeneration = managerFlag ? playerInitiativeGeneration(prepared, managerFlag) : null;
+            const playerPhase = owner && phaseGeneration !== null;
             const candidates = playerPhase ? buildCombatTrackerDto(prepared, subject,
                 { ...projectionDeps, skipDefeated }).combatants.filter(row => row.initiative === null
                     && row.actorId !== null && projectionDeps.canWriteActor(row.actorId, subject))
@@ -230,8 +229,9 @@ export function createCombatService(deps: CombatServiceDeps) {
                         && projectionDeps.canWriteActor(row.actorId, subject) })),
                 canManage: isAssistantGM(subject) && managerFlag.status === 'active',
                 ...(playerPhase ? { initiativeCandidates: candidates } : {}),
-                ...(playerPhase && (candidates.length > 0 || dto.combatants.some(row => row.actorId && projectionDeps.canWriteActor(row.actorId, subject)))
-                    ? { playerInitiative: { open: true as const, generation: actions!.initiativeGeneration } } : {}),
+                ...(playerPhase && (candidates.length > 0 || (prepared.round === 0
+                    && dto.combatants.some(row => row.actorId && projectionDeps.canWriteActor(row.actorId, subject))))
+                    ? { playerInitiative: { open: true as const, generation: phaseGeneration! } } : {}),
             } : dto;
             return enrichTrackerDto(projected, client, subject, preferences?.attributes ?? [],
                 adapter, preferences?.initiativeFormula ?? null);
@@ -368,7 +368,7 @@ export function createCombatService(deps: CombatServiceDeps) {
         const nextFlag = managed ? { ...managed } : null;
         if (nextFlag) {
             nextFlag.turnPause = null;
-            if (prepared.round === 0 && playerActionsFor(nextFlag).initiativeOpen) {
+            if (prepared.round === 0) {
                 nextFlag.playerActions = { ...playerActionsFor(nextFlag), initiativeOpen: false,
                     initiativeGeneration: crypto.randomUUID() };
             }
@@ -462,7 +462,7 @@ export function createCombatService(deps: CombatServiceDeps) {
         const previousFlag = managed ? { ...managed } : null;
         if (previousFlag) {
             previousFlag.turnPause = null;
-            if (round === 0 && playerActionsFor(previousFlag).initiativeOpen) {
+            if (round === 0) {
                 previousFlag.playerActions = { ...playerActionsFor(previousFlag), initiativeOpen: false,
                     initiativeGeneration: crypto.randomUUID() };
             }
@@ -526,10 +526,8 @@ export function createCombatService(deps: CombatServiceDeps) {
             const actorSubject = resolveSubject(client.userId);
             if (!live || !flag || flag.status !== 'active' || flag.deletionRequested || flag.historyRemovalRequested
                 || !actorSubject || isAssistantGM(actorSubject)) return { error: 'Encounter changed; refresh before retrying', status: 409 };
-            const actions = playerActionsFor(flag);
-            if (!actions.initiativeOpen || !observed || !observed.phaseGeneration
-                || actions.initiativeGeneration !== observed.phaseGeneration
-                || ((live.round ?? 0) > 0 && !live.active)) {
+            const generation = playerInitiativeGeneration(live, flag);
+            if (!generation || !observed || generation !== observed.phaseGeneration) {
                 return { error: 'Initiative phase changed; refresh before retrying', status: 409 };
             }
             const row = live.combatants?.find(item => (item._id || item.id) === combatantId);

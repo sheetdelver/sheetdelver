@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import Link from 'next/link';
+import { CombatManagerDialog } from './CombatManagerDialog';
 import { CompendiumReferenceLink } from '@client/ui/components/CompendiumReferenceLink';
 import { DisplayArtwork } from '@client/ui/components/DisplayArtwork';
-import { Swords, UserRound } from 'lucide-react';
+import { Settings, Swords, UserRound } from 'lucide-react';
 import { useWorldBackground } from '@client/ui/main/hooks/useWorldBackground';
 import { useFoundry } from '@client/ui/context/FoundryContext';
 import { ConfirmationModal } from '@client/ui/components/ConfirmationModal';
@@ -75,6 +76,7 @@ export default function CombatManagerPage() {
     const [selectedId, setSelectedId] = useState('');
     const [selectedCombatantId, setSelectedCombatantId] = useState('');
     const [label, setLabel] = useState('');
+    const [managerDialog, setManagerDialog] = useState<'create' | 'settings' | null>(null);
     const [renameDraft, setRenameDraft] = useState<{ combatId: string; label: string } | null>(null);
     const [keepHistory, setKeepHistory] = useState(false);
     const [autoSkipDefeatedEnemies, setAutoSkipDefeatedEnemies] = useState(false);
@@ -141,6 +143,7 @@ export default function CombatManagerPage() {
         // The shared player boundary unmounts this page on logout or identity
         // change. A transient same-world step must not clear its local state.
         refreshVersion.current += 1;
+        setManagerDialog(null);
         setEncounters([]);
         setSelectedId('');
         setSelectedCombatantId('');
@@ -586,187 +589,33 @@ export default function CombatManagerPage() {
 
     return (
         <main className={pageClass} style={bgStyle}>
-          <div className="sd-ui-panel mx-auto max-w-7xl space-y-8 rounded-xl p-4 shadow-2xl backdrop-blur-md md:p-6">
+          <div className="sd-ui-panel mx-auto max-w-7xl space-y-5 rounded-xl p-4 shadow-2xl backdrop-blur-md md:p-6">
             <header className="sd-ui-inset flex flex-wrap items-center justify-between gap-4 rounded-lg p-4">
                 <div>
                     <Link href="/" className="sd-ui-accent text-sm hover:underline">← Back to Dashboard</Link>
                     <h1 className="sd-ui-accent mt-2 text-3xl font-bold">Combat Manager</h1>
                     <p className="sd-ui-muted mt-1 text-sm">GM & Assistant · tokenless Foundry encounters</p>
                 </div>
-                <label className="flex items-center gap-2 text-sm">
+                <div className="flex flex-wrap items-center gap-2">
+                <label className="flex min-w-0 flex-wrap items-center gap-2 text-sm">
                     Encounter
                     <select aria-label="Encounter" value={selectedId} onPointerDownCapture={beginSelection}
                         onChange={event => { setSelectedId(event.target.value); setSelectedCombatantId(''); }}
-                        className={`min-w-48 ${inputClass}`}>
+                        className={`w-48 max-w-full ${inputClass}`}>
                         {encounters.length === 0 && <option value="">No encounters</option>}
                         {encounters.map(row => <option key={row.id} value={row.id}>{row.label}{row.status === 'completed' ? ' (completed)' : ''}</option>)}
                     </select>
                 </label>
+                <button disabled={busy || loading} onClick={() => { setError(''); setManagerDialog('create'); }} className={primaryButtonClass}>New encounter</button>
+                <button disabled={busy || loading} onClick={() => { setError(''); setManagerDialog('settings'); }} className={`${secondaryButtonClass} flex items-center gap-2`}>
+                    <Settings size={16} aria-hidden="true" /> Encounter settings
+                </button>
+                </div>
             </header>
 
             {error && <div role="alert" className="sd-ui-panel-raised sd-ui-danger rounded p-3 text-sm">{error}</div>}
             {notice && <div role="status" className="sd-ui-inset rounded p-3 text-sm">{notice}</div>}
             {loading && <p>Loading encounters…</p>}
-
-            <section className={panelClass}>
-                <div className="mb-4 flex items-center gap-3">
-                    <h2 className="sd-ui-accent text-lg font-bold uppercase tracking-widest">New encounter</h2>
-                    <div className="sd-ui-divider h-px flex-1 border-t" />
-                </div>
-                <div className="flex flex-wrap items-center gap-3">
-                    <input aria-label="Encounter name" value={label} maxLength={100} onChange={event => setLabel(event.target.value)}
-                        placeholder="Encounter name" className={`min-w-56 ${inputClass}`} />
-                    <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={keepHistory} onChange={event => setKeepHistory(event.target.checked)} style={{ accentColor: 'var(--sd-ui-accent)' }} /> Keep for history</label>
-                    <label className="flex min-h-11 items-center gap-2 text-sm"><input type="checkbox" checked={autoSkipDefeatedEnemies}
-                        onChange={event => setAutoSkipDefeatedEnemies(event.target.checked)} style={{ accentColor: 'var(--sd-ui-accent)' }} /> Skip defeated enemies automatically</label>
-                    <button disabled={busy || loading || !label.trim() || nameCollision} onClick={() => void mutate(async () => {
-                        const created = await api.createManagedCombat(label, keepHistory, autoSkipDefeatedEnemies);
-                        setSelectedId(created.encounter.id); setLabel(''); setKeepHistory(false);
-                    })} className={primaryButtonClass}>Create</button>
-                    {nameCollision && <span role="status" className="sd-ui-danger text-sm">A combat already exists with that name</span>}
-                </div>
-            </section>
-
-            <section className={panelClass}>
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                        <h2 className="sd-ui-accent text-lg font-bold uppercase tracking-widest">Combat stat display</h2>
-                        <p className="sd-ui-muted mt-1 text-xs">Shared by GMs in this world · {statPreferences?.source === 'saved' ? 'customized' : statPreferences?.source === 'module' ? 'module suggestions' : 'no defaults'}</p>
-                    </div>
-                    <button disabled={!statPreferences || busy} onClick={() => { invalidateCustomValidation(); setStatDraft(statPreferences?.attributes || []); setEditingStats(value => !value); }}
-                        className={secondaryButtonClass}>{editingStats ? 'Close configuration' : 'Configure stats'}</button>
-                </div>
-                {editingStats && <div className="sd-ui-divider mt-4 space-y-3 border-t pt-4">
-                    <p className="sd-ui-muted text-xs">Choose fields found on Actors in this world or suggested by the system module. Missing values are hidden. Only source-backed numeric and resource values can be made editable; derived and text fields stay read-only. Choose one editable field as default health for the roster action.</p>
-                    {statDraft.map((field, index) => <fieldset disabled={busy || validatingCustomStat} key={`${field.key}:${index}`} className="sd-ui-inset flex min-w-0 flex-wrap items-center gap-2 rounded-lg p-2">
-                        <input aria-label={`Stat ${index + 1} label`} value={field.label} maxLength={32} onChange={event => setStatDraft(current => current.map((row, at) => at === index ? { ...row, label: event.target.value } : row))}
-                            className={`w-32 ${inputClass}`} />
-                        <span className="sd-ui-muted min-w-0 flex-1 break-all text-xs">{statChoiceContext(field)}</span>
-                        <label className="flex items-center gap-1.5 text-xs">
-                            <input type="checkbox" aria-label={`Show ${field.label} beside names`} checked={field.showInRoster === true}
-                                disabled={field.kind === 'textarea'}
-                                onChange={event => setStatDraft(current => current.map((row, at) => at === index ? { ...row, showInRoster: event.target.checked } : row))}
-                                style={{ accentColor: 'var(--sd-ui-accent)' }} /> Beside names
-                        </label>
-                        <label className="flex items-center gap-1.5 text-xs">
-                            <input type="checkbox" aria-label={`Make ${field.label} editable`} checked={field.editable === true}
-                                disabled={!field.path.startsWith('system.') || !['number', 'resource'].includes(field.kind)}
-                                onChange={event => setStatDraft(current => current.map((row, at) => at === index
-                                    ? { ...row, editable: event.target.checked ? true : undefined,
-                                        health: event.target.checked ? row.health : undefined } : row))}
-                                style={{ accentColor: 'var(--sd-ui-accent)' }} /> Editable
-                        </label>
-                        <label className="flex items-center gap-1.5 text-xs">
-                            <input type="checkbox" aria-label={`Use ${field.label} as default health`} checked={field.health === true}
-                                disabled={!field.path.startsWith('system.') || !['number', 'resource'].includes(field.kind)}
-                                onChange={event => setStatDraft(current => current.map((row, at) => at === index
-                                    ? { ...row, editable: event.target.checked ? true : row.editable,
-                                        health: event.target.checked ? true : undefined }
-                                    : event.target.checked ? { ...row, health: undefined } : row))}
-                                style={{ accentColor: 'var(--sd-ui-accent)' }} /> Default health
-                        </label>
-                        <button disabled={index === 0} onClick={() => setStatDraft(current => { const next = [...current]; [next[index - 1], next[index]] = [next[index], next[index - 1]]; return next; })} className={secondaryButtonClass} aria-label={`Move ${field.label} up`}>↑</button>
-                        <button disabled={index === statDraft.length - 1} onClick={() => setStatDraft(current => { const next = [...current]; [next[index + 1], next[index]] = [next[index], next[index + 1]]; return next; })} className={secondaryButtonClass} aria-label={`Move ${field.label} down`}>↓</button>
-                        <button type="button" onClick={() => editAttribute(field)} className={secondaryButtonClass} aria-label={`Edit ${field.label} presentation`}>Edit</button>
-                        <button onClick={() => {
-                            if (editingAttributeKey === field.key) { invalidateCustomValidation(); setEditingAttributeKey(null); setCustomLabel(''); setCustomPath(''); }
-                            setStatDraft(current => current.filter((_, at) => at !== index));
-                        }} className={secondaryButtonClass} aria-label={`Remove ${field.label}`}>Remove</button>
-                    </fieldset>)}
-                    <div className="flex flex-wrap items-center gap-2">
-                        <input aria-label="Find an Actor field" placeholder="Search Actor fields" value={statSearch}
-                            onChange={event => { setStatSearch(event.target.value); setStatChoice(''); }} className={`min-w-48 ${inputClass}`} />
-                        <select aria-label="Suggested or available stat" value={statChoice} onChange={event => setStatChoice(event.target.value)} className={`min-w-56 ${inputClass}`}>
-                            <option value="">Choose a field</option>
-                            {filteredStatChoices.map(({ choice, index }) => <option key={`${choice.path}:${choice.kind}`} value={index}>
-                                {choice.label} ({statChoiceContext(choice)})
-                            </option>)}
-                        </select>
-                        <button disabled={busy || validatingCustomStat || loadingStatCatalog || statChoice === ''} onClick={() => { addStat(statChoices[Number(statChoice)]); setStatChoice(''); }} className={secondaryButtonClass}>Add field</button>
-                    </div>
-                    {loadingStatCatalog && <p className="sd-ui-muted text-xs">Finding Actor fields…</p>}
-                    {!loadingStatCatalog && statChoices.length === 0 && <p className="sd-ui-muted text-xs">No Actor fields are available yet. Add a world or compendium Actor, then reopen this configuration.</p>}
-                    <details ref={attributeEditor} open={attributeEditorOpen} onToggle={event => setAttributeEditorOpen(event.currentTarget.open)} className="sd-ui-inset rounded-lg p-3 text-xs">
-                        <summary className="cursor-pointer">{editingAttributeKey ? 'Edit attribute presentation' : 'Advanced: enter an attribute path manually'}</summary>
-                        <div className="mt-3"><CombatStatAttributeEditor value={{ label: customLabel, path: customPath, kind: customKind, layout: customLayout, contentFormat: customContentFormat }}
-                            onChange={draft => { invalidateCustomValidation(); setCustomLabel(draft.label); setCustomPath(draft.path); setCustomKind(draft.kind); setCustomLayout(draft.layout); setCustomContentFormat(draft.contentFormat ?? 'plain'); }}
-                            onApply={() => void addCustomStat()} onCancel={() => { invalidateCustomValidation(); setEditingAttributeKey(null); setCustomLabel(''); setCustomPath(''); setCustomContentFormat('plain'); }}
-                            editing={editingAttributeKey !== null} disabled={busy} checking={validatingCustomStat} reason={customDisabledReason}
-                            error={customStatError} inputClass={inputClass} buttonClass={secondaryButtonClass} /></div>
-                    </details>
-                    <div className="flex flex-wrap gap-2">
-                        <button disabled={busy || validatingCustomStat || editingAttributeKey !== null} onClick={() => void mutate(async () => {
-                            const { preferences } = await api.saveManagedStatPreferences(statDraft);
-                            setStatPreferences(preferences); setEditingStats(false);
-                            await refresh();
-                        })} className={primaryButtonClass}>Save</button>
-                        <button disabled={busy || statPreferences?.source !== 'saved'} onClick={() => void mutate(async () => {
-                            const { preferences } = await api.resetManagedStatPreferences();
-                            setStatPreferences(preferences); setStatDraft(preferences.attributes); setEditingStats(false);
-                            await refresh();
-                        })} className={secondaryButtonClass}>Reset to module suggestions</button>
-                    </div>
-                </div>}
-                <div className="sd-ui-divider mt-4 border-t pt-4">
-                    <h3 className="sd-ui-accent text-sm font-bold">Initiative formula override</h3>
-                    <p id="initiative-formula-help" className="sd-ui-muted mt-1 text-xs">A saved override takes precedence over the system module and Core. Clear and save to use the module, then Core. Save validates dice, numbers, +/− and safe numeric @system or @derived paths against all current encounter participants.</p>
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
-                        <input ref={initiativeInput} aria-label="GM initiative override formula" value={initiativeFallbackDraft}
-                            aria-invalid={!!initiativeFormulaError}
-                            aria-describedby={`initiative-formula-help${initiativeFormulaError ? ' initiative-formula-error' : ''}`}
-                            onChange={event => { initiativeDraftDirty.current = true; setInitiativeFormulaError(''); setInitiativeFallbackDraft(event.target.value); }}
-                            onSelect={event => { initiativeSelection.current = {
-                                start: event.currentTarget.selectionStart ?? event.currentTarget.value.length,
-                                end: event.currentTarget.selectionEnd ?? event.currentTarget.value.length,
-                            }; }}
-                            placeholder="1d20 + …" maxLength={160}
-                            className={`min-w-0 flex-1 basis-64 font-mono ${inputClass}`} />
-                        <button disabled={busy || !statPreferences || initiativeFallbackDraft === (statPreferences.initiativeFormula || '')}
-                            onClick={() => void mutate(async () => {
-                                setInitiativeFormulaError('');
-                                const { preferences } = await api.saveManagedInitiativeFallback(initiativeFallbackDraft.trim() || null);
-                                initiativeDraftDirty.current = false;
-                                setInitiativeFallbackDraft(preferences.initiativeFormula || '');
-                                setStatPreferences(previous => ({ ...preferences, available: previous?.available || [] }));
-                            }).then(result => { if (!result.ok) setInitiativeFormulaError(errorMessage(result.cause)); })}
-                            className={secondaryButtonClass}>Save</button>
-                        <button disabled={busy || !statPreferences} aria-expanded={pickingInitiativeAttribute}
-                            aria-controls="initiative-attribute-picker"
-                            onClick={() => setPickingInitiativeAttribute(value => !value)} className={secondaryButtonClass}>
-                            {pickingInitiativeAttribute ? 'Close attributes' : 'Insert attribute'}
-                        </button>
-                    </div>
-                    {pickingInitiativeAttribute && <div id="initiative-attribute-picker" className="sd-ui-inset mt-3 space-y-2 rounded-lg p-3">
-                        <p className="sd-ui-muted text-xs">Type a dice formula, then choose a numeric Actor field to insert at the cursor or replace selected text. Choosing a field does not save; Save checks all current participants.</p>
-                        <div className="flex flex-wrap items-center gap-2">
-                            <input aria-label="Find an initiative attribute" placeholder="Search numeric fields" value={initiativeAttributeSearch}
-                                onChange={event => { setInitiativeAttributeSearch(event.target.value); setInitiativeAttributeChoice(''); }}
-                                className={`min-w-0 flex-1 basis-48 ${inputClass}`} />
-                            <select aria-label="Numeric initiative attribute" value={initiativeAttributeChoice} disabled={loadingStatCatalog || busy}
-                                onChange={event => setInitiativeAttributeChoice(event.target.value)} className={`min-w-0 max-w-full flex-1 basis-64 ${inputClass}`}>
-                                <option value="">Choose a numeric field</option>
-                                {filteredInitiativeAttributes.map(field => <option key={field.path} value={field.path}>
-                                    {field.label} ({statChoiceContext(field)})
-                                </option>)}
-                            </select>
-                            <button disabled={busy || loadingStatCatalog || !initiativeAttributeChoice} onClick={insertInitiativeField}
-                                className={secondaryButtonClass}>Insert into formula</button>
-                        </div>
-                        {loadingStatCatalog && <p role="status" className="sd-ui-muted text-xs">Finding numeric Actor fields…</p>}
-                        {!loadingStatCatalog && !filteredInitiativeAttributes.length && <p className="sd-ui-muted text-xs">
-                            {initiativeAttributeSearch.trim() ? 'No numeric fields match your search.' : 'No numeric fields are available yet. Add an Actor and reopen the picker.'}
-                        </p>}
-                    </div>}
-                    {initiativeFormulaError && <p id="initiative-formula-error" role="alert" className="sd-ui-danger mt-2 break-words text-xs">{initiativeFormulaError}</p>}
-                    {statPreferences?.initiativePreview && <p className="sd-ui-muted mt-2 text-xs">
-                        Selected Actor: {statPreferences.initiativePreview.source === 'module' ? 'system module'
-                            : statPreferences.initiativePreview.source === 'gm' ? 'GM override' : 'Core default'}
-                        {' · '}{statPreferences.initiativePreview.rollAvailable
-                            ? statPreferences.initiativePreview.formula : 'invalid or unresolved formula; manual initiative required'}
-                        {statPreferences.initiativePreview.source === 'core' && ' · Using Core default 1d20; this may not match your system.'}
-                    </p>}
-                </div>
-            </section>
 
             {encounter && <>
                 <section className={`${panelClass} flex flex-wrap items-center justify-between gap-4`}>
@@ -828,37 +677,6 @@ export default function CombatManagerPage() {
                         </button>
                     </div>
                 </section>
-
-                {encounter.status === 'active' && <p className="sd-ui-muted text-xs">Begin activates this Combat in Foundry. Turn controls persist document state; native client hooks, system overrides, world-time and effect timing are not guaranteed.</p>}
-
-                {encounter.status === 'active' && <section className={`${panelClass} flex flex-wrap items-center gap-4`} aria-label="Player participation">
-                    <div className="min-w-[13rem] flex-1">
-                        <h2 className="sd-ui-accent text-sm font-bold uppercase tracking-widest">Player participation</h2>
-                        <p className="sd-ui-muted text-xs">{encounter.playerActions.scored} of {encounter.playerActions.eligible} visible player combatants have initiative.</p>
-                        <p className="sd-ui-muted text-xs">Owners may roll their own unrolled characters while the phase is open, including before Begin. Begin closes it.</p>
-                    </div>
-                    <button type="button" disabled={busy || encounter.deletionRequested}
-                        onClick={() => void mutate(() => api.updateManagedPlayerActions(encounter.id,
-                            { initiativeOpen: !encounter.playerActions.initiativeOpen }))}
-                        className={encounter.playerActions.initiativeOpen ? secondaryButtonClass : primaryButtonClass}>
-                        {encounter.playerActions.initiativeOpen ? 'Close player initiative' : 'Open player initiative'}
-                    </button>
-                    <label className="flex min-h-11 items-center gap-2 text-sm">
-                        <input type="checkbox" checked={encounter.playerActions.endTurnEnabled} disabled={busy || encounter.deletionRequested}
-                            onChange={event => void mutate(() => api.updateManagedPlayerActions(encounter.id,
-                                { endTurnEnabled: event.target.checked }))} />
-                        Allow owners to end their turn
-                    </label>
-                </section>}
-
-                {encounter.status === 'active' && <section className={panelClass} aria-label="Turn settings">
-                    <label className="flex min-h-11 items-center gap-2 text-sm">
-                        <input type="checkbox" checked={encounter.autoSkipDefeatedEnemies === true} disabled={busy || encounter.deletionRequested}
-                            onChange={event => void mutate(() => api.updateManagedTurnPolicy(encounter.id, event.target.checked))} />
-                        Skip defeated enemies automatically
-                    </label>
-                    <p className="sd-ui-muted text-xs">Checks Skip when you mark an NPC defeated here. Players are never skipped automatically. Existing rows and external Foundry changes are unchanged; you can uncheck Skip while defeated. NPC Restore clears Skip.</p>
-                </section>}
 
                 <div className="grid gap-5 lg:grid-cols-[minmax(17rem,1fr)_minmax(20rem,2fr)]">
                     {encounter.status === 'active' && <section className={panelClass}>
@@ -1204,6 +1022,204 @@ export default function CombatManagerPage() {
                         await api.postManagedNextTurn(combatId);
                     });
                 }} />
+            {managerDialog && allowed && <CombatManagerDialog
+                title={managerDialog === 'create' ? 'New encounter' : 'Encounter settings'} busy={busy} compact={managerDialog === 'create'}
+                onClose={() => {
+                    setManagerDialog(null); setEditingStats(false); setPickingInitiativeAttribute(false);
+                    invalidateCustomValidation(); setAttributeEditorOpen(false); setEditingAttributeKey(null);
+                }}>
+                {error && <p role="alert" className="sd-ui-danger text-sm">{error}</p>}
+                {notice && <p role="status" className="sd-ui-muted text-sm">{notice}</p>}
+                {managerDialog === 'create' ? <>
+                <div className="flex flex-wrap items-center gap-3">
+                    <input aria-label="Encounter name" value={label} maxLength={100} onChange={event => setLabel(event.target.value)}
+                        placeholder="Encounter name" className={`w-full ${inputClass}`} />
+                    <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={keepHistory} onChange={event => setKeepHistory(event.target.checked)} style={{ accentColor: 'var(--sd-ui-accent)' }} /> Keep for history</label>
+                    <label className="flex min-h-11 items-center gap-2 text-sm"><input type="checkbox" checked={autoSkipDefeatedEnemies}
+                        onChange={event => setAutoSkipDefeatedEnemies(event.target.checked)} style={{ accentColor: 'var(--sd-ui-accent)' }} /> Skip defeated enemies automatically</label>
+                    <button disabled={busy || loading || !label.trim() || nameCollision} onClick={() => void mutate(async () => {
+                        const created = await api.createManagedCombat(label, keepHistory, autoSkipDefeatedEnemies);
+                        setSelectedId(created.encounter.id); setLabel(''); setKeepHistory(false); setAutoSkipDefeatedEnemies(false); setManagerDialog(null);
+                    })} className={primaryButtonClass}>Create</button>
+                    {nameCollision && <span role="status" className="sd-ui-danger text-sm">A combat already exists with that name</span>}
+                </div>
+                </> : <>
+                <h3 className="sd-ui-accent text-lg font-bold">{encounter ? `This encounter: ${encounter.label}` : 'No encounter selected'}</h3>
+                {encounter?.status === 'active' && <p className="sd-ui-muted text-xs">Begin activates this Combat in Foundry. Turn controls persist document state; native client hooks, system overrides, world-time and effect timing are not guaranteed.</p>}
+
+                {encounter?.status === 'active' && <section className={`${panelClass} flex flex-wrap items-center gap-4`} aria-label="Player participation">
+                    <div className="min-w-[13rem] flex-1">
+                        <h2 className="sd-ui-accent text-sm font-bold uppercase tracking-widest">Player participation</h2>
+                        <p className="sd-ui-muted text-xs">{encounter.playerActions.scored} of {encounter.playerActions.eligible} visible player combatants have initiative.</p>
+                        <p className="sd-ui-muted text-xs">{encounter.round === 0 ? 'Open initiative to let owners roll before combat begins.' : 'Owners can roll their visible, unrolled characters while this combat is active, including players added after it began.'}</p>
+                    </div>
+                    {encounter.round === 0 && <button type="button" disabled={busy || encounter.deletionRequested}
+                        onClick={() => void mutate(() => api.updateManagedPlayerActions(encounter.id,
+                            { initiativeOpen: !encounter.playerActions.initiativeOpen }))}
+                        className={encounter.playerActions.initiativeOpen ? secondaryButtonClass : primaryButtonClass}>
+                        {encounter.playerActions.initiativeOpen ? 'Close player initiative' : 'Open player initiative'}
+                    </button>}
+                    <label className="flex min-h-11 items-center gap-2 text-sm">
+                        <input type="checkbox" checked={encounter.playerActions.endTurnEnabled} disabled={busy || encounter.deletionRequested}
+                            onChange={event => void mutate(() => api.updateManagedPlayerActions(encounter.id,
+                                { endTurnEnabled: event.target.checked }))} />
+                        Allow owners to end their turn
+                    </label>
+                </section>}
+
+                {encounter?.status === 'active' && <section className={panelClass} aria-label="Turn settings">
+                    <label className="flex min-h-11 items-center gap-2 text-sm">
+                        <input type="checkbox" checked={encounter.autoSkipDefeatedEnemies === true} disabled={busy || encounter.deletionRequested}
+                            onChange={event => void mutate(() => api.updateManagedTurnPolicy(encounter.id, event.target.checked))} />
+                        Skip defeated enemies automatically
+                    </label>
+                    <p className="sd-ui-muted text-xs">Checks Skip when you mark an NPC defeated here. Players are never skipped automatically. Existing rows and external Foundry changes are unchanged; you can uncheck Skip while defeated. NPC Restore clears Skip.</p>
+                </section>}
+
+                <h3 className="sd-ui-accent text-lg font-bold">All encounters in this world</h3>
+            <section className={panelClass}>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                        <h2 className="sd-ui-accent text-lg font-bold uppercase tracking-widest">Combat stat display</h2>
+                        <p className="sd-ui-muted mt-1 text-xs">Shared by GMs in this world · {statPreferences?.source === 'saved' ? 'customized' : statPreferences?.source === 'module' ? 'module suggestions' : 'no defaults'}</p>
+                    </div>
+                    <button disabled={!statPreferences || busy} onClick={() => { invalidateCustomValidation(); setStatDraft(statPreferences?.attributes || []); setEditingStats(value => !value); }}
+                        className={secondaryButtonClass}>{editingStats ? 'Close configuration' : 'Configure stats'}</button>
+                </div>
+                {editingStats && <div className="sd-ui-divider mt-4 space-y-3 border-t pt-4">
+                    <p className="sd-ui-muted text-xs">Choose fields found on Actors in this world or suggested by the system module. Missing values are hidden. Only source-backed numeric and resource values can be made editable; derived and text fields stay read-only. Choose one editable field as default health for the roster action.</p>
+                    {statDraft.map((field, index) => <fieldset disabled={busy || validatingCustomStat} key={`${field.key}:${index}`} className="sd-ui-inset flex min-w-0 flex-wrap items-center gap-2 rounded-lg p-2">
+                        <input aria-label={`Stat ${index + 1} label`} value={field.label} maxLength={32} onChange={event => setStatDraft(current => current.map((row, at) => at === index ? { ...row, label: event.target.value } : row))}
+                            className={`w-32 ${inputClass}`} />
+                        <span className="sd-ui-muted min-w-0 flex-1 break-all text-xs">{statChoiceContext(field)}</span>
+                        <label className="flex items-center gap-1.5 text-xs">
+                            <input type="checkbox" aria-label={`Show ${field.label} beside names`} checked={field.showInRoster === true}
+                                disabled={field.kind === 'textarea'}
+                                onChange={event => setStatDraft(current => current.map((row, at) => at === index ? { ...row, showInRoster: event.target.checked } : row))}
+                                style={{ accentColor: 'var(--sd-ui-accent)' }} /> Beside names
+                        </label>
+                        <label className="flex items-center gap-1.5 text-xs">
+                            <input type="checkbox" aria-label={`Make ${field.label} editable`} checked={field.editable === true}
+                                disabled={!field.path.startsWith('system.') || !['number', 'resource'].includes(field.kind)}
+                                onChange={event => setStatDraft(current => current.map((row, at) => at === index
+                                    ? { ...row, editable: event.target.checked ? true : undefined,
+                                        health: event.target.checked ? row.health : undefined } : row))}
+                                style={{ accentColor: 'var(--sd-ui-accent)' }} /> Editable
+                        </label>
+                        <label className="flex items-center gap-1.5 text-xs">
+                            <input type="checkbox" aria-label={`Use ${field.label} as default health`} checked={field.health === true}
+                                disabled={!field.path.startsWith('system.') || !['number', 'resource'].includes(field.kind)}
+                                onChange={event => setStatDraft(current => current.map((row, at) => at === index
+                                    ? { ...row, editable: event.target.checked ? true : row.editable,
+                                        health: event.target.checked ? true : undefined }
+                                    : event.target.checked ? { ...row, health: undefined } : row))}
+                                style={{ accentColor: 'var(--sd-ui-accent)' }} /> Default health
+                        </label>
+                        <button disabled={index === 0} onClick={() => setStatDraft(current => { const next = [...current]; [next[index - 1], next[index]] = [next[index], next[index - 1]]; return next; })} className={secondaryButtonClass} aria-label={`Move ${field.label} up`}>↑</button>
+                        <button disabled={index === statDraft.length - 1} onClick={() => setStatDraft(current => { const next = [...current]; [next[index + 1], next[index]] = [next[index], next[index + 1]]; return next; })} className={secondaryButtonClass} aria-label={`Move ${field.label} down`}>↓</button>
+                        <button type="button" onClick={() => editAttribute(field)} className={secondaryButtonClass} aria-label={`Edit ${field.label} presentation`}>Edit</button>
+                        <button onClick={() => {
+                            if (editingAttributeKey === field.key) { invalidateCustomValidation(); setEditingAttributeKey(null); setCustomLabel(''); setCustomPath(''); }
+                            setStatDraft(current => current.filter((_, at) => at !== index));
+                        }} className={secondaryButtonClass} aria-label={`Remove ${field.label}`}>Remove</button>
+                    </fieldset>)}
+                    <div className="flex flex-wrap items-center gap-2">
+                        <input aria-label="Find an Actor field" placeholder="Search Actor fields" value={statSearch}
+                            onChange={event => { setStatSearch(event.target.value); setStatChoice(''); }} className={`min-w-48 ${inputClass}`} />
+                        <select aria-label="Suggested or available stat" value={statChoice} onChange={event => setStatChoice(event.target.value)} className={`min-w-56 ${inputClass}`}>
+                            <option value="">Choose a field</option>
+                            {filteredStatChoices.map(({ choice, index }) => <option key={`${choice.path}:${choice.kind}`} value={index}>
+                                {choice.label} ({statChoiceContext(choice)})
+                            </option>)}
+                        </select>
+                        <button disabled={busy || validatingCustomStat || loadingStatCatalog || statChoice === ''} onClick={() => { addStat(statChoices[Number(statChoice)]); setStatChoice(''); }} className={secondaryButtonClass}>Add field</button>
+                    </div>
+                    {loadingStatCatalog && <p className="sd-ui-muted text-xs">Finding Actor fields…</p>}
+                    {!loadingStatCatalog && statChoices.length === 0 && <p className="sd-ui-muted text-xs">No Actor fields are available yet. Add a world or compendium Actor, then reopen this configuration.</p>}
+                    <details ref={attributeEditor} open={attributeEditorOpen} onToggle={event => setAttributeEditorOpen(event.currentTarget.open)} className="sd-ui-inset rounded-lg p-3 text-xs">
+                        <summary className="cursor-pointer">{editingAttributeKey ? 'Edit attribute presentation' : 'Advanced: enter an attribute path manually'}</summary>
+                        <div className="mt-3"><CombatStatAttributeEditor value={{ label: customLabel, path: customPath, kind: customKind, layout: customLayout, contentFormat: customContentFormat }}
+                            onChange={draft => { invalidateCustomValidation(); setCustomLabel(draft.label); setCustomPath(draft.path); setCustomKind(draft.kind); setCustomLayout(draft.layout); setCustomContentFormat(draft.contentFormat ?? 'plain'); }}
+                            onApply={() => void addCustomStat()} onCancel={() => { invalidateCustomValidation(); setEditingAttributeKey(null); setCustomLabel(''); setCustomPath(''); setCustomContentFormat('plain'); }}
+                            editing={editingAttributeKey !== null} disabled={busy} checking={validatingCustomStat} reason={customDisabledReason}
+                            error={customStatError} inputClass={inputClass} buttonClass={secondaryButtonClass} /></div>
+                    </details>
+                    <div className="flex flex-wrap gap-2">
+                        <button disabled={busy || validatingCustomStat || editingAttributeKey !== null} onClick={() => void mutate(async () => {
+                            const { preferences } = await api.saveManagedStatPreferences(statDraft);
+                            setStatPreferences(preferences); setEditingStats(false);
+                            await refresh();
+                        })} className={primaryButtonClass}>Save</button>
+                        <button disabled={busy || statPreferences?.source !== 'saved'} onClick={() => void mutate(async () => {
+                            const { preferences } = await api.resetManagedStatPreferences();
+                            setStatPreferences(preferences); setStatDraft(preferences.attributes); setEditingStats(false);
+                            await refresh();
+                        })} className={secondaryButtonClass}>Reset to module suggestions</button>
+                    </div>
+                </div>}
+                <div className="sd-ui-divider mt-4 border-t pt-4">
+                    <h3 className="sd-ui-accent text-sm font-bold">Initiative formula override</h3>
+                    <p id="initiative-formula-help" className="sd-ui-muted mt-1 text-xs">A saved override takes precedence over the system module and Core. Clear and save to use the module, then Core. Save validates dice, numbers, +/− and safe numeric @system or @derived paths against all current encounter participants.</p>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <input ref={initiativeInput} aria-label="GM initiative override formula" value={initiativeFallbackDraft}
+                            aria-invalid={!!initiativeFormulaError}
+                            aria-describedby={`initiative-formula-help${initiativeFormulaError ? ' initiative-formula-error' : ''}`}
+                            onChange={event => { initiativeDraftDirty.current = true; setInitiativeFormulaError(''); setInitiativeFallbackDraft(event.target.value); }}
+                            onSelect={event => { initiativeSelection.current = {
+                                start: event.currentTarget.selectionStart ?? event.currentTarget.value.length,
+                                end: event.currentTarget.selectionEnd ?? event.currentTarget.value.length,
+                            }; }}
+                            placeholder="1d20 + …" maxLength={160}
+                            className={`min-w-0 flex-1 basis-64 font-mono ${inputClass}`} />
+                        <button disabled={busy || !statPreferences || initiativeFallbackDraft === (statPreferences.initiativeFormula || '')}
+                            onClick={() => void mutate(async () => {
+                                setInitiativeFormulaError('');
+                                const { preferences } = await api.saveManagedInitiativeFallback(initiativeFallbackDraft.trim() || null);
+                                initiativeDraftDirty.current = false;
+                                setInitiativeFallbackDraft(preferences.initiativeFormula || '');
+                                setStatPreferences(previous => ({ ...preferences, available: previous?.available || [] }));
+                            }).then(result => { if (!result.ok) setInitiativeFormulaError(errorMessage(result.cause)); })}
+                            className={secondaryButtonClass}>Save</button>
+                        <button disabled={busy || !statPreferences} aria-expanded={pickingInitiativeAttribute}
+                            aria-controls="initiative-attribute-picker"
+                            onClick={() => setPickingInitiativeAttribute(value => !value)} className={secondaryButtonClass}>
+                            {pickingInitiativeAttribute ? 'Close attributes' : 'Insert attribute'}
+                        </button>
+                    </div>
+                    {pickingInitiativeAttribute && <div id="initiative-attribute-picker" className="sd-ui-inset mt-3 space-y-2 rounded-lg p-3">
+                        <p className="sd-ui-muted text-xs">Type a dice formula, then choose a numeric Actor field to insert at the cursor or replace selected text. Choosing a field does not save; Save checks all current participants.</p>
+                        <div className="flex flex-wrap items-center gap-2">
+                            <input aria-label="Find an initiative attribute" placeholder="Search numeric fields" value={initiativeAttributeSearch}
+                                onChange={event => { setInitiativeAttributeSearch(event.target.value); setInitiativeAttributeChoice(''); }}
+                                className={`min-w-0 flex-1 basis-48 ${inputClass}`} />
+                            <select aria-label="Numeric initiative attribute" value={initiativeAttributeChoice} disabled={loadingStatCatalog || busy}
+                                onChange={event => setInitiativeAttributeChoice(event.target.value)} className={`min-w-0 max-w-full flex-1 basis-64 ${inputClass}`}>
+                                <option value="">Choose a numeric field</option>
+                                {filteredInitiativeAttributes.map(field => <option key={field.path} value={field.path}>
+                                    {field.label} ({statChoiceContext(field)})
+                                </option>)}
+                            </select>
+                            <button disabled={busy || loadingStatCatalog || !initiativeAttributeChoice} onClick={insertInitiativeField}
+                                className={secondaryButtonClass}>Insert into formula</button>
+                        </div>
+                        {loadingStatCatalog && <p role="status" className="sd-ui-muted text-xs">Finding numeric Actor fields…</p>}
+                        {!loadingStatCatalog && !filteredInitiativeAttributes.length && <p className="sd-ui-muted text-xs">
+                            {initiativeAttributeSearch.trim() ? 'No numeric fields match your search.' : 'No numeric fields are available yet. Add an Actor and reopen the picker.'}
+                        </p>}
+                    </div>}
+                    {initiativeFormulaError && <p id="initiative-formula-error" role="alert" className="sd-ui-danger mt-2 break-words text-xs">{initiativeFormulaError}</p>}
+                    {statPreferences?.initiativePreview && <p className="sd-ui-muted mt-2 text-xs">
+                        Selected Actor: {statPreferences.initiativePreview.source === 'module' ? 'system module'
+                            : statPreferences.initiativePreview.source === 'gm' ? 'GM override' : 'Core default'}
+                        {' · '}{statPreferences.initiativePreview.rollAvailable
+                            ? statPreferences.initiativePreview.formula : 'invalid or unresolved formula; manual initiative required'}
+                        {statPreferences.initiativePreview.source === 'core' && ' · Using Core default 1d20; this may not match your system.'}
+                    </p>}
+                </div>
+            </section>
+
+                </>}
+            </CombatManagerDialog>}
             <CombatHealthModal target={healthTarget} busy={busy} conflict={healthConflict}
                 observedCurrent={encounter?.participants.find(row => row.id === healthTarget?.combatantId)
                     ?.stats.find(stat => stat.edit?.key === healthTarget?.key)?.edit?.value}

@@ -313,7 +313,7 @@ the target. Malformed explicit Skip values are excluded until a GM repairs them.
 | `PUT` | `/api/combat-manager/initiative-fallback` | Legacy URL retained: save a GM override such as `{ "formula": "1d20+@system.attributes.init.value" }` only if that numeric path exists on every current managed participant, or clear with `null`. Validate before persistence; 400 invalid/missing-reference/no-participant evidence, 409 unavailable Actor, 401 retired caller, 503 replaced/unavailable world. GM override takes precedence. |
 | `GET` | `/api/combat-manager/:id` | Read one marked tokenless encounter. |
 | `PATCH` | `/api/combat-manager/:id` | Rename with `{ "label": "..." }` only while active at round zero. Reject duplicate normalized labels and verify the child Actor Folder marker before renaming it. |
-| `PATCH` | `/api/combat-manager/:id/player-actions` | GM/Assistant `{ "initiativeOpen"?: boolean, "endTurnEnabled"?: boolean }`. Phase changes rotate an opaque generation on the Combat; owner End my turn defaults enabled. Begin and rewind to round zero close initiative. The encounter DTO includes policy and manager-only eligible/scored counts. |
+| `PATCH` | `/api/combat-manager/:id/player-actions` | GM/Assistant `{ "initiativeOpen"?: boolean, "endTurnEnabled"?: boolean }`. Pre-start phase changes rotate an opaque generation on the Combat; setting `initiativeOpen` after start returns409. Owner End my turn defaults enabled. Begin closes the pre-start switch and permits visible unrolled owners automatically while active; rewind to round zero closes eligibility and rotates the generation (ADR-0069). The encounter DTO includes policy and manager-only eligible/scored counts. |
 | `GET` | `/api/combat-manager/world-actors?q=...&sort=...` | Search linkable world Actors (PCs and NPCs), excluding marked encounter-owned compendium copies. Returns all matching Actors in order and a separate `sortFields` catalog discovered from readable Actor source stats. |
 | `GET` | `/api/combat-manager/packs` | List available Actor compendiums. |
 | `GET` | `/api/combat-manager/packs/:packId/actors?q=...&sort=...` | Search a GM-bound Actor pack index, projecting `system` server-side for a source-stat sort catalog. Returns all matching Actors in order; no Actor source documents cross to the browser. |
@@ -363,14 +363,17 @@ is a visible-order preview, not a guarantee of the next actual Foundry turn.
 Rows include bounded read-only owned stats, Actor-sheet capability and the
 server-resolved initiative formula/source/allowed modes where authorized.
 Unlinked scene Tokens do not project base Actor stats; textarea detail values
-never enter owned HUD chips. An open managed
-initiative phase adds `playerInitiative: { open: true, generation }` only to
+never enter owned HUD chips. An open pre-start phase or an active, started managed
+encounter with eligible unrolled owners adds `playerInitiative: { open: true, generation }` only to
 an authorized player view, including before Begin; pre-Begin rows contain
 only that player's visible owned Actors. Managed unrolled rows are in optional
 `initiativeCandidates`, not `combatants`: same whitelisted row shape, own
 visible targets only and `isCurrent: false`. The compact cue reads this
 collection even when the turn roster is empty/collapsed; no other-owner or
-hidden pending IDs/counts are projected. Closing the phase removes candidates.
+hidden pending IDs/counts are projected. Closing the pre-start phase removes candidates.
+After Begin, owners may roll automatically without a GM reopening the phase;
+inactive, completed or closing encounters admit no owner rolls. The generation
+is opaque and changes across Begin/rewind; stale observations remain rejected.
 GM/Assistant HUDs retain the full roster, with pending rows excluded from their
 next preview. No player pause marker reveals a hidden current row.
 This does not activate the Foundry

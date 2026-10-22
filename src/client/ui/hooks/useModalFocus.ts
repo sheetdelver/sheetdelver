@@ -40,9 +40,11 @@ export function useModalFocus(ref: RefObject<HTMLElement | null>, open: boolean,
                 }
             }
         };
-        dialog.addEventListener('keydown', keydown);
+        // A saved/disabled or realtime-removed control may leave focus on body.
+        // Keep Escape and Tab containment working until the top dialog closes.
+        document.addEventListener('keydown', keydown);
         return () => {
-            dialog.removeEventListener('keydown', keydown);
+            document.removeEventListener('keydown', keydown);
             const wasTop = activeDialogs.at(-1) === dialog;
             const index = activeDialogs.indexOf(dialog);
             if (index >= 0) activeDialogs.splice(index, 1);

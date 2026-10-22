@@ -204,6 +204,14 @@ without disposing world state merely because `connected` briefly became false.
 
 ## Combat Tracker (ADR-0028, ADR-0060)
 
+The Combat Manager header provides **New encounter** and **Encounter settings**
+dialogs beside the encounter selector (ADR-0069). Settings includes player
+participation and automatic NPC skipping for the selected encounter, followed
+by world-wide stat display and initiative formula preferences. The main page
+keeps encounter navigation and participant content. Open/Close player initiative
+is pre-start only; visible, unrolled owners can roll automatically while a
+started encounter is active. End my turn remains a separate encounter setting.
+
 ADR-0063 refinements: Actor/tool navigation uses normal flow below the HUD;
 modules do not reserve a guessed HUD height. My character defaults to the
 visible owned current turn, then an actionable owned initiative target, then
