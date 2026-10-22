@@ -1,3 +1,4 @@
+import { PlayerPageBackground } from "@client/ui/components/PlayerPageBackground";
 import { PlayerWorldBoundary } from "@client/ui/components/PlayerWorldBoundary";
 import GlobalChat from "@client/ui/components/GlobalChat";
 import PlayerList from "@client/ui/components/PlayerList";
@@ -17,18 +18,20 @@ export default function PlayerLayout({
   return (
     <PlayerProviders>
       <VideoPlaysinlineFix />
-      <PlayerWorldBoundary>
-      <div className="relative min-h-screen">
-          <CombatHUD />
-        {children}
-          <GlobalChat />
-          <PlayerList />
-          <FloatingHUD />
-          <JournalBrowser />
-          <JournalModal />
-          <SharedContentHost />
-      </div>
-      </PlayerWorldBoundary>
+      <PlayerPageBackground>
+        <PlayerWorldBoundary>
+          <div className="relative min-h-screen">
+            <CombatHUD />
+            {children}
+            <GlobalChat />
+            <PlayerList />
+            <FloatingHUD />
+            <JournalBrowser />
+            <JournalModal />
+            <SharedContentHost />
+          </div>
+        </PlayerWorldBoundary>
+      </PlayerPageBackground>
     </PlayerProviders>
   );
 }

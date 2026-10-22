@@ -131,6 +131,19 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - New unrelated work gets its own scope/ADR when appropriate, not additions to
   an already-closed ADR. Update architecture/API/SDK/module-authoring docs when
   their contracts change; keep module-only documentation module-owned.
+- Core ADR metadata is CI-enforced by
+  `src/tests/unit/docs/adr-metadata.test.ts`. Every numbered `docs/adr/` file
+  must have top-level `**Status:**` before its first `---` divider. The value
+  must begin with one of: `Proposed`, `Deferred`, `Accepted`, `Implemented`,
+  `Completed`, `Superseded`, `Rejected`, or `Deprecated`; explanatory text may
+  follow. Use `Completed`, not `Complete`, and retain bold metadata labels.
+  Follow the existing `**Date:** YYYY-MM-DD` convention (the status test does
+  not validate dates). After creating an ADR or editing its header/closeout,
+  run `npx tsx src/tests/unit/docs/adr-metadata.test.ts` before committing,
+  including documentation-only changes. This check is in `npm run test:unit`,
+  not `npm run test:client`; passing client tests or typing does not cover it.
+  These are Core requirements; module-owned ADRs follow their own repository
+  conventions and checks.
 - Changelogs are terse feature snapshots, usually 3-5 words per bullet, not
   commit transcripts. Use docs/RELEASING.md and the existing release helper.
 - User's interactive shell is often Fish. Prefer short single-line commands;

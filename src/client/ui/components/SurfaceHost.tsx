@@ -80,17 +80,20 @@ export function SurfaceHost({ moduleId, surface, loading, fallback, children }: 
     // class is applied here at runtime — identical in dev and packaged (no build-time
     // CSS rewrite), enforced by the `module:check` global-leak lint.
     const scopeClass = moduleId ? `sdk-module--${moduleId}` : undefined;
+    const content = (
+        <Suspense fallback={loading ?? <LoadingModal message="Loading..." />}>
+            {children}
+        </Suspense>
+    );
     return (
         <SurfaceErrorBoundary surface={surface} fallback={fallback}>
             <SDKProvider moduleId={moduleId}>
                 <div
-                    className={['sd-surface-root', scopeClass].filter(Boolean).join(' ')}
+                    className={['sd-surface-root', scopeClass, (surface === 'tools' || surface === 'actorPage') && 'sd-ui-page'].filter(Boolean).join(' ')}
                     data-sd-surface={surface}
                     data-sd-module={moduleId}
                 >
-                    <Suspense fallback={loading ?? <LoadingModal message="Loading..." />}>
-                        {children}
-                    </Suspense>
+                    {content}
                 </div>
             </SDKProvider>
         </SurfaceErrorBoundary>

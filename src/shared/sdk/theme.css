@@ -1,3 +1,11 @@
+/* Optional SDK page-canvas override, supplied in a module's scoped stylesheet:
+ * .sdk-module--example { --sd-module-page-background: #241c29; }
+ * Core's player layout owns world artwork and viewport sizing. On hosted actor
+ * pages and tools: world artwork > this color > current Core appearance canvas.
+ * Leave unset to follow Core. Keep outer module canvases transparent; paper
+ * panels remain module-owned. See docs/MODULE_AUTHORING.md, Player-page backgrounds.
+ * No default is assigned here: doing so would hide the Core theme fallback.
+ */
 /*
  * @sheet-delver/sdk/theme.css — shared module design tokens (ADR-0027 decision 34).
  *
