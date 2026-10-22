@@ -1,7 +1,7 @@
 # ADR-0070: Shared player and module page backgrounds
 
-Status: Complete — implementation verified and operator accepted; publication pending
-Date: 2026-10-22
+**Status:** Completed — implementation verified and operator accepted; publication pending
+**Date:** 2026-10-22
 
 ## Problem
 
