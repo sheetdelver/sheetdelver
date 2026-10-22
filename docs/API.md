@@ -313,7 +313,7 @@ the target. Malformed explicit Skip values are excluded until a GM repairs them.
 | `PUT` | `/api/combat-manager/initiative-fallback` | Legacy URL retained: save a GM override such as `{ "formula": "1d20+@system.attributes.init.value" }` only if that numeric path exists on every current managed participant, or clear with `null`. Validate before persistence; 400 invalid/missing-reference/no-participant evidence, 409 unavailable Actor, 401 retired caller, 503 replaced/unavailable world. GM override takes precedence. |
 | `GET` | `/api/combat-manager/:id` | Read one marked tokenless encounter. |
 | `PATCH` | `/api/combat-manager/:id` | Rename with `{ "label": "..." }` only while active at round zero. Reject duplicate normalized labels and verify the child Actor Folder marker before renaming it. |
-| `PATCH` | `/api/combat-manager/:id/player-actions` | GM/Assistant `{ "initiativeOpen"?: boolean, "endTurnEnabled"?: boolean }`. Phase changes rotate an opaque generation on the Combat; owner End my turn defaults enabled. Begin and rewind to round zero close initiative. The encounter DTO includes policy and manager-only eligible/scored counts. |
+| `PATCH` | `/api/combat-manager/:id/player-actions` | GM/Assistant `{ "initiativeOpen"?: boolean, "endTurnEnabled"?: boolean }`. Pre-start phase changes rotate an opaque generation on the Combat; setting `initiativeOpen` after start returns409. Owner End my turn defaults enabled. Begin closes the pre-start switch and permits visible unrolled owners automatically while active; rewind to round zero closes eligibility and rotates the generation (ADR-0069). The encounter DTO includes policy and manager-only eligible/scored counts. |
 | `GET` | `/api/combat-manager/world-actors?q=...&sort=...` | Search linkable world Actors (PCs and NPCs), excluding marked encounter-owned compendium copies. Returns all matching Actors in order and a separate `sortFields` catalog discovered from readable Actor source stats. |
 | `GET` | `/api/combat-manager/packs` | List available Actor compendiums. |
 | `GET` | `/api/combat-manager/packs/:packId/actors?q=...&sort=...` | Search a GM-bound Actor pack index, projecting `system` server-side for a source-stat sort catalog. Returns all matching Actors in order; no Actor source documents cross to the browser. |
@@ -321,7 +321,7 @@ the target. Malformed explicit Skip values are excluded until a GM repairs them.
 | `POST` | `/api/combat-manager/:id/pack-actors` | Add `{ "packId": "...", "actorId": "...", "quantity": 1 }` as 1–20 independent encounter-owned world Actor copies. Partial failures report how many completed; retry is manual. |
 | `POST` | `/api/combat-manager/:id/next-turn` and `/previous-turn` | Run SheetDelver-managed turn progression under the GM/Assistant encounter guard. |
 | `POST` | `/api/combat-manager/:id/roll-initiative` | Roll available unrolled combatants with `{ "scope": "all" }` or `{ "scope": "npc" }`; NPC means no non-GM owner. Invalid/unresolved override references remain for manual entry. Returns `rolled` and the refreshed encounter. Partial failures report the count already rolled. |
-| `POST` | `/api/combat-manager/:id/combatants/:combatantId/roll-initiative` | Roll or reroll one participant through the guarded, user-bound initiative path. Optional `advantageMode` applies only to leading d20 formulas. Returns `rolled: 1` and the refreshed encounter. |
+| `POST` | `/api/combat-manager/:id/combatants/:combatantId/roll-initiative` | Roll or reroll one participant through the guarded, user-bound initiative path. Optional `advantageMode` (`normal`, `advantage`, `disadvantage`) applies only to leading d20 formulas. Optional `observed: { initiative: number | null, formula: string }` rejects stale modal context with409 before rolling; malformed observations return400. Manager participant DTOs include native `actorType` and the server-resolved `initiativeRoll.formula`. Returns `rolled: 1` and the refreshed encounter. |
 | `POST` | `/api/combat-manager/:id/reset-initiative` | Clear all scored participants in one embedded-document update. First pause a started current turn on the Combat. Returns `cleared` and the refreshed encounter; pending rows cannot become current. GM action resumes it. |
 | `PATCH` | `/api/combat-manager/:id/combatants/:combatantId` | Change `initiative`, `hidden`, `defeated` or boolean `skip`. NPC Restore clears Skip; conflicting `defeated: false, skip: true` is rejected. Manual initiative edits may include `expectedInitiative` (number or `null`); a changed mirrored score returns 409. This is a Store preflight, not an atomic Foundry compare-and-set. |
 | `PATCH` | `/api/combat-manager/:id/combatants/:combatantId/resource` | Set a source-backed configured resource with `{ "value": 5, "expected": { "actorId": "...", "path": "system.attributes.hp.value", "value": 7 } }`. Returns 409 if the mirrored Actor, resource path or value changed since observation; refetch before retrying. This is a best-effort Store preflight, not an atomic Foundry compare-and-set. |
@@ -363,14 +363,17 @@ is a visible-order preview, not a guarantee of the next actual Foundry turn.
 Rows include bounded read-only owned stats, Actor-sheet capability and the
 server-resolved initiative formula/source/allowed modes where authorized.
 Unlinked scene Tokens do not project base Actor stats; textarea detail values
-never enter owned HUD chips. An open managed
-initiative phase adds `playerInitiative: { open: true, generation }` only to
+never enter owned HUD chips. An open pre-start phase or an active, started managed
+encounter with eligible unrolled owners adds `playerInitiative: { open: true, generation }` only to
 an authorized player view, including before Begin; pre-Begin rows contain
 only that player's visible owned Actors. Managed unrolled rows are in optional
 `initiativeCandidates`, not `combatants`: same whitelisted row shape, own
 visible targets only and `isCurrent: false`. The compact cue reads this
 collection even when the turn roster is empty/collapsed; no other-owner or
-hidden pending IDs/counts are projected. Closing the phase removes candidates.
+hidden pending IDs/counts are projected. Closing the pre-start phase removes candidates.
+After Begin, owners may roll automatically without a GM reopening the phase;
+inactive, completed or closing encounters admit no owner rolls. The generation
+is opaque and changes across Begin/rewind; stale observations remain rejected.
 GM/Assistant HUDs retain the full roster, with pending rows excluded from their
 next preview. No player pause marker reveals a hidden current row.
 This does not activate the Foundry
@@ -1344,3 +1347,67 @@ failed/unknown required compatibility holds world readiness with an unavailable
 client message and admin-only maintenance reason. Job apply includes acknowledgement
 that SheetDelver provides no world backup/restore or migration undo and recommends
 backing up through Foundry first. Native-user lockout is outside this contract.
+
+## Native packages and artwork
+
+SDK3.5.0/module-api1.7.0 provides optional `runtime.packages.snapshot()` and
+`runtime.artwork.resolve(uuid, kind)`; UI3.3.0 provides `useFoundryPackages()` and
+`world:packagesChanged`. Authenticated GET `/api/module-packages` returns a ready
+world snapshot or an unavailable reason. GET `/api/module-artwork?uuid=<canonical
+Compendium UUID>&kind=image|token` returns resolved `{src, packageId, credit?}`,
+none, or unavailable with a reason. Invalid argument shapes receive400; existing
+authentication/readiness gates apply. Both responses use no-store.
+
+Request/browser pack lists and artwork reads use current caller pack visibility.
+No raw manifests/settings, arbitrary URL fetch or filesystem paths are exposed.
+Discovery is not content authorization; artwork resolution is not document
+existence validation. Read the source through the authorized document API first.
+[ADR-0067](adr/0067-foundry-package-context-and-artwork.md) specifies lifecycle,
+asset bounds and native compatibility limits.
+
+### Module-owned display artwork
+
+`SystemAdapter.resolveDisplayArtwork(context, runtime)` optionally returns
+`{src, credit?}` or null. Core supplies frozen caller-readable source Actor and
+current image provenance with a narrowed read-only runtime and abort signal.
+This generic policy hook may use the compendium resolver or module-owned assets.
+See the typed example and full lifecycle/access contract in
+[MODULE_AUTHORING](MODULE_AUTHORING.md#let-core-surfaces-use-module-owned-display-artwork).
+
+Authenticated no-store GET `/api/display-artwork` accepts `purpose=actor-card`
+with `actorId`, or `purpose=combat-portrait|combat-token` with `combatId` and
+`combatantId`. It accepts no browser-provided image or source document. Invalid
+shapes receive400; session middleware and existing readiness apply. Unauthorized,
+absent or failed optional artwork returns `{status:'none'}` without disclosing
+hidden documents. A resolved response contains `{status:'resolved',src,credit?,
+original}`; `original` is the expanded image URL used to reject stale browser rows.
+Manager targets require GM/Assistant and readable Actors; HUD targets respect
+hidden/unstarted redaction plus Actor read access. Hook results never mutate
+native documents. Current consumers: manager roster and HUD; dashboard unchanged.
+
+The display-artwork hook context includes optional `compendiumSourceUuid` for
+verified encounter-owned Actor copies. It is derived from current copy-marker,
+encounter registration and folder agreement, never a browser-supplied identity.
+It does not grant source-pack access or rewrite native Actor metadata. Modules
+should prefer it over native origin fields for these copies.
+
+
+### Optional compendium reference views (ADR-0068)
+
+Authenticated no-store `GET /api/compendium-reference` accepts either
+`combatId=<id>&combatantId=<id>` or `uuid=Compendium.<package>.<pack>.Actor|Item.<id>`
+(the latter notation means a typed Actor or Item UUID, not a literal pipe).
+Combat targets require an authorized GM/Assistant managed encounter and readable
+Actor, then resolve the original pack source using verified copy provenance or
+native import origin. The source pack/document must remain readable. Root Actor
+and Item references only; embedded, untyped and name-based references are rejected.
+The native pack's document type must match the UUID type.
+
+Response: `{ status: 'resolved', moduleId, reference: { uuid, documentType },
+title, model }` or `{ status: 'none' }`. Optional `availability=1` omits `model`.
+No hook, module decline/error/timeout, missing source or denied source returns
+`none` without disclosing private content. Invalid target shape is400; retired
+session is401. Source reads and optional preparation have a three-second deadline;
+source/context/access are checked again before delivery. The endpoint never
+writes. Core UI also requires a matching `referenceViews` declaration before
+showing a link. See [authoring contract](MODULE_AUTHORING.md#optional-compendium-reference-viewers).

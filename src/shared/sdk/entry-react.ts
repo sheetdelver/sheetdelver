@@ -69,3 +69,4 @@ export type {
 } from './ui';
 
 export type { NotificationId, NotificationType, NotificationOptions, NotificationUpdate, NotificationAPI } from './notifications';
+export { useFoundryPackages } from './client-hooks';

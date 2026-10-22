@@ -38,6 +38,14 @@ export function playerActionsFor(flag: CombatManagerFlag) {
     return flag.playerActions ?? { initiativeOpen: false, initiativeGeneration: '', endTurnEnabled: true };
 }
 
+/** Effective owner-roll window. Started encounters admit unrolled owners automatically. */
+export function playerInitiativeGeneration(combat: { round?: number; active?: boolean }, flag: CombatManagerFlag): string | null {
+    if (flag.status !== 'active' || flag.deletionRequested || flag.historyRemovalRequested) return null;
+    const actions = playerActionsFor(flag);
+    if ((combat.round ?? 0) > 0) return combat.active ? `active:${actions.initiativeGeneration}` : null;
+    return actions.initiativeOpen ? actions.initiativeGeneration : null;
+}
+
 export function readCombatManagerFlag(combat: CombatDocument | null | undefined): CombatManagerFlag | null {
     if (!combat || combat.scene !== null) return null;
     const world = combat.flags?.world;

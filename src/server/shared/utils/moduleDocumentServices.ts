@@ -47,6 +47,7 @@ import { folderStore } from '@server/core/documents/primary/folders/FolderStore'
 import { userStore } from '@server/core/documents/primary/users/UserStore';
 import { compendiumStore } from '@server/core/compendium/CompendiumStore';
 import { chatMessageStore } from '@server/core/documents/primary/chat-messages/ChatMessageStore';
+import { moduleWorldContext } from '@server/services/world/ModuleWorldContextService';
 
 /** Minimal shape every primary store exposes for read access (subject-scoped). */
 interface ReadOpts { subject?: DocumentAccessSubject; minOwnership?: ResolvedDocumentOwnershipLevel }
@@ -574,6 +575,14 @@ export function createModuleRequestRuntime(
     };
     return {
         ...base,
+        // Build caller-bound handles, never pass the adapter's privileged resolver through.
+        ...(base.world && base.packages ? { packages: moduleWorldContext.packages.handle(base.world, allowed) } : { packages: undefined }),
+        ...(base.world && base.artwork ? { artwork: { resolve: async (uuid, kind) => {
+            await ensureScope();
+            const result = await moduleWorldContext.packages.handle(base.world!, allowed).resolve(uuid, kind);
+            await ensureScope();
+            return result;
+        } } } : { artwork: undefined }),
         access: {
             canReadPack: allowed,
             packs: () => compendiumStore.listPackMetadata().filter(pack => allowed(String(pack.id))).map(pack => ({

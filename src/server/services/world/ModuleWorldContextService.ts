@@ -5,6 +5,8 @@ import { freezeWorldValue, isWorldValue, validateWorldSettings, type ModuleWorld
     type ModuleWorldIdentity, type WorldSettingDeclaration, type WorldSettingResult } from '@shared/sdk/world';
 import { resolveModuleCompatibility } from '@modules/registry/lifecycle/compatibilityResolver';
 import { compendiumStore } from '@server/core/compendium/CompendiumStore';
+import { FoundryPackageService } from './FoundryPackageService';
+import type { GameData } from '@server/core/world/types';
 
 export function versionMatches(version: string, range: string): boolean {
     return resolveModuleCompatibility({ coreVersion: version, requiredCoreVersion: range, providedApiContracts: {} }).compatible;
@@ -17,9 +19,10 @@ export class ModuleWorldContextService extends EventEmitter {
     private epoch = 0;
     private revision = 0;
     private accessFingerprint = '';
-    constructor(private readonly store: SettingStore = settingStore) { super(); }
+    readonly packages: FoundryPackageService;
+    constructor(private readonly store: SettingStore = settingStore) { super(); this.packages = new FoundryPackageService(store); }
     configure(instanceUrl: string, identity: Omit<ModuleWorldIdentity, 'instanceId' | 'contextRevision'>,
-        declarations: WorldSettingDeclaration[] = []): void {
+        declarations: WorldSettingDeclaration[] = [], packages?: Pick<GameData, 'world' | 'system' | 'modules'>): void {
         const errors = validateWorldSettings(declarations, [identity.systemId]);
         if (errors.length) throw new Error(errors.join('; '));
         if (!this.current || this.current.identity.worldId !== identity.worldId
@@ -29,14 +32,16 @@ export class ModuleWorldContextService extends EventEmitter {
         this.current = freezeWorldValue({ identity: { ...identity,
             instanceId: createHash('sha256').update(new URL(instanceUrl).origin + new URL(instanceUrl).pathname).digest('hex'),
             contextRevision: ++this.revision }, settings: this.resolve(identity.systemVersion) });
+        this.packages.configure(instanceUrl, packages, this.epoch);
     }
-    clear(): void { this.epoch += 1; this.current = null; this.declarations = []; }
+    clear(): void { this.epoch += 1; this.current = null; this.declarations = []; this.packages.clear(); }
     touchDependencies(): void {
         if (!this.current) throw new Error('World context unavailable');
         this.current = freezeWorldValue({ ...this.current, identity: { ...this.current.identity, contextRevision: ++this.revision } });
     }
     markUnavailable(): void {
         if (!this.current) return;
+        this.packages.suspend();
         this.current = freezeWorldValue({ identity: { ...this.current.identity, contextRevision: ++this.revision },
             settings: Object.fromEntries(this.declarations.map(row => [row.key, { status: 'unavailable' as const, reason: 'not-ready' as const }])) });
     }

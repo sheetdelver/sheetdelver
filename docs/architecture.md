@@ -675,3 +675,69 @@ lockfile-based SBOM; module version changes still use the pinned packager becaus
 identity and a validation baseline. Source, dependency, configuration, workflow
 or unknown input changes run full checks. Runtime behavior and SDK contracts are
 unaffected; see [releasing](RELEASING.md) for fallback and operator steps.
+
+## Native package context and artwork (ADR-0067)
+
+`FoundryPackageService`, owned by `ModuleWorldContextService`, derives allowlisted
+package metadata from the accepted bootstrap envelope. Discovery performs no new
+transport or filesystem work. Lazy, bounded mapping assets and artwork preference
+revisions are separate from rules preparation and migration readiness. Request
+runtimes replace adapter-level package/art handles with current caller visibility;
+late results recheck scope and access. Source documents and prepared stores remain
+unchanged. See [ADR-0067](adr/0067-foundry-package-context-and-artwork.md) for the
+contract, native provenance, deliberate limits and verification.
+
+The optional adapter `resolveDisplayArtwork` policy runs over authorized frozen
+source context through a separate no-store display endpoint. It is not a prepared
+Actor transform. Core's manager/HUD images render their existing source immediately;
+`DisplayArtworkService` and the mounted `DisplayArtwork` consumer govern bounded
+optional resolution, late-result retirement and image fallback. Module-specific
+default detection and mechanism selection remain in the module. Dashboard
+`getActorCardData` remains unchanged. See the ADR-0067 combat addendum and authoring
+coverage table for current host surfaces and authorization boundaries.
+
+### Encounter-copy artwork correction
+
+Operator review exposed the Compendium-copy path omitted by the first installed
+artwork fixture: `CombatManagerService.addPackActor` deliberately strips native
+`_stats` and records the exact origin in its encounter-copy marker. The initial
+hook looked only at native origins and therefore declined those copies. Core now
+projects optional `DisplayArtworkContext.compendiumSourceUuid`, after verifying
+Actor access, copy registration, matching encounter and folder, and a typed Actor
+UUID. Shadowdark consumes this public field before native origins. Custom images
+and pack permissions retain precedence. No names, private module imports, source
+repairs or additional startup work are introduced. Existing copies can resolve
+without recreation. Regression coverage includes the real public copy writer and
+Core restart; the earlier world-Actor test alone did not verify this workflow.
+
+### Optional compendium reference viewer
+
+[ADR-0068](adr/0068-optional-compendium-reference-views.md) adds
+`SystemAdapter.prepareReferenceView` and `UIModuleManifest.referenceViews` for
+Actor/Item sources. `registerCompendiumReferenceRoutes` resolves original canonical
+sources through caller-bound runtime reads, validates pack document type, and
+rechecks the target, source and authority after bounded module preparation.
+`CompendiumReferenceLink` opts into available Actor providers in the combat manager;
+`SurfaceHost`, `RollDialogFrame` and `useModalFocus` own the accessible mount.
+No provider/readable source means no link. Open content retires on lifecycle and
+access invalidation. No live encounter state, action runtime, source writes or
+bootstrap work is introduced. Item-consuming product UI remains deferred.
+
+### Combat manager settings and late initiative
+
+[ADR-0069](adr/0069-compact-combat-manager.md) moves creation and configuration
+into header dialogs without changing persistence scopes. World stat/formula
+preferences remain shared; participation and skip policy remain encounter-owned.
+`playerInitiativeGeneration` supplies the same effective owner-roll window to
+tracker projections and write revalidation: explicit pre-start opening, automatic
+visible/unrolled owner eligibility after Begin while active. Existing command
+guards and caller/source checks remain authoritative. No module rules, SDK
+extension, cache or migration is added.
+
+ADR-0069 roster follow-up keeps native Actor type separate from ownership-based
+NPC classification. The manager consumes authorized participant images and the
+optional original-source viewer. Its single-row initiative dialog consumes the
+server-resolved formula; normal/advantage/disadvantage still execute through the
+existing caller-bound roll service with observed score/formula checks. Manual
+entry retains expected-score updates. No module-specific transport or rules are
+introduced by the presentation change.

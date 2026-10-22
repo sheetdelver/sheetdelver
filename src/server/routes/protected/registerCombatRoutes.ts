@@ -93,7 +93,7 @@ export function registerCombatRoutes(appRouter: express.Router) {
                 || !(body.observed.initiative === null || Number.isFinite(body.observed.initiative))
                 || typeof body.observed.formula !== 'string'
                 || (body.observed.phaseGeneration !== undefined && (typeof body.observed.phaseGeneration !== 'string'
-                    || body.observed.phaseGeneration.length > 128))
+                    || body.observed.phaseGeneration.length > 135))
                 || (body.manualTotal !== undefined && !Number.isFinite(body.manualTotal))
                 || (body.advantageMode !== undefined && !['normal', 'advantage', 'disadvantage'].includes(body.advantageMode))) {
                 return res.status(400).json({ error: 'Invalid initiative request' });

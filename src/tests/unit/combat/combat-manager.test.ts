@@ -128,7 +128,7 @@ async function runManagedQueueRefinements(): Promise<void> {
     for (const id of ['LATEONE', 'LATETWO', 'LATENPC']) await combatManagerService.addWorldActor(gm, encounter.id, id);
     const lateNpc = await rowFor('LATENPC');
     assert.equal(lateNpc.hidden, true, 'late hidden default follows ownership, not Actor type');
-    await combatManagerService.setPlayerActions(gm, encounter.id, { initiativeOpen: true });
+    // A late owner is admitted automatically after Begin.
     let view = (await service.listCombats(player)).combats.find(row => row.id === encounter.id)!;
     assert.deepEqual(view.initiativeCandidates?.map(row => row.actorId).sort(), ['LATEONE', 'LATETWO']);
     assert.ok(view.combatants.every(row => row.initiative !== null));
@@ -412,6 +412,65 @@ export async function runParticipationHardening(): Promise<void> {
         service.rollInitiative(client, 'OWNERGUARD', 'OWNERROW', { observed, manualTotal, advantageMode });
     try {
         __resetDataDirForTests(dataDir);
+        // Active combats automatically admit late unrolled owners; pre-start remains opt-in.
+        await reset();
+        patchPolicy({ initiativeOpen: false });
+        assert.equal((await service.listCombats(player)).combats.find(row => row.id === 'OWNERGUARD'), undefined);
+        combatStore.patch('OWNERGUARD', { active: true, round: 1, turn: 0 });
+        combatStore.applyModifyDocument('Combatant', 'create', [{ _id: 'LATEOWNER', actorId: 'ALTPC', initiative: null, hidden: false }],
+            { parentUuid: 'Combat.OWNERGUARD' });
+        const lateTracker = (await service.listCombats(player)).combats.find(row => row.id === 'OWNERGUARD')!;
+        assert.deepEqual(lateTracker.initiativeCandidates?.map(row => row.id).sort(), ['LATEOWNER', 'OWNERROW']);
+        const lateObserved = { initiative: null, formula: '1d20', phaseGeneration: lateTracker.playerInitiative!.generation };
+        assert.ok('error' in await submit(player, 12), 'a pre-start observation cannot roll after start');
+        assert.deepEqual(await service.rollInitiative(player, 'OWNERGUARD', 'LATEOWNER', { manualTotal: 0, observed: lateObserved }),
+            { success: true, initiative: 0 });
+        assert.ok('error' in await service.rollInitiative(player, 'OWNERGUARD', 'LATEOWNER', { manualTotal: 12, observed: lateObserved }),
+            'late owners cannot reroll even a zero score');
+        assert.deepEqual(rolls, ['0']);
+        for (const change of [
+            () => combatStore.patch('OWNERGUARD', { active: false }),
+            () => patchRow({ hidden: true }),
+            () => actorStore.patch('PLAYERPC', { ownership: { player: 0 } }),
+            () => combatStore.patch('OWNERGUARD', { 'flags.world.sheetDelverCombat.status': 'completed' }),
+            () => combatStore.patch('OWNERGUARD', { round: 0 }),
+        ]) {
+            await reset(); patchPolicy({ initiativeOpen: false });
+            combatStore.patch('OWNERGUARD', { active: true, round: 1, turn: 0 });
+            const gate = requestGate();
+            const client = { ...player, getActor: async (id: string) => {
+                const actor = await player.getActor(id); await gate.pause(); return actor;
+            } } as CombatClientLike;
+            const pending = service.rollInitiative(client, 'OWNERGUARD', 'OWNERROW', { manualTotal: 12, observed: lateObserved });
+            try { await gate.entered; change(); } finally { gate.release(); }
+            assert.ok('error' in await pending, 'late-owner eligibility is rechecked after async reads');
+            assert.deepEqual(rolls, []); assert.equal(calls.length, 0);
+        }
+        // Old managed encounters need no write/migration to support late owners.
+        await reset();
+        const legacy = structuredClone(combatStore.get('OWNERGUARD')!);
+        const legacyFlag = readCombatManagerFlag(legacy)!;
+        delete legacyFlag.playerActions;
+        combatStore.delete('OWNERGUARD');
+        combatStore.upsert({ ...legacy, active: true, round: 1, turn: 0 });
+        const legacyView = (await service.listCombats(player)).combats.find(row => row.id === 'OWNERGUARD')!;
+        assert.equal(legacyView.playerInitiative?.generation, 'active:');
+        assert.equal(calls.length, 0);
+
+        // The public owner route accepts a full stored generation plus its active prefix.
+        patchPolicy({ initiativeOpen: false, initiativeGeneration: 'x'.repeat(128) });
+        const activeRoutes = createRouteMap();
+        registerCombatRoutes(createRouterStub(activeRoutes) as any);
+        const rollRoute = getLastHandler(activeRoutes, 'post', '/combats/:id/combatants/:combatantId/roll-initiative');
+        const routeRequest = { foundryClient: player, params: { id: 'OWNERGUARD', combatantId: 'OWNERROW' },
+            body: { manualTotal: 9, observed: { initiative: null, formula: '1d20', phaseGeneration: `active:${'x'.repeat(128)}` } } };
+        const routeRoll = await invokeHandler(rollRoute, routeRequest as any);
+        assert.equal(routeRoll.statusCode, 200);
+        assert.deepEqual(routeRoll.payload, { success: true, initiative: 9 });
+        const oversized = await invokeHandler(rollRoute, { ...routeRequest,
+            body: { ...routeRequest.body, observed: { ...routeRequest.body.observed, phaseGeneration: 'x'.repeat(136) } } } as any);
+        assert.equal(oversized.statusCode, 400);
+
         // R1: both owned and unowned replacement Actors invalidate the original target.
         for (const stage of ['read', 'chat', 'score'] as const) {
             for (const actorId of ['ALTPC', 'WORLDNPC']) {
@@ -435,7 +494,8 @@ export async function runParticipationHardening(): Promise<void> {
                         return result;
                     },
                 } as CombatClientLike;
-                const pending = submit(client, 12);
+                const pending = service.rollInitiative(client, 'OWNERGUARD', 'OWNERROW', { manualTotal: 12,
+                    observed: { ...observed, phaseGeneration: stage === 'score' ? 'active:phase-one' : observed.phaseGeneration } });
                 try { await gate.entered; patchRow({ actorId }); } finally { gate.release(); }
                 const result = await pending;
                 assert.ok('error' in result && result.status === 409, `${stage}: changed Actor association rejected`);
@@ -792,7 +852,30 @@ export async function runInitiativeOverrideValidation(): Promise<void> {
         assert.equal(rolls.length, 0, 'post-save invalidation makes no chat or fallback roll');
         assert.equal(calls.length, 0, 'post-save invalidation makes no score writes');
         await combatManagerService.saveInitiativeFormula(gm, null);
-        console.log('  - Initiative override: all-participant validation, persistence and retired-scope checks passed');
+        // Manager modal uses the same resolved formula and protects its observed score/formula.
+        await reset(); addParticipants();
+        await combatManagerService.saveInitiativeFormula(gm, '1d20+@system.init');
+        const managerRoutes = createRouteMap();
+        registerCombatManagerRoutes(createRouterStub(managerRoutes) as any);
+        const single = getLastHandler(managerRoutes, 'post', '/combat-manager/:id/combatants/:combatantId/roll-initiative');
+        const request = (body: unknown) => invokeHandler(single, { foundryClient: gm,
+            params: { id: 'OVERRIDE0', combatantId: 'ROW0' }, body } as any);
+        for (const [mode, expected] of [['normal', '1d20+1.5'], ['advantage', '2d20kh1+1.5'], ['disadvantage', '2d20kl1+1.5']]) {
+            const row = (await combatManagerService.detail(gm, 'OVERRIDE0')).participants[0];
+            assert.equal(row.actorType, 'npc');
+            assert.equal(row.initiativeRoll.formula, '1d20+1.5');
+            const result = await request({ advantageMode: mode, observed: { initiative: row.initiative, formula: row.initiativeRoll.formula } });
+            assert.equal(result.statusCode, 200);
+            assert.equal(rolls.at(-1), expected);
+        }
+        const before = rolls.length;
+        for (const body of [{observed:{}}, {observed:{initiative:null,formula:42}}, {advantageMode:'other'}])
+            assert.equal((await request(body)).statusCode, 400);
+        for (const observed of [{initiative:null,formula:'1d20+1.5'}, {initiative:17,formula:'1d20+999'}])
+            assert.equal((await request({ advantageMode:'normal', observed })).statusCode, 409);
+        assert.equal(rolls.length, before, 'invalid or stale modal requests create no roll');
+        await combatManagerService.saveInitiativeFormula(gm, null);
+        console.log('  - Initiative override and manager modal: modes, resolved formulas, native Actor type, stale observation and malformed request rejection passed');
     } finally {
         preparedActorStore.clear(); worldStateStore.clear();
         if (previousWorld) worldStateStore.seed(previousWorld);
@@ -1373,7 +1456,9 @@ export async function run(): Promise<void> {
         assert.equal((await ownerService.advanceTurn(player, ownerEncounter.id, false, turnObserved) as any).status, 403);
         await combatManagerService.updateParticipant(gm, ownerEncounter.id, ownerRow.id,
             { initiative: null, expectedInitiative: 15 });
-        await combatManagerService.setPlayerActions(gm, ownerEncounter.id, { initiativeOpen: true });
+        await assert.rejects(() => combatManagerService.setPlayerActions(gm, ownerEncounter.id, { initiativeOpen: true }),
+            (error: unknown) => error instanceof CombatManagerError && error.status === 409,
+            'manual initiative toggles are pre-start only');
         const lateView = (await ownerService.listCombats(player)).combats.find(combat => combat.id === ownerEncounter.id)!;
         const lateObserved = { initiative: null, formula: lateView.initiativeCandidates![0].initiativeRoll!.formula,
             phaseGeneration: lateView.playerInitiative!.generation };

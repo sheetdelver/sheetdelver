@@ -963,3 +963,45 @@ identity: Core validates the SDK's non-wire brand, Error/code and400–599 statu
 across supported managed JS loaders. Existing archives need no rewriting. These
 implementation fixes are not present in releasedCore0.19.1; the actual supporting
 point release remains a later, separately approved publication.
+
+### Optional native package/artwork contracts
+
+SDK3.5.0/module-api1.7.0 adds `packages`/`artwork` runtime capabilities;
+ui-extension-api3.3.0 adds package discovery hook/event support. Modules requiring
+these features declare those minimum API ranges. Optional consumers may retain
+their current ranges with feature detection and original-image fallback. No
+`info.json` list of premium/art packages is required: native bootstrap discovery
+and caller-readable pack metadata supply availability. Presence is not permission
+to read content or redistribute assets. See [ADR-0067](adr/0067-foundry-package-context-and-artwork.md).
+
+The same SDK3.5.0/module-api1.7.0 addition includes optional
+`SystemAdapter.resolveDisplayArtwork`. Implementation of the method is the
+opt-in; there is no new manifest field or mandatory native-art package list.
+`display-artwork` capability detection reports host support only. See the
+[authoring contract](MODULE_AUTHORING.md#let-core-surfaces-use-module-owned-display-artwork)
+for required versus optional compatibility, supported surfaces and examples.
+
+
+### Optional reference presentation
+
+`UIModuleManifest.referenceViews?: Partial<Record<'Actor' | 'Item',
+CompendiumReferenceViewer>>` registers lazy informational content per document
+category. Each entry has `load()` returning a default React component accepting
+`CompendiumReferenceViewProps`, plus optional shared-dialog theme classes.
+`SystemAdapter.prepareReferenceView(context, runtime)` returns `{ title, model }`
+or null for a currently authorized original compendium source. Neither entry
+belongs in `info.json`; there are no hard-coded native pack or asset dependencies.
+Core's `compendium-reference-views` capability reports support, not eligibility.
+An absent declaration or declined/unreadable reference creates no combat-manager
+link. Item consumers beyond the exported contract are deferred. See
+[authoring instructions](MODULE_AUTHORING.md#optional-compendium-reference-viewers)
+for exact types, lifecycle, trust boundary and older-host compatibility.
+
+
+For the selected Core0.20.0 release, required package/artwork/reference adopters
+can declare `coreVersion: ">=0.20.0"`, `module-api: ">=1.7.0 <2.0.0"` and
+`ui-extension-api: ">=3.3.0 <4.0.0"`; the roll API is unchanged. This is the next
+Shadowdark release policy. Publication is pending; older application versions,
+including the pre-release development checkout reporting0.19.8, fail that Core
+floor even when its source already contains the new contracts. Generic optional
+consumers may still feature-detect under their verified older-host policy.

@@ -90,6 +90,8 @@ export interface CombatManagerHealthBatchDto {
 export interface CombatManagerParticipantDto {
     id: string;
     actorId: string;
+    /** Native document type, distinct from the ownership-based isNpc classification. */
+    actorType: string | null;
     source: 'world' | 'compendium-copy';
     /** Foundry-style NPC: no non-GM user owns the associated world Actor. */
     isNpc: boolean;
@@ -105,7 +107,7 @@ export interface CombatManagerParticipantDto {
     resource: CombatManagerResourceDto | null;
     effects: string[];
     stats: CombatManagerStatDto[];
-    initiativeRoll: { source: 'module' | 'gm' | 'core'; rollAvailable: boolean; advantageAvailable: boolean };
+    initiativeRoll: { formula: string; source: 'module' | 'gm' | 'core'; rollAvailable: boolean; advantageAvailable: boolean };
 }
 
 export interface CombatManagerEncounterDto {
@@ -122,6 +124,7 @@ export interface CombatManagerEncounterDto {
     pausedForSkip?: true;
     autoSkipDefeatedEnemies: boolean;
     playerActions: {
+        /** Pre-start switch only; started, active encounters admit unrolled owners automatically. */
         initiativeOpen: boolean;
         endTurnEnabled: boolean;
         eligible: number;

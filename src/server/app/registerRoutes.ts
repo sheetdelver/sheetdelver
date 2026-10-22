@@ -1,3 +1,5 @@
+import { registerCompendiumReferenceRoutes } from '@server/routes/protected/registerCompendiumReferenceRoutes';
+import { registerDisplayArtworkRoutes } from '@server/routes/protected/registerDisplayArtworkRoutes';
 import express from 'express';
 import type { Server as SocketIOServer } from 'socket.io';
 import type { AppConfig } from '@shared/interfaces';
@@ -26,6 +28,7 @@ import { SystemStatusPayload } from '@/shared/contracts/status';
 import { projectPublicStatus } from '@server/services/status/StatusService';
 import { moduleWorldContext } from '@server/services/world/ModuleWorldContextService';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
+import { canReadNativePack } from '@server/core/documents/primary/base/nativePackPermissions';
 import type { FoundryUserConnectionServiceLike } from '@server/shared/types/foundry';
 
 type GetSystemStatusPayload = () => Promise<SystemStatusPayload>;
@@ -123,7 +126,24 @@ export function registerRoutes(deps: RegisterRoutesDeps): void {
         res.setHeader('Cache-Control', 'no-store');
         return res.json(moduleWorldContext.project(userStore.getRole(session.userId)));
     });
+    appRouter.get('/module-packages', (req, res) => {
+        const session = (req as express.Request & { userSession?: { userId?: string } }).userSession;
+        if (!session?.userId || !userStore.get(session.userId)) return res.status(401).json({ error: 'Session retired' });
+        res.setHeader('Cache-Control', 'no-store');
+        return res.json(moduleWorldContext.packages.handle(moduleWorldContext.handle(), pack => canReadNativePack(session.userId!, pack)).snapshot());
+    });
+    appRouter.get('/module-artwork', async (req, res) => {
+        const session = (req as express.Request & { userSession?: { userId?: string } }).userSession;
+        if (!session?.userId || !userStore.get(session.userId)) return res.status(401).json({ error: 'Session retired' });
+        const kind = req.query.kind ?? 'image';
+        if (typeof req.query.uuid !== 'string' || !['image', 'token'].includes(String(kind))) return res.status(400).json({ error: 'Exact UUID and image/token kind required' });
+        res.setHeader('Cache-Control', 'no-store');
+        return res.json(await moduleWorldContext.packages.handle(moduleWorldContext.handle(), pack => canReadNativePack(session.userId!, pack))
+            .resolve(req.query.uuid, kind as 'image' | 'token'));
+    });
 
+    registerDisplayArtworkRoutes(appRouter);
+    registerCompendiumReferenceRoutes(appRouter);
     registerSystemRoutes(appRouter, {
         getSystemClient: () => systemService.getSystemClient(),
         getAdapter: (systemId) => systemService.getAdapter(systemId)

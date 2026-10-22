@@ -252,6 +252,11 @@ export function registerAppSocketGateway({
                 emitWorldBackedEvent('worldContextChanged', { revision: change.revision, keys });
             };
             moduleWorldContext.on('changed', handleWorldContextChanged);
+            const handlePackagesChanged = (change: { revision: number }) => {
+                const userId = getSessionUserId();
+                if (userId && userStore.get(userId)) emitWorldBackedEvent('worldPackagesChanged', change);
+            };
+            moduleWorldContext.packages.on('changed', handlePackagesChanged);
 
             // Store events are bridged through the system client, not per-user
             // sockets. Each Store emits from one canonical source; the gateway
@@ -295,6 +300,7 @@ export function registerAppSocketGateway({
                 systemClient.off('chatMessageListInvalidated', handleChatMessageListInvalidated);
                 systemClient.off('userChanged', handleUserChanged);
                 moduleWorldContext.off('changed', handleWorldContextChanged);
+                moduleWorldContext.packages.off('changed', handlePackagesChanged);
                 systemClient.off('userListInvalidated', handleUserListInvalidated);
                 systemClient.off('folderChanged', handleFolderChanged);
                 systemClient.off('folderListInvalidated', handleFolderListInvalidated);

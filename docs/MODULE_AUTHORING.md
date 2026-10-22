@@ -801,3 +801,262 @@ ADR-0064 G0a requires connection/reconnect/demotion checks before module readine
 that enforcement shipped in 0.19.0. Modules must not handle this with
 privileged fallbacks or apply the service-account rule to human Assistant users.
 See [operator configuration](CONFIGURATION.md#service-account-role-and-recovery).
+
+## Discover installed native packages and optional art
+
+Use `runtime.packages?.snapshot()` for native system/module ID, version, enabled
+state and declared capabilities. An unavailable snapshot or null enabled state
+is unknown, not absent/disabled. This describes the observed world envelope, not
+every package on a server. In browser code, `useFoundryPackages()` from SDK/react
+handles caller/world/connection retirement; subscribe to `world:packagesChanged`
+when maintaining an artwork consumer. Package presence never grants content access
+or promises native browser-hook compatibility.
+
+After reading an authorized source, call
+`await runtime.artwork?.resolve('Compendium.package.pack.Actor.id', 'image')`.
+Only a resolved result can replace a view image. Preserve custom/source artwork,
+retain an original-image fallback, and display supplied credit. Do not persist the
+replacement onto the Actor or Token. Handle none/unavailable/older-host absence
+without blocking ordinary sheet workflows. No package-specific fetch/cache or
+private Core import is needed.
+
+These are SDK3.5.0/module-api1.7.0 and UI3.3.0 additions. Required use declares the
+new minimum; optional structural feature detection may retain an older minimum.
+`createMockRuntime` accepts `packages` and canonical-UUID-keyed `artwork` fixtures.
+See [ADR-0067](adr/0067-foundry-package-context-and-artwork.md).
+
+### Let Core surfaces use module-owned display artwork
+
+Implement the optional `SystemAdapter.resolveDisplayArtwork(context, runtime)`
+method to opt in. There is no system-name switch, mandatory package list or
+separate manifest flag. A missing hook or `null` result preserves the existing
+image. `capabilities.supports('display-artwork')` describes host support, not
+whether a particular module implements a hook or whether artwork is installed.
+This is part of the additive SDK3.5.0/module-api1.7.0 contract.
+
+**This hook and the compendium-art resolver have different jobs.** The hook
+contains your system's policy: which images are defaults, whether a token override
+must win, which source identity is trustworthy, and which artwork source to use.
+`runtime.artwork.resolve` is one optional implementation mechanism for Foundry's
+compendium-art mappings. A module can instead return its own packaged asset via
+`buildModuleAssetUrl`, or use another supported public read contract. Do not assume
+that every system provides compendium mappings or that matching names establish
+identity. Do not import Core internals or open native sockets to implement a hook.
+
+#### Inputs, result and ownership
+
+| Input | Contract |
+| --- | --- |
+| `context.actor` | Immutable, current source Actor already readable by this caller; not a host-prepared Actor or a synthetic Token Actor |
+| `context.purpose` | `combat-portrait`, `combat-token`, or `actor-card` |
+| `context.currentImage` | The current native image path (possibly null), before Core expands it to a URL |
+| `context.compendiumSourceUuid` | Optional exact Actor UUID verified from an encounter-owned copy; independent of native `_stats`, and not a pack-access grant |
+| `context.imageSource` | `actor`, `token`, or `combatant`; use this to preserve explicit overrides |
+| `context.token` | Optional minimal `{id, actorLink, img}` display metadata; no Scene data or ActorDelta payload |
+| `runtime` | Caller-bound `world`, `packages`, `artwork`, `access`, `compendium`, read-only `documents`, and `signal` |
+| Result | `{src, credit?}` or `null`; return only an optional display replacement |
+
+Use **the runtime argument**, never the privileged runtime retained from
+`initialize()`. The supplied object has no document writers, rolls, chat or
+DataStore. It is a narrowed contract, not a sandbox for trusted module JavaScript.
+The hook must be read-only, side-effect-free and cooperative with `signal`.
+Preparation remains synchronous/deterministic and independent of this hook.
+
+Core checks the caller, Actor, combat visibility, world revision, source image and
+Token display inputs again after the asynchronous result. Merely seeing a combat
+row does not grant access to its underlying Actor. If that Actor is not readable,
+Core keeps the existing combat image and does not invoke the hook. Hidden and
+unstarted combat redaction still applies; manager requests require GM/Assistant.
+
+Core permits returned HTTP(S) URLs under the configured Foundry origin/route
+prefix or `/api/modules/<active-module>/assets/...`. It rejects credentials,
+queries, fragments, traversal, script/data URLs and other origins. Return plain
+credit text, not HTML. Core thumbnails expose that credit as the image title;
+a module requiring fuller attribution must also provide an appropriate visible
+credit surface and comply with its asset license.
+
+#### Example: opt in to exact compendium mappings
+
+The following is an example policy; replace the Actor type and placeholder path
+with defaults verified for your system. Its `_stats` lookup deliberately declines
+unknown origins; it does not search for a same-name document. Core encounter
+copies can have no native `_stats.compendiumSource`: use the supplied
+`compendiumSourceUuid` before native origin fields. Core verifies the copy marker,
+encounter registration and folder; modules must not parse private Core flags.
+This works for existing copies without writing or repairing their sources.
+
+```ts
+import {
+    BaseSystemAdapter,
+    type DisplayArtworkContext,
+    type DisplayArtworkRuntime,
+    type DisplayArtworkResult,
+} from '@sheet-delver/sdk';
+
+export class ExampleAdapter extends BaseSystemAdapter {
+    systemId = 'example';
+
+    async resolveDisplayArtwork(
+        context: Readonly<DisplayArtworkContext>,
+        runtime: DisplayArtworkRuntime,
+    ): Promise<DisplayArtworkResult | null> {
+        if (runtime.signal.aborted || context.actor.type !== 'npc') return null;
+        if (context.currentImage !== 'systems/example/default-monster.webp') return null;
+
+        const stats = context.actor._stats;
+        const origin = context.compendiumSourceUuid ?? (stats && typeof stats === 'object'
+            ? (stats as Record<string, unknown>).compendiumSource : undefined);
+        if (typeof origin !== 'string' || !runtime.artwork) return null;
+
+        const kind = context.purpose === 'combat-token'
+            && context.imageSource !== 'actor' ? 'token' : 'image';
+        const result = await runtime.artwork.resolve(origin, kind);
+        if (runtime.signal.aborted || result.status !== 'resolved') return null;
+        return { src: result.src, credit: result.credit };
+    }
+}
+```
+
+For module-owned artwork, the selected branch may instead return
+`{src: buildModuleAssetUrl('example', 'portraits/monster.webp')}`. Selection and
+licensing remain the module's responsibility; no compendium-art package is needed
+for that alternative. Preserve custom Actor, Token and Combatant images unless
+an explicitly documented module policy says otherwise. Never persist the result
+onto `img` or `prototypeToken`.
+
+#### Actual host coverage and lifecycle
+
+| Surface | Current integration |
+| --- | --- |
+| Combat manager participant roster | Calls the hook with `combat-portrait`; existing Actor-first image preference remains |
+| Combat HUD current/next/owned/expanded portraits | Calls with `combat-token`; existing combatant→Token→Actor precedence remains |
+| Dashboard cards | Existing `getActorCardData` remains unchanged; dashboard mounting has not adopted this hook |
+| Module-owned sheets, bestiary, other cards | Module chooses its integration; no automatic rewriting of module UI |
+
+The authenticated `/api/display-artwork` read also supports `actor-card` with an
+exact Actor ID for future/explicit consumers. This does not mean every Core card
+already calls it. Combat targets use exact encounter and combatant IDs, not a
+browser-supplied Actor or image. Core reconstructs authorized inputs server-side.
+
+Original images render immediately. The optional request runs separately from
+combat projection, bootstrap and rules preparation; its 3-second deadline or a
+throw leaves the original image visible. The host abort signal cannot preempt a
+CPU-bound JavaScript loop: avoid blocking work. Requests retire on user/role/world,
+source, connection and relevant package/context changes; ordinary React renders
+do not refetch. A replacement image load failure falls back once to the original,
+then to the existing icon if both fail, with no retry loop or blocked combat UI.
+Do not keep caller-specific artwork results in an adapter-wide cache.
+
+An optional module hook can retain an older compatibility floor with structural
+types and a functioning original-image path; older hosts simply do not call it.
+New code importing these types requires SDK3.5.0 for compilation. Declare
+module-api `>=1.7.0 <2.0.0` if the feature is mandatory. Do not raise the roll API
+or change application versions solely to adopt an optional presentation hook.
+
+#### Verification required for adoption
+
+Cover omitted/declined hooks, alternate asset mechanisms, exact origins,
+installed/absent/disabled art providers, public Compendium-copy creation and existing
+copies after restart, custom Actor/Token/Combatant images,
+missing documents, inaccessible packs and hidden combatants. Exercise changed
+permissions/source/world while a request is pending; prove the old result never
+appears. Verify timeout, malformed URL, broken replacement and broken original,
+reconnect and package-preference refresh without a loading gate or repeat loop.
+Compare the selected artwork against native references independently of your
+hook; passing a fixture generated by the same policy is insufficient.
+
+Use `src/tests/unit/world/display-artwork.test.ts` for Core contract/access cases,
+`src/tests/acceptance/display-artwork.browser.mjs` for the mounted Core consumer,
+and installed development/production checks for the actual packaged module.
+Shadowdark's `community-artwork.test.ts` and `installed-consumers.core.ts
+--artwork-only` demonstrate module-owned policy and real host integration.
+All browser tooling remains development-only. See
+[ADR-0067](adr/0067-foundry-package-context-and-artwork.md) for reference identities
+and qualified limits.
+
+### Optional compendium reference viewers
+
+[ADR-0068](adr/0068-optional-compendium-reference-views.md) defines an optional,
+informational view of an **original compendium Actor or Item**. Core's combat
+manager is the first consumer. No provider, declined source, unknown origin,
+missing document or denied access means **no View reference link**. Item support
+is exported for future consumers; no Item links are added to other Core surfaces.
+
+Register both the server projection and the lazy UI content. Example:
+
+```ts
+// SystemAdapter: Core supplies a frozen, caller-readable original source.
+async prepareReferenceView(context: CompendiumReferenceContext,
+    runtime: CompendiumReferenceRuntime): Promise<CompendiumReferenceModel | null> {
+    if (context.documentType !== 'Actor' || context.document.type !== 'npc') return null;
+    if (runtime.signal.aborted) return null;
+    return { title: String(context.document.name), model: buildReferenceCard(context.document) };
+}
+
+// UIModuleManifest (module/ui.tsx)
+referenceViews: {
+    Actor: { load: () => import('../src/ui/NpcReference') },
+    Item: { load: () => import('../src/ui/ItemReference') },
+}
+// Viewer default export receives { reference: { uuid, documentType }, model }.
+// Export these types from @sheet-delver/sdk; the model is module-owned JSON.
+```
+
+A `CompendiumReferenceViewer` has `load` and optional `dialog` classes using the
+existing `SystemComponentStyles['rollDialog']` shape. Return **content only**, not
+another modal. Core supplies SurfaceHost, module CSS scope/SDK context, the shared
+frame, close button, focus containment, Escape, scrolling and focus restoration.
+A failed UI load/render has an accessible fallback inside that frame. The module
+must sanitize rich text and render inline rolls and document-action controls as
+informational text. No cast, roll, use, edit, import, spawn or other mutation belongs
+in this view. Do not mount a sheet/action controller with its buttons merely hidden.
+
+`CompendiumReferenceContext` includes canonical `uuid`, `documentType` and the
+original `document`. It never contains the encounter copy or live participant
+state. Core resolves verified encounter-copy provenance and native imported
+origins; modules must not inspect private encounter flags or match names.
+`CompendiumReferenceRuntime` provides only caller-bound read services: world,
+packages, artwork, access, compendium, read-only documents and an AbortSignal.
+Do not maintain caller-specific global caches. Return null for unsupported sources.
+
+The server bounds source reads plus module preparation to three seconds, freezes
+inputs, checks source identity/type/access and rereads the source before returning.
+The model must serialize to JSON within 512 KiB; title is nonempty and at most256
+characters. CPU-bound module code cannot be preempted by an AbortSignal. Keep work
+bounded. Availability omits the model; opening always performs a fresh authorized
+read. Neither path holds bootstrap or combat readiness. The browser retires open
+content on caller/world/selection/provider/connection and relevant document,
+package or setting invalidation; pending old responses cannot reopen it.
+
+Capability `compendium-reference-views` reports host support, not source availability.
+Types are part of the upcoming SDK3.5.0/module-api1.7.0/UI3.3.0 additions alongside
+ADR-0067; no additional application/version bump is introduced by this slice.
+If mandatory, declare module-api>=1.7.0 and UI-extension-api>=3.3.0. Optional adoption
+may keep an older floor with structural types and usable existing surfaces; older
+hosts ignore both hooks. Shadowdark initially demonstrated that optional pattern;
+its next release now requires Core>=0.20.0, module-api>=1.7.0 and
+ui-extension-api>=3.3.0 by the release policy selected at Core closeout. The hooks
+and native art-package installation remain optional at runtime.
+
+This uses trusted module UI, just like sheets/tools. SurfaceHost is an error and
+styling boundary, **not a JavaScript sandbox**. No arbitrary Foundry-package code
+is loaded. Server permission checks remain authoritative.
+
+Verify exact Actor and Item sources, actual public encounter copies and copies
+after restart, changed instance HP vs original reference data, omitted providers,
+missing/denied sources, late reads, revocation/restoration, world/user/selection
+changes, disconnect, load failure, mobile bounds and keyboard focus. Check zero
+viewer writes. Core tests: `src/tests/unit/world/compendium-reference.test.ts` and
+`src/tests/acceptance/compendium-reference.browser.mjs`. Shadowdark's maintained
+`reference-view.test.ts` and `installed-consumers.core.ts --artwork-only
+--reference-views` exercise module and managed-host adoption without native writes.
+
+
+### Publication of the package/artwork/reference additions
+
+The selected release target is Core0.20.0 with SDK3.5.0, module-api1.7.0 and
+ui-extension-api3.3.0 (roll-engine-api remains1.0.0). These contracts are implemented
+but publication is still pending; a source checkout reporting Core0.19.8 is not
+a released0.20.0 host. Modules declaring the new Core floor must wait for that
+release before validating/installing against it. Contract version authority stays
+in `src/shared/sdk/contractVersions.ts`; application metadata stays with release:tag.

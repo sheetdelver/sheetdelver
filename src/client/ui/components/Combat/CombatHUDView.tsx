@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, lazy, type ComponentType } from 'react';
 import Link from 'next/link';
+import { DisplayArtwork } from '../DisplayArtwork';
 import { usePathname } from 'next/navigation';
 import { ChevronLeft, ChevronRight, Shield, Swords } from 'lucide-react';
 import { useFoundry } from '@client/ui/context/FoundryContext';
@@ -25,11 +26,10 @@ const snapshotRollTarget = (target: RollTarget): RollTarget => ({ ...target,
     row: { ...target.row, initiativeRoll: target.row.initiativeRoll ? { ...target.row.initiativeRoll } : null } });
 const button = 'sd-ui-button min-h-11 rounded-lg px-3 py-2 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-offset-2';
 
-function Portrait({ row }: { row: CombatTrackerCombatantDto }) {
+function Portrait({ row, combatId }: { row: CombatTrackerCombatantDto; combatId: string }) {
     return <span className="sd-ui-inset flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg">
-        {row.img
-            ? <img src={row.img} alt="" loading="lazy" className="h-full w-full object-cover" />
-            : <Shield aria-hidden="true" className="sd-ui-muted h-6 w-6" />}
+        <DisplayArtwork src={row.img} actorId={row.actorId} combatId={combatId} combatantId={row.id}
+            purpose="combat-token" className="h-full w-full object-cover" fallback={<Shield aria-hidden="true" className="sd-ui-muted h-6 w-6" />} />
     </span>;
 }
 
@@ -227,19 +227,19 @@ export default function CombatHUDView() {
                 </div> : <><div data-own-turn={current?.isOwned ? 'true' : undefined}
                     className={`sd-combat-hud-region flex min-h-11 min-w-0 flex-[1_1_9rem] items-center gap-2 px-2 lg:max-w-40 ${current?.isOwned ? 'sd-combat-own-turn' : ''}`}
                     aria-label={current?.isOwned ? 'Your turn' : 'Current turn'}>
-                    {current && <Portrait row={current} />}
+                    {current && <Portrait combatId={combat.id} row={current} />}
                     <span className="min-w-0"><span className={current?.isOwned
                         ? 'sd-combat-own-turn-label block text-[11px] font-bold leading-tight uppercase tracking-wide'
                         : 'sd-ui-accent block text-[11px] font-semibold leading-tight'}>{current?.isOwned ? 'Your turn' : 'Current turn'}</span>
                         <span className="block truncate text-sm font-semibold">{current?.name || '—'}</span></span>
                 </div>
                 <div className="sd-combat-hud-region flex min-h-11 min-w-0 flex-[1_1_9rem] items-center gap-2 px-2 lg:max-w-40" aria-label={gm ? 'Up next' : 'Next shown'}>
-                    {next && <Portrait row={next} />}
+                    {next && <Portrait combatId={combat.id} row={next} />}
                     <span className="min-w-0"><span className="sd-ui-muted block text-[11px] font-semibold leading-tight">{gm ? 'Up next' : 'Next shown'}</span>
                         <span className="block truncate text-sm font-semibold">{next?.name || '—'}</span></span>
                 </div></>}
                 <div className="sd-combat-hud-region flex min-h-11 min-w-0 flex-[2_1_15rem] flex-wrap items-center gap-x-2 gap-y-1 px-2 py-1" aria-label="My character">
-                    {mine && <Portrait row={mine} />}
+                    {mine && <Portrait combatId={combat.id} row={mine} />}
                     <span className="min-w-0"><span className="sd-ui-muted block text-[11px] font-semibold leading-tight">My character</span>
                         {owned.length > 1 ? <select aria-label="My combatant" className="sd-ui-control max-w-36 text-sm" value={mine?.id ?? ''}
                             onChange={event => setManualOwned({ context: selectionContext, id: event.target.value,
@@ -248,8 +248,8 @@ export default function CombatHUDView() {
                             </option>)}</select>
                             : <span className="block truncate text-sm font-semibold">{mine?.name || 'None shown'}</span>}</span>
                     {mine && <StatChips row={mine} compact />}
-                    {mine?.actorId && mine.canOpenActor && <Link className="sd-ui-accent text-xs underline" href={`/actors/${encodeURIComponent(mine.actorId)}`}
-                        target="_blank" rel="noopener noreferrer">{mine.statSource === 'unlinked-token' ? 'Base sheet' : 'Sheet'}</Link>}
+                    {mine?.actorId && mine.canOpenActor && <Link className="sd-ui-accent text-xs underline" href={`/actors/${encodeURIComponent(mine.actorId)}`}>
+                        {mine.statSource === 'unlinked-token' ? 'Base sheet' : 'Sheet'}</Link>}
                 {pendingInitiative.length > 0 && <div className="flex min-w-0 flex-wrap items-center gap-2"
                     aria-label="Player initiative is open">
                     <button type="button" className={`${button} sd-ui-button-primary`} disabled={pendingAction !== null}
@@ -272,7 +272,7 @@ export default function CombatHUDView() {
             <ol className="mx-auto max-w-7xl space-y-2" aria-label="Visible combatants">{combat.combatants.map(row => <li key={row.id}
                 aria-current={row.isCurrent ? 'step' : undefined}
                 className={`sd-ui-inset flex flex-wrap items-center gap-2 rounded-xl p-2 ${row.isCurrent && row.isOwned ? 'sd-combat-own-turn' : ''}`}>
-                <Portrait row={row} />
+                <Portrait combatId={combat.id} row={row} />
                 <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-1.5 text-sm"><span className="break-words font-semibold">{row.name || 'Combatant'}</span>
                         {row.isCurrent && <span className="sd-ui-accent text-xs font-semibold">{row.isOwned ? 'Your turn' : 'Current'}</span>}
