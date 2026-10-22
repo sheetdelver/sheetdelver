@@ -1,6 +1,7 @@
 # Releases
 
 ## 0.20.1
+- Patch vulnerable production dependencies
 - Unify player page backgrounds
 
 ## 0.20.0

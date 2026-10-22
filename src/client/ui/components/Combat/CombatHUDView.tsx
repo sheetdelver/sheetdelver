@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, lazy, type ComponentType } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, lazy, type ComponentType } from 'react';
 import Link from 'next/link';
 import { DisplayArtwork } from '../DisplayArtwork';
 import { usePathname } from 'next/navigation';
@@ -95,7 +95,7 @@ export default function CombatHUDView() {
     const viewScope = JSON.stringify([worldId, system?.id, currentUser?._id || currentUser?.id,
         currentUser?.role, token, step, pathname === '/tools/combat', combat?.id, combat?.playerInitiative?.generation]);
     const scopeRef = useRef(viewScope);
-    scopeRef.current = viewScope;
+    useLayoutEffect(() => { scopeRef.current = viewScope; }, [viewScope]);
     useEffect(() => {
         setRollTarget(null); setChooser(null); setOutcomes([]); setBatchStarted(false);
         if (actionRef.current) actionRef.current.cancelled = true;
@@ -296,7 +296,7 @@ export default function CombatHUDView() {
             onAll={() => void rollAll()} onClose={closeChooser}
             onIndividual={row => { setChooser(null); setRollTarget(snapshotRollTarget({ combatId: combat.id, row,
                 phaseGeneration: combat.playerInitiative?.generation, scope: viewScope })); }} />}
-        {rollTarget && modalProps && (modalLoading ? <div role="status" className="sd-ui-panel-raised fixed inset-x-4 top-1/3 z-[210] mx-auto max-w-sm rounded-xl p-4">Loading initiative dialog…</div>
+        {rollTarget?.row.initiativeRoll && (modalLoading ? <div role="status" className="sd-ui-panel-raised fixed inset-x-4 top-1/3 z-[210] mx-auto max-w-sm rounded-xl p-4">Loading initiative dialog…</div>
             : modalError ? <div role="alert" className="sd-ui-panel-raised fixed inset-x-4 top-1/3 z-[210] mx-auto max-w-sm rounded-xl p-4">
                 <p>Initiative dialog unavailable.</p><div className="mt-2 flex gap-2">
                     <button type="button" className={button} onClick={() => setModalRetry(value => value + 1)}>Retry</button>
@@ -306,6 +306,6 @@ export default function CombatHUDView() {
                 fallback={<div role="alert" className="sd-ui-panel-raised fixed inset-x-4 top-1/3 z-[210] mx-auto max-w-sm rounded-xl p-4">
                     <p>Initiative dialog unavailable.</p><button type="button" className={button} onClick={() => setModalRetry(value => value + 1)}>Retry</button>
                     <button type="button" className={button} onClick={() => setRollTarget(null)}>Close</button>
-                </div>}><ModuleRollModal {...modalProps} /></SurfaceHost> : <RollDialog {...modalProps} />)}
+                </div>}><ModuleRollModal {...modalProps!} /></SurfaceHost> : <RollDialog {...modalProps!} />)}
     </>;
 }

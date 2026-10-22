@@ -53,7 +53,7 @@ verifies that an existing migration journal remains untouched.
 
 ### Next development synchronization correction
 
-For pinned Next 16.3.8, `npm run dev` prepares the dependency before starting
+For pinned Next 16.4.2, `npm run dev` prepares the dependency before starting
 either service. [ADR-0062](adr/0062-observed-player-issues.md) records a framework
 defect where a new browser's HMR handshake can reload an existing browser after
 compilation. The tracked patch sends initial synchronization only to the joining

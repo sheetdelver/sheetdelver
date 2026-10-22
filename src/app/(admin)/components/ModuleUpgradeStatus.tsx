@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { adminFetch } from '../lib/adminApi';
 import { useAdminAuth } from '../context/AdminAuthContext';
 import Drawer from './ui/Drawer';
@@ -28,7 +28,7 @@ export default function ModuleUpgradeStatus({ diagnosticsOnly = false }: { diagn
     const [bootstrapDiagnostic, setBootstrapDiagnostic] = useState<{ phase: string; reason: string; remediation: string } | null>(null);
     const [contextDiagnostic, setContextDiagnostic] = useState<{ remediation: string; pendingHook: boolean; revision: number | null } | null>(null);
     const [acknowledged, setAcknowledged] = useState(false);
-    const reviewTrigger = useRef<HTMLElement | null>(null);
+    const [reviewTrigger, setReviewTrigger] = useState<HTMLElement | null>(null);
     const [compatibility, setCompatibility] = useState<{ moduleId: string; phase: string; blockers: string[]; remediation: string } | null>(null);
     const load = useCallback(async () => {
         const result = await adminFetch<{ jobs: Job[]; serviceAccountDiagnostic: Diagnostic | null; compatibilityDiagnostic: typeof compatibility; contextDiagnostic: typeof contextDiagnostic; bootstrapDiagnostic: typeof bootstrapDiagnostic }>('/module-upgrades');
@@ -56,7 +56,7 @@ export default function ModuleUpgradeStatus({ diagnosticsOnly = false }: { diagn
         setBusy(false);
     };
     const freshReview = async (job: Job) => {
-        reviewTrigger.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        setReviewTrigger(document.activeElement instanceof HTMLElement ? document.activeElement : null);
         setBusy(true); setAcknowledged(false);
         const result = await adminFetch<NonNullable<typeof review>>(`/module-upgrades/${encodeURIComponent(job.jobId)}/review`, { method: 'POST', body: '{}' });
         if (result.sessionExpired) logout();
@@ -118,7 +118,7 @@ export default function ModuleUpgradeStatus({ diagnosticsOnly = false }: { diagn
             <div className="mt-4 flex flex-wrap gap-2"><Button onClick={() => setCleanup(null)}>Keep files</Button>
                 <Button variant="danger" onClick={() => { if (cleanup) { void action(cleanup, 'cleanup'); setCleanup(null); } }}>Confirm cleanup</Button></div>
         </Drawer>
-        <Drawer open={Boolean(review)} title="Fresh recovery approval" returnFocus={reviewTrigger.current} onClose={() => { if (!busy) setReview(null); }}>
+        <Drawer open={Boolean(review)} title="Fresh recovery approval" returnFocus={reviewTrigger} onClose={() => { if (!busy) setReview(null); }}>
             <p>This replaces the stopped plan, not its historical write ledger. {review?.plan.checked} checked; {review?.plan.operations.length} proposed writes.</p>
             {review && <MigrationPlanDetails preview={review} />}
             {review?.plan.blockers.map((reason, i) => <p key={i} role="alert">{reason}</p>)}

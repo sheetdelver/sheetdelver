@@ -1110,3 +1110,54 @@ filtered owner source text or expand this work into private-whisper policy.
    selected page opens read-only; other players get nothing and neither sibling
    nor Secret body appears in the response. Close/re-share; compare entry/page,
    revealed Secret, image page and second browser. Normal private reads stay denied.
+
+### October 22, 2026 — Next 16.4.2 security upgrade
+
+Core 0.20.1 release validation exposed production advisories in Next 16.3.8
+and sanitize-html 2.17.7. The repair pins Next and eslint-config-next to 16.4.2
+and updates sanitize-html to ^2.18.1, locked at 2.18.1. The application release
+version stays 0.20.1. The production audit gate remains enabled. See upstream
+[Next image optimization advisory](https://github.com/advisories/GHSA-2464-fhr4-w9xw)
+and [Server Actions advisory](https://github.com/advisories/GHSA-p3m5-59mp-jv5r).
+
+The published 16.4.2 `dist/server/dev/hot-middleware.js` still broadcasts the
+initial SYNC from `onHMR`. Retain the one-site correction; the current manifest
+is `patches/next-16.4.2-webpack-hmr-sync.json`, replacing the historical 16.3.8
+manifest. Both full-file hashes were recalculated from the exact npm artifact:
+
+- Original: `c62af1c040758e369dbdefbf6df5782bfc77124c52ce7be7cd8885078731b2ca`.
+- Corrected: `a63c95269e086c50988f86bf17af91da106b688ffab72aa12640cd72510f3e1a`.
+
+No broader middleware rewrite or relaxed checksum/version guard is introduced.
+The actual-vendor regression now supplies the new vulnerability-insight Promise
+constructor argument. Compilation broadcasts, joining-client synchronization,
+reconnection, restoration and mismatch refusal remain covered.
+
+Matching Next lint tooling requires React Hooks 7.1. Four existing components
+needed bounded compatibility corrections: AuditLogViewer initializes its clock
+lazily; ModuleUpgradeStatus keeps its rendered return-focus target in state;
+CombatHUDView and SharedDiceAnimation synchronize callback/scope refs in layout
+effects. The initiative dialog renders based on its roll data, not the
+callback-bearing props object. Authorization, layouts and roll behavior are
+unchanged; these changes avoid publishing values from an uncommitted render.
+
+The full audit also reports the existing development-only braces 3.0.3 chain
+through eslint-config-next/fast-glob/micromatch (GHSA-vfj7-8cjw-p6xm). It is
+unchanged from the previous lockfile and has no published patched braces version
+at verification time. The npm suggestion to downgrade eslint-config-next to
+14.2.35 is not a compatible repair for Next 16.4.2. Production audit results
+exclude this tooling-only advisory; do not describe the complete dependency
+graph as vulnerability-free.
+
+Verification for this upgrade passed on Node 22.23.4 in a clean copied Core
+workspace with an external CI data directory: `npm ci`, `npm run managed:generate`,
+`npm audit --omit=dev --audit-level=high` (zero findings), `npm run lint`,
+`npx tsc --noEmit`, `npm run test:unit`, `npm run test:client`,
+`npm run test:integration`, `npm run ci:fixture` and `npm run build`. The
+ADR metadata check also passed. The actual Next/Shell browser check used a
+loopback mock API and copied modules: cold/warm guest joins preserved the
+existing sheet document, a real client source edit hot-applied, an HMR reconnect
+recovered, other route compilations plus idle did not cause a new-visitor reload,
+and an owned development-server restart recovered. No live Foundry connection
+or data write occurred. Hosted CI and release publication remain pending the
+maintainer's push and `release:tag -- 0.20.1 --resume`.

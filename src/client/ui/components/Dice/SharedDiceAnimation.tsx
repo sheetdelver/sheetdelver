@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { logger } from '@shared/utils/logger';
 import { createCollisionAudio, type DiceSoundSettings } from './collisionAudio';
@@ -306,7 +306,7 @@ export function SharedDiceAnimation({ rolls, sound, appearance, behavior, onSett
     const overlay = useRef<HTMLDivElement>(null);
     const scene = useRef<SharedDiceScene | null>(null);
     const callbacks = useRef({ onSettled, onDone, onError });
-    callbacks.current = { onSettled, onDone, onError };
+    useLayoutEffect(() => { callbacks.current = { onSettled, onDone, onError }; }, [onSettled, onDone, onError]);
     const [portalHost, setPortalHost] = useState<HTMLElement | null>(null);
     useEffect(() => { setPortalHost(document.body); }, []);
     useEffect(() => {

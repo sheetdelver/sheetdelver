@@ -47,7 +47,7 @@ export default function AuditLogViewer() {
     const [autoRefresh, setAutoRefresh] = useState(false);
     const [lastLoadedAt, setLastLoadedAt] = useState<number | null>(null);
     const [expandedId, setExpandedId] = useState<string | null>(null);
-    const [nowTick, setNowTick] = useState(Date.now());
+    const [nowTick, setNowTick] = useState(() => Date.now());
 
     /** Fetch audit events from the admin API. */
     const loadEvents = useCallback(async (fetchLimit: number, isLoadMore = false) => {

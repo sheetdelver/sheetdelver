@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import patch from '../../../../patches/next-16.3.8-webpack-hmr-sync.json';
+import patch from '../../../../patches/next-16.4.2-webpack-hmr-sync.json';
 
 export type NextDevPatchResult = 'applied' | 'already-applied' | 'restored' | 'already-original';
 const digest = (source: string) => createHash('sha256').update(source).digest('hex');

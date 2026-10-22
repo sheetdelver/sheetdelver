@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import vm from 'node:vm';
-import patch from '../../../../patches/next-16.3.8-webpack-hmr-sync.json';
+import patch from '../../../../patches/next-16.4.2-webpack-hmr-sync.json';
 import { prepareNextDev } from '../../../scripts/tools/development/prepare-next-dev';
 
 interface Message { type: string; hash?: string; errors?: unknown[]; warnings?: unknown[] }
@@ -44,7 +44,7 @@ export function run(): void {
                 ? { isMiddlewareFilename: () => false } : vendorRequire(id),
             console, process, Buffer }, { filename: target });
         const Middleware = module.exports.WebpackHotMiddleware;
-        const middleware = new Middleware([compiler(), compiler(), compiler()], {}, undefined, { experimental: {} }, {});
+        const middleware = new Middleware([compiler(), compiler(), compiler()], {}, undefined, { experimental: {} }, {}, Promise.resolve(false));
         const first = client(), second = client(), replacement = client();
         middleware.onClientDone(stats('A'));
         middleware.onHMR(first, 'first');
@@ -65,7 +65,7 @@ export function run(): void {
         assert.equal(fs.readFileSync(target, 'utf8'), original);
         assert.equal(prepareNextDev(packagePath, true), 'already-original');
         fs.writeFileSync(packagePath, JSON.stringify({ version: 'other-version' }));
-        assert.throws(() => prepareNextDev(packagePath), /requires 16\.3\.8/);
+        assert.throws(() => prepareNextDev(packagePath), /requires 16\.4\.2/);
         assert.equal(fs.readFileSync(target, 'utf8'), original);
         fs.writeFileSync(packagePath, JSON.stringify({ version: patch.version }));
         fs.writeFileSync(target, `${original}\n// unexpected modification`);
