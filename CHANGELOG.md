@@ -1,5 +1,8 @@
 # Releases
 
+## Unreleased
+- Unify player page backgrounds
+
 ## 0.20.0
 - Streamline encounter settings
 - Allow late player initiative

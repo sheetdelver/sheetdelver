@@ -442,6 +442,39 @@ math in that adapter: `kind: "manual"` is already the final total. Theme
 classes own their surfaces; Core must not add a conflicting skin. No additional
 SDK surface is needed for this presentation reuse.
 
+### Player-page backgrounds (SDK host CSS contract)
+
+Core's player layout owns one world-background loader for dashboard, combat
+manager, module sheets/tools and future player routes. Pages do not import a
+background hook or copy image sizing rules. The common canvas uses viewport-fixed
+`cover`, preserving aspect ratio as long content scrolls. New routes beneath
+`(player)` inherit the background automatically; `.sd-ui-page` supplies the shared
+canvas styling for pages that need their own full-height wrapper.
+
+SDK `SurfaceHost` applies that canvas to `actorPage` and `tools`, including lazy
+loading. Keep the module's outer sheet/tool canvas transparent; paper/panel
+backgrounds belong on content sections. Dialogs and cards retain their own styles.
+
+Module developers may configure an optional fallback **CSS color** through the
+module's declared scoped stylesheet (also documented in `@sheet-delver/sdk/theme.css`):
+
+```css
+.sdk-module--example { --sd-module-page-background: #241c29; }
+```
+
+Loaded world artwork takes priority, then that module color, then Core's current
+light/dark player-theme canvas. Foundry's generic setup image is not substituted.
+The existing `theme.bg` class is not this opt-in color. Authors choosing a color
+also own contrasting content colors; leave it unset to follow Core automatically.
+Core owns `--sd-world-background-image`; modules must not override it or fetch world
+status to duplicate this behavior. This is developer CSS configuration, not a new
+end-user settings panel, SDK function or module manifest field.
+
+This host CSS contract requires the Core change in
+[ADR-0070](adr/0070-module-tool-backgrounds.md), not present in Core0.20.0. Older
+hosts ignore the optional color variable; transparent content still inherits its
+parent canvas. No private Core imports are needed.
+
 ### Player-world lifecycle
 
 Core's player layout owns login, startup, world-close and transient-outage

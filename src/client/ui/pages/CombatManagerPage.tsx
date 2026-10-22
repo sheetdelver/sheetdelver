@@ -8,7 +8,6 @@ import { CombatManagerDialog } from './CombatManagerDialog';
 import { CompendiumReferenceLink } from '@client/ui/components/CompendiumReferenceLink';
 import { DisplayArtwork } from '@client/ui/components/DisplayArtwork';
 import { Settings, Swords, UserRound } from 'lucide-react';
-import { useWorldBackground } from '@client/ui/main/hooks/useWorldBackground';
 import { useFoundry } from '@client/ui/context/FoundryContext';
 import { ConfirmationModal } from '@client/ui/components/ConfirmationModal';
 import { SafeHtmlContent } from '@client/ui/components/SafeHtmlContent';
@@ -84,7 +83,6 @@ type InitiativePrompt = { scope: string; combatId: string; row: CombatManagerPar
 
 export default function CombatManagerPage() {
     const { currentUser, step, appSocket, worldId, token, system } = useFoundry();
-    const bgStyle = useWorldBackground();
     const isGamemaster = (currentUser?.role ?? 0) >= 3;
     const allowed = step === 'dashboard' && isGamemaster;
     const [encounters, setEncounters] = useState<CombatManagerEncounterDto[]>([]);
@@ -605,7 +603,7 @@ export default function CombatManagerPage() {
     const secondaryButtonClass = 'sd-ui-button px-3 py-2 text-sm font-semibold';
 
     if (!isGamemaster) return (
-        <main className={pageClass} style={bgStyle}>
+        <main className={pageClass}>
             <div className="sd-ui-panel-raised mx-auto max-w-3xl rounded-xl p-6 backdrop-blur-md">
                 <h1 className="sd-ui-accent text-2xl font-bold">Combat Manager</h1>
                 <p className="mt-3">This tool is available to Gamemasters and Assistants.</p>
@@ -615,7 +613,7 @@ export default function CombatManagerPage() {
     );
 
     return (
-        <main className={pageClass} style={bgStyle}>
+        <main className={pageClass}>
           <div className="sd-ui-panel mx-auto max-w-7xl space-y-5 rounded-xl p-4 shadow-2xl backdrop-blur-md md:p-6">
             <header className="sd-ui-inset flex flex-wrap items-center justify-between gap-4 rounded-lg p-4">
                 <div>

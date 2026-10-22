@@ -200,7 +200,16 @@ body[data-sd-appearance='light'] {
 body[data-sd-appearance] { background: var(--sd-ui-canvas); color: var(--sd-ui-text); }
 html[data-sd-appearance='light'] body:not([data-sd-appearance]) { background: #eaf1f8; color: #17283c; }
 .sd-player-root { min-height: 100vh; background: var(--sd-ui-canvas); color: var(--sd-ui-text); }
-.sd-ui-page { min-height: 100vh; background-color: var(--sd-ui-canvas); color: var(--sd-ui-text); }
+.sd-ui-page {
+  min-height: 100vh;
+  color: var(--sd-ui-text);
+  background-color: var(--sd-module-page-background, var(--sd-ui-canvas));
+  background-image: var(--sd-world-background-image, none);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+}
 .sd-ui-page[data-has-world-background='true'] { background-blend-mode: normal; }
 .sd-ui-world-scrim { background: var(--sd-ui-image-scrim); }
 .sd-ui-panel { background: var(--sd-ui-surface); border: 1px solid var(--sd-ui-border); color: var(--sd-ui-text); }

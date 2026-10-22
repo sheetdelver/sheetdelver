@@ -9,6 +9,7 @@ SheetDelver is designed as a **Headless Client Proxy** for Foundry VTT. It follo
 - **Dual-Socket Model**: The backend maintains a permanent **System Client** for global world monitoring and a transient **User Client** pool for individual player sessions.
 - **Frontend Agnosticism**: The Frontend (UI) never communicates with Foundry directly. It interacts solely with the SheetDelver API.
 - **Context-Driven State**: The UI uses React Contexts as the single source of truth, synchronized via real-time WebSockets (Socket.io) to the Backend API.
+- **Player-page canvas**: The player layout owns one world-artwork loader. Shared CSS provides viewport-fixed backgrounds to dashboard, combat, future routes and SDK-hosted sheets/tools; optional module CSS color and the current player-theme canvas supply fallbacks. See [ADR-0070](adr/0070-module-tool-backgrounds.md).
 - **Client-Owned Presentation**: Module theme functions are loaded through the selected UI manifest, not JSON status or server adapter imports. Core applies the matching module CSS scope to its shared chat and dice controls. See [ADR-0044](adr/0044-client-owned-module-presentation.md).
 
 ---

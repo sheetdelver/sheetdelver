@@ -49,30 +49,23 @@ export default function ToolPageRouter({ params }: { params: Promise<{ systemId:
         return () => { isMounted = false; };
     }, [systemId, toolId]);
 
-    if (error) {
-        return (
-            <div className="sd-ui-page flex items-center justify-center p-4">
-                <div className="sd-ui-panel-raised text-center p-8 rounded max-w-md">
-                    <h1 className="sd-ui-danger text-xl font-bold mb-2">Error Loading Tool</h1>
-                    <p className="sd-ui-muted">{error}</p>
-                    <button
-                        onClick={() => router.push('/')}
-                        className="sd-ui-button mt-4 px-4 py-2"
-                    >
-                        Back to Dashboard
-                    </button>
-                </div>
-            </div>
-        );
-    }
-
     const Loading = <LoadingModal message="Loading Tool..." />;
-
-    if (!ToolComponent) return Loading;
-
     return (
-        <SurfaceHost moduleId={systemId} surface="tools" loading={Loading}>
-            <ToolComponent />
+        <SurfaceHost key={`${systemId}/${toolId}`} moduleId={systemId} surface="tools" loading={Loading}>
+            {error ? (
+                <div className="min-h-screen flex items-center justify-center p-4">
+                    <div className="sd-ui-panel-raised text-center p-8 rounded max-w-md">
+                        <h1 className="sd-ui-danger text-xl font-bold mb-2">Error Loading Tool</h1>
+                        <p className="sd-ui-muted">{error}</p>
+                        <button
+                            onClick={() => router.push('/')}
+                            className="sd-ui-button mt-4 px-4 py-2"
+                        >
+                            Back to Dashboard
+                        </button>
+                    </div>
+                </div>
+            ) : ToolComponent ? <ToolComponent /> : Loading}
         </SurfaceHost>
     );
 }

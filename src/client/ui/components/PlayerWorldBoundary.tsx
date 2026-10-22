@@ -5,7 +5,6 @@ import { useFoundry } from '@client/ui/context/FoundryContext';
 import { useRealtime } from '@client/ui/context/RealtimeContext';
 import { useSession } from '@client/ui/context/SessionContext';
 import { useUI } from '@client/ui/context/UIContext';
-import { useWorldBackground } from '@client/ui/main/hooks/useWorldBackground';
 import { LoadingScreen } from '@client/ui/main/components/LoadingScreen';
 import { LoginView } from '@client/ui/main/views/LoginView';
 import { SetupView } from '@client/ui/main/views/SetupView';
@@ -19,7 +18,6 @@ export function PlayerWorldBoundary({ children }: { children: ReactNode }) {
     const { token, currentUserId, sessionEpoch } = useSession();
     const { linkState, maintenance } = useRealtime();
     const { resetUI } = useUI();
-    const bgStyle = useWorldBackground();
     const [mountedScope, setMountedScope] = useState<string | null>(null);
     const [loginLoading, setLoginLoading] = useState(false);
     const [prolonged, setProlonged] = useState(false);
@@ -88,7 +86,7 @@ export function PlayerWorldBoundary({ children }: { children: ReactNode }) {
                     {children}
                 </div>
             ) : (
-                <main className="sd-ui-page p-4 sm:p-8 font-sans flex flex-col" style={bgStyle} data-step={step}>
+                <main className="sd-ui-page p-4 sm:p-8 font-sans flex flex-col" data-step={step}>
                     {stateView()}
                     {step === 'login' && loginLoading && (
                         <LoadingModal message="Logging in..." theme={system?.componentStyles?.loadingModal} />
