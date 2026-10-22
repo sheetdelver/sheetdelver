@@ -1,6 +1,6 @@
 # Releases
 
-## Unreleased
+## 0.20.0
 - Streamline encounter settings
 - Allow late player initiative
 - Improve combat roster layout
