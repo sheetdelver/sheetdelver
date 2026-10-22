@@ -323,3 +323,10 @@ acceptance of the current display behavior, additional to the isolated checks
 above. No push, merge, tag or release is included. Optional module NPC viewers
 remain a separate proposed scope under deferred DW-08/DW-13; no viewer component
 contract is implemented by this artwork checkpoint.
+
+## Selected follow-up: informational reference views
+
+The subsequent user discussion selected the optional compendium reference-viewer
+scope in [ADR-0068](0068-optional-compendium-reference-views.md). It is a separate
+separate UI contract, not an extension of the image resolver's return value. The
+artwork checkpoint above remains independent.

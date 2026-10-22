@@ -1,0 +1,62 @@
+/** Actual reference link/dialog with controlled identity, transport and module UI. */
+import assert from 'node:assert/strict';
+import { build } from 'esbuild';
+const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const root = process.cwd();
+const bundle = await build({ stdin: { resolveDir: root, loader: 'tsx', contents: `
+import React from 'react'; import {createRoot} from 'react-dom/client';
+import {CompendiumReferenceLink} from '${root}/src/client/ui/components/CompendiumReferenceLink';
+const listeners=new Map();window.calls=[];
+const provider={load:async()=>({default:({model})=><p data-reference>{model.text}</p>})};
+window.provider=provider;
+window.foundry={worldId:'w',system:{id:'fixture'},step:'dashboard',currentUser:{id:'p',role:3},activeUIModule:{info:{id:'fixture'},referenceViews:{Actor:provider}},appSocket:{connected:true,on:(key,fn)=>{if(!listeners.has(key))listeners.set(key,new Set());listeners.get(key).add(fn)},off:(key,fn)=>listeners.get(key)?.delete(fn)}};
+window.emit=(key,value={})=>listeners.get(key)?.forEach(fn=>fn(value));
+window.fetch=(url,options)=>new Promise(resolve=>window.calls.push({url,resolve,signal:options.signal}));
+window.props={actorId:'a',combatId:'c',combatantId:'r',selectionKey:'r'};
+window.answer=(index,status='resolved')=>window.calls[index].resolve(Response.json({status,moduleId:'fixture',reference:{uuid:'Compendium.fixture.monsters.Actor.m',documentType:'Actor'},title:'Reference monster',model:{text:'Original source HP 20'}}));
+const root=createRoot(document.getElementById('root'));window.render=()=>root.render(<CompendiumReferenceLink {...window.props}/>);window.unmount=()=>root.unmount();window.render();
+` }, bundle: true, write: false, format: 'iife', platform: 'browser', jsx:'automatic', plugins: [{ name: 'controlled-boundaries', setup(b) {
+    b.onResolve({ filter: /context\/FoundryContext$/ }, () => ({ path: 'foundry', namespace: 'test' }));
+    b.onResolve({ filter: /providers\/SDKProvider$/ }, () => ({ path: 'sdk', namespace: 'test' }));
+    b.onLoad({ filter: /.*/, namespace: 'test' }, args => ({ contents: args.path === 'foundry' ? 'export const useFoundry=()=>window.foundry;' : 'export const SDKProvider=({children})=>children;' }));
+} }] });
+const browser = await chromium.launch({headless:true,...(process.env.CHROME?{executablePath:process.env.CHROME}:{}),args:['--no-sandbox','--disable-background-networking']});
+try {
+    const page = await browser.newPage(); const errors=[]; page.on('pageerror', error=>errors.push(error.message));
+    await page.setContent('<div id="root"></div>'); await page.addScriptTag({content:bundle.outputFiles[0].text});
+    const count = n=>page.waitForFunction(n=>window.calls.length===n,n);
+    const link=page.getByRole('button',{name:'View reference',exact:true});
+    const dialog=page.getByRole('dialog');
+    await count(1); assert.equal(await link.count(),0);
+    await page.evaluate(()=>window.answer(0)); await link.waitFor();
+    await link.click(); await count(2); await page.getByRole('status').waitFor();
+    await page.evaluate(()=>window.answer(1)); await page.getByText('Original source HP 20').waitFor();
+    await page.keyboard.press('Escape'); assert.equal(await dialog.count(),0); assert.equal(await link.evaluate(node=>document.activeElement===node),true);
+    await link.click(); await count(3);
+    await page.evaluate(()=>window.emit('worldPackagesChanged')); await count(4);
+    assert.equal(await page.evaluate(()=>window.calls[2].signal.aborted),true);
+    await page.evaluate(()=>{window.answer(2);window.answer(3,'none')});
+    await page.getByText(/no longer current/).waitFor(); assert.equal(await page.locator('[data-reference]').count(),0); assert.equal(await link.count(),0);
+    await page.keyboard.press('Escape');
+    await page.evaluate(()=>window.emit('connect'));await count(5);await page.evaluate(()=>window.answer(4));await link.waitFor();
+    await link.click();await count(6);await page.evaluate(()=>window.answer(5));await page.locator('[data-reference]').waitFor();
+    await page.evaluate(()=>{window.props.selectionKey='other';window.render()});await count(7);await page.getByText(/no longer current/).waitFor();assert.equal(await page.locator('[data-reference]').count(),0);
+    await page.keyboard.press('Escape');
+    await page.evaluate(()=>{window.foundry={...window.foundry,currentUser:{id:'next',role:1}};window.render()});await count(8);
+    await page.evaluate(()=>window.answer(6));assert.equal(await link.count(),0);
+    await page.evaluate(()=>window.answer(7));await link.waitFor();await link.click();await count(9);
+    await page.evaluate(()=>window.emit('disconnect'));await page.evaluate(()=>window.answer(8));assert.equal(await page.locator('[data-reference]').count(),0);await page.keyboard.press('Escape');
+    await page.evaluate(()=>{window.foundry={...window.foundry,activeUIModule:{info:{id:'fixture'}}};window.render()});assert.equal(await link.count(),0);
+    await page.evaluate(()=>{window.foundry={...window.foundry,worldId:'next',activeUIModule:{info:{id:'fixture'},referenceViews:{Actor:window.provider}}};window.render()});await count(10);
+    await page.evaluate(()=>window.answer(9));await link.waitFor();
+    await page.evaluate(()=>window.provider.load=async()=>{throw Error('fixture load failure')});
+    await link.click();await count(11);await page.getByRole('status').filter({hasText:'could not be loaded'}).waitFor();
+    assert.equal(await page.evaluate(()=>window.calls[10].signal.aborted),true);await page.keyboard.press('Escape');
+    await page.evaluate(()=>window.provider.load=async()=>({default:()=>{throw Error('fixture render failure')}}));
+    await link.click();await count(12);await page.evaluate(()=>window.answer(11));await page.getByRole('alert').filter({hasText:'could not be displayed'}).waitFor();await page.keyboard.press('Escape');
+    await page.evaluate(()=>{window.provider.load=async()=>new Promise(()=>{});const original=window.setTimeout;window.setTimeout=(fn,delay,...args)=>original(fn,delay===10000?10:delay,...args)});
+    await link.click();await count(13);await page.getByRole('status').filter({hasText:'could not be loaded'}).waitFor();await page.keyboard.press('Escape');
+    await page.evaluate(()=>window.emit('connect'));await count(14);
+    await page.evaluate(()=>window.unmount());assert.equal(await page.evaluate(()=>window.calls[13].signal.aborted),true);assert.deepEqual(errors,[]);
+    console.log('PASS: opt-in availability, fresh open, keyboard/focus, revocation and held success, selection, caller, world, disconnect, provider removal, load/render failure, deadline, unmount (14 requests)');
+} finally { await browser.close(); }

@@ -1,3 +1,4 @@
+import { registerCompendiumReferenceRoutes } from '@server/routes/protected/registerCompendiumReferenceRoutes';
 import { registerDisplayArtworkRoutes } from '@server/routes/protected/registerDisplayArtworkRoutes';
 import express from 'express';
 import type { Server as SocketIOServer } from 'socket.io';
@@ -142,6 +143,7 @@ export function registerRoutes(deps: RegisterRoutesDeps): void {
     });
 
     registerDisplayArtworkRoutes(appRouter);
+    registerCompendiumReferenceRoutes(appRouter);
     registerSystemRoutes(appRouter, {
         getSystemClient: () => systemService.getSystemClient(),
         getAdapter: (systemId) => systemService.getAdapter(systemId)

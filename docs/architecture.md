@@ -709,3 +709,16 @@ and pack permissions retain precedence. No names, private module imports, source
 repairs or additional startup work are introduced. Existing copies can resolve
 without recreation. Regression coverage includes the real public copy writer and
 Core restart; the earlier world-Actor test alone did not verify this workflow.
+
+### Optional compendium reference viewer
+
+[ADR-0068](adr/0068-optional-compendium-reference-views.md) adds
+`SystemAdapter.prepareReferenceView` and `UIModuleManifest.referenceViews` for
+Actor/Item sources. `registerCompendiumReferenceRoutes` resolves original canonical
+sources through caller-bound runtime reads, validates pack document type, and
+rechecks the target, source and authority after bounded module preparation.
+`CompendiumReferenceLink` opts into available Actor providers in the combat manager;
+`SurfaceHost`, `RollDialogFrame` and `useModalFocus` own the accessible mount.
+No provider/readable source means no link. Open content retires on lifecycle and
+access invalidation. No live encounter state, action runtime, source writes or
+bootstrap work is introduced. Item-consuming product UI remains deferred.

@@ -117,4 +117,5 @@ export * from './world';
 export * from './packages';
 export * from './migrations';
 
+export type { CompendiumReferenceType, CompendiumReferenceIdentity, CompendiumReferenceContext, CompendiumReferenceRuntime, CompendiumReferenceModel, CompendiumReferenceViewProps, CompendiumReferenceViewer } from './referenceViews';
 export type { DisplayArtworkContext, DisplayArtworkRuntime, DisplayArtworkResult } from './displayArtwork';

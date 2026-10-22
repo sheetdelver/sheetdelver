@@ -1,6 +1,8 @@
 # Releases
 
 ## Unreleased
+- Improve combat roster layout
+- View optional compendium references
 - Expose native package context
 - Resolve optional compendium artwork
 - Support module-selected combat artwork

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import Link from 'next/link';
+import { CompendiumReferenceLink } from '@client/ui/components/CompendiumReferenceLink';
 import { DisplayArtwork } from '@client/ui/components/DisplayArtwork';
 import { Swords, UserRound } from 'lucide-react';
 import { useWorldBackground } from '@client/ui/main/hooks/useWorldBackground';
@@ -982,7 +983,8 @@ export default function CombatManagerPage() {
                             {encounter.participants.map(row => {
                                 const health = row.stats.find(stat => stat.health && stat.edit);
                                 return <div key={row.id}
-                                className={`${selected?.id === row.id ? 'sd-ui-inset' : 'sd-ui-panel-raised'} flex w-full flex-wrap items-center gap-1 rounded-lg p-1 transition-colors ${row.isCurrent ? 'ring-2 ring-[var(--sd-ui-accent)]' : ''}`}>
+                                className={`${selected?.id === row.id ? 'sd-ui-inset' : 'sd-ui-panel-raised'} flex w-full flex-wrap items-center gap-3 rounded-lg p-2 transition-colors ${row.isCurrent ? 'ring-2 ring-[var(--sd-ui-accent)]' : ''}`}>
+                                <div className="flex min-w-0 flex-1 basis-64 items-center gap-1">
                                 {encounter.status === 'active' && statPreferences?.attributes.some(field => field.health) && <input
                                     type="checkbox" aria-label={`Select ${row.name} for batch health`}
                                     title={health?.edit ? `Select ${row.name}` : 'No editable default health for this Actor'}
@@ -997,33 +999,38 @@ export default function CombatManagerPage() {
                                         });
                                     }}
                                     style={{ accentColor: 'var(--sd-ui-accent)' }} className="ml-2 shrink-0" />}
+                                <div className="min-w-0 flex-1">
                                 <button onPointerDownCapture={beginSelection} onClick={() => setSelectedCombatantId(row.id)}
-                                    className="flex min-w-0 flex-1 items-center gap-3 rounded-lg p-2 text-left">
-                                <span className="w-10 text-center font-mono text-lg">{row.initiative ?? '—'}</span>
+                                    className="flex w-full min-w-0 items-center gap-3 rounded-lg p-2 text-left">
+                                <span className="w-8 shrink-0 text-center font-mono text-lg">{row.initiative ?? '—'}</span>
                                 <span className="sd-ui-inset flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg"
                                     aria-hidden="true">
                                     <DisplayArtwork src={row.img} actorId={row.actorId} combatId={encounter.id} combatantId={row.id}
                                         purpose="combat-portrait" className="h-full w-full object-cover" fallback={<UserRound className="sd-ui-muted h-5 w-5" />} />
                                 </span>
                                 <span className="min-w-0 flex-1">
-                                    <span className="flex flex-wrap items-center gap-1.5">
-                                        <span className="truncate font-semibold">{row.name}</span>
+                                    <span className="block break-words font-semibold">{row.name}</span>
+                                    <span className="mt-1 flex flex-wrap items-center gap-1.5">
                                         {row.stats.filter(stat => stat.showInRoster).map((stat, index) => <span
                                             key={`${stat.title}:${index}`} title={`${stat.title}: ${compactStatValue(stat)}`}
-                                            className="sd-ui-inset sd-ui-accent max-w-40 truncate rounded-full px-2 py-0.5 text-[11px] font-medium">
+                                            className="sd-ui-inset sd-ui-accent max-w-40 shrink-0 truncate rounded-full px-2 py-0.5 text-[11px] font-medium">
                                             {stat.title}: {compactStatValue(stat)}
                                         </span>)}
                                     </span>
-                                    <span className="sd-ui-muted mt-0.5 block text-xs">{row.source === 'world' ? 'world link' : 'pack copy'}</span>
-                                </span>
+                                    <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
                                 {row.resource && <span className="text-sm">{row.resource.value}{row.resource.max !== null ? `/${row.resource.max}` : ''}</span>}
                                 {row.hidden && <span className="sd-ui-muted text-xs">hidden</span>}
                                 {row.defeated && <span className="sd-ui-danger text-xs">defeated</span>}
                                 {row.skip && <span className="sd-ui-muted text-xs">skipped</span>}
                                 {row.initiative === null && <span className="sd-ui-muted text-xs">Awaiting initiative</span>}
                                 {row.isCurrent && <span className="sd-ui-inset sd-ui-accent shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider">Current</span>}
+                                    </span>
+                                </span>
                                 </button>
-                                {encounter.status === 'active' && <div className="flex basis-full flex-wrap items-center justify-end gap-1 sm:basis-auto">
+                                <CompendiumReferenceLink combatId={encounter.id} combatantId={row.id} actorId={row.actorId} selectionKey={selectedCombatantId} />
+                                </div>
+                                </div>
+                                {encounter.status === 'active' && <div className="grid w-full shrink-0 grid-cols-3 gap-1 sm:w-72">
                                     <button disabled={busy} aria-pressed={row.hidden}
                                         aria-label={`${row.hidden ? 'Reveal' : 'Hide'} ${row.name} in player combat HUD`}
                                         onClick={() => void mutate(() => api.updateManagedCombatant(encounter.id, row.id, { hidden: !row.hidden }))}
@@ -1047,8 +1054,7 @@ export default function CombatManagerPage() {
                                         onClick={() => void mutate(() => api.updateManagedCombatant(encounter.id, row.id, { initiative: null }))}
                                         aria-label={`Clear initiative for ${row.name}`}
                                         className="sd-ui-button px-2 py-2 text-xs font-semibold">Clear</button>
-                                </div>}
-                                {encounter.status === 'active' && statPreferences?.attributes.some(field => field.health) && <button disabled={busy || !health?.edit}
+                                {statPreferences?.attributes.some(field => field.health) && <button disabled={busy || !health?.edit}
                                         title={health?.edit ? `Adjust ${health.title} for ${row.name}` : 'No editable health source for this Actor'}
                                         aria-label={`Damage or heal ${row.name}`}
                                         onPointerDownCapture={beginSelection}
@@ -1058,9 +1064,10 @@ export default function CombatManagerPage() {
                                             setHealthTarget({ combatantId: row.id, actorId: row.actorId, name: row.name,
                                                 label: health.title, key: health.edit.key, path: health.edit.path,
                                                 current: health.edit.value, max: health.edit.max });
-                                        }} className="sd-ui-button flex shrink-0 items-center gap-1.5 px-2 py-2 text-xs font-semibold">
+                                        }} className="sd-ui-button flex items-center justify-center gap-1.5 px-2 py-2 text-xs font-semibold">
                                         <Swords aria-hidden="true" className="h-4 w-4" /> Damage
                                     </button>}
+                                </div>}
                             </div>; })}
                             {encounter.participants.length === 0 && <p className="sd-ui-muted text-sm">Add a world Actor or a compendium copy to begin.</p>}
                         </div>

@@ -973,3 +973,77 @@ Shadowdark's `community-artwork.test.ts` and `installed-consumers.core.ts
 All browser tooling remains development-only. See
 [ADR-0067](adr/0067-foundry-package-context-and-artwork.md) for reference identities
 and qualified limits.
+
+### Optional compendium reference viewers
+
+[ADR-0068](adr/0068-optional-compendium-reference-views.md) defines an optional,
+informational view of an **original compendium Actor or Item**. Core's combat
+manager is the first consumer. No provider, declined source, unknown origin,
+missing document or denied access means **no View reference link**. Item support
+is exported for future consumers; no Item links are added to other Core surfaces.
+
+Register both the server projection and the lazy UI content. Example:
+
+```ts
+// SystemAdapter: Core supplies a frozen, caller-readable original source.
+async prepareReferenceView(context: CompendiumReferenceContext,
+    runtime: CompendiumReferenceRuntime): Promise<CompendiumReferenceModel | null> {
+    if (context.documentType !== 'Actor' || context.document.type !== 'npc') return null;
+    if (runtime.signal.aborted) return null;
+    return { title: String(context.document.name), model: buildReferenceCard(context.document) };
+}
+
+// UIModuleManifest (module/ui.tsx)
+referenceViews: {
+    Actor: { load: () => import('../src/ui/NpcReference') },
+    Item: { load: () => import('../src/ui/ItemReference') },
+}
+// Viewer default export receives { reference: { uuid, documentType }, model }.
+// Export these types from @sheet-delver/sdk; the model is module-owned JSON.
+```
+
+A `CompendiumReferenceViewer` has `load` and optional `dialog` classes using the
+existing `SystemComponentStyles['rollDialog']` shape. Return **content only**, not
+another modal. Core supplies SurfaceHost, module CSS scope/SDK context, the shared
+frame, close button, focus containment, Escape, scrolling and focus restoration.
+A failed UI load/render has an accessible fallback inside that frame. The module
+must sanitize rich text and render inline rolls and document-action controls as
+informational text. No cast, roll, use, edit, import, spawn or other mutation belongs
+in this view. Do not mount a sheet/action controller with its buttons merely hidden.
+
+`CompendiumReferenceContext` includes canonical `uuid`, `documentType` and the
+original `document`. It never contains the encounter copy or live participant
+state. Core resolves verified encounter-copy provenance and native imported
+origins; modules must not inspect private encounter flags or match names.
+`CompendiumReferenceRuntime` provides only caller-bound read services: world,
+packages, artwork, access, compendium, read-only documents and an AbortSignal.
+Do not maintain caller-specific global caches. Return null for unsupported sources.
+
+The server bounds source reads plus module preparation to three seconds, freezes
+inputs, checks source identity/type/access and rereads the source before returning.
+The model must serialize to JSON within 512 KiB; title is nonempty and at most256
+characters. CPU-bound module code cannot be preempted by an AbortSignal. Keep work
+bounded. Availability omits the model; opening always performs a fresh authorized
+read. Neither path holds bootstrap or combat readiness. The browser retires open
+content on caller/world/selection/provider/connection and relevant document,
+package or setting invalidation; pending old responses cannot reopen it.
+
+Capability `compendium-reference-views` reports host support, not source availability.
+Types are part of the upcoming SDK3.5.0/module-api1.7.0/UI3.3.0 additions alongside
+ADR-0067; no additional application/version bump is introduced by this slice.
+If mandatory, declare module-api>=1.7.0 and UI-extension-api>=3.3.0. Optional adoption
+may keep an older floor with structural types and usable existing surfaces; older
+hosts ignore both hooks. Shadowdark demonstrates that optional pattern.
+
+This uses trusted module UI, just like sheets/tools. SurfaceHost is an error and
+styling boundary, **not a JavaScript sandbox**. No arbitrary Foundry-package code
+is loaded. Server permission checks remain authoritative.
+
+Verify exact Actor and Item sources, actual public encounter copies and copies
+after restart, changed instance HP vs original reference data, omitted providers,
+missing/denied sources, late reads, revocation/restoration, world/user/selection
+changes, disconnect, load failure, mobile bounds and keyboard focus. Check zero
+viewer writes. Core tests: `src/tests/unit/world/compendium-reference.test.ts` and
+`src/tests/acceptance/compendium-reference.browser.mjs`. Shadowdark's maintained
+`reference-view.test.ts` and `installed-consumers.core.ts --artwork-only
+--reference-views` exercise module and managed-host adoption without native writes.

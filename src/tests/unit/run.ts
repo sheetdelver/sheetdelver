@@ -120,6 +120,7 @@ import { run as runFoundryVersionCompatibility } from './world/foundry-version-c
 import { run as runWorldBootstrapper } from './world/world-bootstrapper.test';
 import { run as runWorldTransportController } from './world/world-transport-controller.test';
 import { run as runModuleWorldMigrations } from './world/module-world-migrations.test';
+import { run as runCompendiumReference } from './world/compendium-reference.test';
 import { run as runDisplayArtwork } from './world/display-artwork.test';
 import { run as runFoundryPackages } from './world/foundry-packages.test';
 import { run as runOrphanTokenCleanup } from './world/orphan-token-cleanup.test';
@@ -271,6 +272,7 @@ async function runAllUnitTests() {
     await runModuleWorldMigrations();
     await runFoundryPackages();
     await runDisplayArtwork();
+    await runCompendiumReference();
     await runOrphanTokenCleanup();
     await runMigrationCompatibilityCache();
     runMigrationSourceInputs();

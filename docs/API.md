@@ -1387,3 +1387,24 @@ verified encounter-owned Actor copies. It is derived from current copy-marker,
 encounter registration and folder agreement, never a browser-supplied identity.
 It does not grant source-pack access or rewrite native Actor metadata. Modules
 should prefer it over native origin fields for these copies.
+
+
+### Optional compendium reference views (ADR-0068)
+
+Authenticated no-store `GET /api/compendium-reference` accepts either
+`combatId=<id>&combatantId=<id>` or `uuid=Compendium.<package>.<pack>.Actor|Item.<id>`
+(the latter notation means a typed Actor or Item UUID, not a literal pipe).
+Combat targets require an authorized GM/Assistant managed encounter and readable
+Actor, then resolve the original pack source using verified copy provenance or
+native import origin. The source pack/document must remain readable. Root Actor
+and Item references only; embedded, untyped and name-based references are rejected.
+The native pack's document type must match the UUID type.
+
+Response: `{ status: 'resolved', moduleId, reference: { uuid, documentType },
+title, model }` or `{ status: 'none' }`. Optional `availability=1` omits `model`.
+No hook, module decline/error/timeout, missing source or denied source returns
+`none` without disclosing private content. Invalid target shape is400; retired
+session is401. Source reads and optional preparation have a three-second deadline;
+source/context/access are checked again before delivery. The endpoint never
+writes. Core UI also requires a matching `referenceViews` declaration before
+showing a link. See [authoring contract](MODULE_AUTHORING.md#optional-compendium-reference-viewers).

@@ -980,3 +980,19 @@ opt-in; there is no new manifest field or mandatory native-art package list.
 `display-artwork` capability detection reports host support only. See the
 [authoring contract](MODULE_AUTHORING.md#let-core-surfaces-use-module-owned-display-artwork)
 for required versus optional compatibility, supported surfaces and examples.
+
+
+### Optional reference presentation
+
+`UIModuleManifest.referenceViews?: Partial<Record<'Actor' | 'Item',
+CompendiumReferenceViewer>>` registers lazy informational content per document
+category. Each entry has `load()` returning a default React component accepting
+`CompendiumReferenceViewProps`, plus optional shared-dialog theme classes.
+`SystemAdapter.prepareReferenceView(context, runtime)` returns `{ title, model }`
+or null for a currently authorized original compendium source. Neither entry
+belongs in `info.json`; there are no hard-coded native pack or asset dependencies.
+Core's `compendium-reference-views` capability reports support, not eligibility.
+An absent declaration or declined/unreadable reference creates no combat-manager
+link. Item consumers beyond the exported contract are deferred. See
+[authoring instructions](MODULE_AUTHORING.md#optional-compendium-reference-viewers)
+for exact types, lifecycle, trust boundary and older-host compatibility.

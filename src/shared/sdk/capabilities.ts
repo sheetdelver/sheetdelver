@@ -17,6 +17,7 @@ export const SDK_CAPABILITIES = [
     'settings',    // useModuleSettings
     'assets',      // assetUrl()
     'foundry-packages', // runtime.packages / useFoundryPackages()
+    'compendium-reference-views', // optional read-only Actor/Item reference presentation
     'display-artwork', // optional module-owned display policy hook
     'compendium-artwork', // caller-bound runtime.artwork.resolve()
     'navigation',  // navigate() / replace()

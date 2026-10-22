@@ -411,6 +411,11 @@ export interface SystemAdapter {
     getCompendiumPackConfig?(): CompendiumPackConfig;
     /** Build a dashboard projection from the current prepared Actor revision. */
     getActorCardData?(actor: PreparedActorData): ActorCardData;
+    /** Return null for unsupported sources. Core supplies only caller-readable
+     * original compendium data and rechecks authority after this optional hook. */
+    prepareReferenceView?(context: Readonly<import('./referenceViews').CompendiumReferenceContext>,
+        runtime: import('./referenceViews').CompendiumReferenceRuntime): Promise<import('./referenceViews').CompendiumReferenceModel | null>;
+
     /** Optional caller-bound display override. Null preserves the existing image.
      * Must not use the privileged initialize() runtime or mutate source data.
      */
@@ -452,6 +457,8 @@ export type ModuleDashboardAction = ModuleDashboardActionBase & (
 );
 
 export interface UIModuleManifest {
+    /** Optional informational views of original Actor/Item compendium sources. */
+    referenceViews?: Partial<Record<import('./referenceViews').CompendiumReferenceType, import('./referenceViews').CompendiumReferenceViewer>>;
     info: ModuleInfo;
     /** Client-owned presentation; callbacks must not cross the JSON status boundary. */
     theme?: SystemThemeColors;
