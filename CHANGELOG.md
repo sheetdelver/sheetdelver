@@ -1,6 +1,7 @@
 # Releases
 
 ## 0.22.0
+- Patch request parser vulnerability
 - Share themed page headers
 - Update SDK 3.7.0 → 3.8.0
 - Update UI API 3.5.0 → 3.6.0
