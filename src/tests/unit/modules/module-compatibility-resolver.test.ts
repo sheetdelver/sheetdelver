@@ -21,6 +21,8 @@ export function run() {
         coreVersion: fixtureCoreVersion, providedApiContracts: { 'ui-extension-api': version },
         requiredApiContracts: { 'ui-extension-api': required },
     });
+    assert.equal(settingsCompatibility('3.5.0', '>=3.6.0 <4.0.0').compatible, false, 'page headers must reject hosts without the component');
+    assert.equal(settingsCompatibility(API_CONTRACT_VERSIONS['ui-extension-api'], '>=3.6.0 <4.0.0').compatible, true);
     assert.equal(settingsCompatibility('3.4.0').compatible, false, 'essential settings tabs require the new UI contract');
     assert.equal(settingsCompatibility(API_CONTRACT_VERSIONS['ui-extension-api']).compatible, true);
     assert.equal(settingsCompatibility(API_CONTRACT_VERSIONS['ui-extension-api'], '>=3.3.0 <4.0.0').compatible, true, 'optional pilots keep an older entry point');

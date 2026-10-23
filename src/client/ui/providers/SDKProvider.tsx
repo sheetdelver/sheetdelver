@@ -8,6 +8,7 @@ import { useRealtime } from '@client/ui/context/RealtimeContext';
 import { useUI } from '@client/ui/context/UIContext';
 import { useConfig } from '@client/ui/context/ConfigContext';
 import { useNotifications } from '@client/ui/components/NotificationSystem';
+import PageHeader from '@client/ui/components/PageHeader';
 import LoadingModal from '@client/ui/components/LoadingModal';
 import RollDialog from '@client/ui/components/RollDialog';
 import { ConfirmationModal } from '@client/ui/components/ConfirmationModal';
@@ -222,6 +223,7 @@ export function SDKProvider({ children, moduleId }: { children: React.ReactNode;
         ConfirmationModal,
         RichTextEditor,
         SharedContentModal,
+        PageHeader,
     }), []);
 
     return (

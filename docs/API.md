@@ -10,6 +10,15 @@ Examples use abstract ids such as `<moduleId>`, `<actorId>`, and
 
 ---
 
+## Shared page header (client SDK)
+
+SDK3.8/UI API3.6 supplies typed `PageHeader` through `useSDKComponents()`.
+It renders page navigation and an optional tool title/action row. Modules provide
+content and named appearance tokens; omitted tokens use Core appearance. This is
+client presentation, not a REST endpoint or serialized callback contract. See
+[authoring](MODULE_AUTHORING.md#page-headers-sdk-38--ui-api-36) and
+[ADR-0073](adr/0073-shared-module-page-header.md).
+
 ## Authentication
 
 Player login throttling counts failed requests per IP, not successful logins.

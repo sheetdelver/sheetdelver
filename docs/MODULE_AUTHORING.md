@@ -2,6 +2,40 @@
 
 This guide is the happy path for building a Sheet Delver system module. For the full contract reference, see `MODULE_MANIFEST.md`.
 
+## Page headers (SDK 3.8 / UI API 3.6)
+
+Use Core's `PageHeader` from `useSDKComponents()` once at each module page
+boundary. Sheets supply navigation only; tools also supply `heading`. Reuse a
+small module wrapper for consistent theme/content defaults across all pages.
+Do not author another navigation strip or duplicate Core's layout. Actor identity
+and stats remain sheet content; card/dialog headers are separate.
+
+```tsx
+import { useSDKComponents } from '@sheet-delver/sdk/react';
+
+function ToolHeader({ onLeave }: { onLeave: () => void }) {
+  const { PageHeader } = useSDKComponents();
+  return <PageHeader context="Creating a character" onBack={onLeave}
+    theme={{ background: '#171717', foreground: '#fff', muted: '#a3a3a3', accent: '#f59e0b' }}
+    heading={{ title: 'Character Creator', subtitle: 'My System' }} />;
+}
+// Sheet: <PageHeader context={actor.name} /> (no heading).
+```
+
+`onBack` is optional; the default uses SDK navigation to `/` in the current tab.
+An override can open the shared confirmation modal; navigation occurs only when
+that flow confirms. This protects this Back action, not every shell/browser exit.
+`heading.icon` is decorative; `heading.actions` contains labeled tool controls.
+Theme tokens cover background, foreground, muted text, border, accent, icon
+background and body/heading fonts. Omitted tokens follow Core appearance. Core
+owns structure, responsive spacing and keyboard focus; settings panels continue
+to use Core settings styling, not module page themes.
+
+Require `ui-extension-api: >=3.6.0 <4.0.0` when adopting this component. The
+planned supporting Core release is0.22.0; publish it before dependent modules.
+Do not assume the unchanged package version of a development checkout proves
+released support. See [ADR-0073](adr/0073-shared-module-page-header.md).
+
 ## Overview
 
 Modules are developed as local source modules first, then checked and packaged for distribution.
