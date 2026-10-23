@@ -1,6 +1,8 @@
 # Releases
 
-## Unreleased
+## 0.21.0
+- Update SDK 3.5.0 → 3.7.0
+- Update UI API 3.3.0 → 3.5.0
 - Restore nested dialog scrolling
 - Cache loaded settings panels
 - Unify module settings appearance

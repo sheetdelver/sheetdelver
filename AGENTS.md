@@ -149,5 +149,14 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
   conventions and checks.
 - Changelogs are terse feature snapshots, usually 3-5 words per bullet, not
   commit transcripts. Use docs/RELEASING.md and the existing release helper.
+- When SDK/API contracts or module compatibility requirements change, record
+  explicit old → new versions in the owning repository's changelog and current
+  handoff. Compare the release baseline to the final version, not intermediate
+  feature-branch bumps. Record the intended application release, affected contract
+  names, compatibility impact and publication order separately from current metadata.
+  Module requirement changes also update that module's AGENTS.md/handoff and
+  changelog alongside its authoritative manifest and any required toolchain pins.
+  Distinguish an optional capability's introduction version from a required floor;
+  do not raise floors or release versions merely to document optional adoption.
 - User's interactive shell is often Fish. Prefer short single-line commands;
   label shell-specific syntax and avoid Bash loops/heredocs as Fish examples.
