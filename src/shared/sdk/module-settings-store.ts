@@ -102,4 +102,3 @@ export function createModuleSettingsStore(ns: string, storage: () => Storage | u
     return { getSnapshot: () => snapshot, read, set, reset,
         subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; } };
 }
-
