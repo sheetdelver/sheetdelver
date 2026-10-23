@@ -1411,3 +1411,47 @@ session is401. Source reads and optional preparation have a three-second deadlin
 source/context/access are checked again before delivery. The endpoint never
 writes. Core UI also requires a matching `referenceViews` declaration before
 showing a link. See [authoring contract](MODULE_AUTHORING.md#optional-compendium-reference-viewers).
+
+## Dashboard placement (SDK 3.6.0 / UI 3.4.0)
+
+The optional UI-manifest action `section` selects general Tools (default) or
+`gm` for the existing GM/Assistant dashboard section. It adds no REST endpoint or
+authorization grant. Invalid sections are rejected; tool/API permissions remain
+caller-bound. Module and roll API versions are unchanged. See
+[authoring guidance](MODULE_MANIFEST.md#dashboard-placement-sdk-360--ui-340).
+## Module settings tabs (SDK 3.7.0 / UI 3.5.0)
+
+The client-only `UIModuleManifest.settingsTabs` contract registers module-owned
+panels in Core's HUD Settings modal. It adds no REST endpoint or native Setting
+writer. See the [complete registration and panel example](MODULE_MANIFEST.md#settings-tabs-sdk-370--ui-350).
+Core owns navigation/accessibility/loading/errors; module APIs retain their
+existing authorization. Audience `gm` includes Assistants and controls visibility.
+
+Panels receive `{ signal: AbortSignal, onDirtyChange(dirty: boolean): void }`.
+Immediate browser writes use `useModuleSettings`. Staged forms own Save/Discard
+and remain dirty after failures. Done closes, while dirty tab/close/Escape actions
+offer Continue editing/Discard in a shared top-layer confirmation. Scope loss
+aborts/unmounts without saving. Check the signal before writes and after awaits;
+aborting cannot undo a dispatched server write.
+
+Schema-backed preferences validate declared types, select choices and optional
+numeric/string bounds. `reset(keys?)` removes only declared overrides, requires a
+schema and preserves unknown keys/other namespaces. The browser world/module key
+format and same-browser account sharing are unchanged. Invalid overrides fall
+back without migration. Mutations throw on storage failures; `settings.error`
+exposes read/storage errors. Failed writes preserve snapshots and partial resets
+publish actual successful removals. Server-backed forms keep their module API
+and persistence policy. There is no global reset or synchronized-user store.
+
+Essential adoption requires UI>=3.5 after the supporting Core publication.
+Older hosts ignore registration; optional adoption must retain an older entry
+point, as Shadowdark does for its site-wide sheet-view preference. The existing
+packager keeps one UI ESM bundle; lazy initialization does not promise a separate
+network chunk. [ADR0072](adr/0072-module-settings-tabs.md) records acceptance limits.
+
+Settings-tab presentation is Core-owned (ADR0072 R72-02): the module supplies
+semantic content/widgets and layout, while SurfaceHost retains SDK identity
+without mounting module CSS scope. Automatic Core styles cover text and controls
+in dark/light themes. Other module surfaces retain their normal module styling.
+Single module tabs omit the group caption; their authored label should identify
+the module. Multiple tabs retain a module-title caption.

@@ -217,6 +217,36 @@ with the first SheetDelver release carrying SDK 2.0.0. See
 bounds and [ADR-0054](adr/0054-core-rendered-module-dashboard-actions.md)
 for the ownership decision.
 
+## Module settings panels
+
+SDK3.7/UI3.5 adds `settingsTabs` to the UI manifest. Register lazy panel components;
+Core supplies the modal, tabs and panel styling automatically. Ship semantic
+text/fields/buttons and use public SDK hooks; layout utilities are fine, but do
+not apply module theme wrappers, fonts/colors or branded control classes. The
+settings surface keeps SDK identity without activating module-scoped CSS. See the
+[complete authoring example](MODULE_MANIFEST.md#settings-tabs-sdk-370--ui-350)
+for registration, lifecycle/dirty props, async saves, validation and scoped reset.
+
+Core caches each loaded panel definition, including pending loads, across tab
+visits and dialog reopenings. `load()` is code loading, not a per-opening refresh
+hook. Read current settings in the mounted component; each mount gets fresh state
+and lifecycle props. Failed imports remain retryable. Module/source and session
+changes invalidate the cache.
+
+Choose a real preference with an existing consumer. Label its actual persistence
+scope and immediate/staged behavior. The SDK browser store is per world/module,
+shared by accounts in that browser; retaining a legacy site-wide store must be an
+explicit module decision. Never silently migrate native settings or add a native
+Foundry Setting writer. Failed writes must be visible. Done closes rather than
+saving every panel. Keep API authorization separate from tab audience.
+
+Essential adoption requires a published Core with UI>=3.5. Optional panels can
+retain an older entry point and compatibility floor; older hosts ignore the new
+registration. Check the packaged ESM and CSS as well as local source. Current
+packaging defers panel initialization inside one ESM bundle, without separate
+network chunks. Application/module release versions are independent of SDK/UI
+contract versions.
+
 ## Adapter
 
 The logic entry exports an adapter class. Override only the methods the system needs.

@@ -521,6 +521,172 @@ the observed initiative changed after the dialog opened. Module UI should
 call `onConfirm(choice)` and let Core handle the result, notification and refetch;
 it must not retry a stale choice itself.
 
+### Dashboard placement (SDK 3.6.0 / UI 3.4.0)
+
+Optional `section: 'gm'` places a tool or dialog beside Combat Manager in **GM
+Tools**, visible to GMs and Assistants. Omit it or use `'tools'` for the general
+Tools section. Unknown values are rejected. This is navigation placement only;
+module APIs and tools must still enforce their caller permissions.
+
+```ts
+{ id: 'bestiary', label: 'Bestiary', kind: 'tool', toolId: 'bestiary', section: 'gm' }
+```
+
+Require `ui-extension-api >=3.4.0 <4.0.0` when placement is required. For optional
+adoption on older supported hosts, old Core ignores placement and displays the
+card in Tools. Define the action as a separately typed constant to remain
+structurally compatible with older SDK types; do not mistake this fallback for
+GM-only access. Core still owns both sections and their palette. See [ADR-0071](adr/0071-gm-dashboard-tools.md).
+
+### Settings tabs (SDK 3.7.0 / UI 3.5.0)
+
+`UIModuleManifest.settingsTabs?: ModuleSettingsTab[]` registers module-owned inline
+panels in the HUD Settings dialog. Core owns the modal, tab strip, navigation,
+loading/error/retry boundaries, accessibility and panel presentation. Modules own
+content, layout, semantic fields and actions. Core automatically styles headings,
+text, labels, buttons, inputs, selects and textareas in its active theme.
+Settings retain SDK identity but omit the module stylesheet scope; do not add
+module theme providers, paper wrappers or branded color/font/control classes. No private Core imports or replacement settings modal are needed.
+
+```ts
+export interface ModuleSettingsTabProps {
+    signal: AbortSignal;
+    onDirtyChange: (dirty: boolean) => void;
+}
+export interface ModuleSettingsTab {
+    id: string;
+    label: string;
+    audience?: 'all' | 'gm';
+    load: () => Promise<{ default: ComponentType<ModuleSettingsTabProps> }>;
+}
+```
+
+Only the selected system contributes. Core examines the first eight registrations,
+rejecting invalid entries independently: unique IDs matching
+`[a-z][a-z0-9_-]{0,63}`, trimmed nonempty labels of at most 80 characters,
+function loaders, and audience `all` (default) or `gm` (roles >=3, including
+Assistants). Audience controls visibility; authenticated APIs retain authorization.
+Core tabs stay first, followed by module tabs in declaration order. Use the module
+name for a single tab; Core omits its redundant group caption. For multiple tabs,
+Core shows the module title above their descriptive labels. Arrow keys/Home/End move focus; Enter/Space selects. The strip scrolls on
+narrow screens. Identity includes module ID, so a module cannot replace Core tabs.
+
+```tsx
+// module/ui.tsx
+import type { ModuleInfo, UIModuleManifest } from '@sheet-delver/sdk';
+import infoJson from '../info.json';
+const ui: UIModuleManifest = {
+    info: infoJson as ModuleInfo,
+    sheet: () => import('../src/ui/Sheet'),
+    stylesheet: 'assets/settings.css',
+    settingsTabs: [
+        { id: 'sheet', label: 'Sheet', load: () => import('../src/ui/settings/SheetSettings') },
+        // Additional panels can declare audience: 'gm'.
+    ],
+};
+export default ui;
+```
+
+The following example assumes an **existing, consumed** boolean preference declared
+in `info.json.settings`: `{ "key": "compactInventory", "type": "boolean",
+"default": false }`. Registration alone does not implement its sheet behavior.
+
+```tsx
+// src/ui/settings/SheetSettings.tsx
+import { useState } from 'react';
+import type { ModuleInfo, ModuleSettingsTabProps } from '@sheet-delver/sdk';
+import { useModuleSettings } from '@sheet-delver/sdk/react';
+import infoJson from '../../../info.json';
+
+export default function SheetSettings({ signal }: ModuleSettingsTabProps) {
+    const settings = useModuleSettings((infoJson as ModuleInfo).settings);
+    const [error, setError] = useState('');
+    const mutate = (operation: () => void) => {
+        if (signal.aborted) return;
+        try { operation(); setError(''); }
+        catch (cause) { setError(cause instanceof Error ? cause.message : 'Preference could not be saved.'); }
+    };
+    return <section>
+        <h3>Sheet display</h3>
+        <p>Changes save immediately in this browser for this world.</p>
+        <label><input type="checkbox" checked={settings.get<boolean>('compactInventory', false)}
+            onChange={event => mutate(() => settings.set('compactInventory', event.target.checked))} />
+            Compact inventory</label>
+        <button type="button" onClick={() => mutate(() => settings.reset(['compactInventory']))}>Reset display</button>
+        {(error || settings.error) && <p role="alert">{error || settings.error?.message}</p>}
+    </section>;
+}
+```
+
+Only the selected panel mounts under `SurfaceHost`, keeping SDK context and
+module identity while using the Core `.sd-settings-content` root instead of the
+module CSS scope. Semantic text and controls are themed automatically; no panel
+stylesheet or styling prop is needed. Imports and panel errors show inline Retry;
+retry creates a fresh lazy component and boundary. Source builds retain
+framework dynamic imports. The existing packager emits one `dist/ui.js` ESM bundle:
+the loader defers panel initialization/mount, **not a separate network download**.
+
+Core aborts `signal` on deselection, retry, error, close and forced retirement.
+Check it before starting writes and after awaited work. It cannot undo an already
+dispatched write. Logout/account/world/module changes or unload close settings;
+role demotion removes an ineligible panel and returns to Chat & Rolls. Late
+callbacks/imports cannot revive a retired panel. Forced changes discard local drafts.
+
+For staged forms, call `onDirtyChange(true)` after edits and `false` only after a
+confirmed save or explicit discard. The panel supplies Save/Discard, validation and
+pending state. Failed saves stay dirty. Core guards tab selection, Done, Close and
+Escape with the shared confirmation: Continue editing retains the mounted draft;
+Discard performs the requested navigation. Done closes; it does not save globally.
+For example, a panel's existing module-API save handler should follow this pattern:
+
+```tsx
+async function save() {
+    if (signal.aborted || pending) return;
+    setPending(true);
+    try {
+        const response = await fetchWithAuth(moduleOwnedSaveUrl, {
+            method: 'PUT', signal, headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(draft),
+        });
+        if (signal.aborted) return;
+        if (!response.ok) throw new Error('Changes could not be saved.');
+        onDirtyChange(false);
+    } catch (cause) {
+        if (!signal.aborted) setError(cause instanceof Error ? cause.message : 'Save failed.');
+    } finally { if (!signal.aborted) setPending(false); }
+}
+```
+
+Use the injected `ConfirmationModal` with `topLayer: true` for a panel-owned
+confirmation above this native dialog. Core's dirty guard already does this.
+
+`useModuleSettings(schema?)` keeps the existing
+`sheetdelver:settings:<worldId or global>:<moduleId or unknown>:<key>` keys and
+same-browser account sharing. `get`/`all` merge defaults and stored overrides.
+Schema-backed `set` requires a declared key and boolean/string/finite-number/select
+value; select values must match `options`. Optional inclusive numeric `min`/`max`
+and string `minLength`/`maxLength` bounds are enforced. Omitted bounds preserve
+unbounded values. Invalid stored overrides fall back to valid defaults without
+rewriting storage. Schema-less legacy get/set remains supported.
+
+`reset(keys?: readonly string[]): void` removes overrides for this schema's keys
+only (all declared keys when omitted). It refuses absent schemas or undeclared
+explicit keys before removing anything. Defaults become visible; unknown keys,
+other panels' unselected keys and other namespaces survive. Successful writes
+notify same-namespace consumers and storage events refresh other tabs. Mutations
+throw on storage failure and `settings.error: Error | null` exposes read/storage
+errors for inline display. Failed writes never publish proposed values. Partial
+reset failure publishes the removals that succeeded, retains other overrides and
+throws. There is no Core reset-all action or native Foundry Setting writer.
+
+Require UI `>=3.5.0 <4.0.0` when the panel/reset contract is essential, after the
+supporting Core release is published. Older Core ignores unknown registrations.
+Optional adoption may retain an existing entry point and older compatible floor,
+using a structurally typed manifest extension when compiling against older SDKs.
+Shadowdark's pilot retains its existing sheet-view button and site-wide
+`shadowdark_view_mode` key; it deliberately does not migrate that preference into
+the SDK's world/module store. See [ADR-0072](adr/0072-module-settings-tabs.md).
+
 ### Dashboard actions (SDK 2.0.0)
 
 `dashboardActions` is optional. When present, Core renders the dashboard's
@@ -617,7 +783,7 @@ possible:
 | `useDocument(type, id)` | Subscribe to one host-cached document. |
 | `useDocumentMutation(type)` | Create, patch, delete, commit, and embedded mutations through host APIs. |
 | `useActorSheet(actorId)` | Actor-focused read, refresh, roll, and patch controller. |
-| `useModuleSettings(info)` | Read and persist client settings declared in `info.json`. |
+| `useModuleSettings(schema?)` | Read/persist validated browser preferences; reset declared overrides and inspect storage errors. |
 | `createActorPage(Component)` | Wrap a sheet component in the standard actor-page shell. |
 
 `ActorSheetProps`, `UseActorSheetResult`, `useActorSheet`, and `createActorPage`

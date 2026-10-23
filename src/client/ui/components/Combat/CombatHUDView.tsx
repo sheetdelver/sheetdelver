@@ -24,7 +24,7 @@ type PendingAction = 'next-turn' | 'previous-turn' | 'initiative' | null;
 type RollTarget = { combatId: string; row: CombatTrackerCombatantDto; phaseGeneration?: string; scope: string };
 const snapshotRollTarget = (target: RollTarget): RollTarget => ({ ...target,
     row: { ...target.row, initiativeRoll: target.row.initiativeRoll ? { ...target.row.initiativeRoll } : null } });
-const button = 'sd-ui-button min-h-11 rounded-lg px-3 py-2 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-offset-2';
+const button = 'inline-flex items-center justify-center text-center sd-ui-button min-h-11 rounded-lg px-3 py-2 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-offset-2';
 
 function Portrait({ row, combatId }: { row: CombatTrackerCombatantDto; combatId: string }) {
     return <span className="sd-ui-inset flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg">

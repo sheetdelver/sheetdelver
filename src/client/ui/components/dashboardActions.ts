@@ -25,10 +25,13 @@ export function resolveDashboardActions(manifest: UIModuleManifest): ResolvedDas
         const row = candidate as Record<string, unknown>;
         const id = typeof row.id === 'string' ? row.id.trim() : '';
         const label = typeof row.label === 'string' ? row.label.trim() : '';
+        const section = row.section;
+        const placement = section === undefined ? {} : { section: section as 'tools' | 'gm' };
         const description = row.description === undefined ? undefined
             : typeof row.description === 'string' ? row.description.trim() : null;
 
-        if (!ACTION_ID.test(id) || seen.has(id) || !label || label.length > 80
+        if ((section !== undefined && section !== 'tools' && section !== 'gm')
+            || !ACTION_ID.test(id) || seen.has(id) || !label || label.length > 80
             || description === null || (description && description.length > 160)) {
             rejected += 1;
             continue;
@@ -42,9 +45,9 @@ export function resolveDashboardActions(manifest: UIModuleManifest): ResolvedDas
                 rejected += 1;
                 continue;
             }
-            actions.push({ kind: 'tool', id, label, ...(description ? { description } : {}), toolId });
+            actions.push({ kind: 'tool', id, label, ...placement, ...(description ? { description } : {}), toolId });
         } else if (row.kind === 'dialog' && typeof row.dialog === 'function') {
-            actions.push({ kind: 'dialog', id, label, ...(description ? { description } : {}),
+            actions.push({ kind: 'dialog', id, label, ...placement, ...(description ? { description } : {}),
                 dialog: row.dialog as Extract<ModuleDashboardAction, { kind: 'dialog' }>['dialog'] });
         } else {
             rejected += 1;
@@ -58,4 +61,9 @@ export function resolveDashboardActions(manifest: UIModuleManifest): ResolvedDas
 
 export function dashboardToolHref(moduleId: string, toolId: string): string {
     return `/tools/${encodeURIComponent(moduleId)}/${encodeURIComponent(toolId)}`;
+}
+
+/** Placement is not permission to read or write the tool's data. */
+export function dashboardActionsForSection(actions: ModuleDashboardAction[], section: 'tools' | 'gm'): ModuleDashboardAction[] {
+    return actions.filter(action => (action.section ?? 'tools') === section);
 }

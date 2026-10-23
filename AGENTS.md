@@ -102,6 +102,9 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
   components in system modules); create a new modal only if no existing one
   fits. Check current state before asking for a conditional confirmation, and
   keep new tool pages/cards aligned with Core's active theme and world background.
+- Module settings panels contribute semantic content, controls and behavior. Core
+  owns their appearance; do not add module theme wrappers or branded panel CSS.
+  Other module surfaces retain their normal styling (ADR-0072).
 - Application version authority is package.json (with root lock versions kept
   aligned). SDK/API versions come from src/shared/sdk/contractVersions.ts.
   Do not create another version authority or bump module requirements casually.

@@ -19,21 +19,30 @@ export function DashboardActionSection({ systemId, actions, onOpenDialog }: {
                 <div className="sd-ui-divider h-px flex-1 border-t" />
             </div>
             <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
-                {actions.map(action => {
-                    const contents = <>
-                        <span className="sd-ui-inset sd-ui-accent flex h-16 w-16 shrink-0 items-center justify-center rounded-lg">
-                            <Wrench aria-hidden="true" className="h-8 w-8" />
-                        </span>
-                        <span className="min-w-0">
-                            <span className="sd-ui-accent block truncate text-lg font-bold">{action.label}</span>
-                            {action.description && <span className="sd-ui-muted mt-1 block text-sm">{action.description}</span>}
-                        </span>
-                    </>;
-                    return action.kind === 'tool'
-                        ? <Link key={action.id} href={dashboardToolHref(systemId, action.toolId)} className={cardClass}>{contents}</Link>
-                        : <button key={action.id} type="button" aria-haspopup="dialog" onClick={() => onOpenDialog(action.id)} className={cardClass}>{contents}</button>;
-                })}
+                <DashboardActionCards systemId={systemId} actions={actions} onOpenDialog={onOpenDialog} />
             </div>
         </section>
     );
+}
+
+/** Cards can join an existing Core-owned grid without a second heading. */
+export function DashboardActionCards({ systemId, actions, onOpenDialog }: {
+    systemId: string;
+    actions: ModuleDashboardAction[];
+    onOpenDialog: (id: string) => void;
+}) {
+    return <>{actions.map(action => {
+        const contents = <>
+            <span className="sd-ui-inset sd-ui-accent flex h-16 w-16 shrink-0 items-center justify-center rounded-lg">
+                <Wrench aria-hidden="true" className="h-8 w-8" />
+            </span>
+            <span className="min-w-0">
+                <span className="sd-ui-accent block truncate text-lg font-bold">{action.label}</span>
+                {action.description && <span className="sd-ui-muted mt-1 block text-sm">{action.description}</span>}
+            </span>
+        </>;
+        return action.kind === 'tool'
+            ? <Link key={action.id} href={dashboardToolHref(systemId, action.toolId)} className={cardClass}>{contents}</Link>
+            : <button key={action.id} type="button" aria-haspopup="dialog" onClick={() => onOpenDialog(action.id)} className={cardClass}>{contents}</button>;
+    })}</>;
 }

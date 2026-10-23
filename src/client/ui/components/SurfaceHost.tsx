@@ -9,7 +9,8 @@ import { logger } from '@shared/utils/logger';
  * SurfaceHost — the single host-owned boundary for every dynamically loaded module
  * surface (ADR-0027 decision 18): actor page, module tool pages, dashboard
  * dialogs, and roll modals. Core-rendered dashboard cards stay outside this
- * module CSS scope (ADR-0054).
+ * module CSS scope (ADR-0054). Settings panels retain SDK identity but use Core
+ * typography and control styling instead of module CSS scope (ADR-0072).
  *
  * It composes, in one place:
  *  - an error boundary (modules can't crash the platform shell),
@@ -19,6 +20,7 @@ import { logger } from '@shared/utils/logger';
  */
 
 interface SurfaceErrorBoundaryProps {
+    onError?: () => void;
     surface?: string;
     fallback?: React.ReactNode;
     children: React.ReactNode;
@@ -40,6 +42,13 @@ class SurfaceErrorBoundary extends React.Component<SurfaceErrorBoundaryProps, Su
         const label = this.props.surface ? `:${this.props.surface}` : '';
         logger.error(`[SurfaceHost${label}] module surface crashed:`, error, info);
     }
+
+    getSnapshotBeforeUpdate(_props: SurfaceErrorBoundaryProps, previous: SurfaceErrorBoundaryState) {
+        if (this.state.hasError && !previous.hasError) this.props.onError?.();
+        return null;
+    }
+
+    componentDidUpdate() { /* getSnapshotBeforeUpdate owns pre-unmount retirement. */ }
 
     render() {
         if (this.state.hasError) {
@@ -63,6 +72,8 @@ function DefaultSurfaceError({ surface, message }: { surface?: string; message?:
 }
 
 export interface SurfaceHostProps {
+    /** Retire panel work before an error fallback replaces its content. */
+    onError?: () => void;
     /** Host-resolved module id for identity injection (decision 19). */
     moduleId?: string;
     /** Diagnostic label for the surface (e.g. 'actorPage', 'tools', 'dashboardDialog', 'rollModal'). */
@@ -74,22 +85,24 @@ export interface SurfaceHostProps {
     children: React.ReactNode;
 }
 
-export function SurfaceHost({ moduleId, surface, loading, fallback, children }: SurfaceHostProps) {
+export function SurfaceHost({ moduleId, surface, loading, fallback, onError, children }: SurfaceHostProps) {
     // Style-scope root (ADR-0027 decision 28): the module's own CSS is authored scoped
     // under `.sdk-module--<id>`; the platform Tailwind utility layer stays global. The
     // class is applied here at runtime — identical in dev and packaged (no build-time
     // CSS rewrite), enforced by the `module:check` global-leak lint.
-    const scopeClass = moduleId ? `sdk-module--${moduleId}` : undefined;
+    // Settings panels contribute content to Core chrome, not a module-themed surface.
+    const coreSettings = surface === 'settingsTab';
+    const scopeClass = moduleId && !coreSettings ? `sdk-module--${moduleId}` : undefined;
     const content = (
         <Suspense fallback={loading ?? <LoadingModal message="Loading..." />}>
             {children}
         </Suspense>
     );
     return (
-        <SurfaceErrorBoundary surface={surface} fallback={fallback}>
+        <SurfaceErrorBoundary surface={surface} fallback={fallback} onError={onError}>
             <SDKProvider moduleId={moduleId}>
                 <div
-                    className={['sd-surface-root', scopeClass, (surface === 'tools' || surface === 'actorPage') && 'sd-ui-page'].filter(Boolean).join(' ')}
+                    className={['sd-surface-root', scopeClass, coreSettings && 'sd-settings-content', (surface === 'tools' || surface === 'actorPage') && 'sd-ui-page'].filter(Boolean).join(' ')}
                     data-sd-surface={surface}
                     data-sd-module={moduleId}
                 >

@@ -122,6 +122,7 @@ export const DashboardView = ({
                                     <span className="sd-ui-muted mt-1 block text-sm">Build and run tokenless encounters</span>
                                 </span>
                             </Link>
+                            {system?.id && <SystemTools key={system.id} systemId={system.id} section="gm" />}
                         </div>
                     </section>
                 )}
