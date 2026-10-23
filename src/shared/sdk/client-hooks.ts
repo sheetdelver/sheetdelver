@@ -70,6 +70,7 @@ import { isPostedChatMessage } from '@shared/utils/postedChatMessage';
 import { processHtmlContent } from './utils';
 import type { DocumentSnapshot, ClientDocumentMutations } from './client-documents';
 import type { ModuleSettingDeclaration, PreparedActorData } from './interfaces';
+import { createModuleSettingsStore, moduleSettingsValues } from './module-settings-store';
 
 /**
  * Client data hooks (ADR-0027 decisions 16/17/25).
@@ -217,86 +218,50 @@ export function useActorSheet<TActor = PreparedActorData>(
 // Module settings (decision 21)
 // ---------------------------------------------------------------------------
 
-/** The `useModuleSettings` controller — get/set client settings persisted to localStorage. */
+/** Browser preferences in the existing world/module namespace (shared by same-browser accounts). */
 export interface ModuleSettings {
-    /** Read a setting: stored value, else the schema default, else `fallback`. */
     get<T = unknown>(key: string, fallback?: T): T | undefined;
-    /** Persist a setting and notify every consumer in the same namespace. */
+    /** Validates schema-backed values; throws on invalid values or failed persistence. */
     set<T = unknown>(key: string, value: T): void;
-    /** Snapshot of all settings (schema defaults merged with stored values). */
     all(): Record<string, unknown>;
+    /** Remove only declared overrides; omitted keys means this schema's keys. Throws on failure. */
+    reset(keys?: readonly string[]): void;
+    /** Read/storage failure, for inline presentation. Mutations also throw. */
+    error: Error | null;
 }
 
-interface SettingsEntry {
-    values: Record<string, unknown>;
-    listeners: Set<() => void>;
-}
-
-// One reactive store per `worldId+moduleId` namespace so every consumer (e.g. a theme
-// toggle and the layout reading the theme) observes the same value. Seeded from
-// localStorage; `set` reassigns `values` (stable-snapshot contract) and notifies.
-const settingsStores = new Map<string, SettingsEntry>();
-
-function settingsEntryFor(ns: string): SettingsEntry {
-    let entry = settingsStores.get(ns);
-    if (!entry) {
-        const values: Record<string, unknown> = {};
-        if (typeof window !== 'undefined') {
-            const prefix = `${ns}:`;
-            for (let i = 0; i < window.localStorage.length; i++) {
-                const k = window.localStorage.key(i);
-                if (!k || !k.startsWith(prefix)) continue;
-                const raw = window.localStorage.getItem(k);
-                if (raw === null) continue;
-                try { values[k.slice(prefix.length)] = JSON.parse(raw); } catch { /* skip */ }
-            }
-        }
-        entry = { values, listeners: new Set() };
-        settingsStores.set(ns, entry);
+const settingsStores = new Map<string, ReturnType<typeof createModuleSettingsStore>>();
+function moduleSettingsStore(ns: string) {
+    let store = settingsStores.get(ns);
+    if (!store) {
+        store = createModuleSettingsStore(ns, () => typeof window === 'undefined' ? undefined : window.localStorage);
+        settingsStores.set(ns, store);
     }
-    return entry;
+    return store;
 }
 
-function writeSetting(ns: string, key: string, value: unknown) {
-    const entry = settingsEntryFor(ns);
-    entry.values = { ...entry.values, [key]: value };
-    if (typeof window !== 'undefined') {
-        window.localStorage.setItem(`${ns}:${key}`, JSON.stringify(value));
-    }
-    entry.listeners.forEach((listener) => listener());
-}
-
-/**
- * Module-scoped client settings (decision 21). Values persist to localStorage namespaced
- * by the host-provided `worldId + moduleId`; `schema` (from `info.json` `settings`) seeds
- * defaults. The client counterpart to the server-side `DataStore` (decision 12); replaces
- * ad-hoc per-module localStorage.
- */
 export function useModuleSettings(schema?: ModuleSettingDeclaration[]): ModuleSettings {
     const { worldId, moduleId } = useSDK();
     const ns = `sheetdelver:settings:${worldId ?? 'global'}:${moduleId ?? 'unknown'}`;
-    const entry = settingsEntryFor(ns);
-
+    const store = moduleSettingsStore(ns);
     const subscribe = useCallback((onStoreChange: () => void) => {
-        entry.listeners.add(onStoreChange);
-        return () => { entry.listeners.delete(onStoreChange); };
-    }, [entry]);
-    const values = useSyncExternalStore(subscribe, () => entry.values, () => entry.values);
-
-    const defaults = useMemo(() => {
-        const out: Record<string, unknown> = {};
-        for (const decl of schema ?? []) {
-            if (decl.default !== undefined) out[decl.key] = decl.default;
-        }
-        return out;
-    }, [schema]);
-
+        const dispose = store.subscribe(onStoreChange);
+        const changed = (event: StorageEvent) => {
+            if (event.key === null || event.key.startsWith(`${ns}:`)) store.read();
+        };
+        window.addEventListener('storage', changed);
+        store.read(); // Include changes made while no consumer was mounted.
+        return () => { dispose(); window.removeEventListener('storage', changed); };
+    }, [store, ns]);
+    const snapshot = useSyncExternalStore(subscribe, store.getSnapshot, store.getSnapshot);
+    const values = useMemo(() => moduleSettingsValues(snapshot.values, schema), [snapshot.values, schema]);
     return useMemo<ModuleSettings>(() => ({
-        get: <T,>(key: string, fallback?: T) =>
-            (key in values ? values[key] : (key in defaults ? defaults[key] : fallback)) as T | undefined,
-        set: (key, value) => writeSetting(ns, key, value),
-        all: () => ({ ...defaults, ...values }),
-    }), [values, defaults, ns]);
+        get: <T,>(key: string, fallback?: T) => (Object.hasOwn(values, key) ? values[key] : fallback) as T | undefined,
+        set: (key, value) => store.set(key, value, schema),
+        all: () => ({ ...values }),
+        reset: keys => store.reset(keys, schema),
+        error: snapshot.error,
+    }), [values, schema, store, snapshot.error]);
 }
 
 /**

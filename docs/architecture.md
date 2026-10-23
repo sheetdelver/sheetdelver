@@ -252,7 +252,23 @@ On a same-world reconnect, `WorldBootstrapper.recover()` verifies world/system i
   Optional action `section: 'gm'` joins the existing GM/Assistant grid; omitted
   placement stays in Tools. Validation and rendering are shared, and role loss
   unmounts GM dialogs. Placement does not replace API authorization (ADR0071).
-  Multiple module settings tabs are proposed in ADR0072, not yet implemented.
+- **Module settings tabs**: `UIModuleManifest.settingsTabs` contributes bounded,
+  lazy inline panels to Core's HUD configuration modal (SDK3.7/UI3.5, ADR0072).
+  Core owns the accessible scrolling tabs, guarded navigation, inline loading/error
+  retry and SDK/style boundary. Modules own panel content and save/reset actions.
+  Panel definitions and pending loads are cached by loader identity across tab
+  visits/reopenings, with failure eviction and module/session invalidation. Form
+  state is never cached. Each mount receives an abort signal and dirty-report callback; retirement fences
+  late callbacks and discards drafts on scope loss. Shared confirmation can opt
+  into a native top-layer dialog.
+  Nested settings/confirmation/focus effects share a body scroll lock; the last
+  owner restores the original inline overflow, regardless of teardown order.
+  The existing browser world/module settings keys and account sharing remain;
+  schema validation/reset never writes native Foundry
+  Settings. Packaged UI remains a single ESM file with deferred panel initialization.
+  Settings content retains module SDK identity without module CSS scope. Core
+  automatically styles semantic text and controls in the active theme. Single
+  module tabs identify the module in their label; multiple tabs retain a caption.
 - **DicePresentationProvider**: Owns browser-local dice preferences and the bounded
   animation queue. It mounts above ChatProvider, receiving authorized reads and
   hints from ChatContext's existing listeners. It exposes held IDs, not another

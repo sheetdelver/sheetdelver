@@ -29,6 +29,7 @@ import { run as runGenericSheet } from './generic-sheet.test';
 import { run as runCatalogReleaseState } from './catalog-release-state.test';
 import { run as runPlayerAppearance } from './player-appearance.test';
 import { run as runDashboardActions } from './dashboard-actions.test';
+import { run as runSettingsTabs } from './settings-tabs.test';
 import { run as runPlayerWorldBoundaryPolicy } from './player-world-boundary-policy.test';
 
 import { run as runNotifications } from './notification-store.test';
@@ -62,6 +63,7 @@ export async function run() {
     runCatalogReleaseState();
     runPlayerAppearance();
     runDashboardActions();
+    runSettingsTabs();
     runPlayerWorldBoundaryPolicy();
     runDicePresentation();
     runDiceFollowups();

@@ -17,6 +17,13 @@ export function run() {
     });
     assert.equal(lifecycleCompatibility({ ...API_CONTRACT_VERSIONS, 'ui-extension-api': '1.3.0' }).compatible, false);
     assert.equal(lifecycleCompatibility(API_CONTRACT_VERSIONS).compatible, true);
+    const settingsCompatibility = (version: string, required = '>=3.5.0 <4.0.0') => resolveModuleCompatibility({
+        coreVersion: fixtureCoreVersion, providedApiContracts: { 'ui-extension-api': version },
+        requiredApiContracts: { 'ui-extension-api': required },
+    });
+    assert.equal(settingsCompatibility('3.4.0').compatible, false, 'essential settings tabs require the new UI contract');
+    assert.equal(settingsCompatibility(API_CONTRACT_VERSIONS['ui-extension-api']).compatible, true);
+    assert.equal(settingsCompatibility(API_CONTRACT_VERSIONS['ui-extension-api'], '>=3.3.0 <4.0.0').compatible, true, 'optional pilots keep an older entry point');
     const richDetailCompatibility = (version: string) => resolveModuleCompatibility({
         coreVersion: '0.18.0', requiredCoreVersion: '>=0.18.0',
         providedApiContracts: { 'module-api': version },

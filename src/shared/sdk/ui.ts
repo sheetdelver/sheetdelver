@@ -62,6 +62,8 @@ export interface InitiativeRollModalProps {
 export type RollDialogProps = SheetRollDialogProps | InitiativeRollModalProps;
 
 export interface ConfirmationModalProps {
+    /** Opt in when launched from a native dialog, including settings panels. */
+    topLayer?: boolean;
     title: string;
     message: string;
     confirmLabel?: string;

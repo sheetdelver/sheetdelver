@@ -1,6 +1,11 @@
 # Releases
 
 ## Unreleased
+- Restore nested dialog scrolling
+- Cache loaded settings panels
+- Unify module settings appearance
+- Add module settings tabs
+- Validate scoped browser preferences
 - Place module GM tools
 - Match HUD icon colors
 - Align combat HUD controls

@@ -1,7 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState, useId } from 'react';
 import { createPortal } from 'react-dom';
+import { useModalFocus } from '../hooks/useModalFocus';
+import { acquireBodyScrollLock } from '../hooks/bodyScrollLock';
 
 interface ConfirmationModalProps {
+    /** Use above a native dialog; z-index alone cannot escape its top layer. */
+    topLayer?: boolean;
     isOpen: boolean;
     title: string;
     message: string;
@@ -44,10 +48,12 @@ export function ConfirmationModal({
     onConfirm,
     onCancel,
     isDanger = false,
+    topLayer = false,
     theme
 }: ConfirmationModalProps) {
     const [mounted, setMounted] = useState(false);
     const t = { ...defaultTheme, ...theme };
+    const id = useId();
 
     useEffect(() => {
         setMounted(true);
@@ -56,17 +62,13 @@ export function ConfirmationModal({
 
     // Prevent scrolling when modal is open
     useEffect(() => {
-        if (isOpen) {
-            document.body.style.overflow = 'hidden';
-        } else {
-            document.body.style.overflow = '';
-        }
-        return () => { document.body.style.overflow = ''; };
+        if (!isOpen) return;
+        return acquireBodyScrollLock();
     }, [isOpen]);
 
     if (!mounted || !isOpen) return null;
 
-    return createPortal(
+    const content = (
         <div className="fixed inset-0 z-[130] flex items-center justify-center p-4">
             {/* Overlay background - absolute to parent fixed wrapper */}
             <div
@@ -75,9 +77,9 @@ export function ConfirmationModal({
             />
 
             {/* Modal Card - relative z-10 for sharp text above blur/overlay */}
-            <div className={t.container}>
+            <div className={t.container} role={topLayer ? undefined : 'alertdialog'} aria-modal={topLayer ? undefined : true} aria-labelledby={`${id}-title`} aria-describedby={`${id}-message`}>
                 <div className={t.header}>
-                    <h3 className={t.title}>
+                    <h3 id={`${id}-title`} className={t.title}>
                         {title}
                     </h3>
                     <button
@@ -91,7 +93,7 @@ export function ConfirmationModal({
                     </button>
                 </div>
 
-                <p className={t.body}>
+                <p id={`${id}-message`} className={t.body}>
                     {message}
                 </p>
 
@@ -110,7 +112,32 @@ export function ConfirmationModal({
                     </button>
                 </div>
             </div>
-        </div>,
-        document.body
+        </div>
     );
+    return createPortal(topLayer
+        ? <TopLayerConfirmation titleId={`${id}-title`} messageId={`${id}-message`} onCancel={onCancel}>{content}</TopLayerConfirmation>
+        : content, document.body);
+}
+
+function TopLayerConfirmation({ titleId, messageId, onCancel, children }: {
+    titleId: string; messageId: string; onCancel: () => void; children: React.ReactNode;
+}) {
+    const ref = useRef<HTMLDialogElement>(null);
+    useModalFocus(ref, true, onCancel);
+    useEffect(() => {
+        const previous = document.activeElement;
+        const dialog = ref.current!;
+        dialog.showModal();
+        // Continue editing is the safe default (the first footer button).
+        dialog.querySelector<HTMLButtonElement>('button:nth-last-child(2)')?.focus();
+        return () => {
+            dialog.close();
+            if (previous instanceof HTMLElement && previous.isConnected) previous.focus();
+        };
+    }, []);
+    return <dialog ref={ref} role="alertdialog" aria-labelledby={titleId} aria-describedby={messageId}
+        onCancel={event => { event.preventDefault(); event.stopPropagation(); onCancel(); }}
+        style={{ width: '100vw', height: '100dvh', maxWidth: 'none', maxHeight: 'none', margin: 0, padding: 0, border: 0, background: 'transparent' }}>
+        {children}
+    </dialog>;
 }

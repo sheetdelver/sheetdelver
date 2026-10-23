@@ -189,6 +189,12 @@ export interface ModuleSettingDeclaration {
     description?: string;
     /** Allowed values for `type: 'select'`. */
     options?: Array<{ value: string; label: string }>;
+    /** Optional inclusive bounds for finite numbers. */
+    min?: number;
+    max?: number;
+    /** Optional length bounds for strings. */
+    minLength?: number;
+    maxLength?: number;
 }
 
 /** Optional, read-only combat display suggestion for Core's GM manager. */
@@ -444,6 +450,21 @@ export interface ModuleDashboardDialogProps {
     onClose: () => void;
 }
 
+export interface ModuleSettingsTabProps {
+    /** Aborted before deselection, close or forced scope retirement. Never undoes a write. */
+    signal: AbortSignal;
+    /** Report local unsaved edits; clear only after a successful save or explicit discard. */
+    onDirtyChange: (dirty: boolean) => void;
+}
+
+export interface ModuleSettingsTab {
+    id: string;
+    label: string;
+    /** Visibility only; gm includes Assistants. Defaults to all. */
+    audience?: 'all' | 'gm';
+    load: () => Promise<{ default: ComponentType<ModuleSettingsTabProps> }>;
+}
+
 interface ModuleDashboardActionBase {
     /** Dashboard placement only. GM Tools is shown to GMs/Assistants; APIs retain their own authorization. Defaults to tools. */
     section?: 'tools' | 'gm';
@@ -472,6 +493,8 @@ export interface UIModuleManifest {
     tools?: Record<string, () => Promise<{ default: unknown }>>;
     /** Core-rendered dashboard cards; module pages and dialogs retain their own presentation. */
     dashboardActions?: ModuleDashboardAction[];
+    /** Module content in Core-themed settings panels. Use semantic controls; no module theme wrapper. */
+    settingsTabs?: ModuleSettingsTab[];
     /**
      * Path(s) to CSS file(s) relative to the module root (e.g. "assets/styles.css"),
      * or an array of them. The platform injects each as a <link rel="stylesheet"> when the

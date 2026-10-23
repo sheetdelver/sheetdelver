@@ -1,9 +1,9 @@
 'use client';
 
 import { useEffect, useRef, type RefObject } from 'react';
+import { acquireBodyScrollLock } from './bodyScrollLock';
 
 const activeDialogs: HTMLElement[] = [];
-let originalOverflow = '';
 
 /** Core dialog keyboard/focus convention, shared by image and journal overlays. */
 export function useModalFocus(ref: RefObject<HTMLElement | null>, open: boolean, onClose: () => void) {
@@ -13,11 +13,10 @@ export function useModalFocus(ref: RefObject<HTMLElement | null>, open: boolean,
         if (!open || !ref.current) return;
         const dialog = ref.current;
         const previous = document.activeElement;
-        if (!activeDialogs.length) originalOverflow = document.body.style.overflow;
+        const releaseScrollLock = acquireBodyScrollLock();
         // Child effects may enter first when an entire nested tree mounts.
         const descendant = activeDialogs.findIndex(other => dialog.contains(other));
         activeDialogs.splice(descendant < 0 ? activeDialogs.length : descendant, 0, dialog);
-        document.body.style.overflow = 'hidden';
         if (activeDialogs.at(-1) === dialog) dialog.focus();
         const keydown = (event: KeyboardEvent) => {
             if (activeDialogs.at(-1) !== dialog) return;
@@ -48,7 +47,7 @@ export function useModalFocus(ref: RefObject<HTMLElement | null>, open: boolean,
             const wasTop = activeDialogs.at(-1) === dialog;
             const index = activeDialogs.indexOf(dialog);
             if (index >= 0) activeDialogs.splice(index, 1);
-            document.body.style.overflow = activeDialogs.length ? 'hidden' : originalOverflow;
+            releaseScrollLock();
             if (wasTop && previous instanceof HTMLElement && previous.isConnected) previous.focus();
         };
     }, [ref, open]);

@@ -244,31 +244,38 @@ html[data-sd-appearance='light'] body:not([data-sd-appearance]) { background: #e
 .sd-ui-danger { color: var(--sd-ui-danger); }
 .sd-ui-divider { border-color: var(--sd-ui-border); }
 .sd-ui-overlay { background: var(--sd-ui-backdrop); }
-.sd-ui-control {
+.sd-ui-control,
+.sd-settings-content :where(input:not([type=checkbox], [type=radio], [type=range], [type=color], [type=button], [type=submit], [type=reset], [type=hidden]), select, textarea) {
   background: var(--sd-ui-inset);
   border: 1px solid var(--sd-ui-border-strong);
   color: var(--sd-ui-text);
   border-radius: 0.5rem;
 }
-.sd-ui-control:disabled { opacity: 0.5; cursor: not-allowed; }
+.sd-ui-control:disabled,
+.sd-settings-content :where(input:not([type=checkbox], [type=radio], [type=range], [type=color], [type=button], [type=submit], [type=reset], [type=hidden]), select, textarea):disabled { opacity: 0.5; cursor: not-allowed; }
 /* Native menus need opaque colors; translucent field backgrounds can be
  * composited against a browser-selected grey popup instead of the page. */
 select.sd-ui-control,
 .sd-ui-control option,
-.sd-ui-control optgroup {
+.sd-ui-control optgroup,
+.sd-settings-content :where(select, option, optgroup) {
   background-color: var(--sd-ui-option-surface);
   color: var(--sd-ui-text);
 }
-.sd-ui-control option:disabled { color: var(--sd-ui-muted); }
-.sd-ui-button {
+.sd-ui-control option:disabled,
+.sd-settings-content option:disabled { color: var(--sd-ui-muted); }
+.sd-ui-button,
+.sd-settings-content :where(button, input[type=button], input[type=submit], input[type=reset]) {
   background: var(--sd-ui-surface-raised);
   border: 1px solid var(--sd-ui-border-strong);
   color: var(--sd-ui-text);
   border-radius: 0.5rem;
   transition: background-color 150ms, border-color 150ms;
 }
-.sd-ui-button:not(:disabled):hover { background: var(--sd-ui-surface-hover); }
-.sd-ui-button:disabled { opacity: 0.5; cursor: not-allowed; }
+.sd-ui-button:not(:disabled):hover,
+.sd-settings-content :where(button, input[type=button], input[type=submit], input[type=reset]):not(:disabled):hover { background: var(--sd-ui-surface-hover); }
+.sd-ui-button:disabled,
+.sd-settings-content :where(button, input[type=button], input[type=submit], input[type=reset]):disabled { opacity: 0.5; cursor: not-allowed; }
 .sd-ui-button-primary { background: var(--sd-ui-accent); color: var(--sd-ui-accent-contrast); border-color: transparent; }
 .sd-ui-button-primary:not(:disabled):hover { background: var(--sd-ui-accent-strong); }
 .sd-ui-button-danger { background: var(--sd-ui-danger); color: var(--sd-ui-accent-contrast); border-color: transparent; }
@@ -313,3 +320,20 @@ body[data-sd-appearance] .sd-ui-modal :is(button, a, input, select, textarea):fo
   padding: 4px;
   border-radius: 4px;
 }
+
+/* Settings extensions inherit Core presentation automatically from semantic HTML.
+ * No module stylesheet scope is mounted on this surface. Modules own layout/content. */
+.sd-settings-content { color: var(--sd-ui-text); font: inherit; line-height: 1.5; min-width: 0; }
+.sd-settings-content :where(h1, h2, h3, h4, legend) { font: inherit; font-size: 1rem; font-weight: 600; margin: 0 0 .75rem; }
+.sd-settings-content :where(p, small) { color: var(--sd-ui-muted); font-size: .875rem; }
+.sd-settings-content p { margin: .75rem 0; }
+.sd-settings-content :where(section, fieldset) + :where(section, fieldset) { border-top: 1px solid var(--sd-ui-border); margin-top: 1.25rem; padding-top: 1.25rem; }
+.sd-settings-content label { display: block; font-size: .875rem; font-weight: 500; margin-bottom: .5rem; }
+.sd-settings-content label:has(input:is([type=checkbox], [type=radio])) { display: flex; align-items: center; gap: .5rem; }
+.sd-settings-content :where(input, select, textarea, button) { font: inherit; max-width: 100%; }
+.sd-settings-content :where(button, input[type=button], input[type=submit], input[type=reset]) { display: inline-flex; align-items: center; justify-content: center; min-height: 40px; padding: .5rem .75rem; font-size: .875rem; cursor: pointer; }
+.sd-settings-content :where(input:not([type=checkbox], [type=radio], [type=range], [type=color], [type=button], [type=submit], [type=reset], [type=hidden]), select, textarea) { min-height: 40px; padding: .5rem .75rem; font-size: .875rem; }
+.sd-settings-content :where(input[type=checkbox], input[type=radio], input[type=range]) { accent-color: var(--sd-ui-accent); }
+.sd-settings-content :where(input[type=checkbox], input[type=radio]) { flex-shrink: 0; }
+.sd-settings-content :where(a) { color: var(--sd-ui-accent); text-decoration: underline; }
+.sd-settings-content :where([role=alert]) { color: var(--sd-ui-danger); }

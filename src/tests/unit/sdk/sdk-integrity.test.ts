@@ -6,6 +6,8 @@ import {
     type ActorSheetData,
     type ModuleLogger,
     type UIModuleManifest,
+    type ModuleSettingsTab,
+    type ModuleSettingsTabProps,
     type FoundryActor,
     type FoundryItem,
     type PreparedActorData,
@@ -307,6 +309,7 @@ async function runContextTests() {
 // ---------------------------------------------------------------------------
 
 async function runManifestTests() {
+    const settingsTab: ModuleSettingsTab = { id: 'sheet', label: 'Sheet', load: async () => ({ default: (_props: ModuleSettingsTabProps) => null }) };
     const manifest: UIModuleManifest = {
         info: {
             id: 'mock',
@@ -327,6 +330,7 @@ async function runManifestTests() {
             { id: 'importer', label: 'Import Character', kind: 'dialog',
                 dialog: () => Promise.resolve({ default: () => null }) },
         ],
+        settingsTabs: [settingsTab],
     };
 
     assert.equal(manifest.info.id, 'mock');
@@ -414,9 +418,9 @@ function runClientSdkTests() {
 function runVersionTests() {
     // ADR-0064 C64-C adds relation inputs; these assertions track the canonical
     // contract authority, not application or module release metadata.
-    assert.equal(SDK_VERSION, '3.6.0');
+    assert.equal(SDK_VERSION, '3.7.0');
     assert.equal(API_CONTRACT_VERSIONS['module-api'], '1.7.0');
-    assert.equal(API_CONTRACT_VERSIONS['ui-extension-api'], '3.4.0');
+    assert.equal(API_CONTRACT_VERSIONS['ui-extension-api'], '3.5.0');
     assert.equal(API_CONTRACT_VERSIONS['roll-engine-api'], '1.0.0');
 
     // Capability detection (decision 23)
