@@ -1,3 +1,4 @@
+import { run as runPageHeader } from './page-header.test';
 import { run as runModulePresentation } from './module-presentation.test';
 import { run as runAdminNotifications } from './admin-notifications.test';
 import { run as runDiceQueue } from './dice-queue.test';
@@ -36,6 +37,7 @@ import { run as runNotifications } from './notification-store.test';
 import { run as runChatPresentation } from './chat-presentation.test';
 
 export async function run() {
+    runPageHeader();
     runAdminNotifications();
     runDiceQueue();
     runDiceSharedRenderer();

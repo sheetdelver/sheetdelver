@@ -1,5 +1,11 @@
 # Releases
 
+## 0.22.0
+- Patch request parser vulnerability
+- Share themed page headers
+- Update SDK 3.7.0 → 3.8.0
+- Update UI API 3.5.0 → 3.6.0
+
 ## 0.21.0
 - Update SDK 3.5.0 → 3.7.0
 - Update UI API 3.3.0 → 3.5.0

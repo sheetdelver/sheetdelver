@@ -70,3 +70,5 @@ export type {
 
 export type { NotificationId, NotificationType, NotificationOptions, NotificationUpdate, NotificationAPI } from './notifications';
 export { useFoundryPackages } from './client-hooks';
+
+export type { PageHeaderProps, PageHeaderTheme } from './page-header';

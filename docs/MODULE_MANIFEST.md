@@ -1171,3 +1171,11 @@ Shadowdark release policy. Publication is pending; older application versions,
 including the pre-release development checkout reporting0.19.8, fail that Core
 floor even when its source already contains the new contracts. Generic optional
 consumers may still feature-detect under their verified older-host policy.
+
+## Shared page header requirement
+
+Modules using `useSDKComponents().PageHeader` require UI API3.6 (SDK3.8).
+The component is configured through client props, not an additional manifest
+field. Existing manifest surfaces and older modules remain compatible. Declare
+`"ui-extension-api": ">=3.6.0 <4.0.0"` and use the supporting Core toolchain;
+see [page header authoring](MODULE_AUTHORING.md#page-headers-sdk-38--ui-api-36).

@@ -95,6 +95,9 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
   gate shipped in Core 0.19.0; complete-maintenance corrections shipped in 0.19.1.
   Do not describe either as shipped in 0.18.1, promote a live account implicitly,
   or apply this service-account restriction to ordinary Assistant/player request permissions.
+- Reuse Core SDK page headers for module navigation and optional tool headings.
+  Modules supply content/theme; do not duplicate host page chrome. Preserve
+  established module UI patterns for new controls and verify rendered results.
 - Shared chat, notifications and dice presentation belong in Core UI/SDK, not
   duplicated in each module. Preserve visibility, lifecycle and realtime rules.
 - Never use native browser `alert()`, `confirm()` or `prompt()` for application

@@ -252,6 +252,12 @@ On a same-world reconnect, `WorldBootstrapper.recover()` verifies world/system i
   Optional action `section: 'gm'` joins the existing GM/Assistant grid; omitted
   placement stays in Tools. Validation and rendering are shared, and role loss
   unmounts GM dialogs. Placement does not replace API authorization (ADR0071).
+- **Module page header**: Core injects typed `PageHeader` (SDK3.8/UI3.6) into
+  module pages. Navigation and optional tool heading share one responsive layout;
+  module-local wrappers supply content and scoped color/font tokens. Sheets omit
+  the tool heading and retain their Actor-specific content. No mutable global
+  header registration is used. Custom Back callbacks retain module discard flows;
+  this does not add a shell-wide dirty-state guard. See ADR-0073.
 - **Module settings tabs**: `UIModuleManifest.settingsTabs` contributes bounded,
   lazy inline panels to Core's HUD configuration modal (SDK3.7/UI3.5, ADR0072).
   Core owns the accessible scrolling tabs, guarded navigation, inline loading/error

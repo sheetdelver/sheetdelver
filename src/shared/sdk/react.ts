@@ -2,6 +2,7 @@ import { createContext, useContext, useLayoutEffect } from 'react';
 import type { ComponentType, RefObject } from 'react';
 import type { RealtimeActorChangedPayload } from './contracts';
 import type { ClientDocumentSource } from './client-documents';
+import type { PageHeaderProps } from './page-header';
 import type { SdkEvents } from './events';
 import type { NotificationAPI } from './notifications';
 
@@ -77,6 +78,8 @@ export interface SDKContextValue extends NotificationAPI {
 // ---------------------------------------------------------------------------
 
 export interface SDKComponentsValue {
+    /** SDK3.8/UI3.6: shared navigation and optional tool heading. */
+    PageHeader: ComponentType<PageHeaderProps>;
     LoadingModal: ComponentType<any>;
     RollDialog: ComponentType<any>;
     ConfirmationModal: ComponentType<any>;

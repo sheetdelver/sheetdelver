@@ -291,6 +291,10 @@ export function createMockSdkComponents(): SDKComponentsValue {
         ConfirmationModal: passthrough,
         RichTextEditor: passthrough,
         SharedContentModal: () => null,
+        PageHeader: ({ heading, context, onBack }) => createElement('div', { 'data-mock': 'PageHeader' },
+            createElement('nav', { 'aria-label': 'Page navigation' },
+                createElement('button', { type: 'button', onClick: onBack }, 'Back to Dashboard'), context),
+            heading ? createElement('header', null, createElement('h1', null, heading.title), heading.subtitle ? createElement('p', null, heading.subtitle) : null, heading.actions) : null),
     };
 }
 
