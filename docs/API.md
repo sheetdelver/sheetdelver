@@ -1411,3 +1411,12 @@ session is401. Source reads and optional preparation have a three-second deadlin
 source/context/access are checked again before delivery. The endpoint never
 writes. Core UI also requires a matching `referenceViews` declaration before
 showing a link. See [authoring contract](MODULE_AUTHORING.md#optional-compendium-reference-viewers).
+
+## Dashboard placement (SDK 3.6.0 / UI 3.4.0)
+
+The optional UI-manifest action `section` selects general Tools (default) or
+`gm` for the existing GM/Assistant dashboard section. It adds no REST endpoint or
+authorization grant. Invalid sections are rejected; tool/API permissions remain
+caller-bound. Module and roll API versions are unchanged. See
+[authoring guidance](MODULE_MANIFEST.md#dashboard-placement-sdk-360--ui-340).
+Module settings tabs remain a proposal in [ADR0072](adr/0072-module-settings-tabs.md).

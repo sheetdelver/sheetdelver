@@ -249,6 +249,10 @@ On a same-world reconnect, `WorldBootstrapper.recover()` verifies world/system i
   props are removed under the UI contract major bump. Dialogs alone mount
   inside `SurfaceHost` for SDK context and module CSS scope. See
   [ADR-0054](adr/0054-core-rendered-module-dashboard-actions.md).
+  Optional action `section: 'gm'` joins the existing GM/Assistant grid; omitted
+  placement stays in Tools. Validation and rendering are shared, and role loss
+  unmounts GM dialogs. Placement does not replace API authorization (ADR0071).
+  Multiple module settings tabs are proposed in ADR0072, not yet implemented.
 - **DicePresentationProvider**: Owns browser-local dice preferences and the bounded
   animation queue. It mounts above ChatProvider, receiving authorized reads and
   hints from ChatContext's existing listeners. It exposes held IDs, not another

@@ -3,10 +3,10 @@ import { getUIModule } from '@modules/registry/client';
 import { SurfaceHost } from '@client/ui/components/SurfaceHost';
 import { logger } from '@shared/utils/logger';
 import type { ModuleDashboardAction, ModuleDashboardDialogProps } from '@shared/sdk';
-import { resolveDashboardActions } from './dashboardActions';
-import { DashboardActionSection } from './DashboardActionSection';
+import { dashboardActionsForSection, resolveDashboardActions } from './dashboardActions';
+import { DashboardActionCards, DashboardActionSection } from './DashboardActionSection';
 
-export default function SystemTools({ systemId }: { systemId: string }) {
+export default function SystemTools({ systemId, section = 'tools' }: { systemId: string; section?: 'tools' | 'gm' }) {
     const [actions, setActions] = React.useState<ModuleDashboardAction[] | null>(null);
     const [Dialog, setDialog] = React.useState<React.ComponentType<ModuleDashboardDialogProps> | null>(null);
 
@@ -25,14 +25,16 @@ export default function SystemTools({ systemId }: { systemId: string }) {
     }, [systemId]);
 
     const openDialog = (id: string) => {
-        const action = actions?.find(row => row.id === id);
+        const action = actions && dashboardActionsForSection(actions, section).find(row => row.id === id);
         if (action?.kind === 'dialog') setDialog(() => React.lazy(action.dialog));
     };
 
     if (actions !== null) {
-        if (actions.length === 0) return null;
+        const visibleActions = dashboardActionsForSection(actions, section);
+        if (visibleActions.length === 0) return null;
+        const Cards = section === 'gm' ? DashboardActionCards : DashboardActionSection;
         return <>
-            <DashboardActionSection systemId={systemId} actions={actions} onOpenDialog={openDialog} />
+            <Cards systemId={systemId} actions={visibleActions} onOpenDialog={openDialog} />
             {Dialog && <SurfaceHost
                 moduleId={systemId}
                 surface="dashboardDialog"

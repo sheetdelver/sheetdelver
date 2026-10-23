@@ -1,5 +1,10 @@
 # Releases
 
+## Unreleased
+- Place module GM tools
+- Match HUD icon colors
+- Align combat HUD controls
+
 ## 0.20.1
 - Patch vulnerable production dependencies
 - Unify player page backgrounds

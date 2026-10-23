@@ -521,6 +521,29 @@ the observed initiative changed after the dialog opened. Module UI should
 call `onConfirm(choice)` and let Core handle the result, notification and refetch;
 it must not retry a stale choice itself.
 
+### Dashboard placement (SDK 3.6.0 / UI 3.4.0)
+
+Optional `section: 'gm'` places a tool or dialog beside Combat Manager in **GM
+Tools**, visible to GMs and Assistants. Omit it or use `'tools'` for the general
+Tools section. Unknown values are rejected. This is navigation placement only;
+module APIs and tools must still enforce their caller permissions.
+
+```ts
+{ id: 'bestiary', label: 'Bestiary', kind: 'tool', toolId: 'bestiary', section: 'gm' }
+```
+
+Require `ui-extension-api >=3.4.0 <4.0.0` when placement is required. For optional
+adoption on older supported hosts, old Core ignores placement and displays the
+card in Tools. Define the action as a separately typed constant to remain
+structurally compatible with older SDK types; do not mistake this fallback for
+GM-only access. Core still owns both sections and their palette. See [ADR-0071](adr/0071-gm-dashboard-tools.md).
+
+Module configuration tabs are **planned, not available**. Current preferences
+use `ModuleInfo.settings` and `useModuleSettings`; they do not register UI tabs.
+[ADR-0072](adr/0072-module-settings-tabs.md) proposes multiple lazy module panels
+in the HUD settings dialog, persistence/reset semantics and acceptance gates.
+Do not ship `settingsTabs` or private Core imports based on that proposal.
+
 ### Dashboard actions (SDK 2.0.0)
 
 `dashboardActions` is optional. When present, Core renders the dashboard's

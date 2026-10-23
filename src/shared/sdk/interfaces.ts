@@ -445,6 +445,8 @@ export interface ModuleDashboardDialogProps {
 }
 
 interface ModuleDashboardActionBase {
+    /** Dashboard placement only. GM Tools is shown to GMs/Assistants; APIs retain their own authorization. Defaults to tools. */
+    section?: 'tools' | 'gm';
     /** Stable, module-local action identifier. */
     id: string;
     label: string;

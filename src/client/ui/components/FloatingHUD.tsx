@@ -176,12 +176,13 @@ export default function FloatingHUD() {
                                 onClick={() => toggleTool('dice')}
                                 className={`h-10 w-10 shrink-0 sm:h-12 sm:w-12 p-2 sm:p-3 rounded-xl transition-all flex items-center justify-center ${isDiceTrayOpen ? 'sd-ui-button-primary' : 'sd-ui-muted hover:opacity-80'}`}
                                 title="Dice Tray"
+                                aria-label="Dice Tray"
                             >
-                                <img
-                                    src="/icons/dice-d20.svg"
-                                    alt="Dice"
-                                    className="w-6 h-6 opacity-80"
-                                />
+                                <span aria-hidden="true" className="w-6 h-6" style={{
+                                    backgroundColor: 'currentColor',
+                                    mask: 'url(/icons/dice-d20.svg) center / contain no-repeat',
+                                    WebkitMask: 'url(/icons/dice-d20.svg) center / contain no-repeat',
+                                }} />
                             </button>
                         )}
 
