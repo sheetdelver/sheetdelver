@@ -2,6 +2,8 @@ import type { SettingDocument } from '@server/shared/types/documents';
 import {
     PrimaryDocumentStore,
     type PrimaryDocumentType,
+    type DocumentChangedEvent,
+    type ReconciliationSnapshot,
 } from '../base/PrimaryDocumentStore';
 import {
     DocumentOwnershipLevel,
@@ -25,6 +27,66 @@ import {
  */
 export class SettingStore extends PrimaryDocumentStore<SettingDocument> {
     public readonly documentType: PrimaryDocumentType = 'Setting';
+    private scopeEpoch = 0;
+    private keyRevisions = new Map<string, number>();
+    private observedKeys = new Map<string, string | null>();
+    private publishingReconciliation = false;
+
+    constructor() {
+        super();
+        // Register before downstream listeners so dependency fences retire synchronously.
+        this.on('documentChanged', ({ id }: DocumentChangedEvent) => {
+            const before = this.observedKeys.get(id);
+            const document = this.documents.get(id);
+            const after = document ? this.worldKey(document) : undefined;
+            for (const key of this.publishingReconciliation ? [] : new Set([before, after])) {
+                if (key) this.keyRevisions.set(key, (this.keyRevisions.get(key) ?? 0) + 1);
+            }
+            if (document) this.observedKeys.set(id, after ?? null); else this.observedKeys.delete(id);
+        });
+    }
+
+    private worldKey(document: SettingDocument): string | null {
+        return document.user == null && typeof document.key === 'string' ? document.key : null;
+    }
+
+    public override publishReconciliation(before: ReconciliationSnapshot): void {
+        this.publishingReconciliation = true;
+        try { super.publishReconciliation(before); }
+        finally { this.publishingReconciliation = false; }
+    }
+
+    /** Private Core fence for declared world-setting dependencies. No raw values escape.
+     * Revisions preserve relevant change-and-revert events; unscoped observations
+     * and authoritative replacement still invalidate every dependency scope. */
+    public getWorldKeysRevision(keys: readonly string[]): string {
+        return JSON.stringify([this.ready, this.scopeEpoch,
+            [...new Set(keys)].sort().map(key => [key, this.keyRevisions.get(key) ?? 0])]);
+    }
+
+    public override async seed(loader: () => Promise<SettingDocument[]>): Promise<void> {
+        await super.seed(loader);
+        this.scopeEpoch++;
+        this.keyRevisions.clear();
+        this.observedKeys = new Map([...this.documents].map(([id, row]) => [id, this.worldKey(row)]));
+    }
+
+    public override clear(reason?: string): void {
+        this.scopeEpoch++;
+        this.keyRevisions.clear(); this.observedKeys.clear();
+        super.clear(reason);
+    }
+
+    public override markStale(id?: string, reason?: string): void {
+        this.scopeEpoch++;
+        super.markStale(id, reason);
+    }
+
+    public override observeMutation(): void {
+        this.scopeEpoch++;
+        super.observeMutation();
+    }
+
     public hasWorldKey(key: string): boolean {
         return Array.from(this.documents.values()).some(row => row.key === key && row.user == null);
     }

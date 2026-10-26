@@ -1,5 +1,8 @@
 # Releases
 
+## Unreleased
+- Ignore unrelated startup setting updates
+
 ## 0.22.0
 - Patch request parser vulnerability
 - Share themed page headers

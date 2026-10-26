@@ -768,3 +768,12 @@ server-resolved formula; normal/advantage/disadvantage still execute through the
 existing caller-bound roll service with observed score/formula checks. Manual
 entry retains expected-score updates. No module-specific transport or rules are
 introduced by the presentation change.
+
+### Migration setting dependencies
+
+Migration compatibility and status evidence use private SettingStore revisions
+for active/candidate-declared world settings and native permissions/compendium
+configuration. Unrelated clock or UI-setting updates do not retire these checks.
+Relevant changes (including change-and-revert), source replacement and unscoped
+maintenance observations remain invalidating; document/authority/transport guards
+are unchanged. See [ADR-0074](adr/0074-migration-setting-dependencies.md).

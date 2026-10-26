@@ -1,3 +1,4 @@
+import { migrationSettingsRevision } from './settingDependencies';
 import fs from 'node:fs';
 import path from 'node:path';
 import { getDataDir, writeOwnerOnlyFileAtomicSync } from '@core/paths';
@@ -89,9 +90,10 @@ export async function freshMigrationSnapshot(catalog: ResolvedMigrationCatalog, 
         }).map(pack => String(pack.id)) : [];
         return [...new Set([...readPacks, ...writableScope])].sort().map(id => [id, compendiumStore.getPackContentRevision(id)]);
     };
-    const stores = [settingStore, userStore, ...(needsActors ? [actorStore] : []), ...(needsItems ? [itemStore] : []), ...(kinds.has('ActorDelta') ? [sceneStore] : [])];
+    const stores = [userStore, ...(needsActors ? [actorStore] : []), ...(needsItems ? [itemStore] : []), ...(kinds.has('ActorDelta') ? [sceneStore] : [])];
+    const settingKeys = [...Object.keys(active.settings), ...catalog.worldSettings.map(row => row.key)];
     const stamp = () => JSON.stringify([transport.connectionEpoch, worldStateStore.getCurrentWorldId(), moduleWorldContext.snapshot().identity,
-        stores.map(store => store.getMutationRevision()), needsPacks ? compendiumStore.listPackMetadata() : [], packContentStamp()]);
+        stores.map(store => store.getMutationRevision()), migrationSettingsRevision(settingKeys), needsPacks ? compendiumStore.listPackMetadata() : [], packContentStamp()]);
     const before = stamp();
     // These GETs deliberately do not enter FoundryEventIngress. A read-only
     // preview must not replace serving sources, consume context changes or

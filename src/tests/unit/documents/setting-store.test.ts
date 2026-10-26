@@ -19,7 +19,39 @@ export async function run() {
     await runValueLookupAndParsing();
     await runRouterMaintainsSettings();
     await runGmOnlyVisibility();
+    await runScopedRevisions();
     console.log('  - SettingStore: all checks passed');
+}
+
+async function runScopedRevisions() {
+    const store = new SettingStore();
+    const rows = [{ _id: 'rule', key: 'fixture.rule', value: 'false' },
+        { _id: 'clock', key: 'core.time', value: '0' },
+        { _id: 'personal', key: 'fixture.rule', value: 'false', user: 'p-1' }];
+    await store.seed(async () => rows);
+    const keys = ['fixture.rule'];
+    const initial = store.getWorldKeysRevision(keys);
+    store.patch('clock', { value: '1' });
+    store.patch('personal', { value: 'true' });
+    assert.equal(store.getWorldKeysRevision(keys), initial, 'unrelated and user-scoped rows do not retire world rules');
+    store.patch('rule', { value: 'true' }); store.patch('rule', { value: 'false' });
+    assert.notEqual(store.getWorldKeysRevision(keys), initial, 'relevant change-and-revert must retire a snapshot');
+    let before = store.getWorldKeysRevision(keys);
+    store.delete('rule'); assert.notEqual(store.getWorldKeysRevision(keys), before, 'deleted dependencies invalidate');
+    before = store.getWorldKeysRevision(keys);
+    store.upsert(rows[0]); assert.notEqual(store.getWorldKeysRevision(keys), before, 'created dependencies invalidate');
+    before = store.getWorldKeysRevision(keys);
+    store.patch('rule', { key: 'fixture.renamed' }); assert.notEqual(store.getWorldKeysRevision(keys), before, 'renaming invalidates the old key');
+    before = store.getWorldKeysRevision(keys);
+    store.patch('rule', { key: 'fixture.rule' }); assert.notEqual(store.getWorldKeysRevision(keys), before, 'renaming invalidates the new key');
+    for (const invalidate of [() => store.observeMutation(), () => store.markStale('rule'), () => store.clear()]) {
+        before = store.getWorldKeysRevision(keys); invalidate(); assert.notEqual(store.getWorldKeysRevision(keys), before);
+    }
+    const baseline = store.captureReconciliation();
+    before = store.getWorldKeysRevision(keys); await store.seed(async () => rows);
+    assert.notEqual(store.getWorldKeysRevision(keys), before, 'replacement invalidates existing scopes');
+    before = store.getWorldKeysRevision(keys); store.publishReconciliation(baseline);
+    assert.equal(store.getWorldKeysRevision(keys), before, 'publishing an already-seeded snapshot is not a new source mutation');
 }
 
 async function runValueLookupAndParsing() {

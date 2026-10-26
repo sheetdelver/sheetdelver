@@ -736,7 +736,11 @@ export abstract class PrimaryDocumentStore<TDocument extends DocumentLike> exten
     ): void {
         if (!this.ready) return;
         const event: DocumentChangedEvent = { type: this.documentType, id: documentId, action, audience };
-        logger.debug('PrimaryDocumentStore | Applied document change', event);
+        // Identify frequent Setting traffic without logging its potentially sensitive value.
+        const setting = this.documentType === 'Setting'
+            ? this.documents.get(documentId) as (TDocument & { key?: unknown }) | undefined : undefined;
+        logger.debug('PrimaryDocumentStore | Applied document change', this.documentType === 'Setting'
+            ? { ...event, settingKey: typeof setting?.key === 'string' ? setting.key : null } : event);
         this.emit('documentChanged', event);
         this.emit('primaryDocumentChanged', event);
     }

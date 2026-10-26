@@ -1,3 +1,4 @@
+import { settingStore } from '@server/core/documents/primary/settings/SettingStore';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -53,6 +54,14 @@ cases['bootstrap-checking-current-and-required'] = async root => {
     source.onRead = type => { if (type === 'Actor') checking ||= sourceStatus().state === 'checking'; };
     await checkInstalledWorldCompatibility('fixture'); assert(checking); assert.equal(sourceStatus().state, 'up-to-date');
     assert(sourceStatus().checkedAt); assert(sourceStatus().catalogDigest);
+    const checkedAt = sourceStatus().checkedAt;
+    settingStore.upsert({ _id: 'clock', key: 'core.time', value: '1' });
+    settingStore.patch('clock', { value: '2' });
+    assert.equal(sourceStatus().state, 'up-to-date', 'unrelated setting churn must not retire migration evidence');
+    assert.equal(sourceStatus().checkedAt, checkedAt, 'background clocks do not rerun or invent compatibility checks');
+    settingStore.upsert({ _id: 'permissions', key: 'core.permissions', value: '{}' });
+    assert.equal(sourceStatus().state, 'unknown', 'permission changes still retire migration evidence');
+    await checkInstalledWorldCompatibility('fixture'); assert.equal(sourceStatus().state, 'up-to-date');
     source.fixed = false; actorStore.observeMutation();
     await assert.rejects(checkInstalledWorldCompatibility('fixture')); assert.equal(sourceStatus().state, 'required');
     assert.equal(sourceStatus().proposedWrites, undefined, 'check-only evidence must not invent a proposed-write count');
