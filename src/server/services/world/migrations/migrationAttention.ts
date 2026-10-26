@@ -9,7 +9,7 @@ import { readMaintenanceMode, maintenanceOnly } from '@server/core/world/Mainten
 import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
 import { itemStore } from '@server/core/documents/primary/items/ItemStore';
 import { sceneStore } from '@server/core/documents/primary/scenes/SceneStore';
-import { settingStore } from '@server/core/documents/primary/settings/SettingStore';
+import { migrationSettingsRevision } from './settingDependencies';
 import { userStore } from '@server/core/documents/primary/users/UserStore';
 import { compendiumStore } from '@server/core/compendium/CompendiumStore';
 import { moduleWorldContext } from '../ModuleWorldContextService';
@@ -24,14 +24,14 @@ const labels: Record<MigrationAttentionState, string> = { 'no-migrations': 'No m
     checking: 'Checking world data', unavailable: 'Check unavailable', 'up-to-date': 'Up to date', required: 'Migration required',
     blocked: 'Migration check blocked', 'in-progress': 'Maintenance in progress', 'recovery-required': 'Recovery required' };
 export function migrationAttentionFrame() {
-    let identity; let connected = false; let generation = -1;
-    try { identity = moduleWorldContext.snapshot().identity; const transport = systemService.getSystemClient(); connected = transport.isConnected; generation = transport.connectionEpoch; } catch { /* Explicitly unavailable, never current. */ }
+    let identity; let settingKeys: string[] = []; let connected = false; let generation = -1;
+    try { const snapshot = moduleWorldContext.snapshot(); identity = snapshot.identity; settingKeys = Object.keys(snapshot.settings); const transport = systemService.getSystemClient(); connected = transport.isConnected; generation = transport.connectionEpoch; } catch { /* Explicitly unavailable, never current. */ }
     const native = worldStateStore.getWorld(), system = worldStateStore.getSystem();
     const aligned = !!identity && native?.id === identity.worldId && system?.id === identity.systemId && system?.version === identity.systemVersion;
     const world = native?.id && system?.id ? { ...identity, worldId: native.id, systemId: system.id, title: native.title || native.id }
         : identity ? { ...identity, title: identity.worldId } : null;
     const revision = sourceHash([identity, native?.id, system, generation, connected, serviceAccountAuthority.isQualified(),
-        [actorStore, itemStore, sceneStore, settingStore, userStore].map(store => store.getMutationRevision()),
+        [actorStore, itemStore, sceneStore, userStore].map(store => store.getMutationRevision()), migrationSettingsRevision(settingKeys),
         compendiumStore.listPackMetadata().map(pack => [pack, compendiumStore.getPackContentRevision(String(pack.id))])]);
     return { world, connected: connected && aligned && serviceAccountAuthority.isQualified() && worldStateStore.isReady(), revision };
 }

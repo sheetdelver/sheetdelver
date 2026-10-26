@@ -8,6 +8,7 @@ import { initDataDir, resolveDataDir } from '@server/core/paths';
 import { loadConfig } from '@server/core/config';
 import { actorStore } from '@server/core/documents/primary/actors/ActorStore';
 import { settingStore } from '@server/core/documents/primary/settings/SettingStore';
+import { userStore } from '@server/core/documents/primary/users/UserStore';
 import { preparedActorStore } from '@server/core/documents/prepared/actors/PreparedActorStore';
 import { primaryDocumentCacheCoordinator } from '@server/core/documents/primary/PrimaryDocumentCacheCoordinator';
 import { worldStateStore } from '@server/core/world/WorldStateStore';
@@ -295,6 +296,66 @@ cases['CR64-01'] = async root => {
     assert.deepEqual(actorStore.get('a'), before.source, 'failed preview preserves serving state too');
     source.fail = ''; source.onRead = type => { if (type === 'Setting') moduleWorldContext.touchDependencies(); };
     await assert.rejects(freshMigrationSnapshot(catalog), /scope changed/, 'interleaved context ingress invalidates the isolated snapshot');
+};
+
+cases['startup-unrelated-settings'] = async root => {
+    const { source, transport } = await host(root);
+    const candidate = fixture(path.join(root, 'candidate'));
+    const catalog = discoverMigrations(candidate.root, { ...candidate.info, worldSettings: declarations })!;
+    let clock = 0;
+    source.onRead = type => { if (type === 'Actor') transport.emit('foundry:modifyDocument', {
+        type: 'Setting', action: clock ? 'update' : 'create', result: [{ _id: 'clock', key: 'core.time', value: String(++clock) }],
+    }); };
+    const revision = moduleWorldContext.snapshot().identity.contextRevision;
+    const snapshot = await freshMigrationSnapshot(catalog);
+    snapshot.assertCurrent();
+    assert.equal(moduleWorldContext.snapshot().identity.contextRevision, revision);
+    assert.equal(clock, 1, 'unrelated native Setting ingress occurred during the source read');
+    assert.deepEqual(source.writes, [], 'readiness checking never writes native sources');
+};
+
+cases['startup-setting-dependencies'] = async root => {
+    const { transport } = await host(root);
+    const candidate = fixture(path.join(root, 'candidate'));
+    const catalog = discoverMigrations(candidate.root, { ...candidate.info, worldSettings: [...declarations,
+        { ...declarations[0], key: 'fixture.candidateOnly' }] })!;
+    for (const key of ['fixture.variant', 'fixture.candidateOnly', 'core.permissions', 'core.compendiumConfiguration']) {
+        const snapshot = await freshMigrationSnapshot(catalog);
+        transport.emit('foundry:modifyDocument', { type: 'Setting', action: 'create', result: [{ _id: key, key, value: 'true' }] });
+        assert.throws(() => snapshot.assertCurrent(), /scope changed/, `${key} must still retire the snapshot`);
+    }
+    const snapshot = await freshMigrationSnapshot(catalog);
+    actorStore.observeMutation();
+    assert.throws(() => snapshot.assertCurrent(), /scope changed/, 'migration document changes remain fenced');
+    const authority = await freshMigrationSnapshot(catalog);
+    userStore.patch('service', { role: 3 });
+    assert.throws(() => authority.assertCurrent(), /Full-GM service account required/, 'service-account demotion still blocks');
+};
+
+cases['startup-continuous-clock-compatibility'] = async root => {
+    const { source, transport } = await host(root);
+    const candidate = fixture(path.join(root, 'candidate'));
+    const directory = path.join(root, 'modules/fixture'); fs.mkdirSync(directory, { recursive: true });
+    await packageMigrations(candidate.root, directory, candidate.info);
+    fs.writeFileSync(path.join(directory, 'info.json'), JSON.stringify({ ...candidate.info, worldSettings: declarations }));
+    fs.writeFileSync(path.join(directory, 'logic.js'), 'export class Adapter {systemId="fixture";match(){return true}}');
+    fs.writeFileSync(path.join(directory, 'ui.js'), 'export default {}'); refreshRegistry(); enableModule('fixture');
+    let clock = 0;
+    const original = transport.emitSocketEvent.bind(transport);
+    transport.emitSocketEvent = async <T>(event: string, ...payloads: any[]): Promise<T> => {
+        const response: any = await original(event, ...payloads);
+        if (payloads[0]?.type === 'Setting') response.result.push({ _id: 'clock', key: 'core.time', value: String(clock) });
+        return response as T;
+    };
+    source.onRead = type => { if (type === 'Actor') transport.emit('foundry:modifyDocument', {
+        type: 'Setting', action: clock ? 'update' : 'create', result: [{ _id: 'clock', key: 'core.time', value: String(++clock) }],
+    }); };
+    let prepared = false;
+    await checkInstalledWorldCompatibility('fixture', async () => { prepared = true; });
+    assert(prepared); assert(clock >= 3, 'clock continued through snapshot, reconciliation and final validation');
+    assert.equal(worldWorkGate.hasBlock('migration-compatibility'), false);
+    assert.equal(getMigrationCompatibilityDiagnostic(), null);
+    assert.deepEqual(source.writes, []);
 };
 
 cases['CR64-02'] = async root => {
