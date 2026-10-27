@@ -1,6 +1,6 @@
 # Releases
 
-## Unreleased
+## 0.22.2
 - Revalidate cached compendium contents
 
 ## 0.22.1
