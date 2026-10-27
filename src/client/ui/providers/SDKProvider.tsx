@@ -19,8 +19,7 @@ import {
     refreshObservedClientDocuments,
     setClientDocumentSourceScope,
 } from '@client/ui/sdk/createClientDocumentSource';
-import { createSdkEventBus } from '@client/ui/sdk/createSdkEventBus';
-import type { SdkEvents } from '@shared/sdk/events';
+import { useSDKEvents } from './SDKEventsProvider';
 import { buildModuleAssetUrl, setModuleLogSink } from '@shared/sdk';
 import { logger as platformLogger } from '@shared/utils/logger';
 import { worldRuntimeHeaders } from '@client/ui/api/worldRuntime';
@@ -48,7 +47,7 @@ function resolveInternalNavigationTarget(target: string): string | null {
  */
 export function SDKProvider({ children, moduleId }: { children: React.ReactNode; moduleId?: string }) {
     const router = useRouter();
-    const { token, currentUser, system, worldId, step, appSocket } = useFoundry();
+    const { token, currentUser, system, worldId, step } = useFoundry();
     const { linkState } = useRealtime();
     const { isDiceTrayOpen, toggleDiceTray, isChatOpen, setChatOpen, registerBottomNavigation: registerHostBottomNavigation } = useUI();
     const { foundryUrl, resolveImageUrl } = useConfig();
@@ -67,15 +66,9 @@ export function SDKProvider({ children, moduleId }: { children: React.ReactNode;
         return fetch(input, { ...init, headers, credentials: 'same-origin' });
     }, []);
 
-    // Host-owned realtime signal bus (ADR-0027 decision 20). Created once (pure — no socket
-    // side effects in render, so React re-renders can't desync the binding from subscribers);
-    // the socket is bound via attach() from an effect and re-bound when it changes.
-    const events = useMemo(() => createSdkEventBus(), []);
-    useEffect(() => () => events.dispose(), [events]);
-    useEffect(() => {
-        events.attach(appSocket as any);
-        return () => events.detach();
-    }, [events, appSocket]);
+    // Page surfaces share the authenticated workspace's event identity and
+    // socket subscription. Leaving a tool does not retire module cache listeners.
+    const events = useSDKEvents();
 
     // Host-owned document cache (ADR-0027 decisions 17/25). App-level singleton so a
     // dashboard card and an open sheet share one fetch; the call keeps its transport current.
@@ -91,13 +84,6 @@ export function SDKProvider({ children, moduleId }: { children: React.ReactNode;
     useEffect(() => events.on('document:changed', ({ type, id }) => {
         if (id) documents.invalidate(type, id);
     }), [events, documents]);
-
-    // What modules receive is a narrowed `{ on }` facade — the bus's host-only lifecycle
-    // methods (`attach` / `detach` / `dispose`) are not present on the object handed across
-    // the SDK boundary, so a module can't tear down or rebind the shared realtime bus.
-    const eventsPublic = useMemo<SdkEvents>(() => ({
-        on: (signal, handler) => events.on(signal, handler),
-    }), [events]);
 
     // The SDK cache exists only inside an authenticated world/user scope. The
     // source advances its epoch on scope changes, preserving mounted listeners
@@ -203,7 +189,7 @@ export function SDKProvider({ children, moduleId }: { children: React.ReactNode;
         setChatOpen,
         registerBottomNavigation,
         fetchWithAuth,
-        events: eventsPublic,
+        events,
         logger,
     }), [
         token, currentUser, system, isConnected,
@@ -212,7 +198,7 @@ export function SDKProvider({ children, moduleId }: { children: React.ReactNode;
         updateNotification, removeNotification,
         isDiceTrayOpen, toggleDiceTray, isChatOpen, setChatOpen,
         registerBottomNavigation,
-        fetchWithAuth, eventsPublic, logger,
+        fetchWithAuth, events, logger,
     ]);
 
     // Components are stable references — useMemo avoids recreating the object

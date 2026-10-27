@@ -783,3 +783,20 @@ configuration. Unrelated clock or UI-setting updates do not retire these checks.
 Relevant changes (including change-and-revert), source replacement and unscoped
 maintenance observations remain invalidating; document/authority/transport guards
 are unchanged. See [ADR-0074](adr/0074-migration-setting-dependencies.md).
+
+
+### SDK workspace event ownership
+
+Core ADR-0076 places `SDKEventsProvider` inside the persistent Foundry-facing
+`PlayerProviders` layout, shared by GM and player surfaces. Individual SDKProviders
+consume its public `events.on` facade; page navigation does not create or dispose
+socket event buses. The owner rotates with authenticated session epoch, user,
+role/GM state, world and system identity. Old transport bindings detach before
+paint, and permanent retirement releases listeners while preserving Strict Mode
+replay. Socket replacement rebinds the same owner within an unchanged scope.
+
+This is client-side SDK infrastructure only. Modules receive no transport lifecycle
+methods; server filtering and authorization remain authoritative. Module listeners
+may observe invalidation while their page is closed, allowing scope-safe in-memory
+catalog reuse. Module caches still invalidate on relevant signals and never cross
+caller/world scope. SDK/API signatures and version authorities are unchanged.

@@ -1157,3 +1157,20 @@ but publication is still pending; a source checkout reporting Core0.19.8 is not
 a released0.20.0 host. Modules declaring the new Core floor must wait for that
 release before validating/installing against it. Contract version authority stays
 in `src/shared/sdk/contractVersions.ts`; application metadata stays with release:tag.
+
+
+### Event subscriptions across module-page navigation
+
+Core ADR-0076 keeps `SDK.events` stable across module surface navigation within
+one authenticated workspace (GM or player). A cache scoped to that event identity
+can retain invalidation listeners while its page is closed. Component-owned
+subscriptions should still return the disposer from their effect; longer-lived
+module caches must keep their own cleanup and invalidation policy. User, role,
+world or authenticated-session changes retire the host owner and supply a distinct
+event identity. Cache keys must still include caller/world scope, and delayed
+responses from an older scope must be discarded.
+
+The public facade remains `events.on(...)`; modules cannot attach, detach or
+dispose its socket. Event audiences and server authorization do not change.
+This corrects Core behavior without a new SDK/API signature or module version
+floor; on older hosts, consumers must safely tolerate per-surface event identities.

@@ -1,5 +1,8 @@
 # Releases
 
+## Unreleased
+- Preserve SDK events across navigation
+
 ## 0.22.2
 - Revalidate cached compendium contents
 
