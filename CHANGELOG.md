@@ -1,6 +1,6 @@
 # Releases
 
-## Unreleased
+## 0.22.1
 - Ignore unrelated startup setting updates
 
 ## 0.22.0
