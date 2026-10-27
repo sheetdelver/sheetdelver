@@ -729,7 +729,9 @@ export class WorldBootstrapper {
             if (this.contextRefreshFailed) throw new Error('World context recovery required');
             if (packId) {
                 if (!config || !this.activeTransport) throw new Error('Pack dependency transport unavailable');
-                await this.hydrateCompendiumPacks(this.activeSystemId!, config, this.createCompendiumService(this.activeTransport));
+                await this.hydrateCompendiumPacks(this.activeSystemId!, {
+                    ...config, packs: config.packs.filter(pack => pack.id === packId),
+                }, this.createCompendiumService(this.activeTransport));
                 this.assertCurrentEpoch(epoch);
                 moduleWorldContext.touchDependencies();
             }

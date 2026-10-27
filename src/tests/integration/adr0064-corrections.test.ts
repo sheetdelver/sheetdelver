@@ -417,7 +417,7 @@ async function packHost(root: string) {
         if (action === 'get' && operation.pack) {
             if (operation.pack === 'system.barrier') await wire.barrier?.();
             return { type, action, operation, result: operation.pack === 'system.references'
-                ? [{ _id: 'ref', system: { value: wire.value } }] : [] } as T;
+                ? [{ _id: 'ref', name: 'Reference', type: 'npc', img: 'icons/svg/mystery-man.svg', system: { value: wire.value } }] : [] } as T;
         }
         return original<T>(event, ...payloads);
     };

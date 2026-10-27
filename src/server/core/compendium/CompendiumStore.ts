@@ -167,8 +167,8 @@ function getPackId(pack: CompendiumPackMetadata, systemId?: string | null): stri
  *    change. Never holds documents.
  *
  *  - **Persistent** (async via `PersistentCache`): per-pack shards of declared
- *    rows or full documents, plus the per-system manifest used for freshness
- *    detection. Survives transient disconnects and restarts; only an
+ *    rows or full documents, plus a manifest describing the persisted snapshot.
+ *    ADR-0075 requires source revalidation before reuse. Survives disconnects and restarts; only an
  *    operator-driven reset or world identity change evicts shards.
  *
  * The store has no `upsert` / `patch` / `delete` for compendium documents.
@@ -191,7 +191,7 @@ export class CompendiumStore {
      * delete persistent shards or the manifest — a transient service-account
      * disconnect or world close should not wipe the on-disk warm cache.
      * Persistent shards are reused on reconnect when world identity matches
-     * and the manifest hash is current; explicit eviction is reserved for
+     * after declared contents are revalidated against Foundry; eviction is reserved for
      * operator action or world identity change.
      */
     public clear(_reason?: string): void {

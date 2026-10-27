@@ -80,6 +80,12 @@ graph TD
     - **CoreSocket**: A singleton service-account transport. Emits protocol facts and raw dispatch helpers; controller/ingress services own policy and Store mutation.
     - **ClientSocket**: A per-user transport. Receives neutral Foundry protocol events and performs user-authorized writes after identity is resolved by services.
 - **Compendium Store / Discovery Shards**: Centralized services cache broad pack indices for name lookup and module-declared hydrated shards for compendium UUID document reads. Live Foundry pack-document fallback is diagnostic opt-in only.
+  [ADR-0075](adr/0075-compendium-content-freshness.md) requires authoritative
+  declared-content reads at startup/recovery. Full packs include embedded data;
+  index-only packs include requested fields. Versioned content hashes avoid
+  unchanged disk rewrites, not source reads. Live pack events refresh only the
+  affected declaration; ordinary SDK reads remain cache-only. Hydration failure
+  blocks readiness instead of accepting an old persisted snapshot.
 - **Primary Document Cache**: Server-owned stores under `src/server/core/documents/primary/` that keep hydrated Foundry primary documents available after bootstrap. Actors are currently seeded through `ActorStore`; additional primary document types should join this area behind the same coordinator pattern.
 
 ### 3.2 The Delivery Layers

@@ -145,7 +145,7 @@ function indexCoversFields(index: unknown[], fields: readonly string[]): boolean
     });
 }
 
-function hasFreshnessInputs(index: unknown[]): boolean {
+function hasIndexIdentity(index: unknown[]): boolean {
     if (index.length === 0) return true;
 
     return index.every(entry => {
@@ -156,23 +156,12 @@ function hasFreshnessInputs(index: unknown[]): boolean {
 }
 
 function indexMatchesRequest(index: unknown[], fields?: readonly string[] | null): boolean {
-    return hasFreshnessInputs(index) && indexCoversFields(index, fields || []);
+    return hasIndexIdentity(index) && indexCoversFields(index, fields || []);
 }
 
-/**
- * Read-only service for compendium pack hydration and on-demand fetch primitives.
- *
- * Per ADR-0021 there is one store and one service for the compendium domain.
- * Bootstrap is passive: `seedPackMetadataFromGameData(...)` records which packs
- * exist from `game.data.packs` and never calls Foundry. Hydration is module-
- * driven: `hydratePack(...)` / `hydratePacks(...)` consult the persistent
- * manifest and short-circuit on a fresh hash, otherwise issue one pack-scoped
- * freshness fetch and refresh the shard per the module's `hydrate` / `fields`
- * policy.
- *
- * The service has no `upsert` / `patch` / `delete` for compendium documents —
- * pack contents are owned upstream by Foundry.
- */
+/** Read-only pack hydration. Persisted rows are snapshots, not freshness proof.
+ * Lifecycle hydration reads the declared contents from Foundry; ordinary SDK
+ * reads remain cache-only. See ADR-0075 for the replaced ID/name hash policy. */
 export class CompendiumService {
     private readonly transport: CompendiumTransport;
     private readonly store: CompendiumStore;
@@ -193,16 +182,10 @@ export class CompendiumService {
         this.store.seedPackMetadataFromGameData(gameData, reason);
     }
 
-    /**
-     * Hydrate every pack declared by a module's `info.json` config.
-     *
-     * For each declared pack the service consults the persistent manifest first.
-     * A fresh hash plus on-disk rows means zero transport calls for that pack.
-     * Otherwise the service issues one pack-scoped freshness fetch and refreshes
-     * the shard per `hydrate` / `fields`. Packs declared in `info.json` but not
-     * present in `game.data.packs` are logged and skipped without any transport
-     * call (declared-but-absent policy).
-     */
+    /** Revalidate every present declared pack before adapter initialization or
+     * recovery. Absent optional packs cost no transport call. A failed source
+     * read rejects hydration so bootstrap/context refresh cannot publish stale
+     * data as ready. */
     public async hydratePacks(
         systemId: string,
         config: CompendiumPackConfig,
@@ -223,6 +206,7 @@ export class CompendiumService {
         let hydrated = 0;
         let skipped = 0;
         let missing = 0;
+        const failures: Error[] = [];
 
         for (const declaration of config.packs) {
             try {
@@ -231,9 +215,14 @@ export class CompendiumService {
                 else if (result === 'skipped') skipped++;
                 else if (result === 'missing') missing++;
             } catch (err: unknown) {
-                logger.error(`CompendiumService | Failed to hydrate pack ${declaration.id}: ${getErrorMessage(err)}`);
+                const message = `Failed to hydrate pack ${declaration.id}: ${getErrorMessage(err)}`;
+                logger.error(`CompendiumService | ${message}`);
+                failures.push(new Error(message));
             }
         }
+
+        if (failures.length) throw new AggregateError(failures,
+            `Compendium refresh failed: ${failures.map(error => error.message).join('; ')}`);
 
         if (hydrated > 0) {
             await this.store.setManifest(newManifest);
@@ -241,7 +230,7 @@ export class CompendiumService {
 
         logger.info(
             `CompendiumService | Hydrated ${hydrated}/${config.packs.length} declared packs for ${systemId} ` +
-            `(${skipped} skipped, fresh; ${missing} missing).`
+            `(${skipped} verified unchanged; ${missing} missing).`
         );
 
         return { manifest: newManifest, hydrated, skipped, missing };
@@ -267,14 +256,9 @@ export class CompendiumService {
         return result;
     }
 
-    /**
-     * Per-pack hydration flow used by `hydratePack` / `hydratePacks`.
-     *
-     * Order matters: check pre-filed metadata first so declared-but-absent
-     * packs cost zero transport calls; check the persistent manifest hash
-     * second so a fresh warm restart also costs zero. Only stale or missing
-     * packs reach the freshness fetch.
-     */
+    /** Fetch full documents or the requested index fields once per lifecycle
+     * hydration. ID/name indices and modification timestamps do not establish
+     * embedded-document freshness, including shipped pack replacements. */
     private async hydrateDeclaration(
         systemId: string,
         declaration: CompendiumPackDeclaration,
@@ -282,39 +266,15 @@ export class CompendiumService {
     ): Promise<'hydrated' | 'skipped' | 'missing'> {
         const packId = declaration.id;
         const assertCurrent = this.captureScope(packId);
-
-        // Declared-but-absent: the module's info.json names a pack that the
-        // running world doesn't expose. Log and skip with no transport call.
         if (!this.store.hasPackMetadata(packId)) {
             logger.warn(`[module:${systemId}] pack ${packId} not found in game.data.packs; skipping hydration.`);
             return 'missing';
         }
 
         const packFields = this.getPackFields(declaration);
-        const entries = await this.getFreshnessIndex(declaration);
-        if (!entries || !Array.isArray(entries)) {
-            throw new Error(`Could not fetch freshness index for pack ${packId}.`);
-        }
-
-        const currentHash = this.computeHash(entries, declaration.hydrate || false);
-        const existing = manifest.packs[packId];
-
-        // Persistent manifest is authoritative: matching hash plus on-disk
-        // shard means the pack is already current, no transport call needed.
-        if (existing && existing.hash === currentHash) {
-            const rows = await this.store.getPackRows(systemId, packId);
-            if (rows) {
-                logger.debug(`CompendiumService | Pack ${packId} is fresh (hash ${currentHash.substring(0, 8)}); skipping.`);
-                return 'skipped';
-            }
-        }
-
-        logger.info(`CompendiumService | Hydrating pack ${packId} (${declaration.hydrate ? 'FULL' : 'INDEX'})...`);
-
         let documents: Record<string, unknown>[];
-
         if (declaration.hydrate) {
-            const response = await this.transport.emitSocketEvent<{ result?: Record<string, unknown>[] }>('modifyDocument', {
+            const response = await this.transport.emitSocketEvent<unknown>('modifyDocument', {
                 type: inferDocumentType(packId, this.getDeclarationMetadata(declaration)),
                 action: 'get',
                 operation: { pack: packId, index: false, query: {} },
@@ -323,24 +283,38 @@ export class CompendiumService {
             if (!rows) throw new Error(`Full pack read failed: ${packId}`);
             documents = rows;
         } else {
-            documents = await this.getIndexedPackRows(declaration, entries, packFields);
+            documents = await this.getPackEntries(packId, {
+                index: true, fields: packFields, metadata: this.getDeclarationMetadata(declaration),
+            });
         }
-
-        // A compendium pack is primary-keyed by `_id`: retain one row per id
-        // even if a transport response contains duplicate documents.
         documents = dedupeById(documents);
         assertCurrent();
+        if (declaration.hydrate) {
+            // Preserve the default discovery index without a second network
+            // read or retaining whole documents in the index tier.
+            this.writeIndex(packId, documents.map(document => Object.fromEntries(
+                ['_id', 'id', 'uuid', ...DEFAULT_INDEX_FIELDS]
+                    .filter(key => document[key] !== undefined)
+                    .map(key => [key, document[key]]))));
+        }
+        const currentHash = this.computeHash(documents, declaration);
+        const existing = manifest.packs[packId];
+        if (existing?.hash === currentHash) {
+            const persisted = await this.store.getPackRows(systemId, packId);
+            assertCurrent();
+            if (persisted && this.computeHash(persisted, declaration) === currentHash) {
+                logger.debug(`CompendiumService | Pack ${packId} verified unchanged against Foundry.`);
+                return 'skipped';
+            }
+        }
+
         await this.store.setPackRows(systemId, packId, documents);
-
+        assertCurrent();
         manifest.packs[packId] = {
-            id: packId,
-            hash: currentHash,
-            lastUpdated: Date.now(),
-            rowCount: documents.length,
-            hydrate: declaration.hydrate,
-            fields: declaration.fields,
+            id: packId, hash: currentHash, lastUpdated: Date.now(), rowCount: documents.length,
+            hydrate: declaration.hydrate, fields: declaration.fields,
         };
-
+        logger.info(`CompendiumService | Refreshed pack ${packId} (${declaration.hydrate ? 'FULL' : 'INDEX'}).`);
         return 'hydrated';
     }
 
@@ -613,65 +587,22 @@ export class CompendiumService {
         };
     }
 
-    private computeHash(entries: unknown[], hydrate: boolean): string {
-        const signatureString = entries
-            .map(entry => {
-                if (!entry || typeof entry !== 'object') return '';
-                const row = entry as { _id?: unknown; id?: unknown; name?: unknown };
-                return `${row._id || row.id}-${row.name}`;
-            })
-            .concat(hydrate ? ['HYDRATED'] : ['INDEXED'])
-            .sort()
-            .join('|');
-        return crypto.createHash('md5').update(signatureString).digest('hex');
-    }
-
-    private async getFreshnessIndex(declaration: CompendiumPackDeclaration): Promise<unknown[]> {
-        const cachedDefault = this.store.getPackIndex(declaration.id);
-        if (cachedDefault && hasFreshnessInputs(cachedDefault)) {
-            return cachedDefault;
-        }
-
-        const fetched = await this.getPackEntries(declaration.id, { index: true, metadata: this.getDeclarationMetadata(declaration) });
-        if (Array.isArray(fetched)) {
-            this.store.setPackIndex(
-                declaration.id,
-                this.getDeclarationMetadata(declaration),
-                fetched as CompendiumIndexEntry[],
-            );
-        }
-        return fetched;
-    }
-
-    private async getIndexedPackRows(
-        declaration: CompendiumPackDeclaration,
-        defaultIndex: unknown[],
-        packFields: readonly string[],
-    ): Promise<Record<string, unknown>[]> {
-        // The freshness hash only needs the default id/name index. Pack rows
-        // may need extra module-declared fields, so fetch a field-aware
-        // variant only when the default index does not already contain them.
-        if (indexCoversFields(defaultIndex, packFields)) {
-            return defaultIndex as Record<string, unknown>[];
-        }
-
-        const cachedVariant = this.store.getPackIndex(declaration.id, { fields: packFields });
-        if (cachedVariant && indexCoversFields(cachedVariant, packFields)) {
-            return cachedVariant as Record<string, unknown>[];
-        }
-
-        const fetched = await this.getPackEntries(declaration.id, {
-            index: true,
-            fields: packFields,
-            metadata: this.getDeclarationMetadata(declaration),
-        }) as CompendiumIndexEntry[] || [];
-
-        this.store.setPackIndex(
-            declaration.id,
-            this.getDeclarationMetadata(declaration),
-            fetched,
-            { fields: packFields },
-        );
-        return fetched as Record<string, unknown>[];
+    private computeHash(documents: unknown[], declaration: CompendiumPackDeclaration): string {
+        // Object key and pack row order are incidental; embedded array order is
+        // meaningful. Include the declaration so different field coverage can
+        // never reuse the same persisted snapshot as proof of completeness.
+        const canonical = (value: unknown): unknown => {
+            if (Array.isArray(value)) return value.map(canonical);
+            if (value && typeof value === 'object') return Object.fromEntries(
+                Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, child]) => [key, canonical(child)]));
+            return value;
+        };
+        const content = JSON.stringify({
+            type: inferDocumentType(declaration.id, this.getDeclarationMetadata(declaration)),
+            hydrate: !!declaration.hydrate,
+            fields: declaration.hydrate ? [] : this.getPackFields(declaration),
+            rows: documents.map(row => JSON.stringify(canonical(row))).sort(),
+        });
+        return `content-v1:${crypto.createHash('sha256').update(content).digest('hex')}`;
     }
 }

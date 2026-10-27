@@ -1,5 +1,8 @@
 # Releases
 
+## Unreleased
+- Revalidate cached compendium contents
+
 ## 0.22.1
 - Ignore unrelated startup setting updates
 

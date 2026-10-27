@@ -752,7 +752,39 @@ async function runSameWorldRecoveryAndReplacement() {
 
 }
 
+async function runCompendiumRefreshFailureAndPackScope() {
+    let fail=true, initialized=0;
+    const hydrated:string[][]=[];
+    const bootstrapper=new WorldBootstrapper({
+        getSystem:()=>({id:'syntheticsystem'}),
+        getRegisteredModules:()=>[{id:'syntheticsystem',version:'1.0.0',compendiumPacks:{packs:[
+            {id:'synthetic.items',type:'Item',hydrate:true},
+            {id:'synthetic.other',type:'Item',hydrate:true},
+        ]}} as any],
+        seedPackMetadata:()=>{},seedWorldSnapshot:()=>{},seedUserSnapshot:async()=>{},seedDocuments:async()=>{},
+        hydrateCompendiumPacks:async(_id,config)=>{
+            hydrated.push(config.packs.map(p=>p.id));
+            if(fail)throw new Error('Compendium refresh failed: synthetic.items');
+        },
+        loadAdapter:async()=>({...adapter('syntheticsystem'),initialize:async()=>{initialized++;},onWorldContextChanged:async()=>{}}),
+        createModuleRuntime:async()=>({} as ModuleRuntime),
+        clearWorldRuntimeState:()=>{},markLifecycleActive,
+    });
+    try{
+        await assert.rejects(bootstrapper.bootstrap({} as any),/Compendium refresh failed/);
+        assert.equal(bootstrapper.isReady(),false);
+        assert.equal(initialized,0,'stale packs cannot reach adapter initialization');
+        assert.equal(bootstrapper.getBootstrapDiagnostic()?.phase,'compendiums');
+        fail=false;await bootstrapper.bootstrap({} as any);
+        assert.equal(bootstrapper.isReady(),true);
+        assert.equal(initialized,1);
+        await bootstrapper.refreshWorldContext('synthetic.items');
+        assert.deepEqual(hydrated.at(-1),['synthetic.items'],'a live pack event reads only that declared pack');
+    }finally{bootstrapper.reset('compendium-test-complete');}
+}
+
 export async function run() {
+    await runCompendiumRefreshFailureAndPackScope();
     let clock = 0; const timingLogs: string[] = [];
     const timing = bootstrapTimings('Bootstrap', 'snapshot', () => clock, row => timingLogs.push(row));
     clock = 12.5; timing.phase('primary-documents');

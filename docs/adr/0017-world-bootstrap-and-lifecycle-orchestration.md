@@ -83,7 +83,7 @@ Introduce service-layer owners for the remaining non-transport behavior:
 2. seed `WorldStateStore` from the accepted `game.data` snapshot
 3. seed presence/user state from that same snapshot
 4. passively seed compendium pack metadata from `game.data.packs` into the unified `CompendiumStore` (no transport calls — see ADR-0021)
-5. hydrate module-declared compendium packs via `CompendiumService.hydratePacks(systemId, config)`; fresh persistent shards short-circuit with zero transport calls
+5. hydrate module-declared compendium packs via `CompendiumService.hydratePacks(systemId, config)`; persistent shards are revalidated against declared contents before reuse (ADR-0075 supersedes the original zero-transport shortcut)
 6. seed primary-document Stores
 7. resolve, cache, and initialize the active adapter
 8. transition lifecycle to `active`

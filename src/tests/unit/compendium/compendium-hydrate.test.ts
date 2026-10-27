@@ -43,10 +43,13 @@ class FakeTransport implements CompendiumTransport {
 }
 
 export async function run() {
-    await runFreshPersistentManifestSkipsTransport();
-    await runFieldAwareVariantFetchesOnlyWhenPackRowsRefresh();
+    await runEmbeddedEffectChangeWithUnchangedIndex();
+    await runPersistentManifestRequiresSourceValidation();
+    await runDeclaredFieldsRevalidateWithoutIdentityChanges();
     await runDeclaredButAbsentPackIsSkippedWithoutTransport();
     await runHydrateFullDocumentsWhenStaleOrMissing();
+    await runFailedRefreshRejectsWithoutPublishing();
+    await runLateResponseCannotReplaceInvalidatedPack();
     console.log('  - CompendiumService.hydratePacks: all checks passed');
 }
 
@@ -113,9 +116,9 @@ function createStore(): CompendiumStore {
     return new CompendiumStore(new MemoryPackCache());
 }
 
-// Per ADR-0021: a fresh persistent manifest plus on-disk rows means zero
-// transport calls. The cache is authoritative across restarts.
-async function runFreshPersistentManifestSkipsTransport() {
+// ADR-0075 replaces the old ID/name shortcut. Disk snapshots survive, but
+// only a read of the declared data can establish freshness after startup.
+async function runPersistentManifestRequiresSourceValidation() {
     const store = createStore();
     const transport = new FakeTransport();
     const rows = defaultIndex();
@@ -138,15 +141,20 @@ async function runFreshPersistentManifestSkipsTransport() {
     await store.setPackRows('synthetic-system', 'synthetic.items', rows as CompendiumPackDocument[]);
 
     const service = new CompendiumService({ transport, store });
+    transport.handler = () => ({result: rows});
     const result = await service.hydratePacks('synthetic-system', compendiumPackConfig());
-
-    assert.equal(result.skipped, 1);
-    assert.equal(result.hydrated, 0);
-    assert.equal(result.missing, 0);
-    assert.equal(transport.calls.length, 0);
+    assert.equal(result.hydrated, 1, 'legacy hash is replaced after source validation');
+    assert.equal(transport.calls.length, 1);
+    const unchanged = await new CompendiumService({transport,store}).hydratePacks('synthetic-system', compendiumPackConfig());
+    assert.equal(unchanged.skipped, 1, 'unchanged contents need no shard rewrite');
+    assert.equal(transport.calls.length, 2, 'a new lifecycle still validates persisted contents');
+    const calls = transport.calls.length;
+    await store.findDocument('synthetic-system','synthetic.items','torch');
+    await store.findAll('synthetic-system','Item');
+    assert.equal(transport.calls.length,calls,'ordinary reads stay cache-only');
 }
 
-async function runFieldAwareVariantFetchesOnlyWhenPackRowsRefresh() {
+async function runDeclaredFieldsRevalidateWithoutIdentityChanges() {
     const store = createStore();
     const transport = new FakeTransport();
     const rows = defaultIndex();
@@ -178,6 +186,10 @@ async function runFieldAwareVariantFetchesOnlyWhenPackRowsRefresh() {
         1,
     );
     assert.equal((await store.findDocument('synthetic-system', 'synthetic.items', 'torch'))?.['system.tier'], 1);
+    fieldRows[0]['system.tier']=2;
+    await service.hydratePacks('synthetic-system',compendiumPackConfig(['system.tier','name']));
+    assert.equal((await store.findDocument('synthetic-system','synthetic.items','torch'))?.['system.tier'],2);
+    assert.equal(transport.calls.length,2,'same-name field edits require a fresh field-aware read');
 }
 
 // Per ADR-0021 declared-but-absent policy: a module declares a pack that
@@ -231,10 +243,61 @@ async function runHydrateFullDocumentsWhenStaleOrMissing() {
     assert.equal(result.hydrated, 1);
     assert.equal(result.missing, 0);
     assert.equal(result.skipped, 0);
-    assert.equal(transport.calls.filter(call => call.event === 'modifyDocument').length, 2,
-        'one freshness index read and one full-pack read');
+    assert.equal(transport.calls.filter(call => call.event === 'modifyDocument').length, 1,
+        'one full-pack read, without a redundant index read');
 
     const manifest = await store.getManifest('synthetic-system');
     assert.equal(manifest?.packs['synthetic.items'].hydrate, true);
     assert.equal((await store.getPackRows('synthetic-system', 'synthetic.items'))?.[0]?.name, 'Torch');
+    assert.equal(store.getPackIndex('synthetic.items')?.[0]?.name,'Torch');
+    assert.equal(store.getPackIndex('synthetic.items')?.[0]?.system,undefined,'discovery indices do not retain full documents');
+}
+
+// Production reproduction: ID/name and even timestamps can remain unchanged
+// when a shipped pack replaces an embedded effect. Legacy manifests must refresh.
+async function runEmbeddedEffectChangeWithUnchangedIndex() {
+    const store=createStore(),transport=new FakeTransport();
+    const pack='synthetic.items',system='synthetic-system';
+    const old={_id:'talent',name:'Spellcasting',effects:[{_id:'effect',changes:[{key:'system.spellcasting.classes',value:'knight-of-st.-ydris'}]}]};
+    const current=structuredClone(old);current.effects[0].changes[0].value='witch';
+    const index=[{_id:old._id,name:old.name}];
+    store.setPackMetadata(pack,packMetadata(pack));store.setPackIndex(pack,packMetadata(pack),index);
+    await store.setPackRows(system,pack,[old]);
+    await store.setManifest({systemId:system,_instanceId:'old-cache',packs:{[pack]:{id:pack,hash:computeHash(index,true),lastUpdated:1,rowCount:1,hydrate:true}}});
+    transport.handler=(_event,payloads)=>({result:(payloads[0] as any).operation.index===false?[current]:index});
+    const service=new CompendiumService({transport,store});
+    await service.hydratePacks(system,{packs:[{id:pack,type:'Item',hydrate:true}]});
+    assert.equal(((await store.findDocument(system,pack,'talent')) as any)?.effects[0].changes[0].value,'witch', 'same-name embedded effect updates must replace legacy cache');
+    const firstHash=(await store.getManifest(system))!.packs[pack].hash;
+    current.effects[0].changes[0].value='updated-native-list';
+    await new CompendiumService({transport,store}).hydratePacks(system,{packs:[{id:pack,type:'Item',hydrate:true}]});
+    assert.equal(((await store.findDocument(system,pack,'talent')) as any)?.effects[0].changes[0].value,'updated-native-list');
+    assert.notEqual((await store.getManifest(system))!.packs[pack].hash,firstHash,'the fix also detects later edits after the legacy cache is gone');
+}
+
+async function runFailedRefreshRejectsWithoutPublishing() {
+    const store=createStore(),transport=new FakeTransport(),pack='synthetic.items';
+    store.setPackMetadata(pack,packMetadata(pack));
+    const config:CompendiumPackConfig={packs:[{id:pack,type:'Item',hydrate:true}]};
+    transport.handler=()=>({result:[{_id:'old',name:'Old'}]});
+    const service=new CompendiumService({transport,store});
+    await service.hydratePacks('synthetic-system',config);
+    const manifest=structuredClone(await store.getManifest('synthetic-system'));
+    transport.handler=()=>({error:'Source unavailable'});
+    await assert.rejects(service.hydratePacks('synthetic-system',config),/Compendium refresh failed.*synthetic.items/);
+    assert.deepEqual(await store.getManifest('synthetic-system'),manifest,'failed validation never publishes fresh evidence');
+    transport.handler=()=>({result:[]});
+    await service.hydratePacks('synthetic-system',config);
+    assert.deepEqual(await store.getPackRows('synthetic-system',pack),[],'a genuinely empty pack clears old contents');
+}
+
+async function runLateResponseCannotReplaceInvalidatedPack() {
+    const store=createStore(),transport=new FakeTransport(),pack='synthetic.items';
+    store.setPackMetadata(pack,packMetadata(pack));
+    transport.handler=async()=>{
+        await store.invalidatePackContent('synthetic-system',pack,'changed-during-fetch');
+        return {result:[{_id:'old',name:'Old'}]};
+    };
+    await assert.rejects(new CompendiumService({transport,store}).hydratePacks('synthetic-system',{packs:[{id:pack,type:'Item',hydrate:true}]}),/scope changed/);
+    assert.equal(await store.getPackRows('synthetic-system',pack),null);
 }
