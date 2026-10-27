@@ -15,6 +15,12 @@ and the authoritative manifest reference now lives at
 `docs/MODULE_MANIFEST.md`. All data-root paths are expressed relative to
 configurable `<DATA_DIR>`.
 
+**Freshness correction (October 27, 2026).** [ADR-0075](0075-compendium-content-freshness.md)
+supersedes this ADR's ID/name manifest shortcut and zero-transport warm hydration
+claims. Declared contents are read at startup/recovery; hashes avoid unnecessary
+disk rewrites only. The other ownership, declaration and lifecycle decisions
+remain in force. Historical cost tables below describe the replaced policy.
+
 ## Context
 
 ADR-0015 split compendium behavior into Pathway A (platform-wide UUID/name index warmup) and Pathway B (module-declared pack rows). The split moved compendium readers out of sockets, but Pathway A still performs live `getCompendiumIndex` / `getDocuments` / `modifyDocument` traffic for every pack in `game.packs ∪ world.packs ∪ system.packs ∪ module.packs` on every cold start, regardless of whether any module declares those packs.
