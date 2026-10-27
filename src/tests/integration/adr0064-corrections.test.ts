@@ -516,6 +516,15 @@ cases['CR64-06-adapter-lifecycle'] = async root => {
         normalizeActorData(actor){return {...actor,id:actor._id,img:'',derived:{}}} }`);
     fs.writeFileSync(path.join(installed, 'ui.js'), 'export default {}');
     refreshRegistry(); enableModule('fixture');
+    // Event ingress retires readers synchronously but deletes persisted shards
+    // asynchronously before scheduling its refresh. Await that boundary before
+    // requesting another refresh; setImmediate does not drain filesystem work.
+    const invalidate = compendiumStore.invalidatePackContent;
+    let invalidation = Promise.resolve();
+    compendiumStore.invalidatePackContent = (...args) => {
+        invalidation = invalidate.apply(compendiumStore, args);
+        return invalidation;
+    };
     const bootstrap = worldBootstrapper.bootstrap(transport);
     try {
         await started;
@@ -526,13 +535,19 @@ cases['CR64-06-adapter-lifecycle'] = async root => {
         assert.throws(preparing.assertCurrent, /scope changed/, 'adapter initialize/hydration is not the content authority');
         release(); await bootstrap;
         assert.equal(worldBootstrapper.isReady(), true);
+        await invalidation;
         await worldBootstrapper.refreshWorldContext('system.references');
         const serving = await freshMigrationSnapshot(catalog);
         mutate();
         assert.throws(serving.assertCurrent, /scope changed/, 'declared-pack observation retires scope before async context refresh');
-        await new Promise(resolve => setImmediate(resolve));
+        await invalidation;
         await worldBootstrapper.refreshWorldContext('system.references');
-    } finally { release(); await bootstrap; worldBootstrapper.reset('fixture-cleanup'); delete scope.cr64Prepare; }
+        const rows = await compendiumStore.getPackRows('fixture', 'system.references');
+        assert.deepEqual(rows?.[0]?.system, { value: 20 }, 'completed refresh retains the authoritative pack contents');
+    } finally {
+        compendiumStore.invalidatePackContent = invalidate;
+        release(); await bootstrap; worldBootstrapper.reset('fixture-cleanup'); delete scope.cr64Prepare;
+    }
 };
 
 cases['CR64-06-before-intent'] = async root => {

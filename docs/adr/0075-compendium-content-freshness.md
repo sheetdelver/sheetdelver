@@ -84,3 +84,16 @@ hydrated at 04:33:49.041 UTC (0 unchanged, 0 missing). Compendium hydration took
 casting grant now reads `witch`. The user subsequently verified the Character
 Creator and accepted closeout. This confirms the reported stale-content failure
 is resolved without editing Foundry documents or manually deleting cache files.
+
+
+### CI integration synchronization correction
+
+PR #64 exposed a timing error in the retained adapter-lifecycle integration
+fixture: it requested refresh before event-driven persistent invalidation had
+finished, allowing shard deletion to overlap the new write. A single event-loop
+turn did not wait for filesystem work. The test now awaits the actual
+invalidation promise before requesting refresh and checks that the refreshed
+source remains stored. Production ingress already sequences those operations;
+no runtime guard or cache failure is suppressed by this test correction.
+The full integration suite, TypeScript check and ADR metadata check pass after
+this correction. Hosted CI still requires the follow-up commit and rerun.
