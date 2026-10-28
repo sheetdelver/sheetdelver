@@ -1,6 +1,6 @@
 # Releases
 
-## Unreleased
+## 0.22.3
 - Preserve SDK events across navigation
 
 ## 0.22.2
