@@ -1,7 +1,17 @@
 # ADR-0070: Shared player and module page backgrounds
 
-**Status:** Completed — implementation verified and operator accepted; publication pending
+**Status:** Completed — operator-accepted page backgrounds released
 **Date:** 2026-10-22
+
+## Publication reconciliation — November 9, 2026
+
+The operator-accepted shared page-background correction shipped in Core 0.20.1.
+No new module-specific background policy or additional native test is implied.
+
+[Published release v0.20.1](https://github.com/sheetdelver/sheetdelver/releases/tag/v0.20.1)
+was verified during the documentation review. This summary supersedes earlier
+pending-publication notes, without rewriting dated implementation evidence or
+turning unperformed tests into passes. See the [decision index](README.md).
 
 ## Problem
 

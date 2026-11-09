@@ -1,8 +1,19 @@
 # ADR-0068: Optional module compendium reference views
 
-**Status:** Completed — selected scope closed 2026-10-22; publication pending
+**Status:** Completed — selected reference-view scope released
 **Date:** 2026-10-21
 **Owners:** Core/SDK contract; adopting modules own reference presentation
+
+## Publication reconciliation — November 9, 2026
+
+The accepted optional reference-view contract shipped in Core 0.20.0 with the
+shared SDK 3.5.0 / module API 1.7.0 / UI API 3.3.0 additions. Optional adoption
+and each module's verification remain separate from Core publication.
+
+[Published release v0.20.0](https://github.com/sheetdelver/sheetdelver/releases/tag/v0.20.0)
+was verified during the documentation review. This summary supersedes earlier
+pending-publication notes, without rewriting dated implementation evidence or
+turning unperformed tests into passes. See the [decision index](README.md).
 
 ## Decision
 

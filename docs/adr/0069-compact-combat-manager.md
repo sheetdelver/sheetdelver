@@ -1,8 +1,19 @@
 # ADR-0069: Combat manager and HUD usability, settings and initiative
 
-**Status:** Completed — selected scope closed 2026-10-22; publication pending
+**Status:** Completed — accepted combat-manager scope released
 **Date:** 2026-10-22
 **Owners:** Core combat services and UI
+
+## Publication reconciliation — November 9, 2026
+
+The selected combat-manager changes shipped in Core 0.20.0. Earlier
+publication-pending notes are historical; acceptance remains limited to the
+recorded scope, with deferred encounter work unchanged.
+
+[Published release v0.20.0](https://github.com/sheetdelver/sheetdelver/releases/tag/v0.20.0)
+was verified during the documentation review. This summary supersedes earlier
+pending-publication notes, without rewriting dated implementation evidence or
+turning unperformed tests into passes. See the [decision index](README.md).
 
 ## Context and scope
 

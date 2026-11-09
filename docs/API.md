@@ -1,6 +1,11 @@
 # API Documentation
 
-The Sheet Delver API exposes Foundry-backed data through the Core Service.
+For current provided SDK/API versions and how to choose module requirements, see
+[the contract baseline](MODULE_AUTHORING.md#contract-baseline-and-compatibility).
+The canonical versions live in [contractVersions.ts](../src/shared/sdk/contractVersions.ts);
+feature introduction versions below are historical minima, not the host's current versions.
+
+The SheetDelver API exposes Foundry-backed data through the Core Service.
 Browser user routes use an HttpOnly player-session cookie. Trusted server-side
 callers may use an explicit bearer session credential. Admin routes are
 protected by the opaque admin session cookie and CSRF flow.
@@ -1145,7 +1150,7 @@ POST /admin/sources/:sourceId/modules/:moduleId/upgrade
 
 The JSON body may contain `version`, `approveTrustOverride`,
 `approvePermissionEscalation`, and `approveDowngrade`. The release inspection
-response lists only versions compatible with the running Sheet Delver core and
+response lists only versions compatible with the running SheetDelver core and
 SDK contracts. Omitting `version` selects the newest compatible release. The
 server resolves the selected immutable manifest from validated module-owned
 history; clients cannot substitute an archive URL or trust tier. A missing or
@@ -1219,14 +1224,11 @@ relations and the complete-maintenance corrections; UI remains 3.2.0. Core
 0.19.0 supplied the initial SDK 3.3/module-api 1.5 contract. See
 [compatibility and adoption](MODULE_MIGRATIONS.md#compatibility-and-adoption).
 The [four-issue G8 correction amendment](adr/0064-module-world-context-and-data-migrations.md#g8-integration-correction-amendment--october-18-2026)
-selects four additional fixes. Released Core 0.19.1 has a wrong default for world-pack
-locks, lacks automatic Player collection invalidation for ownership-only changes,
-and can misclassify typed SDK errors across the tested external-data managed JS
-boundary. Fresh authorization still rejects forbidden requests; CG-10 concerns
-safe error mapping. The fourth fix, CG-5, concerns shared dialog keyboard use,
-not migration readiness. The corrective branch implements these fixes without
-new routes, payload fields or SDK/API version changes; they are not released in
-0.19.1. See the amendment's focused evidence and pending acceptance.
+records four fixes shipped in Core 0.19.2: world-pack lock defaults, ownership-only
+collection invalidation, typed SDK error mapping across managed JS boundaries,
+and shared dialog keyboard behavior. Fresh authorization remains authoritative.
+No routes, payload fields or SDK/API versions changed. See the amendment for the
+selected native acceptance and the separate shared-UI qualification.
 
 Pack access-only changes advance the existing world-context revision even when
 no declared rule-setting value changed. `worldContextChanged` / SDK

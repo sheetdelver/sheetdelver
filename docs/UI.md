@@ -32,7 +32,7 @@ redirect on world lifecycle. They still own local resource loading, errors,
 and module-specific styling. A temporary Actor read failure is not proof that
 the Actor was deleted; only a confirmed 404 should show that state.
 
-**Unreleased service-account role block (ADR-0064):** Core's configured Foundry account
+**Service-account role block (Core 0.19.0, ADR-0064):** Core's configured Foundry account
 must be full Gamemaster. A lower/unknown role or active demotion makes the world
 unavailable through this shared boundary, without exposing account details to
 players. The admin backend shows the configured account's observed/required role
@@ -41,7 +41,7 @@ status and recovery usable; no module-specific error modal or native user lockou
 This enforcement is not shipped Core 0.18.1 behavior. See
 [configuration recovery](CONFIGURATION.md#service-account-role-and-recovery).
 
-**Native world settings (SDK 3.3.0 / UI API 3.2.0, unreleased):** module UI can
+**Native world settings (introduced in Core 0.19.0 / SDK 3.3.0 / UI API 3.2.0):** module UI can
 read declared, authorized settings with `useWorldSetting(key)` from
 `@sheet-delver/sdk/react`. It returns `{ result, revision }`; distinguish stored,
 registered-default and unavailable results. `useModuleSettings` remains a separate
@@ -394,7 +394,7 @@ under the `SurfaceHost` root:
 Module CSS must scope selectors under `.sdk-module--<id>` unless the checker
 explicitly allows the construct, such as `@font-face` or `@keyframes`.
 
-### Maintenance-only presentation (unreleased correction)
+### Maintenance presentation
 
 Overview and unrelated admin pages show only a compact **Migration attention**
 notice when the active source needs migration, is blocked, is in progress or

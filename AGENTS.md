@@ -137,6 +137,25 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - New unrelated work gets its own scope/ADR when appropriate, not additions to
   an already-closed ADR. Update architecture/API/SDK/module-authoring docs when
   their contracts change; keep module-only documentation module-owned.
+- Documentation is part of the same implementation and release closeout, not a
+  later cleanup. For SDK/API changes, check MODULE_AUTHORING.md, MODULE_MANIFEST.md,
+  API.md, UI.md and architecture.md against the actual exports and contract constants.
+  Update examples, lifecycle/authorization behavior, compatibility floors and links
+  where affected; explicitly record unaffected guides in the handoff. Never leave
+  shipped APIs labeled upcoming or recommend temporary compatibility reductions.
+- Keep README focused on features, requirements and entry links. Put deployment,
+  security and architecture detail in their guides. Treat screenshots as versioned
+  evidence: review affected images after UI changes, record capture context, and
+  remove stale embeds until current captures are verified; do not delete shared
+  assets merely to tidy a README. Link the canonical project website.
+- RELEASING.md is version-neutral procedure, not a next-release plan. Put actual
+  version decisions in CHANGELOG.md/ADR closeouts. After publication, reconcile
+  current ADR summaries, audit indexes, deferred dispositions and the handoff with
+  verified release evidence. Preserve dated history and distinguish publication,
+  automated checks, operator acceptance and unperformed native verification.
+- Every handoff must state which public guides were checked/updated, documentation
+  checks run, and any unresolved documentation or screenshot work. A feature is not
+  documented merely because its ADR or ignored audit mentions it.
 - Core ADR metadata is CI-enforced by
   `src/tests/unit/docs/adr-metadata.test.ts`. Every numbered `docs/adr/` file
   must have top-level `**Status:**` before its first `---` divider. The value

@@ -1,7 +1,19 @@
 # ADR-0071: Module dashboard placement and HUD consistency
 
-**Status:** Implemented — isolated verification passed; operator review pending
+**Status:** Implemented — published; isolated verification retained, full operator review not recorded
 **Date:** 2026-10-23
+
+## Publication reconciliation — November 9, 2026
+
+Dashboard placement and HUD consistency shipped in Core 0.21.0. Isolated
+verification is recorded below; a separate complete operator-acceptance record
+was not found in this reconciliation. Publication is complete, while that
+evidence qualification remains explicit.
+
+[Published release v0.21.0](https://github.com/sheetdelver/sheetdelver/releases/tag/v0.21.0)
+was verified during the documentation review. This summary supersedes earlier
+pending-publication notes, without rewriting dated implementation evidence or
+turning unperformed tests into passes. See the [decision index](README.md).
 
 ## Problem and scope
 

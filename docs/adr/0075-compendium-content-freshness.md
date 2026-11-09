@@ -1,7 +1,19 @@
 # ADR-0075: Revalidate declared compendium contents
 
-**Status:** Completed — automated checks and operator verification passed
+**Status:** Completed — compendium freshness correction verified and released
 **Date:** 2026-10-27
+
+## Publication reconciliation — November 9, 2026
+
+The compendium freshness correction and PR64 integration-test synchronization
+fix shipped in Core 0.22.2. The former hosted-CI/release wait is superseded by
+publication; operator Creator verification remains recorded below. SDK/API
+versions did not change.
+
+[Published release v0.22.2](https://github.com/sheetdelver/sheetdelver/releases/tag/v0.22.2)
+was verified during the documentation review. This summary supersedes earlier
+pending-publication notes, without rewriting dated implementation evidence or
+turning unperformed tests into passes. See the [decision index](README.md).
 
 ## Problem and evidence
 

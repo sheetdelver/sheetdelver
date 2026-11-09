@@ -28,11 +28,12 @@ not raised to match Core's service account.
     npm install
     ```
 
-4.  **Configure connection:**
-    Follow the [Configuration instructions in README.md](../README.md#configuration) to create your `settings.yaml` file.
-    Ensure `security.service-token` is set (or export `APP_SERVICE_TOKEN`) for privileged internal bearer flows.
+3.  **Configure connection:**
+    Follow the [setup guide](GETTING_STARTED.md) to create your configuration and
+    supply external credentials. `security.service-token` is optional unless
+    you use trusted server-to-server privileged bearer flows.
 
-5.  **Run the development server:**
+4.  **Run the development server:**
     ```bash
     npm run dev
     ```
@@ -321,3 +322,23 @@ For detailed documentation and usage examples, see [docs/UI.md](UI.md).
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](../LICENSE) file for details.
+
+## Documentation completion checklist
+
+Complete documentation alongside the change, before requesting implementation
+closeout. Use [AGENTS.md](../AGENTS.md) for the repository workflow.
+
+- Check public guides against the code: SDK/API changes require review of
+  MODULE_AUTHORING, MODULE_MANIFEST, API, UI and architecture; operator behavior
+  also needs the configuration, security or setup guide as applicable.
+- Record required contract floors separately from current provided versions.
+  Keep working examples, permissions and lifecycle behavior accurate.
+- Keep README concise. Verify affected screenshots against the current UI or
+  remove stale embeds while retaining assets needed by existing links.
+- Reconcile current ADR status and release summaries after publication, without
+  converting an unperformed operator/native check into a pass. Keep version-specific
+  plans out of the release procedure.
+- Check local links/anchors and `git diff --check`. After ADR header/closeout edits,
+  run `npx tsx src/tests/unit/docs/adr-metadata.test.ts`.
+- State the reviewed/updated guides, check results and remaining documentation
+  work in the handoff. Unrelated deferred features stay deferred.

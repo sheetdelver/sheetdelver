@@ -8,7 +8,7 @@ startup. Security procedures and key rotation are covered separately in
 
 ## Loading And Precedence
 
-The unreleased complete-maintenance correction persists its mode in
+Complete maintenance, shipped in Core 0.19.1, persists its mode in
 `<DATA_DIR>/config/module-upgrades/maintenance.json`. A restart honors that mode;
 it does not restore ordinary Core/Next serving. Only the restricted admin/status
 shell and one full-GM observation/write path run until reviewed completion.

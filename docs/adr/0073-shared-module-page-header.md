@@ -1,7 +1,18 @@
 # ADR-0073: Shared, module-themed page headers
 
-**Status:** Completed — operator accepted header/UI correction; supporting publication pending
+**Status:** Completed — operator-accepted page header released
 **Date:** 2026-10-23
+
+## Publication reconciliation — November 9, 2026
+
+The shared page header shipped in Core 0.22.0 with SDK 3.8.0 / UI API 3.6.0.
+The operator acceptance and isolated checks below remain the evidence for the
+selected scope; dependent modules own their adoption and requirements.
+
+[Published release v0.22.0](https://github.com/sheetdelver/sheetdelver/releases/tag/v0.22.0)
+was verified during the documentation review. This summary supersedes earlier
+pending-publication notes, without rewriting dated implementation evidence or
+turning unperformed tests into passes. See the [decision index](README.md).
 
 ## Problem and selected scope
 

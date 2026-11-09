@@ -1,6 +1,11 @@
 # Module Manifest Reference
 
-This document is the authoritative contract for building a Sheet Delver system
+For current provided SDK/API versions and how to choose module requirements, see
+[the contract baseline](MODULE_AUTHORING.md#contract-baseline-and-compatibility).
+The canonical versions live in [contractVersions.ts](../src/shared/sdk/contractVersions.ts);
+feature introduction versions below are historical minima, not the host's current versions.
+
+This document is the authoritative contract for building a SheetDelver system
 module. A module provides system-specific actor projection, React UI surfaces,
 optional server-side API routes, static assets, and optional module-owned data.
 
@@ -15,10 +20,10 @@ described below.
 The UI manifest can export optional `theme` and `componentStyles` with SDK
 1.5.0 / `ui-extension-api` 1.3.0. These are client presentation objects, including
 style callbacks; they are not serialized manifest JSON or server configuration.
-Core scopes shared chat, previews and dice trays to the selected module. Modules
-targeting the next host release declare a 3.x UI contract range for the HUD
-initiative presentation contract; earlier 2.x dashboard action ranges describe
-historical releases and are incompatible with that host. See
+Core scopes shared chat, previews and dice trays to the selected module. Current
+hosts provide a 3.x UI contract; declare a compatible range whose lower bound
+covers the module's required capabilities. Earlier 2.x dashboard action ranges
+describe historical hosts and are incompatible with the current 3.x contract. See
 [Shared UI Themes](MODULE_AUTHORING.md#shared-ui-themes) and
 [ADR-0044](adr/0044-client-owned-module-presentation.md).
 
@@ -129,13 +134,13 @@ points each version to its immutable release manifest:
 }
 ```
 
-Compatibility is copied from each version's release manifest so Sheet Delver
+Compatibility is copied from each version's release manifest so SheetDelver
 can omit unsupported versions before offering installation. History contains at
 most 100 unique versions and public HTTPS manifest URLs. Module authors should
 not edit it manually.
 
 `module:init` generates a tag-triggered caller for this workflow alongside the
-module's validation workflow. Both pin the same explicit Sheet Delver core ref;
+module's validation workflow. Both pin the same explicit SheetDelver core ref;
 the module tag without its leading `v` must match `info.json` `version`.
 
 See [MODULE_CATALOG.md](MODULE_CATALOG.md) for the static discovery schema.
@@ -315,7 +320,7 @@ for posting recorded rolls without changing the display-summary contract.
 | `manifest.ui` | Yes | UI manifest entry path relative to the module root. |
 | `manifest.logic` | Yes | Adapter entry path relative to the module root. |
 | `manifest.server` | No | Server route entry path relative to the module root. |
-| `compatibility.coreVersion` | No | SemVer range for the Sheet Delver host version. |
+| `compatibility.coreVersion` | No | SemVer range for the SheetDelver host version. |
 | `compatibility.apiContracts` | No | SemVer ranges for named SDK contract versions. |
 | `compendiumPacks.packs` | No | Compendium packs the host should index, optionally hydrate, and expose through `runtime.compendium`. |
 | `settings` | No | Client setting declarations consumed by `useModuleSettings()`. |
@@ -368,7 +373,7 @@ Example (verify the real Actor string path for your system):
 ```
 
 `permissions` is a declaration, not an authorization bypass. Foundry ownership and
-the Sheet Delver request runtime still gate document reads and writes. Module
+the SheetDelver request runtime still gate document reads and writes. Module
 server routes must perform user work through `req.runtime`; they must not use a
 core socket, service token, or system user path to impersonate the caller.
 
@@ -1085,7 +1090,7 @@ works.
 10. Run `npm run module:check <systemId>` before packaging.
 11. Use `useSDK().navigate()` / `replace()` for internal application routes;
     these methods originated in UI contract 1.1.0; modules targeting the
-    next host release declare `ui-extension-api: ">=3.0.0 <4.0.0"`.
+    current host declare `ui-extension-api: ">=3.0.0 <4.0.0"`.
 
 <a id="world-context-and-migration-discovery-unreleased"></a>
 
@@ -1164,13 +1169,12 @@ link. Item consumers beyond the exported contract are deferred. See
 for exact types, lifecycle, trust boundary and older-host compatibility.
 
 
-For the selected Core0.20.0 release, required package/artwork/reference adopters
+Package/artwork/reference contracts shipped in Core 0.20.0. Required adopters
 can declare `coreVersion: ">=0.20.0"`, `module-api: ">=1.7.0 <2.0.0"` and
-`ui-extension-api: ">=3.3.0 <4.0.0"`; the roll API is unchanged. This is the next
-Shadowdark release policy. Publication is pending; older application versions,
-including the pre-release development checkout reporting0.19.8, fail that Core
-floor even when its source already contains the new contracts. Generic optional
-consumers may still feature-detect under their verified older-host policy.
+`ui-extension-api: ">=3.3.0 <4.0.0"`, preserving any higher existing minimum.
+Optional consumers may feature-detect under their verified older-host policy.
+Each module owns its current manifest and tested toolchain; these introduction
+floors are not a release plan or a direction to lower module requirements.
 
 ## Shared page header requirement
 

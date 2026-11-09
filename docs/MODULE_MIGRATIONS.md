@@ -513,7 +513,8 @@ The browser checks use existing external tooling, never runtime dependencies.
 The supervised check copies only Core source/configuration into a temporary
 workspace, uses generated data and a fake loopback upstream, and replaces the real
 manager's Core/Next children. It does not connect to native Foundry. Inspect
-listeners first; the ADR records qualified native evidence and pending release/adoption work.
+listeners first; the ADR records qualified native evidence. Release closeout is
+indexed in the [decision summary](adr/README.md); module acceptance remains module-owned.
 
 G8 module adoption is separate: declare native settings with versioned provenance;
 create lossless source-derived catalog/hooks and tests; implement dependency refresh;
@@ -522,16 +523,19 @@ routes. After a supporting Core release exists, adopt its tested SDK/toolchain m
 Do not publish a dependent module against an unavailable host release.
 
 
-### Current native acceptance and adoption hold
+<a id="current-native-acceptance-and-adoption-hold"></a>
+
+### Native acceptance and module adoption
 
 Core 0.19.1's SDK 3.4 / module-api 1.6 implementation has passing selected
 native v13/v14 coverage: representative and 3,194-write inventories, independent
 source/receipt comparisons, public install/upgrade/source-switch, recovery,
 settings/permissions and rendered maintenance. Focused CR64-21 publication
 cancellation/crash/retry also passes on both generations. That Core scope was
-closed and released; it does not cover all later G8 integration cases. The
-October 18 amendment now owns the scoped correction and renewed module hold.
-The current evidence and measured operating costs are in
+closed and released; it does not by itself cover later G8 integration cases.
+The selected October18 G8 corrections have their own completed native acceptance
+and shipped in Core 0.19.2; the temporary Core adoption hold is resolved.
+Unselected G8 proposals remain deferred. Evidence and measured operating costs are in
 [ADR-0064](adr/0064-module-world-context-and-data-migrations.md#fresh-complete-maintenance-native-v13-acceptance--october-17-2026).
 
 User review identified an additional Core admin UI follow-up:
@@ -615,6 +619,6 @@ Core 0.19.2's separate maintenance login used `/admin` requests with a cookie
 scoped to `/api/admin`, so normal browser sign-in failed silently. The corrective
 branch retains the normal admin frontend/login and places maintenance controls
 inside the existing Modules panel. See the [ADR amendment](adr/0064-module-world-context-and-data-migrations.md#cr64-27-normal-admin-access-during-maintenance--october-18-2026).
-The correction is accepted for Core0.19.3, pending publication; existing migration
+The correction shipped in Core 0.19.3 after operator acceptance; existing migration
 permissions, hooks and approval rules are unchanged. Do not clear a maintenance marker or bypass approval
 to recover from this UI defect.

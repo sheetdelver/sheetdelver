@@ -15,8 +15,8 @@ A ground-up audit of the application (dated May 25, 2026) surveyed the codebase 
 
 **Boundary completion (the real architectural item).** Two imports cross the layering that the ADR arc was supposed to settle:
 
-- [src/server/core/system/SystemService.ts:6](src/server/core/system/SystemService.ts) — `import { worldBootstrapper } from '@server/services/world';`
-- [src/server/core/foundry/sockets/CoreSocket.ts:16](src/server/core/foundry/sockets/CoreSocket.ts) — `import { engagementService, type WorldBootstrapSnapshot } from '@server/services/world';`
+- `src/server/core/system/SystemService.ts:6` (historical path; [current service](../../src/server/services/world/SystemService.ts)) — `import { worldBootstrapper } from '@server/services/world';`
+- [src/server/core/foundry/sockets/CoreSocket.ts:16](../../src/server/core/foundry/sockets/CoreSocket.ts) — `import { engagementService, type WorldBootstrapSnapshot } from '@server/services/world';`
 
 Both are `core/` reaching up into `services/`. ADR-0014 / ADR-0017 explicitly said sockets move bytes and services orchestrate; the present state contradicts that. The root cause isn't that `WorldBootstrapper` / `EngagementService` are misplaced — they're correctly in `services/`. The root cause is:
 
@@ -31,8 +31,8 @@ The fix is structural and bounded: move `SystemService` into `services/world/`, 
 
 **Large-file splits (no behavior change).** Two files dominate the tree by line count:
 
-- [src/modules/registry/core/server.ts](src/modules/registry/core/server.ts) — **2038 lines, 25 exports**, spanning module registry init, source switching, managed-module install / upgrade / uninstall / validate (plus dry-run variants), adapter resolution, lifecycle preflight, and compendium pack config lookup. Each export reads cleanly; the file just collects too many concerns.
-- [src/server/routes/admin/createAdminRouter.ts](src/server/routes/admin/createAdminRouter.ts) — **1082 lines, 32 endpoints** for auth, setup, status, worlds, cache, audit, and managed modules. The codebase's other route domains use the `registerXxxRoutes.ts` pattern under `protected/`; admin is the lone exception.
+- [src/modules/registry/core/server.ts](../../src/modules/registry/core/server.ts) — **2038 lines, 25 exports**, spanning module registry init, source switching, managed-module install / upgrade / uninstall / validate (plus dry-run variants), adapter resolution, lifecycle preflight, and compendium pack config lookup. Each export reads cleanly; the file just collects too many concerns.
+- [src/server/routes/admin/createAdminRouter.ts](../../src/server/routes/admin/createAdminRouter.ts) — **1082 lines, 32 endpoints** for auth, setup, status, worlds, cache, audit, and managed modules. The codebase's other route domains use the `registerXxxRoutes.ts` pattern under `protected/`; admin is the lone exception.
 
 Neither is buggy; both are navigation problems. Splitting them is pure reorganization behind the existing public re-exports.
 
@@ -64,29 +64,29 @@ ADR-0022 makes four decisions.
 - `src/app/tools/[systemId]/[toolId]/` — same migration; live route at `src/app/(player)/tools/[systemId]/[toolId]/page.tsx`.
 - `src/server/api/` — predates `routes/`; never repopulated.
 
-Module tool routing is unaffected: `/tools/<systemId>/<toolId>` is served by the `(player)` group's [ToolPageRouter](src/client/ui/pages/ToolPageRouter.tsx), which reads `manifest.tools?.[toolId]` from the UI module registry. Tools are registered via module manifests, not via Next.js route files; the empty directories never participated in routing.
+Module tool routing is unaffected: `/tools/<systemId>/<toolId>` is served by the `(player)` group's [ToolPageRouter](../../src/client/ui/pages/ToolPageRouter.tsx), which reads `manifest.tools?.[toolId]` from the UI module registry. Tools are registered via module manifests, not via Next.js route files; the empty directories never participated in routing.
 
 **Deprecated shims.** Five `@deprecated` markers, all post-migration leftovers:
 
 | File | What | Action |
 |---|---|---|
-| [PrimaryDocumentCacheCoordinator.ts:326,334](src/server/core/documents/primary/PrimaryDocumentCacheCoordinator.ts) | `seedDocumentCache(client)` / `clearDocumentCache(reason)` wrappers | Migrate remaining callers to `primaryDocumentCacheCoordinator.seedAll(client)` / `.clearAll(reason)`, then delete wrappers |
-| [ActorRepository.ts:7](src/server/core/documents/primary/actors/ActorRepository.ts) | Round-01 alias | Migrate callers, delete |
-| [ActorStore.ts:25](src/server/core/documents/primary/actors/ActorStore.ts) | Round-01 `ChangeAction` alias | Migrate callers, delete |
-| [SetupManager.ts:48](src/server/core/world/SetupManager.ts) | Disabled scrape method | Move to script, delete (covered by scrape thread below) |
+| [PrimaryDocumentCacheCoordinator.ts:326,334](../../src/server/core/documents/primary/PrimaryDocumentCacheCoordinator.ts) | `seedDocumentCache(client)` / `clearDocumentCache(reason)` wrappers | Migrate remaining callers to `primaryDocumentCacheCoordinator.seedAll(client)` / `.clearAll(reason)`, then delete wrappers |
+| [ActorRepository.ts:7](../../src/server/core/documents/primary/actors/ActorRepository.ts) | Round-01 alias | Migrate callers, delete |
+| [ActorStore.ts:25](../../src/server/core/documents/primary/actors/ActorStore.ts) | Round-01 `ChangeAction` alias | Migrate callers, delete |
+| [SetupManager.ts:48](../../src/server/core/world/SetupManager.ts) | Disabled scrape method | Move to script, delete (covered by scrape thread below) |
 
 **Phase 5 test coverage.** ADR-0021 Phase 5 landed two behaviors with no direct test:
 
-- `AppSocketGateway` deferred attach: a browser socket connecting during `startup` must defer world-backed listener attachment until `world:ready` fires. The existing [app-socket-gateway.test.ts](src/tests/unit/sockets/app-socket-gateway.test.ts) predates this work.
-- `SessionManager.getOrRestoreSession`: must return `undefined` (not construct a new `ClientSocket`) when called during `startup` with no existing in-memory session. [session-manager-restore.test.ts](src/tests/unit/session/session-manager-restore.test.ts) covers the cache-driven path but not the startup defer.
+- `AppSocketGateway` deferred attach: a browser socket connecting during `startup` must defer world-backed listener attachment until `world:ready` fires. The existing [app-socket-gateway.test.ts](../../src/tests/unit/sockets/app-socket-gateway.test.ts) predates this work.
+- `SessionManager.getOrRestoreSession`: must return `undefined` (not construct a new `ClientSocket`) when called during `startup` with no existing in-memory session. [session-manager-restore.test.ts](../../src/tests/unit/session/session-manager-restore.test.ts) covers the cache-driven path but not the startup defer.
 
 Both behaviors are load-bearing for ADR-0021's engagement-gate guarantees and need direct tests before drift accumulates.
 
 **Scrape extraction.** The scrape thread lives across three places:
 
-- [SetupManager.ts:48](src/server/core/world/SetupManager.ts) — deprecated method ("Scraping is currently disabled/muted in favor of local import")
-- [SetupManager.ts:216](src/server/core/world/SetupManager.ts) — TODO ("Implement authenticated setup page scraping if needed")
-- [AdminService.ts:49](src/server/services/admin/AdminService.ts) — TODO ("scraper should be done on the backend, however we will leave the single world scrape to be fixed later") plus the route binding
+- [SetupManager.ts:48](../../src/server/core/world/SetupManager.ts) — deprecated method ("Scraping is currently disabled/muted in favor of local import")
+- [SetupManager.ts:216](../../src/server/core/world/SetupManager.ts) — TODO ("Implement authenticated setup page scraping if needed")
+- [AdminService.ts:49](../../src/server/services/admin/AdminService.ts) — TODO ("scraper should be done on the backend, however we will leave the single world scrape to be fixed later") plus the route binding
 
 The right shape: a standalone `src/scripts/tools/admin/scrape-world.ts` CLI that operators can invoke when the use case materializes, paired with an `admin:scrape` entry in `package.json` alongside the existing `admin:import`. The deprecated method, both TODOs, and any admin route that exposes scrape get removed from the production path.
 
@@ -98,10 +98,10 @@ The right shape: a standalone `src/scripts/tools/admin/scrape-world.ts` CLI that
 
 Callers (audit-confirmed list):
 
-- [src/server/index.ts](src/server/index.ts) — bootstrap orchestrator
-- [src/server/realtime/AppSocketGateway.ts](src/server/realtime/AppSocketGateway.ts) — readiness checks
-- [src/server/core/foundry/sockets/CoreSocket.ts](src/server/core/foundry/sockets/CoreSocket.ts) — referenced via `systemService.getSystemClient()` callers; will be revisited as part of the engagement decoupling below
-- [src/server/core/session/SessionManager.ts](src/server/core/session/SessionManager.ts) — `systemService.isReady()` calls
+- [src/server/index.ts](../../src/server/index.ts) — bootstrap orchestrator
+- [src/server/realtime/AppSocketGateway.ts](../../src/server/realtime/AppSocketGateway.ts) — readiness checks
+- [src/server/core/foundry/sockets/CoreSocket.ts](../../src/server/core/foundry/sockets/CoreSocket.ts) — referenced via `systemService.getSystemClient()` callers; will be revisited as part of the engagement decoupling below
+- `src/server/core/session/SessionManager.ts` (historical path; [current connection service](../../src/server/services/foundry/FoundryUserConnectionService.ts)) — `systemService.isReady()` calls
 - Various route registers and the admin router
 
 After the move, none of these should change their behavior — only their import path.
@@ -172,7 +172,7 @@ If Phase 1's scrape extraction removes the admin scrape route entirely, the `reg
 
 ### Composition Root After Phases 2 + 4
 
-After the moves, [src/server/index.ts](src/server/index.ts) becomes the place where:
+After the moves, [src/server/index.ts](../../src/server/index.ts) becomes the place where:
 
 - `SystemService` is constructed (or imported as a singleton, depending on the final shape) from `services/world`
 - `CoreSocket`'s transport callbacks are wired into `EngagementService` (the one-liner that used to live in `CoreSocket`'s constructor)

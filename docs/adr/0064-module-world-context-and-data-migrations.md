@@ -1,6 +1,6 @@
 # Core ADR-0064: Module World Context and Data Migrations
 
-**Status:** Implemented and operator-verified — CR64-30 corrections are accepted for a point-release checkpoint; merge/publication remain with the user. Proposed W1/W2 follow-ups remain separate. Earlier completed work, including CR64-29 released in Core 0.19.5, retains its disposition. This follow-up concerns failed bootstrap, unnecessary migration blockers and optional resource cleanup on Core 0.19.6.
+**Status:** Completed — selected maintenance/bootstrap corrections released; W1/W2 remain separate
 **Date:** October 16, 2026
 **Related:** Core ADR-0021, ADR-0027, ADR-0028, ADR-0038, ADR-0056, ADR-0057, ADR-0063; Shadowdark module ADR-0001
 
@@ -29,6 +29,19 @@ completed the then-selected smaller matrix, not the subsequent complete-maintena
 correction/repeat gate. The latest addendum now supplies fresh v13 acceptance of
 the current implementation. G8 remains module-owned work; no Core fixture run establishes compliance
 of an adopting system module.
+
+## Publication reconciliation — November 9, 2026
+
+Selected maintenance and bootstrap corrections are released through Core 0.19.7.
+The full-GM gate shipped in 0.19.0, complete maintenance in 0.19.1, selected G8
+corrections in 0.19.2, normal admin access in 0.19.3 and the accepted CR64-30
+bootstrap fixes in 0.19.7. Dated evidence retains its exact scope; W1/W2 and
+unselected G8 proposals remain outside this closeout.
+
+[Published release v0.19.7](https://github.com/sheetdelver/sheetdelver/releases/tag/v0.19.7)
+was verified during the documentation review. This summary supersedes earlier
+pending-publication notes, without rewriting dated implementation evidence or
+turning unperformed tests into passes. See the [decision index](README.md).
 
 ## Problem and reviewed baseline
 

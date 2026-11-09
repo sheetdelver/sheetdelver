@@ -2,6 +2,11 @@
 
 This document serves as the authoritative source of truth for the SheetDelver architecture. It describes the design principles, structural organization, and decoupled "Core/Shell" model.
 
+Current SDK/API versions and adoption requirements are documented in
+[Module Authoring](MODULE_AUTHORING.md#contract-baseline-and-compatibility).
+The [decision index](adr/README.md) separates published work, recorded acceptance
+and unresolved evidence qualifications from historical implementation notes.
+
 ## 1. Architectural Philosophy
 SheetDelver is designed as a **Headless Client Proxy** for Foundry VTT. It follows a "Clean Architecture" approach, strictly separating business logic from delivery mechanisms.
 

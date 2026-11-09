@@ -1,9 +1,20 @@
 # ADR-0076: SDK events survive module-page navigation
 
-**Status:** Completed — automated verification and operator navigation acceptance passed
+**Status:** Completed — SDK event lifetime verified and released
 **Date:** 2026-10-27
 
 ---
+
+## Publication reconciliation — November 9, 2026
+
+The SDK event-lifetime fix merged in PR65 and shipped in Core 0.22.3. Operator
+navigation acceptance and automated session/lifecycle checks remain distinct.
+SDK 3.8.0 / module API 1.7.0 / UI API 3.6.0 / roll API 1.0.0 were unchanged.
+
+[Published release v0.22.3](https://github.com/sheetdelver/sheetdelver/releases/tag/v0.22.3)
+was verified during the documentation review. This summary supersedes earlier
+pending-publication notes, without rewriting dated implementation evidence or
+turning unperformed tests into passes. See the [decision index](README.md).
 
 ## Problem and evidence
 
@@ -66,7 +77,6 @@ evidence remains the automated checks described above.
 
 ## Release disposition
 
-Include this correction in the next user-prepared Core point release. No SDK/API
-version bump or module compatibility change is required. Implementation leaves
-Core package metadata at0.22.2 and SDK/API versions unchanged; the normal release
-workflow owns the eventual application patch version and publication.
+Included in published Core 0.22.3 without an SDK/API version bump or module
+compatibility change. The original implementation left package metadata at 0.22.2;
+the release workflow subsequently prepared and published the application patch.

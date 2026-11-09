@@ -1,7 +1,18 @@
 # ADR-0067: Foundry package context and optional compendium artwork
 
-**Status:** Completed — selected scope closed 2026-10-22; publication pending
+**Status:** Completed — selected package/artwork scope released
 **Date:** 2026-10-21
+
+## Publication reconciliation — November 9, 2026
+
+The accepted package/artwork contract shipped in Core 0.20.0 with SDK 3.5.0,
+module API 1.7.0 and UI API 3.3.0. These are introduction versions, not current
+provided versions or directions to change a module's manifest.
+
+[Published release v0.20.0](https://github.com/sheetdelver/sheetdelver/releases/tag/v0.20.0)
+was verified during the documentation review. This summary supersedes earlier
+pending-publication notes, without rewriting dated implementation evidence or
+turning unperformed tests into passes. See the [decision index](README.md).
 
 ## Context and scope
 

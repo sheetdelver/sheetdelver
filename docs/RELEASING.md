@@ -1,7 +1,7 @@
 # Release Process
 
 SheetDelver releases are published by `.github/workflows/release.yml` when a
-stable semantic-version tag such as `v0.9.1` is pushed.
+stable semantic-version tag such as `vX.Y.Z` is pushed.
 The Actions publication run is titled `Release <tag>`; the preparation commit
 retains its `chore(release): prepare <tag>` message.
 
@@ -10,21 +10,13 @@ matching `CHANGELOG.md` heading supplies the GitHub Release notes. SDK and
 named API contract versions remain independent and are maintained in
 `src/shared/sdk/contractVersions.ts`.
 
-## Pending feature release: Core 0.20.0
+## Scope and release authority
 
-ADR-0067/0068/0069 are closed for their selected implementation scope. The
-recommended next Core release is0.20.0, carrying SDK3.5.0, module-api1.7.0 and
-ui-extension-api3.3.0; roll-engine-api remains1.0.0. These are already the canonical
-contract constants, not another SDK bump to perform during tagging. Root package
-and lock remain0.19.8 until the release helper runs after merge.
-
-Publish Core before merging/running the updated Shadowdark release workflow:
-Shadowdark's next manifest and both CI fingerprints require Core0.20.0 and its
-new module/UI APIs. The toolchain checkout is pinned to v0.20.0. Until that tag
-exists, remote module CI is not ready; the current0.19.8 development checkout
-also fails the raised module Core floor. Do not bypass compatibility or alter
-runtime version reporting to label that install successful. Existing optional
-native-art absence/failure fallback remains supported on a compatible host.
+This guide describes the release procedure, not a proposed version or work queue.
+Use `package.json`, the changelog and published tags to establish release state.
+Before publishing a dependent module, publish and validate the Core release that
+supplies its required contracts; optional capabilities do not automatically raise
+module requirements. Keep specific release decisions in their ADR and changelog.
 
 ## Prepare the Release
 
@@ -40,17 +32,17 @@ versions likewise require separate release-preparation approval. Updating a
 changelog heading is not permission to bump application/module metadata.
 
 Use the local release command to preview a new version and short changelog
-bullets (the version below is illustrative):
+bullets. Replace `X.Y.Z` in every example with the selected version before running:
 
 ```bash
-npm run release:tag -- 0.11.1 --note "Fixed example issue" --dry-run
+npm run release:tag -- "X.Y.Z" --note "Fixed example issue" --dry-run
 ```
 
 Repeat without `--dry-run` to prepare it. For several entries, pass a single
 multiline block (works in Bash and Fish):
 
 ```sh
-npm run release:tag -- 0.14.0 --dry-run --notes "Synchronized dice result timing
+npm run release:tag -- "X.Y.Z" --dry-run --notes "Synchronized dice result timing
 Expanded dice appearance options
 Added rolling region presets
 Added dice settlement effects
@@ -61,7 +53,7 @@ Unified admin notification lifecycle"
 Or use a text file for a short, single-line command:
 
 ```sh
-npm run release:tag -- 0.14.0 --notes-file /tmp/release-notes.txt --dry-run
+npm run release:tag -- "X.Y.Z" --notes-file /tmp/release-notes.txt --dry-run
 ```
 
 Each nonblank line becomes one changelog bullet. Plain lines and Markdown
@@ -72,8 +64,8 @@ file is read only and is never committed by the helper. Do not combine
 `--notes-file` with inline note flags. Repeated `--note` remains supported, and
 `--note`/`--notes` entries are appended in argument order.
 
-Alternatively, write the exact `## 0.14.0` section directly in `CHANGELOG.md`
-and run `npm run release:tag -- 0.14.0 --dry-run` with no note flags. An existing
+Alternatively, write the exact `## X.Y.Z` section directly in `CHANGELOG.md`
+and run `npm run release:tag -- "X.Y.Z" --dry-run` with no note flags. An existing
 section and note flags are rejected together to prevent accidental replacement.
 
 The command:
@@ -108,8 +100,8 @@ with a committed matching changelog section, use the same command without note
 flags:
 
 ```sh
-npm run release:tag -- 0.18.1 --dry-run
-npm run release:tag -- 0.18.1
+npm run release:tag -- "X.Y.Z" --dry-run
+npm run release:tag -- "X.Y.Z"
 ```
 
 The helper recognizes the matching version and creates only its missing
@@ -130,8 +122,8 @@ An already-prepared version uses a separate resume path rather than the
 new-version check:
 
 ```sh
-npm run release:tag -- 0.15.1 --resume --dry-run
-npm run release:tag -- 0.15.1 --resume
+npm run release:tag -- "X.Y.Z" --resume --dry-run
+npm run release:tag -- "X.Y.Z" --resume
 ```
 
 The resume dry-run validates the local version, changelog, clean `main`, and
@@ -157,6 +149,7 @@ appropriate local gates before preparing, and wait for main CI before pushing
 the tag:
 
 ```bash
+# Bash: use an isolated release-check data directory.
 export SHEET_DELVER_DATA="${TMPDIR:-/tmp}/sheet-delver-release-data"
 npm ci
 npm run managed:generate
@@ -173,7 +166,7 @@ The existing `release:prepare` command remains the read-only metadata validator
 and notes extractor used by release CI; it does not commit or tag:
 
 ```bash
-npm run release:prepare -- v0.11.1 /tmp/sheet-delver-v0.11.1-notes.md
+npm run release:prepare -- "vX.Y.Z" /tmp/sheet-delver-vX.Y.Z-notes.md
 ```
 
 ## Publish the Release
@@ -208,7 +201,7 @@ git push --no-follow-tags origin main
 After main CI passes, push only the intended release tag:
 
 ```bash
-git push --no-follow-tags origin v0.11.1
+git push --no-follow-tags origin "vX.Y.Z"
 ```
 
 The release workflow downloads the publication files retained by successful CI
@@ -282,7 +275,7 @@ With GitHub CLI installed and authenticated:
 ```bash
 gh run list --workflow release.yml
 gh run watch <run-id>
-gh release view v0.9.0
+gh release view "vX.Y.Z"
 ```
 
 Rerun a failed workflow only when the failure is transient. Correct a source,
@@ -292,8 +285,8 @@ if the release was published, use a new patch version.
 An unpushed local tag may be deleted and recreated at the intended commit:
 
 ```bash
-git tag -d v0.9.0
-git tag -a v0.9.0 -m "SheetDelver v0.9.0"
+git tag -d "vX.Y.Z"
+git tag -a "vX.Y.Z" -m "SheetDelver vX.Y.Z"
 ```
 
 Never move or replace a published GitHub Release tag. The guarded failed-tag
@@ -365,38 +358,23 @@ summary, verified against the archive, but cannot create a second migration list
 Development tooling now compiles hooks, checks catalog/definition and archive
 health, and derives release-schema-v2 summaries. See [the contract guide](MODULE_MIGRATIONS.md).
 Do not publish dependent modules before the supporting Core host/toolchain.
-The complete-maintenance correction adds SDK 3.4.0/module-api 1.6.0 for
-relation-bearing catalogs (older migration catalogs retain 1.5.0). These contracts
-and complete-maintenance corrections shipped in0.19.1; the selected G8 fixes shipped
-in0.19.2. CR64-27's normal admin access correction is accepted for0.19.3 and retains
-the same SDK/API versions. Its changelog is prepared before feature merge; the
-release helper applies package/lock metadata on main. Module adoption and release
-acceptance remain module-owned, with explicit tested host/toolchain requirements.
-Announce the persistent maintenance-only composition and the append-only receipt
-format. Keep config/module-upgrades and retained packages together; do not resume
-new-format jobs with 0.19.0 or discard receipts to make an older host start.
-Retain steps needed for skipped upgrades and declare
-supported data-read compatibility; an old host must not silently ignore migrations.
+Declare the API contracts required by the catalog and its relation reads; see
+[module compatibility and adoption](MODULE_MIGRATIONS.md#compatibility-and-adoption).
+Module acceptance remains module-owned and must use the declared host/toolchain.
+Release notes should identify changes to maintenance composition, receipt formats,
+service-account prerequisites and supported native data versions. Preserve upgrade
+receipts and retained packages together; never bypass a compatibility gate or
+remove receipts to make an older host start.
 
-Publication distributes requirements/code, not world-write authority. The local
-admin reviews a live-world dry-run and acknowledges that SheetDelver cannot create
-or restore a world backup or undo migration changes. Native Foundry backup is
-recommended. Core runs the approved job; native-user lockout and world rollback
-are out of scope. Actual source checks at bootstrap detect restored legacy data
-despite completed journal records. Download/replacement/restart is not completed
-migration. Version changes and publication remain separately authorized operations.
+Publication distributes code and requirements, not world-write authority. The
+local administrator reviews the live-world dry-run and acknowledges that
+SheetDelver cannot create or restore a world backup or undo migration changes.
+Core executes only the approved job. Native-user lockout and world rollback remain
+outside that workflow. Source checks detect restored legacy data even when an
+older receipt says complete; downloading or restarting is not migration completion.
 
-The enforcing Core release must also announce ADR-0064's **connection-wide full-GM
-service-account requirement**, independent of whether a module declares migrations.
-Administrators using Assistant service accounts must change them to Gamemaster in
-Foundry before upgrading; release notes must link the
-[configuration/retry procedure](CONFIGURATION.md#service-account-role-and-recovery).
-Core **0.19.0** shipped SDK **3.3.0**, module-api **1.5.0** and UI API **3.2.0**;
-roll-engine-api remains **1.0.0**. Its original small-world native v13/v14 gate
-does not by itself establish the later complete-maintenance correction's native
-acceptance. ADR-0064 records the subsequent completed Core v13/v14 gates and
-CR64-27 operator acceptance. Adopting modules still need their own verification
-and supporting release/toolchain pins. Do not
-claim these additions shipped in Core 0.18.1 or change human Assistant permissions.
-Application metadata still belongs to release:tag; a changelog heading does not
-perform release preparation. See [module adoption requirements](MODULE_MIGRATIONS.md#compatibility-and-adoption).
+For changes to deployment requirements, link the applicable
+[configuration and recovery procedure](CONFIGURATION.md#service-account-role-and-recovery).
+Keep ordinary user/Assistant permissions separate from Core's full-Gamemaster
+service-account requirement. Verify module support and native acceptance separately
+from Core publication. Historical implementation evidence belongs in the ADRs.

@@ -268,5 +268,5 @@ baseline cleanup, now pass on both v13 and v14. Current review/release dispositi
 is recorded in
 [ADR-0064's historical Core disposition](adr/0064-module-world-context-and-data-migrations.md#cr64-22-r1-correction-and-core-closeout--october-17-2026).
 That implementation shipped in 0.19.1. The [four-issue G8 correction amendment](adr/0064-module-world-context-and-data-migrations.md#g8-integration-correction-amendment--october-18-2026)
-subsequently shipped in0.19.2. The CR64-27 correction described above is pending
-publication as0.19.3 after operator acceptance; it does not change public SDK/API contracts.
+subsequently shipped in 0.19.2. The operator-accepted CR64-27 correction shipped
+in 0.19.3 without changing public SDK/API contracts.

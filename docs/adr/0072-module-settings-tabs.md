@@ -1,7 +1,20 @@
 # ADR-0072: Module tabs in the player configuration dialog
 
-**Status:** Implemented — checkpointed; final operator review and supporting publication pending
+**Status:** Implemented — published; isolated verification retained, full operator review not recorded
 **Date:** 2026-10-23
+
+## Publication reconciliation — November 9, 2026
+
+Settings tabs, Core-owned appearance and panel-definition caching shipped in
+Core 0.21.0 with SDK 3.7.0 / UI API 3.5.0. Shadowdark later accepted its scoped
+sheet-view pilot; that is not proof of all Core settings paths. Full Core
+operator coverage remains unrecorded; the mounted and isolated checks below
+retain their actual scope.
+
+[Published release v0.21.0](https://github.com/sheetdelver/sheetdelver/releases/tag/v0.21.0)
+was verified during the documentation review. This summary supersedes earlier
+pending-publication notes, without rewriting dated implementation evidence or
+turning unperformed tests into passes. See the [decision index](README.md).
 
 ## Purpose and ownership
 

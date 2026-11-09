@@ -1,8 +1,19 @@
 # ADR-0065: Player startup and current module styles
 
-**Status:** Implemented — operator confirmed startup/style fixes; checkpoint approved
-**Date:** October 20, 2026
+**Status:** Completed — startup/style fixes operator accepted and released
+**Date:** 2026-10-20
 **Related:** ADR-0027, ADR-0033, ADR-0057
+
+## Publication reconciliation — November 9, 2026
+
+Startup and module-style corrections shipped in Core 0.19.6. Operator acceptance
+of those fixes and the final spinner's isolated evidence remain distinct; this
+closeout does not claim another native or operator test run.
+
+[Published release v0.19.6](https://github.com/sheetdelver/sheetdelver/releases/tag/v0.19.6)
+was verified during the documentation review. This summary supersedes earlier
+pending-publication notes, without rewriting dated implementation evidence or
+turning unperformed tests into passes. See the [decision index](README.md).
 
 ## Observed failure
 

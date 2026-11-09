@@ -1,7 +1,18 @@
 # ADR-0074: Scope migration checks to relevant settings
 
-**Status:** Completed — isolated regressions pass; user verified startup recovery
+**Status:** Completed — startup correction verified and released
 **Date:** 2026-10-26
+
+## Publication reconciliation — November 9, 2026
+
+The selected startup Setting invalidation correction shipped in Core 0.22.1.
+Normal unpaused-game clock traffic remains expected; no blanket log suppression
+or change to native world-clock behavior is part of this fix.
+
+[Published release v0.22.1](https://github.com/sheetdelver/sheetdelver/releases/tag/v0.22.1)
+was verified during the documentation review. This summary supersedes earlier
+pending-publication notes, without rewriting dated implementation evidence or
+turning unperformed tests into passes. See the [decision index](README.md).
 
 ## Problem
 

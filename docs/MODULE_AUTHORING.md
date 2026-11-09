@@ -1,6 +1,32 @@
 # Module Authoring Guide
 
-This guide is the happy path for building a Sheet Delver system module. For the full contract reference, see `MODULE_MANIFEST.md`.
+This guide is the happy path for building a SheetDelver system module. For the full contract reference, see [Module Manifest](MODULE_MANIFEST.md).
+
+## Contract baseline and compatibility
+
+The current released host is Core **0.22.3**. Its provided contracts are:
+
+| Contract | Provided version |
+| --- | --- |
+| SDK | 3.8.0 |
+| `module-api` | 1.7.0 |
+| `ui-extension-api` | 3.6.0 |
+| `roll-engine-api` | 1.0.0 |
+
+Verify against [package.json](../package.json) and the canonical
+[contract constants](../src/shared/sdk/contractVersions.ts) when updating this guide.
+These are provided versions, not a requirement that every module adopt the newest
+floor. Declare the released Core and API ranges needed by the capabilities you
+actually use, preserve higher existing requirements, and pin CI to a tested
+released Core tag. Optional features need a working older-host fallback; never
+lower a manifest requirement merely to make a development fixture load.
+
+Server orchestration uses the public request runtime; browser code uses the SDK
+React/components entry points. Do not import Core internals or open a Foundry
+transport from a module. Core owns authorization, world/session lifecycle, shared
+chat, dice and notifications. Modules own system rules, presentation and their
+scope-aware data invalidation. See [architecture](architecture.md) and
+[event lifetime](#event-subscriptions-across-module-page-navigation).
 
 ## Page headers (SDK 3.8 / UI API 3.6)
 
@@ -31,10 +57,10 @@ background and body/heading fonts. Omitted tokens follow Core appearance. Core
 owns structure, responsive spacing and keyboard focus; settings panels continue
 to use Core settings styling, not module page themes.
 
-Require `ui-extension-api: >=3.6.0 <4.0.0` when adopting this component. The
-planned supporting Core release is0.22.0; publish it before dependent modules.
-Do not assume the unchanged package version of a development checkout proves
-released support. See [ADR-0073](adr/0073-shared-module-page-header.md).
+Require `ui-extension-api: >=3.6.0 <4.0.0` when adopting this component.
+It shipped in Core 0.22.0; required adoption needs that Core floor or a higher
+existing minimum. A development checkout alone is not proof
+of released support. See [ADR-0073](adr/0073-shared-module-page-header.md).
 
 ## Overview
 
@@ -65,7 +91,7 @@ npm run module:check my-system -- --data-dir ./my-data
 npm run module:package my-system -- --data-dir ./my-data
 ```
 
-The generated workflows pin Sheet Delver to the release matching the root
+The generated workflows pin SheetDelver to the release matching the root
 `package.json` version. When intentionally scaffolding from an unreleased but
 pushed development branch, override that ref explicitly:
 
@@ -74,7 +100,7 @@ npm run module:init my-system "My System" -- --core-ref manifest-module-distribu
 ```
 
 Before publishing the module, replace a development branch ref with the tested
-Sheet Delver release tag. CI and releases must not silently follow a moving core
+SheetDelver release tag. CI and releases must not silently follow a moving core
 branch.
 
 During local development, the module can use TypeScript and TSX source files directly. The platform discovers local modules from `<DATA_DIR>/local/modules/<moduleId>` and loads their manifest entries from `info.json`.
@@ -152,7 +178,7 @@ Mörk Borg's Core 0.14.2 minimum is unchanged. Validate companion modules with
 the pinned release and an isolated data directory, not only Core's root check:
 the root `data/` exclusion can omit module-only logic/tests from typechecking.
 
-Do not import from Sheet Delver internals such as `@shared/*`, `@client/*`, `@server/*`, `@core/*`, or `@modules/*`. If a module needs something that is not in the SDK, treat that as either a missing SDK surface or module-specific code that should live inside the module.
+Do not import from SheetDelver internals such as `@shared/*`, `@client/*`, `@server/*`, `@core/*`, or `@modules/*`. If a module needs something that is not in the SDK, treat that as either a missing SDK surface or module-specific code that should live inside the module.
 
 ## Metadata
 
@@ -191,7 +217,7 @@ the minimum version when adopting a newly added SDK method.
 
 Contract versions follow semantic versioning: patches preserve the public
 shape, minors add backward-compatible behavior, and majors may break existing
-consumers. They are independent of the Sheet Delver application version and the
+consumers. They are independent of the SheetDelver application version and the
 module version. The host's canonical values are maintained in
 `src/shared/sdk/contractVersions.ts` and exposed publicly through
 `SDK_VERSION` and `API_CONTRACT_VERSIONS` from `@sheet-delver/sdk`;
@@ -422,7 +448,7 @@ Keep page/tool headers in normal flow beneath the Core combat HUD. Do not
 place a competing fixed `top: 0` header, assume a HUD height or inspect Core DOM.
 Existing measured footer registration remains the bottom-navigation contract.
 
-Module UI must use the host-owned router for Sheet Delver routes. This preserves
+Module UI must use the host-owned router for SheetDelver routes. This preserves
 the application shell, SDK providers, and realtime connection across navigation:
 
 ```tsx
@@ -432,11 +458,11 @@ navigate('/tools/my-system/generator'); // add browser history
 replace('/');                            // redirect without a stale back entry
 ```
 
-Targets must be root-relative paths on the current Sheet Delver origin. Use a
+Targets must be root-relative paths on the current SheetDelver origin. Use a
 normal anchor for an external destination. Do not assign `window.location.href`
 or call `window.location.assign()` / `replace()` for internal routes;
 `module:check` rejects those hard-navigation forms. Navigation first appeared
-in UI contract 1.1.0; modules targeting the next host release declare
+in UI contract 1.1.0; modules targeting the current host declare
 `ui-extension-api: ">=3.0.0 <4.0.0"` in `info.json` for Core 0.18.0.
 
 ### Combat-HUD initiative presentation (SDK 3.0.0)
@@ -472,22 +498,13 @@ without changes. New defaults seed an unconfigured selection or explicit Reset;
 GM-saved selections win. Core authorizes, sanitizes and renders static HTML
 using its shared boundary; modules must not add private host imports, native
 enrichers, transports or text-write behavior for this presentation. Textarea is
-detail-only, not health/editable/HUD/pill data. No current module manifest or
-release version has changed to adopt these fields.
+detail-only, not health/editable/HUD/pill data. Module adoption and its validation
+remain owned by the module repository.
 
-For an isolated local test against this unreleased Core branch, a module may
-retain its existing temporary development Core minimum while declaring
-module-api>=1.4.0; released0.17.x still fails that contract gate. Restore the
-Core>=0.18.0 minimum before publication. Do not alter published compatibility
-merely to make a development fixture visible.
-
-Upgrade module compatibility to `coreVersion >=0.18.0` and
-`ui-extension-api >=3.0.0 <4.0.0`; publish Core before module releases.
-For local development against the unreleased Core branch, a temporary
-`coreVersion >=0.17.0` minimum can keep the module visible; the 3.x UI API
-gate still rejects released Core 0.17.x. Preserve any higher existing minimum
-(Mörk Borg's footer requires `>=0.17.1`). Restore the Core 0.18.0 minimum
-after that host release and before publishing the module. SDK 3.1.0 /
+These contracts shipped in Core 0.18.0. HUD initiative presentation requires
+`coreVersion >=0.18.0` and `ui-extension-api >=3.0.0 <4.0.0`; preserve higher
+requirements imposed by other capabilities. There is no current development-only
+exception to those minima. SDK 3.1.0 /
 `ui-extension-api` 3.1.0 makes `InitiativeRollChoice`'s `advantageMode`
 optional for `kind: "roll"`. Omit it for the default button: Core executes
 the displayed resolved formula unchanged, including module-provided
@@ -786,7 +803,7 @@ async function exportCharacter() {
 ```
 
 Notification lifecycle first appeared in UI contract 1.2.0. Modules targeting
-the next host release declare `"ui-extension-api": ">=3.0.0 <4.0.0"`.
+the current host declare `"ui-extension-api": ">=3.0.0 <4.0.0"`.
 Notification IDs are ephemeral;
 updates return false after expiry, dismissal or session cleanup. Do not recreate
 a notice after a late update fails. Incomplete progress pauses expiry; completion
@@ -1126,14 +1143,13 @@ content on caller/world/selection/provider/connection and relevant document,
 package or setting invalidation; pending old responses cannot reopen it.
 
 Capability `compendium-reference-views` reports host support, not source availability.
-Types are part of the upcoming SDK3.5.0/module-api1.7.0/UI3.3.0 additions alongside
-ADR-0067; no additional application/version bump is introduced by this slice.
-If mandatory, declare module-api>=1.7.0 and UI-extension-api>=3.3.0. Optional adoption
-may keep an older floor with structural types and usable existing surfaces; older
-hosts ignore both hooks. Shadowdark initially demonstrated that optional pattern;
-its next release now requires Core>=0.20.0, module-api>=1.7.0 and
-ui-extension-api>=3.3.0 by the release policy selected at Core closeout. The hooks
-and native art-package installation remain optional at runtime.
+Types shipped with Core 0.20.0 / SDK3.5.0 / module-api1.7.0 / UI3.3.0 alongside
+ADR-0067. Required adoption declares Core>=0.20.0, module-api>=1.7.0 and
+ui-extension-api>=3.3.0 within supported major ranges. Optional adoption may keep
+an older verified floor with structural types and usable existing surfaces; older
+hosts ignore both hooks. The hooks and native art-package installation remain
+optional at runtime. A particular module's current requirements live in its own
+manifest, not this guide.
 
 This uses trusted module UI, just like sheets/tools. SurfaceHost is an error and
 styling boundary, **not a JavaScript sandbox**. No arbitrary Foundry-package code
@@ -1149,19 +1165,17 @@ viewer writes. Core tests: `src/tests/unit/world/compendium-reference.test.ts` a
 --reference-views` exercise module and managed-host adoption without native writes.
 
 
-### Publication of the package/artwork/reference additions
+### Publication and contract authority
 
-The selected release target is Core0.20.0 with SDK3.5.0, module-api1.7.0 and
-ui-extension-api3.3.0 (roll-engine-api remains1.0.0). These contracts are implemented
-but publication is still pending; a source checkout reporting Core0.19.8 is not
-a released0.20.0 host. Modules declaring the new Core floor must wait for that
-release before validating/installing against it. Contract version authority stays
-in `src/shared/sdk/contractVersions.ts`; application metadata stays with release:tag.
-
+Package, artwork and reference-view contracts shipped in Core 0.20.0. Their
+introduction versions remain useful compatibility floors, while the provided
+versions are listed at the top of this guide. Application releases, SDK versions
+and each named API contract have separate authorities. Do not duplicate module
+release plans here or raise requirements merely to reflect a newer host.
 
 ### Event subscriptions across module-page navigation
 
-Core ADR-0076 keeps `SDK.events` stable across module surface navigation within
+Core 0.22.3 (ADR-0076) keeps `SDK.events` stable across module surface navigation within
 one authenticated workspace (GM or player). A cache scoped to that event identity
 can retain invalidation listeners while its page is closed. Component-owned
 subscriptions should still return the disposer from their effect; longer-lived

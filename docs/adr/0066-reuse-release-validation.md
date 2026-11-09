@@ -1,8 +1,21 @@
 # ADR-0066: Publish the files produced by successful validation
 
-**Status:** Implemented — metadata-only follow-up locally verified; hosted rollout pending
-**Date:** October 20, 2026
+**Status:** Implemented — published; dedicated hosted reuse observation remains qualified
+**Date:** 2026-10-20
 **Related:** ADR-0037
+
+## Publication reconciliation — November 9, 2026
+
+Initial artifact reuse shipped in Core 0.19.4; metadata-only reuse shipped in
+0.19.8. Core and module tooling merges and subsequent publications are complete.
+The recorded isolated tests stand. Publication alone does not prove that every
+reuse/fallback branch ran in hosted CI; no new dedicated hosted-path observation
+is claimed by this reconciliation.
+
+[Published release v0.19.8](https://github.com/sheetdelver/sheetdelver/releases/tag/v0.19.8)
+was verified during the documentation review. This summary supersedes earlier
+pending-publication notes, without rewriting dated implementation evidence or
+turning unperformed tests into passes. See the [decision index](README.md).
 
 ## Problem
 
