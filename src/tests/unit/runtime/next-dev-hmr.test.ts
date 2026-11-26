@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import vm from 'node:vm';
-import patch from '../../../../patches/next-16.4.2-webpack-hmr-sync.json';
+import patch from '../../../../patches/next-16.4.6-webpack-hmr-sync.json';
 import { prepareNextDev } from '../../../scripts/tools/development/prepare-next-dev';
 
 interface Message { type: string; hash?: string; errors?: unknown[]; warnings?: unknown[] }
@@ -18,6 +18,8 @@ const client = () => ({ messages: [] as Message[], addEventListener() {},
 export function run(): void {
     const requireNext = createRequire(path.resolve('package.json'));
     const installedPackage = requireNext.resolve('next/package.json');
+    assert.equal(JSON.parse(fs.readFileSync(installedPackage, 'utf8')).version, patch.version,
+        'HMR correction must target the actual installed Next version');
     const installedTarget = path.join(path.dirname(installedPackage), patch.target);
     const installed = fs.readFileSync(installedTarget, 'utf8');
     const original = installed.includes(patch.after) ? installed.replace(patch.after, patch.before) : installed;
@@ -65,7 +67,7 @@ export function run(): void {
         assert.equal(fs.readFileSync(target, 'utf8'), original);
         assert.equal(prepareNextDev(packagePath, true), 'already-original');
         fs.writeFileSync(packagePath, JSON.stringify({ version: 'other-version' }));
-        assert.throws(() => prepareNextDev(packagePath), /requires 16\.4\.2/);
+        assert.throws(() => prepareNextDev(packagePath), /requires 16\.4\.6/);
         assert.equal(fs.readFileSync(target, 'utf8'), original);
         fs.writeFileSync(packagePath, JSON.stringify({ version: patch.version }));
         fs.writeFileSync(target, `${original}\n// unexpected modification`);

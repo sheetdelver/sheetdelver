@@ -225,3 +225,37 @@ effective client address per minute. Core trusts a forwarded socket address
 only when the immediate peer is the loopback shell proxy. Repeated
 `App Socket | Connection rate limit exceeded` warnings therefore identify the
 effective client address selected by that policy.
+
+## Dependency Security Maintenance
+
+Install the committed dependency graph with `npm ci`. Run `npm audit` for the
+complete graph and `npm audit --omit=dev` for production dependencies; a passing
+high-severity CI gate does not mean there are no lower-severity findings. Review
+compatible fixes before updating the lockfile, then run lint, type checks, unit,
+client and integration tests and an isolated production build. Avoid forced
+dependency downgrades or unreviewed overrides to silence an audit.
+
+The November 26, 2026 dependency correction updates Next.js and eslint-config-next
+from 16.4.2 to 16.4.6. The [November Next.js security release](https://nextjs.org/blog/november-2026-security-release)
+provides the fixes; 16.4.6 includes subsequent bug fixes. TypeScript ESLint's
+transitive packages move from 8.72.0 to 8.74.0 within the existing supported range,
+updating minimatch from 10.2.6 to 11.0.9 to resolve its
+[glob amplification advisory](https://github.com/advisories/GHSA-g3hv-75wg-m249).
+The full npm audit changed from eight moderate findings to zero on that date.
+This is a dated audit result, not a guarantee against future advisories.
+
+The Next development HMR correction described in [Contributing](CONTRIBUTING.md#next-development-synchronization-correction)
+is retained for 16.4.6: the vendor target is byte-identical to 16.4.2 and still
+broadcasts the initial synchronization. Its original/corrected SHA-256 checks
+remain unchanged; only the supported version and manifest name change. Production
+build/start do not apply that development-only patch. Application and SDK/API
+versions are unchanged by this dependency correction.
+
+Validation passed with Node 22.23.5 in a clean copied workspace: lint, type checks,
+unit/client/integration suites and a production build with a generated BUILD_ID.
+The tests used isolated fixture data without deployment credentials or a live
+Foundry connection. Production login recovery still requires operator verification.
+
+For deployment, follow the [PM2 install/build/restart sequence](GETTING_STARTED.md#running-locally).
+An upgrade prompt is not a completed production build. Keep the process stopped
+until installation and build finish successfully.
