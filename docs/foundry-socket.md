@@ -87,6 +87,18 @@ Core resolves that display name to a Foundry user id, then `SocketBase` uses
 the version returned by Foundry's `GET /api/status` response to construct the
 upstream `POST /join` request.
 
+Every upstream login sends `Origin: new URL(baseUrl).origin`, derived only from
+the configured Foundry URL. Foundry 14.371 rejects POSTs without a matching Origin
+when browser Fetch Metadata is absent. Core does not fabricate `Sec-Fetch-Site`,
+forward the player's browser origin, or disable Foundry's validation. Default
+ports and path prefixes are normalized by URL parsing; custom ports are retained.
+This shared transport behavior covers service-account and player logins without
+changing their identity fields or the public SheetDelver login API.
+
+The 14.371 origin guard was verified against operator-provided native source and
+an offline regression covering HTTP, HTTPS, explicit default/custom ports, path
+prefixes and IPv6. Production acceptance remains separate from that contract test.
+
 | Foundry version | Upstream identity fields |
 | --- | --- |
 | Generation 13 | `userid: <resolved-id>` |

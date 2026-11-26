@@ -1,6 +1,7 @@
 # Releases
 
 ## Unreleased
+- Support Foundry login origin validation
 - Update Next.js security fixes
 - Patch lint dependency vulnerabilities
 

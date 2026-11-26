@@ -171,6 +171,9 @@ export abstract class SocketBase extends EventEmitter {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
+                // Foundry 14.371 requires POSTs to identify its own origin.
+                // Use the configured upstream, never the incoming browser origin.
+                'Origin': new URL(baseUrl).origin,
                 'Cookie': this.sessionCookie || '',
                 'User-Agent': 'SheetDelver/1.0'
             },
