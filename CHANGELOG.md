@@ -1,7 +1,6 @@
 # Releases
 
-## Unreleased
-
+## 0.22.4
 - Explain native compatibility recovery
 - Support Foundry login origin validation
 - Update Next.js security fixes
