@@ -1,5 +1,5 @@
 {
-  "version": "16.4.2",
+  "version": "16.4.6",
   "target": "dist/server/dev/hot-middleware.js",
   "originalSha256": "c62af1c040758e369dbdefbf6df5782bfc77124c52ce7be7cd8885078731b2ca",
   "patchedSha256": "a63c95269e086c50988f86bf17af91da106b688ffab72aa12640cd72510f3e1a",

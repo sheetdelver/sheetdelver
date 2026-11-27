@@ -248,6 +248,21 @@ Debug API surface follows the existing debug switch:
     not override it. If omitted, the application uses `./data/` relative to the
     project directory.
 
+    After updating the checkout, stop the application during dependency installation
+    and rebuilding. From the same project directory:
+
+    ```sh
+    pm2 stop sheet-delver
+    npm ci && npm run build && pm2 restart sheet-delver
+    ```
+
+    Use `&&`, not `;`: restart only after installation and build succeed. If Next.js
+    stops the build to offer a security upgrade, no completed production build is
+    guaranteed. Leave PM2 stopped and update to a reviewed dependency fix before
+    rebuilding. Pulling Git changes alone does not update installed dependencies;
+    `npm ci` installs the committed lockfile. Do not use `npm audit fix --force`
+    as a deployment step.
+
 6.  **Open**: Navigate to the player URL shown in the startup output (typically [http://localhost:3000](http://localhost:3000)). Use the separately printed loopback URL for administration.
 
 *Note: The startup process manages two services: the application shell and the Core Service. Player and admin route groups remain provider-isolated inside the application shell.*

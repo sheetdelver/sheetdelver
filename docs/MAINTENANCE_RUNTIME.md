@@ -270,3 +270,21 @@ is recorded in
 That implementation shipped in 0.19.1. The [four-issue G8 correction amendment](adr/0064-module-world-context-and-data-migrations.md#g8-integration-correction-amendment--october-18-2026)
 subsequently shipped in 0.19.2. The operator-accepted CR64-27 correction shipped
 in 0.19.3 without changing public SDK/API contracts.
+
+## Resolving native version restrictions
+
+“Native system … does not match this module’s declared data-read support” means
+the installed SheetDelver module excludes the detected game-system version. It
+does not establish damaged world data. The Modules notice shows both the detected
+version and requirement, with **How to resolve** guidance. Update the SheetDelver
+module through Modules, then use **Retry world preparation**. If the native system
+is below the stated minimum, back up the world and update that system in Foundry.
+For missing or unreadable version metadata, launch the intended world and reconnect.
+If no compatible module exists, report the module version, native system version,
+Foundry generation and displayed requirement to the maintainer. Clearing caches
+or repeating checks cannot fix an incompatible declaration. Do not edit managed
+package manifests or restore an older world merely to silence this notice.
+
+Actual source or access failures remain distinct: inspect the source review, fix
+the named cause, and review any proposed data repairs before approval. Recovery
+guidance never authorizes migration writes or cancels an interrupted job.

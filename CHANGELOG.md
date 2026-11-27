@@ -1,5 +1,12 @@
 # Releases
 
+## Unreleased
+
+- Explain native compatibility recovery
+- Support Foundry login origin validation
+- Update Next.js security fixes
+- Patch lint dependency vulnerabilities
+
 ## 0.22.3
 - Preserve SDK events across navigation
 

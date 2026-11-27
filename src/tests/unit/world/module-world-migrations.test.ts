@@ -6,7 +6,7 @@ import { SettingStore } from '@server/core/documents/primary/settings/SettingSto
 import { ModuleWorldContextService } from '@server/services/world/ModuleWorldContextService';
 import { ServiceAccountAuthority } from '@server/core/world/ServiceAccountAuthority';
 import { WorldWorkGate, worldWorkGate } from '@server/core/world/WorldWorkGate';
-import { discoverMigrations, migrationDigest } from '@modules/registry/migrations/catalog';
+import { applicableMigrationSteps, NativeMigrationCompatibilityError, discoverMigrations, migrationDigest } from '@modules/registry/migrations/catalog';
 import { ModuleUpgradeCoordinator, type UpgradeCoordinatorDeps, type UpgradeCandidate } from '@server/services/world/migrations/ModuleUpgradeCoordinator';
 import { UpgradeJournal } from '@server/services/world/migrations/UpgradeJournal';
 import { readLegacyMigrationJson } from '@server/services/world/migrations/MigrationPlanStorage';
@@ -98,6 +98,20 @@ export async function run(): Promise<void> {
 
         const candidate = fixture(path.join(root, 'candidate'));
         const catalog = discoverMigrations(candidate.root, candidate.info)!;
+        assert.throws(() => applicableMigrationSteps(catalog, '4.1.2', 14), error => {
+            assert.ok(error instanceof NativeMigrationCompatibilityError);
+            assert.match(error.message, /4\.1\.2.*>=1\.0\.0 <2\.0\.0/);
+            assert.match(error.nextStep, /install an updated SheetDelver module/);
+            return true;
+        });
+        assert.throws(() => applicableMigrationSteps(catalog, '', 14), /no native system version/);
+        assert.throws(() => applicableMigrationSteps(catalog, 'garbled', 14), /unreadable native system version/);
+        assert.throws(() => applicableMigrationSteps(catalog, '1.0.0', 15), /detected system 1\.0\.0 on Foundry 15/);
+        const openCatalog = structuredClone(catalog);
+        openCatalog.definitions[0].definition.dataReadVersion = '>=1.0.0';
+        openCatalog.steps[0].systemVersion = '>=1.0.0';
+        for (const version of ['1.0.0', '4.1.2', '10.0.0']) assert.equal(applicableMigrationSteps(openCatalog, version, 14).length, 1);
+        assert.throws(() => applicableMigrationSteps(openCatalog, '0.9.9', 14), /declared data-read support/);
         const definitionPath = path.join(candidate.root, 'migrations/1.0.0/definition.json');
         const originalDefinition = fs.readFileSync(definitionPath, 'utf8');
         for (const dependency of ['missing-step', 'fix-key']) {

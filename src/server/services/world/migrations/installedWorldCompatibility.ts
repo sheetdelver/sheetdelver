@@ -9,7 +9,7 @@ import { prepareSourceCandidate } from './sourceCandidates';
 import fs from 'node:fs';
 import { freshMigrationSnapshot } from './ModuleUpgradeService';
 import { sourceHash } from './planner';
-import { beginMigrationEvidence } from './migrationEvidence';
+import { beginMigrationEvidence, migrationRecoveryStep } from './migrationEvidence';
 import { migrationAttentionFrame, assertMigrationAttentionFrame } from './migrationAttention';
 import { logger } from '@shared/utils/logger';
 
@@ -91,9 +91,9 @@ export async function checkInstalledWorldCompatibility(systemId: string, prepare
     observation?.finish({ state: 'up-to-date', reason: 'Current source compatibility passed fresh checks and preparation.',
         checked: plan.checked, artifactDigest, catalogDigest: catalog.digest }, () => { after.assertCurrent(); assertMigrationAttentionFrame(readyFrame.revision); });
     } catch (error) {
-        if (!classified) observation?.finish({ state: 'blocked', reason: migrationReason(error) });
+        if (!classified) observation?.finish({ state: 'blocked', reason: migrationReason(error), nextStep: migrationRecoveryStep(error) });
         diagnostic ??= { moduleId: entry.info.id, phase, blockers: [migrationReason(error)],
-            remediation: 'Resolve the reported source or world problem, then retry world preparation. Retrying grants no new migration approval.' };
+            remediation: migrationRecoveryStep(error) };
         throw error;
     } finally {
         // The bootstrap compiled copy is not an approved durable job artifact.

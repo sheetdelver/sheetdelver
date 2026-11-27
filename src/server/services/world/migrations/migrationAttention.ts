@@ -16,7 +16,7 @@ import { moduleWorldContext } from '../ModuleWorldContextService';
 import { systemService } from '../SystemService';
 import { getUpgradeJournal } from './ModuleUpgradeService';
 import { sourceHash, migrationReason } from './planner';
-import { migrationSourceRevision, readMigrationEvidence, hadMigrationEvidence, type EvidenceSource } from './migrationEvidence';
+import { migrationSourceRevision, readMigrationEvidence, hadMigrationEvidence, migrationRecoveryStep, type EvidenceSource } from './migrationEvidence';
 import type { AdminMigrationOverview, AdminMigrationStatus, MigrationAttentionState } from '@shared/types/adminMigration';
 import type { SystemModuleInfo } from '@modules/registry/core/types';
 
@@ -142,6 +142,8 @@ export function readAdminMigrationOverview(): AdminMigrationOverview {
             sources.push(result({ moduleId: entry.info.id, title: info?.title ?? entry.info.title, source, version: info?.version ?? null,
                 selectedSource, activeWorld: activeWorld && selectedSource,
                 world: frame.world, scopeKey: sourceHash([sourceRevision, frame.revision, entry.lifecycle.activeSource, entry.enabled]), state, reason, catalogDeclared: declared,
+                nextStep: failure ? migrationRecoveryStep(failure) : current && frame.connected && activeWorld ? current.nextStep
+                    ?? (state === 'blocked' ? migrationRecoveryStep(undefined) : state === 'required' ? 'Review the proposed changes before entering maintenance. Back up the world in Foundry before approving a repair.' : undefined) : undefined,
                 ...(current && frame.connected && activeWorld ? { checkedAt: current.state === 'checking' ? undefined : current.checkedAt, checked: current.checked, proposedWrites: current.proposedWrites,
                     previewId: current.previewId, artifactDigest: current.artifactDigest, catalogDigest: current.catalogDigest } : {}),
             }, !frame.connected || !activeWorld ? { kind: 'none', label: '', href: null } : undefined));

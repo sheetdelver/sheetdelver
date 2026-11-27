@@ -1250,7 +1250,7 @@ details stay in server logs. Legitimate nonowner404 concealment remains unchange
 | --- | --- |
 | `GET /api/module-world-context` | Authenticated, initialized, role-filtered immutable context; no raw Settings. |
 | `GET /admin/world/service-account` | Admin-only observed/required role and remediation. |
-| `GET /admin/module-migrations` | Admin-only, no-store current source/world status projection; metadata/evidence only, no hooks or full inventory scans. Available in restricted maintenance too. |
+| `GET /admin/module-migrations` | Admin-only, no-store current source/world status projection; metadata/evidence only, no hooks or full inventory scans. Includes optional native system version/Foundry generation and `nextStep` recovery text in source status. Available in restricted maintenance too. |
 | `GET /admin/module-upgrades[/:id]` | Owner-only durable job/target outcomes and bounded compatibility/context diagnostics; no-store. The list also includes admin-only `bootstrapDiagnostic` (phase, reason, remediation), or null. |
 | `POST /admin/module-upgrades/source/:moduleId/preview` | `{source: "local" or "managed",scopeKey?}`; isolated, read-only world plan; optional exact diagnostic scope checked before/after computation. No serving Store/context mutation. |
 | `GET /admin/module-upgrades/source/:moduleId/review?source=...&scopeKey=...` | Load the exact fresh cached advisory; no scan or source selection. Stale/missing/expired evidence returns409. |

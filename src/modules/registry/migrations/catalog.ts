@@ -180,13 +180,25 @@ export function discoverMigrations(root: string, info: SystemModuleInfo, source 
 export function migrationSummary(catalog: ResolvedMigrationCatalog | null): MigrationSummary | undefined {
     return catalog ? { schemaVersion: MIGRATION_CATALOG_SCHEMA, catalogDigest: catalog.digest, steps: catalog.steps.length } : undefined;
 }
+/** Admin-only diagnosis; admission failure is not evidence of damaged world data. */
+export class NativeMigrationCompatibilityError extends Error {
+    constructor(message: string, readonly nextStep: string) { super(message); this.name = 'NativeMigrationCompatibilityError'; }
+}
 export function applicableMigrationSteps(catalog: ResolvedMigrationCatalog, systemVersion: string, generation: number): ResolvedMigrationStep[] {
     const matches = (constraint: string) => resolveModuleCompatibility({ coreVersion: systemVersion,
         requiredCoreVersion: constraint, providedApiContracts: {} }).compatible;
+    if (!/^v?\d+\.\d+\.\d+$/i.test(systemVersion.trim())) throw new NativeMigrationCompatibilityError(
+        `Foundry reported ${systemVersion ? `an unreadable native system version (${systemVersion})` : 'no native system version'}. World data has not been checked.`,
+        'Launch the intended world in Foundry, then reconnect SheetDelver and retry world preparation. If the version is still missing or unreadable, report the system manifest version and this message.');
+    if (!catalog.definitions.some(row => matches(row.definition.dataReadVersion))) throw new NativeMigrationCompatibilityError(
+        `Native system ${systemVersion} does not match this module’s declared data-read support: ${[...new Set(catalog.definitions.map(row => row.definition.dataReadVersion))].join(' or ')}. This is a module compatibility restriction, not a finding of damaged world data.`,
+        'In Modules, install an updated SheetDelver module supporting the detected system version. If the system is below the stated minimum, update it through Foundry after backing up the world. Then retry world preparation. If no compatible module is available, report the versions shown here to its maintainer; repeating the check or clearing caches will not change the requirement.');
     const selected = new Set<string>();
     function include(step: ResolvedMigrationStep): void {
         if (selected.has(step.id)) return;
-        if (!step.foundryGenerations.includes(generation as 13 | 14) || !matches(step.systemVersion)) throw new Error('Unsupported required migration chain');
+        if (!step.foundryGenerations.includes(generation as 13 | 14) || !matches(step.systemVersion)) throw new NativeMigrationCompatibilityError(
+            `Migration ${step.id} requires native system ${step.systemVersion} on Foundry ${step.foundryGenerations.join(' or ')}; detected system ${systemVersion} on Foundry ${generation}.`,
+            'In Modules, install a SheetDelver module supporting this system and Foundry generation, then retry world preparation. If no compatible module is available, report this migration ID and both versions to its maintainer. No world-data repair has been authorized.');
         selected.add(step.id);
         for (const id of step.dependencies) include(catalog.steps.find(row => row.id === id)!);
     }
@@ -194,6 +206,5 @@ export function applicableMigrationSteps(catalog: ResolvedMigrationCatalog, syst
         if (!step.required && !step.foundryGenerations.includes(generation as 13 | 14)) continue;
         include(step);
     }
-    if (!catalog.definitions.some(row => matches(row.definition.dataReadVersion))) throw new Error('Unsupported native source data-read version');
     return catalog.steps.filter(step => selected.has(step.id));
 }

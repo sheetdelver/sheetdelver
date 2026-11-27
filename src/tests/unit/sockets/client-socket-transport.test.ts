@@ -6,20 +6,33 @@ import { systemService } from '@server/services/world';
 // Expose the shared protected authentication steps without opening a real socket.
 class LoginContractClientSocket extends ClientSocket {
     public lastLoginPayload: Record<string, unknown> | null = null;
+    public lastLoginHeaders: Headers | null = null;
 
     async performVersionedLogin(foundryVersion: string, userId: string): Promise<void> {
         const originalFetch = globalThis.fetch;
-        const requests: Array<{ url: string; body: Record<string, unknown> | null }> = [];
+        const requests: Array<{ url: string; body: Record<string, unknown> | null; headers: Headers }> = [];
 
         globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
             const url = input.toString();
             requests.push({
                 url,
                 body: init?.body ? JSON.parse(String(init.body)) : null,
+                headers: new Headers(init?.headers),
             });
 
             if (url.endsWith('/api/status')) {
                 return Response.json({ active: true, version: foundryVersion, world: 'test-world' });
+            }
+
+            if (foundryVersion === '14.371') {
+                // Operator-supplied native POST guard: no Fetch Metadata means
+                // Origin must be present and match the upstream request origin.
+                const headers = new Headers(init?.headers);
+                const site = headers.get('sec-fetch-site');
+                const rawOrigin = headers.get('origin');
+                const origin = rawOrigin ? URL.parse(rawOrigin)?.origin : undefined;
+                const rejected = site ? site !== 'same-origin' : !origin || origin !== new URL(url).origin;
+                if (rejected) return Response.json({ error: 'The request could not be processed.' }, { status: 400 });
             }
 
             return new Response('{}', {
@@ -35,6 +48,7 @@ class LoginContractClientSocket extends ClientSocket {
             const loginRequest = requests.find((request) => request.url.endsWith('/join'));
             assert.ok(loginRequest, 'Expected a POST request to Foundry /join');
             this.lastLoginPayload = loginRequest.body;
+            this.lastLoginHeaders = loginRequest.headers;
         } finally {
             globalThis.fetch = originalFetch;
         }
@@ -166,6 +180,23 @@ async function runVersionedLoginContractTests() {
             username: 'player',
             userId: `user-${version}`,
         });
+    }
+
+    for (const [url, expectedOrigin] of [
+        ['http://foundry.example', 'http://foundry.example'],
+        ['https://foundry.example:443/tabletop/', 'https://foundry.example'],
+        ['https://foundry.example:8443/tabletop', 'https://foundry.example:8443'],
+        ['http://[::1]:30000', 'http://[::1]:30000'],
+    ]) {
+        const client = new LoginContractClientSocket({ url, username: 'player', password: 'secret' });
+        await client.performVersionedLogin('14.371', 'user-14.371');
+        assert.equal(client.lastLoginHeaders?.get('origin'), expectedOrigin);
+        assert.equal(client.lastLoginHeaders?.get('sec-fetch-site'), null, 'do not fabricate browser Fetch Metadata');
+        assert.equal(client.lastLoginHeaders?.get('content-type'), 'application/json');
+        assert.deepEqual(client.lastLoginPayload, {
+            password: 'secret', action: 'join', username: 'player', userId: 'user-14.371',
+        });
+        assert.equal(client.getSessionCookie(), 'session=test-session', 'retain the post-login session cookie');
     }
 }
 
