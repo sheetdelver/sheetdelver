@@ -75,6 +75,31 @@ cases['catalog-absence-and-check-failure'] = async root => {
     await assert.rejects(previewModuleSource('fixture', 'local'));
     assert.equal(sourceStatus().state, 'blocked'); assert.notEqual(sourceStatus().state, 'required');
 };
+cases['version-mismatch-recovery-guidance'] = async root => {
+    const { local, source } = await migrationAttentionHost(root);
+    const definitionFile = path.join(local.root, 'migrations/1.0.0/definition.json');
+    const definition = JSON.parse(fs.readFileSync(definitionFile, 'utf8'));
+    definition.dataReadVersion = '>=2.0.0';
+    fs.writeFileSync(definitionFile, JSON.stringify(definition)); await turn();
+    await assert.rejects(checkInstalledWorldCompatibility('fixture'), /Native system 1\.0\.0/);
+    let status = sourceStatus();
+    assert.equal(status.state, 'blocked');
+    assert.match(status.reason, /declared data-read support: >=2\.0\.0/);
+    assert.match(status.nextStep!, /install an updated SheetDelver module/);
+    assert.equal(status.world?.systemVersion, '1.0.0');
+    const reads = source.reads.length;
+    for (let index = 0; index < 5; index++) readAdminMigrationOverview();
+    assert.equal(source.reads.length, reads, 'showing recovery does not rescan or repair');
+    assert.deepEqual(source.writes, []);
+    await assert.rejects(previewModuleSource('fixture', 'local'), /Native system 1\.0\.0/);
+    assert.match(sourceStatus().nextStep!, /clearing caches will not change/);
+    definition.dataReadVersion = '>=1.0.0';
+    fs.writeFileSync(definitionFile, JSON.stringify(definition)); await turn();
+    assert.equal(sourceStatus().nextStep, undefined, 'changed source cannot retain stale advice');
+    await checkInstalledWorldCompatibility('fixture'); status = sourceStatus();
+    assert.equal(status.state, 'up-to-date'); assert.equal(status.nextStep, undefined);
+    assert.deepEqual(source.writes, []);
+};
 cases['local-input-status-observation'] = async root => {
     const { local } = await migrationAttentionHost(root);
     fs.mkdirSync(path.join(local.root, 'working'));

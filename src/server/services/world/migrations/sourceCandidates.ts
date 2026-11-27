@@ -13,7 +13,7 @@ import { getDefaultLifecycleStateFilePath } from '@modules/registry/lifecycle/li
 import { getDefaultArtifactStoreFilePath } from '@modules/registry/distribution/artifactStore';
 import { validateModuleInfoShape, evaluateModuleCompatibility } from '@modules/registry/lifecycle/validation';
 import { getCoreVersion } from '@modules/registry/core/internals';
-import { beginMigrationEvidence } from './migrationEvidence';
+import { beginMigrationEvidence, migrationRecoveryStep } from './migrationEvidence';
 import { migrationAttentionFrame, assertMigrationAttentionFrame } from './migrationAttention';
 
 /** Core-owned compiled snapshot. Author source directories are never rewritten. */
@@ -69,7 +69,7 @@ export async function previewModuleSource(moduleId: string, category: 'local' | 
         });
         return preview;
     } catch (error) {
-        observation?.finish({ state: 'blocked', reason: error instanceof Error ? error.message : 'Source checks unavailable' });
+        observation?.finish({ state: 'blocked', reason: error instanceof Error ? error.message : 'Source checks unavailable', nextStep: migrationRecoveryStep(error) });
         if (candidate) fs.rmSync(candidate.root, { recursive: true, force: true });
         throw error;
     }

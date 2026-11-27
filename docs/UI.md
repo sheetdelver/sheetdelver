@@ -406,6 +406,9 @@ attention rather than leaving a warning for another world or session.
 Installed owns the detailed **World migration status** panel in every state,
 including loading/error, unknown/unavailable and passing results, plus the manual
 refresh/check action. It suppresses the shared notice to avoid duplication.
+Detailed status shows the native system version/Foundry generation and **How to
+resolve** when recovery guidance is available. Version restrictions identify the
+declared range and module-update/reconnect steps; they do not imply damaged data.
 The Installed panel and source migration cards are disclosures: routine states
 start collapsed with a compact status summary; required, blocked, in-progress and
 recovery states start expanded. Administrators can toggle either with pointer or

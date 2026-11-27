@@ -805,3 +805,12 @@ methods; server filtering and authorization remain authoritative. Module listene
 may observe invalidation while their page is closed, allowing scope-safe in-memory
 catalog reuse. Module caches still invalidate on relevant signals and never cross
 caller/world scope. SDK/API signatures and version authorities are unchanged.
+
+### Native version diagnosis
+
+Native admission and dated verification are separate (ADR-0077). Modules use
+minimum versions while Core preserves actual source checks and approval fences.
+Admin migration evidence includes detected versions and a recovery next step;
+bootstrap and explicit source review use the same diagnosis. Detailed notices
+render recovery text without initiating scans or writes. The module/SDK version
+resolver still honors all declared constraints; no global upper-bound bypass exists.

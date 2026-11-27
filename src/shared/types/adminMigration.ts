@@ -8,7 +8,7 @@ export interface AdminMigrationStatus {
     version: string | null;
     selectedSource: boolean;
     activeWorld: boolean;
-    world: { worldId: string; title: string; systemId: string; instanceId?: string; contextRevision?: number } | null;
+    world: { worldId: string; title: string; systemId: string; systemVersion?: string; foundryGeneration?: number; instanceId?: string; contextRevision?: number } | null;
     state: MigrationAttentionState;
     label: string;
     reason: string;

@@ -1183,3 +1183,13 @@ The component is configured through client props, not an additional manifest
 field. Existing manifest surfaces and older modules remain compatible. Declare
 `"ui-extension-api": ">=3.6.0 <4.0.0"` and use the supporting Core toolchain;
 see [page header authoring](MODULE_AUTHORING.md#page-headers-sdk-38--ui-api-36).
+
+### Native system minima versus API ranges
+
+For native world settings (including their defaults), declare the version where
+the capability begins, for example `systemVersion: ">=4.0.6"`. Migration
+`dataReadVersion` also uses a minimum for current admission; historical steps may
+retain their original ranges alongside forward steps with new IDs. Record the
+last tested version separately. Unknown/malformed data still fails its actual
+validation. `compatibility.coreVersion` and named SDK/API ranges are separate
+contracts and retain their existing semantics. Core does not rewrite old ranges.

@@ -1188,3 +1188,13 @@ The public facade remains `events.on(...)`; modules cannot attach, detach or
 dispose its socket. Event audiences and server authorization do not change.
 This corrects Core behavior without a new SDK/API signature or module version
 floor; on older hosts, consumers must safely tolerate per-surface event identities.
+
+### Native system version policy
+
+Use minimum-only native `systemVersion` and `dataReadVersion` declarations for
+current admission. Keep exact versions in verification records, not as expiry
+dates for world settings or defaults. Validate actual source shapes and operation
+prerequisites. Preserve published migration steps; give changed steps new IDs.
+Core still enforces existing package ranges. This policy does not relax SDK/Core
+API compatibility ranges or Foundry-generation requirements. See
+[ADR-0077](adr/0077-native-system-admission-and-recovery.md).

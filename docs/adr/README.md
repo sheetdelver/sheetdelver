@@ -34,3 +34,5 @@ Older numbered ADRs retain their dated decisions. Superseding amendments take
 precedence: for example, ADR-0075 replaces ADR-0017/0021's old ID/name-based warm
 cache shortcut. Deferred follow-up dice timing, W1/W2 bootstrap proposals and the
 parked D&D experiment are not implementation tasks created by this cleanup.
+
+- [ADR-0077: Native system admission and recovery guidance](0077-native-system-admission-and-recovery.md) — implemented; operator verification pending.

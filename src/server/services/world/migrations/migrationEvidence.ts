@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { NativeMigrationCompatibilityError } from '@modules/registry/migrations/catalog';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { getDataDir } from '@server/core/paths';
@@ -10,7 +11,7 @@ export interface EvidenceSource { moduleId: string; source: 'local' | 'managed';
 interface Observation { revision: string; watchers: fs.FSWatcher[]; error?: string }
 export interface MigrationEvidence {
     state: 'checking' | 'up-to-date' | 'required' | 'blocked' | 'unavailable';
-    reason: string; checkedAt: number; checked?: number; proposedWrites?: number;
+    reason: string; nextStep?: string; checkedAt: number; checked?: number; proposedWrites?: number;
     previewId?: string; artifactDigest?: string; catalogDigest?: string;
     world: NonNullable<AdminMigrationStatus['world']>;
     assertCurrent: () => void;
@@ -136,11 +137,17 @@ export function beginMigrationEvidence(source: EvidenceSource, world: MigrationE
             checkedAt: Date.now(), reason: 'Checking this source against the current world.' });
     } catch { /* Lack of observations never establishes current readiness. */ }
     return {
-        finish(result: Pick<MigrationEvidence, 'state' | 'reason'> & Partial<Pick<MigrationEvidence, 'checked' | 'proposedWrites' | 'previewId' | 'artifactDigest' | 'catalogDigest'>>, fresh = assertCurrent) {
+        finish(result: Pick<MigrationEvidence, 'state' | 'reason'> & Partial<Pick<MigrationEvidence, 'checked' | 'proposedWrites' | 'previewId' | 'artifactDigest' | 'catalogDigest' | 'nextStep'>>, fresh = assertCurrent) {
             try {
                 if (!run || evidence.get(key(source))?.run !== run || sourceRevision !== migrationSourceRevision(source) || observe(source).error) return;
                 fresh(); evidence.set(key(source), { run, sourceRevision, world, assertCurrent: fresh, checkedAt: Date.now(), ...result });
             } catch { /* Stale results must never publish green evidence. */ }
         },
     };
+}
+
+/** Recovery text stays in authenticated admin evidence, never module/player projections. */
+export function migrationRecoveryStep(error: unknown): string {
+    return error instanceof NativeMigrationCompatibilityError ? error.nextStep
+        : 'Open this source’s world-data review for details. Correct the reported source, access or data problem, then retry world preparation. An updated module can be installed from Modules; data repairs require a reviewed maintenance plan and explicit approval. If the cause is unclear, report this message and the displayed module/system versions.';
 }

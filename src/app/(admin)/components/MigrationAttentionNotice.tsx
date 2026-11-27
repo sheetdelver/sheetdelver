@@ -14,7 +14,9 @@ export function MigrationSourceStatus({ status, onReview, showAction = true, col
     const body = <>
         <p className="break-words text-[var(--admin-text-secondary)]">{status.title} · {status.source ?? 'Source not yet identified'}{status.version ? ` v${status.version}` : ''} · World: {status.world?.title ?? 'not identified'}{status.world && status.world.title !== status.world.worldId ? ` (${status.world.worldId})` : ''}</p>
         {status.action.kind !== 'maintenance' && <p className="font-medium">{status.selectedSource ? status.activeWorld ? 'Selected source for this world' : 'Selected source · not the current world' : `Inactive ${status.source ?? ''} source — inspection does not switch sources`}</p>}
+        {status.world?.systemVersion && <p className="break-words text-[var(--admin-text-secondary)]">Native system: {status.world.systemId} {status.world.systemVersion}{status.world.foundryGeneration ? ` · Foundry ${status.world.foundryGeneration}` : ''}</p>}
         <p className="break-words">{status.reason}</p>
+        {status.nextStep && <p className="break-words" data-migration-recovery><strong>How to resolve:</strong> {status.nextStep}</p>}
         {status.proposedWrites !== undefined && <p>{status.proposedWrites} proposed writes{status.checked !== undefined ? ` · ${status.checked} checked` : ''}</p>}
         {status.checkedAt && <p className="text-xs text-[var(--admin-text-muted)]">Last verified <time dateTime={new Date(status.checkedAt).toISOString()}>{new Date(status.checkedAt).toLocaleString()}</time>; tied to the observed world and source revisions.</p>}
         {showAction && status.action.href && (onReview ? <Button size="sm" onClick={onReview}>{status.action.label}</Button>
