@@ -1,6 +1,6 @@
 # ADR-0077: Native system admission and recovery guidance
 
-**Status:** Implemented — automated verification passed; operator acceptance pending
+**Status:** Completed — automated checks and operator production verification passed; Core publication pending
 **Date:** 2026-11-26
 
 ---
@@ -59,4 +59,27 @@ pass in an isolated workspace with controlled upstream fixtures. The actual
 recovery component with production CSS was inspected in light/dark themes at
 390px and 1100px: recovery text remains visible and contained. Render regression
 checks escaping and absent-advice behavior. No production probe or write occurred.
-No release or SDK/API version changed. Operator acceptance remains pending.
+No release or SDK/API version changed during implementation.
+
+## Closeout — November 26, 2026
+
+The operator confirmed production login recovered, then confirmed the Core update
+looks good and works after testing commit `9ba619b3` on the PR branch. This closes
+the reported startup and compatibility-recovery scope; it does not establish
+exhaustive gameplay parity for newer native systems.
+
+[PR #66](https://github.com/sheetdelver/sheetdelver/pull/66) passed
+[Core CI and dependency review](https://github.com/sheetdelver/sheetdelver/actions/runs/45922206345)
+and [CodeQL](https://github.com/sheetdelver/sheetdelver/actions/runs/45922202985).
+The operator owns the merge. Core **0.22.4** is the recommended patch release:
+dependency security fixes, Foundry login compatibility and recovery guidance.
+Current package metadata remains **0.22.3** until release preparation. SDK 3.8.0,
+module API 1.7.0, UI API 3.6.0 and roll API 1.0.0 remain unchanged.
+
+[Shadowdark 1.0.3](https://github.com/sheetdelver/sd-shadowdark/releases/tag/v1.0.3)
+and [Mörk Borg 1.0.4](https://github.com/sheetdelver/sd-morkborg/releases/tag/v1.0.4)
+are already published with their native admission corrections; tag validation,
+publication and downloaded artifact checks passed. They do not require the new
+Core guidance to remove their version ceilings. D&D's correction is integrated
+locally into its experimental lifecycle branch and remains unpublished. The
+separate Shadowdark 4.1.2 mechanics audit and earlier deferrals remain unselected.
